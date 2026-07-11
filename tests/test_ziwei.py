@@ -223,6 +223,9 @@ def test_ziwei_sihua_all_years():
     """Test 四化 for all year 天干 combinations."""
     engine = ZiweiEngine()
     # Use same birth data but vary year to test all 天干
+    # 1984 = 甲子年 (年干 index 0), so year = 1984 + idx + 10*k for a nearby year
+    # Use k=1 so every year is in the 1994-2003 range with a unique 年干
+    base_year = 1984
     for year_gan_idx, expected_sihua in enumerate([
         ("廉贞", "破军", "武曲", "太阳"),  # 甲
         ("天机", "天梁", "紫微", "太阴"),  # 乙
@@ -236,17 +239,20 @@ def test_ziwei_sihua_all_years():
         ("破军", "巨门", "太阴", "贪狼"),  # 癸
     ]):
         year_gan = TIANGAN[year_gan_idx]
-        # Find a year with this 年干
-        year = 2000 + year_gan_idx  # 甲=2000, 乙=2001, etc.
-        if year_gan == "癸":
-            year = 2003  # 癸未年
+        # Find a nearby year with this 年干
+        year = base_year + year_gan_idx + 10  # k=1 → 1994+(idx) = 1994..2003
 
-        result = engine.calculate(1990, 5, 20, 15, 0, "北京", "男")
-        # Check if the year 天干 matches our target
-        if result.raw_data.get("year_gan") == year_gan:
-            lu, quan, ke, ji = expected_sihua
-            assert result.sihua["化禄"] == lu, \
-                f"Year {year_gan}: expected 化禄={lu}, got {result.sihua['化禄']}"
+        result = engine.calculate(year, 5, 20, 15, 0, "北京", "男")
+
+        lu, quan, ke, ji = expected_sihua
+        assert result.sihua["化禄"] == lu, \
+            f"Year {year} ({year_gan}): expected 化禄={lu}, got {result.sihua['化禄']}"
+        assert result.sihua["化权"] == quan, \
+            f"Year {year} ({year_gan}): expected 化权={quan}, got {result.sihua['化权']}"
+        assert result.sihua["化科"] == ke, \
+            f"Year {year} ({year_gan}): expected 化科={ke}, got {result.sihua['化科']}"
+        assert result.sihua["化忌"] == ji, \
+            f"Year {year} ({year_gan}): expected 化忌={ji}, got {result.sihua['化忌']}"
 
 
 def test_ziwei_aux_stars_complete():
