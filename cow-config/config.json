@@ -1,0 +1,34 @@
+{
+  "#_note": "ChatGPT-on-WeChat config for Fortune Agent. See: https://github.com/zhayujie/chatgpt-on-wechat",
+  "channel_type": "wx",
+  "model": "custom",
+  "custom": {
+    "url": "http://127.0.0.1:8765/api/chat",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body_template": {
+      "message": "${content}",
+      "user_id": "${from_user_id}"
+    },
+    "response_parser": {
+      "reply": "$.reply"
+    }
+  },
+  "#_alt_single_beast_config": "Alternative: for SingleBeast wechat hook, use the following settings instead",
+  "alt_channel_type": "wechat_single",
+  "alt_model": "custom",
+  "alt_custom": {
+    "url": "http://127.0.0.1:8765/api/chat",
+    "method": "POST",
+    "headers": {
+      "Content-Type": "application/json"
+    },
+    "body": {
+      "message": "{msg}",
+      "user_id": "{wx_id}"
+    },
+    "response_path": "reply"
+  }
+}
