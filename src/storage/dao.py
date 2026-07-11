@@ -83,3 +83,74 @@ class UserDAO:
         total_cons = conn.execute("SELECT COUNT(*) FROM consultations").fetchone()[0]
         conn.close()
         return {"total_users": total, "total_consultations": total_cons}
+
+    def get_all_users_with_bazi(self) -> list:
+        """查询所有保存了八字信息的用户"""
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT user_id, bazi_info, push_enabled, push_time FROM users WHERE bazi_info IS NOT NULL"
+        ).fetchall()
+        conn.close()
+        users = []
+        for row in rows:
+            users.append({
+                "user_id": row[0],
+                "bazi_info": json.loads(row[1]) if row[1] else None,
+                "push_enabled": bool(row[2]),
+                "push_time": row[3] or "08:00",
+            })
+        return users
+
+    def get_user_push_settings(self, user_id: str) -> dict:
+        """查询用户推送设置"""
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT push_enabled, push_time FROM users WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        conn.close()
+        if row:
+            return {"push_enabled": bool(row[0]), "push_time": row[1] or "08:00"}
+        return {"push_enabled": False, "push_time": "08:00"}
+
+    def set_push_enabled(self, user_id: str, enabled: bool):
+        """设置用户是否开启推送"""
+        conn = self._connect()
+        conn.execute(
+            "UPDATE users SET push_enabled=?, updated_at=? WHERE user_id=?",
+            (1 if enabled else 0, datetime.now().isoformat(), user_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def set_push_time(self, user_id: str, push_time: str):
+        """设置用户推送时间"""
+        conn = self._connect()
+        conn.execute(
+            "UPDATE users SET push_time=?, updated_at=? WHERE user_id=?",
+            (push_time, datetime.now().isoformat(), user_id),
+        )
+        conn.commit()
+        conn.close()
+
+    def log_push(self, user_id: str, push_date: str, message: str, success: bool = True, error: str = ""):
+        """记录推送日志"""
+        conn = self._connect()
+        conn.execute(
+            "INSERT INTO push_log (user_id, push_date, message, success, error) VALUES (?,?,?,?,?)",
+            (user_id, push_date, message, 1 if success else 0, error),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_push_log(self, user_id: str, push_date: str) -> list:
+        """获取指定日期的推送记录"""
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT id, message, success, error, created_at FROM push_log WHERE user_id=? AND push_date=?",
+            (user_id, push_date),
+        ).fetchall()
+        conn.close()
+        return [
+            {"id": r[0], "message": r[1], "success": bool(r[2]), "error": r[3], "created_at": r[4]}
+            for r in rows
+        ]

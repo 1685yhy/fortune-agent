@@ -106,6 +106,92 @@ class MessageHandler:
 
         return f"🔧 {intent} 模块开发中，敬请期待！"
 
+    # ============================================================
+    # Voice input support
+    # ============================================================
+
+    def _handle_voice(self, voice_text: str = "") -> str:
+        """处理语音输入。
+
+        如果 CoW（Claude on WeChat）提供了语音→文字转写，
+        则直接通过正常意图检测流程处理。
+        如果没有转写文本，说明需要 CoW 语音插件支持。
+        """
+        if voice_text:
+            return self.process(voice_text, "")
+
+        return "🎤 语音处理需要 CoW 语音插件支持。如果您正在使用微信，" \
+               "请确保已安装 CoW 语音转文字插件。"
+
+    # ============================================================
+    # Image input support
+    # ============================================================
+
+    def _handle_image(self, image_url: str = "", user_text: str = "") -> str:
+        """处理图片输入。
+
+        根据图片 URL 和用户附带文字判断分析类型：
+        - 户型/风水/家居关键词 → 风水分析
+        - 面相/手相/看相关键词 → 面相分析
+        - 其他 → 引导用户描述
+        未来可接入 AI 视觉识别接口。
+        """
+        if not image_url:
+            return "📷 请提供图片链接以便进行分析。"
+
+        # 检查用户附带文字中的关键词
+        if any(kw in user_text for kw in ["户型", "风水", "家居", "布局", "房间"]):
+            return self._handle_image_fengshui(image_url, user_text)
+        elif any(kw in user_text for kw in ["面相", "手相", "看相"]):
+            return self._handle_image_mianxiang(image_url, user_text)
+        else:
+            return self._handle_image_generic(image_url, user_text)
+
+    def _handle_image_fengshui(self, image_url: str, user_text: str) -> str:
+        """处理户型/风水图片分析"""
+        direction = self._extract_direction(user_text)
+        base = f"📷 已收到户型图片：{image_url}\n\n"
+        base += "🔮 风水分析（图片识别功能将在后续版本接入）：\n"
+
+        if direction:
+            result = self.fengshui_engine.analyze(
+                direction=direction,
+                year_built=None,
+                birth_year=None,
+                gender=None,
+            )
+            base += f"  坐向：{direction}\n"
+            base += f"  宅卦：{result.house_gua}\n"
+            base += f"  当前运：{result.period}运\n"
+            base += f"  四吉方：{' '.join(f'{k}-{v}' for k, v in result.eight_mansions.items() if k in {'生气', '天医', '延年', '伏位'})}\n"
+            base += f"  四凶方：{' '.join(f'{k}-{v}' for k, v in result.eight_mansions.items() if k in {'绝命', '五鬼', '六煞', '祸害'})}\n"
+        else:
+            base += "  ⚠️ 未在文字描述中识别到坐向信息，请补充坐向（如：坐北朝南）以获得更精准分析。\n"
+
+        base += "\n💡 未来将支持 AI 视觉识别，可直接解读户型图。"
+        return base
+
+    def _handle_image_mianxiang(self, image_url: str, user_text: str) -> str:
+        """处理面相/手相图片分析"""
+        base = f"📷 已收到图片：{image_url}\n\n"
+        base += "🔮 面相分析（图片识别功能将在后续版本接入）：\n"
+        base += "  请描述您看到的面部特征，例如：\n"
+        base += "  👤 脸型：方脸、圆脸、瓜子脸、长脸、国字脸等\n"
+        base += "  👀 眼睛：大/小、有神/无神、单眼皮/双眼皮\n"
+        base += "  👃 鼻子：高挺/塌陷、鼻头大小\n"
+        base += "  👄 嘴唇：厚/薄、大小\n\n"
+        base += "💡 未来将支持 AI 视觉识别，可直接解读照片。"
+        return base
+
+    def _handle_image_generic(self, image_url: str, user_text: str) -> str:
+        """处理通用图片分析"""
+        base = f"📷 已收到图片：{image_url}\n\n"
+        base += "🔮 请告诉我您想通过这张图片了解什么？\n"
+        base += "  • 户型风水分析（描述：户型、风水、家居）\n"
+        base += "  • 面相/手相分析（描述：面相、手相、看相）\n\n"
+        base += "💡 未来将支持 AI 视觉识别，可直接解读图片内容。"
+        return base
+
     def _detect_intent(self, msg: str) -> Optional[str]:
         for intent, keywords in INTENT_KEYWORDS.items():
             for kw in keywords:

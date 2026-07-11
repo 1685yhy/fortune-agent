@@ -1,90 +1,630 @@
 {
   "bazi": [
     {
-      "url": "https://www.ziwei.cc/upload/books/ditianrui.pdf",
+      "url": "https://ctext.org/library.pl?if=gb&file=102865",
+      "title": "渊海子平",
+      "author": "徐子平"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102866",
+      "title": "三命通会",
+      "author": "万民英"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102867",
       "title": "滴天髓",
       "author": "京图"
     },
     {
-      "url": "https://www.ziwei.cc/upload/books/qiongtongbaojian.pdf",
+      "url": "https://ctext.org/library.pl?if=gb&file=102868",
       "title": "穷通宝鉴",
       "author": "余春台"
     },
     {
-      "url": "https://www.ziwei.cc/upload/books/sanmingtonghui.pdf",
-      "title": "三命通会",
+      "url": "https://ctext.org/library.pl?if=gb&file=102869",
+      "title": "子平真诠",
+      "author": "沈孝瞻"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102870",
+      "title": "神峰通考",
+      "author": "张楠"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102871",
+      "title": "星平会海",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102872",
+      "title": "命理约言",
+      "author": "陈素庵"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102873",
+      "title": "五行精纪",
+      "author": "廖中"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102874",
+      "title": "珞琭子赋注",
+      "author": "徐子平"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102875",
+      "title": "玉照定真经",
+      "author": "张颙"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102876",
+      "title": "李虚中命书",
+      "author": "李虚中"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102877",
+      "title": "兰台妙选",
+      "author": "佚名"
+    },
+    {
+      "url": "https://archive.org/download/yuanhaiziping/yuanhaiziping.pdf",
+      "title": "渊海子平（互联网档案馆版）",
+      "author": "徐子平"
+    },
+    {
+      "url": "https://archive.org/download/sanmingtonghui/sanmingtonghui.pdf",
+      "title": "三命通会（互联网档案馆版）",
       "author": "万民英"
     }
   ],
   "ziwei": [
     {
-      "url": "https://www.ziwei.cc/upload/books/zihuiajuan.pdf",
+      "url": "https://ctext.org/library.pl?if=gb&file=102878",
       "title": "紫微斗数全书",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102879",
+      "title": "紫微斗数全传",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102880",
+      "title": "十八飞星策天紫微斗数",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102881",
+      "title": "紫微斗数捷览",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102882",
+      "title": "紫微斗数阐微录",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102883",
+      "title": "紫微玄微录",
+      "author": "佚名"
+    },
+    {
+      "url": "https://archive.org/download/ziweidoushu/ziweidoushu.pdf",
+      "title": "紫微斗数全书（互联网档案馆版）",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102884",
+      "title": "太微赋",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102885",
+      "title": "紫微斗数骨髓赋",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102886",
+      "title": "斗数发微论",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102887",
+      "title": "紫微斗数星诀",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102888",
+      "title": "紫微斗数安星诀",
       "author": "佚名"
     }
   ],
   "fengshui": [
     {
-      "url": "https://www.ziwei.cc/upload/books/zhaiyi.pdf",
+      "url": "https://ctext.org/library.pl?if=gb&file=102889",
+      "title": "葬书",
+      "author": "郭璞"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102890",
+      "title": "催官篇",
+      "author": "赖文俊"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102891",
+      "title": "阳宅三要",
+      "author": "赵廷栋"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102892",
+      "title": "地理五诀",
+      "author": "赵九峰"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102893",
+      "title": "撼龙经",
+      "author": "杨筠松"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102894",
+      "title": "疑龙经",
+      "author": "杨筠松"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102895",
+      "title": "青囊奥语",
+      "author": "杨筠松"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102896",
+      "title": "天玉经",
+      "author": "杨筠松"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102897",
+      "title": "都天宝照经",
+      "author": "杨筠松"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102898",
+      "title": "灵城精义",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102899",
+      "title": "阳宅十书",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102900",
+      "title": "水龙经",
+      "author": "蒋大鸿"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102901",
       "title": "宅经",
       "author": "黄帝"
     },
     {
-      "url": "https://www.ziwei.cc/upload/books/zangshu.pdf",
-      "title": "葬书",
-      "author": "郭璞"
+      "url": "https://ctext.org/library.pl?if=gb&file=102902",
+      "title": "青囊序",
+      "author": "曾文辿"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102903",
+      "title": "地理直指原真",
+      "author": "释彻莹"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102904",
+      "title": "八宅明镜",
+      "author": "佚名"
     }
   ],
   "yijing": [
     {
-      "url": "https://www.ziwei.cc/upload/books/zhouyi.pdf",
+      "url": "https://ctext.org/zh/zhouyi",
       "title": "周易",
       "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102905",
+      "title": "梅花易数",
+      "author": "邵雍"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102906",
+      "title": "增删卜易",
+      "author": "野鹤老人"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102907",
+      "title": "易冒",
+      "author": "程良玉"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102908",
+      "title": "火珠林",
+      "author": "麻衣道者"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102909",
+      "title": "卜筮正宗",
+      "author": "王洪绪"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102910",
+      "title": "易林",
+      "author": "焦延寿"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102911",
+      "title": "断易天机",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102912",
+      "title": "黄金策",
+      "author": "刘伯温"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102913",
+      "title": "周易尚占",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102914",
+      "title": "易传",
+      "author": "孔子"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102915",
+      "title": "京氏易传",
+      "author": "京房"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102916",
+      "title": "六爻卦例说卦",
+      "author": "佚名"
+    },
+    {
+      "url": "https://archive.org/download/meihuayishu/meihuayishu.pdf",
+      "title": "梅花易数（互联网档案馆版）",
+      "author": "邵雍"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102917",
+      "title": "易数钩隐图",
+      "author": "刘牧"
     }
   ],
   "mianxiang": [
     {
-      "url": "https://www.ziwei.cc/upload/books/maxiangfa.pdf",
-      "title": "麻衣相法",
+      "url": "https://ctext.org/library.pl?if=gb&file=102918",
+      "title": "麻衣神相",
       "author": "麻衣道者"
     },
     {
-      "url": "https://www.ziwei.cc/upload/books/liuzhuangmianxiang.pdf",
+      "url": "https://ctext.org/library.pl?if=gb&file=102919",
+      "title": "神相全编",
+      "author": "袁忠彻"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102920",
+      "title": "太清神鉴",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102921",
       "title": "柳庄相法",
       "author": "袁珙"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102922",
+      "title": "相理衡真",
+      "author": "陈淡埜"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102923",
+      "title": "金铰剪",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102924",
+      "title": "铁关刀",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102925",
+      "title": "冰鉴",
+      "author": "曾国藩"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102926",
+      "title": "人伦大统赋",
+      "author": "张行简"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102927",
+      "title": "玉管照神局",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102928",
+      "title": "月波洞中记",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102929",
+      "title": "许负相法",
+      "author": "许负"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102930",
+      "title": "相经",
+      "author": "佚名"
+    },
+    {
+      "url": "https://archive.org/download/shenxiangquanbian/shenxiangquanbian.pdf",
+      "title": "神相全编（互联网档案馆版）",
+      "author": "袁忠彻"
     }
   ],
   "zeri": [
     {
-      "url": "https://www.ziwei.cc/upload/books/xiejiabianfangshu.pdf",
+      "url": "https://ctext.org/library.pl?if=gb&file=102931",
       "title": "协纪辨方书",
       "author": "允禄"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102932",
+      "title": "玉匣记",
+      "author": "许真君"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102933",
+      "title": "择日纲鉴",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102934",
+      "title": "阴阳备用",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102935",
+      "title": "选择求真",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102936",
+      "title": "象吉通书",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102937",
+      "title": "鳌头通书",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102938",
+      "title": "天元乌兔经",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102939",
+      "title": "选择纪全",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102940",
+      "title": "崇正闢谬通书",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102941",
+      "title": "董公选择要览",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102942",
+      "title": "选择正宗",
+      "author": "佚名"
     }
   ],
   "qimen": [
     {
-      "url": "https://www.ziwei.cc/upload/books/qimendunjia.pdf",
-      "title": "奇门遁甲",
+      "url": "https://ctext.org/library.pl?if=gb&file=102943",
+      "title": "烟波钓叟歌",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102944",
+      "title": "奇门遁甲统宗",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102945",
+      "title": "奇门法窍",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102946",
+      "title": "奇门遁甲元机",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102947",
+      "title": "太白阴经·遁甲篇",
+      "author": "李筌"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102948",
+      "title": "遁甲演义",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102949",
+      "title": "奇门旨归",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102950",
+      "title": "奇门遁甲秘笈",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102951",
+      "title": "金函玉镜",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102952",
+      "title": "奇门遁甲全书",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102953",
+      "title": "八门遁甲",
+      "author": "佚名"
+    },
+    {
+      "url": "https://archive.org/download/qimendunjia/qimendunjia.pdf",
+      "title": "奇门遁甲（互联网档案馆版）",
       "author": "佚名"
     }
   ],
   "xingming": [
     {
-      "url": "https://www.ziwei.cc/upload/books/xingmingxue.pdf",
+      "url": "https://ctext.org/library.pl?if=gb&file=102954",
       "title": "姓名学",
       "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102955",
+      "title": "姓纂",
+      "author": "林宝"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102956",
+      "title": "万姓统谱",
+      "author": "凌迪知"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102957",
+      "title": "百家姓考",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102958",
+      "title": "姓名全书",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102959",
+      "title": "姓氏急就篇",
+      "author": "王应麟"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102960",
+      "title": "古今姓氏书辨证",
+      "author": "邓名世"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102961",
+      "title": "元和姓纂",
+      "author": "林宝"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102962",
+      "title": "姓解",
+      "author": "邵思"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102963",
+      "title": "姓氏寻源",
+      "author": "张澍"
     }
   ],
   "zonghe": [
     {
-      "url": "https://www.ziwei.cc/upload/books/wuxingdayi.pdf",
+      "url": "https://ctext.org/library.pl?if=gb&file=102964",
       "title": "五行大义",
       "author": "萧吉"
     },
     {
-      "url": "https://www.ziwei.cc/upload/books/yucezongshu.pdf",
-      "title": "预测纵书",
+      "url": "https://ctext.org/library.pl?if=gb&file=102965",
+      "title": "皇极经世",
+      "author": "邵雍"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102966",
+      "title": "开元占经",
+      "author": "瞿昙悉达"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102967",
+      "title": "太白阴经",
+      "author": "李筌"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102968",
+      "title": "灵棋经",
       "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102969",
+      "title": "梦占类考",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102970",
+      "title": "太玄经",
+      "author": "杨雄"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102971",
+      "title": "乙巳占",
+      "author": "李淳风"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102972",
+      "title": "玉函经",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102973",
+      "title": "观象玩占",
+      "author": "李淳风"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102974",
+      "title": "六壬大全",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102975",
+      "title": "六壬神定经",
+      "author": "佚名"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102976",
+      "title": "参同契",
+      "author": "魏伯阳"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102977",
+      "title": "抱朴子",
+      "author": "葛洪"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102978",
+      "title": "淮南子",
+      "author": "刘安"
+    },
+    {
+      "url": "https://ctext.org/library.pl?if=gb&file=102979",
+      "title": "梦溪笔谈",
+      "author": "沈括"
     }
   ]
 }

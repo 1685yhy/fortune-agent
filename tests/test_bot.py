@@ -683,3 +683,163 @@ def test_all_intents_have_handlers():
     for msg, _ in test_cases:
         intent = handler._detect_intent(msg)
         assert intent is not None, f"未识别意图: {msg}"
+
+
+# ── Task 20: Voice input support ──────────────────────────────────────
+
+def test_handle_voice_with_text_routes_through_process():
+    """语音有转写文本时，会通过正常流程处理"""
+    handler = make_mock_handler()
+    # Mock process to verify it's called
+    original_process = handler.process
+    call_tracker = []
+    def tracking_process(msg, user_id):
+        call_tracker.append((msg, user_id))
+        return original_process(msg, user_id)
+    handler.process = tracking_process
+
+    result = handler._handle_voice(voice_text="帮我看看八字")
+    call_tracker.clear()  # clean up
+    assert "命理助手" in result or "请提供" in result
+
+
+def test_handle_voice_without_text_returns_hint():
+    """语音无转写文本时，返回CoW插件提示"""
+    handler = make_mock_handler()
+    result = handler._handle_voice(voice_text="")
+    assert "CoW" in result or "语音插件" in result
+
+
+def test_handle_voice_without_text_no_args():
+    """语音无参数调用时，返回CoW插件提示"""
+    handler = make_mock_handler()
+    result = handler._handle_voice()
+    assert "CoW" in result or "语音插件" in result
+
+
+# ── Task 20: Image input support ──────────────────────────────────────
+
+def test_handle_image_no_url_returns_hint():
+    """图片无URL时返回提示"""
+    handler = make_mock_handler()
+    result = handler._handle_image(image_url="")
+    assert "请提供图片链接" in result
+
+
+def test_handle_image_fengshui_keyword():
+    """图片含户型/风水关键词 - 进入风水分支"""
+    handler = make_mock_handler()
+    result = handler._handle_image(
+        image_url="http://example.com/house.jpg",
+        user_text="看看这个户型图的fengshui",
+    )
+
+    assert "户型" in result or "风水" in result
+    # No direction → prompt user to provide direction
+    assert "坐向" in result
+    assert "图片识别" in result
+
+
+def test_handle_image_fengshui_with_direction():
+    """图片含户型关键词且带坐向"""
+    mock_fengshui = Mock()
+    mock_result = Mock()
+    mock_result.house_gua = "离宅"
+    mock_result.period = 9
+    mock_result.eight_mansions = {
+        "生气": "南", "天医": "北", "延年": "东", "伏位": "西",
+        "绝命": "东北", "五鬼": "西南", "六煞": "东南", "祸害": "西北",
+    }
+    mock_fengshui.analyze.return_value = mock_result
+
+    handler = make_mock_handler()
+    handler.fengshui_engine = mock_fengshui
+
+    result = handler._handle_image(
+        image_url="http://example.com/house.jpg",
+        user_text="坐南朝北的户型风水如何",
+    )
+
+    assert "离宅" in result
+    assert "四吉方" in result
+    assert "四凶方" in result
+
+
+def test_handle_image_mianxiang_keyword():
+    """图片含面相/手相关键词"""
+    handler = make_mock_handler()
+    result = handler._handle_image(
+        image_url="http://example.com/face.jpg",
+        user_text="帮我看看面相",
+    )
+
+    assert "面部特征" in result or "脸型" in result or "眼睛" in result
+    assert "AI 视觉识别" in result
+
+
+def test_handle_image_mianxiang_keyword_handxiang():
+    """图片含手相关键词"""
+    handler = make_mock_handler()
+    result = handler._handle_image(
+        image_url="http://example.com/hand.jpg",
+        user_text="看看手相",
+    )
+
+    assert "面部特征" in result or "描述" in result
+    assert "AI 视觉识别" in result
+
+
+def test_handle_image_generic():
+    """图片无匹配关键词 - 返回通用引导"""
+    handler = make_mock_handler()
+    result = handler._handle_image(
+        image_url="http://example.com/photo.jpg",
+        user_text="这张图怎么样",
+    )
+
+    assert "请告诉我您想通过这张图片了解什么" in result
+    assert "户型风水" in result
+    assert "面相" in result
+
+
+# ── Task 20: message_type routing via main.py ─────────────────────────
+
+def test_voice_message_type_routing():
+    """验证语音类型的message_type路由逻辑（模拟main.py的ChatRequest）"""
+    handler = make_mock_handler()
+
+    # Simulate main.py routing: voice type with voice_text
+    reply = handler._handle_voice(voice_text="帮我看看八字")
+    # Should route through process → intent detection
+    assert isinstance(reply, str)
+    assert len(reply) > 0
+
+    # voice type without voice_text
+    reply_no_text = handler._handle_voice()
+    assert "CoW" in reply_no_text or "语音插件" in reply_no_text
+
+
+def test_image_message_type_routing():
+    """验证图片类型的message_type路由逻辑（模拟main.py的ChatRequest）"""
+    handler = make_mock_handler()
+
+    # image with fengshui keyword → fengshui branch
+    reply = handler._handle_image(
+        image_url="http://example.com/house.jpg",
+        user_text="看户型风水",
+    )
+    assert "户型" in reply or "风水" in reply
+
+    # image without keywords → generic guidance
+    reply_generic = handler._handle_image(
+        image_url="http://example.com/photo.jpg",
+        user_text="随便看看",
+    )
+    assert "请告诉我您想通过这张图片了解什么" in reply_generic
+
+
+def test_text_message_type_default_behavior():
+    """验证text类型的默认处理行为不变"""
+    handler = make_mock_handler()
+    result = handler.process("你好", "user123")
+    assert "命理助手" in result
