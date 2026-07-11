@@ -48,21 +48,30 @@ class UserDAO:
         conn.commit()
         conn.close()
 
-    def save_consultation(self, user_id: str, question: str, chart_result, analysis: str = ""):
+    def save_consultation(self, user_id: str, question: str, chart_result=None, analysis: str = "", intent: str = "bazi"):
         """保存咨询记录"""
         conn = self._connect()
-        chart_json = json.dumps({
-            "bazi": chart_result.bazi,
-            "day_master": chart_result.day_master,
-            "wuxing": chart_result.wuxing,
-            "shishen": chart_result.shishen,
-            "geju": chart_result.geju,
-            "yongshen": chart_result.yongshen,
-        }, ensure_ascii=False)
+
+        if chart_result is not None and hasattr(chart_result, 'bazi'):
+            # BaziResult handling — preserve backward compatibility
+            chart_json = json.dumps({
+                "bazi": chart_result.bazi,
+                "day_master": chart_result.day_master,
+                "wuxing": chart_result.wuxing,
+                "shishen": chart_result.shishen,
+                "geju": chart_result.geju,
+                "yongshen": chart_result.yongshen,
+            }, ensure_ascii=False)
+        elif isinstance(chart_result, dict):
+            chart_json = json.dumps(chart_result, ensure_ascii=False)
+        elif chart_result is not None:
+            chart_json = json.dumps({"type": type(chart_result).__name__}, ensure_ascii=False)
+        else:
+            chart_json = ""
 
         conn.execute(
             "INSERT INTO consultations (user_id, question, intent, chart_data, analysis) VALUES (?,?,?,?,?)",
-            (user_id, question, "bazi", chart_json, analysis),
+            (user_id, question, intent, chart_json, analysis),
         )
         conn.commit()
         conn.close()

@@ -1,0 +1,90 @@
+{
+  "bazi": [
+    {
+      "url": "https://www.ziwei.cc/upload/books/ditianrui.pdf",
+      "title": "滴天髓",
+      "author": "京图"
+    },
+    {
+      "url": "https://www.ziwei.cc/upload/books/qiongtongbaojian.pdf",
+      "title": "穷通宝鉴",
+      "author": "余春台"
+    },
+    {
+      "url": "https://www.ziwei.cc/upload/books/sanmingtonghui.pdf",
+      "title": "三命通会",
+      "author": "万民英"
+    }
+  ],
+  "ziwei": [
+    {
+      "url": "https://www.ziwei.cc/upload/books/zihuiajuan.pdf",
+      "title": "紫微斗数全书",
+      "author": "佚名"
+    }
+  ],
+  "fengshui": [
+    {
+      "url": "https://www.ziwei.cc/upload/books/zhaiyi.pdf",
+      "title": "宅经",
+      "author": "黄帝"
+    },
+    {
+      "url": "https://www.ziwei.cc/upload/books/zangshu.pdf",
+      "title": "葬书",
+      "author": "郭璞"
+    }
+  ],
+  "yijing": [
+    {
+      "url": "https://www.ziwei.cc/upload/books/zhouyi.pdf",
+      "title": "周易",
+      "author": "佚名"
+    }
+  ],
+  "mianxiang": [
+    {
+      "url": "https://www.ziwei.cc/upload/books/maxiangfa.pdf",
+      "title": "麻衣相法",
+      "author": "麻衣道者"
+    },
+    {
+      "url": "https://www.ziwei.cc/upload/books/liuzhuangmianxiang.pdf",
+      "title": "柳庄相法",
+      "author": "袁珙"
+    }
+  ],
+  "zeri": [
+    {
+      "url": "https://www.ziwei.cc/upload/books/xiejiabianfangshu.pdf",
+      "title": "协纪辨方书",
+      "author": "允禄"
+    }
+  ],
+  "qimen": [
+    {
+      "url": "https://www.ziwei.cc/upload/books/qimendunjia.pdf",
+      "title": "奇门遁甲",
+      "author": "佚名"
+    }
+  ],
+  "xingming": [
+    {
+      "url": "https://www.ziwei.cc/upload/books/xingmingxue.pdf",
+      "title": "姓名学",
+      "author": "佚名"
+    }
+  ],
+  "zonghe": [
+    {
+      "url": "https://www.ziwei.cc/upload/books/wuxingdayi.pdf",
+      "title": "五行大义",
+      "author": "萧吉"
+    },
+    {
+      "url": "https://www.ziwei.cc/upload/books/yucezongshu.pdf",
+      "title": "预测纵书",
+      "author": "佚名"
+    }
+  ]
+}

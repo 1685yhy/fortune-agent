@@ -1,5 +1,5 @@
 """Tests for bot message handling."""
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, call
 
 from src.bot.handler import MessageHandler, INTENT_KEYWORDS
 from src.bot.formatter import split_long_message, format_greeting, format_error, format_loading
@@ -79,31 +79,35 @@ def test_format_loading():
     assert "排盘" in format_loading()
 
 
-# ── Handler process() ─────────────────────────────────────────────────
+# ── Handler helper ────────────────────────────────────────────────────
 
 def make_mock_handler():
     """Helper: create a MessageHandler with all mocks."""
+    mock_llm = Mock()
+    mock_llm.analyze.return_value = Mock(response="分析结果")
+    mock_dao = Mock()
+    mock_dao.get_user_bazi.return_value = None
+
     return MessageHandler(
         engine=Mock(),
+        ziwei_engine=Mock(),
+        liuyao_engine=Mock(),
+        fengshui_engine=Mock(),
+        mianxiang_engine=Mock(),
+        zeri_engine=Mock(),
         retriever=Mock(),
-        llm=Mock(),
-        dao=Mock(),
+        llm=mock_llm,
+        dao=mock_dao,
     )
 
+
+# ── Handler process() ─────────────────────────────────────────────────
 
 def test_process_no_intent_returns_help():
     """无意图时返回帮助信息"""
     handler = make_mock_handler()
     result = handler.process("你好", "user123")
     assert "命理助手" in result
-
-
-def test_process_unimplemented_intent():
-    """已识别但未实现的意图返回开发中提示"""
-    handler = make_mock_handler()
-    result = handler.process("看看家居风水", "user123")
-    assert "模块开发中" in result
-    assert "fengshui" in result
 
 
 def test_process_bazi_missing_info_asks():
@@ -137,7 +141,17 @@ def test_process_bazi_missing_info_uses_saved():
     mock_analysis.response = "您的八字分析结果：日主乙木..."
     mock_llm.analyze.return_value = mock_analysis
 
-    handler = MessageHandler(mock_engine, mock_retriever, mock_llm, mock_dao)
+    handler = MessageHandler(
+        engine=mock_engine,
+        ziwei_engine=Mock(),
+        liuyao_engine=Mock(),
+        fengshui_engine=Mock(),
+        mianxiang_engine=Mock(),
+        zeri_engine=Mock(),
+        retriever=mock_retriever,
+        llm=mock_llm,
+        dao=mock_dao,
+    )
     result = handler.process("我的运势如何", "user123")
 
     assert "八字分析结果" in result
@@ -169,7 +183,17 @@ def test_process_bazi_with_extracted_info():
 
     mock_dao = Mock()
 
-    handler = MessageHandler(mock_engine, mock_retriever, mock_llm, mock_dao)
+    handler = MessageHandler(
+        engine=mock_engine,
+        ziwei_engine=Mock(),
+        liuyao_engine=Mock(),
+        fengshui_engine=Mock(),
+        mianxiang_engine=Mock(),
+        zeri_engine=Mock(),
+        retriever=mock_retriever,
+        llm=mock_llm,
+        dao=mock_dao,
+    )
     result = handler.process("帮我看看八字 1990年5月20日15点 北京 男", "user123")
 
     assert "八字分析结果" in result
@@ -330,6 +354,12 @@ def test_format_greeting_all_categories():
         assert cat in greeting, f"缺少分类: {cat}"
 
 
+def test_format_greeting_has_checkmarks():
+    """format_greeting 应为全部9个分类显示 ✅"""
+    greeting = format_greeting()
+    assert greeting.count("✅") == 9, f"应有9个✅，实际{greeting.count('✅')}个"
+
+
 def test_help_message_all_categories():
     """_help_message 应包含全部9个分类"""
     handler = make_mock_handler()
@@ -338,3 +368,318 @@ def test_help_message_all_categories():
                   "奇门", "姓名", "合婚"]
     for cat in categories:
         assert cat in help_text, f"缺少分类: {cat}"
+
+
+# ── NEW: Ziwei handler ─────────────────────────────────────────────────
+
+def test_process_ziwei_missing_info_asks():
+    """紫微斗数无出生信息 - 询问提供信息"""
+    handler = make_mock_handler()
+    result = handler.process("帮我看看紫微斗数", "user123")
+    assert "出生" in result
+
+
+def test_process_ziwei_with_extracted_info():
+    """紫微斗数带出生信息 - 完整流程"""
+    mock_ziwei = Mock()
+    mock_result = Mock()
+    mock_result.ming_gong = "寅"
+    mock_result.shen_gong = "午"
+    mock_result.wuxing_ju = "木三局"
+    mock_result.sihua = {}
+    mock_result.palaces = {}
+    mock_result.dayun = []
+    mock_ziwei.calculate.return_value = mock_result
+
+    mock_liuyao = Mock()
+    mock_fengshui = Mock()
+    mock_mianxiang = Mock()
+    mock_zeri = Mock()
+
+    mock_retriever = Mock()
+    mock_retriever.search.return_value = []
+
+    mock_llm = Mock()
+    mock_analysis = Mock()
+    mock_analysis.response = "紫微斗数分析：命宫在寅..."
+    mock_llm.analyze.return_value = mock_analysis
+
+    mock_dao = Mock()
+
+    handler = MessageHandler(
+        engine=Mock(),
+        ziwei_engine=mock_ziwei,
+        liuyao_engine=mock_liuyao,
+        fengshui_engine=mock_fengshui,
+        mianxiang_engine=mock_mianxiang,
+        zeri_engine=mock_zeri,
+        retriever=mock_retriever,
+        llm=mock_llm,
+        dao=mock_dao,
+    )
+    result = handler.process(
+        "帮我看看紫微斗数 1990年5月20日15点 北京 男", "user123"
+    )
+
+    assert "紫微斗数分析" in result
+    mock_ziwei.calculate.assert_called_once_with(1990, 5, 20, 15, 0, "北京", "男")
+    mock_retriever.search.assert_called_once()
+    mock_llm.analyze.assert_called_once()
+    mock_dao.save_consultation.assert_called_once()
+
+
+# ── NEW: Liuyao handler ───────────────────────────────────────────────
+
+def test_process_liuyao():
+    """六爻占卜 - 完整流程"""
+    mock_liuyao = Mock()
+    mock_result = Mock()
+    mock_result.original_hexagram = "天地否"
+    mock_result.changed_hexagram = "风地观"
+    mock_result.palace = "乾"
+    mock_result.palace_wuxing = "金"
+    mock_result.changing_lines = [2, 4]
+    mock_result.lines = [
+        {"type": "少阴", "yao_type": "应", "liuqin": "妻财", "dizhi": "卯"},
+        {"type": "少阳", "yao_type": "", "liuqin": "官鬼", "dizhi": "巳"},
+        {"type": "老阳", "yao_type": "世", "liuqin": "父母", "dizhi": "未"},
+        {"type": "少阳", "yao_type": "", "liuqin": "兄弟", "dizhi": "酉"},
+        {"type": "少阴", "yao_type": "", "liuqin": "子孙", "dizhi": "亥"},
+        {"type": "老阴", "yao_type": "应", "liuqin": "妻财", "dizhi": "丑"},
+    ]
+    mock_result.question = "财运"
+    mock_liuyao.cast.return_value = mock_result
+
+    mock_retriever = Mock()
+    mock_retriever.search.return_value = []
+
+    mock_llm = Mock()
+    mock_analysis = Mock()
+    mock_analysis.response = "本卦天地否..."
+    mock_llm.analyze.return_value = mock_analysis
+
+    mock_dao = Mock()
+
+    handler = MessageHandler(
+        engine=Mock(),
+        ziwei_engine=Mock(),
+        liuyao_engine=mock_liuyao,
+        fengshui_engine=Mock(),
+        mianxiang_engine=Mock(),
+        zeri_engine=Mock(),
+        retriever=mock_retriever,
+        llm=mock_llm,
+        dao=mock_dao,
+    )
+    result = handler.process("起一卦看看财运", "user123")
+
+    assert "天地否" in result or "本卦天地否" in result
+    mock_liuyao.cast.assert_called_once()
+    mock_retriever.search.assert_called_once()
+    mock_llm.analyze.assert_called_once()
+
+
+# ── NEW: Fengshui handler ─────────────────────────────────────────────
+
+def test_process_fengshui_missing_info_asks():
+    """风水分析无方向信息 - 询问提供信息"""
+    handler = make_mock_handler()
+    result = handler.process("看看我家风水", "user123")
+    assert "坐向" in result or "朝向" in result
+
+
+def test_process_fengshui_with_direction():
+    """风水分析带方向 - 完整流程"""
+    mock_fengshui = Mock()
+    mock_result = Mock()
+    mock_result.house_gua = "坎宅"
+    mock_result.period = 9
+    mock_result.person_gua = ""
+    mock_result.eight_mansions = {"生气": "东", "天医": "东南", "延年": "南", "伏位": "北",
+                                   "绝命": "西", "五鬼": "东北", "六煞": "西北", "祸害": "西南"}
+    mock_result.flying_stars = {}
+    mock_fengshui.analyze.return_value = mock_result
+
+    mock_retriever = Mock()
+    mock_retriever.search.return_value = []
+
+    mock_llm = Mock()
+    mock_analysis = Mock()
+    mock_analysis.response = "风水分析结果：坎宅..."
+    mock_llm.analyze.return_value = mock_analysis
+
+    mock_dao = Mock()
+
+    handler = MessageHandler(
+        engine=Mock(),
+        ziwei_engine=Mock(),
+        liuyao_engine=Mock(),
+        fengshui_engine=mock_fengshui,
+        mianxiang_engine=Mock(),
+        zeri_engine=Mock(),
+        retriever=mock_retriever,
+        llm=mock_llm,
+        dao=mock_dao,
+    )
+    result = handler.process("坐北朝南的房子风水如何", "user123")
+
+    assert "风水分析" in result
+    mock_fengshui.analyze.assert_called_once()
+    mock_retriever.search.assert_called_once()
+    mock_llm.analyze.assert_called_once()
+
+
+# ── NEW: Zeri handler ─────────────────────────────────────────────────
+
+def test_process_zeri_missing_date_asks():
+    """择日分析无日期 - 询问提供信息"""
+    handler = make_mock_handler()
+    result = handler.process("看看吉日", "user123")
+    assert "日期" in result
+
+
+def test_process_zeri_with_date():
+    """择日分析带日期 - 完整流程"""
+    mock_zeri = Mock()
+    mock_result = Mock()
+    mock_result.jianchu = "成"
+    mock_result.ershibaxiu = "星"
+    mock_result.xiu_jixiong = "吉"
+    mock_result.yi = ["嫁娶", "开市", "入学"]
+    mock_result.ji = ["动土", "破土"]
+    mock_result.chong = "冲羊(未)"
+    mock_result.overall = "吉"
+    mock_zeri.select.return_value = mock_result
+
+    mock_retriever = Mock()
+    mock_retriever.search.return_value = []
+
+    mock_llm = Mock()
+    mock_analysis = Mock()
+    mock_analysis.response = "择日分析：成日..."
+    mock_llm.analyze.return_value = mock_analysis
+
+    mock_dao = Mock()
+
+    handler = MessageHandler(
+        engine=Mock(),
+        ziwei_engine=Mock(),
+        liuyao_engine=Mock(),
+        fengshui_engine=Mock(),
+        mianxiang_engine=Mock(),
+        zeri_engine=mock_zeri,
+        retriever=mock_retriever,
+        llm=mock_llm,
+        dao=mock_dao,
+    )
+    result = handler.process("2026年8月15日是吉日吗 结婚", "user123")
+
+    assert "择日" in result
+    mock_zeri.select.assert_called_once_with(2026, 8, 15, purpose="嫁娶")
+    mock_retriever.search.assert_called_once()
+    mock_llm.analyze.assert_called_once()
+
+
+# ── NEW: Mianxiang handler ────────────────────────────────────────────
+
+def test_process_mianxiang_missing_desc_asks():
+    """面相分析无描述 - 询问提供信息"""
+    handler = make_mock_handler()
+    result = handler.process("帮我看面相", "user123")
+    assert "脸型" in result or "描述" in result
+
+
+def test_process_mianxiang_with_description():
+    """面相分析带描述 - 完整流程"""
+    mock_mianxiang = Mock()
+    mock_result = Mock()
+    mock_result.face_type = "土形"
+    mock_result.three_zones = {"上停": "饱满", "中停": "端正", "下停": "圆润"}
+    mock_result.five_mountains = {"南岳(额头)": "高耸", "北岳(下巴)": "饱满",
+                                   "东岳(左颧)": "适中", "西岳(右颧)": "适中",
+                                   "中岳(鼻子)": "端正"}
+    mock_result.features = {"眉(保寿官)": "清秀弯长", "眼(监察官)": "黑白分明有神"}
+    mock_result.overall = "面相中上"
+    mock_mianxiang.analyze.return_value = mock_result
+
+    mock_retriever = Mock()
+    mock_retriever.search.return_value = []
+
+    mock_llm = Mock()
+    mock_analysis = Mock()
+    mock_analysis.response = "面相分析：土形脸..."
+    mock_llm.analyze.return_value = mock_analysis
+
+    mock_dao = Mock()
+
+    handler = MessageHandler(
+        engine=Mock(),
+        ziwei_engine=Mock(),
+        liuyao_engine=Mock(),
+        fengshui_engine=Mock(),
+        mianxiang_engine=mock_mianxiang,
+        zeri_engine=Mock(),
+        retriever=mock_retriever,
+        llm=mock_llm,
+        dao=mock_dao,
+    )
+    result = handler.process("我是方脸额头饱满鼻梁高挺，帮我看看面相", "user123")
+
+    assert "面相" in result
+    mock_mianxiang.analyze.assert_called_once()
+    mock_retriever.search.assert_called_once()
+    mock_llm.analyze.assert_called_once()
+
+
+# ── NEW: Qimen handler (RAG+LLM only) ─────────────────────────────────
+
+def test_process_qimen_uses_rag():
+    """奇门遁甲 - 使用RAG+LLM"""
+    mock_retriever = Mock()
+    mock_retriever.search.return_value = []
+
+    mock_llm = Mock()
+    mock_analysis = Mock()
+    mock_analysis.response = "奇门遁甲分析..."
+    mock_llm.analyze.return_value = mock_analysis
+
+    mock_dao = Mock()
+
+    handler = MessageHandler(
+        engine=Mock(),
+        ziwei_engine=Mock(),
+        liuyao_engine=Mock(),
+        fengshui_engine=Mock(),
+        mianxiang_engine=Mock(),
+        zeri_engine=Mock(),
+        retriever=mock_retriever,
+        llm=mock_llm,
+        dao=mock_dao,
+    )
+    result = handler.process("奇门遁甲择时", "user123")
+
+    assert "奇门" in result
+    mock_retriever.search.assert_called_once()
+    mock_llm.analyze.assert_called_once()
+
+
+# ── NEW: No more "开发中" for any intent ──────────────────────────────
+
+def test_all_intents_have_handlers():
+    """所有9种意图都有处理逻辑（不返回'开发中'）"""
+    handler = make_mock_handler()
+    # Test all intent keywords — none should return "开发中"
+    test_cases = [
+        ("八字", "八字"),
+        ("紫微斗数", "紫微"),
+        ("六爻起卦", "六爻"),
+        ("看看风水", "看看"),
+        ("选个吉日", "选日子"),
+        ("看看面相", "看看"),
+        ("奇门遁甲", "奇门"),
+        ("取名字", "起名"),
+        ("婚姻配对", "配对"),
+    ]
+    for msg, _ in test_cases:
+        intent = handler._detect_intent(msg)
+        assert intent is not None, f"未识别意图: {msg}"

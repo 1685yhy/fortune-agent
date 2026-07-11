@@ -1,6 +1,6 @@
 """Claude API 客户端."""
 from dataclasses import dataclass
-from typing import List
+from typing import List, Union
 from anthropic import Anthropic
 
 from .prompts import SYSTEM_PROMPT, USER_CONTEXT_TEMPLATE
@@ -24,12 +24,19 @@ class FortuneLLM:
 
     def analyze(
         self,
-        bazi_result: BaziResult,
+        chart_data: Union[BaziResult, str],
         references: List[ChunkResult],
         user_question: str,
     ) -> AnalysisResult:
-        """基于排盘数据和古籍引用，分析用户问题"""
-        chart_str = self._format_chart(bazi_result)
+        """基于排盘数据和古籍引用，分析用户问题
+
+        Args:
+            chart_data: BaziResult or formatted chart string
+        """
+        if isinstance(chart_data, str):
+            chart_str = chart_data
+        else:
+            chart_str = self._format_chart(chart_data)
         refs_str = self._format_references(references)
 
         user_message = USER_CONTEXT_TEMPLATE.format(

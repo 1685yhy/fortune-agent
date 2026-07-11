@@ -6,6 +6,11 @@ from typing import Optional
 
 from .config import load_settings
 from .engines.bazi import BaziEngine
+from .engines.ziwei import ZiweiEngine
+from .engines.liuyao import LiuyaoEngine
+from .engines.fengshui import FengshuiEngine
+from .engines.mianxiang import MianxiangEngine
+from .engines.zeri import ZeriEngine
 from .rag.embedder import Embedder
 from .rag.retriever import Retriever
 from .llm.client import FortuneLLM
@@ -16,6 +21,11 @@ from .storage.dao import UserDAO
 # 全局实例
 settings = None
 engine = None
+ziwei_engine = None
+liuyao_engine = None
+fengshui_engine = None
+mianxiang_engine = None
+zeri_engine = None
 embedder = None
 retriever = None
 dao = None
@@ -25,14 +35,23 @@ llm = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global settings, engine, embedder, retriever, dao, llm, handler
+    global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
+    global mianxiang_engine, zeri_engine, embedder, retriever, dao, llm, handler
     settings = load_settings()
     engine = BaziEngine()
+    ziwei_engine = ZiweiEngine()
+    liuyao_engine = LiuyaoEngine()
+    fengshui_engine = FengshuiEngine()
+    mianxiang_engine = MianxiangEngine()
+    zeri_engine = ZeriEngine()
     embedder = Embedder(model_name=settings.embedding_model)
     retriever = Retriever(str(settings.vectordb_dir), embedder)
     dao = UserDAO(str(settings.db_path))
     llm = FortuneLLM(api_key=settings.claude_api_key, model=settings.claude_model)
-    handler = MessageHandler(engine, retriever, llm, dao)
+    handler = MessageHandler(
+        engine, ziwei_engine, liuyao_engine, fengshui_engine,
+        mianxiang_engine, zeri_engine, retriever, llm, dao,
+    )
     yield
     # cleanup
 
