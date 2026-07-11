@@ -106,6 +106,12 @@ class MessageHandler:
             year, month, day, hour, minute, city, gender, msg, user_id,
         )
 
+    COMMON_CITIES = {"北京", "上海", "广州", "深圳", "天津", "重庆", "杭州", "南京",
+                     "成都", "武汉", "西安", "苏州", "长沙", "郑州", "青岛", "大连",
+                     "厦门", "宁波", "福州", "合肥", "沈阳", "哈尔滨", "昆明", "贵阳",
+                     "南宁", "海口", "兰州", "银川", "西宁", "拉萨", "乌鲁木齐",
+                     "呼和浩特", "石家庄", "太原", "济南", "南昌"}
+
     def _extract_bazi_info(self, msg: str) -> Optional[Tuple]:
         """从消息中提取八字信息"""
         for pattern in BAZI_EXTRACT_PATTERNS:
@@ -118,9 +124,22 @@ class MessageHandler:
                 hour = int(groups[3]) if groups[3] else 0
                 minute = int(groups[4]) if len(groups) > 4 and groups[4] else 0
                 gender = groups[-1]
+
+                # 下午/晚上 → 24小时制转换
+                if re.search(r'(下午|晚上|傍晚|夜间)', msg):
+                    if 1 <= hour <= 12:
+                        hour += 12
+                elif re.search(r'^(上午|早上|早晨|凌晨)', msg):
+                    pass  # 保持原样
+
                 # 从消息中尝试提取城市
                 city_match = re.search(r'([一-鿿]{2,4}(?:市|省))', msg)
-                city = city_match.group(1) if city_match else "北京"
+                if city_match:
+                    city = city_match.group(1)
+                else:
+                    # 后备：匹配已知城市名称（无后缀）
+                    city_match = re.search(r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
+                    city = city_match.group(1) if city_match else "北京"
                 return (year, month, day, hour, minute, city, gender)
         return None
 
@@ -158,6 +177,10 @@ class MessageHandler:
 • 易经占卜 — 具体事情问卦
 • 风水分析 — 家居布局指导
 • 择日 — 婚嫁、开业吉日
+• 面相手相 — 通过面相手相看运势性格
+• 奇门遁甲 — 运筹决策、方位吉凶
+• 姓名学 — 起名改名、姓名分析
+• 合婚配对 — 婚姻匹配、缘分分析
 
 💬 直接告诉我想算什么就行！
 例如：「帮我看看八字 1990年5月20日15点 北京 男」"""

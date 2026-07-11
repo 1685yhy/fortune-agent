@@ -191,3 +191,150 @@ def test_detailed_bazi_intent_method():
     assert handler._detect_intent("奇门遁甲") == "qimen"
     assert handler._detect_intent("帮我改名字") == "xingming"
     assert handler._detect_intent("hello world") is None
+
+
+# ── Issue 1: PM/AM 转换 ─────────────────────────────────────────────────
+
+def test_extract_bazi_info_pm_conversion():
+    """下午3点应转为15点"""
+    handler = make_mock_handler()
+    result = handler._extract_bazi_info("1990年5月20日 下午3点 北京 男")
+    assert result is not None
+    _, _, _, hour, minute, city, gender = result
+    assert hour == 15, f"下午3点应转为15点，但得到{hour}"
+    assert minute == 0
+    assert gender == "男"
+
+
+def test_extract_bazi_info_pm_with_minutes():
+    """下午3点30分应转为15点30分"""
+    handler = make_mock_handler()
+    result = handler._extract_bazi_info("1990年5月20日 下午3点30分 北京 女")
+    assert result is not None
+    _, _, _, hour, minute, _, gender = result
+    assert hour == 15, f"下午3应转为15，但得到{hour}"
+    assert minute == 30
+
+
+def test_extract_bazi_info_evening():
+    """晚上9点应转为21点"""
+    handler = make_mock_handler()
+    result = handler._extract_bazi_info("1990年5月20日 晚上9点 北京 男")
+    assert result is not None
+    _, _, _, hour, _, _, _ = result
+    assert hour == 21, f"晚上9点应转为21点，但得到{hour}"
+
+
+def test_extract_bazi_info_am_kept():
+    """上午10点应保持10点"""
+    handler = make_mock_handler()
+    result = handler._extract_bazi_info("1990年5月20日 上午10点 北京 男")
+    assert result is not None
+    _, _, _, hour, _, _, _ = result
+    assert hour == 10, f"上午10应保持10，但得到{hour}"
+
+
+def test_extract_bazi_info_am_12():
+    """上午12点（中午）应保持12点"""
+    handler = make_mock_handler()
+    result = handler._extract_bazi_info("1990年5月20日 上午12点 北京 男")
+    assert result is not None
+    _, _, _, hour, _, _, _ = result
+    assert hour == 12, f"上午12应保持12，但得到{hour}"
+
+
+def test_extract_bazi_info_pm_12():
+    """下午12点（凌晨）应转为24点（即24点/0点）"""
+    handler = make_mock_handler()
+    result = handler._extract_bazi_info("1990年5月20日 下午12点 北京 男")
+    assert result is not None
+    _, _, _, hour, _, _, _ = result
+    assert hour == 24, f"下午12应转为24，但得到{hour}"
+
+
+# ── Issue 2: 城市提取 ─────────────────────────────────────────────────
+
+def test_extract_bazi_info_city_without_suffix():
+    """城市名称没有'市'后缀时仍能识别"""
+    handler = make_mock_handler()
+    result = handler._extract_bazi_info("1990年5月20日 15点 上海 男")
+    assert result is not None
+    _, _, _, _, _, city, _ = result
+    assert city == "上海", f"应识别'上海'，但得到{city}"
+
+
+def test_extract_bazi_info_city_shenzhen():
+    """深圳（无后缀）应被识别"""
+    handler = make_mock_handler()
+    result = handler._extract_bazi_info("1990-05-20 15:00 深圳 女")
+    assert result is not None
+    _, _, _, _, _, city, _ = result
+    assert city == "深圳", f"应识别'深圳'，但得到{city}"
+
+
+def test_extract_bazi_info_city_with_suffix():
+    """带市后缀的城市优先匹配"""
+    handler = make_mock_handler()
+    result = handler._extract_bazi_info("1990年5月20日 15点 广州市 男")
+    assert result is not None
+    _, _, _, _, _, city, _ = result
+    assert city == "广州市", f"应识别'广州市'，但得到{city}"
+
+
+def test_extract_bazi_info_city_fallback_default():
+    """没有城市信息时默认北京"""
+    handler = make_mock_handler()
+    result = handler._extract_bazi_info("1990年5月20日 15点 男")
+    assert result is not None
+    _, _, _, _, _, city, _ = result
+    assert city == "北京", f"默认应为北京，但得到{city}"
+
+
+# ── Issue 4: 超长单行拆分 ─────────────────────────────────────────────
+
+def test_split_long_message_overflow_line():
+    """单行超过 max_len 时应被拆分为多段"""
+    long_line = "测试消息 " * 100  # 400 chars
+    parts = split_long_message(long_line, max_len=50)
+    for p in parts:
+        assert len(p) <= 50, f"分段[{p[:20]}...]长度{len(p)}超过50"
+    assert len(parts) >= 2
+
+
+def test_split_long_message_overflow_line_no_space():
+    """无空格超长行应硬切"""
+    line = "a" * 600
+    parts = split_long_message(line, max_len=500)
+    for p in parts:
+        assert len(p) <= 500
+    assert len(parts) >= 2
+
+
+def test_split_long_message_mixed_normal_and_overflow():
+    """混合正常行和超长行"""
+    lines = ("短行\n" + "a" * 600 + "\n短行")
+    parts = split_long_message(lines, max_len=500)
+    for p in parts:
+        assert len(p) <= 500
+    assert len(parts) >= 2
+
+
+# ── Greeting has all 9 categories ──────────────────────────────────────
+
+def test_format_greeting_all_categories():
+    """format_greeting 应包含全部9个分类"""
+    greeting = format_greeting()
+    categories = ["八字", "紫微", "占卜", "风水", "择日", "面相",
+                  "奇门", "姓名", "合婚"]
+    for cat in categories:
+        assert cat in greeting, f"缺少分类: {cat}"
+
+
+def test_help_message_all_categories():
+    """_help_message 应包含全部9个分类"""
+    handler = make_mock_handler()
+    help_text = handler._help_message()
+    categories = ["八字", "紫微", "占卜", "风水", "择日", "面相",
+                  "奇门", "姓名", "合婚"]
+    for cat in categories:
+        assert cat in help_text, f"缺少分类: {cat}"
