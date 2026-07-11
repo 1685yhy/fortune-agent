@@ -146,13 +146,15 @@ class BaziEngine:
         if dg_idx == tg_idx:
             return "比肩"
 
+        dg_wx = WUXING_TG[day_gan]
+        tg_wx = WUXING_TG[target_gan]
+
+        if dg_wx == tg_wx:
+            return "劫财"
+
         dg_yin = dg_idx % 2  # 0=阳,1=阴
         tg_yin = tg_idx % 2
         same_yin = (dg_yin == tg_yin)
-
-        # 关系判断
-        dg_wx = WUXING_TG[day_gan]
-        tg_wx = WUXING_TG[target_gan]
 
         # 生克循环：木→火→土→金→水→木
         sheng_cycle = {"木":"火","火":"土","土":"金","金":"水","水":"木"}

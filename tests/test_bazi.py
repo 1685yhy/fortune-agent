@@ -41,6 +41,8 @@ def test_bazi_known_case():
     result = engine.calculate(1990, 5, 20, 15, 0, "北京", "男")
     # 至少日柱应该是乙酉
     assert "乙" in result.bazi[2] or "酉" in result.bazi[2], f"Expected 乙酉 in day pillar, got {result.bazi[2]}"
+    # 时柱甲（木）与日主乙（木）同五行不同天干 → 应为劫财
+    assert result.shishen[3] == "劫财", f"Expected 劫财 for time pillar, got {result.shishen[3]}"
     print(f"八字：{' '.join(result.bazi)} | 日主：{result.day_master}")
     print(f"十神：{result.shishen}")
     print(f"大运：{result.dayun[:3]}")
