@@ -19,8 +19,17 @@ class FortuneLLM:
     """算命助手 LLM 封装"""
 
     def __init__(self, api_key: str, model: str = "claude-sonnet-5"):
-        self.client = Anthropic(api_key=api_key)
+        self.api_key = api_key
         self.model = model
+        self._client = None
+
+    def _get_client(self):
+        """Always create a fresh client to avoid 'client has been closed' issues with uvicorn reload."""
+        import httpx
+        return Anthropic(
+            api_key=self.api_key,
+            http_client=httpx.Client(timeout=60.0),
+        )
 
     def analyze(
         self,
@@ -45,15 +54,29 @@ class FortuneLLM:
             question=user_question,
         )
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=2000,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_message}],
-        )
+        # Try API call with retry on closed client
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                client = self._get_client()
+                response = client.messages.create(
+                    model=self.model,
+                    max_tokens=2000,
+                    system=SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_message}],
+                )
+                # Extract text from response (skip ThinkingBlock)
+                text_blocks = [b for b in response.content if b.type == "text"]
+                reply_text = text_blocks[0].text if text_blocks else response.content[0].text
+                break
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    continue  # retry with fresh client
+                else:
+                    raise
 
         return AnalysisResult(
-            response=response.content[0].text,
+            response=reply_text,
             tokens_used=response.usage.output_tokens,
             model=self.model,
         )

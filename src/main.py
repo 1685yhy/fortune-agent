@@ -112,6 +112,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Fortune Agent", version="0.1.0", lifespan=lifespan)
 
+# OpenAI-compatible API for chatgpt-on-wechat
+# Router accesses handler via global, set during lifespan
+from .openai_compat import create_openai_router as _create_oai_router
+app.include_router(_create_oai_router(None))
+
 # Models
 class ChatRequest(BaseModel):
     message: str = ""
@@ -146,6 +151,8 @@ async def chat(req: ChatRequest) -> ChatResponse:
         parts = split_long_message(reply)
         return ChatResponse(reply=reply, parts=parts)
     except Exception as e:
+        import traceback
+        logger.error(f"处理请求失败: {traceback.format_exc()}")
         return ChatResponse(reply=f"⚠️ 处理出错：{str(e)}\n请稍后重试。")
 
 
