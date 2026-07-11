@@ -15,4 +15,4 @@ venv/
 Thumbs.db
 
 # Project
-scripts/
+# (scripts/ removed to track build_index.py)
