@@ -1,11 +1,19 @@
-"""构建向量索引 - 从 /mnt/d/fortune-data/books/ 读取 .txt 文件构建 ChromaDB 索引."""
+"""构建向量索引 - 从多个来源加载古籍文本构建 ChromaDB 索引.
+
+支持的数据来源（按优先级）:
+1. /mnt/d/fortune-data/books/ 下的 .txt 文件（经过 OCR 的文本）
+2. ctext.org 上的纯文本格式古籍
+3. 内嵌的经典段落（seed_knowledge 回退方案）
+"""
 from __future__ import annotations
 
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Optional
 
+import requests
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -14,11 +22,96 @@ from src.rag.chunker import Chunk, chunk_text
 from src.rag.embedder import Embedder
 from src.rag.retriever import Retriever
 
+try:
+    from scripts.seed_knowledge import EXCERPTS as SEED_EXCERPTS
+    HAS_SEED = True
+except ImportError:
+    SEED_EXCERPTS = {}
+    HAS_SEED = False
+
 logger = logging.getLogger(__name__)
 
 # Default books directory
 DEFAULT_BOOKS_DIR = Path("/mnt/d/fortune-data/books")
 
+# ── ctext.org 纯文本古籍 ────────────────────────────────────────────
+
+CTEXT_TEXTS: dict[str, list[dict[str, str]]] = {
+    "yijing": [
+        {
+            "url": "https://ctext.org/zhouyi.zh.txt",
+            "title": "周易（ctext.org 文本版）",
+            "author": "佚名",
+        },
+    ],
+    "zonghe": [
+        {
+            "url": "https://ctext.org/taixuanjing.zh.txt",
+            "title": "太玄经（ctext.org 文本版）",
+            "author": "杨雄",
+        },
+    ],
+}
+
+
+def download_ctext_text(url: str, timeout: int = 30) -> str | None:
+    """Download plain text from ctext.org.
+
+    ctext.org hosts classical Chinese texts in UTF-8 plain text format
+    at URLs ending in .zh.txt. This function fetches them and returns
+    the text content, or None on failure.
+    """
+    try:
+        resp = requests.get(
+            url,
+            timeout=timeout,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (compatible; FortuneAgent/1.0; "
+                    "+https://github.com/fortune-agent)"
+                ),
+            },
+        )
+        resp.raise_for_status()
+        # ctext.org returns GBK-encoded text in some cases; detect encoding
+        if resp.encoding and resp.encoding.lower() != "utf-8":
+            try:
+                text = resp.content.decode("utf-8")
+            except UnicodeDecodeError:
+                text = resp.content.decode("gbk", errors="replace")
+        else:
+            text = resp.text
+        text = text.strip()
+        return text if len(text) > 50 else None
+    except Exception as e:
+        logger.warning("Failed to fetch ctext URL %s: %s", url, e)
+        return None
+
+
+def load_ctext_texts() -> list[dict[str, str]]:
+    """Download all configured ctext.org texts.
+
+    Returns list of {text, source, author, category} dicts.
+    """
+    entries: list[dict[str, str]] = []
+    for category, books in CTEXT_TEXTS.items():
+        for book in books:
+            print(f"  Fetching ctext: {book['title']}")
+            text = download_ctext_text(book["url"])
+            if text:
+                entries.append({
+                    "text": text,
+                    "source": book["title"],
+                    "author": book["author"],
+                    "category": category,
+                })
+                print(f"    -> {len(text)} characters")
+            else:
+                print(f"    -> failed")
+    return entries
+
+
+# ── 本地 .txt 文件加载 ──────────────────────────────────────────────
 
 def _detect_category(file_path: Path, books_dir: Path) -> str:
     """Auto-detect category from the directory name relative to books_dir.
@@ -47,11 +140,10 @@ def load_texts_from_directory(
 
     Category is auto-detected from the subdirectory name.
     Source is the file stem (filename without extension).
-    Author is left empty -- metadata can be added later.
     """
     books_dir = Path(books_dir)
     if not books_dir.exists():
-        logger.error("Books directory does not exist: %s", books_dir)
+        logger.warning("Books directory does not exist: %s", books_dir)
         return []
 
     txt_files = sorted(books_dir.rglob("*.txt"))
@@ -76,7 +168,7 @@ def load_texts_from_directory(
         entries.append({
             "text": text,
             "source": source,
-            "author": "",  # can be enriched later
+            "author": "",
             "category": category,
         })
 
@@ -87,21 +179,107 @@ def load_texts_from_directory(
     return entries
 
 
+# ── Seed knowledge 回退 ────────────────────────────────────────────
+
+def load_seed_knowledge() -> list[dict[str, str]]:
+    """Load built-in classical text excerpts as a fallback.
+
+    These are verified quotes from major divination classics that are
+    embedded in the codebase, so no downloads or OCR are needed.
+    """
+    if not HAS_SEED:
+        print("  seed_knowledge module not available (missing scripts/seed_knowledge.py)")
+        return []
+
+    entries: list[dict[str, str]] = []
+    for category, excerpts in SEED_EXCERPTS.items():
+        for excerpt in excerpts:
+            entries.append({
+                "text": excerpt["text"],
+                "source": excerpt.get("source", "未知"),
+                "author": excerpt.get("author", ""),
+                "category": category,
+            })
+
+    logger.info(
+        "Loaded %d seed knowledge entries across %d categories",
+        len(entries), len(SEED_EXCERPTS),
+    )
+    return entries
+
+
+# ── 主流程 ─────────────────────────────────────────────────────────
+
+def collect_texts(
+    books_dir: Path,
+    use_ctext: bool = True,
+    use_seed_fallback: bool = True,
+) -> list[dict[str, str]]:
+    """Collect texts from all available sources.
+
+    Priority:
+    1. Local .txt files (from OCR'd PDFs or manually placed texts)
+    2. ctext.org plain text downloads
+    3. Built-in seed knowledge excerpts
+
+    Args:
+        books_dir: Path to local books directory.
+        use_ctext: Whether to try fetching from ctext.org.
+        use_seed_fallback: Whether to use seed knowledge as fallback.
+
+    Returns:
+        List of {text, source, author, category} dicts.
+    """
+    all_entries: list[dict[str, str]] = []
+
+    # Source 1: Local .txt files
+    print("\n=== Source 1: Local .txt files ===")
+    local_entries = load_texts_from_directory(books_dir)
+    all_entries.extend(local_entries)
+    print(f"  Found {len(local_entries)} local text entries")
+
+    # Source 2: ctext.org plain text
+    if use_ctext:
+        print("\n=== Source 2: ctext.org plain text ===")
+        ctext_entries = load_ctext_texts()
+        all_entries.extend(ctext_entries)
+        print(f"  Fetched {len(ctext_entries)} ctext.org entries")
+
+    # Source 3: Seed knowledge fallback
+    if use_seed_fallback and not local_entries and not all_entries:
+        print("\n=== Source 3: Built-in seed knowledge (fallback) ===")
+        seed_entries = load_seed_knowledge()
+        all_entries.extend(seed_entries)
+        print(f"  Loaded {len(seed_entries)} seed knowledge entries")
+    elif use_seed_fallback:
+        # Always supplement with seed knowledge to ensure rich content
+        print("\n=== Source 3: Built-in seed knowledge (supplement) ===")
+        seed_entries = load_seed_knowledge()
+        all_entries.extend(seed_entries)
+        print(f"  Added {len(seed_entries)} seed knowledge entries as supplement")
+
+    return all_entries
+
+
 def main(
     books_dir: Optional[str] = None,
     vectordb_dir: Optional[str] = None,
     embedding_model: Optional[str] = None,
     chunk_size: int = 500,
     chunk_overlap: int = 50,
+    no_ctext: bool = False,
+    no_seed: bool = False,
 ) -> None:
-    """Build vector index from .txt files in books_dir.
+    """Build vector index from multiple sources.
 
     Args:
         books_dir: Path to books directory (default: /mnt/d/fortune-data/books)
         vectordb_dir: Path to vectordb (default: from settings)
         embedding_model: Embedding model name (default: from settings)
         chunk_size: Max chunk size in characters
-        chunk_overlap: Overlap between chunks
+        chunk_overlap: Overlap between characters
+        no_ctext: Skip fetching from ctext.org
+        no_seed: Skip seed knowledge supplement
     """
     settings = load_settings()
     settings.vectordb_dir.mkdir(parents=True, exist_ok=True)
@@ -114,16 +292,25 @@ def main(
     print(f"Books directory: {books_path}")
     print(f"Vector DB directory: {vdb_path}")
     print(f"Embedding model: {model_name}")
-    print()
+    print(f"Chunk size: {chunk_size}, Overlap: {chunk_overlap}")
 
-    # Load texts from directory
-    entries = load_texts_from_directory(books_path)
+    # Collect texts from all sources
+    entries = collect_texts(
+        books_dir=books_path,
+        use_ctext=not no_ctext,
+        use_seed_fallback=not no_seed,
+    )
+
     if not entries:
-        print("No texts found. Run scripts/ocr_books.py first to extract text from PDFs.")
+        print("\nNo texts found from any source.")
+        print("Options:")
+        print("  1. Place .txt files under your books directory")
+        print("  2. Run scripts/download_books.py then scripts/ocr_books.py")
+        print("  3. Run scripts/seed_knowledge.py to seed with built-in excerpts")
         return
 
     # Load embedder
-    print("Loading embedder (first run will download BGE model ~1.3GB)...")
+    print("\nLoading embedder (first run will download BGE model ~1.3GB)...")
     embedder = Embedder(model_name=model_name)
 
     print("Building vector index...")
@@ -142,12 +329,9 @@ def main(
         if chunks:
             retriever.add_chunks(chunks)
             total_chunks += len(chunks)
-            logger.debug(
-                "Added %d chunks from '%s' (category: %s)",
-                len(chunks), entry["source"], entry["category"],
-            )
 
-    print(f"\nDone! Total chunks: {total_chunks}, Collection size: {retriever.count()}")
+    print(f"\nDone! Total chunks: {total_chunks}")
+    print(f"Collection size: {retriever.count()}")
 
     # Test search for each category
     test_queries = {
@@ -155,12 +339,20 @@ def main(
         "ziwei": "紫微星在命宫",
         "fengshui": "风水布局",
         "yijing": "周易八卦",
+        "mianxiang": "面相气色",
+        "zeri": "择日吉凶",
+        "qimen": "奇门遁甲八门",
+        "xingming": "姓名五行",
+        "zonghe": "五行相生相克",
     }
     print()
     for cat, query in test_queries.items():
         results = retriever.search(query, category=cat, top_k=3)
         if results:
-            print(f"  [{cat}] '{query}' -> top: [{results[0].score:.3f}] {results[0].source}: {results[0].text[:60]}...")
+            print(
+                f"  [{cat}] '{query}' -> top: [{results[0].score:.3f}] "
+                f"{results[0].source}: {results[0].text[:60]}..."
+            )
         else:
             print(f"  [{cat}] '{query}' -> (no results)")
 
@@ -168,7 +360,7 @@ def main(
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(
-        description="Build vector index from OCR'd book texts.",
+        description="Build vector index from OCR'd book texts, ctext.org, and seed knowledge.",
     )
     parser.add_argument(
         "--books-dir",
@@ -192,10 +384,22 @@ if __name__ == "__main__":
         default=50,
         help="Chunk overlap in characters (default: 50)",
     )
+    parser.add_argument(
+        "--no-ctext",
+        action="store_true",
+        help="Skip fetching texts from ctext.org",
+    )
+    parser.add_argument(
+        "--no-seed",
+        action="store_true",
+        help="Skip supplementing with built-in seed knowledge",
+    )
     args = parser.parse_args()
     main(
         books_dir=args.books_dir,
         vectordb_dir=args.vectordb_dir,
         chunk_size=args.chunk_size,
         chunk_overlap=args.chunk_overlap,
+        no_ctext=args.no_ctext,
+        no_seed=args.no_seed,
     )
