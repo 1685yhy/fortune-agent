@@ -1,4 +1,4 @@
-"""混合检索器 - 语义检索 + BM25关键词检索."""
+"""语义检索器."""
 from dataclasses import dataclass
 from typing import List, Optional
 from pathlib import Path
@@ -19,7 +19,7 @@ class ChunkResult:
 
 
 class Retriever:
-    """混合检索器"""
+    """语义检索器"""
 
     def __init__(self, persist_dir: str, embedder: Embedder):
         self.persist_dir = persist_dir
