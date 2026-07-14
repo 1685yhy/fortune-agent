@@ -120,8 +120,8 @@ class BaziEngine:
         # 格局（简化版：取月支藏干透出）
         geju = self._calc_geju(month_zhi, month_gan, all_gan)
 
-        # 用神（简化版：五行最弱为用神方向）
-        yongshen = self._calc_yongshen(wuxing, day_gan)
+        # 用神（调候优先 + 扶抑辅助）
+        yongshen = self._calc_yongshen(wuxing, day_gan, month_zhi)
 
         # 神煞（简化版：天乙贵人、驿马）
         shensha = self._calc_shensha(all_gan, all_zhi)
@@ -181,12 +181,13 @@ class BaziEngine:
             dayun_list = []
             da_yun = yun.getDaYun()
 
-            # Index 0 is the pre-起运 period (no GanZhi), actual 大运 starts from index 1
-            for i, dy in enumerate(da_yun):
+            # da_yun[0] is the pre-起运 period (empty GanZhi), actual 大运 starts from index 1
+            # Filter out empty entries, then assign ages: first at start_age, then +10 each
+            for dy in da_yun:
                 ganzhi = dy.getGanZhi()
                 if not ganzhi:
                     continue  # Skip the pre-起运 period
-                age = start_age + (i - 1) * 10  # Adjust: first actual 大运 starts at start_age
+                age = start_age + len(dayun_list) * 10
                 dayun_list.append((age, ganzhi))
 
             # Limit to reasonable number
@@ -239,19 +240,105 @@ class BaziEngine:
         return liunian
 
     def _calc_geju(self, month_zhi: str, month_gan: str, all_gan: list) -> str:
-        """格局判定（简化版：以月支五行关系定格局）"""
-        # 月支藏干关系
-        geju_map = {
-            "子":"偏印格","丑":"正官格","寅":"偏财格","卯":"正印格",
-            "辰":"偏印格","巳":"正官格","午":"正财格","未":"正官格",
-            "申":"偏印格","酉":"正印格","戌":"偏印格","亥":"正官格",
-        }
-        return geju_map.get(month_zhi, "普通格")
+        """格局判定：以月干十神定格局（正统子平法）"""
+        # 正统格局以月令天干透出十神定
+        # 先取月干对日干的十神关系作为主格
+        day_gan = all_gan[2]
 
-    def _calc_yongshen(self, wuxing: dict, day_gan: str) -> str:
-        """用神判定（简化版：五行最弱为用神方向）"""
-        min_wx = min(wuxing, key=wuxing.get)
-        return f"{min_wx}为用神（补{min_wx}为宜）"
+        # 十神→格局映射
+        shishen_to_geju = {
+            "正官": "正官格", "七杀": "七杀格", "正财": "正财格", "偏财": "偏财格",
+            "正印": "正印格", "偏印": "偏印格", "食神": "食神格", "伤官": "伤官格",
+            "比肩": "建禄格", "劫财": "月刃格",
+        }
+
+        month_shishen = self._calc_shishen(day_gan, month_gan)
+        if month_shishen in shishen_to_geju:
+            return shishen_to_geju[month_shishen]
+
+        # 如果月干不透（比如比肩劫财），看月支藏干
+        canggan_map = {
+            "子":"癸","丑":"己","寅":"甲","卯":"乙","辰":"戊",
+            "巳":"丙","午":"丁","未":"己","申":"庚","酉":"辛",
+            "戌":"戊","亥":"壬",
+        }
+        cang_gan = canggan_map.get(month_zhi, "")
+        if cang_gan:
+            cang_shishen = self._calc_shishen(day_gan, cang_gan)
+            if cang_shishen in shishen_to_geju:
+                return shishen_to_geju[cang_shishen]
+
+        return "普通格"
+
+    def _calc_yongshen(self, wuxing: dict, day_gan: str, month_zhi: str = "") -> str:
+        """用神判定：调候优先 + 扶抑辅助"""
+        day_wx = WUXING_TG[day_gan]
+
+        sheng_cycle = {"木":"火","火":"土","土":"金","金":"水","水":"木"}
+        ke_cycle = {"木":"土","土":"水","水":"火","火":"金","金":"木"}
+        sheng_wo = {v:k for k,v in sheng_cycle.items()}
+        ke_wo = {v:k for k,v in ke_cycle.items()}
+
+        # 0. 调候（季节温度调节）
+        tiaohou = None
+        is_extreme_season = False
+        # 夏季(巳午未) → 水调候降温（极端季节：调候优先）
+        if month_zhi in ("巳", "午", "未"):
+            tiaohou = "水"
+            is_extreme_season = True
+        # 冬季(亥子丑) → 火调候暖局（极端季节：调候优先）
+        elif month_zhi in ("亥", "子", "丑"):
+            tiaohou = "火"
+            is_extreme_season = True
+        # 秋季(申酉戌) → 金旺，用火制金
+        elif month_zhi in ("申", "酉", "戌"):
+            tiaohou = "火"
+        # 春季(寅卯辰) → 木旺，用金修剪
+        elif month_zhi in ("寅", "卯", "辰"):
+            tiaohou = "金"
+
+        # 1. 扶抑分析
+        # 生扶 = 比劫(wx) + 印星(sheng_wo[wx])
+        support_wx = [day_wx, sheng_wo.get(day_wx, "")]
+        support = sum(wuxing.get(w, 0) for w in support_wx if w)
+        # 克泄 = 官杀(ke_wo[wx]) + 食伤(sheng_cycle[wx]) + 财
+        suppress_wx = [ke_wo.get(day_wx, ""), sheng_cycle.get(day_wx, "")]
+        suppress = sum(wuxing.get(w, 0) for w in suppress_wx if w)
+
+        if support > suppress:
+            priorities = [ke_wo.get(day_wx, ""), sheng_cycle.get(day_wx, "")]
+        else:
+            priorities = [sheng_wo.get(day_wx, ""), day_wx]
+        priorities = [p for p in priorities if p]
+
+        # 2. 调候用神介入
+        if tiaohou:
+            if is_extreme_season:
+                # 极端季节（夏/冬）：调候为第一优先
+                if tiaohou in priorities:
+                    priorities.remove(tiaohou)
+                priorities.insert(0, tiaohou)
+            elif tiaohou not in priorities:
+                # 非极端季节（春/秋）：调候作为辅助补充
+                priorities.append(tiaohou)
+
+        # 3. 选最优五行作为用神
+        if is_extreme_season and tiaohou:
+            # 极端季节（夏/冬）：调候用神为第一优先级，直接作为用神
+            best = tiaohou
+        else:
+            # 非极端季节（春/秋）或无比调候：选扶抑优先级中最弱的五行
+            best = priorities[0] if priorities else day_wx
+            min_count = wuxing.get(best, 99)
+            for wx in priorities[:3]:
+                if wuxing.get(wx, 0) < min_count:
+                    min_count = wuxing.get(wx, 0)
+                    best = wx
+
+        wx_names = {"金":"金","木":"木","水":"水","火":"火","土":"土"}
+        helpful = [wx_names[p] for p in priorities[:3] if p in wx_names]
+        tiaohou_note = "（调候优先）" if is_extreme_season else ""
+        return "%s为用神%s（喜%s）" % (wx_names.get(best, best), tiaohou_note, "、".join(helpful))
 
     def _calc_shensha(self, all_gan: list, all_zhi: list) -> list:
         """神煞计算（简化版）"""
