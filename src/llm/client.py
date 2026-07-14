@@ -1,9 +1,10 @@
-"""Claude API 客户端."""
+"""LLM 客户端 - 支持 Claude 和 DeepSeek."""
 from dataclasses import dataclass
 from typing import List, Union
-from anthropic import Anthropic
+import httpx
+import json
 
-from .prompts import SYSTEM_PROMPT, USER_CONTEXT_TEMPLATE
+from .prompts import SYSTEM_PROMPT, CHAT_PROMPT, USER_CONTEXT_TEMPLATE
 from src.engines.bazi import BaziResult
 from src.rag.retriever import ChunkResult
 
@@ -16,20 +17,36 @@ class AnalysisResult:
 
 
 class FortuneLLM:
-    """算命助手 LLM 封装"""
+    """算命助手 LLM 封装 - 双模型：Flash(快聊) + Pro(深度分析)"""
 
-    def __init__(self, api_key: str, model: str = "claude-sonnet-5"):
+    def __init__(self, api_key: str, model: str = "deepseek-v4-flash", provider: str = "deepseek",
+                 deep_model: str = "deepseek-v4-pro"):
         self.api_key = api_key
-        self.model = model
-        self._client = None
+        self.model = model          # 快速模型 (日常聊天)
+        self.deep_model = deep_model  # 深度模型 (命理分析)
+        self.provider = provider
 
-    def _get_client(self):
-        """Always create a fresh client to avoid 'client has been closed' issues with uvicorn reload."""
-        import httpx
-        return Anthropic(
-            api_key=self.api_key,
-            http_client=httpx.Client(timeout=60.0),
+    def chat(self, user_message: str) -> AnalysisResult:
+        """自由对话 - 用快速模型（V4 Flash），轻量人设提示。"""
+        return self._call_deepseek_model(user_message, self.model, max_tokens=300,
+                                         custom_prompt=CHAT_PROMPT)
+
+    def chat_conversation(self, history: list) -> str:
+        """多轮对话 - 带完整上下文的自然聊天。"""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        messages = [{"role": "system", "content": CHAT_PROMPT}]
+        messages.extend(history)
+        resp = httpx.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers=headers,
+            json={"model": self.model, "messages": messages, "max_tokens": 500, "temperature": 0.8},
+            timeout=60.0,
         )
+        data = resp.json()
+        return data["choices"][0]["message"]["content"]
 
     def analyze(
         self,
@@ -37,11 +54,7 @@ class FortuneLLM:
         references: List[ChunkResult],
         user_question: str,
     ) -> AnalysisResult:
-        """基于排盘数据和古籍引用，分析用户问题
-
-        Args:
-            chart_data: BaziResult or formatted chart string
-        """
+        """命理分析 - 用深度模型（V4 Pro），推理更强。"""
         if isinstance(chart_data, str):
             chart_str = chart_data
         else:
@@ -53,36 +66,40 @@ class FortuneLLM:
             references=refs_str,
             question=user_question,
         )
+        return self._call_deepseek_model(user_message, self.deep_model, max_tokens=2000)
 
-        # Try API call with retry on closed client
-        max_retries = 2
-        for attempt in range(max_retries):
-            try:
-                client = self._get_client()
-                response = client.messages.create(
-                    model=self.model,
-                    max_tokens=2000,
-                    system=SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": user_message}],
-                )
-                # Extract text from response (skip ThinkingBlock)
-                text_blocks = [b for b in response.content if b.type == "text"]
-                reply_text = text_blocks[0].text if text_blocks else response.content[0].text
-                break
-            except Exception as e:
-                if attempt < max_retries - 1:
-                    continue  # retry with fresh client
-                else:
-                    raise
-
+    def _call_deepseek_model(self, user_message: str, model: str, max_tokens: int = 500,
+                             use_system_prompt: bool = True,
+                             custom_prompt: str = None) -> AnalysisResult:
+        """调用 DeepSeek API"""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        messages = []
+        if custom_prompt:
+            messages.append({"role": "system", "content": custom_prompt})
+        elif use_system_prompt:
+            messages.append({"role": "system", "content": SYSTEM_PROMPT})
+        messages.append({"role": "user", "content": user_message})
+        payload = {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.7,
+        }
+        resp = httpx.post(
+            "https://api.deepseek.com/v1/chat/completions",
+            headers=headers, json=payload, timeout=120.0,
+        )
+        data = resp.json()
         return AnalysisResult(
-            response=reply_text,
-            tokens_used=response.usage.output_tokens,
-            model=self.model,
+            response=data["choices"][0]["message"]["content"],
+            tokens_used=data.get("usage", {}).get("total_tokens", 0),
+            model=model,
         )
 
     def _format_chart(self, r: BaziResult) -> str:
-        """格式化排盘数据为文本"""
         return f"""八字：{' '.join(r.bazi)}
 日主：{r.day_master}
 五行：{r.wuxing}
@@ -93,7 +110,6 @@ class FortuneLLM:
 神煞：{'、'.join(r.shensha) if r.shensha else '无'}"""
 
     def _format_references(self, refs: List[ChunkResult]) -> str:
-        """格式化古籍引用为文本"""
         lines = []
         for i, ref in enumerate(refs[:15], 1):
             lines.append(f"{i}. 【{ref.source}】\"{ref.text[:300]}...\" (相关度: {ref.score:.2f})")

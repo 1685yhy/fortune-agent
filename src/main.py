@@ -91,7 +91,7 @@ async def lifespan(app: FastAPI):
     embedder = Embedder(model_name=settings.embedding_model)
     retriever = Retriever(str(settings.vectordb_dir), embedder)
     dao = UserDAO(str(settings.db_path))
-    llm = FortuneLLM(api_key=settings.claude_api_key, model=settings.claude_model)
+    llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-v4-flash", deep_model="deepseek-v4-pro", provider="deepseek")
     handler = MessageHandler(
         engine, ziwei_engine, liuyao_engine, fengshui_engine,
         mianxiang_engine, zeri_engine, retriever, llm, dao,
@@ -217,6 +217,14 @@ async def update_push_settings(
 
     return {"status": "ok", "user_id": user_id}
 
+
+
+@app.get("/")
+async def home():
+    from fastapi.responses import HTMLResponse
+    from pathlib import Path
+    html = Path(__file__).parent / "index.html"
+    return HTMLResponse(html.read_text(encoding="utf-8"))
 
 def run():
     import uvicorn

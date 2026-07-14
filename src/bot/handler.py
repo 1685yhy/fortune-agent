@@ -1,4 +1,5 @@
 """消息处理 - 意图识别和信息收集."""
+import os
 import re
 from typing import Optional, Tuple, Dict, Any
 
@@ -85,7 +86,7 @@ class MessageHandler:
         intent = self._detect_intent(msg)
 
         if intent is None:
-            return self._help_message()
+            return self._free_chat(msg, user_id)
 
         # Step 2: 路由到对应处理器
         handler_map = {
@@ -193,6 +194,10 @@ class MessageHandler:
         return base
 
     def _detect_intent(self, msg: str) -> Optional[str]:
+        # 先检查是否包含出生日期信息（4位年份+月份+日期）
+        if re.search(r'\d{4}\s*[年/-]\s*\d{1,2}\s*[月/-]\s*\d{1,2}', msg):
+            return "bazi"
+
         for intent, keywords in INTENT_KEYWORDS.items():
             for kw in keywords:
                 if kw in msg:
@@ -359,7 +364,24 @@ class MessageHandler:
         # 4. LLM分析
         analysis = self.llm.analyze(result, refs, question)
 
-        return analysis.response
+        # 5. 生成命盘图片
+        chart_url = ""
+        try:
+            from src.images.bazi_chart import BaziChartGenerator
+            gen = BaziChartGenerator()
+            chart_path = gen.generate(result)
+            filename = os.path.basename(chart_path)
+            chart_url = f"http://124.221.233.214/charts/{filename}"
+        except Exception as e:
+            import traceback
+            import logging
+            logging.getLogger(__name__).warning(f"Chart generation failed: {e}\n{traceback.format_exc()}")
+
+        # 6. 组合回复
+        reply = analysis.response
+        if chart_url:
+            reply += f"\n\n📊 命盘图片：{chart_url}"
+        return reply
 
     # ============================================================
     # 紫微斗数 (Ziwei)
@@ -779,6 +801,71 @@ class MessageHandler:
     # ============================================================
     # 帮助信息
     # ============================================================
+
+    def _conversational_chat(self, history: list, user_id: str) -> str:
+        """多轮对话 - 带完整上下文的自然聊天。"""
+        # 如果只有一条消息且是问候，快速回复
+        if len(history) <= 1:
+            msg = history[-1]["content"] if history else ""
+            if msg.strip() in ('',' ','?','？'):
+                return '您好！我是易理明灯AI命理顾问。直接告诉我您的出生日期，我帮您看八字。'
+            if re.search(r'\d{4}', msg) or re.search(r'[男女]', msg):
+                return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
+
+        # 多轮对话：把历史消息传给 LLM
+        try:
+            return self.llm.chat_conversation(history)
+        except Exception:
+            return '老夫在此，小友有何困惑尽管道来。'
+
+    def _free_chat(self, msg: str, user_id: str) -> str:
+        """自由对话：没有命中任何命理意图时，直接用 LLM 自然聊天。"""
+        if msg.strip() in ('',' ','?','？'):
+            return '您好！我是易理明灯AI命理顾问。直接告诉我您的出生日期，我帮您看八字。'
+
+        # 如果消息含数字或年份，可能是用户尝试提供出生信息，引导一下
+        if re.search(r'\d{4}', msg) or re.search(r'[男女]', msg):
+            return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
+
+        # 所有其他消息 → 用 LLM 自然对话
+        try:
+            result = self.llm.chat(msg)
+            return result.response
+        except Exception:
+            return '老夫在此，小友有何困惑尽管道来。若要看八字，请告知您的出生年月日时。'
+
+def _get_welcome_message() -> str:
+    return """🌟 欢迎来到「易理明灯」！
+我是您的专属AI命理顾问，以《滴天髓》《三命通会》等古籍为依据，用现代技术为您解读传统命理。
+
+━━━━━━━━━━━━━━━
+🔮 我能帮您做什么？
+━━━━━━━━━━━━━━━
+
+🔹 **八字命理** — 看命格、事业、财运、婚姻
+    试试：帮我看八字 1990年5月20日 下午3点 北京 男
+
+🔹 **紫微斗数** — 十二宫详解、流年大限
+    试试：帮我排紫微斗数
+
+🔹 **易经占卜** — 具体事情问卦
+    试试：帮我算个卦 这次跳槽能成吗
+
+🔹 **风水分析** — 家居布局、坐向吉凶
+    试试：我家大门朝南 帮我看看风水
+
+🔹 **择日** — 婚嫁、开业、搬家吉日
+    试试：帮我找个搬家的好日子 2026年8月
+
+🔹 **面相手相** — 五官五行分析
+    试试：帮我分析面相 我是圆脸
+
+🔹 **奇门遁甲** — 运筹决策、方位吉凶
+🔹 **姓名学** — 起名改名、姓名分析
+🔹 **合婚配对** — 婚姻匹配、缘分分析
+
+━━━━━━━━━━━━━━━
+💬 您也可以直接问我任何命理相关的问题，我会尽力为您解答！"""
 
     def _help_message(self) -> str:
         return """🔮 命理助手

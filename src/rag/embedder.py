@@ -1,4 +1,5 @@
 """文本向量化 - 使用 BGE 中文嵌入模型."""
+import os
 from pathlib import Path
 from typing import List
 import logging
@@ -8,27 +9,52 @@ logger = logging.getLogger(__name__)
 
 
 class Embedder:
-    """BGE 中文嵌入模型封装. Falls back to dummy embeddings if model unavailable."""
+    """BGE 中文嵌入模型封装. Supports local model + ModelScope mirror."""
+
+    # Local model paths to check first (no download needed)
+    LOCAL_PATHS = [
+        "/mnt/d/fortune-models/models/BAAI--bge-large-zh-v1.5/snapshots/master",
+        "/mnt/e/fortune-models/models/BAAI--bge-large-zh-v1.5/snapshots/master",
+        "/opt/fortune-data/models/bge-large-zh-v1.5",
+    ]
 
     def __init__(self, model_name: str = "BAAI/bge-large-zh-v1.5"):
         self.model_name = model_name
         self._model = None
-        self._available = None  # None = not checked yet
+        self._available = None
 
     def _try_load(self):
-        """Try to load model. Return True if successful."""
+        """Try to load model from local path, then ModelScope mirror, then HuggingFace."""
         if self._available is not None:
             return self._available
+
+        from sentence_transformers import SentenceTransformer
+
+        # 1. Try local path first (fastest)
+        for local_path in self.LOCAL_PATHS:
+            if Path(local_path).exists():
+                try:
+                    self._model = SentenceTransformer(local_path)
+                    self._available = True
+                    logger.info("BGE模型加载成功(本地): %s", local_path)
+                    return True
+                except Exception:
+                    continue
+
+        # 2. Try ModelScope mirror (Chinese, no block)
         try:
-            from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(self.model_name)
+            from modelscope import snapshot_download
+            model_dir = snapshot_download('BAAI/bge-large-zh-v1.5',
+                cache_dir=os.environ.get('MODELSCOPE_CACHE', '/tmp/modelscope'))
+            self._model = SentenceTransformer(model_dir)
             self._available = True
-            logger.info(f"BGE模型加载成功: {self.model_name}")
+            logger.info("BGE模型加载成功(ModelScope): %s", model_dir)
+            return True
         except Exception as e:
-            logger.warning(f"BGE模型加载失败，使用降级模式: {e}")
+            logger.warning("BGE模型加载失败: %s", e)
             self._available = False
             self._model = None
-        return self._available
+            return False
 
     @property
     def model(self):
