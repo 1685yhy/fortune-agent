@@ -40,6 +40,7 @@ except ImportError:
 
 from src.storage.session_dao import SessionDAO
 from src.storage.preference_dao import PreferenceDAO, UserPreferences
+from src.storage.conversation_memory import ConversationMemory
 from .formatter import split_long_message, format_error, format_loading
 
 INTENT_KEYWORDS = {
@@ -104,6 +105,9 @@ class MessageHandler:
         # F1: Preference learner — gets db_path from dao
         db_path = getattr(dao, 'db_path', '') if dao else ''
         self.preference_dao = PreferenceDAO(db_path) if db_path else None
+        # Multi-turn memory
+        api_key = getattr(llm, 'api_key', '') if llm else ''
+        self.memory = ConversationMemory(api_key) if api_key else None
 
     # ============================================================
     # Personality Mode Management
@@ -685,6 +689,12 @@ class MessageHandler:
         # 10. 反馈提示 (F3)
         personality = self._get_personality_mode(user_id) or "sassy"
         reply = self._add_feedback_prompt(reply, personality)
+
+        # 11. 记录对话记忆
+        if self.memory:
+            self.memory.add_interaction(user_id, question, reply, intent="bazi",
+                                        key_data={"day_master": result.day_master,
+                                                  "geju": getattr(result, 'geju', '')})
 
         return reply
 
@@ -1643,10 +1653,14 @@ class MessageHandler:
                 }
                 emotion_hint = emotion_hints.get(emotion_label, "")
 
-            # Combine all hints: preferences + emotion
+            # Combine all hints: memory + preferences + emotion
+            memory_ctx = self.memory.get_context(user_id) if self.memory else ""
+
             combined_hint = ""
+            if memory_ctx:
+                combined_hint = memory_ctx
             if pref_hint:
-                combined_hint = pref_hint
+                combined_hint = combined_hint + "\n" + pref_hint if combined_hint else pref_hint
             if emotion_hint:
                 combined_hint = combined_hint + "\n" + emotion_hint if combined_hint else emotion_hint
 
