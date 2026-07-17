@@ -12,6 +12,33 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 CHARTS_DIR = Path(os.environ.get("CHARTS_DIR", "/opt/fortune-data/charts"))
 
+# Persistent browser user dir for fast warm starts
+_BROWSER_CACHE_DIR = Path("/tmp/pw_chromium_cache")
+
+
+def _render_html_to_png(html_path: str, png_path: str):
+    """Render HTML to PNG using Playwright with persistent context (fast warm start)."""
+    import os as _os
+    from concurrent.futures import ThreadPoolExecutor
+
+    def _render():
+        from playwright.sync_api import sync_playwright
+        _BROWSER_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with sync_playwright() as pw:
+            context = pw.chromium.launch_persistent_context(
+                str(_BROWSER_CACHE_DIR),
+                headless=True,
+                viewport={"width": 850, "height": 1050},
+            )
+            page = context.new_page()
+            page.goto("file://" + html_path, wait_until="networkidle")
+            page.screenshot(path=png_path, full_page=True)
+            context.close()
+
+    with ThreadPoolExecutor(max_workers=1) as ex:
+        ex.submit(_render).result(timeout=30)
+    _os.remove(html_path)
+
 # --- Refined luxury colour palette ---
 # 天干/地支 五行 colours (rich, toned — not neon)
 WX_COLORS = {
@@ -308,19 +335,6 @@ class BaziChartHTML:
         with open(hp, "w", encoding="utf-8") as f:
             f.write(html)
 
-        import os as _os
-        from concurrent.futures import ThreadPoolExecutor
-
-        def _render_sync():
-            from playwright.sync_api import sync_playwright
-            with sync_playwright() as pw:
-                b = pw.chromium.launch()
-                p = b.new_page(viewport={"width": 850, "height": 1050})
-                p.goto("file://" + hp, wait_until="networkidle")
-                p.screenshot(path=out, full_page=True)
-                b.close()
-
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            ex.submit(_render_sync).result(timeout=30)
-        _os.remove(hp)
+        # Use cached browser for speed (first call ~3s, subsequent <1s)
+        _render_html_to_png(hp, out)
         return out
