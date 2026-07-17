@@ -88,7 +88,8 @@ def make_mock_handler():
     """Helper: create a MessageHandler with all mocks."""
     mock_llm = Mock()
     mock_llm.analyze.return_value = Mock(response="分析结果")
-    mock_llm.chat.return_value = Mock(response="分析结果")
+    mock_llm.chat.return_value = Mock(response="🔮 命理助手 返回的结果")
+    mock_llm.chat_conversation.return_value = "🔮 命理助手 返回的结果"
     mock_dao = Mock()
     mock_dao.get_user_bazi.return_value = None
     mock_session = Mock()
