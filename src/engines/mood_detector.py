@@ -38,16 +38,14 @@ class MoodDetector:
     within the same conversation turn.
     """
 
-    # Short prompt (under 50 words) as required by spec.
+    # Open-ended prompt: let the LLM decide based on its understanding, not rules.
     DETECTION_PROMPT = (
-        'Analyze user emotion. Return ONLY a JSON object:\n'
-        '{"mood":"sassy|analyst|gentle","confidence":0.0-1.0,"emotion":"short_label"}\n\n'
-        'Rules:\n'
-        '- anxiety/worry/fear/anger/sadness -> gentle\n'
-        '- data/analysis/numbers/questions -> analyst\n'
-        '- humor/joking/casual/excited/happy -> sassy\n'
-        '- confused/uncertain -> analyst\n'
-        '- neutral/greeting -> sassy'
+        'You have 3 response styles:\n'
+        '1. sassy — sharp, witty, like a close friend who tells hard truths with humor\n'
+        '2. analyst — professional, precise, data-driven, like a trusted advisor\n'
+        '3. gentle — warm, empathetic, validating, like a therapist who truly listens\n\n'
+        'Given the user\'s message, which style would make them feel most understood? '
+        'Return ONLY JSON: {"mood":"<pick one>","confidence":0.0-1.0,"emotion":"<their apparent emotion>"}'
     )
 
     def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):

@@ -33,28 +33,25 @@ def index_file(filepath: Path, source: str, retriever: Retriever):
         return 0
 
     all_chunks = []
-    for entry in entries:
+    for entry_idx, entry in enumerate(entries):
         chunks = chunk_text(
             text=entry,
-            source=source,
+            source=f"dream_{entry_idx}",
             author="周公解梦",
             category="dream",
             chunk_size=500,
             overlap=50,
         )
+        import hashlib
+        entry_hash = hashlib.md5(entry[:50].encode()).hexdigest()[:8]
+        for ci, c in enumerate(chunks):
+            c.source = source
+            c.chunk_id = f"dream_{entry_hash}_{entry_idx:06d}_{ci:03d}"
         all_chunks.extend(chunks)
 
-    # Dedup by chunk_id
-    seen_ids = set()
-    unique_chunks = []
-    for c in all_chunks:
-        if c.chunk_id not in seen_ids:
-            seen_ids.add(c.chunk_id)
-            unique_chunks.append(c)
-
-    logger.info(f"  {source}: {len(entries)} entries -> {len(unique_chunks)} chunks")
-    retriever.add_chunks(unique_chunks, batch_size=BATCH_SIZE)
-    return len(unique_chunks)
+    logger.info(f"  {source}: {len(entries)} entries -> {len(all_chunks)} chunks")
+    retriever.add_chunks(all_chunks, batch_size=BATCH_SIZE)
+    return len(all_chunks)
 
 def main():
     logger.info("=" * 60)
