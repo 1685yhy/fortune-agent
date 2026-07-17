@@ -278,11 +278,18 @@ async def get_user_history(user_id: str):
 
 @app.get("/api/user/{user_id}/accuracy")
 async def get_user_accuracy(user_id: str):
-    """计算用户历史预测准确率"""
+    """获取用户准确率仪表盘 — 合并 consultations 表和 preference 学习数据"""
+    if handler is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    # Use the new preference dashboard if available
+    if handler.preference_dao:
+        return handler.preference_dao.get_accuracy_dashboard(user_id)
+
+    # Fallback to old consultations-based accuracy
     if dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
-    accuracy = dao.get_user_accuracy(user_id)
-    return accuracy
+    return dao.get_user_accuracy(user_id)
 
 
 @app.post("/api/feedback/{consultation_id}")

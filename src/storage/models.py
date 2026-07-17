@@ -64,6 +64,25 @@ CREATE INDEX IF NOT EXISTS idx_consultations_user ON consultations(user_id, crea
 CREATE INDEX IF NOT EXISTS idx_push_log_user_date ON push_log(user_id, push_date);
 CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, created_at);
 
+CREATE TABLE IF NOT EXISTS user_preferences (
+    user_id TEXT PRIMARY KEY,
+    style_sassy REAL DEFAULT 0.33,       -- 毒舌权重 (EMA)
+    style_analyst REAL DEFAULT 0.33,     -- 分析权重 (EMA)
+    style_gentle REAL DEFAULT 0.34,      -- 温柔权重 (EMA)
+    topic_wealth REAL DEFAULT 0.2,       -- 财运话题偏好
+    topic_love REAL DEFAULT 0.2,         -- 感情话题偏好
+    topic_career REAL DEFAULT 0.2,       -- 事业话题偏好
+    topic_health REAL DEFAULT 0.2,       -- 健康话题偏好
+    topic_growth REAL DEFAULT 0.2,       -- 成长话题偏好
+    prefer_short INTEGER DEFAULT 0,      -- 偏好简短回复
+    feedback_count INTEGER DEFAULT 0,    -- 收到的反馈总数
+    positive_count INTEGER DEFAULT 0,    -- 好评数
+    last_style TEXT DEFAULT '',          -- 最后使用的人格模式
+    last_topic TEXT DEFAULT '',          -- 最后关注的话题
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
     user_id TEXT NOT NULL,
     role TEXT NOT NULL,           -- 'user' or 'assistant'

@@ -39,6 +39,7 @@ except ImportError:
 
 
 from src.storage.session_dao import SessionDAO
+from src.storage.preference_dao import PreferenceDAO, UserPreferences
 from .formatter import split_long_message, format_error, format_loading
 
 INTENT_KEYWORDS = {
@@ -99,14 +100,26 @@ class MessageHandler:
         self.dao = dao
         self.session_dao = session_dao
         self._personality_modes = {}  # user_id -> mode string
+        # F1: Preference learner — gets db_path from dao
+        db_path = getattr(dao, 'db_path', '') if dao else ''
+        self.preference_dao = PreferenceDAO(db_path) if db_path else None
 
     # ============================================================
     # Personality Mode Management
     # ============================================================
 
     def _get_personality_mode(self, user_id: str) -> Optional[str]:
-        """Get user's explicit personality override, or None for auto-detect."""
-        return self._personality_modes.get(user_id)
+        """Get user's personality mode: explicit override > learned preference > None (auto-detect)."""
+        # 1. Explicit override (user typed "毒舌模式")
+        if user_id in self._personality_modes:
+            return self._personality_modes[user_id]
+        # 2. Learned preference (from feedback)
+        if self.preference_dao:
+            prefs = self.preference_dao.get(user_id)
+            if prefs.is_mature:
+                return prefs.preferred_style
+        # 3. Auto-detect from message
+        return None
 
     def _set_personality_mode(self, user_id: str, mode: str):
         """Set user's personality mode."""
@@ -121,6 +134,77 @@ class MessageHandler:
                 if kw in msg:
                     return mode
         return None
+
+    # ============================================================
+    # Feedback Learning (F1-F3)
+    # ============================================================
+
+    def _handle_feedback(self, msg: str, user_id: str) -> str:
+        """Handle 👍/👎 feedback — learn user preferences."""
+        is_positive = msg in ("👍", "好评", "准", "good")
+        is_negative = msg in ("👎", "差评", "不准", "bad")
+        if not is_positive and not is_negative:
+            return "收到你的反馈啦～有什么想问的尽管说！"
+
+        if not self.preference_dao:
+            return "感谢反馈！" if is_positive else "收到，我会继续改进的～"
+
+        try:
+            # Get current context for learning
+            prefs = self.preference_dao.get(user_id)
+            current_style = self._get_personality_mode(user_id) or prefs.preferred_style or ""
+
+            # Detect topic from last conversation
+            last_topic = ""
+            if self.session_dao:
+                history = self.session_dao.get_context_for_llm(user_id, history_limit=5)
+                last_msgs = " ".join(m.get("content", "") for m in history if m.get("role") == "user")
+                last_topic = self.preference_dao.detect_topic(last_msgs)
+
+            # Learn!
+            updated = self.preference_dao.learn(
+                user_id, is_positive,
+                style=current_style,
+                topic=last_topic,
+            )
+
+            if is_positive:
+                reply = "感谢认可！"
+            else:
+                reply = "收到反馈，我会调整的～"
+
+            if updated.is_mature and updated.accuracy_pct is not None:
+                reply += f"\n📊 你的认可率：{updated.accuracy_pct}%（{updated.feedback_count}次反馈）"
+
+            return reply
+        except Exception:
+            return "感谢反馈！" if is_positive else "收到，会继续改进～"
+
+    def _add_feedback_prompt(self, reply: str, personality_mode: str = None) -> str:
+        """Append natural feedback prompt matching the personality style."""
+        prompts = {
+            "sassy": "\n\n———\n💅 说得有没有道理？👍 夸我  👎 骂我（我记着，下次改）",
+            "analyst": "\n\n———\n📊 这个分析对你有帮助吗？👍 有帮助  👎 不太准",
+            "gentle": "\n\n———\n🌷 希望这些对你有帮助～如果觉得有用就点个 👍，不满意就点 👎，我会努力做得更好",
+        }
+        prompt = prompts.get(personality_mode, prompts["sassy"])
+        return reply + prompt
+
+    def _get_preference_hint(self, user_id: str) -> str:
+        """Get preference hint for LLM prompt injection. Empty if not mature."""
+        if not self.preference_dao:
+            return ""
+        prefs = self.preference_dao.get(user_id)
+        return prefs.to_prompt_hint()
+
+    def _get_preferred_max_tokens(self, user_id: str) -> int:
+        """Get preferred max_tokens based on user's length preference."""
+        if not self.preference_dao:
+            return 500
+        prefs = self.preference_dao.get(user_id)
+        if prefs.is_mature and prefs.prefer_short:
+            return 250
+        return 500
 
     # ============================================================
     # AI Message Analysis — emotion + intent in ONE call (no keywords)
@@ -149,6 +233,10 @@ class MessageHandler:
     def process(self, message: str, user_id: str) -> str:
         """处理用户消息，返回回复"""
         msg = message.strip()
+
+        # Step -1: 反馈检测 (👍/👎) — learn from user feedback
+        if msg in ("👍", "👎", "好评", "差评", "准", "不准", "good", "bad") or msg.startswith("👍") or msg.startswith("👎"):
+            return self._handle_feedback(msg, user_id)
 
         # Step 0: 人格切换检查
         switch_mode = self._detect_personality_switch(msg)
@@ -579,6 +667,10 @@ class MessageHandler:
         followup = self._gen_followup_questions(result, question)
         if followup:
             reply += "\n\n" + followup
+
+        # 10. 反馈提示 (F3)
+        personality = self._get_personality_mode(user_id) or "sassy"
+        reply = self._add_feedback_prompt(reply, personality)
 
         return reply
 
@@ -1333,6 +1425,9 @@ class MessageHandler:
 
         # 所有其他消息 → 用 LLM 自然对话
         try:
+            # Build preference hint for LLM (F2)
+            pref_hint = self._get_preference_hint(user_id)
+
             # Build emotional context hint for the LLM
             emotion_hint = ""
             if emotion_label:
@@ -1345,21 +1440,27 @@ class MessageHandler:
                 }
                 emotion_hint = emotion_hints.get(emotion_label, "")
 
+            # Combine all hints: preferences + emotion
+            combined_hint = ""
+            if pref_hint:
+                combined_hint = pref_hint
+            if emotion_hint:
+                combined_hint = combined_hint + "\n" + emotion_hint if combined_hint else emotion_hint
+
             if self.session_dao:
                 # 加载最近对话历史，传给LLM以获得上下文感知的回复
                 history = self.session_dao.get_context_for_llm(user_id, history_limit=15)
                 if len(history) > 1:
-                    if emotion_hint:
-                        # Inject emotion hint as a system-level instruction in the last user message
+                    if combined_hint:
                         history[-1] = {
                             "role": "user",
-                            "content": history[-1]["content"] + f"\n\n{emotion_hint}"
+                            "content": history[-1]["content"] + f"\n\n{combined_hint}"
                         }
                     return self.llm.chat_conversation(history, personality_mode=self._get_personality_mode(user_id))
             # 无历史或历史不足时，用单消息模式
             chat_msg = msg
-            if emotion_hint:
-                chat_msg = msg + f"\n\n{emotion_hint}"
+            if combined_hint:
+                chat_msg = msg + f"\n\n{combined_hint}"
             result = self.llm.chat(chat_msg, personality_mode=self._get_personality_mode(user_id))
             return result.response
         except Exception:
