@@ -4,7 +4,7 @@ from typing import List, Union
 import httpx
 import json
 
-from .prompts import SYSTEM_PROMPT, CHAT_PROMPT, USER_CONTEXT_TEMPLATE
+from .prompts import PERSONALITY_PROMPTS, CHAT_PROMPT, USER_CONTEXT_TEMPLATE
 from src.engines.bazi import BaziResult
 from src.rag.retriever import ChunkResult
 
@@ -26,13 +26,14 @@ class FortuneLLM:
         self.deep_model = deep_model  # 深度模型 (命理分析)
         self.provider = provider
 
-    def chat(self, user_message: str) -> AnalysisResult:
+    def chat(self, user_message: str, personality_mode: str = "sassy") -> AnalysisResult:
         """自由对话 - 用快速模型（V4 Flash），轻量人设提示。"""
         return self._call_deepseek_model(user_message, self.model, max_tokens=300,
                                          custom_prompt=CHAT_PROMPT)
 
-    def chat_conversation(self, history: list) -> str:
+    def chat_conversation(self, history: list, personality_mode: str = "sassy") -> str:
         """多轮对话 - 带完整上下文的自然聊天。"""
+        system_prompt = PERSONALITY_PROMPTS.get(personality_mode, PERSONALITY_PROMPTS["sassy"])
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -53,6 +54,7 @@ class FortuneLLM:
         chart_data: Union[BaziResult, str],
         references: List[ChunkResult],
         user_question: str,
+        personality_mode: str = "sassy",
     ) -> AnalysisResult:
         """命理分析 - 用深度模型（V4 Pro），推理更强。"""
         if isinstance(chart_data, str):
@@ -66,7 +68,9 @@ class FortuneLLM:
             references=refs_str,
             question=user_question,
         )
-        return self._call_deepseek_model(user_message, self.deep_model, max_tokens=2000)
+        system_prompt = PERSONALITY_PROMPTS.get(personality_mode, PERSONALITY_PROMPTS["sassy"])
+        return self._call_deepseek_model(user_message, self.deep_model, max_tokens=2000,
+                                         custom_prompt=system_prompt)
 
     def _call_deepseek_model(self, user_message: str, model: str, max_tokens: int = 500,
                              use_system_prompt: bool = True,
@@ -80,7 +84,8 @@ class FortuneLLM:
         if custom_prompt:
             messages.append({"role": "system", "content": custom_prompt})
         elif use_system_prompt:
-            messages.append({"role": "system", "content": SYSTEM_PROMPT})
+            prompt = PERSONALITY_PROMPTS.get("sassy", "")
+            messages.append({"role": "system", "content": prompt})
         messages.append({"role": "user", "content": user_message})
         payload = {
             "model": model,

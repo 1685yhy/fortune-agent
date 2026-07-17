@@ -60,6 +60,16 @@ BAZI_EXTRACT_PATTERNS = [
 class MessageHandler:
     """消息处理器"""
 
+    # Personality switching keywords
+    PERSONALITY_SWITCH_KEYWORDS = {
+        "sassy": ["毒舌", "犀利", "闺蜜", "嘴毒", "毒舌闺蜜", "换个风格", "换风格"],
+        "analyst": ["分析师", "理性", "数据", "专业", "严谨", "客观模式"],
+        "gentle": ["温柔", "暖心", "陪伴", "温和", "温暖", "温柔一点"],
+    }
+
+    # Banned words to filter from LLM responses
+    BANNED_WORDS = ["小友", "老夫", "老朽", "老夫观你", "老夫为你"]
+
     def __init__(
         self,
         engine: BaziEngine,
@@ -85,10 +95,94 @@ class MessageHandler:
         self.llm = llm
         self.dao = dao
         self.session_dao = session_dao
+        self._personality_modes = {}  # user_id -> mode string
+
+    # ============================================================
+    # Personality Mode Management
+    # ============================================================
+
+    def _get_personality_mode(self, user_id: str) -> str:
+        """Get user's current personality mode (default: sassy)."""
+        return self._personality_modes.get(user_id, "sassy")
+
+    def _set_personality_mode(self, user_id: str, mode: str):
+        """Set user's personality mode."""
+        valid_modes = {"sassy", "analyst", "gentle"}
+        if mode in valid_modes:
+            self._personality_modes[user_id] = mode
+
+    def _detect_personality_switch(self, msg: str):
+        """Check if user wants to switch personality mode. Returns mode name or None."""
+        for mode, keywords in self.PERSONALITY_SWITCH_KEYWORDS.items():
+            for kw in keywords:
+                if kw in msg:
+                    return mode
+        return None
+
+    # ============================================================
+    # Emotional Soothing (pre-response)
+    # ============================================================
+
+    def _soothe(self, user_message: str) -> str:
+        """Return a brief, modern emotional acknowledgment BEFORE analysis.
+
+        Detects emotional keywords and returns 1-2 sentences of validation.
+        Returns empty string if no emotional content detected.
+        """
+        # Emotional keyword groups
+        anxiety_keywords = ["焦虑", "担心", "害怕", "紧张", "烦", "累", "压力"]
+        confusion_keywords = ["纠结", "不知道", "怎么办", "迷茫", "困惑", "想不通"]
+        sadness_keywords = ["难过", "伤心", "哭", "失落", "失望", "痛苦", "孤独"]
+        anger_keywords = ["生气", "愤怒", "火大", "不爽", "烦死了", "受不了"]
+
+        has_anxiety = any(kw in user_message for kw in anxiety_keywords)
+        has_confusion = any(kw in user_message for kw in confusion_keywords)
+        has_sadness = any(kw in user_message for kw in sadness_keywords)
+        has_anger = any(kw in user_message for kw in anger_keywords)
+
+        if has_anxiety:
+            return "感到焦虑是人之常情，尤其是在面对不确定的事情时。给自己一点空间，一切都会慢慢清晰起来 ✨"
+        if has_confusion:
+            return "做选择确实很难。很多人面对类似的情况都会纠结，这很正常 ✨"
+        if has_sadness:
+            return "你现在的感受我完全理解。允许自己难过，也是一种勇气。我陪你一起看看命盘怎么说 🌷"
+        if has_anger:
+            return "遇到这种事确实让人火大。先深呼吸，让自己缓一缓，我们再一起来看看怎么化解 👊"
+
+        return ""
+
+    # ============================================================
+    # Banned Words Filter
+    # ============================================================
+
+    def _filter_banned_words(self, text: str) -> str:
+        """Filter out banned words from LLM responses and log warnings."""
+        import logging
+        logger = logging.getLogger(__name__)
+        for word in self.BANNED_WORDS:
+            if word in text:
+                logger.warning(f"LLM response contained banned word '{word}'")
+                text = text.replace(word, "你")
+        return text
 
     def process(self, message: str, user_id: str) -> str:
         """处理用户消息，返回回复"""
         msg = message.strip()
+
+        # Step 0: 人格切换检查
+        switch_mode = self._detect_personality_switch(msg)
+        if switch_mode:
+            self._set_personality_mode(user_id, switch_mode)
+            mode_names = {
+                "sassy": "毒舌闺蜜 👄",
+                "analyst": "理性分析师 📊",
+                "gentle": "温柔陪伴者 🌷",
+            }
+            name = mode_names.get(switch_mode, switch_mode)
+            return f"好的，已切换到{name}模式！有什么想问的尽管说~"
+
+        # Step 0.5: 情绪安抚（在所有分析之前）
+        soothe = self._soothe(msg)
 
         # Step 1: 意图识别
         intent = self._detect_intent(msg)
@@ -102,6 +196,10 @@ class MessageHandler:
             # Save bot reply to session
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply)
+            # Apply banned words filter and prepend soothe
+            reply = self._filter_banned_words(reply)
+            if soothe:
+                reply = soothe + "\n\n" + reply
             return reply
 
         # Step 2: 路由到对应处理器
@@ -130,6 +228,11 @@ class MessageHandler:
         # Save bot reply to session
         if self.session_dao:
             self.session_dao.add_message(user_id, "assistant", reply, intent=intent)
+
+        # Apply banned words filter and prepend emotional soothing
+        reply = self._filter_banned_words(reply)
+        if soothe:
+            reply = soothe + "\n\n" + reply
 
         return reply
 
@@ -391,7 +494,7 @@ class MessageHandler:
         refs = self.retriever.search(search_query, category="bazi", top_k=15)
 
         # 5. LLM分析
-        analysis = self.llm.analyze(result, refs, question)
+        analysis = self.llm.analyze(result, refs, question, personality_mode=self._get_personality_mode(user_id))
 
         # 6. 生成命盘图片
         chart_url = ""
@@ -442,8 +545,8 @@ class MessageHandler:
         """生成即时情绪安抚回复——在LLM深度分析前先给用户一个暖心的回应。
 
         格式：
-        [秒回] 小友，你的八字排出来了，命盘是【...】，日主为...。
-        老夫正在仔细推演你的大运流年，请容我片刻。
+        你的八字排出来了，命盘是【...】，日主为...。
+        正在仔细推演你的大运流年，稍等一下~
         先告诉你一个好消息：...。
         """
         try:
@@ -481,13 +584,13 @@ class MessageHandler:
                         positive = f"你五行{strongest}气较旺，这是你的核心优势"
 
             if not positive:
-                positive = "你的命格别有洞天，待老夫细细道来"
+                positive = "你的命格自有独特之处，等我细细道来"
 
             return (
-                f"[秒回] 小友，你的八字排出来了，"
+                f"你的八字排出来了，"
                 f"命盘是【{bazi_str}】，日主为{dm}。"
-                f"老夫正在仔细推演你的大运流年，请容我片刻。"
-                f"先告诉你一个好消息：{positive}。🍵"
+                f"正在仔细推演你的大运流年，稍等一下~ "
+                f"先告诉你一个好消息：{positive} 🌟"
             )
         except Exception:
             return ""
@@ -534,7 +637,7 @@ class MessageHandler:
             if not refs:
                 refs = self.retriever.search(search_query, top_k=15)  # fallback: any category
             chart_str = self._format_ziwei_chart(result)
-            analysis = self.llm.analyze(chart_str, refs, question)
+            analysis = self.llm.analyze(chart_str, refs, question, personality_mode=self._get_personality_mode(user_id))
 
             # 生成紫微斗数命盘图片
             chart_url = ""
@@ -604,7 +707,7 @@ class MessageHandler:
             if not refs:
                 refs = self.retriever.search(f"六爻 {question}", top_k=15)
             chart_str = self._format_liuyao_chart(result)
-            analysis = self.llm.analyze(chart_str, refs, question)
+            analysis = self.llm.analyze(chart_str, refs, question, personality_mode=self._get_personality_mode(user_id))
             return analysis.response
         except Exception as e:
             return f"⚠️ 六爻起卦暂时不可用：{str(e)[:100]}\n\n请稍后重试。"
@@ -680,7 +783,7 @@ class MessageHandler:
         # 4. LLM分析（带错误处理）
         try:
             chart_str = self._format_fengshui_chart(result)
-            analysis = self.llm.analyze(chart_str, refs, question)
+            analysis = self.llm.analyze(chart_str, refs, question, personality_mode=self._get_personality_mode(user_id))
 
             # 生成风水九宫飞星图
             chart_url = ""
@@ -992,7 +1095,7 @@ class MessageHandler:
         # 4. 构建完整 Prompt 并调用 LLM
         from src.engines.dream import format_dream_prompt
         prompt = format_dream_prompt(dream_text, result, user_context, bazi_info)
-        analysis = self.llm.analyze(prompt, result.interpretations, dream_text)
+        analysis = self.llm.analyze(prompt, result.interpretations, dream_text, personality_mode=self._get_personality_mode(user_id))
 
         # 5. 组合回复
         return self._format_dream_response(dream_text, result, analysis.response)
@@ -1077,9 +1180,9 @@ class MessageHandler:
 
         # 多轮对话：把历史消息传给 LLM
         try:
-            reply = self.llm.chat_conversation(llm_history)
+            reply = self.llm.chat_conversation(llm_history, personality_mode=self._get_personality_mode(user_id))
         except Exception:
-            reply = '老夫在此，小友有何困惑尽管道来。'
+            reply = '我在这里，有什么困惑尽管说。'
 
         # Save assistant reply to session
         if self.session_dao:
@@ -1102,12 +1205,12 @@ class MessageHandler:
                 # 加载最近对话历史，传给LLM以获得上下文感知的回复
                 history = self.session_dao.get_context_for_llm(user_id, history_limit=15)
                 if len(history) > 1:
-                    return self.llm.chat_conversation(history)
+                    return self.llm.chat_conversation(history, personality_mode=self._get_personality_mode(user_id))
             # 无历史或历史不足时，用单消息模式
-            result = self.llm.chat(msg)
+            result = self.llm.chat(msg, personality_mode=self._get_personality_mode(user_id))
             return result.response
         except Exception:
-            return '老夫在此，小友有何困惑尽管道来。若要看八字，请告知您的出生年月日时。'
+            return '我在这里。有什么想问的尽管说。若要看八字，请告知您的出生年月日时。'
 
 def _get_welcome_message() -> str:
     return """🌟 欢迎来到「易理明灯」！
