@@ -18,6 +18,8 @@ class Settings:
     push_time: str = "08:00"
     push_timezone: str = "Asia/Shanghai"
     push_max_users_per_batch: int = 50
+    # Admin
+    admin_key: str = ""
 
 
 def load_settings(config_path: str = "config/settings.yaml") -> Settings:
@@ -45,4 +47,6 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
     import os
     if os.getenv("ANTHROPIC_API_KEY"):
         settings.claude_api_key = os.getenv("ANTHROPIC_API_KEY")
+    if os.getenv("ADMIN_KEY"):
+        settings.admin_key = os.getenv("ADMIN_KEY")
     return settings

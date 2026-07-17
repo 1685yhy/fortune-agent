@@ -449,8 +449,9 @@ class ZiweiEngine:
             stars[star_name] = DIZHI[pos_idx]
 
         # 天府位置: 与紫微对称于寅申线
-        # 天府DIZHI_idx = (4 - 紫微DIZHI_idx) % 12
-        tianfu_idx = (4 - ziwei_idx) % 12
+        # 标准安天府诀: 紫微在寅,天府在辰 → 紫微+天府 ≡ 6 (mod 12)
+        # 天府DIZHI_idx = (6 - 紫微DIZHI_idx) % 12
+        tianfu_idx = (6 - ziwei_idx) % 12
 
         # 天府系 (顺行/顺时针 = +1 in DIZHI index)
         for star_name, offset in TIANFU_XI_STARS:

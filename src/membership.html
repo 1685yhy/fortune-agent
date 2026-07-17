@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>会员中心 - Fortune Agent</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+    background: #0f0f1a;
+    color: #e0e0e0;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem;
+  }
+  .container { max-width: 1100px; width: 100%; }
+  header {
+    text-align: center;
+    margin-bottom: 3rem;
+  }
+  header h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #f5af19, #f12711);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.5rem;
+  }
+  header p {
+    color: #888;
+    font-size: 1.1rem;
+  }
+  .plans {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 3rem;
+  }
+  .plan-card {
+    background: linear-gradient(145deg, #1a1a2e, #16213e);
+    border: 1px solid #2a2a4a;
+    border-radius: 16px;
+    padding: 2rem 1.5rem;
+    text-align: center;
+    transition: transform 0.2s, box-shadow 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .plan-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 30px rgba(245, 175, 25, 0.15);
+  }
+  .plan-card.featured {
+    border-color: #f5af19;
+    box-shadow: 0 0 20px rgba(245, 175, 25, 0.1);
+  }
+  .plan-card.featured::before {
+    content: "推荐";
+    position: absolute;
+    top: 12px;
+    right: -28px;
+    background: #f5af19;
+    color: #0f0f1a;
+    padding: 4px 36px;
+    font-size: 0.75rem;
+    font-weight: 700;
+    transform: rotate(45deg);
+  }
+  .plan-name {
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: #fff;
+  }
+  .plan-price {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #f5af19;
+    margin-bottom: 0.25rem;
+  }
+  .plan-price span {
+    font-size: 1rem;
+    color: #888;
+    font-weight: 400;
+  }
+  .plan-period {
+    color: #888;
+    font-size: 0.9rem;
+    margin-bottom: 1.5rem;
+  }
+  .plan-quota {
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+    font-size: 0.95rem;
+  }
+  .plan-quota strong {
+    color: #fff;
+  }
+  .plan-features {
+    list-style: none;
+    margin-bottom: 1.5rem;
+    text-align: left;
+  }
+  .plan-features li {
+    padding: 0.4rem 0;
+    color: #bbb;
+    font-size: 0.9rem;
+  }
+  .plan-features li::before {
+    content: "✓ ";
+    color: #4ade80;
+    font-weight: 700;
+  }
+  .btn-upgrade {
+    display: inline-block;
+    width: 100%;
+    padding: 0.8rem 1.5rem;
+    border-radius: 8px;
+    border: none;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    text-decoration: none;
+    color: #fff;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+  }
+  .btn-upgrade:hover {
+    opacity: 0.9;
+    transform: scale(1.02);
+  }
+  .btn-upgrade.free {
+    background: #333;
+    cursor: default;
+  }
+  .btn-upgrade.free:hover {
+    transform: none;
+    opacity: 1;
+  }
+  .btn-upgrade.current {
+    background: #2a2a4a;
+    cursor: default;
+  }
+  .btn-upgrade.current:hover {
+    transform: none;
+    opacity: 1;
+  }
+
+  /* Membership Status */
+  .status-card {
+    background: linear-gradient(145deg, #1a1a2e, #16213e);
+    border: 1px solid #2a2a4a;
+    border-radius: 16px;
+    padding: 2rem;
+    margin-bottom: 2rem;
+    text-align: center;
+  }
+  .status-card h2 {
+    margin-bottom: 1rem;
+    color: #fff;
+  }
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .status-item {
+    background: rgba(255,255,255,0.05);
+    border-radius: 10px;
+    padding: 1rem;
+  }
+  .status-item .label {
+    color: #888;
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+  }
+  .status-item .value {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #fff;
+  }
+  .status-item .value.highlight {
+    color: #f5af19;
+  }
+  .quota-bar {
+    background: #2a2a4a;
+    border-radius: 8px;
+    height: 8px;
+    overflow: hidden;
+    margin-top: 0.5rem;
+  }
+  .quota-bar-fill {
+    height: 100%;
+    border-radius: 8px;
+    background: linear-gradient(90deg, #667eea, #764ba2);
+    transition: width 0.3s;
+  }
+  .quota-bar-fill.warning {
+    background: linear-gradient(90deg, #f5af19, #f12711);
+  }
+  .quota-bar-fill.danger {
+    background: #f12711;
+  }
+  #userInput {
+    display: flex;
+    gap: 0.5rem;
+    max-width: 400px;
+    margin: 0 auto 1rem;
+  }
+  #userInput input {
+    flex: 1;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    border: 1px solid #2a2a4a;
+    background: #1a1a2e;
+    color: #fff;
+    font-size: 0.95rem;
+  }
+  #userInput input::placeholder { color: #666; }
+  #userInput button {
+    padding: 0.6rem 1.2rem;
+    border-radius: 8px;
+    border: none;
+    background: #667eea;
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #userInput button:hover { opacity: 0.9; }
+
+  .toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 10px;
+    padding: 1rem 1.5rem;
+    color: #fff;
+    font-size: 0.95rem;
+    z-index: 100;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: all 0.3s;
+    display: none;
+  }
+  .toast.show {
+    opacity: 1;
+    transform: translateY(0);
+    display: block;
+  }
+  .toast.success { border-color: #4ade80; }
+  .toast.error { border-color: #f12711; }
+
+  footer {
+    margin-top: 2rem;
+    color: #555;
+    font-size: 0.85rem;
+    text-align: center;
+  }
+  .loading {
+    display: inline-block;
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.3);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+    vertical-align: middle;
+    margin-right: 0.5rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>✦ 天机会员</h1>
+    <p>解锁更多命理分析，深度洞见人生</p>
+  </header>
+
+  <!-- Login / User -->
+  <div id="userInput">
+    <input type="text" id="userId" placeholder="输入用户ID (如: user001)" value="demo_user">
+    <button onclick="loadMembership()">查询</button>
+  </div>
+
+  <!-- Status Card -->
+  <div id="statusCard" class="status-card" style="display:none;">
+    <h2>我的会员</h2>
+    <div class="status-grid">
+      <div class="status-item">
+        <div class="label">当前计划</div>
+        <div class="value highlight" id="sPlan">-</div>
+      </div>
+      <div class="status-item">
+        <div class="label">已用查询</div>
+        <div class="value" id="sUsed">0</div>
+      </div>
+      <div class="status-item">
+        <div class="label">剩余查询</div>
+        <div class="value" id="sRemaining">0</div>
+      </div>
+      <div class="status-item">
+        <div class="label">到期时间</div>
+        <div class="value" id="sExpires">-</div>
+      </div>
+    </div>
+    <div class="quota-bar">
+      <div class="quota-bar-fill" id="quotaFill" style="width:0%"></div>
+    </div>
+    <p style="margin-top:0.75rem;color:#888;font-size:0.85rem;" id="quotaLabel">查询进度</p>
+  </div>
+
+  <!-- Plans -->
+  <div class="plans" id="plansContainer">
+    <div class="plan-card" data-plan="free">
+      <div class="plan-name">免费版</div>
+      <div class="plan-price">¥0 <span></span></div>
+      <div class="plan-period">每日</div>
+      <div class="plan-quota"><strong>3 次</strong> / 日</div>
+      <ul class="plan-features">
+        <li>基础命理分析</li>
+        <li>八字排盘</li>
+      </ul>
+      <button class="btn-upgrade free" id="btn-free">当前计划</button>
+    </div>
+
+    <div class="plan-card featured" data-plan="basic">
+      <div class="plan-name">基础版</div>
+      <div class="plan-price">¥19.9 <span>/ 月</span></div>
+      <div class="plan-period">月付 · 自动续费</div>
+      <div class="plan-quota"><strong>50 次</strong> / 月</div>
+      <ul class="plan-features">
+        <li>完整命理分析</li>
+        <li>专业图表展示</li>
+        <li>紫微斗数 / 奇门遁甲</li>
+      </ul>
+      <button class="btn-upgrade" id="btn-basic" onclick="upgrade('basic')">升级基础版</button>
+    </div>
+
+    <div class="plan-card" data-plan="pro">
+      <div class="plan-name">专业版</div>
+      <div class="plan-price">¥39.9 <span>/ 月</span></div>
+      <div class="plan-period">月付 · 自动续费</div>
+      <div class="plan-quota"><strong>150 次</strong> / 月</div>
+      <ul class="plan-features">
+        <li>专业版所有功能</li>
+        <li>PDF报告导出</li>
+        <li>风水 / 面相分析</li>
+        <li>合婚匹配</li>
+      </ul>
+      <button class="btn-upgrade" id="btn-pro" onclick="upgrade('pro')">升级专业版</button>
+    </div>
+
+    <div class="plan-card" data-plan="annual">
+      <div class="plan-name">年度版</div>
+      <div class="plan-price">¥168 <span>/ 年</span></div>
+      <div class="plan-period">年付 · 超值优惠</div>
+      <div class="plan-quota"><strong>150 次</strong> / 月</div>
+      <ul class="plan-features">
+        <li>专业版所有功能</li>
+        <li>PDF报告导出</li>
+        <li>每周运势推送</li>
+        <li>优先客服支持</li>
+      </ul>
+      <button class="btn-upgrade" id="btn-annual" onclick="upgrade('annual')">升级年度版</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <footer>Fortune Agent &copy; 2024 · 命理分析仅供娱乐参考</footer>
+</div>
+
+<script>
+let currentUser = 'demo_user';
+
+async function loadMembership() {
+  const userId = document.getElementById('userId').value.trim() || 'demo_user';
+  currentUser = userId;
+  document.getElementById('statusCard').style.display = 'block';
+
+  try {
+    const res = await fetch(`/api/membership/${encodeURIComponent(userId)}`);
+    const data = await res.json();
+    renderStatus(data);
+  } catch (e) {
+    showToast('查询会员信息失败', 'error');
+  }
+}
+
+function renderStatus(data) {
+  document.getElementById('sPlan').textContent = data.plan_label || data.plan || '免费版';
+  document.getElementById('sUsed').textContent = data.queries_used || 0;
+  document.getElementById('sRemaining').textContent = data.queries_remaining ?? '∞';
+  document.getElementById('sExpires').textContent = data.expires_at ? data.expires_at.split('T')[0] : '永久';
+
+  // Quota bar
+  const limit = data.queries_limit;
+  const used = data.queries_used || 0;
+  const fill = document.getElementById('quotaFill');
+  const label = document.getElementById('quotaLabel');
+
+  if (limit) {
+    const pct = Math.min(100, (used / limit) * 100);
+    fill.style.width = pct + '%';
+    fill.className = 'quota-bar-fill' + (pct > 80 ? ' danger' : pct > 60 ? ' warning' : '');
+    label.textContent = `使用进度: ${used} / ${limit} (${Math.round(pct)}%)`;
+  } else {
+    fill.style.width = '0%';
+    label.textContent = '无限查询';
+  }
+
+  // Update button states
+  const plan = data.plan || 'free';
+  ['free','basic','pro','annual'].forEach(p => {
+    const btn = document.getElementById('btn-' + p);
+    if (!btn) return;
+    if (p === plan) {
+      btn.textContent = '当前计划';
+      btn.className = 'btn-upgrade current';
+    } else if (p === 'free') {
+      btn.textContent = '当前计划';
+      btn.className = 'btn-upgrade free';
+    } else {
+      btn.textContent = {basic:'升级基础版',pro:'升级专业版',annual:'升级年度版'}[p];
+      btn.className = 'btn-upgrade';
+    }
+  });
+}
+
+async function upgrade(plan) {
+  const userId = currentUser || document.getElementById('userId').value.trim() || 'demo_user';
+  const btn = document.getElementById('btn-' + plan);
+  const origText = btn.textContent;
+  btn.innerHTML = '<span class="loading"></span>处理中...';
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/membership/${encodeURIComponent(userId)}/upgrade?plan=${plan}`, { method: 'POST' });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      showToast(`✅ ${data.message}`, 'success');
+      await loadMembership();
+    } else {
+      showToast('❌ 升级失败: ' + (data.detail || '未知错误'), 'error');
+    }
+  } catch (e) {
+    showToast('❌ 网络错误', 'error');
+  } finally {
+    btn.innerHTML = origText;
+    btn.disabled = false;
+  }
+}
+
+function showToast(msg, type) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + (type || '');
+  setTimeout(() => { el.className = 'toast'; }, 3000);
+}
+
+// Auto load on page load
+loadMembership();
+</script>
+</body>
+</html>

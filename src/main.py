@@ -1,3 +1,4 @@
+from pathlib import Path
 """Fortune Agent - FastAPI 主入口."""
 import asyncio
 import logging
@@ -5,7 +6,8 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Depends, Header
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from .config import load_settings
@@ -15,12 +17,15 @@ from .engines.liuyao import LiuyaoEngine
 from .engines.fengshui import FengshuiEngine
 from .engines.mianxiang import MianxiangEngine
 from .engines.zeri import ZeriEngine
+from .engines.dream import DreamEngine
 from .rag.embedder import Embedder
 from .rag.retriever import Retriever
 from .llm.client import FortuneLLM
 from .bot.handler import MessageHandler
 from .bot.formatter import split_long_message
 from .storage.dao import UserDAO
+from .storage.member_dao import MemberDAO
+from .storage.session_dao import SessionDAO
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +37,14 @@ liuyao_engine = None
 fengshui_engine = None
 mianxiang_engine = None
 zeri_engine = None
+dream_engine = None
 embedder = None
 retriever = None
 dao = None
 handler = None
 llm = None
+member_dao = None
+session_dao = None
 _push_task = None  # 后台推送任务
 
 
@@ -72,8 +80,8 @@ async def _daily_push_worker():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
-    global mianxiang_engine, zeri_engine, embedder, retriever, dao, llm, handler
-    global _push_task
+    global mianxiang_engine, zeri_engine, dream_engine, embedder, retriever, dao, llm, handler
+    global _push_task, member_dao, session_dao
 
     # 配置日志
     logging.basicConfig(
@@ -88,13 +96,17 @@ async def lifespan(app: FastAPI):
     fengshui_engine = FengshuiEngine()
     mianxiang_engine = MianxiangEngine()
     zeri_engine = ZeriEngine()
+    dream_engine = DreamEngine()
     embedder = Embedder(model_name=settings.embedding_model)
     retriever = Retriever(str(settings.vectordb_dir), embedder)
     dao = UserDAO(str(settings.db_path))
+    member_dao = MemberDAO(str(settings.db_path))
+    session_dao = SessionDAO(str(settings.db_path))
     llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-v4-flash", deep_model="deepseek-v4-pro", provider="deepseek")
     handler = MessageHandler(
         engine, ziwei_engine, liuyao_engine, fengshui_engine,
-        mianxiang_engine, zeri_engine, retriever, llm, dao,
+        mianxiang_engine, zeri_engine, retriever, llm, dao, dream_engine=dream_engine,
+        session_dao=session_dao,
     )
 
     # 启动后台推送任务
@@ -129,13 +141,28 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     parts: Optional[list] = None  # 拆分后的多条消息
+    membership: Optional[dict] = None  # 用户会员信息
 
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest) -> ChatResponse:
-    """聊天接口"""
-    if handler is None:
+    """聊天接口 - 包含会员配额检查"""
+    if handler is None or member_dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
+
+    # 配额检查
+    if not member_dao.check_quota(req.user_id):
+        membership = member_dao.get_membership(req.user_id)
+        plan = membership.get("plan", "free")
+        return ChatResponse(
+            reply=f"⚠️ 今日查询次数已用尽。\n"
+                  f"当前计划：{membership.get('plan_label', '免费版')}\n"
+                  f"已用次数：{membership.get('queries_used', 0)}\n"
+                  f"上限：{membership.get('queries_limit', 3)}\n\n"
+                  f"💡 升级会员可获得更多查询次数："
+                  f"基础版¥19.9/月(50次)，专业版¥39.9/月(150次)",
+            membership=membership,
+        )
 
     try:
         if req.message_type == "voice":
@@ -148,12 +175,21 @@ async def chat(req: ChatRequest) -> ChatResponse:
         else:
             reply = handler.process(req.message, req.user_id)
 
+        # 成功响应后扣减配额
+        member_dao.use_quota(req.user_id)
+
         parts = split_long_message(reply)
-        return ChatResponse(reply=reply, parts=parts)
+        membership = member_dao.get_membership(req.user_id)
+
+        return ChatResponse(reply=reply, parts=parts, membership=membership)
     except Exception as e:
         import traceback
         logger.error(f"处理请求失败: {traceback.format_exc()}")
-        return ChatResponse(reply=f"⚠️ 处理出错：{str(e)}\n请稍后重试。")
+        membership = member_dao.get_membership(req.user_id)
+        return ChatResponse(
+            reply=f"⚠️ 处理出错：{str(e)}\n请稍后重试。",
+            membership=membership,
+        )
 
 
 @app.get("/api/health")
@@ -218,10 +254,93 @@ async def update_push_settings(
     return {"status": "ok", "user_id": user_id}
 
 
+# ──────────────────────────────────────────
+# Membership/Payment API
+# ──────────────────────────────────────────
+
+def _verify_admin(authorization: str = Header("")) -> bool:
+    """Verify admin key from Authorization header."""
+    expected = getattr(settings, "admin_key", "") or ""
+    if not expected:
+        return True  # no key configured = allow
+    return authorization == f"Bearer {expected}"
+
+
+@app.get("/api/membership/{user_id}")
+async def get_membership(user_id: str):
+    """获取用户会员信息"""
+    if member_dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    return member_dao.get_membership(user_id)
+
+
+@app.post("/api/membership/{user_id}/upgrade")
+async def upgrade_membership(user_id: str, plan: str = Query(..., description="free/basic/pro/annual")):
+    """升级会员计划 (模拟支付)"""
+    if member_dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    from .storage.member_dao import PLANS
+    if plan not in PLANS:
+        raise HTTPException(status_code=400, detail=f"无效计划: {plan}。可选: {', '.join(PLANS.keys())}")
+
+    plan_info = PLANS[plan]
+    if plan == "free":
+        # Reset to free
+        member_dao.create_membership(user_id, "free")
+        return {"status": "ok", "message": "已切换回免费版", "plan": plan}
+
+    # Simulate payment
+    payment_id = member_dao.create_payment(
+        user_id=user_id,
+        amount=plan_info["price"],
+        plan=plan,
+        payment_method="模拟支付",
+    )
+    # Auto-confirm for simulation
+    member_dao.confirm_payment(payment_id, user_id, plan)
+
+    membership = member_dao.get_membership(user_id)
+    return {
+        "status": "ok",
+        "message": f"已升级至 {plan_info['label']}！",
+        "payment_id": payment_id,
+        "amount": plan_info["price"],
+        "membership": membership,
+    }
+
+
+@app.get("/api/admin/stats")
+async def admin_stats(authorization: str = Header("")):
+    """管理员统计 - 需要 admin_key"""
+    if not _verify_admin(authorization):
+        raise HTTPException(status_code=403, detail="Forbidden: invalid admin key")
+    if member_dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    return member_dao.get_stats()
+
+
+@app.get("/api/admin/active-members")
+async def admin_active_members(authorization: str = Header("")):
+    """列出所有活跃付费会员 - 需要 admin_key"""
+    if not _verify_admin(authorization):
+        raise HTTPException(status_code=403, detail="Forbidden: invalid admin key")
+    if member_dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    return {"members": member_dao.list_active_members()}
+
+
+@app.get("/membership")
+async def membership_page():
+    """会员价格页面"""
+    html = Path(__file__).parent / "membership.html"
+    if html.exists():
+        return HTMLResponse(html.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>会员页面未找到</h1>", status_code=404)
+
 
 @app.get("/")
 async def home():
-    from fastapi.responses import HTMLResponse
     from pathlib import Path
     html = Path(__file__).parent / "index.html"
     return HTMLResponse(html.read_text(encoding="utf-8"))
