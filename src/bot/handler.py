@@ -381,22 +381,20 @@ class MessageHandler:
         parsed = self._extract_bazi_info(msg)
 
         if parsed is None:
-            # 检查是否有已保存的信息
+            # 检查是否有已保存的信息 — 自动复用
             saved = self.dao.get_user_bazi(user_id)
             if saved:
-                return self._do_bazi_analysis(
+                # AI generates a brief acknowledgment that we're using saved info
+                ack = self._gen_reuse_acknowledgment(msg, saved)
+                result = self._do_bazi_analysis(
                     saved["year"], saved["month"], saved["day"],
                     saved["hour"], saved["minute"], saved["city"],
                     saved["gender"], msg, user_id,
                 )
+                return ack + "\n\n" + result if ack else result
 
-            return """好的，请提供以下信息：
-📅 出生日期：年/月/日（阳历还是阴历？）
-⏰ 出生时间：几点几分
-📍 出生地点：省份/城市
-👤 性别：男/女
-
-💡 示例：1990年5月20日 下午3点 北京 男"""
+            # AI generates contextual info-collection prompt
+            return self._gen_info_collection_prompt(msg)
 
         year, month, day, hour, minute, city, gender = parsed
         return self._do_bazi_analysis(
@@ -576,7 +574,88 @@ class MessageHandler:
             reply += f"\n\n📊 命盘图片：{chart_url}"
         if instant_reply:
             reply = instant_reply + "\n\n---\n\n" + reply
+
+        # 9. AI 生成下文引导（替代硬编码的「还想了解什么？」）
+        followup = self._gen_followup_questions(result, question)
+        if followup:
+            reply += "\n\n" + followup
+
         return reply
+
+    # ------------------------------------------------------------
+    # AI 动态生成辅助方法
+    # ------------------------------------------------------------
+
+    def _quick_flash(self, prompt: str, max_tokens: int = 150, temperature: float = 0.7) -> str:
+        """Helper: single Flash call with error handling."""
+        api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+        if not api_key:
+            return ""
+        try:
+            import httpx
+            resp = httpx.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "deepseek-v4-flash",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                },
+                timeout=15.0,
+            )
+            return resp.json()["choices"][0]["message"]["content"].strip()
+        except Exception:
+            return ""
+
+    def _gen_reuse_acknowledgment(self, msg: str, saved: dict) -> str:
+        """Generate a brief acknowledgment when reusing saved bazi info."""
+        bazi_str = " ".join(saved.get("bazi", ["?"])[:4]) if saved.get("bazi") else ""
+        if not bazi_str:
+            return ""
+        prompt = (
+            f"用户之前已提供过八字信息（{bazi_str}），现在用户问：「{msg}」。\n"
+            "请用15字以内的现代中文，自然地告诉用户「基于你之前的八字信息来看...」。\n"
+            "不要用「小友」「老夫」。直接返回一句话，不要引号不要JSON。"
+        )
+        return self._quick_flash(prompt, max_tokens=60)
+
+    def _gen_info_collection_prompt(self, msg: str) -> str:
+        """AI generates contextual info-collection prompt based on what user said."""
+        prompt = (
+            f"用户说：「{msg}」，想了解八字命理但还没提供出生信息。\n"
+            "请生成一段友善的引导，请用户提供：出生年月日时、出生地、性别。\n"
+            "风格：像朋友一样自然，不要死板。给出一个具体示例。\n"
+            "用现代中文，不要用「小友」「老夫」。50-80字。\n"
+            "直接返回文本，不要引号不要JSON。"
+        )
+        result = self._quick_flash(prompt, max_tokens=120)
+        return result or ("好的，想帮你看看八字～请告诉我：\n"
+                          "📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n"
+                          "📍 出生城市\n👤 性别\n\n"
+                          "💡 示例：1990年5月20日 下午3点 北京 男")
+
+    def _gen_followup_questions(self, result, question: str) -> str:
+        """AI generates 1-2 natural follow-up questions after analysis."""
+        bazi = getattr(result, "bazi", None)
+        dm = getattr(result, "day_master", "")
+        geju = getattr(result, "geju", "")
+        bazi_str = " ".join(bazi[:4]) if isinstance(bazi, (list, tuple)) and len(bazi) >= 4 else ""
+
+        if not bazi_str:
+            return ""
+
+        prompt = (
+            f"刚给用户做了八字分析：{bazi_str}，日主{dm}，格局{geju}。\n"
+            f"用户关心：「{question}」。\n"
+            "请生成1-2个自然的下文引导问题，帮用户继续深入探索。\n"
+            "风格：像朋友聊天一样自然，不要机械。例如：\n"
+            "- 「要不要帮你看看下个月的整体运势？」\n"
+            "- 「想了解一下你的桃花运在哪个大运最旺吗？」\n"
+            "用现代中文，不要用「小友」「老夫」。15-30字。\n"
+            "直接返回文本，不要引号不要JSON。格式：💬 还想了解：..."
+        )
+        return self._quick_flash(prompt, max_tokens=120, temperature=0.9)
 
     # ------------------------------------------------------------
     # 秒回安抚 (Instant Emotional Reply) — AI-generated
@@ -622,21 +701,9 @@ class MessageHandler:
                 "直接返回开场白文本，不要引号不要JSON。"
             )
 
-            api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
-            if api_key:
-                import httpx
-                resp = httpx.post(
-                    "https://api.deepseek.com/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={
-                        "model": "deepseek-v4-flash",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": 150,
-                        "temperature": 0.8,
-                    },
-                    timeout=15.0,
-                )
-                return resp.json()["choices"][0]["message"]["content"].strip()
+            text = self._quick_flash(prompt, max_tokens=150, temperature=0.8)
+            if text:
+                return text
         except Exception:
             pass
 
@@ -1273,7 +1340,7 @@ class MessageHandler:
                     "heartbreak": "【重要】用户正在经历感情创伤，请优先给予共情和情感支持。先安抚情绪，再谈其他。不要一上来就索要出生信息。",
                     "sadness": "【重要】用户情绪低落，请先给予温暖的理解和陪伴。不要急于索要信息。",
                     "anxiety": "用户感到焦虑不安，请给出踏实、具体的建议帮助缓解。先共情，再给方案。",
-                    "confusion": "用户在做艰难的选择，请帮助他们理清思路。给方向感而非施加更多压力。",
+                    "confusion": "用户在艰难选择中，请直接给建议和方法帮他们理清思路。绝对不要索要出生信息或八字。",
                     "anger": "用户感到愤怒不平，请先认可他们的感受，再引导理性看待。",
                 }
                 emotion_hint = emotion_hints.get(emotion_label, "")
