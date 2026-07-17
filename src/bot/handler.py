@@ -267,6 +267,16 @@ class MessageHandler:
         if self.session_dao:
             self.session_dao.add_message(user_id, "user", msg, intent=analysis.intent)
 
+        # H1: 心事树洞 — user sharing a story (overrides fortune intent when no birth info)
+        if analysis.is_sharing:
+            # Only skip confidant if user explicitly provides birth date info
+            has_birth_info = bool(re.search(r'\d{4}\s*[年/-]', msg))
+            if not has_birth_info:
+                reply = self._handle_confidant(msg, user_id, analysis)
+                if self.session_dao:
+                    self.session_dao.add_message(user_id, "assistant", reply)
+                return reply
+
         if analysis.intent is None:
             reply = self._free_chat(msg, user_id, emotion_label=analysis.emotion_label)
             if self.session_dao:
@@ -1459,6 +1469,96 @@ class MessageHandler:
         lines.append(f"\n📅 回复「7天运势」查看一周预览")
 
         return "\n".join(lines)
+
+    # ============================================================
+    # 心事树洞 — Deep Listening Mode (H1-H3)
+    # ============================================================
+
+    def _handle_confidant(self, msg: str, user_id: str, analysis) -> str:
+        """Deep listening mode: engage with user's story before offering fortune reading.
+
+        Uses a dedicated system prompt (CONFIDANT_PROMPT) that prioritizes
+        understanding and empathy over analysis. The transition to fortune
+        telling happens naturally after 2-3 listening turns.
+        """
+        try:
+            from src.llm.prompts import CONFIDANT_PROMPT
+
+            # Count how many turns of listening this user has had
+            listening_turns = self._get_listening_turns(user_id)
+            self._set_listening_turns(user_id, listening_turns + 1)
+
+            # After 2-3 turns, gently offer transition
+            transition_hint = ""
+            if listening_turns >= 2:
+                transition_hint = (
+                    "\n\n[用户已经分享了{0}轮了。如果感觉用户情绪已经得到一定释放，"
+                    "可以在回复末尾自然地提议：'要不要我从命理角度帮你看看？' "
+                    "但不要强制，给用户选择权。]".format(listening_turns)
+                )
+
+            api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+            if not api_key:
+                return self._free_chat(msg, user_id, emotion_label="sadness")
+
+            import httpx
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            personality = self._get_personality_mode(user_id) or "gentle"
+
+            messages = [
+                {"role": "system", "content": CONFIDANT_PROMPT},
+                {"role": "user", "content": msg + transition_hint},
+            ]
+
+            # Include recent conversation context
+            if self.session_dao:
+                history = self.session_dao.get_context_for_llm(user_id, history_limit=5)
+                if len(history) > 1:
+                    messages = [{"role": "system", "content": CONFIDANT_PROMPT}]
+                    messages.extend(history[-4:])  # last 4 messages
+                    if transition_hint:
+                        messages[-1] = {
+                            "role": "user",
+                            "content": messages[-1]["content"] + transition_hint,
+                        }
+
+            resp = httpx.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                headers=headers,
+                json={
+                    "model": "deepseek-v4-flash",
+                    "messages": messages,
+                    "max_tokens": 400,
+                    "temperature": 0.8,
+                },
+                timeout=30.0,
+            )
+            reply = resp.json()["choices"][0]["message"]["content"]
+
+            # If soothing was detected, prepend it
+            if analysis.needs_soothe and analysis.soothe_text:
+                reply = analysis.soothe_text + "\n\n" + reply
+
+            return reply
+        except Exception:
+            return self._free_chat(msg, user_id, emotion_label="sadness")
+
+    def _get_listening_turns(self, user_id: str) -> int:
+        """Track how many consecutive listening turns a user has had."""
+        if not hasattr(self, '_listening_turns'):
+            self._listening_turns = {}
+        return self._listening_turns.get(user_id, 0)
+
+    def _set_listening_turns(self, user_id: str, count: int):
+        """Update listening turn counter. Reset when > 5 or user switches topic."""
+        if not hasattr(self, '_listening_turns'):
+            self._listening_turns = {}
+        if count > 5:
+            count = 0  # Reset after extended listening
+        self._listening_turns[user_id] = count
 
     # ============================================================
     # 帮助信息

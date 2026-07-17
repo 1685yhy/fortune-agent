@@ -22,6 +22,7 @@ class MessageAnalysis:
     soothe_text: str
     emotion_label: Optional[str]
     intent: Optional[str]  # None = free_chat
+    is_sharing: bool = False  # True = user is telling a personal story
 
 
 COMBINED_PROMPT = """You are a message analyzer for a Chinese fortune-telling AI (易理明灯).
@@ -42,8 +43,13 @@ Rules:
 - Pure emotional expression with NO fortune-telling request = "free_chat"
 - Colloquial fortune-telling: "看下命""算一下""运气怎么样" = "bazi"
 
+## 3. Sharing Detection (心事树洞)
+- is_sharing: true if the user is telling a personal story/experience with emotional content, NOT asking for a specific fortune reading
+- Sharing signals: 70-300 character messages with personal details ("我最近...", "我觉得...", "我经历..."), emotional language, life situations
+- NOT sharing: short greetings, direct fortune requests, birth date info
+
 Return ONLY JSON:
-{"needs_soothe": bool, "soothe_text": "安抚文本或空", "emotion": "情绪标签", "intent": "意图分类"}"""
+{"needs_soothe": bool, "soothe_text": "安抚文本或空", "emotion": "情绪标签", "intent": "意图分类", "is_sharing": bool}"""
 
 
 class MessageAnalyzer:
@@ -128,9 +134,11 @@ class MessageAnalyzer:
                     intent = "free_chat"
                 if needs and not soothe:
                     needs = False
+                is_sharing = bool(data.get("is_sharing", False))
                 return MessageAnalysis(needs_soothe=needs, soothe_text=soothe,
                                        emotion_label=emotion,
-                                       intent=None if intent == "free_chat" else intent)
+                                       intent=None if intent == "free_chat" else intent,
+                                       is_sharing=is_sharing)
             except (json.JSONDecodeError, ValueError, TypeError):
                 pass
         return MessageAnalysis(needs_soothe=False, soothe_text="",
