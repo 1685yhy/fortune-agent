@@ -369,6 +369,8 @@ class AdaptiveAdvisor:
         top_matches: List[dict],
     ) -> str:
         """构建 LLM Prompt。"""
+        from datetime import datetime
+        current_year = datetime.now().year
         # 格式化命盘数据
         bazi_str = " ".join(result.bazi)
         dayun_str = " → ".join(f"{age}岁{ganzhi}" for age, ganzhi in result.dayun[:6])
@@ -415,7 +417,8 @@ class AdaptiveAdvisor:
             ),
         }.get(personality_label, "")
 
-        prompt = f"""你是一位精通子平八字的命理顾问，现在需要为一位用户生成个性化的行动建议。
+        prompt = f"""重要：当前年份是{current_year}年。所有时间建议必须以{current_year}年之后的具体日期为准。
+你是一位精通子平八字的命理顾问，现在需要为一位用户生成个性化的行动建议。
 
 ## 用户命盘数据
 
