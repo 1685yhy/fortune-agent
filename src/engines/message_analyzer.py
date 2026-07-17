@@ -33,11 +33,12 @@ Analyze the user's message and return BOTH:
 - If NOT needs_soothe: soothe_text = ""
 
 ## 2. Intent Classification
-Classify into EXACTLY ONE: bazi, ziwei, liuyao, fengshui, zeri, mianxiang, qimen, xingming, hehun, dream, free_chat
+Classify into EXACTLY ONE: bazi, ziwei, liuyao, fengshui, zeri, mianxiang, qimen, xingming, hehun, dream, calendar, free_chat
 
 Rules:
 - Birth date (year-month-day) = "bazi" regardless of other words
 - Dream description (梦见/梦到/做梦) = "dream"
+- Daily fortune / today's luck requests (今日运势/今天运气/今日宜忌/今天宜忌/今日运程/今日日历/今天适合) = "calendar"
 - Pure emotional expression with NO fortune-telling request = "free_chat"
 - Colloquial fortune-telling: "看下命""算一下""运气怎么样" = "bazi"
 
@@ -122,7 +123,7 @@ class MessageAnalyzer:
                 intent = data.get("intent", "free_chat")
                 valid = {"bazi", "ziwei", "liuyao", "fengshui", "zeri",
                          "mianxiang", "qimen", "xingming", "hehun", "dream",
-                         "advisor", "free_chat"}
+                         "calendar", "advisor", "free_chat"}
                 if intent not in valid:
                     intent = "free_chat"
                 if needs and not soothe:

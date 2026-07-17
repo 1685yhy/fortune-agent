@@ -306,6 +306,103 @@ async def submit_feedback(
     return {"status": "ok", "consultation_id": consultation_id, "feedback": feedback}
 
 
+class CalendarRequest(BaseModel):
+    user_id: str
+    date: Optional[str] = None  # YYYY-MM-DD, default today
+
+
+@app.post("/api/calendar/daily")
+async def get_daily_calendar(req: CalendarRequest):
+    """AI 每日幸运日历 — 基于用户八字个性化生成"""
+    if handler is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    user_id = req.user_id
+
+    # Get user's bazi
+    saved = handler.dao.get_user_bazi(user_id) if handler.dao else None
+    if not saved:
+        return {
+            "status": "no_bazi",
+            "message": "请先设置您的八字信息，才能生成专属日历哦～",
+            "calendar": _generic_calendar(req.date),
+        }
+
+    # Get user preferences
+    preferences = handler._get_preference_hint(user_id) if hasattr(handler, '_get_preference_hint') else ""
+    personality = handler._get_personality_mode(user_id) or "sassy"
+
+    # Get API key
+    api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+
+    try:
+        from .engines.calendar import LuckyCalendar
+        cal = LuckyCalendar(api_key)
+        day = cal.daily(saved, req.date, personality, preferences)
+        return {"status": "ok", "calendar": _calendar_day_to_dict(day)}
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:200],
+                "calendar": _generic_calendar(req.date)}
+
+
+@app.post("/api/calendar/week")
+async def get_week_calendar(req: CalendarRequest):
+    """AI 7天日历预览"""
+    if handler is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    user_id = req.user_id
+    saved = handler.dao.get_user_bazi(user_id) if handler.dao else None
+    if not saved:
+        return {"status": "no_bazi", "message": "请先设置八字信息"}
+
+    preferences = handler._get_preference_hint(user_id) if hasattr(handler, '_get_preference_hint') else ""
+    personality = handler._get_personality_mode(user_id) or "sassy"
+    api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+
+    try:
+        from .engines.calendar import LuckyCalendar
+        cal = LuckyCalendar(api_key)
+        days = cal.week(saved, personality, preferences)
+        return {"status": "ok", "calendar": [_calendar_day_to_dict(d) for d in days]}
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:200]}
+
+
+def _calendar_day_to_dict(day) -> dict:
+    """Convert CalendarDay to JSON-serializable dict."""
+    return {
+        "date": day.date,
+        "day_stem": day.day_stem,
+        "day_branch": day.day_branch,
+        "yi": day.yi,
+        "ji": day.ji,
+        "lucky_color": day.lucky_color,
+        "lucky_direction": day.lucky_direction,
+        "lucky_number": day.lucky_number,
+        "overall_mood": day.overall_mood,
+        "is_special": day.is_special,
+        "special_note": day.special_note,
+    }
+
+
+def _generic_calendar(date_str: str = None) -> dict:
+    """Generic calendar for users without bazi."""
+    if date_str is None:
+        date_str = datetime.now().strftime("%Y-%m-%d")
+    return {
+        "date": date_str,
+        "overall_mood": "保持平和心态，顺势而为",
+        "yi": [{"action": "保持好心情", "time": "全天", "reason": "心态决定运势"}],
+        "ji": [{"action": "冲动决策", "time": "全天", "reason": "冷静再行动"}],
+        "lucky_color": "蓝色",
+        "lucky_direction": "东",
+        "lucky_number": "6",
+        "is_special": False,
+        "special_note": "",
+    }
+
+
 @app.get("/api/stats/predictions")
 async def get_prediction_stats():
     """获取全局预测统计"""

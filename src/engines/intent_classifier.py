@@ -26,6 +26,7 @@ Given a user message, classify it into EXACTLY ONE of these intents:
 - "xingming" — 姓名学, name analysis, 起名, 改名
 - "hehun" — 合婚, relationship compatibility, 配对, 婚姻匹配
 - "dream" — 解梦, dream interpretation, 梦见
+- "calendar" — 今日运势, daily fortune calendar, 每日运势, 今日宜忌, 今天运气, 今日运程
 - "advisor" — 用户需要建议/指导, general life advice (but NOT fortune-telling)
 - "free_chat" — casual chat, greeting, emotional expression, general conversation, 闲聊
 
@@ -115,7 +116,7 @@ class IntentClassifier:
                 intent = data.get("intent", "free_chat")
                 # Validate against known intents
                 valid = {"bazi", "ziwei", "liuyao", "fengshui", "zeri", "mianxiang",
-                         "qimen", "xingming", "hehun", "dream", "advisor", "free_chat"}
+                         "qimen", "xingming", "hehun", "dream", "calendar", "advisor", "free_chat"}
                 if intent in valid:
                     return None if intent == "free_chat" else intent
             except (json.JSONDecodeError, ValueError, TypeError):
