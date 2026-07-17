@@ -44,9 +44,13 @@ Rules:
 - Colloquial fortune-telling: "看下命""算一下""运气怎么样" = "bazi"
 
 ## 3. Sharing Detection (心事树洞)
-- is_sharing: true if the user is telling a personal story/experience with emotional content, NOT asking for a specific fortune reading
-- Sharing signals: 70-300 character messages with personal details ("我最近...", "我觉得...", "我经历..."), emotional language, life situations
-- NOT sharing: short greetings, direct fortune requests, birth date info
+- is_sharing: true ONLY if user is telling a personal story with emotional depth
+- Sharing signals: messages with "我" + emotional words + personal situation (not a request)
+- NOT sharing (must return false):
+  * Knowledge questions: "告诉我X", "X是什么意思", "X代表什么", "有没有人X"
+  * Service requests: "帮我看看X", "帮我算X", "请帮我看X", "想看X"
+  * Urgent requests: "在线等", "急", "追分"
+  * Direct fortune requests, birth date info, short greetings
 
 Return ONLY JSON:
 {"needs_soothe": bool, "soothe_text": "安抚文本或空", "emotion": "情绪标签", "intent": "意图分类", "is_sharing": bool}"""
