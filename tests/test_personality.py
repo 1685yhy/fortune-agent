@@ -101,10 +101,10 @@ def make_test_handler():
     )
 
 
-def test_personality_default_is_sassy():
-    """默认人格为毒舌闺蜜"""
+def test_personality_default_is_auto_detect():
+    """默认人格模式为None（自动检测）"""
     handler = make_test_handler()
-    assert handler._get_personality_mode("new_user") == "sassy"
+    assert handler._get_personality_mode("new_user") is None
 
 
 def test_personality_mode_set_and_get():
@@ -115,10 +115,10 @@ def test_personality_mode_set_and_get():
 
 
 def test_personality_invalid_mode_ignored():
-    """设置无效性格模式时被忽略"""
+    """设置无效性格模式时被忽略（None = 自动检测）"""
     handler = make_test_handler()
     handler._set_personality_mode("user1", "invalid_mode")
-    assert handler._get_personality_mode("user1") == "sassy"
+    assert handler._get_personality_mode("user1") is None
 
 
 def test_personality_mode_persists_per_user():

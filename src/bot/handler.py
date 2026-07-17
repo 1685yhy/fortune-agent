@@ -10,7 +10,12 @@ from src.engines.fengshui import FengshuiEngine, FengshuiResult
 from src.engines.mianxiang import MianxiangEngine, MianxiangResult
 from src.engines.zeri import ZeriEngine, ZeriResult
 from src.engines.dream import DreamEngine, DreamResult
-from src.engines.advisor import AdvisorEngine
+try:
+    from src.engines.advisor_v2 import AdaptiveAdvisor
+    HAS_ADVISOR_V2 = True
+except ImportError:
+    from src.engines.advisor import AdvisorEngine
+    HAS_ADVISOR_V2 = False
 from src.rag.retriever import Retriever, ChunkResult
 from src.llm.client import FortuneLLM, AnalysisResult
 
@@ -101,9 +106,9 @@ class MessageHandler:
     # Personality Mode Management
     # ============================================================
 
-    def _get_personality_mode(self, user_id: str) -> str:
-        """Get user's current personality mode (default: sassy)."""
-        return self._personality_modes.get(user_id, "sassy")
+    def _get_personality_mode(self, user_id: str) -> Optional[str]:
+        """Get user's explicit personality override, or None for auto-detect."""
+        return self._personality_modes.get(user_id)
 
     def _set_personality_mode(self, user_id: str, mode: str):
         """Set user's personality mode."""
@@ -439,6 +444,30 @@ class MessageHandler:
                      "南宁", "海口", "兰州", "银川", "西宁", "拉萨", "乌鲁木齐",
                      "呼和浩特", "石家庄", "太原", "济南", "南昌"}
 
+    def _extract_user_context(self, msg: str) -> str:
+        """从用户消息中提取处境/关注点。
+
+        去掉日期、时间、城市、性别等排盘信息后，
+        剩余文本即为用户关心的处境描述。
+        """
+        if not msg:
+            return ""
+        # 去掉日期时间模式
+        cleaned = re.sub(r'\d{4}\s*[年/-]\s*\d{1,2}\s*[月/-]\s*\d{1,2}.*?(?=[一-鿿]|$)', '', msg)
+        cleaned = re.sub(r'\d{1,2}\s*[点时:：]\s*\d{0,2}', '', cleaned)
+        # 去掉城市和性别
+        for city in self.COMMON_CITIES:
+            cleaned = cleaned.replace(city, "")
+        cleaned = cleaned.replace("男", "").replace("女", "")
+        # 去掉排盘关键词
+        for kw in ["八字", "排盘", "命理", "帮我", "看命", "算命", "看看"]:
+            cleaned = cleaned.replace(kw, "")
+        cleaned = cleaned.strip()
+        # 如果去掉后为空，返回空字符串
+        if not cleaned or len(cleaned) < 2:
+            return ""
+        return cleaned
+
     def _extract_bazi_info(self, msg: str) -> Optional[Tuple]:
         """从消息中提取八字信息"""
         for pattern in BAZI_EXTRACT_PATTERNS:
@@ -509,21 +538,68 @@ class MessageHandler:
             import logging
             logging.getLogger(__name__).warning(f"Chart generation failed: {e}\n{traceback.format_exc()}")
 
-        # 7. 行动建议
+        # 7. 行动建议 (V2: AI自适应)
         advice_section = ""
         try:
-            advisor = AdvisorEngine()
-            advice = advisor.generate_advice(result)
-            has_advice = any(items for items in advice.values())
-            if has_advice:
-                lines = ["\n\n📌 行动建议（基于命局趋势推测，实际结果因人而异）"]
-                icons = {"事业": "💼", "财运": "💰", "感情": "❤️", "健康": "🏥", "个人成长": "🌱"}
-                for cat in ["事业", "财运", "感情", "健康", "个人成长"]:
-                    items = advice.get(cat, [])
-                    if items:
-                        joined = "；".join(items[:2])
-                        lines.append(f"{icons.get(cat, '')} {cat}（约70%参考概率）：{joined}")
-                advice_section = "\n".join(lines)
+            if HAS_ADVISOR_V2:
+                advisor = AdaptiveAdvisor()
+                # 从用户问题中提取处境信息（去掉日期时间部分后的剩余文本）
+                user_context = self._extract_user_context(question)
+                api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+                personality = self._get_personality_mode(user_id) or "sassy"
+                advice_data = advisor.generate(
+                    result, user_context=user_context,
+                    personality=personality, api_key=api_key,
+                )
+
+                actions = advice_data.get("actions", [])
+                if actions:
+                    lines = ["\n\n📌 AI 行动建议（基于命局趋势 + 当前处境生成）"]
+                    icons = {"事业": "💼", "财运": "💰", "感情": "❤️", "健康": "🏥", "个人成长": "🌱"}
+                    for a in actions:
+                        cat = a.get("category", "")
+                        advice = a.get("advice", "")
+                        timing = a.get("timing", "")
+                        confidence = a.get("confidence", "medium")
+                        cf_icons = {"high": "✅", "medium": "📌", "low": "💡"}
+                        cf = cf_icons.get(confidence, "📌")
+                        icon = icons.get(cat, "")
+                        timing_str = f"【{timing}】" if timing else ""
+                        lines.append(f"{cf} {icon} {cat}：{advice} {timing_str}")
+                    advice_section = "\n".join(lines)
+
+                    # 加名人匹配
+                    celeb = advice_data.get("celebrity_match", {})
+                    if celeb and celeb.get("name"):
+                        advice_section += (
+                            f"\n\n🔮 名人对照：你和「{celeb['name']}」格局相似度 "
+                            f"{celeb.get('similarity', 0)}%"
+                        )
+                        insight = celeb.get("insight", "")
+                        if insight:
+                            advice_section += f"\n{insight}"
+
+                    # 加每日小贴士
+                    daily_tip = advice_data.get("daily_tip", "")
+                    style_note = advice_data.get("style_notes", "")
+                    if daily_tip:
+                        advice_section += f"\n\n💡 今日贴士：{daily_tip}"
+                    if style_note:
+                        advice_section += f"\n✨ {style_note}"
+            else:
+                # V1 fallback
+                advisor = AdvisorEngine()
+                advice = advisor.generate_advice(result)
+                has_advice = any(items for items in advice.values())
+                if has_advice:
+                    lines = ["\n\n📌 行动建议（基于命局趋势推测，实际结果因人而异）"]
+                    icons = {"事业": "💼", "财运": "💰", "感情": "❤️", "健康": "🏥", "个人成长": "🌱"}
+                    for cat in ["事业", "财运", "感情", "健康", "个人成长"]:
+                        items = advice.get(cat, [])
+                        if items:
+                            joined = "；".join(items[:2])
+                            lines.append(f"{icons.get(cat, '')} {cat}（约70%参考概率）：{joined}")
+                    advice_section = "\n".join(lines)
         except Exception:
             pass
 

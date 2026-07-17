@@ -1,11 +1,12 @@
 """LLM 客户端 - 支持 Claude 和 DeepSeek."""
 from dataclasses import dataclass
-from typing import List, Union
+from typing import List, Optional, Union
 import httpx
 import json
 
 from .prompts import PERSONALITY_PROMPTS, CHAT_PROMPT, USER_CONTEXT_TEMPLATE
 from src.engines.bazi import BaziResult
+from src.engines.mood_detector import MoodDetector, MoodResult
 from src.rag.retriever import ChunkResult
 
 
@@ -17,7 +18,10 @@ class AnalysisResult:
 
 
 class FortuneLLM:
-    """算命助手 LLM 封装 - 双模型：Flash(快聊) + Pro(深度分析)"""
+    """算命助手 LLM 封装 - 双模型：Flash(快聊) + Pro(深度分析)
+
+    Sprint 7: personality_mode=None enables automatic mood detection.
+    """
 
     def __init__(self, api_key: str, model: str = "deepseek-v4-flash", provider: str = "deepseek",
                  deep_model: str = "deepseek-v4-pro"):
@@ -25,15 +29,45 @@ class FortuneLLM:
         self.model = model          # 快速模型 (日常聊天)
         self.deep_model = deep_model  # 深度模型 (命理分析)
         self.provider = provider
+        # Sprint 7: AI mood detector (reuses same Flash model for speed)
+        self.mood_detector = MoodDetector(api_key=api_key, model=model)
 
-    def chat(self, user_message: str, personality_mode: str = "sassy") -> AnalysisResult:
-        """自由对话 - 用快速模型（V4 Flash），轻量人设提示。"""
+    def _resolve_mood(self, user_message: str, personality_mode: Optional[str]) -> str:
+        """Auto-detect mood if personality_mode is None, else return override."""
+        if personality_mode is not None:
+            return personality_mode
+        mood_result = self.mood_detector.detect(user_message)
+        return mood_result.mood
+
+    def chat(self, user_message: str, personality_mode: Optional[str] = None) -> AnalysisResult:
+        """自由对话 - 用快速模型（V4 Flash），轻量人设提示。
+
+        Args:
+            user_message: User's input text.
+            personality_mode: One of "sassy", "analyst", "gentle",
+                             or None to auto-detect from message.
+        """
+        resolved_mode = self._resolve_mood(user_message, personality_mode)
         return self._call_deepseek_model(user_message, self.model, max_tokens=300,
                                          custom_prompt=CHAT_PROMPT)
 
-    def chat_conversation(self, history: list, personality_mode: str = "sassy") -> str:
-        """多轮对话 - 带完整上下文的自然聊天。"""
-        system_prompt = PERSONALITY_PROMPTS.get(personality_mode, PERSONALITY_PROMPTS["sassy"])
+    def chat_conversation(self, history: list, personality_mode: Optional[str] = None) -> str:
+        """多轮对话 - 带完整上下文的自然聊天。
+
+        Args:
+            history: List of message dicts with "role" and "content".
+            personality_mode: One of "sassy", "analyst", "gentle",
+                             or None to auto-detect from last user message.
+        """
+        # Auto-detect mood from last user message if no override
+        if personality_mode is None:
+            last_user_msg = next(
+                (m["content"] for m in reversed(history) if m["role"] == "user"),
+                "",
+            )
+            mood_result = self.mood_detector.detect(last_user_msg) if last_user_msg else MoodResult("sassy", 0.5, "中性")
+            personality_mode = mood_result.mood
+
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
@@ -54,9 +88,17 @@ class FortuneLLM:
         chart_data: Union[BaziResult, str],
         references: List[ChunkResult],
         user_question: str,
-        personality_mode: str = "sassy",
+        personality_mode: Optional[str] = None,
     ) -> AnalysisResult:
-        """命理分析 - 用深度模型（V4 Pro），推理更强。"""
+        """命理分析 - 用深度模型（V4 Pro），推理更强。
+
+        Args:
+            chart_data: BaziResult or formatted chart string.
+            references: List of relevant ancient text references.
+            user_question: The user's question/query.
+            personality_mode: One of "sassy", "analyst", "gentle",
+                             or None to auto-detect from user question.
+        """
         if isinstance(chart_data, str):
             chart_str = chart_data
         else:
@@ -68,7 +110,8 @@ class FortuneLLM:
             references=refs_str,
             question=user_question,
         )
-        system_prompt = PERSONALITY_PROMPTS.get(personality_mode, PERSONALITY_PROMPTS["sassy"])
+        resolved_mode = self._resolve_mood(user_question, personality_mode)
+        system_prompt = PERSONALITY_PROMPTS.get(resolved_mode, PERSONALITY_PROMPTS["sassy"])
         return self._call_deepseek_model(user_message, self.deep_model, max_tokens=2000,
                                          custom_prompt=system_prompt)
 
