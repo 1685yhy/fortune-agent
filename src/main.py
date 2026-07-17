@@ -142,6 +142,7 @@ class ChatResponse(BaseModel):
     reply: str
     parts: Optional[list] = None  # 拆分后的多条消息
     membership: Optional[dict] = None  # 用户会员信息
+    consultation_id: Optional[int] = None  # Sprint 4: 反馈用咨询ID
 
 
 @app.post("/api/chat")
@@ -181,7 +182,13 @@ async def chat(req: ChatRequest) -> ChatResponse:
         parts = split_long_message(reply)
         membership = member_dao.get_membership(req.user_id)
 
-        return ChatResponse(reply=reply, parts=parts, membership=membership)
+        # Sprint 4: 获取最近一次咨询ID用于反馈
+        consultation_id = dao.last_consultation_id if dao else None
+
+        return ChatResponse(
+            reply=reply, parts=parts, membership=membership,
+            consultation_id=consultation_id,
+        )
     except Exception as e:
         import traceback
         logger.error(f"处理请求失败: {traceback.format_exc()}")
@@ -226,6 +233,78 @@ async def push_daily(dry_run: bool = Query(False, description="仅测试，不�
     except Exception as e:
         logger.exception("推送异常")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/push-weekly")
+async def push_weekly(dry_run: bool = Query(False, description="仅测试，不写入日志")):
+    """手动触发每周运势总结推送"""
+    global settings, dao
+    if settings is None or dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    try:
+        from scripts.daily_push import get_today_ganzhi, run_weekly_push_batch
+
+        today = get_today_ganzhi()
+        stats = run_weekly_push_batch(dao, today, dry_run=dry_run)
+
+        return {
+            "status": "ok",
+            "date": today["date"],
+            "day_ganzhi": today["day_ganzhi"],
+            "stats": stats,
+        }
+    except Exception as e:
+        logger.exception("周报推送异常")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ──────────────────────────────────────────
+# Sprint 4: History & Accuracy Dashboard
+# ──────────────────────────────────────────
+
+@app.get("/api/user/{user_id}/history")
+async def get_user_history(user_id: str):
+    """获取用户最近咨询历史"""
+    if dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    consultations = dao.get_user_consultations(user_id, limit=20)
+    return {
+        "user_id": user_id,
+        "consultations": consultations,
+        "total": len(consultations),
+    }
+
+
+@app.get("/api/user/{user_id}/accuracy")
+async def get_user_accuracy(user_id: str):
+    """计算用户历史预测准确率"""
+    if dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    accuracy = dao.get_user_accuracy(user_id)
+    return accuracy
+
+
+@app.post("/api/feedback/{consultation_id}")
+async def submit_feedback(
+    consultation_id: int,
+    feedback: str = Query(..., description="positive or negative"),
+):
+    """提交预测反馈 (👍/👎)"""
+    if dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    success = dao.save_feedback(consultation_id, feedback)
+    if not success:
+        raise HTTPException(status_code=400, detail="反馈值无效，请使用 positive 或 negative")
+    return {"status": "ok", "consultation_id": consultation_id, "feedback": feedback}
+
+
+@app.get("/api/stats/predictions")
+async def get_prediction_stats():
+    """获取全局预测统计"""
+    if dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    return dao.get_total_predictions()
 
 
 @app.get("/api/push-settings/{user_id}")

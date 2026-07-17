@@ -347,13 +347,206 @@ def run_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> dict:
     return stats
 
 
+# ──────────────────────────────────────────
+# Sprint 4: Weekly Summary Mode
+# ──────────────────────────────────────────
+
+
+def get_week_range() -> dict:
+    """获取本周日期范围"""
+    now = datetime.now()
+    # Monday of this week
+    monday = now - __import__("datetime").timedelta(days=now.weekday())
+    sunday = monday + __import__("datetime").timedelta(days=6)
+    return {
+        "start": monday.strftime("%Y-%m-%d"),
+        "end": sunday.strftime("%Y-%m-%d"),
+        "start_cn": monday.strftime("%m月%d日"),
+        "end_cn": sunday.strftime("%m月%d日"),
+    }
+
+
+def generate_weekly_summary(user_id: str, bazi_info: dict, today: dict, comparison: dict, dao: UserDAO) -> str:
+    """生成周度运势总结（含准确率显示）"""
+    week = get_week_range()
+    bazi_pillars = bazi_info.get("bazi", [])
+    bazi_str = " ".join(bazi_pillars) if bazi_pillars else "未知"
+    gan_relation = comparison["gan_relation"]
+    description = GAN_RELATION_DESC.get(gan_relation, "本周运势平稳。")
+
+    # 获取上周运势回顾（基于用户反馈）
+    week_preview = _generate_week_preview(user_id, dao)
+
+    # 获取上周预测准确率
+    accuracy_info = ""
+    try:
+        accuracy = dao.get_user_accuracy(user_id)
+        if accuracy["accuracy_pct"] is not None:
+            # 按运势类型分类：这里简单用天干关系映射
+            accuracy_info = (
+                f"\n📊 上个月你的运势预测准确率: {accuracy['accuracy_pct']}%"
+                f"（共{accuracy['total_feedback']}次反馈，"
+                f"{accuracy['positive']}次准确/{accuracy['negative']}次偏差）"
+            )
+    except Exception:
+        pass
+
+    # 个性化 - 基于用户历史
+    personalization = _generate_personal_note(user_id, dao, bazi_pillars)
+
+    message = f"""📅 本周运势概览 ({week['start_cn']}-{week['end_cn']})
+{today['year_ganzhi']}年 {today['month_ganzhi']}月
+冲{comparison['chong_shengxiao']}
+
+🔮 您的命盘（{bazi_str}）：
+{description}
+
+{personalization}
+{week_preview}{accuracy_info}
+
+📌 本周建议：
+{_generate_advice(gan_relation, comparison)}
+
+💬 详细分析请回复「运势」
+"""
+
+    return message.strip()
+
+
+def _generate_week_preview(user_id: str, dao: UserDAO) -> str:
+    """生成上周回顾"""
+    try:
+        consultations = dao.get_user_consultations(user_id, limit=5)
+        if not consultations:
+            return "\n📋 上周暂无运势记录。本周开始关注你的运势变化！\n"
+
+        preview = "\n📋 最近运势回顾：\n"
+        for c in consultations[:3]:
+            intent_label = {
+                "bazi": "八字", "ziwei": "紫微", "liuyao": "六爻",
+                "fengshui": "风水", "mianxiang": "面相", "zeri": "择日",
+                "qimen": "奇门", "xingming": "姓名", "hehun": "合婚",
+                "dream": "解梦",
+            }.get(c.get("intent"), c.get("intent", ""))
+            question = (c.get("question") or "")[:30]
+            date_str = (c.get("created_at") or "")[:10]
+            if question:
+                preview += f"  · {date_str} {intent_label}: {question}\n"
+
+        return preview
+    except Exception:
+        return ""
+
+
+def _generate_personal_note(user_id: str, dao: UserDAO, bazi_pillars: list) -> str:
+    """基于用户历史生成个性化备注"""
+    try:
+        consultations = dao.get_user_consultations(user_id, limit=3)
+        intents = [c.get("intent") for c in consultations if c.get("intent")]
+        if not intents:
+            return ""
+
+        # 统计最常用的功能
+        from collections import Counter
+        top_intent = Counter(intents).most_common(1)[0][0]
+        intent_labels = {
+            "bazi": "八字", "ziwei": "紫微斗数", "liuyao": "六爻占卜",
+            "fengshui": "风水", "mianxiang": "面相", "zeri": "择日",
+            "dream": "解梦",
+        }
+        label = intent_labels.get(top_intent, top_intent)
+        return f"💡 根据你的使用习惯，你似乎对{label}比较感兴趣，本周多关注{label}相关的运势变化。\n"
+    except Exception:
+        return ""
+
+
+def get_weekly_forecast(today: dict) -> str:
+    """生成下周运势概览"""
+    # 基于当前日期的干支推算下周趋势
+    day_gan = today["day_gan"]
+    day_gan_idx = TIANGAN.index(day_gan) if day_gan in TIANGAN else 0
+    next_gan = TIANGAN[(day_gan_idx + 1) % 10]  # 下一天干
+
+    return (
+        f"🔮 下周展望：\n"
+        f"下周天干趋势偏向{next_gan}，整体能量转向"
+        f"{'积极活跃' if day_gan_idx % 2 == 0 else '沉稳内敛'}的方向。\n"
+        f"建议关注人际关系和财务方面的变化，提前做好准备。"
+    )
+
+
+def run_weekly_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> dict:
+    """执行周度运势总结推送"""
+    logger.info(f"开始周度运势推送: {today['date']}")
+    week = get_week_range()
+
+    users = dao.get_all_users_with_bazi()
+    logger.info(f"找到 {len(users)} 个有八字信息的用户")
+
+    stats = {"total": len(users), "pushed": 0, "skipped": 0, "errors": 0, "details": []}
+
+    for user in users:
+        user_id = user["user_id"]
+        bazi_info = user["bazi_info"]
+        push_enabled = user["push_enabled"]
+
+        if not push_enabled:
+            logger.info(f"用户 {user_id} 已关闭推送，跳过")
+            stats["skipped"] += 1
+            continue
+
+        if not bazi_info or "bazi" not in bazi_info:
+            logger.info(f"用户 {user_id} 八字信息不完整，跳过")
+            stats["skipped"] += 1
+            continue
+
+        try:
+            bazi_pillars = bazi_info["bazi"]
+            comparison = compare_bazi_with_today(bazi_pillars, today)
+            message = generate_weekly_summary(user_id, bazi_info, today, comparison, dao)
+
+            if dry_run:
+                logger.info(f"[DRY RUN] 用户 {user_id}: 将推送周报 ({len(message)}字符)")
+                logger.debug(f"消息内容:\n{message}")
+                stats["pushed"] += 1
+            else:
+                dao.log_push(
+                    user_id=user_id,
+                    push_date=week["start"],
+                    message=message,
+                    success=True,
+                )
+                stats["pushed"] += 1
+                logger.info(f"用户 {user_id} 周报推送成功")
+
+            stats["details"].append({"user_id": user_id, "success": True})
+
+        except Exception as e:
+            logger.error(f"用户 {user_id} 周报推送失败: {e}")
+            if not dry_run:
+                dao.log_push(
+                    user_id=user_id,
+                    push_date=week["start"],
+                    message="",
+                    success=False,
+                    error=str(e),
+                )
+            stats["errors"] += 1
+            stats["details"].append({"user_id": user_id, "success": False, "error": str(e)})
+
+    logger.info(f"周报推送完成: 总计{stats['total']}, 成功{stats['pushed']}, "
+                f"跳过{stats['skipped']}, 失败{stats['errors']}")
+    return stats
+
+
 def main():
     """主入口"""
     import argparse
 
-    parser = argparse.ArgumentParser(description="每日运势推送")
+    parser = argparse.ArgumentParser(description="每日/周运势推送")
     parser.add_argument("--dry-run", action="store_true", help="仅测试，不记录推送日志")
     parser.add_argument("--verbose", "-v", action="store_true", help="详细日志输出")
+    parser.add_argument("--weekly", action="store_true", help="周度运势总结模式")
     args = parser.parse_args()
 
     # Ensure logs directory exists before configuring file handler
@@ -361,13 +554,14 @@ def main():
     log_dir.mkdir(parents=True, exist_ok=True)
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
+    log_file = "weekly_push.log" if args.weekly else "daily_push.log"
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s [%(levelname)s] %(message)s",
         handlers=[
             logging.StreamHandler(),
             logging.FileHandler(
-                str(log_dir / "daily_push.log"),
+                str(log_dir / log_file),
                 encoding="utf-8",
             ),
         ],
@@ -377,12 +571,16 @@ def main():
     dao = UserDAO(str(settings.db_path))
     today = get_today_ganzhi()
 
-    logger.info(f"=== 每日运势推送 ===")
-    logger.info(f"日期: {today['date']}")
-    logger.info(f"干支: {today['day_ganzhi']}")
-    logger.info(f"农历: {today['lunar']}")
-
-    stats = run_push_batch(dao, today, dry_run=args.dry_run)
+    if args.weekly:
+        logger.info(f"=== 每周运势总结推送 ===")
+        logger.info(f"本周: {get_week_range()['start']} ~ {get_week_range()['end']}")
+        stats = run_weekly_push_batch(dao, today, dry_run=args.dry_run)
+    else:
+        logger.info(f"=== 每日运势推送 ===")
+        logger.info(f"日期: {today['date']}")
+        logger.info(f"干支: {today['day_ganzhi']}")
+        logger.info(f"农历: {today['lunar']}")
+        stats = run_push_batch(dao, today, dry_run=args.dry_run)
 
     print(json.dumps(stats, ensure_ascii=False, indent=2))
 

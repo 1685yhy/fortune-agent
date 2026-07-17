@@ -9,10 +9,15 @@ from .models import init_db
 class UserDAO:
     def __init__(self, db_path: str):
         self.db_path = db_path
+        self._last_consultation_id: int = 0
         init_db(db_path)
 
     def _connect(self):
         return sqlite3.connect(self.db_path)
+
+    @property
+    def last_consultation_id(self) -> int:
+        return self._last_consultation_id
 
     def get_user_bazi(self, user_id: str) -> Optional[Dict]:
         """获取用户已保存的八字"""
@@ -69,12 +74,15 @@ class UserDAO:
         else:
             chart_json = ""
 
-        conn.execute(
+        cursor = conn.execute(
             "INSERT INTO consultations (user_id, question, intent, chart_data, analysis) VALUES (?,?,?,?,?)",
             (user_id, question, intent, chart_json, analysis),
         )
+        consultation_id = cursor.lastrowid
+        self._last_consultation_id = consultation_id
         conn.commit()
         conn.close()
+        return consultation_id
 
     def get_user_stats(self) -> dict:
         """获取用户统计"""
@@ -131,6 +139,83 @@ class UserDAO:
         )
         conn.commit()
         conn.close()
+
+    def get_user_consultations(self, user_id: str, limit: int = 20) -> list:
+        """获取用户最近咨询历史"""
+        conn = self._connect()
+        rows = conn.execute(
+            """SELECT id, question, intent, analysis, feedback, created_at
+               FROM consultations
+               WHERE user_id = ?
+               ORDER BY created_at DESC
+               LIMIT ?""",
+            (user_id, limit),
+        ).fetchall()
+        conn.close()
+        return [
+            {
+                "id": r[0],
+                "question": r[1],
+                "intent": r[2],
+                "analysis_preview": (r[3] or "")[:100],
+                "feedback": r[4],
+                "created_at": r[5],
+            }
+            for r in rows
+        ]
+
+    def get_user_accuracy(self, user_id: str) -> dict:
+        """计算用户历史预测准确率"""
+        conn = self._connect()
+        rows = conn.execute(
+            """SELECT id, feedback FROM consultations
+               WHERE user_id = ? AND feedback IS NOT NULL AND feedback != ''""",
+            (user_id,),
+        ).fetchall()
+        conn.close()
+
+        total = len(rows)
+        positive = sum(1 for r in rows if r[1] == "positive")
+        negative = sum(1 for r in rows if r[1] == "negative")
+
+        accuracy_pct = round((positive / total) * 100, 1) if total > 0 else None
+
+        return {
+            "user_id": user_id,
+            "total_feedback": total,
+            "positive": positive,
+            "negative": negative,
+            "accuracy_pct": accuracy_pct,
+        }
+
+    def save_feedback(self, consultation_id: int, feedback: str) -> bool:
+        """保存用户反馈（positive/negative）"""
+        if feedback not in ("positive", "negative"):
+            return False
+        conn = self._connect()
+        conn.execute(
+            "UPDATE consultations SET feedback = ? WHERE id = ?",
+            (feedback, consultation_id),
+        )
+        conn.commit()
+        conn.close()
+        return True
+
+    def get_total_predictions(self) -> dict:
+        """获取全局预测统计"""
+        conn = self._connect()
+        total = conn.execute("SELECT COUNT(*) FROM consultations").fetchone()[0]
+        with_feedback = conn.execute(
+            "SELECT COUNT(*) FROM consultations WHERE feedback IS NOT NULL AND feedback != ''"
+        ).fetchone()[0]
+        conn.close()
+
+        verified_pct = round((with_feedback / total) * 100, 1) if total > 0 else 0
+        return {
+            "total_predictions": total,
+            "verified_count": with_feedback,
+            "verified_pct": verified_pct,
+        }
 
     def log_push(self, user_id: str, push_date: str, message: str, success: bool = True, error: str = ""):
         """记录推送日志"""

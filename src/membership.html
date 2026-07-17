@@ -318,6 +318,40 @@
     <p style="margin-top:0.75rem;color:#888;font-size:0.85rem;" id="quotaLabel">查询进度</p>
   </div>
 
+  <!-- Sprint 4: Accuracy & Prediction Stats -->
+  <div id="accuracyCard" class="status-card" style="display:none;">
+    <h2>📊 预测统计</h2>
+    <div class="status-grid">
+      <div class="status-item">
+        <div class="label">总预测数</div>
+        <div class="value highlight" id="aTotal">-</div>
+      </div>
+      <div class="status-item">
+        <div class="label">已反馈</div>
+        <div class="value" id="aFeedback">0</div>
+      </div>
+      <div class="status-item">
+        <div class="label">准确率</div>
+        <div class="value highlight" id="aAccuracy">-</div>
+      </div>
+      <div class="status-item">
+        <div class="label">已验证率</div>
+        <div class="value" id="aVerified">-</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Sprint 4: Prediction Review -->
+  <div id="reviewCard" class="status-card" style="display:none;">
+    <h2>🔮 预测回顾</h2>
+    <div id="reviewList" style="text-align:left;max-height:400px;overflow-y:auto;">
+      <p style="color:#888;text-align:center;">加载中...</p>
+    </div>
+    <p style="margin-top:1rem;color:#888;font-size:0.85rem;">
+      每条预测后可以用 👍/👎 反馈准确度
+    </p>
+  </div>
+
   <!-- Plans -->
   <div class="plans" id="plansContainer">
     <div class="plan-card" data-plan="free">
@@ -392,6 +426,81 @@ async function loadMembership() {
     renderStatus(data);
   } catch (e) {
     showToast('查询会员信息失败', 'error');
+  }
+
+  // Sprint 4: Load accuracy and history in parallel
+  loadAccuracy(userId);
+  loadHistory(userId);
+  loadGlobalStats();
+}
+
+async function loadAccuracy(userId) {
+  try {
+    const res = await fetch(`/api/user/${encodeURIComponent(userId)}/accuracy`);
+    const data = await res.json();
+    document.getElementById('accuracyCard').style.display = 'block';
+    document.getElementById('aTotal').textContent = data.total_feedback || '暂无';
+    document.getElementById('aFeedback').textContent = (data.positive || 0) + ' 👍 / ' + (data.negative || 0) + ' 👎';
+
+    if (data.accuracy_pct !== null) {
+      document.getElementById('aAccuracy').textContent = data.accuracy_pct + '%';
+    } else {
+      document.getElementById('aAccuracy').textContent = '暂无数据';
+    }
+  } catch (e) {
+    // Silently handle - accuracy is optional
+  }
+}
+
+async function loadHistory(userId) {
+  try {
+    const res = await fetch(`/api/user/${encodeURIComponent(userId)}/history`);
+    const data = await res.json();
+    document.getElementById('reviewCard').style.display = 'block';
+
+    const list = document.getElementById('reviewList');
+    if (!data.consultations || data.consultations.length === 0) {
+      list.innerHTML = '<p style="color:#888;text-align:center;">暂无预测记录<br>开始你的第一次运势咨询吧！</p>';
+      return;
+    }
+
+    let html = '';
+    const intentLabels = {
+      'bazi': '八字', 'ziwei': '紫微', 'liuyao': '六爻',
+      'fengshui': '风水', 'mianxiang': '面相', 'zeri': '择日',
+      'qimen': '奇门', 'xingming': '姓名', 'hehun': '合婚', 'dream': '解梦',
+    };
+
+    for (const c of data.consultations) {
+      const label = intentLabels[c.intent] || c.intent || '咨询';
+      const date = (c.created_at || '').split('T')[0] || '';
+      const question = (c.question || '').substring(0, 60);
+      const feedbackIcon = c.feedback === 'positive' ? ' 👍' : c.feedback === 'negative' ? ' 👎' : '';
+      html += `<div style="padding:0.75rem;border-bottom:1px solid #2a2a4a;font-size:0.9rem;">
+        <span style="color:#f5af19;">[${label}]</span>
+        <span style="color:#888;margin-left:0.5rem;">${date}</span>
+        <span style="color:#888;font-size:0.8rem;">${feedbackIcon}</span>
+        <br><span style="color:#ccc;">${question || '(无问题)'}</span>
+      </div>`;
+    }
+    list.innerHTML = html;
+  } catch (e) {
+    // Silently handle
+  }
+}
+
+async function loadGlobalStats() {
+  try {
+    const res = await fetch('/api/stats/predictions');
+    const data = await res.json();
+    const card = document.getElementById('accuracyCard');
+    // Add global stat line to accuracy card
+    const el = document.createElement('p');
+    el.style.cssText = 'margin-top:1rem;color:#888;font-size:0.85rem;';
+    el.textContent = `平台已有 ${data.total_predictions} 条预测，其中 ${data.verified_pct}% 已得到验证`;
+    card.querySelector('.status-grid').after(el);
+  } catch (e) {
+    // Silently handle
   }
 }
 
