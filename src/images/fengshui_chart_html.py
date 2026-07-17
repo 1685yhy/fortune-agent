@@ -6,7 +6,7 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-CHARTS_DIR = Path(os.environ.get('CHARTS_DIR', '/mnt/d/fortune-data/charts'))
+CHARTS_DIR = Path(os.environ.get('CHARTS_DIR', '/opt/fortune-data/charts'))
 
 # 九宫八卦顺序 (3x3 grid, top-left to bottom-right)
 PALACE_ORDER_3x3 = ["巽", "离", "坤", "震", "中", "兑", "艮", "坎", "乾"]

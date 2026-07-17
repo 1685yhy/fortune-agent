@@ -82,7 +82,7 @@ W = 2400
 H = 1600
 DPI = 150
 
-CHARTS_DIR = Path("/mnt/d/fortune-data/charts")
+CHARTS_DIR = Path("/opt/fortune-data/charts")
 
 # ── 藏干 mapping ────────────────────────────────────────────────────
 CANGGAN_MAP = {

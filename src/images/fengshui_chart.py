@@ -36,7 +36,7 @@ if _CHINESE_FONT is None:
 plt.rcParams["font.family"] = _CHINESE_FONT
 plt.rcParams["axes.unicode_minus"] = False
 
-CHARTS_DIR = Path("/mnt/d/fortune-data/charts")
+CHARTS_DIR = Path("/opt/fortune-data/charts")
 
 # Auspicious/inauspicious combinations
 # (运星, 向星, 山星) - simplified heuristics

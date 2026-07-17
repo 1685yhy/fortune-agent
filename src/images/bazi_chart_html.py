@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-CHARTS_DIR = Path(os.environ.get("CHARTS_DIR", "/mnt/d/fortune-data/charts"))
+CHARTS_DIR = Path(os.environ.get("CHARTS_DIR", "/opt/fortune-data/charts"))
 
 # --- Refined luxury colour palette ---
 # 天干/地支 五行 colours (rich, toned — not neon)
@@ -137,7 +137,7 @@ body{
 .ft{text-align:center;margin-top:32px;padding-top:14px;border-top:1px solid #edeae4;font-size:9px;color:#b5b0a8;letter-spacing:4px}
 </style></head><body>
 
-<div class="hd"><div class="hd-l"></div><div class="hd-t">八字命盘</div><div class="hd-l"></div></div>
+<div class="hd"><div class="hd-l"></div><div class="hd-t">{{title or '八字命盘'}}</div><div class="hd-l"></div></div>
 <div class="hd-s">{{day_master}} · {{geju}} · {{yongshen}}</div>
 <div class="hd-d">{{date}}</div>
 
@@ -197,13 +197,13 @@ body{
 
 
 class BaziChartHTML:
-    def generate(self, result, output_path=None):
+    def generate(self, result, output_path=None, title: str = ""):
         """Render a luxury-finance bazi chart to PNG via Jinja2 + Playwright.
 
         Args:
-            result: Bazi calculation result with .bazi, .day_master, .wuxing,
-                    .shishen, .nayin, .dayun, .shensha, .geju, .yongshen.
+            result: Bazi calculation result.
             output_path: Optional PNG output path.
+            title: Optional AI-generated personalized chart title.
 
         Returns:
             str: absolute path to the generated PNG.
@@ -290,6 +290,7 @@ class BaziChartHTML:
         yongshen = yongshen_raw.split("（")[0] if yongshen_raw else ""
 
         html = Template(HTML).render(
+            title=title,
             day_master=result.day_master,
             geju=geju,
             yongshen=yongshen,
