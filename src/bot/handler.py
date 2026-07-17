@@ -53,6 +53,7 @@ INTENT_KEYWORDS = {
     "xingming": ["名字", "起名", "姓名", "改名"],
     "hehun": ["合婚", "配对", "配不配", "婚姻匹配"],
     "dream": ["解梦", "做梦", "梦见", "梦到", "梦"],
+    "calendar": ["今日运势", "今日日历", "今日宜忌", "幸运日历", "今天运势", "今天宜忌", "今日运程"],
 }
 
 # 八字信息提取
@@ -286,6 +287,7 @@ class MessageHandler:
             "xingming": self._handle_xingming,
             "hehun": self._handle_hehun,
             "dream": self._handle_dream,
+            "calendar": self._handle_calendar,
         }
 
         handler = handler_map.get(analysis.intent)
@@ -1356,6 +1358,76 @@ class MessageHandler:
 
         reply += f"\n🔮 AI解读：\n{llm_analysis}"
         return reply
+
+    # ============================================================
+    # AI 幸运日历
+    # ============================================================
+
+    def _handle_calendar(self, msg: str, user_id: str) -> str:
+        """Handle calendar/today-fortune requests."""
+        saved = self.dao.get_user_bazi(user_id)
+        if not saved:
+            return ("📅 想生成你的专属每日运势日历，需要先设置八字哦～\n"
+                    "告诉我你的出生日期，例如：1990年5月20日 下午3点 北京 男")
+
+        api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+        if not api_key:
+            return "📅 日历服务暂时不可用，请稍后再试～"
+
+        try:
+            from src.engines.calendar import LuckyCalendar
+            cal = LuckyCalendar(api_key)
+            preferences = self._get_preference_hint(user_id)
+            personality = self._get_personality_mode(user_id) or "sassy"
+            day = cal.daily(saved, None, personality, preferences)
+
+            return self._format_calendar(day, personality)
+        except Exception as e:
+            return f"📅 日历生成失败：{str(e)[:100]}"
+
+    def _format_calendar(self, day, personality: str = "sassy") -> str:
+        """Format a CalendarDay into a WeChat-friendly message."""
+        lines = [f"📅 {day.date} 专属运势"]
+
+        if day.overall_mood:
+            lines.append(f"\n✨ {day.overall_mood}")
+
+        if day.is_special and day.special_note:
+            lines.append(f"\n⚠️ {day.special_note}")
+
+        if day.yi:
+            lines.append("\n✅ 宜：")
+            for item in day.yi[:4]:
+                action = item.get("action", "")
+                time_ = item.get("time", "")
+                reason = item.get("reason", "")
+                time_str = f"（{time_}）" if time_ else ""
+                reason_str = f" — {reason}" if reason else ""
+                lines.append(f"  • {action}{time_str}{reason_str}")
+
+        if day.ji:
+            lines.append("\n❌ 忌：")
+            for item in day.ji[:4]:
+                action = item.get("action", "")
+                time_ = item.get("time", "")
+                reason = item.get("reason", "")
+                time_str = f"（{time_}）" if time_ else ""
+                reason_str = f" — {reason}" if reason else ""
+                lines.append(f"  • {action}{time_str}{reason_str}")
+
+        lucky = []
+        if day.lucky_color:
+            lucky.append(f"🎨 {day.lucky_color}")
+        if day.lucky_direction:
+            lucky.append(f"🧭 {day.lucky_direction}")
+        if day.lucky_number:
+            lucky.append(f"🔢 {day.lucky_number}")
+        if lucky:
+            lines.append(f"\n🍀 幸运：{'  '.join(lucky)}")
+
+        lines.append(f"\n📅 回复「7天运势」查看一周预览")
+
+        return "\n".join(lines)
 
     # ============================================================
     # 帮助信息
