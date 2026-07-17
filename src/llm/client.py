@@ -1,6 +1,7 @@
 """LLM 客户端 - 支持 Claude 和 DeepSeek."""
 from dataclasses import dataclass
 from typing import List, Optional, Union
+import threading
 import httpx
 import json
 
@@ -21,7 +22,11 @@ class FortuneLLM:
     """算命助手 LLM 封装 - 双模型：Flash(快聊) + Pro(深度分析)
 
     Sprint 7: personality_mode=None enables automatic mood detection.
+    Server hardening: shared httpx client + Pro call semaphore.
     """
+
+    # Limit concurrent Pro model calls to prevent server overload
+    _pro_semaphore = threading.Semaphore(3)
 
     def __init__(self, api_key: str, model: str = "deepseek-v4-flash", provider: str = "deepseek",
                  deep_model: str = "deepseek-v4-pro"):
@@ -31,6 +36,11 @@ class FortuneLLM:
         self.provider = provider
         # Sprint 7: AI mood detector (reuses same Flash model for speed)
         self.mood_detector = MoodDetector(api_key=api_key, model=model)
+        # Server hardening: shared httpx client with connection pooling
+        self._client = httpx.Client(
+            timeout=httpx.Timeout(120.0, connect=15.0),
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+        )
 
     def _resolve_mood(self, user_message: str, personality_mode: Optional[str]) -> str:
         """Auto-detect mood if personality_mode is None, else return override."""
@@ -74,11 +84,10 @@ class FortuneLLM:
         }
         messages = [{"role": "system", "content": CHAT_PROMPT}]
         messages.extend(history)
-        resp = httpx.post(
+        resp = self._client.post(
             "https://api.deepseek.com/v1/chat/completions",
             headers=headers,
             json={"model": self.model, "messages": messages, "max_tokens": 500, "temperature": 0.8},
-            timeout=60.0,
         )
         data = resp.json()
         return data["choices"][0]["message"]["content"]
@@ -118,34 +127,56 @@ class FortuneLLM:
     def _call_deepseek_model(self, user_message: str, model: str, max_tokens: int = 500,
                              use_system_prompt: bool = True,
                              custom_prompt: str = None) -> AnalysisResult:
-        """调用 DeepSeek API"""
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        messages = []
-        if custom_prompt:
-            messages.append({"role": "system", "content": custom_prompt})
-        elif use_system_prompt:
-            prompt = PERSONALITY_PROMPTS.get("sassy", "")
-            messages.append({"role": "system", "content": prompt})
-        messages.append({"role": "user", "content": user_message})
-        payload = {
-            "model": model,
-            "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": 0.7,
-        }
-        resp = httpx.post(
-            "https://api.deepseek.com/v1/chat/completions",
-            headers=headers, json=payload, timeout=120.0,
-        )
-        data = resp.json()
-        return AnalysisResult(
-            response=data["choices"][0]["message"]["content"],
-            tokens_used=data.get("usage", {}).get("total_tokens", 0),
-            model=model,
-        )
+        """调用 DeepSeek API — 使用共享连接池和并发控制"""
+        is_pro = (model == self.deep_model)
+
+        # Pro model: limit concurrency to prevent server overload
+        if is_pro:
+            acquired = self._pro_semaphore.acquire(timeout=120)
+            if not acquired:
+                return AnalysisResult(
+                    response="服务繁忙，请稍后再试。当前排队人数较多，建议1分钟后重试 🙏",
+                    tokens_used=0, model=model)
+
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+            messages = []
+            if custom_prompt:
+                messages.append({"role": "system", "content": custom_prompt})
+            elif use_system_prompt:
+                prompt = PERSONALITY_PROMPTS.get("sassy", "")
+                messages.append({"role": "system", "content": prompt})
+            messages.append({"role": "user", "content": user_message})
+            payload = {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 0.7,
+            }
+            resp = self._client.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                headers=headers, json=payload,
+            )
+            data = resp.json()
+            if "error" in data:
+                return AnalysisResult(
+                    response=f"AI 服务暂时不可用，请稍后再试 🙏",
+                    tokens_used=0, model=model)
+            return AnalysisResult(
+                response=data["choices"][0]["message"]["content"],
+                tokens_used=data.get("usage", {}).get("total_tokens", 0),
+                model=model,
+            )
+        except Exception:
+            return AnalysisResult(
+                response="AI 服务暂时不可用，请稍后重试 🙏",
+                tokens_used=0, model=model)
+        finally:
+            if is_pro:
+                self._pro_semaphore.release()
 
     def _format_chart(self, r: BaziResult) -> str:
         return f"""八字：{' '.join(r.bazi)}
