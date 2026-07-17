@@ -19,7 +19,7 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-CHARTS_DIR = Path(os.environ.get("CHARTS_DIR", "/mnt/d/fortune-data/charts"))
+CHARTS_DIR = Path(os.environ.get("CHARTS_DIR", "/opt/fortune-data/charts"))
 
 # ── Wuxing colour mapping (same as bazi_chart_html) ──
 WX_COLORS = {

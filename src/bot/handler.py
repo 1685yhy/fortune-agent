@@ -581,9 +581,11 @@ class MessageHandler:
         # 6. 生成命盘图片
         chart_url = ""
         try:
-            from src.images.bazi_chart import BaziChartGenerator
-            gen = BaziChartGenerator()
-            chart_path = gen.generate(result)
+            from src.images.bazi_chart_html import BaziChartHTML
+            gen = BaziChartHTML()
+            # AI-generated personalized title
+            personal_title = self._gen_chart_title(result)
+            chart_path = gen.generate(result, title=personal_title)
             filename = os.path.basename(chart_path)
             chart_url = f"http://124.221.233.214/charts/{filename}"
         except Exception as e:
@@ -675,6 +677,35 @@ class MessageHandler:
         reply = self._add_feedback_prompt(reply, personality)
 
         return reply
+
+    def _gen_chart_title(self, result) -> str:
+        """Generate a short personalized title for the chart based on user's chart data."""
+        try:
+            dm = getattr(result, "day_master", "?")
+            geju = getattr(result, "geju", "")
+            yongshen = getattr(result, "yongshen", "")
+
+            parts = [f"{dm}日主"]
+            if geju:
+                parts.append(geju)
+            if yongshen:
+                parts.append(f"用{yongshen}")
+
+            # Find the most interesting aspect
+            wuxing = getattr(result, "wuxing", {})
+            if wuxing:
+                max_wx = max(wuxing, key=wuxing.get)
+                min_wx = min(wuxing, key=wuxing.get)
+                if wuxing.get(min_wx, 0) == 0:
+                    parts.append(f"补{min_wx}为先")
+
+            shensha = getattr(result, "shensha", [])
+            if shensha and "天乙贵人" in shensha:
+                parts.append("贵人格")
+
+            return " · ".join(parts[-4:])  # max 4 parts
+        except Exception:
+            return ""
 
     # ------------------------------------------------------------
     # AI 动态生成辅助方法

@@ -6,7 +6,7 @@ from typing import Optional, Dict, List
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-CHARTS_DIR = Path(os.environ.get('CHARTS_DIR', '/mnt/d/fortune-data/charts'))
+CHARTS_DIR = Path(os.environ.get('CHARTS_DIR', '/opt/fortune-data/charts'))
 
 # 紫微系 / 天府系 star sets
 ZIWEI_XI_STARS = {"紫微", "天机", "太阳", "武曲", "天同", "廉贞"}
