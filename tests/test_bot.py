@@ -40,6 +40,9 @@ def test_intent_detection_other_intents():
     assert detect("奇门遁甲") == "qimen"
     assert detect("给宝宝起名") == "xingming"
     assert detect("看婚姻配对") == "hehun"
+    assert detect("解梦") == "dream"
+    assert detect("梦见被蛇咬了") == "dream"
+    assert detect("周公解梦") == "dream"
 
 
 # ── Formatter ─────────────────────────────────────────────────────────
@@ -85,8 +88,12 @@ def make_mock_handler():
     """Helper: create a MessageHandler with all mocks."""
     mock_llm = Mock()
     mock_llm.analyze.return_value = Mock(response="分析结果")
+    mock_llm.chat.return_value = Mock(response="分析结果")
     mock_dao = Mock()
     mock_dao.get_user_bazi.return_value = None
+    mock_session = Mock()
+    mock_session.get_context_for_llm.return_value = []
+    mock_session.add_message.return_value = None
 
     return MessageHandler(
         engine=Mock(),
@@ -98,6 +105,7 @@ def make_mock_handler():
         retriever=Mock(),
         llm=mock_llm,
         dao=mock_dao,
+        session_dao=mock_session,
     )
 
 
@@ -349,23 +357,23 @@ def test_format_greeting_all_categories():
     """format_greeting 应包含全部9个分类"""
     greeting = format_greeting()
     categories = ["八字", "紫微", "占卜", "风水", "择日", "面相",
-                  "奇门", "姓名", "合婚"]
+                  "奇门", "姓名", "合婚", "解梦"]
     for cat in categories:
         assert cat in greeting, f"缺少分类: {cat}"
 
 
 def test_format_greeting_has_checkmarks():
-    """format_greeting 应为全部9个分类显示 ✅"""
+    """format_greeting 应为全部10个分类显示 ✅"""
     greeting = format_greeting()
-    assert greeting.count("✅") == 9, f"应有9个✅，实际{greeting.count('✅')}个"
+    assert greeting.count("✅") == 10, f"应有10个✅，实际{greeting.count('✅')}个"
 
 
 def test_help_message_all_categories():
-    """_help_message 应包含全部9个分类"""
+    """_help_message 应包含全部10个分类"""
     handler = make_mock_handler()
     help_text = handler._help_message()
     categories = ["八字", "紫微", "占卜", "风水", "择日", "面相",
-                  "奇门", "姓名", "合婚"]
+                  "奇门", "姓名", "合婚", "解梦"]
     for cat in categories:
         assert cat in help_text, f"缺少分类: {cat}"
 
@@ -666,7 +674,7 @@ def test_process_qimen_uses_rag():
 # ── NEW: No more "开发中" for any intent ──────────────────────────────
 
 def test_all_intents_have_handlers():
-    """所有9种意图都有处理逻辑（不返回'开发中'）"""
+    """所有10种意图都有处理逻辑（不返回'开发中'）"""
     handler = make_mock_handler()
     # Test all intent keywords — none should return "开发中"
     test_cases = [
@@ -679,6 +687,7 @@ def test_all_intents_have_handlers():
         ("奇门遁甲", "奇门"),
         ("取名字", "起名"),
         ("婚姻配对", "配对"),
+        ("周公解梦", "解梦"),
     ]
     for msg, _ in test_cases:
         intent = handler._detect_intent(msg)
@@ -843,3 +852,114 @@ def test_text_message_type_default_behavior():
     handler = make_mock_handler()
     result = handler.process("你好", "user123")
     assert "命理助手" in result
+
+
+# ── NEW: Dream handler ─────────────────────────────────────────────────
+
+def test_process_dream_missing_desc_asks():
+    """解梦无梦境描述 - 询问提供信息"""
+    handler = make_mock_handler()
+    result = handler.process("解梦", "user123")
+    assert "请描述" in result or "梦见" in result
+
+
+def test_process_dream_with_text_and_engine():
+    """解梦带梦境描述 - engine + RAG + LLM 完整流程"""
+    mock_dream = Mock()
+    mock_result = Mock()
+    mock_result.dream_keywords = ["蛇", "咬"]
+    mock_result.interpretations = [
+        "梦见被蛇咬，主得大财。蛇在梦中象征智慧与财富...",
+        "梦见蛇咬自己，表示要交好运...",
+    ]
+    mock_result.source = "周公解梦"
+    mock_dream.interpret.return_value = mock_result
+
+    mock_retriever = Mock()
+    mock_retriever.search.return_value = []
+
+    mock_llm = Mock()
+    mock_analysis = Mock()
+    mock_analysis.response = "此梦预示近期将有财运到来，蛇为小龙，主升迁之喜..."
+    mock_llm.analyze.return_value = mock_analysis
+
+    mock_dao = Mock()
+
+    handler = MessageHandler(
+        engine=Mock(),
+        ziwei_engine=Mock(),
+        liuyao_engine=Mock(),
+        fengshui_engine=Mock(),
+        mianxiang_engine=Mock(),
+        zeri_engine=Mock(),
+        retriever=mock_retriever,
+        llm=mock_llm,
+        dao=mock_dao,
+        dream_engine=mock_dream,
+    )
+    result = handler.process("梦见被蛇咬了", "user123")
+
+    assert "周公解梦" in result
+    assert "您梦见了" in result
+    assert "古籍记载" in result
+    assert "AI解读" in result
+    assert "被蛇咬了" in result
+    assert "此梦预示" in result
+    mock_dream.interpret.assert_called_once()
+    mock_retriever.search.assert_not_called()  # engine provided interpretations
+    mock_llm.analyze.assert_called_once()
+
+
+def test_process_dream_rag_fallback():
+    """解梦 - engine无结果时回退到RAG全文搜索"""
+    mock_dream = Mock()
+    mock_result = Mock()
+    mock_result.dream_keywords = []
+    mock_result.interpretations = []
+    mock_result.source = ""
+    mock_dream.interpret.return_value = mock_result
+
+    mock_retriever = Mock()
+    mock_retriever.search.return_value = [
+        Mock(text="梦见掉牙齿，主父母有灾，须加谨慎...", source="周公解梦", score=0.85, chunk_id="1"),
+    ]
+
+    mock_llm = Mock()
+    mock_analysis = Mock()
+    mock_analysis.response = "掉牙齿的梦境分析..."
+    mock_llm.analyze.return_value = mock_analysis
+
+    mock_dao = Mock()
+
+    handler = MessageHandler(
+        engine=Mock(),
+        ziwei_engine=Mock(),
+        liuyao_engine=Mock(),
+        fengshui_engine=Mock(),
+        mianxiang_engine=Mock(),
+        zeri_engine=Mock(),
+        retriever=mock_retriever,
+        llm=mock_llm,
+        dao=mock_dao,
+        dream_engine=mock_dream,
+    )
+    result = handler.process("梦见掉牙齿", "user123")
+
+    assert "掉牙齿的梦境分析" in result
+    mock_retriever.search.assert_called_once()
+    mock_llm.analyze.assert_called_once()
+
+
+def test_dream_intent_detection():
+    """解梦意图关键词识别"""
+    def detect(msg):
+        for intent, keywords in INTENT_KEYWORDS.items():
+            for kw in keywords:
+                if kw in msg:
+                    return intent
+        return None
+
+    assert detect("帮我解梦") == "dream"
+    assert detect("昨晚上做了一个梦") == "dream"
+    assert detect("梦见自己会飞") == "dream"
+    assert detect("梦到水灾了") == "dream"

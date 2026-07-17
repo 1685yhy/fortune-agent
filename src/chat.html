@@ -93,3 +93,10 @@ function send(text) {
 </script>
 </body>
 </html>
+<script>
+// Mobile optimization
+if (window.innerWidth < 600) {
+  document.querySelector('.input-box input').style.fontSize = '16px'; // prevent iOS zoom
+  document.querySelector('.header h1').style.fontSize = '16px';
+}
+</script>

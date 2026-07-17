@@ -9,6 +9,8 @@ from src.engines.liuyao import LiuyaoEngine, LiuyaoResult
 from src.engines.fengshui import FengshuiEngine, FengshuiResult
 from src.engines.mianxiang import MianxiangEngine, MianxiangResult
 from src.engines.zeri import ZeriEngine, ZeriResult
+from src.engines.dream import DreamEngine, DreamResult
+from src.engines.advisor import AdvisorEngine
 from src.rag.retriever import Retriever, ChunkResult
 from src.llm.client import FortuneLLM, AnalysisResult
 
@@ -30,6 +32,7 @@ except ImportError:
             pass
 
 
+from src.storage.session_dao import SessionDAO
 from .formatter import split_long_message, format_error, format_loading
 
 INTENT_KEYWORDS = {
@@ -42,6 +45,7 @@ INTENT_KEYWORDS = {
     "qimen": ["奇门", "遁甲"],
     "xingming": ["名字", "起名", "姓名", "改名"],
     "hehun": ["合婚", "配对", "配不配", "婚姻匹配"],
+    "dream": ["解梦", "做梦", "梦见", "梦到", "梦"],
 }
 
 # 八字信息提取
@@ -67,6 +71,8 @@ class MessageHandler:
         retriever: Retriever,
         llm: FortuneLLM,
         dao: UserDAO,
+        dream_engine: DreamEngine = None,
+        session_dao: SessionDAO = None,
     ):
         self.engine = engine
         self.ziwei_engine = ziwei_engine
@@ -74,9 +80,11 @@ class MessageHandler:
         self.fengshui_engine = fengshui_engine
         self.mianxiang_engine = mianxiang_engine
         self.zeri_engine = zeri_engine
+        self.dream_engine = dream_engine
         self.retriever = retriever
         self.llm = llm
         self.dao = dao
+        self.session_dao = session_dao
 
     def process(self, message: str, user_id: str) -> str:
         """处理用户消息，返回回复"""
@@ -85,8 +93,16 @@ class MessageHandler:
         # Step 1: 意图识别
         intent = self._detect_intent(msg)
 
+        # Save user message to session history
+        if self.session_dao:
+            self.session_dao.add_message(user_id, "user", msg, intent=intent)
+
         if intent is None:
-            return self._free_chat(msg, user_id)
+            reply = self._free_chat(msg, user_id)
+            # Save bot reply to session
+            if self.session_dao:
+                self.session_dao.add_message(user_id, "assistant", reply)
+            return reply
 
         # Step 2: 路由到对应处理器
         handler_map = {
@@ -99,13 +115,23 @@ class MessageHandler:
             "qimen": self._handle_qimen,
             "xingming": self._handle_xingming,
             "hehun": self._handle_hehun,
+            "dream": self._handle_dream,
         }
 
         handler = handler_map.get(intent)
         if handler:
-            return handler(msg, user_id)
+            try:
+                reply = handler(msg, user_id)
+            except Exception as e:
+                reply = f"⚠️ 服务暂时不可用：{str(e)[:100]}\n\n请稍后再试或换一种命理方式。"
+        else:
+            reply = f"🔧 {intent} 模块暂未开放，试试：\n• 八字命理\n• 紫微斗数\n• 易经占卜\n• 风水分析"
 
-        return f"🔧 {intent} 模块开发中，敬请期待！"
+        # Save bot reply to session
+        if self.session_dao:
+            self.session_dao.add_message(user_id, "assistant", reply, intent=intent)
+
+        return reply
 
     # ============================================================
     # Voice input support
@@ -348,7 +374,10 @@ class MessageHandler:
         # 1. 排盘
         result = self.engine.calculate(year, month, day, hour, minute, city, gender)
 
-        # 2. 保存用户数据
+        # 2. 秒回安抚（在LLM分析前生成，最终拼接到回复开头）
+        instant_reply = self._gen_instant_reply(result)
+
+        # 3. 保存用户数据
         self.dao.save_user_bazi(user_id, {
             "year": year, "month": month, "day": day,
             "hour": hour, "minute": minute,
@@ -357,14 +386,14 @@ class MessageHandler:
         })
         self.dao.save_consultation(user_id, question, result)
 
-        # 3. 检索古籍
+        # 4. 检索古籍
         search_query = f"{result.day_master} {question}"
         refs = self.retriever.search(search_query, category="bazi", top_k=15)
 
-        # 4. LLM分析
+        # 5. LLM分析
         analysis = self.llm.analyze(result, refs, question)
 
-        # 5. 生成命盘图片
+        # 6. 生成命盘图片
         chart_url = ""
         try:
             from src.images.bazi_chart import BaziChartGenerator
@@ -377,11 +406,91 @@ class MessageHandler:
             import logging
             logging.getLogger(__name__).warning(f"Chart generation failed: {e}\n{traceback.format_exc()}")
 
-        # 6. 组合回复
+        # 7. 行动建议
+        advice_section = ""
+        try:
+            advisor = AdvisorEngine()
+            advice = advisor.generate_advice(result)
+            has_advice = any(items for items in advice.values())
+            if has_advice:
+                lines = ["\n\n📌 行动建议"]
+                icons = {"事业": "💼", "财运": "💰", "感情": "❤️", "健康": "🏥", "个人成长": "🌱"}
+                for cat in ["事业", "财运", "感情", "健康", "个人成长"]:
+                    items = advice.get(cat, [])
+                    if items:
+                        joined = "；".join(items[:2])
+                        lines.append(f"{icons.get(cat, '')} {cat}：{joined}")
+                advice_section = "\n".join(lines)
+        except Exception:
+            pass
+
+        # 8. 组合回复
         reply = analysis.response
+        if advice_section:
+            reply += advice_section
         if chart_url:
             reply += f"\n\n📊 命盘图片：{chart_url}"
+        if instant_reply:
+            reply = instant_reply + "\n\n---\n\n" + reply
         return reply
+
+    # ------------------------------------------------------------
+    # 秒回安抚 (Instant Emotional Reply)
+    # ------------------------------------------------------------
+
+    def _gen_instant_reply(self, result) -> str:
+        """生成即时情绪安抚回复——在LLM深度分析前先给用户一个暖心的回应。
+
+        格式：
+        [秒回] 小友，你的八字排出来了，命盘是【...】，日主为...。
+        老夫正在仔细推演你的大运流年，请容我片刻。
+        先告诉你一个好消息：...。
+        """
+        try:
+            bazi = getattr(result, "bazi", None)
+            if not isinstance(bazi, (list, tuple)) or len(bazi) < 4:
+                return ""
+            bazi_str = " ".join(str(p) for p in bazi[:4])
+
+            dm = getattr(result, "day_master", "")
+            if not isinstance(dm, str) or not dm:
+                return ""
+
+            # 找一个积极信息
+            positive = ""
+
+            # 神煞 → 天乙贵人优先
+            shensha = getattr(result, "shensha", None)
+            if isinstance(shensha, (list, tuple)):
+                if "天乙贵人" in shensha:
+                    positive = "你命带天乙贵人，这一生逢凶化吉，总有人助"
+
+            # 格局
+            if not positive:
+                geju = getattr(result, "geju", "")
+                if isinstance(geju, str) and geju and geju != "普通格":
+                    positive = f"你是{geju}，命格不凡，前途光明"
+
+            # 五行最强项
+            if not positive:
+                wuxing = getattr(result, "wuxing", None)
+                if isinstance(wuxing, dict) and wuxing:
+                    strongest = max(wuxing, key=lambda k: wuxing.get(k, 0))  # type: ignore
+                    count = wuxing.get(strongest, 0)
+                    if count >= 2:
+                        positive = f"你五行{strongest}气较旺，这是你的核心优势"
+
+            if not positive:
+                positive = "你的命格别有洞天，待老夫细细道来"
+
+            return (
+                f"[秒回] 小友，你的八字排出来了，"
+                f"命盘是【{bazi_str}】，日主为{dm}。"
+                f"老夫正在仔细推演你的大运流年，请容我片刻。"
+                f"先告诉你一个好消息：{positive}。🍵"
+            )
+        except Exception:
+            return ""
 
     # ============================================================
     # 紫微斗数 (Ziwei)
@@ -417,21 +526,35 @@ class MessageHandler:
         self, year, month, day, hour, minute, city, gender, question, user_id,
     ) -> str:
         """执行紫微斗数分析"""
-        # 1. 排盘
-        result = self.ziwei_engine.calculate(year, month, day, hour, minute, city, gender)
+        try:
+            result = self.ziwei_engine.calculate(year, month, day, hour, minute, city, gender)
+            self.dao.save_consultation(user_id, question, result, intent="ziwei")
+            search_query = f"紫微斗数 {result.ming_gong} {question}"
+            refs = self.retriever.search(search_query, category="ziwei", top_k=15)
+            if not refs:
+                refs = self.retriever.search(search_query, top_k=15)  # fallback: any category
+            chart_str = self._format_ziwei_chart(result)
+            analysis = self.llm.analyze(chart_str, refs, question)
 
-        # 2. 保存
-        self.dao.save_consultation(user_id, question, result, intent="ziwei")
+            # 生成紫微斗数命盘图片
+            chart_url = ""
+            try:
+                from src.images.ziwei_chart_html import ZiweiChartHTML
+                gen = ZiweiChartHTML()
+                chart_path = gen.generate(result)
+                filename = os.path.basename(chart_path)
+                chart_url = f"http://124.221.233.214/charts/{filename}"
+            except Exception as e:
+                import traceback
+                import logging
+                logging.getLogger(__name__).warning(f"Ziwei chart generation failed: {e}\n{traceback.format_exc()}")
 
-        # 3. 检索古籍
-        search_query = f"紫微斗数 {result.ming_gong} {question}"
-        refs = self.retriever.search(search_query, category="ziwei", top_k=15)
-
-        # 4. LLM分析
-        chart_str = self._format_ziwei_chart(result)
-        analysis = self.llm.analyze(chart_str, refs, question)
-
-        return analysis.response
+            reply = analysis.response
+            if chart_url:
+                reply += f"\n\n📊 命盘图片：{chart_url}"
+            return reply
+        except Exception as e:
+            return f"⚠️ 紫微斗数排盘暂时不可用：{str(e)[:100]}\n\n请稍后重试或改用八字分析。"
 
     def _format_ziwei_chart(self, r: ZiweiResult) -> str:
         """格式化紫微斗数命盘为文本"""
@@ -473,23 +596,18 @@ class MessageHandler:
 
     def _do_liuyao_analysis(self, question: str, original_msg: str, user_id: str) -> str:
         """执行六爻占卜"""
-        # 1. 起卦
-        result = self.liuyao_engine.cast(method="random", question=question)
-
-        # 2. 保存
-        self.dao.save_consultation(user_id, original_msg, result, intent="liuyao")
-
-        # 3. 检索古籍
-        refs = self.retriever.search(
-            f"六爻 {result.original_hexagram} {question}",
-            category="liuyao", top_k=15,
-        )
-
-        # 4. LLM分析
-        chart_str = self._format_liuyao_chart(result)
-        analysis = self.llm.analyze(chart_str, refs, question)
-
-        return analysis.response
+        try:
+            result = self.liuyao_engine.cast(method="random", question=question)
+            self.dao.save_consultation(user_id, original_msg, result, intent="liuyao")
+            refs = self.retriever.search(
+                f"六爻 {result.original_hexagram} {question}", category="yijing", top_k=15)
+            if not refs:
+                refs = self.retriever.search(f"六爻 {question}", top_k=15)
+            chart_str = self._format_liuyao_chart(result)
+            analysis = self.llm.analyze(chart_str, refs, question)
+            return analysis.response
+        except Exception as e:
+            return f"⚠️ 六爻起卦暂时不可用：{str(e)[:100]}\n\n请稍后重试。"
 
     def _format_liuyao_chart(self, r: LiuyaoResult) -> str:
         """格式化六爻占卜结果为文本"""
@@ -559,11 +677,30 @@ class MessageHandler:
         search_query = f"风水 {result.house_gua} {question}"
         refs = self.retriever.search(search_query, category="fengshui", top_k=15)
 
-        # 4. LLM分析
-        chart_str = self._format_fengshui_chart(result)
-        analysis = self.llm.analyze(chart_str, refs, question)
+        # 4. LLM分析（带错误处理）
+        try:
+            chart_str = self._format_fengshui_chart(result)
+            analysis = self.llm.analyze(chart_str, refs, question)
 
-        return analysis.response
+            # 生成风水九宫飞星图
+            chart_url = ""
+            try:
+                from src.images.fengshui_chart_html import FengshuiChartHTML
+                gen = FengshuiChartHTML()
+                chart_path = gen.generate(result)
+                filename = os.path.basename(chart_path)
+                chart_url = f"http://124.221.233.214/charts/{filename}"
+            except Exception as e:
+                import traceback
+                import logging
+                logging.getLogger(__name__).warning(f"Fengshui chart generation failed: {e}\n{traceback.format_exc()}")
+
+            reply = analysis.response
+            if chart_url:
+                reply += f"\n\n📊 风水九宫图：{chart_url}"
+            return reply
+        except Exception as e:
+            return f"⚠️ 风水分析暂时不可用：{str(e)[:100]}\n\n请稍后重试。"
 
     def _format_fengshui_chart(self, r: FengshuiResult) -> str:
         """格式化风水分析结果为文本"""
@@ -799,24 +936,156 @@ class MessageHandler:
         return analysis.response
 
     # ============================================================
+    # 解梦 (Dream) - engine + RAG + LLM
+    # ============================================================
+
+    def _handle_dream(self, msg: str, user_id: str) -> str:
+        """处理解梦请求 - 提取完整梦境 + 处境"""
+        # 去掉触发词，保留完整描述
+        for kw in ["帮我解梦", "解梦", "做梦"]:
+            msg = msg.replace(kw, "", 1)
+        dream_text = msg.strip()
+
+        if not dream_text or len(dream_text) < 2:
+            return """🌙 请描述您的梦境，我来为您解梦：
+
+您可以详细说说：
+• 梦里发生了什么？
+• 梦里有什么情绪和感觉？
+• 最近有什么特别担心或关注的事情吗？
+
+💡 例如：「梦见一条大蟒蛇在追我，我很害怕，最近工作压力大，老板总刁难我」"""
+
+        return self._do_dream_analysis(dream_text, user_id)
+
+    def _do_dream_analysis(self, dream_text: str, user_id: str) -> str:
+        """执行解梦分析 - 完整上下文"""
+        # 1. 分离梦境描述 和 用户处境
+        user_context = ""
+        context_keywords = ["最近", "因为", "担心", "害怕", "焦虑", "压力", "工作", "感情", "家庭", "钱", "身体",
+                            "老板", "同事", "朋友", "父母", "老公", "老婆", "男朋友", "女朋友", "孩子"]
+        for kw in context_keywords:
+            idx = dream_text.find(kw)
+            if idx > 5:  # 关键词在文本后半部分，可能是处境描述
+                user_context = dream_text[idx:]
+                dream_text = dream_text[:idx].strip()
+                break
+
+        # 2. 获取用户八字
+        bazi_info = None
+        try:
+            saved = self.dao.get_user_bazi(user_id)
+            if saved:
+                bazi_info = {"day_master": f"{saved.get('bazi', ['?'])[2]}", "current_dayun": "当前"}
+        except Exception:
+            pass
+
+        # 3. 引擎分析 + RAG检索
+        api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+        if self.dream_engine:
+            result = self.dream_engine.analyze(dream_text, self.retriever, api_key, user_context, bazi_info)
+        else:
+            result = DreamResult()
+
+        self.dao.save_consultation(user_id, dream_text, result, intent="dream")
+
+        # 4. 构建完整 Prompt 并调用 LLM
+        from src.engines.dream import format_dream_prompt
+        prompt = format_dream_prompt(dream_text, result, user_context, bazi_info)
+        analysis = self.llm.analyze(prompt, result.interpretations, dream_text)
+
+        # 5. 组合回复
+        return self._format_dream_response(dream_text, result, analysis.response)
+
+    def _get_dream_text(self, msg: str) -> str:
+        """从消息中提取梦境描述"""
+        for kw in ["解梦", "做梦", "梦见", "梦到", "梦"]:
+            msg = msg.replace(kw, "", 1)
+        return msg.strip()
+        for kw in keywords:
+            cleaned = cleaned.replace(kw, "")
+        cleaned = cleaned.strip()
+        # If nothing remains, the whole message might be the dream description
+        if not cleaned:
+            cleaned = msg
+        return cleaned
+
+    def _format_dream_for_llm(self, result: DreamResult, dream_text: str) -> str:
+        """格式化解梦信息供LLM分析"""
+        lines = ["周公解梦分析："]
+        lines.append(f"梦境：{dream_text}")
+        if result.symbols:
+            lines.append(f"核心象征：{'、'.join(result.symbols)}")
+        if result.emotions:
+            lines.append(f"情绪基调：{result.emotions}")
+        if result.interpretations:
+            lines.append("古籍参考：")
+            for i, interp in enumerate(result.interpretations[:5], 1):
+                lines.append(f"  {i}. {interp[:300]}")
+        return '\n'.join(lines)
+
+    def _format_dream_response(self, dream_text: str, result: DreamResult, llm_analysis: str) -> str:
+        """格式化最终回复"""
+        reply = "🌙 周公解梦\n\n"
+        reply += f"您梦见了：{dream_text}\n"
+
+        if result.interpretations:
+            reply += "\n📖 古籍记载：\n"
+            for i, interp in enumerate(result.interpretations[:3], 1):
+                reply += f"  {i}. {interp[:200]}\n"
+
+        reply += f"\n🔮 AI解读：\n{llm_analysis}"
+        return reply
+
+    # ============================================================
     # 帮助信息
     # ============================================================
 
     def _conversational_chat(self, history: list, user_id: str) -> str:
-        """多轮对话 - 带完整上下文的自然聊天。"""
+        """多轮对话 - 带完整上下文的自然聊天。
+
+        优先使用 API 调用方传递的显式历史（history 参数），
+        若历史较短（仅当前消息），则补充会话存储中的历史记录。
+        """
+        # 提取当前用户消息
+        current_msg = ""
+        for m in history:
+            if m["role"] == "user":
+                current_msg = m["content"]
+
         # 如果只有一条消息且是问候，快速回复
         if len(history) <= 1:
-            msg = history[-1]["content"] if history else ""
-            if msg.strip() in ('',' ','?','？'):
+            if current_msg.strip() in ('',' ','?','？'):
                 return '您好！我是易理明灯AI命理顾问。直接告诉我您的出生日期，我帮您看八字。'
-            if re.search(r'\d{4}', msg) or re.search(r'[男女]', msg):
+            if re.search(r'\d{4}', current_msg) or re.search(r'[男女]', current_msg):
                 return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
+
+        # 构建传给 LLM 的历史消息
+        llm_history = list(history)
+
+        # 如果显式历史只有一条消息，尝试从会话存储中补充更早的上下文
+        if len(history) <= 1 and self.session_dao:
+            session_ctx = self.session_dao.get_context_for_llm(user_id, history_limit=15)
+            if len(session_ctx) > len(history):
+                # 用会话历史替换，但确保当前用户消息在最后
+                llm_history = [m for m in session_ctx if m["role"] != "user" or m["content"] != current_msg]
+                llm_history.append({"role": "user", "content": current_msg})
+
+        # Save user message to session
+        if self.session_dao and current_msg:
+            self.session_dao.add_message(user_id, "user", current_msg)
 
         # 多轮对话：把历史消息传给 LLM
         try:
-            return self.llm.chat_conversation(history)
+            reply = self.llm.chat_conversation(llm_history)
         except Exception:
-            return '老夫在此，小友有何困惑尽管道来。'
+            reply = '老夫在此，小友有何困惑尽管道来。'
+
+        # Save assistant reply to session
+        if self.session_dao:
+            self.session_dao.add_message(user_id, "assistant", reply)
+
+        return reply
 
     def _free_chat(self, msg: str, user_id: str) -> str:
         """自由对话：没有命中任何命理意图时，直接用 LLM 自然聊天。"""
@@ -829,6 +1098,12 @@ class MessageHandler:
 
         # 所有其他消息 → 用 LLM 自然对话
         try:
+            if self.session_dao:
+                # 加载最近对话历史，传给LLM以获得上下文感知的回复
+                history = self.session_dao.get_context_for_llm(user_id, history_limit=15)
+                if len(history) > 1:
+                    return self.llm.chat_conversation(history)
+            # 无历史或历史不足时，用单消息模式
             result = self.llm.chat(msg)
             return result.response
         except Exception:
@@ -863,6 +1138,7 @@ def _get_welcome_message() -> str:
 🔹 **奇门遁甲** — 运筹决策、方位吉凶
 🔹 **姓名学** — 起名改名、姓名分析
 🔹 **合婚配对** — 婚姻匹配、缘分分析
+🔹 **周公解梦** — 梦境解析、预兆解读
 
 ━━━━━━━━━━━━━━━
 💬 您也可以直接问我任何命理相关的问题，我会尽力为您解答！"""
@@ -880,6 +1156,7 @@ def _get_welcome_message() -> str:
 • 奇门遁甲 — 运筹决策、方位吉凶
 • 姓名学 — 起名改名、姓名分析
 • 合婚配对 — 婚姻匹配、缘分分析
+• 周公解梦 — 梦境解析、预兆解读
 
 💬 直接告诉我想算什么就行！
 例如：「帮我看看八字 1990年5月20日15点 北京 男」"""

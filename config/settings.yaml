@@ -9,3 +9,6 @@ push:
   time: "08:00"              # 默认推送时间 (HH:MM)
   timezone: "Asia/Shanghai"
   max_users_per_batch: 50    # 每批最大推送用户数
+
+# Admin
+admin_key: "fortune-admin-2024"
