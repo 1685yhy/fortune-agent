@@ -65,11 +65,11 @@ BAZI_EXTRACT_PATTERNS = [
 class MessageHandler:
     """消息处理器"""
 
-    # Personality switching keywords
+    # Personality switching keywords — ordered longest-first to avoid partial matches
     PERSONALITY_SWITCH_KEYWORDS = {
-        "sassy": ["毒舌", "犀利", "闺蜜", "嘴毒", "毒舌闺蜜", "换个风格", "换风格"],
+        "sassy": ["毒舌闺蜜", "毒舌", "犀利", "嘴毒", "换个风格", "换风格"],
         "analyst": ["分析师", "理性", "数据", "专业", "严谨", "客观模式"],
-        "gentle": ["温柔", "暖心", "陪伴", "温和", "温暖", "温柔一点"],
+        "gentle": ["温柔一点", "温柔", "暖心", "陪伴", "温和", "温暖"],
     }
 
     # Banned words to filter from LLM responses
@@ -128,33 +128,61 @@ class MessageHandler:
     # Emotional Soothing (pre-response)
     # ============================================================
 
-    def _soothe(self, user_message: str) -> str:
-        """Return a brief, modern emotional acknowledgment BEFORE analysis.
+    def _soothe(self, user_message: str) -> tuple:
+        """Return (soothe_text, emotion_label) for emotional acknowledgment BEFORE analysis.
 
         Detects emotional keywords and returns 1-2 sentences of validation.
-        Returns empty string if no emotional content detected.
+        Returns ("", None) if no emotional content detected.
+        The emotion_label is used downstream to inject emotional context into LLM prompts.
         """
-        # Emotional keyword groups
-        anxiety_keywords = ["焦虑", "担心", "害怕", "紧张", "烦", "累", "压力"]
-        confusion_keywords = ["纠结", "不知道", "怎么办", "迷茫", "困惑", "想不通"]
-        sadness_keywords = ["难过", "伤心", "哭", "失落", "失望", "痛苦", "孤独"]
-        anger_keywords = ["生气", "愤怒", "火大", "不爽", "烦死了", "受不了"]
+        # Emotional keyword groups — expanded for感情/职场/生活场景
+        anxiety_keywords = ["焦虑", "担心", "害怕", "紧张", "烦", "累", "压力", "不安", "恐慌", "忧愁"]
+        confusion_keywords = ["纠结", "不知道", "怎么办", "迷茫", "困惑", "想不通", "选择", "犹豫", "拿不定"]
+        sadness_keywords = ["难过", "伤心", "哭", "失落", "失望", "痛苦", "孤独", "分手", "失恋", "离婚",
+                            "出轨", "背叛", "被甩", "冷战", "拉黑", "丧", "想死", "活着", "撑不下去", "没劲"]
+        anger_keywords = ["生气", "愤怒", "火大", "不爽", "烦死了", "受不了", "公平", "凭什么", "太气"]
+        heartbreak_keywords = ["分手", "失恋", "离婚", "出轨", "背叛", "被甩", "冷战", "拉黑",
+                               "他不爱", "她不爱", "不爱我", "离开我", "不要我"]
 
         has_anxiety = any(kw in user_message for kw in anxiety_keywords)
         has_confusion = any(kw in user_message for kw in confusion_keywords)
         has_sadness = any(kw in user_message for kw in sadness_keywords)
         has_anger = any(kw in user_message for kw in anger_keywords)
+        has_heartbreak = any(kw in user_message for kw in heartbreak_keywords)
 
-        if has_anxiety:
-            return "感到焦虑是人之常情，尤其是在面对不确定的事情时。给自己一点空间，一切都会慢慢清晰起来 ✨"
-        if has_confusion:
-            return "做选择确实很难。很多人面对类似的情况都会纠结，这很正常 ✨"
+        # Heartbreak takes priority — it needs the most specific response
+        if has_heartbreak:
+            return (
+                "感情的结束真的很痛。那种心被掏空的感觉，只有经历过的人才懂。"
+                "你不是一个人在面对这个 — 先允许自己难过，想哭就哭出来 💔",
+                "heartbreak"
+            )
         if has_sadness:
-            return "你现在的感受我完全理解。允许自己难过，也是一种勇气。我陪你一起看看命盘怎么说 🌷"
+            return (
+                "你现在的感受我完全理解。允许自己难过，也是一种勇气。"
+                "我陪你一起看看，从命盘的角度也许能找到一些新的视角 🌷",
+                "sadness"
+            )
+        if has_anxiety:
+            return (
+                "感到焦虑是人之常情，尤其是在面对不确定的事情时。"
+                "给自己一点空间，我会给你一些实实在在的建议，帮你理清思路 ✨",
+                "anxiety"
+            )
+        if has_confusion:
+            return (
+                "做选择确实很难。很多人面对类似的情况都会纠结，这很正常。"
+                "我帮你从命理角度分析一下，给你多一个参考维度 ✨",
+                "confusion"
+            )
         if has_anger:
-            return "遇到这种事确实让人火大。先深呼吸，让自己缓一缓，我们再一起来看看怎么化解 👊"
+            return (
+                "遇到这种事确实让人火大。先深呼吸，让自己缓一缓，"
+                "我们再一起来看看怎么化解 👊",
+                "anger"
+            )
 
-        return ""
+        return "", None
 
     # ============================================================
     # Banned Words Filter
@@ -184,10 +212,23 @@ class MessageHandler:
                 "gentle": "温柔陪伴者 🌷",
             }
             name = mode_names.get(switch_mode, switch_mode)
+            # If message has substantive content beyond the switch keyword,
+            # process it too instead of just returning a confirmation
+            remaining = msg
+            # Remove ALL personality switch keywords to prevent recursion
+            for mode_kws in self.PERSONALITY_SWITCH_KEYWORDS.values():
+                for kw in mode_kws:
+                    remaining = remaining.replace(kw, "")
+            remaining = remaining.strip().lstrip("，。,!！模式，、 ")
+            if remaining and len(remaining) >= 3:
+                # User wants to switch AND ask something — do both
+                ack = f"已切到{name}模式~"
+                reply = self.process(remaining, user_id)
+                return ack + "\n\n" + reply
             return f"好的，已切换到{name}模式！有什么想问的尽管说~"
 
         # Step 0.5: 情绪安抚（在所有分析之前）
-        soothe = self._soothe(msg)
+        soothe_text, emotion_label = self._soothe(msg)
 
         # Step 1: 意图识别
         intent = self._detect_intent(msg)
@@ -197,14 +238,14 @@ class MessageHandler:
             self.session_dao.add_message(user_id, "user", msg, intent=intent)
 
         if intent is None:
-            reply = self._free_chat(msg, user_id)
+            reply = self._free_chat(msg, user_id, emotion_label=emotion_label)
             # Save bot reply to session
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply)
             # Apply banned words filter and prepend soothe
             reply = self._filter_banned_words(reply)
-            if soothe:
-                reply = soothe + "\n\n" + reply
+            if soothe_text:
+                reply = soothe_text + "\n\n" + reply
             return reply
 
         # Step 2: 路由到对应处理器
@@ -236,8 +277,8 @@ class MessageHandler:
 
         # Apply banned words filter and prepend emotional soothing
         reply = self._filter_banned_words(reply)
-        if soothe:
-            reply = soothe + "\n\n" + reply
+        if soothe_text:
+            reply = soothe_text + "\n\n" + reply
 
         return reply
 
@@ -1204,8 +1245,20 @@ class MessageHandler:
         return '\n'.join(lines)
 
     def _format_dream_response(self, dream_text: str, result: DreamResult, llm_analysis: str) -> str:
-        """格式化最终回复"""
+        """格式化最终回复 — 带情绪安抚和古籍解读"""
+        # Detect dream emotion for tailored opener
+        dream_lower = dream_text.lower()
+        if any(kw in dream_lower for kw in ["害怕", "恐惧", "追杀", "鬼", "死", "蛇", "掉", "坠落"]):
+            emotion_opener = "梦见这样的场景确实会让人心里不安。梦是潜意识的镜子，让我们一起来看看它在告诉你什么。\n\n"
+        elif any(kw in dream_lower for kw in ["哭", "难过", "伤心", "失去", "分离"]):
+            emotion_opener = "这样的梦往往触碰到了内心深处最柔软的地方。让我陪着你，一起解读这份感受。\n\n"
+        elif any(kw in dream_lower for kw in ["飞", "开心", "笑", "美", "金", "钱"]):
+            emotion_opener = "听起来是个让人心情愉悦的梦呢！梦境有时就是心灵的礼物，来看看它藏着什么好意。\n\n"
+        else:
+            emotion_opener = "每个梦都是心灵在深夜给我们的一封信。让我帮你拆开看看里面写了什么。\n\n"
+
         reply = "🌙 周公解梦\n\n"
+        reply += emotion_opener
         reply += f"您梦见了：{dream_text}\n"
 
         if result.interpretations:
@@ -1236,7 +1289,7 @@ class MessageHandler:
         if len(history) <= 1:
             if current_msg.strip() in ('',' ','?','？'):
                 return '您好！我是易理明灯AI命理顾问。直接告诉我您的出生日期，我帮您看八字。'
-            if re.search(r'\d{4}', current_msg) or re.search(r'[男女]', current_msg):
+            if re.search(r'\d{4}', current_msg) or re.search(r'(?:^|[^\w])[男女](?:$|[^\w])', current_msg):
                 return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
 
         # 构建传给 LLM 的历史消息
@@ -1266,24 +1319,52 @@ class MessageHandler:
 
         return reply
 
-    def _free_chat(self, msg: str, user_id: str) -> str:
-        """自由对话：没有命中任何命理意图时，直接用 LLM 自然聊天。"""
+    def _free_chat(self, msg: str, user_id: str, emotion_label: str = None) -> str:
+        """自由对话：没有命中任何命理意图时，直接用 LLM 自然聊天。
+
+        当检测到情绪信号时，将情绪上下文注入提示词，
+        确保 LLM 优先提供情感支持而非索要信息。
+        """
         if msg.strip() in ('',' ','?','？'):
             return '您好！我是易理明灯AI命理顾问。直接告诉我您的出生日期，我帮您看八字。'
 
         # 如果消息含数字或年份，可能是用户尝试提供出生信息，引导一下
-        if re.search(r'\d{4}', msg) or re.search(r'[男女]', msg):
+        # 注意: "男"/"女" 必须是独立出现(性别标记)，不能是 "渣男"/"美女" 等词的一部分
+        has_year = bool(re.search(r'\d{4}', msg))
+        has_gender = bool(re.search(r'(?:^|[^\w])[男女](?:$|[^\w])', msg))
+        if has_year or has_gender:
             return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
 
         # 所有其他消息 → 用 LLM 自然对话
         try:
+            # Build emotional context hint for the LLM
+            emotion_hint = ""
+            if emotion_label:
+                emotion_hints = {
+                    "heartbreak": "【重要】用户正在经历感情创伤，请优先给予共情和情感支持。先安抚情绪，再谈其他。不要一上来就索要出生信息。",
+                    "sadness": "【重要】用户情绪低落，请先给予温暖的理解和陪伴。不要急于索要信息。",
+                    "anxiety": "用户感到焦虑不安，请给出踏实、具体的建议帮助缓解。先共情，再给方案。",
+                    "confusion": "用户在做艰难的选择，请帮助他们理清思路。给方向感而非施加更多压力。",
+                    "anger": "用户感到愤怒不平，请先认可他们的感受，再引导理性看待。",
+                }
+                emotion_hint = emotion_hints.get(emotion_label, "")
+
             if self.session_dao:
                 # 加载最近对话历史，传给LLM以获得上下文感知的回复
                 history = self.session_dao.get_context_for_llm(user_id, history_limit=15)
                 if len(history) > 1:
+                    if emotion_hint:
+                        # Inject emotion hint as a system-level instruction in the last user message
+                        history[-1] = {
+                            "role": "user",
+                            "content": history[-1]["content"] + f"\n\n{emotion_hint}"
+                        }
                     return self.llm.chat_conversation(history, personality_mode=self._get_personality_mode(user_id))
             # 无历史或历史不足时，用单消息模式
-            result = self.llm.chat(msg, personality_mode=self._get_personality_mode(user_id))
+            chat_msg = msg
+            if emotion_hint:
+                chat_msg = msg + f"\n\n{emotion_hint}"
+            result = self.llm.chat(chat_msg, personality_mode=self._get_personality_mode(user_id))
             return result.response
         except Exception:
             return '我在这里。有什么想问的尽管说。若要看八字，请告知您的出生年月日时。'
