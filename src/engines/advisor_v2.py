@@ -34,6 +34,8 @@ FALLBACK_ADVICE = {
 
 FALLBACK_DAILY_TIP = "今天宜保持平静，不宜冲动决策。花点时间关注自己的内心需求。"
 FALLBACK_STYLE_NOTES = "每个人的命格都是独特的，建议根据自身情况灵活调整。"
+FALLBACK_SERENDIPITY = ""
+FALLBACK_INSIGHT = ""
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
 DEEPSEEK_MODEL = "deepseek-v4-flash"
@@ -198,7 +200,7 @@ class CelebrityMatcher:
                 "geju": item[1]["geju"],
                 "day_pillar": item[1]["day_pillar"],
                 "day_master": item[1]["day_master"],
-                "events": item[1].get("events", [])[:2],
+                "events": item[1].get("events", []),
             }
             for item in top
             if item[0] > 0
@@ -299,8 +301,11 @@ class AdaptiveAdvisor:
 
         Returns:
             {
-                "actions": [{"category":"事业","advice":"...","timing":"农历十月","confidence":"high"}, ...],
-                "celebrity_match": {"name":"马云","similarity":78,"insight":"...", ...},
+                "actions": [{"category":"事业","advice":"...","timing":"...","confidence":"high",
+                             "concrete_steps":"...","success_metric":"..."}, ...],
+                "celebrity_match": {"name":"马云","similarity":78,"geju":"...","insight":"...", ...},
+                "insight": "🔥 命运对照：你的命盘和马云相似度78%...",
+                "serendipity": "💡 顺便说一句（你可能没问但很重要）...",
                 "daily_tip": "...",
                 "style_notes": "..."
             }
@@ -333,7 +338,11 @@ class AdaptiveAdvisor:
             else:
                 result["celebrity_match"] = {}
 
-            # 6. 确保所有字段都有值
+            # 6. 提取 serendipity 和 insight 顶层字段
+            result["serendipity"] = result.get("serendipity", FALLBACK_SERENDIPITY)
+            result["insight"] = result.get("celebrity_match", {}).get("insight", FALLBACK_INSIGHT)
+
+            # 7. 确保所有字段都有值
             result.setdefault("daily_tip", FALLBACK_DAILY_TIP)
             result.setdefault("style_notes", FALLBACK_STYLE_NOTES)
             if not result.get("actions"):
@@ -370,15 +379,21 @@ class AdaptiveAdvisor:
         liunian_str = "、".join(f"{y}年: {gz}" for y, gz in liunian_items[:5])
         wuxing_breakdown = "、".join(f"{wx}:{count}" for wx, count in result.wuxing.items())
 
-        # 名人匹配信息
+        # 名人匹配信息（含人生事件）
         celeb_str = ""
         if top_matches:
             celeb_lines = []
             for i, match in enumerate(top_matches, 1):
-                celeb_lines.append(
+                line = (
                     f"  {i}. {match['name']} - 日柱: {match['day_pillar']}, "
                     f"格局: {match['geju']}, 相似度: {match['similarity']}%"
                 )
+                if match.get("events"):
+                    events_detail = "; ".join(
+                        f"{e['year']}年: {e['event']}" for e in match["events"]
+                    )
+                    line += f"\n     关键事件: {events_detail}"
+                celeb_lines.append(line)
             celeb_str = "\n".join(celeb_lines)
 
         # 性格风格说明
@@ -437,49 +452,61 @@ class AdaptiveAdvisor:
   "actions": [
     {{
       "category": "事业",
-      "advice": "具体的行动建议，2-3句话",
-      "timing": "最佳行动时间窗口（如'农历十月'、'2027年春季'、'当前'）",
-      "confidence": "high/medium/low"
+      "advice": "具体的行动建议，2-3句话，必须结合用户的八字数据给出个性化理由",
+      "timing": "最佳行动时间窗口，必须包含具体日期范围（如'2027年9月15日-10月15日'、'农历八月十五至九月初九'、'2027年立春到大暑'）",
+      "confidence": "high/medium/low",
+      "concrete_steps": "2-3条具体可执行步骤，用数字编号（如'1.本月联系关键人脉 2.下月准备材料 3.年底冲刺'）",
+      "success_metric": "可衡量的成功指标（如'如果方向正确，3个月内你会看到收入增长20%以上'、'坚持1个月睡眠质量会有明显改善'）"
     }},
     {{
       "category": "财运",
-      "advice": "具体的行动建议",
-      "timing": "最佳时间窗口",
-      "confidence": "high/medium/low"
+      "advice": "具体的行动建议，结合八字五行的个性化分析",
+      "timing": "最佳时间窗口，包含具体日期范围",
+      "confidence": "high/medium/low",
+      "concrete_steps": "具体可执行步骤",
+      "success_metric": "可衡量的成功指标"
     }},
     {{
       "category": "感情",
-      "advice": "具体的行动建议",
-      "timing": "最佳时间窗口",
-      "confidence": "high/medium/low"
+      "advice": "具体的行动建议，结合八字五行和神煞的个性化分析",
+      "timing": "最佳时间窗口，包含具体日期范围",
+      "confidence": "high/medium/low",
+      "concrete_steps": "具体可执行步骤",
+      "success_metric": "可衡量的成功指标"
     }},
     {{
       "category": "健康",
-      "advice": "具体的行动建议",
-      "timing": "最佳时间窗口",
-      "confidence": "high/medium/low"
+      "advice": "具体的行动建议，结合五行失衡的个性化健康分析",
+      "timing": "最佳时间窗口，包含具体日期范围",
+      "confidence": "high/medium/low",
+      "concrete_steps": "具体可执行步骤",
+      "success_metric": "可衡量的成功指标"
     }},
     {{
       "category": "个人成长",
-      "advice": "具体的行动建议",
-      "timing": "最佳时间窗口",
-      "confidence": "high/medium/low"
+      "advice": "具体的行动建议，结合命局的长远发展建议",
+      "timing": "最佳时间窗口，包含具体日期范围",
+      "confidence": "high/medium/low",
+      "concrete_steps": "具体可执行步骤",
+      "success_metric": "可衡量的成功指标"
     }}
   ],
+  "serendipity": "你问的是[领域]，但你的命盘同时提示了其他重要信息。格式：'💡 顺便说一句（你可能没问但很重要）：' + 换行 + 详细说明其他领域的好时机 + 换行 + 隐藏优势 + 换行 + 需注意的风险（200字以内）。如果实在没有特别信息，输出空字符串。",
+  "celebrity_insight": "如果上方列出了相似名人，请写一段详细、有感染力的命运对照分析（200-400字）。要求：1) 开头用'🔥 命运对照：你的命盘和[名人]相似度[XX]%' 2) 对比你们相同的格局类型和性格特征 3) 引用名人具体的人生事件/转折点，做类比分析 4) 指出名人犯过的错误和你的独特优势 5) 以'这不是宿命论。你们的命盘像两棵同样品种的树——能不能长成参天大树，看你自己的选择。'或类似的升华结尾。如果没有相似名人，请写空字符串。",
   "daily_tip": "一句今日小建议（30字以内）",
-  "style_notes": "一句话总结用户命格特点和建议（30字以内）",
-  "celebrity_insight": "如果上方列出了相似名人，请写一句对比洞察。例如：'你和马云格局相似，都是七杀格...'。如果没有相似名人，请写空字符串。"
+  "style_notes": "一句话总结用户命格特点和建议（30字以内）"
 }}
 ```
 
 ## 核心要求
 
-1. 每条建议必须包含**具体行动** + **时间窗口** + **置信度**
+1. 每条建议必须包含**具体行动** + **时间窗口（含具体日期范围）** + **置信度** + **具体步骤** + **成功指标**
 2. 5个领域必须全部覆盖：事业、财运、感情、健康、个人成长
-3. 建议必须基于用户的实际命盘数据，不能是通用模板
-4. 时间窗口要具体（如"农历十月""2027年春季"），不能泛泛而谈
+3. 建议必须基于用户的实际命盘数据，不能是通用模板。要引用具体的五行、十神、神煞、大运流年来支撑分析
+4. 时间窗口要具体到日期范围（如"2027年9月15日至10月15日"），不能只说季节或月份
 5. 风格要符合当前模式的要求
-6. **只输出JSON，不要其他任何文字**"""
+6. 如果用户问了特定领域（如"事业"），也要通过serendipity提示其他领域的重要信息
+7. **只输出JSON，不要其他任何文字**"""
 
         return prompt
 
@@ -503,7 +530,7 @@ class AdaptiveAdvisor:
                 {"role": "system", "content": "你是一个精通子平八字的AI命理顾问。你善于根据用户的八字命盘生成个性化的、可执行的行动建议。你只输出JSON格式数据，不输出其他文字。"},
                 {"role": "user", "content": prompt},
             ],
-            "max_tokens": 2000,
+            "max_tokens": 2500,
             "temperature": 0.8,
             "response_format": {"type": "json_object"},
         }
@@ -592,10 +619,13 @@ class AdaptiveAdvisor:
             "celebrity_match": top_matches[0] if top_matches else {},
             "daily_tip": FALLBACK_DAILY_TIP,
             "style_notes": FALLBACK_STYLE_NOTES,
+            "serendipity": FALLBACK_SERENDIPITY,
+            "insight": FALLBACK_INSIGHT,
         }
         if top_matches:
             result["celebrity_match"]["insight"] = (
                 f"你和{top_matches[0]['name']}的命盘格局有一定相似度，"
                 f"可以关注他/她的人生经历作为参考。"
             )
+            result["insight"] = result["celebrity_match"]["insight"]
         return result
