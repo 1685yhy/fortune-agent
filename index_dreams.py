@@ -50,8 +50,15 @@ def index_file(filepath: Path, source: str, retriever: Retriever):
         all_chunks.extend(chunks)
 
     logger.info(f"  {source}: {len(entries)} entries -> {len(all_chunks)} chunks")
-    retriever.add_chunks(all_chunks, batch_size=BATCH_SIZE)
-    return len(all_chunks)
+
+    # Skip chunks already in the DB
+    existing_ids = set(retriever.collection.get()["ids"])
+    new_chunks = [c for c in all_chunks if c.chunk_id not in existing_ids]
+    logger.info(f"  {len(new_chunks)} new chunks (skipping {len(all_chunks)-len(new_chunks)} existing)")
+
+    if new_chunks:
+        retriever.add_chunks(new_chunks, batch_size=BATCH_SIZE)
+    return len(new_chunks)
 
 def main():
     logger.info("=" * 60)
