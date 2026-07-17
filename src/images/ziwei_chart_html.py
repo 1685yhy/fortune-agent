@@ -31,42 +31,42 @@ PALACE_DIR_NAMES = {
 }
 
 HTML = """<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><style>
-body{font-family:"WenQuanYi Zen Hei","PingFang SC","Microsoft YaHei","Noto Serif SC",serif;background:#0a0c10;color:#98a0ad;width:800px;padding:40px 36px}
+body{font-family:"PingFang SC","Microsoft YaHei","Noto Serif SC","WenQuanYi Zen Hei",serif;background:#faf8f5;color:#1a1a1a;width:800px;padding:40px 36px}
 .h{text-align:center;margin-bottom:28px}
-.h .emblem{font-size:52px;margin-bottom:6px;letter-spacing:20px;color:#d4c5a9;font-weight:400;-webkit-text-fill-color:transparent;background:linear-gradient(180deg,#d4c5a9 30%,#8b7a5c 100%);-webkit-background-clip:text}
-.h .line{width:100%;height:1px;background:linear-gradient(90deg,transparent,rgba(212,197,169,.4) 20%,rgba(212,197,169,.4) 80%,transparent);margin:16px 0}
-.h .sub{font-size:13px;color:#5c626d;letter-spacing:3px}
-.h .meta{display:flex;justify-content:center;gap:18px;margin-top:12px;font-size:11px;color:#4a515c}
-.h .meta span{padding:3px 14px;border:1px solid rgba(212,197,169,.15);border-radius:4px}
+.h .emblem{font-size:48px;margin-bottom:6px;letter-spacing:20px;color:#c9a96e;font-weight:600}
+.h .line{width:100%;height:1px;background:linear-gradient(90deg,transparent,rgba(201,169,110,.35) 20%,rgba(201,169,110,.35) 80%,transparent);margin:16px 0}
+.h .sub{font-size:13px;color:#8b8680;letter-spacing:3px}
+.h .meta{display:flex;justify-content:center;gap:18px;margin-top:12px;font-size:11px;color:#b5b0a8}
+.h .meta span{padding:3px 14px;border:1px solid #edeae4;border-radius:4px;background:#ffffff}
 .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin-bottom:30px}
-.palace{background:#111418;padding:12px 10px 10px;position:relative;min-height:110px}
-.palace.ming{z-index:2;outline:1px solid rgba(212,197,169,.3);outline-offset:-1px;background:linear-gradient(180deg,#1a1d23 0%,#111418 100%)}
-.palace .ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;border-bottom:1px solid rgba(255,255,255,.04);padding-bottom:4px}
-.palace .pn{font-size:11px;color:#d4c5a9;letter-spacing:2px;font-weight:600}
-.palace .dz{font-size:10px;color:#4a515c}
+.palace{background:#ffffff;padding:12px 10px 10px;position:relative;min-height:110px;border:1px solid #e0ddd6}
+.palace.ming{z-index:2;border-color:#c9a96e;background:#ffffff;box-shadow:0 1px 6px rgba(201,169,110,.15)}
+.palace .ph{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;border-bottom:1px solid #edeae4;padding-bottom:4px}
+.palace .pn{font-size:11px;color:#c9a96e;letter-spacing:2px;font-weight:600}
+.palace .dz{font-size:10px;color:#b5b0a8}
 .palace .stars{font-size:12px;line-height:1.7}
 .palace .star{display:inline-block;margin-right:2px;font-weight:500}
-.palace .star.zw{color:#d4a853}
-.palace .star.tf{color:#5eadf2}
-.palace .star .sh{font-size:9px;color:#f4645c;margin-left:2px}
-.palace .aux{font-size:10px;color:#6c727d;line-height:1.6;margin-top:3px;border-top:1px solid rgba(255,255,255,.03);padding-top:3px}
+.palace .star.zw{color:#c9a96e}
+.palace .star.tf{color:#6a9ec4}
+.palace .star .sh{font-size:9px;color:#c96a5e;margin-left:2px}
+.palace .aux{font-size:10px;color:#8b8680;line-height:1.6;margin-top:3px;border-top:1px solid #edeae4;padding-top:3px}
 .palace .aux .a{display:inline-block;margin-right:4px}
 .section{margin-bottom:28px}
-.section .tt{font-size:12px;color:#8b7a5c;letter-spacing:5px;margin-bottom:14px;text-transform:uppercase;display:flex;align-items:center;gap:12px}
-.section .tt::after{content:'';flex:1;height:1px;background:rgba(139,122,92,.15)}
+.section .tt{font-size:12px;color:#c9a96e;letter-spacing:5px;margin-bottom:14px;display:flex;align-items:center;gap:12px}
+.section .tt::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(201,169,110,.2) 20%,rgba(201,169,110,.2) 80%,transparent)}
 .dayun{display:flex;align-items:center;gap:0;padding:8px 4px;overflow-x:auto}
 .dy-item{flex:1;text-align:center;min-width:60px;position:relative;padding:6px 2px}
-.dy-dot{width:6px;height:6px;border-radius:50%;background:rgba(212,197,169,.6);margin:0 auto 6px;position:relative;z-index:1}
-.dy-line{position:absolute;top:3px;left:50%;right:-50%;height:1px;background:rgba(255,255,255,.06)}
-.dy-gz{font-size:12px;color:#c9c9c9;font-weight:500}
-.dy-p{font-size:9px;color:#5c626d;margin-top:1px}
-.dy-age{font-size:9px;color:#4a515c;margin-top:1px}
-.ft{text-align:center;margin-top:30px;padding-top:16px;border-top:1px solid rgba(255,255,255,.04);font-size:10px;color:#3a404a;letter-spacing:3px}
-.legend{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-top:10px;font-size:10px}
-.legend .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.dy-dot{width:6px;height:6px;border-radius:50%;background:#c9a96e;margin:0 auto 6px;position:relative;z-index:1}
+.dy-line{position:absolute;top:3px;left:50%;right:-50%;height:1px;background:#edeae4}
+.dy-gz{font-size:12px;color:#1a1a1a;font-weight:500}
+.dy-p{font-size:9px;color:#8b8680;margin-top:1px}
+.dy-age{font-size:9px;color:#b5b0a8;margin-top:1px}
+.ft{text-align:center;margin-top:30px;padding-top:16px;border-top:1px solid #edeae4;font-size:10px;color:#b5b0a8;letter-spacing:3px}
+.legend{display:flex;gap:16px;justify-content:center;flex-wrap:wrap;margin-top:10px;font-size:10px;color:#8b8680}
+.legend .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle;border:1px solid rgba(0,0,0,.06)}
 .sihua{text-align:center;margin:12px 0;display:flex;justify-content:center;gap:16px}
-.sihua .si{font-size:11px;color:#5c626d}
-.sihua .si .sl{color:#d4c5a9}
+.sihua .si{font-size:11px;color:#8b8680}
+.sihua .si .sl{color:#c9a96e}
 </style></head><body>
 <div class="h"><div class="emblem">紫 微 斗 数 命 盘</div><div class="line"></div>
 <div class="sub">命宫{{ming_gong}}  ·  身宫{{shen_gong}}  ·  {{wuxing_ju}}</div>

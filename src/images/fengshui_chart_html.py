@@ -49,40 +49,40 @@ AUSPICIOUS_COLORS = {"生气": "#26de81", "天医": "#26de81", "延年": "#26de8
 INAUSPICIOUS_COLORS = {"绝命": "#ff6b6b", "五鬼": "#ee5a24", "六煞": "#ff9f43", "祸害": "#feca57"}
 
 HTML = """<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><style>
-body{font-family:"WenQuanYi Zen Hei","PingFang SC","Microsoft YaHei","Noto Serif SC",serif;background:#0a0c10;color:#98a0ad;width:800px;padding:40px 36px}
+body{font-family:"PingFang SC","Microsoft YaHei","Noto Serif SC","WenQuanYi Zen Hei",serif;background:#faf8f5;color:#1a1a1a;width:800px;padding:40px 36px}
 .h{text-align:center;margin-bottom:28px}
-.h .emblem{font-size:52px;margin-bottom:6px;letter-spacing:20px;color:#d4c5a9;font-weight:400;-webkit-text-fill-color:transparent;background:linear-gradient(180deg,#d4c5a9 30%,#8b7a5c 100%);-webkit-background-clip:text}
-.h .line{width:100%;height:1px;background:linear-gradient(90deg,transparent,rgba(212,197,169,.4) 20%,rgba(212,197,169,.4) 80%,transparent);margin:16px 0}
-.h .sub{font-size:13px;color:#5c626d;letter-spacing:3px}
-.h .meta{display:flex;justify-content:center;gap:18px;margin-top:12px;font-size:11px;color:#4a515c}
-.h .meta span{padding:3px 14px;border:1px solid rgba(212,197,169,.15);border-radius:4px}
+.h .emblem{font-size:48px;margin-bottom:6px;letter-spacing:20px;color:#c9a96e;font-weight:600}
+.h .line{width:100%;height:1px;background:linear-gradient(90deg,transparent,rgba(201,169,110,.35) 20%,rgba(201,169,110,.35) 80%,transparent);margin:16px 0}
+.h .sub{font-size:13px;color:#8b8680;letter-spacing:3px}
+.h .meta{display:flex;justify-content:center;gap:18px;margin-top:12px;font-size:11px;color:#b5b0a8}
+.h .meta span{padding:3px 14px;border:1px solid #edeae4;border-radius:4px;background:#ffffff}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-bottom:24px}
-.palace{background:#111418;padding:16px 12px;text-align:center;position:relative;min-height:90px}
-.palace.auspicious{background:#0d2618;outline:1px solid rgba(38,222,129,.25)}
-.palace.inauspicious{background:#261111;outline:1px solid rgba(255,107,107,.25)}
-.palace .ph{font-size:11px;color:#8b7a5c;letter-spacing:2px;margin-bottom:8px;border-bottom:1px solid rgba(255,255,255,.04);padding-bottom:4px}
-.palace .dir{font-size:9px;color:#4a515c;margin-left:4px}
+.palace{background:#ffffff;padding:16px 12px;text-align:center;position:relative;min-height:90px;border:1px solid #e0ddd6}
+.palace.auspicious{background:#f6faf6;border:1px solid #c8e0c8}
+.palace.inauspicious{background:#faf6f5;border:1px solid #e0c8c5}
+.palace .ph{font-size:11px;color:#c9a96e;letter-spacing:2px;margin-bottom:8px;border-bottom:1px solid #edeae4;padding-bottom:4px}
+.palace .dir{font-size:9px;color:#b5b0a8;margin-left:4px}
 .palace .nums{display:flex;justify-content:center;gap:12px;margin-top:8px}
 .palace .num{text-align:center}
 .palace .num .v{font-size:22px;font-weight:700;line-height:1}
-.palace .num .l{font-size:9px;color:#4a515c;margin-top:2px}
-.palace .num.yun .v{color:#5eadf2}
-.palace .num.shan .v{color:#52d98a}
-.palace .num.xiang .v{color:#f4645c}
-.palace.center .ph{color:#d4c5a9;font-size:14px;font-weight:600;border-bottom:none;margin-bottom:4px}
-.palace.center .v{font-size:26px;color:#d4c5a9;font-weight:700}
+.palace .num .l{font-size:9px;color:#b5b0a8;margin-top:2px}
+.palace .num.yun .v{color:#6a9ec4}
+.palace .num.shan .v{color:#7ab87a}
+.palace .num.xiang .v{color:#c96a5e}
+.palace.center .ph{color:#c9a96e;font-size:14px;font-weight:600;border-bottom:none;margin-bottom:4px}
+.palace.center .v{font-size:26px;color:#c9a96e;font-weight:700}
 .section{margin-bottom:24px}
-.section .tt{font-size:12px;color:#8b7a5c;letter-spacing:5px;margin-bottom:14px;text-transform:uppercase;display:flex;align-items:center;gap:12px}
-.section .tt::after{content:'';flex:1;height:1px;background:rgba(139,122,92,.15)}
+.section .tt{font-size:12px;color:#c9a96e;letter-spacing:5px;margin-bottom:14px;display:flex;align-items:center;gap:12px}
+.section .tt::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(201,169,110,.2) 20%,rgba(201,169,110,.2) 80%,transparent)}
 .eight-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.eight-item{background:#111418;padding:12px;text-align:center;border-radius:4px}
+.eight-item{background:#ffffff;padding:12px;text-align:center;border-radius:8px;border:1px solid #e0ddd6}
 .eight-item .en{font-size:13px;font-weight:600;margin-bottom:4px}
-.eight-item .ed{font-size:11px;color:#4a515c}
-.eight-item.good .en{color:#26de81}
-.eight-item.bad .en{color:#ff6b6b}
-.ft{text-align:center;margin-top:28px;padding-top:16px;border-top:1px solid rgba(255,255,255,.04);font-size:10px;color:#3a404a;letter-spacing:3px}
-.legend{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:8px 0;font-size:10px}
-.legend .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.eight-item .ed{font-size:11px;color:#8b8680}
+.eight-item.good .en{color:#7ab87a}
+.eight-item.bad .en{color:#c96a5e}
+.ft{text-align:center;margin-top:28px;padding-top:16px;border-top:1px solid #edeae4;font-size:10px;color:#b5b0a8;letter-spacing:3px}
+.legend{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:8px 0;font-size:10px;color:#8b8680}
+.legend .swatch{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:middle;border:1px solid rgba(0,0,0,.06)}
 .info-row{display:flex;justify-content:center;gap:20px;margin-top:10px}
 </style></head><body>
 <div class="h"><div class="emblem">风 水 分 析</div><div class="line"></div>
