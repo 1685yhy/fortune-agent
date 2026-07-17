@@ -1,6 +1,6 @@
-"""Premium watch-luxury bazi chart — dark aesthetic, circular hero dial, refined craft.
+"""Magazine-quality bazi chart — warm paper background, gold accents, premium editorial feel.
 
-Design language: Patek Philippe / high-end spirits packaging.
+Design language: The Economist / Monocle magazine pull-out.
 - WHO (日柱 hero dial, 2x visual weight) -> WHAT (五行 bars) -> PATH (大运 timeline)
 - 850px wide, auto height, Jinja2 template, Playwright rendering.
 """
@@ -29,113 +29,112 @@ HTML = """<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><style>
 /* ===== RESET & BASE ===== */
 *{margin:0;padding:0;box-sizing:border-box}
 body{
-  background:#0a0a0e;
-  background-image:radial-gradient(ellipse at 50% 0%,rgba(201,169,110,0.04) 0%,transparent 60%);
-  color:#e2ddd6;
-  font-family:"WenQuanYi Zen Hei","PingFang SC","Microsoft YaHei","Noto Serif SC",serif;
+  background:#faf8f5;
+  color:#1a1a1a;
+  font-family:"PingFang SC","Microsoft YaHei","Noto Serif SC","WenQuanYi Zen Hei",serif;
   width:850px;padding:40px 48px 32px
 }
 
 /* ===== HEADER — gold line · title · gold line ===== */
 .hd{display:flex;align-items:center;gap:16px;margin-bottom:6px}
 .hd-t{font-size:14px;color:#c9a96e;letter-spacing:8px;white-space:nowrap}
-.hd-l{flex:1;height:1px;background:rgba(201,169,110,0.12)}
-.hd-s{font-size:11px;color:#3d3935;text-align:center;letter-spacing:4px;margin-bottom:6px}
-.hd-d{text-align:center;font-size:10px;color:#2a2724;letter-spacing:3px;margin-bottom:24px}
+.hd-l{flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(201,169,110,.25) 20%,rgba(201,169,110,.25) 80%,transparent)}
+.hd-s{font-size:11px;color:#8b8680;text-align:center;letter-spacing:4px;margin-bottom:6px}
+.hd-d{text-align:center;font-size:10px;color:#b5b0a8;letter-spacing:3px;margin-bottom:24px}
 
 /* ===== HERO CARD — watch-dial centrepiece ===== */
 .hero{
-  background:linear-gradient(180deg,#131318 0%,#0e0e12 100%);
+  background:#ffffff;
+  border:1px solid #e0ddd6;
   border-radius:12px;padding:28px 32px 24px;text-align:center;
   position:relative;isolation:isolate;
-  box-shadow:0 4px 32px rgba(0,0,0,0.4);
+  box-shadow:0 1px 3px rgba(0,0,0,0.04),0 4px 12px rgba(0,0,0,0.06);
   margin-bottom:20px
 }
 .hero::before{
-  content:'';position:absolute;inset:0;padding:1px;border-radius:12px;pointer-events:none;
-  background:linear-gradient(180deg,rgba(201,169,110,0.18),rgba(201,169,110,0.02));
-  -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
-  -webkit-mask-composite:xor;mask-composite:exclude
+  content:'';position:absolute;top:0;left:35%;right:35%;height:1px;
+  background:#c9a96e;border-radius:1px
 }
-.hero-lb{font-size:10px;color:#6b6560;letter-spacing:6px;margin-bottom:16px}
+.hero-lb{font-size:10px;color:#b5b0a8;letter-spacing:6px;margin-bottom:16px}
 
 /* circular dial — the crown jewel */
 .hero-d{
   width:156px;height:156px;border-radius:50%;
-  border:1px solid rgba(201,169,110,0.18);
+  border:1px solid #e0ddd6;
   margin:0 auto 18px;
   display:flex;flex-direction:column;align-items:center;justify-content:center;
-  background:radial-gradient(circle at center,rgba(201,169,110,0.04) 0%,transparent 60%);
-  box-shadow:0 0 24px rgba(201,169,110,0.06),inset 0 0 24px rgba(201,169,110,0.02)
+  background:#faf8f5;
+  box-shadow:inset 0 1px 4px rgba(0,0,0,0.04)
 }
 .hero-g{font-size:48px;font-weight:700;line-height:1;margin-bottom:4px}
-.hero-e{font-size:14px;font-weight:400;line-height:1;margin-bottom:4px;opacity:.55}
-.hero-z{font-size:28px;font-weight:400;line-height:1;opacity:.8}
+.hero-e{font-size:14px;font-weight:400;line-height:1;margin-bottom:4px;color:#8b8680}
+.hero-z{font-size:28px;font-weight:400;line-height:1;color:#1a1a1a}
 
-.hero-m{display:flex;justify-content:center;gap:16px;font-size:11px;color:#6b6560;letter-spacing:2px;margin-bottom:10px}
-.hero-s{font-size:10px;color:#3d3935;letter-spacing:2px}
+.hero-m{display:flex;justify-content:center;gap:16px;font-size:11px;color:#8b8680;letter-spacing:2px;margin-bottom:10px}
+.hero-s{font-size:10px;color:#b5b0a8;letter-spacing:2px}
 .hero-s b{color:#c9a96e;font-weight:500}
 
 /* ===== THREE PILLAR CARDS — gold top-accent line ===== */
 .cr{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:28px}
 .cr-c{
-  background:#111116;border-radius:8px;padding:16px 12px;text-align:center;
-  box-shadow:0 2px 12px rgba(0,0,0,0.3);position:relative;isolation:isolate
+  background:#ffffff;border-radius:8px;padding:16px 12px;text-align:center;
+  border:1px solid #e0ddd6;
+  box-shadow:0 1px 3px rgba(0,0,0,0.04);position:relative;isolation:isolate
 }
 .cr-c::before{
   content:'';position:absolute;top:0;left:20%;right:20%;height:1px;
-  background:rgba(201,169,110,0.15);border-radius:1px
+  background:#c9a96e;border-radius:1px
 }
-.cr-l{font-size:10px;color:#3d3935;letter-spacing:4px;margin-bottom:10px}
+.cr-l{font-size:10px;color:#b5b0a8;letter-spacing:4px;margin-bottom:10px}
 .cr-g{font-size:32px;font-weight:700;line-height:1;margin-bottom:2px}
-.cr-z{font-size:22px;font-weight:400;line-height:1;margin-bottom:8px;opacity:.65}
-.cr-m{font-size:11px;color:#6b6560;letter-spacing:1px}
+.cr-z{font-size:22px;font-weight:400;line-height:1;margin-bottom:8px;color:#8b8680}
+.cr-m{font-size:11px;color:#8b8680;letter-spacing:1px}
 
 /* ===== SECTION HEADER ===== */
 .sec{margin-bottom:24px}
 .st{display:flex;align-items:center;gap:12px;margin-bottom:14px}
-.st-t{font-size:11px;color:#6b6560;letter-spacing:5px;white-space:nowrap}
-.st-l{flex:1;height:1px;background:rgba(201,169,110,0.08)}
+.st-t{font-size:11px;color:#8b8680;letter-spacing:5px;white-space:nowrap}
+.st-l{flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(201,169,110,.2) 20%,rgba(201,169,110,.2) 80%,transparent)}
 
 /* ===== 五行 BARS ===== */
 .bg{display:grid;gap:8px}
 .br{display:flex;align-items:center;gap:14px}
 .br .l{width:20px;font-size:14px;font-weight:700;text-align:center}
-.br .t{flex:1;height:8px;background:rgba(255,255,255,0.03);border-radius:4px;overflow:hidden}
+.br .t{flex:1;height:8px;background:#edeae4;border-radius:4px;overflow:hidden}
 .br .f{height:100%;border-radius:4px;min-width:2px;transition:width 1.2s cubic-bezier(.22,1,.36,1)}
-.br .n{width:24px;font-size:11px;color:#6b6560;text-align:right;font-variant-numeric:tabular-nums}
+.br .n{width:24px;font-size:11px;color:#8b8680;text-align:right;font-variant-numeric:tabular-nums}
 
 /* ===== 大运 TIMELINE ===== */
 .tl{display:flex;padding:12px 0 4px}
 .ti{flex:1;text-align:center;position:relative}
-.td{width:6px;height:6px;border-radius:50%;background:rgba(201,169,110,0.2);margin:0 auto;position:relative;z-index:2}
+.td{width:6px;height:6px;border-radius:50%;background:#e0ddd6;margin:0 auto;position:relative;z-index:2}
 .tn{position:absolute;top:3px;left:50%;right:-50%;height:1px;z-index:1}
 .ti:last-child .tn{display:none}
-.tg{font-size:12px;font-weight:600;margin-top:12px;letter-spacing:1px}
-.ta{font-size:9px;margin-top:2px;letter-spacing:1px}
-/* past — near-invisible */
-.ti.p{opacity:.3}
-.ti.p .tn{background:rgba(201,169,110,.06)}
-.ti.p .tg{color:#3d3935}
-.ti.p .ta{color:#2a2724}
-/* future — dimmed */
-.ti.f{opacity:.5}
-.ti.f .tn{background:rgba(255,255,255,.025)}
-.ti.f .tg{color:#6b6560}
-.ti.f .ta{color:#3d3935}
+.ti .tg{font-size:12px;font-weight:600;margin-top:12px;letter-spacing:1px}
+.ti .ta{font-size:9px;margin-top:2px;letter-spacing:1px}
+/* past — muted */
+.ti.p{opacity:.4}
+.ti.p .tn{background:#edeae4}
+.ti.p .tg{color:#b5b0a8}
+.ti.p .ta{color:#b5b0a8}
+/* future — dim */
+.ti.f{opacity:.55}
+.ti.f .tn{background:#edeae4}
+.ti.f .tg{color:#8b8680}
+.ti.f .ta{color:#b5b0a8}
 /* current — glowing gold */
 .ti.c{opacity:1}
-.ti.c .td{width:10px;height:10px;background:#c9a96e;box-shadow:0 0 12px rgba(201,169,110,.5);top:-2px;position:relative}
-.ti.c .tn{background:linear-gradient(90deg,rgba(201,169,110,.2),rgba(201,169,110,.06))}
+.ti.c .td{width:10px;height:10px;background:#c9a96e;box-shadow:0 0 8px rgba(201,169,110,.4);top:-2px;position:relative}
+.ti.c .tn{background:linear-gradient(90deg,rgba(201,169,110,.2),rgba(201,169,110,.08))}
 .ti.c .tg{color:#c9a96e}
-.ti.c .ta{color:#6b6560}
+.ti.c .ta{color:#8b8680}
 
 /* ===== TAGS ===== */
 .tg{display:flex;gap:6px;flex-wrap:wrap}
-.ts{padding:3px 12px;border-radius:3px;font-size:10px;border:1px solid rgba(201,169,110,.1);color:#7a6a50}
+.ts{padding:3px 12px;border-radius:4px;font-size:10px;background:#f5f2ed;color:#8b8680;border:1px solid #edeae4}
 
 /* ===== FOOTER ===== */
-.ft{text-align:center;margin-top:32px;padding-top:14px;border-top:1px solid rgba(201,169,110,.06);font-size:9px;color:#2a2724;letter-spacing:4px}
+.ft{text-align:center;margin-top:32px;padding-top:14px;border-top:1px solid #edeae4;font-size:9px;color:#b5b0a8;letter-spacing:4px}
 </style></head><body>
 
 <div class="hd"><div class="hd-l"></div><div class="hd-t">八字命盘</div><div class="hd-l"></div></div>
