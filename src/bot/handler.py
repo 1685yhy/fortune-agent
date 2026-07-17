@@ -516,13 +516,13 @@ class MessageHandler:
             advice = advisor.generate_advice(result)
             has_advice = any(items for items in advice.values())
             if has_advice:
-                lines = ["\n\n📌 行动建议"]
+                lines = ["\n\n📌 行动建议（基于命局趋势推测，实际结果因人而异）"]
                 icons = {"事业": "💼", "财运": "💰", "感情": "❤️", "健康": "🏥", "个人成长": "🌱"}
                 for cat in ["事业", "财运", "感情", "健康", "个人成长"]:
                     items = advice.get(cat, [])
                     if items:
                         joined = "；".join(items[:2])
-                        lines.append(f"{icons.get(cat, '')} {cat}：{joined}")
+                        lines.append(f"{icons.get(cat, '')} {cat}（约70%参考概率）：{joined}")
                 advice_section = "\n".join(lines)
         except Exception:
             pass
