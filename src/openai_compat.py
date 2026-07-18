@@ -83,14 +83,8 @@ def create_openai_router(_handler=None):
             raise HTTPException(status_code=400, detail="No user message found")
 
         try:
-            # 先查意图
-            intent = handler._detect_intent(user_message)
-            if intent:
-                # 命理请求 → 完整管线
-                reply = handler.process(user_message, req.user or "cow_user")
-            else:
-                # 自由对话 → 带历史上下文的LLM对话
-                reply = handler._conversational_chat(history, req.user or "cow_user")
+            # process() handles intent detection + routing internally via AI
+            reply = handler.process(user_message, req.user or "cow_user")
         except Exception as e:
             reply = f"⚠️ 处理出错：{str(e)}"
 
