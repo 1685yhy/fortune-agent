@@ -42,6 +42,7 @@ from src.storage.session_dao import SessionDAO
 from src.storage.preference_dao import PreferenceDAO, UserPreferences
 from src.storage.conversation_memory import ConversationMemory
 from src.utils.cache import ResponseCache, is_cacheable
+from src.ml.quality_predictor import QualityPredictor
 from .formatter import split_long_message, format_error, format_loading
 
 INTENT_KEYWORDS = {
@@ -111,6 +112,8 @@ class MessageHandler:
         self.memory = ConversationMemory(api_key) if api_key else None
         # D2: Response cache for high-frequency queries
         self.cache = ResponseCache(max_size=500)
+        # E4: ML quality predictor (online learning)
+        self.quality_predictor = QualityPredictor()
 
     # ============================================================
     # Personality Mode Management
@@ -164,17 +167,37 @@ class MessageHandler:
 
             # Detect topic from last conversation
             last_topic = ""
+            last_msg = ""
             if self.session_dao:
                 history = self.session_dao.get_context_for_llm(user_id, history_limit=5)
-                last_msgs = " ".join(m.get("content", "") for m in history if m.get("role") == "user")
+                user_msgs = [m.get("content", "") for m in history if m.get("role") == "user"]
+                last_msgs = " ".join(user_msgs)
                 last_topic = self.preference_dao.detect_topic(last_msgs)
+                if user_msgs:
+                    last_msg = user_msgs[-1]
 
-            # Learn!
+            # Learn preference (EMA)
             updated = self.preference_dao.learn(
                 user_id, is_positive,
                 style=current_style,
                 topic=last_topic,
             )
+
+            # E4: Train ML quality predictor
+            if last_msg:
+                import datetime
+                emotion_label = "neutral"
+                if hasattr(self, '_last_emotion_labels'):
+                    emotion_label = self._last_emotion_labels.get(user_id, "neutral")
+                self.quality_predictor.update(
+                    message=last_msg,
+                    hour=datetime.datetime.now().hour,
+                    personality=current_style or "sassy",
+                    emotion=emotion_label,
+                    topic=last_topic or "general",
+                    response_len=0,  # We don't know the exact response that got this feedback
+                    was_positive=is_positive,
+                )
 
             if is_positive:
                 reply = "感谢认可！"
