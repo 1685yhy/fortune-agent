@@ -1,0 +1,31 @@
+{
+  "pages": [
+    "pages/index/index",
+    "pages/chat/chat",
+    "pages/face/face",
+    "pages/calendar/calendar",
+    "pages/profile/profile"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#1a1a1a",
+    "navigationBarTitleText": "易理明灯",
+    "navigationBarTextStyle": "white",
+    "backgroundColor": "#f8f6f2"
+  },
+  "tabBar": {
+    "color": "#999",
+    "selectedColor": "#c9a96e",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "black",
+    "list": [
+      {"pagePath": "pages/index/index", "text": "今日", "iconPath": "icons/home.png", "selectedIconPath": "icons/home-active.png"},
+      {"pagePath": "pages/chat/chat", "text": "对话", "iconPath": "icons/chat.png", "selectedIconPath": "icons/chat-active.png"},
+      {"pagePath": "pages/face/face", "text": "面相", "iconPath": "icons/face.png", "selectedIconPath": "icons/face-active.png"},
+      {"pagePath": "pages/calendar/calendar", "text": "日历", "iconPath": "icons/cal.png", "selectedIconPath": "icons/cal-active.png"},
+      {"pagePath": "pages/profile/profile", "text": "我的", "iconPath": "icons/me.png", "selectedIconPath": "icons/me-active.png"}
+    ]
+  },
+  "permission": {
+    "scope.camera": {"desc": "用于面相分析和手相分析"}
+  }
+}

@@ -1,0 +1,57 @@
+<view class="container">
+  <view class="mode-switch">
+    <text class="{{mode === 'face' ? 'active' : ''}}" bindtap="switchMode">📷 面相</text>
+    <text class="{{mode === 'palm' ? 'active' : ''}}" bindtap="switchMode">✋ 手相</text>
+  </view>
+
+  <!-- 拍照区域 -->
+  <view class="camera-area" wx:if="{{!analyzing && !result}}">
+    <image wx:if="{{imagePath}}" src="{{imagePath}}" mode="aspectFit" class="preview" />
+    <view class="actions">
+      <button class="btn primary" bindtap="takePhoto">📷 拍照</button>
+      <button class="btn" bindtap="chooseFromAlbum">🖼️ 从相册选择</button>
+    </view>
+    <text class="hint">上传正面照片，光线充足效果最佳</text>
+  </view>
+
+  <!-- 分析中 -->
+  <view class="analyzing" wx:if="{{analyzing}}">
+    <view class="spinner"></view>
+    <text>AI 正在分析你的面相...</text>
+    <text class="detail">检测五官 · 测量比例 · 古籍对照</text>
+  </view>
+
+  <!-- 结果 -->
+  <view class="result" wx:if="{{result}}">
+    <image src="{{imagePath}}" mode="aspectFit" class="result-img" />
+
+    <view class="metrics">
+      <view class="metric" wx:if="{{result.measurements.face_shape}}">
+        <text class="m-label">脸型</text>
+        <text class="m-value">{{result.measurements.face_shape.type}} ({{result.measurements.face_shape.confidence}}%)</text>
+      </view>
+      <view class="metric" wx:if="{{result.measurements.eye_type}}">
+        <text class="m-label">眼型</text>
+        <text class="m-value">{{result.measurements.eye_type.type}} ({{result.measurements.eye_type.confidence}}%)</text>
+      </view>
+      <view class="metric" wx:if="{{result.measurements.nose_type}}">
+        <text class="m-label">鼻型</text>
+        <text class="m-value">{{result.measurements.nose_type.type}} ({{result.measurements.nose_type.confidence}}%)</text>
+      </view>
+      <view class="metric" wx:if="{{result.measurements.mouth_type}}">
+        <text class="m-label">嘴型</text>
+        <text class="m-value">{{result.measurements.mouth_type.type}} ({{result.measurements.mouth_type.confidence}}%)</text>
+      </view>
+      <view class="metric" wx:if="{{result.measurements.skin_tone}}">
+        <text class="m-label">气色</text>
+        <text class="m-value">{{result.measurements.skin_tone.type}} ({{result.measurements.skin_tone.confidence}}%)</text>
+      </view>
+    </view>
+
+    <view class="report" wx:if="{{result.report}}">
+      <rich-text nodes="{{result.report}}"></rich-text>
+    </view>
+
+    <button class="btn primary" bindtap="takePhoto">重新分析</button>
+  </view>
+</view>

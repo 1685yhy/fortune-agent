@@ -1,0 +1,57 @@
+<view class="container">
+  <view class="header">
+    <text class="title">易理明灯</text>
+    <text class="subtitle">以古籍为灯，照命理之路</text>
+  </view>
+
+  <!-- 今日运势卡片 -->
+  <view class="card" wx:if="{{!loading && hasBazi}}">
+    <view class="card-date">{{date}}</view>
+    <view class="card-mood">{{mood}}</view>
+
+    <view class="card-section" wx:if="{{yi.length}}">
+      <text class="label green">✅ 宜</text>
+      <view class="item" wx:for="{{yi}}" wx:key="index">
+        <text class="action">{{item.action}}</text>
+        <text class="time">{{item.time}}</text>
+      </view>
+    </view>
+
+    <view class="card-section" wx:if="{{ji.length}}">
+      <text class="label red">❌ 忌</text>
+      <view class="item" wx:for="{{ji}}" wx:key="index">
+        <text class="action">{{item.action}}</text>
+        <text class="time">{{item.time}}</text>
+      </view>
+    </view>
+
+    <view class="card-lucky" wx:if="{{lucky}}">
+      🍀 {{lucky}}
+    </view>
+  </view>
+
+  <view class="card empty" wx:if="{{!hasBazi && !loading}}">
+    <text>📅 设置你的八字，查看专属每日运势</text>
+    <button class="btn" bindtap="goChat">去对话设置</button>
+  </view>
+
+  <view class="loading" wx:if="{{loading}}">
+    <text>加载中...</text>
+  </view>
+
+  <!-- 快捷入口 -->
+  <view class="quick-actions">
+    <view class="action-card" bindtap="goChat">
+      <text class="icon">💬</text>
+      <text>AI 对话</text>
+    </view>
+    <view class="action-card" bindtap="goFace">
+      <text class="icon">📷</text>
+      <text>面相分析</text>
+    </view>
+    <view class="action-card" bindtap="goCalendar">
+      <text class="icon">📅</text>
+      <text>7 日运势</text>
+    </view>
+  </view>
+</view>
