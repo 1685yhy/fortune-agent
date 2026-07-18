@@ -778,8 +778,16 @@ class MessageHandler:
         except Exception:
             pass
 
-        # 8. 组合回复
-        reply = analysis.response
+        # 8. 详细排盘（替代旧的纯文字回复）
+        try:
+            from src.engines.bazi_formatter import format_compact_card
+            birth_info = {"year": year, "month": month, "day": day, "hour": hour,
+                          "minute": minute, "city": city, "gender": gender}
+            chart = format_compact_card(result, birth_info)
+        except Exception:
+            chart = ""
+
+        reply = chart + "\n\n" + analysis.response
         if advice_section:
             reply += advice_section
         if chart_url:
