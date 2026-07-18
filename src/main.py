@@ -515,6 +515,59 @@ async def palm_reading(
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
 
 
+@app.get("/api/dashboard/{user_id}")
+async def get_dashboard(user_id: str):
+    """E1: 个人命理仪表盘 — 数据聚合视图"""
+    if handler is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    try:
+        from .api.dashboard import build_dashboard
+        return build_dashboard(user_id, handler)
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:200]}
+
+
+@app.get("/api/share-card/{user_id}")
+async def get_share_card(user_id: str, style: str = "dark"):
+    """E2: 生成可分享的运势卡片数据"""
+    if handler is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    try:
+        saved = handler.dao.get_user_bazi(user_id) if handler.dao else None
+        if not saved:
+            return {"status": "no_bazi", "message": "请先设置八字"}
+
+        api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+        bazi_str = " ".join(saved.get("bazi", ["?"])[:4])
+        dm = saved.get("day_master", "?")
+
+        # AI generates a personalized golden quote
+        quote = ""
+        if api_key:
+            try:
+                import httpx
+                prompt = f"用户八字{bazi_str}，日主{dm}。生成一句15字以内的命理金句，适合发朋友圈。风格：{'毒舌犀利' if style=='dark' else '温暖治愈' if style=='warm' else '简约大气'}。直接返回句子。"
+                resp = httpx.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}],
+                          "max_tokens": 60, "temperature": 0.9}, timeout=15.0)
+                quote = resp.json()["choices"][0]["message"]["content"].strip()
+            except Exception:
+                quote = f"命里有时终须有，命里无时莫强求 ✨"
+
+        return {
+            "status": "ok",
+            "style": style,
+            "bazi": bazi_str,
+            "day_master": dm,
+            "quote": quote,
+            "share_text": f"🔮 我的八字：{bazi_str} | 日主：{dm}\n\n{quote}\n\n—— 来自「易理明灯」AI命理助手",
+        }
+    except Exception as e:
+        return {"status": "error", "message": str(e)[:200]}
+
+
 @app.get("/api/stats/predictions")
 async def get_prediction_stats():
     """获取全局预测统计"""
