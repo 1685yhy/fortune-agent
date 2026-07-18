@@ -363,10 +363,15 @@ class MessageHandler:
         if not image_url:
             return "📷 请提供图片链接以便进行分析。"
 
-        # Try face reading first for any photo
+        # Try face reading first
         face_result = self._try_face_reading(image_url, user_text)
         if face_result:
             return face_result
+
+        # Try palm reading
+        palm_result = self._try_palm_reading(image_url, user_text)
+        if palm_result:
+            return palm_result
 
         # Fall back to keyword-based routing
         if any(kw in user_text for kw in ["户型", "风水", "家居", "布局", "房间"]):
@@ -375,6 +380,27 @@ class MessageHandler:
             return self._handle_image_mianxiang(image_url, user_text)
         else:
             return self._handle_image_generic(image_url, user_text)
+
+    def _try_palm_reading(self, image_url: str, user_text: str = "") -> str:
+        """Try CV palm analysis on an image. Returns result or None."""
+        try:
+            import urllib.request, tempfile, os
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                urllib.request.urlretrieve(image_url, tmp.name)
+                tmp_path = tmp.name
+            from src.engines.palm_reader import PalmReader, generate_palm_report
+            reader = PalmReader()
+            metrics = reader.analyze(tmp_path)
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            if metrics is None:
+                return None
+            api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+            return generate_palm_report(metrics, retriever=self.retriever, api_key=api_key)
+        except Exception:
+            return None
 
     def _try_face_reading(self, image_url: str, user_text: str = "") -> str:
         """Try CV face analysis on an image. Returns result or None if no face."""
