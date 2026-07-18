@@ -1,0 +1,19 @@
+# CoW Multi-User Isolation Fix
+# Applied to: /opt/cow-fortune/models/openai/open_ai_bot.py
+# This patch adds user=session.session_id to the API call,
+# enabling proper user isolation for multi-user chat.
+
+# Change in reply_text() method:
+# OLD:
+#   response = self._http_client.completions(
+#       timeout=timeout,
+#       prompt=str(session),
+#       **call_args,
+#   )
+# NEW:
+#   response = self._http_client.completions(
+#       timeout=timeout,
+#       prompt=str(session),
+#       user=session.session_id,
+#       **call_args,
+#   )
