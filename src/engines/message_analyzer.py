@@ -133,7 +133,7 @@ class MessageAnalyzer:
                 intent = data.get("intent", "free_chat")
                 valid = {"bazi", "ziwei", "liuyao", "fengshui", "zeri",
                          "mianxiang", "qimen", "xingming", "hehun", "dream",
-                         "calendar", "advisor", "free_chat"}
+                         "calendar", "xuetang", "advisor", "free_chat"}
                 if intent not in valid:
                     intent = "free_chat"
                 if needs and not soothe:
