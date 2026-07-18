@@ -56,7 +56,8 @@ INTENT_KEYWORDS = {
     "xingming": ["名字", "起名", "姓名", "改名"],
     "hehun": ["合婚", "配对", "配不配", "婚姻匹配"],
     "dream": ["解梦", "做梦", "梦见", "梦到", "梦"],
-    "calendar": ["今日运势", "今日日历", "今日宜忌", "幸运日历", "今天运势", "今天宜忌", "今日运程"],
+    "calendar": ["今日运势", "今日日历", "今日宜忌", "幸运日历", "今天运势", "今天宜忌", "今日运程", "流时运势", "时辰运势", "今日时辰"],
+    "xuetang": ["学堂", "学习", "教程", "入门"],
 }
 
 # 八字信息提取
@@ -303,6 +304,13 @@ class MessageHandler:
         if self.session_dao:
             self.session_dao.add_message(user_id, "user", msg, intent=analysis.intent)
 
+        # Priority: xuetang keywords trump everything
+        if any(kw in msg for kw in ["学堂", "学习教程", "命理入门"]):
+            reply = self._handle_xuetang(msg, user_id)
+            if self.session_dao:
+                self.session_dao.add_message(user_id, "assistant", reply, intent="xuetang")
+            return reply
+
         # H1: 心事树洞 — user sharing a story (overrides fortune intent when no birth info)
         if analysis.is_sharing:
             # Only skip confidant if user explicitly provides birth date info
@@ -334,6 +342,7 @@ class MessageHandler:
             "hehun": self._handle_hehun,
             "dream": self._handle_dream,
             "calendar": self._handle_calendar,
+            "xuetang": self._handle_xuetang,
         }
 
         handler = handler_map.get(analysis.intent)
@@ -1508,6 +1517,24 @@ class MessageHandler:
         return reply
 
     # ============================================================
+    # 八字学堂
+    # ============================================================
+
+    def _handle_xuetang(self, msg: str, user_id: str) -> str:
+        """Handle learning/tutorial requests."""
+        from src.engines.xuetang import list_topics, get_lesson
+
+        # Remove trigger words
+        for kw in ["学堂", "学习", "教程"]:
+            msg = msg.replace(kw, "", 1)
+        topic = msg.strip()
+
+        if not topic or topic in ("", "列表", "目录", "帮助"):
+            return list_topics()
+
+        return get_lesson(topic, retriever=self.retriever if hasattr(self, 'retriever') else None)
+
+    # ============================================================
     # AI 幸运日历
     # ============================================================
 
@@ -1523,13 +1550,38 @@ class MessageHandler:
             return "📅 日历服务暂时不可用，请稍后再试～"
 
         try:
+            # Daily calendar
             from src.engines.calendar import LuckyCalendar
             cal = LuckyCalendar(api_key)
             preferences = self._get_preference_hint(user_id)
             personality = self._get_personality_mode(user_id) or "sassy"
             day = cal.daily(saved, None, personality, preferences)
 
-            return self._format_calendar(day, personality)
+            reply = self._format_calendar(day, personality)
+
+            # Hourly fortune (deterministic, no API call)
+            try:
+                from src.engines.hourly_fortune import format_hourly_card
+                bazi_list = saved.get("bazi", ["?"])
+                day_master = bazi_list[2] if len(bazi_list) >= 3 else "?"
+                day_bz = bazi_list[2] if len(bazi_list) >= 3 else "?"
+                # Get day branch from the day pillar
+                if len(bazi_list) >= 3 and len(bazi_list[2]) >= 2:
+                    day_branch = bazi_list[2][1]  # Second char of day pillar = branch
+                else:
+                    day_branch = "子"
+
+                # Map day master element
+                wx_map = {"甲":"木","乙":"木","丙":"火","丁":"火","戊":"土","己":"土",
+                          "庚":"金","辛":"金","壬":"水","癸":"水"}
+                dm_element = wx_map.get(day_master, "土") + day_master if len(day_master) >= 1 else "未知"
+
+                hourly = format_hourly_card(dm_element, day_branch, personality)
+                reply += "\n\n" + hourly
+            except Exception:
+                pass  # Hourly is best-effort
+
+            return reply
         except Exception as e:
             return f"📅 日历生成失败：{str(e)[:100]}"
 

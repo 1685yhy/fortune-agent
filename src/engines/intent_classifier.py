@@ -116,7 +116,7 @@ class IntentClassifier:
                 intent = data.get("intent", "free_chat")
                 # Validate against known intents
                 valid = {"bazi", "ziwei", "liuyao", "fengshui", "zeri", "mianxiang",
-                         "qimen", "xingming", "hehun", "dream", "calendar", "advisor", "free_chat"}
+                         "qimen", "xingming", "hehun", "dream", "calendar", "xuetang", "advisor", "free_chat"}
                 if intent in valid:
                     return None if intent == "free_chat" else intent
             except (json.JSONDecodeError, ValueError, TypeError):
