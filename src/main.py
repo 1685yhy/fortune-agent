@@ -403,6 +403,76 @@ def _generic_calendar(date_str: str = None) -> dict:
     }
 
 
+# ============================================================
+# Face Reading API
+# ============================================================
+
+from fastapi import UploadFile, File, Form
+
+
+@app.post("/api/face-reading")
+async def face_reading(
+    image: UploadFile = File(...),
+    user_id: str = Form("anonymous"),
+    personality: str = Form("sassy"),
+):
+    """CV 精确面相分析 — 上传自拍照片，返回精确测量 + 古籍解读"""
+    if handler is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    try:
+        import tempfile, os
+        # Save uploaded file temporarily
+        suffix = os.path.splitext(image.filename or "photo.jpg")[1] or ".jpg"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            content = await image.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+
+        # Run face analysis
+        from .engines.face_reader import FaceReader, generate_report
+
+        reader = FaceReader()
+        metrics = reader.analyze(tmp_path)
+
+        # Clean up temp file
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+        if metrics is None:
+            return {
+                "status": "no_face",
+                "message": "未检测到人脸，请上传一张正面自拍照片（光线充足、面部清晰）📷",
+            }
+
+        api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+        report = generate_report(metrics, retriever=handler.retriever if hasattr(handler, 'retriever') else None,
+                                 api_key=api_key, personality=personality)
+
+        return {
+            "status": "ok",
+            "measurements": {
+                "face_shape": {"type": metrics.face_shape, "confidence": metrics.face_shape_conf},
+                "eye_type": {"type": metrics.eye_type, "confidence": metrics.eye_type_conf},
+                "eyebrow_type": {"type": metrics.eyebrow_type, "confidence": metrics.eyebrow_type_conf},
+                "nose_type": {"type": metrics.nose_type, "confidence": metrics.nose_type_conf},
+                "mouth_type": {"type": metrics.mouth_type, "confidence": metrics.mouth_type_conf},
+                "skin_tone": {"type": metrics.skin_tone, "confidence": metrics.skin_tone_confidence},
+                "three_sections": {"upper": metrics.upper_ratio, "middle": metrics.middle_ratio, "lower": metrics.lower_ratio},
+                "face_dimensions_mm": {"width": round(metrics.face_width, 1), "height": round(metrics.face_height, 1)},
+                "moles": [{"region": m["region"], "size_px": m["size_px"]} for m in metrics.moles],
+                "best_features": metrics.best_features,
+                "improvement_areas": metrics.improvement_areas,
+            },
+            "report": report,
+        }
+
+    except Exception as e:
+        return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
+
+
 @app.get("/api/stats/predictions")
 async def get_prediction_stats():
     """获取全局预测统计"""
