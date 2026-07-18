@@ -1600,6 +1600,13 @@ class MessageHandler:
             if analysis.needs_soothe and analysis.soothe_text:
                 reply = analysis.soothe_text + "\n\n" + reply
 
+            # D3: Record confidant session for future follow-up
+            if self.memory:
+                self.memory.add_interaction(
+                    user_id, msg, reply, intent="confidant",
+                    key_data={"needs_followup": True, "topic": analysis.emotion_label or "倾诉"}
+                )
+
             return reply
         except Exception:
             return self._free_chat(msg, user_id, emotion_label="sadness")

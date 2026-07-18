@@ -48,7 +48,8 @@ class ConversationMemory:
     def get_context(self, user_id: str) -> str:
         """Get a natural-language context summary for LLM injection.
 
-        Returns empty string if no history or API unavailable.
+        Includes follow-up check: if user had a confidant session recently,
+        suggest a gentle check-in.
         """
         if user_id not in self._cache or not self._cache[user_id]:
             return ""
@@ -58,7 +59,15 @@ class ConversationMemory:
             return ""
 
         lines = ["[以下是用户之前的对话记录，可以在回复中自然引用]"]
-        for i, m in enumerate(memories[-3:], 1):  # last 3 interactions
+
+        # D3: Check for recent confidant sessions needing follow-up
+        recent_confidant = [m for m in memories[-3:]
+                           if m.get("intent") == "confidant" and m.get("needs_followup")]
+        if recent_confidant:
+            topic = recent_confidant[-1].get("topic", "之前聊的事")
+            lines.append(f"💡 用户上次倾诉了关于「{topic}」的事情。如果合适的话，可以自然地问一句「最近好点了吗？」——但要轻描淡写，不要强迫。")
+
+        for i, m in enumerate(memories[-3:], 1):
             text = m.get("text", "")
             if text:
                 lines.append(f"{i}. {text}")
