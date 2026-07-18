@@ -130,9 +130,15 @@ class FortuneLLM:
             logging.getLogger(__name__).warning(
                 "Pro model timeout/failure, falling back to Flash for faster response")
             try:
+                # Flash fallback with analysis-specific prompt
+                fallback_prompt = (
+                    f"{system_prompt}\n\n"
+                    "【注意】深度模型暂时繁忙，请用你的知识给出一份精简但完整的命理分析。"
+                    "包含：八字排盘确认、日主分析、五行解读、大运趋势。300-500字。"
+                )
                 result = self._call_deepseek_model(
-                    user_message, self.model, max_tokens=1000,
-                    custom_prompt=system_prompt,
+                    user_message, self.model, max_tokens=800,
+                    custom_prompt=fallback_prompt,
                     timeout=30.0,
                 )
                 result.model = f"{self.model} (Pro fallback)"
