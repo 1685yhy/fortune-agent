@@ -75,7 +75,7 @@ class Embedder:
             return self._model.encode(texts, normalize_embeddings=True)
         # Fallback: return zero vectors (will match nothing in search)
         logger.debug(f"Using dummy embeddings for {len(texts)} texts")
-        return np.zeros((len(texts), 384), dtype=np.float32)
+        return np.zeros((len(texts), self.dimension), dtype=np.float32)
 
     def encode_single(self, text: str) -> np.ndarray:
         return self.encode([text])[0]
@@ -84,4 +84,4 @@ class Embedder:
     def dimension(self) -> int:
         if self._try_load() and self._model:
             return self._model.get_sentence_embedding_dimension()
-        return 384  # all-MiniLM-L6-v2 dimension (matches ChromaDB default)
+        return 768  # GTE-base dimension (ModelScope mirror)

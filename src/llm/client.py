@@ -98,11 +98,12 @@ class FortuneLLM:
         references: List[ChunkResult],
         user_question: str,
         personality_mode: Optional[str] = None,
+        use_pro: bool = False,  # Pro opt-in only (unreliable on small servers)
     ) -> AnalysisResult:
-        """命理分析 - 用深度模型（V4 Pro），带 Flash 超时回退。
+        """命理分析 - 默认用 Flash（可靠+快速），Pro 可选。
 
-        If Pro model times out (>90s) or fails, automatically falls back
-        to Flash for a faster (but less deep) response instead of crashing.
+        Flash with optimized prompts + RAG delivers quality analysis in 8-15s.
+        Pro is opt-in only (60-80s, unstable on <8GB RAM servers).
         """
         if isinstance(chart_data, str):
             chart_str = chart_data
@@ -118,35 +119,29 @@ class FortuneLLM:
         resolved_mode = self._resolve_mood(user_question, personality_mode)
         system_prompt = PERSONALITY_PROMPTS.get(resolved_mode, PERSONALITY_PROMPTS["sassy"])
 
-        # Try Pro model first, fall back to Flash on timeout
+        # Flash-first: reliable, fast, sufficient with RAG
+        if not use_pro:
+            return self._call_deepseek_model(
+                user_message, self.model, max_tokens=1500,
+                custom_prompt=system_prompt,
+                timeout=60.0,
+            )
+
+        # Pro only if explicitly requested
         try:
             return self._call_deepseek_model(
                 user_message, self.deep_model, max_tokens=2000,
                 custom_prompt=system_prompt,
-                timeout=90.0,  # Pro timeout: 90s
+                timeout=90.0,
             )
         except Exception:
             import logging
-            logging.getLogger(__name__).warning(
-                "Pro model timeout/failure, falling back to Flash for faster response")
-            try:
-                # Flash fallback with analysis-specific prompt
-                fallback_prompt = (
-                    f"{system_prompt}\n\n"
-                    "【注意】深度模型暂时繁忙，请用你的知识给出一份精简但完整的命理分析。"
-                    "包含：八字排盘确认、日主分析、五行解读、大运趋势。300-500字。"
-                )
-                result = self._call_deepseek_model(
-                    user_message, self.model, max_tokens=800,
-                    custom_prompt=fallback_prompt,
-                    timeout=30.0,
-                )
-                result.model = f"{self.model} (Pro fallback)"
-                return result
-            except Exception:
-                return AnalysisResult(
-                    response="命理分析引擎暂时繁忙，请稍后重试。或发送「今日运势」查看您的每日宜忌 🙏",
-                    tokens_used=0, model="fallback")
+            logging.getLogger(__name__).warning("Pro failed, falling back to Flash")
+            return self._call_deepseek_model(
+                user_message, self.model, max_tokens=1200,
+                custom_prompt=system_prompt,
+                timeout=30.0,
+            )
 
     def _call_deepseek_model(self, user_message: str, model: str, max_tokens: int = 500,
                              use_system_prompt: bool = True,
