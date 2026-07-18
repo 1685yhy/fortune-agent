@@ -172,28 +172,47 @@ class BaziEngine:
         return "比肩"  # fallback
 
     def _calc_dayun(self, lunar, gender: str, bazi: list) -> list:
-        """计算大运起运和排列"""
+        """计算大运起运和排列 — 使用自有算法确保与主流排盘一致
+
+        规则: 阳年男/阴年女 → 顺排, 阴年男/阳年女 → 逆排
+        己(阴)年+女(阴)=顺排 ✅ 与问真八字一致
+        """
+        return self._calc_dayun_improved(lunar, gender)
+
+    def _calc_dayun_improved(self, lunar, gender: str) -> list:
+        """改进的大运计算 — 正确顺逆方向"""
         try:
+            # Get起运年龄 from lunar-python (this part is correct)
             yun_gender = 0 if gender == "男" else 1
             yun = lunar.getEightChar().getYun(yun_gender)
-            start_age = yun.getStartYear()  # 起运年龄
-
-            dayun_list = []
-            da_yun = yun.getDaYun()
-
-            # da_yun[0] is the pre-起运 period (empty GanZhi), actual 大运 starts from index 1
-            # Filter out empty entries, then assign ages: first at start_age, then +10 each
-            for dy in da_yun:
-                ganzhi = dy.getGanZhi()
-                if not ganzhi:
-                    continue  # Skip the pre-起运 period
-                age = start_age + len(dayun_list) * 10
-                dayun_list.append((age, ganzhi))
-
-            # Limit to reasonable number
-            return dayun_list[:12]
+            start_age = yun.getStartYear()
         except Exception:
-            return self._fallback_dayun(lunar, gender)
+            start_age = 5
+
+        # Determine direction
+        year_gan = lunar.getEightChar().getYear()[0]
+        year_gan_idx = TIANGAN.index(year_gan)
+        is_yang = year_gan_idx % 2 == 0  # 甲丙戊庚壬为阳
+        is_male = gender == "男"
+
+        # 阳男阴女→顺排, 阴男阳女→逆排
+        forward = (is_male and is_yang) or (not is_male and not is_yang)
+
+        month_ganzhi = lunar.getEightChar().getMonth()
+        month_gan_idx = TIANGAN.index(month_ganzhi[0])
+        month_zhi_idx = DIZHI.index(month_ganzhi[1])
+
+        dayun = []
+        for i in range(12):
+            if forward:
+                gan_idx = (month_gan_idx + i + 1) % 10
+                zhi_idx = (month_zhi_idx + i + 1) % 12
+            else:
+                gan_idx = (month_gan_idx - i - 1) % 10
+                zhi_idx = (month_zhi_idx - i - 1) % 12
+            dayun.append((start_age + i * 10, TIANGAN[gan_idx] + DIZHI[zhi_idx]))
+
+        return dayun
 
     def _fallback_dayun(self, lunar, gender: str) -> list:
         """简化大运计算（备选方案）"""
