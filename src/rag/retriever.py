@@ -94,20 +94,16 @@ class Retriever:
         return chunk_results
 
     def _vector_search(self, query, category, top_k, min_score):
-        """语义向量检索"""
+        """语义向量检索 — 使用 ChromaDB 原生查询，自动匹配维度"""
         try:
-            query_embedding = self.embedder.encode_single(query)
-            # Check if embedding is all zeros (dummy fallback)
-            import numpy as np
-            if np.allclose(query_embedding, 0):
-                return []
-
             where_filter = None
             if category:
                 where_filter = {"category": category}
 
+            # Use query_texts so ChromaDB auto-embeds with built-in function
+            # This guarantees dimension consistency (no embedder mismatch)
             results = self.collection.query(
-                query_embeddings=[query_embedding.tolist()],
+                query_texts=[query],
                 n_results=top_k,
                 where=where_filter,
                 include=["documents", "metadatas", "distances"],
