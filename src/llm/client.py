@@ -145,7 +145,8 @@ class FortuneLLM:
 
     def _call_deepseek_model(self, user_message: str, model: str, max_tokens: int = 500,
                              use_system_prompt: bool = True,
-                             custom_prompt: str = None) -> AnalysisResult:
+                             custom_prompt: str = None,
+                             timeout: float = 60.0) -> AnalysisResult:
         """调用 DeepSeek API — 使用共享连接池和并发控制"""
         is_pro = (model == self.deep_model)
 
