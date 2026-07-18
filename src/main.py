@@ -473,6 +473,48 @@ async def face_reading(
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
 
 
+@app.post("/api/palm-reading")
+async def palm_reading(
+    image: UploadFile = File(...),
+    user_id: str = Form("anonymous"),
+):
+    """CV 手相分析 — 上传手掌照片，检测掌纹并分析"""
+    if handler is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    try:
+        import tempfile, os
+        suffix = os.path.splitext(image.filename or "hand.jpg")[1] or ".jpg"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            content = await image.read()
+            tmp.write(content)
+            tmp_path = tmp.name
+        from .engines.palm_reader import PalmReader, generate_palm_report
+        reader = PalmReader()
+        metrics = reader.analyze(tmp_path)
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+        if metrics is None:
+            return {"status": "no_hand", "message": "未检测到手掌，请上传一张光线充足的手掌照片 ✋"}
+        api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+        report = generate_palm_report(metrics, retriever=handler.retriever, api_key=api_key)
+        return {
+            "status": "ok",
+            "palm_shape": metrics.palm_shape,
+            "palm_color": metrics.palm_color,
+            "finger_type": metrics.finger_type,
+            "life_line": metrics.life_line,
+            "wisdom_line": metrics.wisdom_line,
+            "feeling_line": metrics.feeling_line,
+            "fate_line": metrics.fate_line,
+            "special_patterns": metrics.special_patterns,
+            "report": report,
+        }
+    except Exception as e:
+        return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
+
+
 @app.get("/api/stats/predictions")
 async def get_prediction_stats():
     """获取全局预测统计"""
