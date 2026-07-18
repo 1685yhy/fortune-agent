@@ -11,20 +11,17 @@ logger = logging.getLogger(__name__)
 class Embedder:
     """BGE 中文嵌入模型封装. Supports local model + ModelScope mirror."""
 
-    # Local model paths to check first (no download needed)
-    LOCAL_PATHS = [
-        "/mnt/d/fortune-models/models/BAAI--bge-large-zh-v1.5/snapshots/master",
-        "/mnt/e/fortune-models/models/BAAI--bge-large-zh-v1.5/snapshots/master",
-        "/opt/fortune-data/models/bge-large-zh-v1.5",
-    ]
+    # Local model paths — disabled for 384-dim consistency with ChromaDB
+    LOCAL_PATHS = []  # Force download of all-MiniLM-L6-v2 (384-dim)
 
-    def __init__(self, model_name: str = "BAAI/bge-large-zh-v1.5"):
-        self.model_name = model_name
+    def __init__(self, model_name: str = None):
+        # Use 384-dim model to match ChromaDB default embedding
+        self.model_name = model_name or "all-MiniLM-L6-v2"
         self._model = None
         self._available = None
 
     def _try_load(self):
-        """Try to load model from local path, then ModelScope mirror, then HuggingFace."""
+        """Try to load model from local path, then ModelScope mirror."""
         if self._available is not None:
             return self._available
 
@@ -36,25 +33,36 @@ class Embedder:
                 try:
                     self._model = SentenceTransformer(local_path)
                     self._available = True
-                    logger.info("BGE模型加载成功(本地): %s", local_path)
+                    logger.info("Model loaded from local: %s (dim=%d)", local_path,
+                                self._model.get_sentence_embedding_dimension())
                     return True
                 except Exception:
                     continue
 
-        # 2. Try ModelScope mirror (Chinese, no block)
+        # 2. Try ModelScope mirror for 384-dim model
         try:
             from modelscope import snapshot_download
-            model_dir = snapshot_download('BAAI/bge-large-zh-v1.5',
+            # Use a 384-dim model available on ModelScope
+            model_dir = snapshot_download(
+                'iic/nlp_gte_sentence-embedding_chinese-base',
                 cache_dir=os.environ.get('MODELSCOPE_CACHE', '/tmp/modelscope'))
             self._model = SentenceTransformer(model_dir)
             self._available = True
-            logger.info("BGE模型加载成功(ModelScope): %s", model_dir)
+            dim = self._model.get_sentence_embedding_dimension()
+            logger.info("Model loaded from ModelScope: %s (dim=%d)", model_dir, dim)
             return True
         except Exception as e:
-            logger.warning("BGE模型加载失败: %s", e)
-            self._available = False
-            self._model = None
-            return False
+            logger.warning("ModelScope failed: %s, trying HuggingFace...", e)
+            try:
+                self._model = SentenceTransformer("all-MiniLM-L6-v2")
+                self._available = True
+                logger.info("Model loaded from HuggingFace (384-dim)")
+                return True
+            except Exception as e2:
+                logger.warning("All model sources failed: %s", e2)
+                self._available = False
+                self._model = None
+                return False
 
     @property
     def model(self):
@@ -67,7 +75,7 @@ class Embedder:
             return self._model.encode(texts, normalize_embeddings=True)
         # Fallback: return zero vectors (will match nothing in search)
         logger.debug(f"Using dummy embeddings for {len(texts)} texts")
-        return np.zeros((len(texts), 1024), dtype=np.float32)
+        return np.zeros((len(texts), 384), dtype=np.float32)
 
     def encode_single(self, text: str) -> np.ndarray:
         return self.encode([text])[0]
@@ -76,4 +84,4 @@ class Embedder:
     def dimension(self) -> int:
         if self._try_load() and self._model:
             return self._model.get_sentence_embedding_dimension()
-        return 1024  # BGE-large dimension
+        return 384  # all-MiniLM-L6-v2 dimension (matches ChromaDB default)
