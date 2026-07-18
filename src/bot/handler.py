@@ -343,24 +343,59 @@ class MessageHandler:
     # ============================================================
 
     def _handle_image(self, image_url: str = "", user_text: str = "") -> str:
-        """处理图片输入。
+        """处理图片输入 — 支持面相分析 + 风水 + 通用。
 
-        根据图片 URL 和用户附带文字判断分析类型：
-        - 户型/风水/家居关键词 → 风水分析
-        - 面相/手相/看相关键词 → 面相分析
-        - 其他 → 引导用户描述
-        未来可接入 AI 视觉识别接口。
+        优先尝试 CV 面相分析（如果人脸检测成功），否则根据关键词路由。
         """
         if not image_url:
             return "📷 请提供图片链接以便进行分析。"
 
-        # 检查用户附带文字中的关键词
+        # Try face reading first for any photo
+        face_result = self._try_face_reading(image_url, user_text)
+        if face_result:
+            return face_result
+
+        # Fall back to keyword-based routing
         if any(kw in user_text for kw in ["户型", "风水", "家居", "布局", "房间"]):
             return self._handle_image_fengshui(image_url, user_text)
-        elif any(kw in user_text for kw in ["面相", "手相", "看相"]):
+        elif any(kw in user_text for kw in ["手相", "看相", "手掌"]):
             return self._handle_image_mianxiang(image_url, user_text)
         else:
             return self._handle_image_generic(image_url, user_text)
+
+    def _try_face_reading(self, image_url: str, user_text: str = "") -> str:
+        """Try CV face analysis on an image. Returns result or None if no face."""
+        try:
+            import urllib.request, tempfile, os
+            # Download image to temp file
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
+                urllib.request.urlretrieve(image_url, tmp.name)
+                tmp_path = tmp.name
+
+            from src.engines.face_reader import FaceReader, generate_report
+            reader = FaceReader()
+            metrics = reader.analyze(tmp_path)
+
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+
+            if metrics is None:
+                return None  # No face detected, let other handlers try
+
+            # Generate report
+            api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+            personality = self._get_personality_mode("") or "sassy"
+            report = generate_report(
+                metrics,
+                retriever=self.retriever if hasattr(self, 'retriever') else None,
+                api_key=api_key,
+                personality=personality,
+            )
+            return report
+        except Exception:
+            return None  # Face analysis failed, fall back gracefully
 
     def _handle_image_fengshui(self, image_url: str, user_text: str) -> str:
         """处理户型/风水图片分析"""
