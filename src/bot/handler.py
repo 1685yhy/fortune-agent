@@ -41,6 +41,7 @@ except ImportError:
 from src.storage.session_dao import SessionDAO
 from src.storage.preference_dao import PreferenceDAO, UserPreferences
 from src.storage.conversation_memory import ConversationMemory
+from src.utils.cache import ResponseCache, is_cacheable
 from .formatter import split_long_message, format_error, format_loading
 
 INTENT_KEYWORDS = {
@@ -108,6 +109,8 @@ class MessageHandler:
         # Multi-turn memory
         api_key = getattr(llm, 'api_key', '') if llm else ''
         self.memory = ConversationMemory(api_key) if api_key else None
+        # D2: Response cache for high-frequency queries
+        self.cache = ResponseCache(max_size=500)
 
     # ============================================================
     # Personality Mode Management
@@ -239,6 +242,12 @@ class MessageHandler:
         """处理用户消息，返回回复"""
         msg = message.strip()
 
+        # Step -2: Cache check (D2 speed optimization)
+        if is_cacheable(msg):
+            cached = self.cache.get(msg, user_id)
+            if cached:
+                return cached
+
         # Step -1: 反馈检测 (👍/👎) — learn from user feedback
         if msg in ("👍", "👎", "好评", "差评", "准", "不准", "good", "bad") or msg.startswith("👍") or msg.startswith("👎"):
             return self._handle_feedback(msg, user_id)
@@ -318,6 +327,10 @@ class MessageHandler:
 
         if analysis.needs_soothe and analysis.soothe_text:
             reply = analysis.soothe_text + "\n\n" + reply
+
+        # D2: Cache the response for high-frequency queries
+        if is_cacheable(msg):
+            self.cache.set(msg, reply, user_id)
 
         return reply
 
