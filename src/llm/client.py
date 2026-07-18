@@ -99,14 +99,10 @@ class FortuneLLM:
         user_question: str,
         personality_mode: Optional[str] = None,
     ) -> AnalysisResult:
-        """命理分析 - 用深度模型（V4 Pro），推理更强。
+        """命理分析 - 用深度模型（V4 Pro），带 Flash 超时回退。
 
-        Args:
-            chart_data: BaziResult or formatted chart string.
-            references: List of relevant ancient text references.
-            user_question: The user's question/query.
-            personality_mode: One of "sassy", "analyst", "gentle",
-                             or None to auto-detect from user question.
+        If Pro model times out (>90s) or fails, automatically falls back
+        to Flash for a faster (but less deep) response instead of crashing.
         """
         if isinstance(chart_data, str):
             chart_str = chart_data
@@ -121,8 +117,30 @@ class FortuneLLM:
         )
         resolved_mode = self._resolve_mood(user_question, personality_mode)
         system_prompt = PERSONALITY_PROMPTS.get(resolved_mode, PERSONALITY_PROMPTS["sassy"])
-        return self._call_deepseek_model(user_message, self.deep_model, max_tokens=2000,
-                                         custom_prompt=system_prompt)
+
+        # Try Pro model first, fall back to Flash on timeout
+        try:
+            return self._call_deepseek_model(
+                user_message, self.deep_model, max_tokens=2000,
+                custom_prompt=system_prompt,
+                timeout=90.0,  # Pro timeout: 90s
+            )
+        except Exception:
+            import logging
+            logging.getLogger(__name__).warning(
+                "Pro model timeout/failure, falling back to Flash for faster response")
+            try:
+                result = self._call_deepseek_model(
+                    user_message, self.model, max_tokens=1000,
+                    custom_prompt=system_prompt,
+                    timeout=30.0,
+                )
+                result.model = f"{self.model} (Pro fallback)"
+                return result
+            except Exception:
+                return AnalysisResult(
+                    response="命理分析引擎暂时繁忙，请稍后重试。或发送「今日运势」查看您的每日宜忌 🙏",
+                    tokens_used=0, model="fallback")
 
     def _call_deepseek_model(self, user_message: str, model: str, max_tokens: int = 500,
                              use_system_prompt: bool = True,
