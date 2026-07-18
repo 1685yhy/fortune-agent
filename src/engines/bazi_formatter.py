@@ -26,8 +26,14 @@ BRANCH_HIDDEN = {
 }
 
 # 天干十神 mapping based on day master
-def _get_shishen(day_gan: str, target_gan: str) -> str:
-    """Calculate 十神 relationship between day stem and target stem."""
+def _get_shishen(day_gan: str, target_gan: str, for_hidden: bool = False) -> str:
+    """Calculate 十神 relationship between day stem and target stem.
+
+    Args:
+        day_gan: Day master stem
+        target_gan: Target stem to analyze
+        for_hidden: True if computing for hidden stems (same stem → 比肩, not 日主)
+    """
     gan = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
     wx =  ["木", "木", "火", "火", "土", "土", "金", "金", "水", "水"]
     yinyang = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0]  # 1=阳, 0=阴
@@ -40,7 +46,7 @@ def _get_shishen(day_gan: str, target_gan: str) -> str:
     same_wx = (wx[di] == wx[ti])
 
     if diff == 0:
-        return "日主"
+        return "比肩" if for_hidden else "日主"
     # Same element, different yin-yang → 劫财; same → 比肩
     if same_wx:
         return "比肩" if same_yin else "劫财"
@@ -299,7 +305,7 @@ def get_kongwang(day_pillar):
     return XUN_KONG.get(day_pillar, "?")  
 
 def compute_cg_shishen(day_gan, hidden_stems):
-    return [_get_shishen(day_gan, s) for s in hidden_stems]
+    return [_get_shishen(day_gan, s, for_hidden=True) for s in hidden_stems]
 
 def compare_with_wenzhen(y, m, d, h, mi, gender_code, city="北京"):
     import urllib.request, json
