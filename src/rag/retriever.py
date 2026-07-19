@@ -26,6 +26,7 @@ class Retriever:
         self.embedder = embedder
         self._client = None
         self._collection = None
+        self._collection_name = "fortune_books"  # 默认，可被外部覆盖
 
     @property
     def client(self):
@@ -40,7 +41,7 @@ class Retriever:
     def collection(self):
         if self._collection is None:
             self._collection = self.client.get_or_create_collection(
-                name="fortune_books",
+                name=self._collection_name,
                 metadata={"hnsw:space": "cosine"},
             )
         return self._collection

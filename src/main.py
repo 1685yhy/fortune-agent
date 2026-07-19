@@ -20,6 +20,7 @@ from .engines.zeri import ZeriEngine
 from .engines.dream import DreamEngine
 from .rag.embedder import Embedder
 from .rag.retriever import Retriever
+from .rag.collection_manager import CollectionManager
 from .llm.client import FortuneLLM
 from .bot.handler import MessageHandler
 from .bot.formatter import split_long_message
@@ -97,8 +98,57 @@ async def lifespan(app: FastAPI):
     mianxiang_engine = MianxiangEngine()
     zeri_engine = ZeriEngine()
     dream_engine = DreamEngine()
+    # 初始化 Embedder（确定性加载）
     embedder = Embedder(model_name=settings.embedding_model)
+    if not embedder.load():
+        logger.error(
+            "FATAL: Cannot load embedding model '%s'. "
+            "Service will start but RAG queries will fail.",
+            settings.embedding_model,
+        )
+    else:
+        logger.info(
+            "Embedder loaded: %s (dim=%d)",
+            settings.embedding_model, embedder.dimension,
+        )
+
+    # 验证 embedding 维度与配置一致
+    if embedder.dimension != settings.embedding_dimension:
+        logger.error(
+            "FATAL: Embedding dimension mismatch! "
+            "model=%d, config=%d. Update config or model.",
+            embedder.dimension, settings.embedding_dimension,
+        )
+
+    # 初始化集合管理器，验证集合
+    cm = CollectionManager(
+        str(settings.vectordb_dir),
+        settings.embedding_collection,
+        settings.embedding_dimension,
+    )
+    validation = cm.validate()
+    if not validation.exists:
+        logger.warning(
+            "Collection '%s' not found. RAG queries will fall back to "
+            "keyword search until index is built. "
+            "Run: python scripts/rebuild_index_v2.py",
+            settings.embedding_collection,
+        )
+    elif not validation.valid:
+        logger.error(
+            "Collection validation FAILED: %s. "
+            "RAG queries may not work correctly.",
+            validation.errors,
+        )
+    else:
+        logger.info(
+            "Collection '%s' validated: %d docs",
+            settings.embedding_collection, validation.doc_count,
+        )
+
     retriever = Retriever(str(settings.vectordb_dir), embedder)
+    # 设置 retriever 使用新集合
+    retriever._collection_name = settings.embedding_collection
     dao = UserDAO(str(settings.db_path))
     member_dao = MemberDAO(str(settings.db_path))
     session_dao = SessionDAO(str(settings.db_path))
