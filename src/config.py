@@ -12,7 +12,9 @@ class Settings:
     db_path: Path = field(default_factory=lambda: Path("/mnt/d/fortune-data/userdata/fortune.db"))
     claude_api_key: str = ""
     claude_model: str = "claude-sonnet-5"
-    embedding_model: str = "BAAI/bge-large-zh-v1.5"
+    embedding_model: str = "BAAI/bge-m3"
+    embedding_collection: str = "fortune_books_v4_bge_m3"
+    embedding_dimension: int = 1024
     # Push settings
     push_enabled: bool = True
     push_time: str = "08:00"
@@ -49,4 +51,10 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
         settings.claude_api_key = os.getenv("ANTHROPIC_API_KEY")
     if os.getenv("ADMIN_KEY"):
         settings.admin_key = os.getenv("ADMIN_KEY")
+    if os.getenv("EMBEDDING_MODEL"):
+        settings.embedding_model = os.getenv("EMBEDDING_MODEL")
+    if os.getenv("EMBEDDING_COLLECTION"):
+        settings.embedding_collection = os.getenv("EMBEDDING_COLLECTION")
+    if os.getenv("EMBEDDING_DIMENSION"):
+        settings.embedding_dimension = int(os.getenv("EMBEDDING_DIMENSION"))
     return settings
