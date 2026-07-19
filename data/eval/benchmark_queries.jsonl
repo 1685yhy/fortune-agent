@@ -1,0 +1,20 @@
+{"id": "bazi_L1_001", "domain": "bazi", "difficulty": "L1", "query": "我是属马的，今年本命年运气怎么样？", "expected_dimensions": ["本命年运势", "注意事项"], "reference_answer_hints": ["本命年值太岁的冲克", "建议佩戴化太岁物品"]}
+{"id": "bazi_L1_002", "domain": "bazi", "difficulty": "L1", "query": "金命的人适合做什么工作？", "expected_dimensions": ["五行与职业", "行业选择"], "reference_answer_hints": ["金命人的五行特性和适合行业", "金生水相关行业"]}
+{"id": "bazi_L2_001", "domain": "bazi", "difficulty": "L2", "query": "甲木日主生在寅月，官星不透财星多，走庚申大运，2026丙午年的财运和事业走向如何？", "expected_dimensions": ["财运", "事业"], "reference_answer_hints": ["财星旺衰分析", "大运庚申与日主关系", "流年丙午引动"]}
+{"id": "bazi_L2_002", "domain": "bazi", "difficulty": "L2", "query": "八字身弱财旺，现在走正官大运，适合创业吗？合伙还是单干？选什么行业？", "expected_dimensions": ["创业可行性", "合作方式", "行业选择"], "reference_answer_hints": ["身弱财旺的应对", "正官大运对事业的助益", "五行喜忌行业匹配"]}
+{"id": "ziwei_L1_001", "domain": "ziwei", "difficulty": "L1", "query": "命宫有紫微星，是不是当领导的命？", "expected_dimensions": ["紫微星特性", "事业发展"], "reference_answer_hints": ["紫微坐命的基本性格", "领导潜力的判断"]}
+{"id": "ziwei_L2_001", "domain": "ziwei", "difficulty": "L2", "query": "廉贞七杀在巳宫坐命，夫妻宫有天相，2026年感情运势如何？", "expected_dimensions": ["感情运势", "夫妻宫分析"], "reference_answer_hints": ["廉贞七杀的性格影响", "天相在夫妻宫的意义", "流年对感情的影响"]}
+{"id": "fengshui_L1_001", "domain": "fengshui", "difficulty": "L1", "query": "我家大门正对电梯门，风水上有什么问题？", "expected_dimensions": ["门对门风水", "化解方法"], "reference_answer_hints": ["电梯门冲煞的原理", "玄关遮挡化解"]}
+{"id": "fengshui_L2_001", "domain": "fengshui", "difficulty": "L2", "query": "子山午向三居室，2026年五黄煞在哪个方位，怎么化解？", "expected_dimensions": ["五黄煞定位", "化解方法"], "reference_answer_hints": ["2026年五黄煞飞星方位", "五黄煞化解法"]}
+{"id": "dream_L1_001", "domain": "dream", "difficulty": "L1", "query": "梦到从高处掉下来是什么意思？", "expected_dimensions": ["坠落梦象征", "心理状态"], "reference_answer_hints": ["坠落梦的常见解释", "现实压力反馈"]}
+{"id": "dream_L2_001", "domain": "dream", "difficulty": "L2", "query": "连续一周梦到被黑蛇追，梦里很害怕，代表什么？", "expected_dimensions": ["蛇梦象征", "反复梦境", "情绪分析"], "reference_answer_hints": ["蛇在梦境中的象征", "连续噩梦的心理原因", "现实压力源"]}
+{"id": "mianxiang_L1_001", "domain": "mianxiang", "difficulty": "L1", "query": "额头窄是不是命不好？", "expected_dimensions": ["额头面相", "命运关联"], "reference_answer_hints": ["额头在面相中的意义", "额头窄的解读"]}
+{"id": "mianxiang_L2_001", "domain": "mianxiang", "difficulty": "L2", "query": "印堂悬针纹，山根低，眼下泪痣，事业发展如何？", "expected_dimensions": ["面相综合分析", "事业发展"], "reference_answer_hints": ["悬针纹的影响", "山根低的含义", "泪痣的解读"]}
+{"id": "qimen_L1_001", "domain": "qimen", "difficulty": "L1", "query": "明天适合搬家吗？往哪个方向好？", "expected_dimensions": ["择日", "方位选择"], "reference_answer_hints": ["搬家择日原则", "吉利方位判断"]}
+{"id": "qimen_L2_001", "domain": "qimen", "difficulty": "L2", "query": "2026年农历六月开公司，奇门看选哪天好，开门在哪个方位？", "expected_dimensions": ["择日", "开门方位"], "reference_answer_hints": ["奇门择日方法", "开门方位的选择"]}
+{"id": "xingming_L1_001", "domain": "xingming", "difficulty": "L1", "query": "张伟这名字怎么样？", "expected_dimensions": ["姓名分析", "运势影响"], "reference_answer_hints": ["名字的五行属性", "社会代表性分析"]}
+{"id": "xingming_L2_001", "domain": "xingming", "difficulty": "L2", "query": "张伟，天格12人格24地格16，五行缺什么？对事业有帮助吗？", "expected_dimensions": ["三才五格", "五行分析", "事业运势"], "reference_answer_hints": ["五格数理分析", "五行补益方向", "事业运势判断"]}
+{"id": "zeri_L1_001", "domain": "zeri", "difficulty": "L1", "query": "这个月哪天适合搬家？", "expected_dimensions": ["搬家择日", "吉日选择"], "reference_answer_hints": ["搬家吉日判断", "避开冲煞"]}
+{"id": "zeri_L2_001", "domain": "zeri", "difficulty": "L2", "query": "2026年国庆结婚，新郎1990马，新娘1992猴，哪天最好？", "expected_dimensions": ["结婚择日", "生肖配对"], "reference_answer_hints": ["2026年国庆吉日筛选", "新人生肖婚嫁吉日"]}
+{"id": "bazi_L3_001", "domain": "bazi", "difficulty": "L3", "query": "八字身弱财旺，现在走正官大运，适合创业吗？合伙还是单干？选什么行业？孩子八字火旺土燥，原名'李浩然'总格41画，想改补水的名字，从三才五格、生肖喜忌、音形义推荐几个方案。", "expected_dimensions": ["创业决策", "合作分析", "行业选择", "姓名建议"], "reference_answer_hints": ["身弱财旺的用神分析", "正官大运的事业导向", "改名方案多角度推荐"]}
+{"id": "ziwei_L3_001", "domain": "ziwei", "difficulty": "L3", "query": "命宫日月并明，财帛宫武曲化禄，但迁移宫擎羊陀罗夹，40岁后海外发展前景如何？", "expected_dimensions": ["海外发展", "财运分析", "迁移宫影响"], "reference_answer_hints": ["日月并明的格局分析", "武曲化禄的财运", "擎羊陀罗夹的影响"]}
