@@ -112,3 +112,130 @@ def test_collection_manager_validation():
     assert report.exists is False
     assert report.valid is False
     assert len(report.errors) > 0
+
+
+# --- QueryEnhancer tests ---
+
+def test_enhanced_query_dataclass():
+    """EnhancedQuery dataclass stores and exposes all fields correctly"""
+    from src.rag.query_enhancer import EnhancedQuery
+
+    eq = EnhancedQuery(
+        original="我最近运气不好，想看看八字",
+        rewritten="近期运势低迷，询问八字命局中流年气运变化及其对事业、财运的影响",
+        sub_queries=["流年运势分析", "八字用神与忌神"],
+        category="bazi",
+        keywords=["运势", "八字", "流年"],
+    )
+    assert eq.original == "我最近运气不好，想看看八字"
+    assert eq.rewritten.startswith("近期运势低迷")
+    assert len(eq.sub_queries) == 2
+    assert eq.category == "bazi"
+    assert "运势" in eq.keywords
+    assert eq.to_dict()["original"] == eq.original
+
+
+def test_enhanced_query_empty_sub_queries():
+    """EnhancedQuery handles empty sub_queries and keywords gracefully"""
+    from src.rag.query_enhancer import EnhancedQuery
+
+    eq = EnhancedQuery(
+        original="test",
+        rewritten="test",
+        sub_queries=[],
+        category="general",
+        keywords=[],
+    )
+    assert eq.sub_queries == []
+    assert eq.keywords == []
+    assert eq.category == "general"
+
+
+def test_query_enhancer_parse_response_valid():
+    """QueryEnhancer._parse_response handles valid JSON correctly"""
+    from src.rag.query_enhancer import QueryEnhancer
+
+    enhancer = QueryEnhancer(api_key="test-key")
+    json_content = '''{
+        "rewritten": "询问八字命局中五行平衡与用神喜忌",
+        "sub_queries": ["八字五行强弱分析", "用神取用建议"],
+        "category": "bazi",
+        "keywords": ["八字", "五行", "用神"]
+    }'''
+    result = enhancer._parse_response(json_content, "我想看八字五行")
+    assert result.original == "我想看八字五行"
+    assert "五行平衡" in result.rewritten
+    assert len(result.sub_queries) == 2
+    assert result.category == "bazi"
+    assert "用神" in result.keywords
+
+
+def test_query_enhancer_parse_response_invalid_json():
+    """QueryEnhancer._parse_response falls back gracefully on malformed JSON"""
+    from src.rag.query_enhancer import QueryEnhancer
+
+    enhancer = QueryEnhancer(api_key="test-key")
+    result = enhancer._parse_response("not valid json", "我运气不好")
+    assert result.original == "我运气不好"
+    assert "专业命理分析" in result.rewritten
+    assert result.sub_queries == []
+    assert result.category == "general"
+    assert result.keywords == []
+
+
+def test_query_enhancer_parse_response_unknown_category():
+    """QueryEnhancer._parse_response defaults unknown categories to 'general'"""
+    from src.rag.query_enhancer import QueryEnhancer
+
+    enhancer = QueryEnhancer(api_key="test-key")
+    json_content = '''{
+        "rewritten": "测试",
+        "sub_queries": [],
+        "category": "astrology",
+        "keywords": []
+    }'''
+    result = enhancer._parse_response(json_content, "test")
+    assert result.category == "general"
+
+
+def test_query_enhancer_parse_response_missing_fields():
+    """QueryEnhancer._parse_response handles missing fields gracefully"""
+    from src.rag.query_enhancer import QueryEnhancer
+
+    enhancer = QueryEnhancer(api_key="test-key")
+    json_content = '{"category": "dream"}'
+    result = enhancer._parse_response(json_content, "梦见水")
+    assert result.original == "梦见水"
+    assert "专业命理分析" in result.rewritten  # falls back
+    assert result.sub_queries == []
+    assert result.category == "dream"
+    assert result.keywords == []
+
+
+def test_query_enhancer_build_fallback():
+    """QueryEnhancer._build_fallback produces safe fallback"""
+    from src.rag.query_enhancer import QueryEnhancer
+
+    enhancer = QueryEnhancer(api_key="test-key")
+    result = enhancer._build_fallback("我最近总做噩梦")
+    assert result.original == "我最近总做噩梦"
+    assert "专业命理分析" in result.rewritten
+    assert result.sub_queries == []
+    assert result.category == "general"
+    assert result.keywords == []
+
+
+def test_query_enhancer_enhance_empty_query():
+    """QueryEnhancer.enhance handles empty query without API call"""
+    import asyncio
+    from src.rag.query_enhancer import QueryEnhancer
+
+    enhancer = QueryEnhancer(api_key="test-key")
+
+    async def _test():
+        result = await enhancer.enhance("")
+        assert result.original == ""
+        assert result.category == "general"
+        assert result.sub_queries == []
+
+    asyncio.run(_test())
