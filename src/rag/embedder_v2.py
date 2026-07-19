@@ -5,7 +5,6 @@
 2. 加载顺序: 本地路径 → ModelScope → HuggingFace (仅在 model_name 指定时)
 3. 加载失败 = 报错，不偷偷降级到不同维度的模型
 4. dimension 在加载前从 model_name 推导，加载后从模型验证，必须一致
-5. 支持 ONNX 量化导出（后续任务使用）
 """
 import os
 import logging
@@ -42,13 +41,11 @@ class EmbedderV2:
     def __init__(
         self,
         model_name: str = "BAAI/bge-m3",
-        prefer_local: bool = True,
         cache_dir: Optional[str] = None,
     ):
         if not model_name:
             raise ValueError("model_name is required")
         self.model_name = model_name
-        self.prefer_local = prefer_local
         self.cache_dir = cache_dir or os.environ.get(
             "MODELSCOPE_CACHE", "/tmp/modelscope"
         )
@@ -65,13 +62,11 @@ class EmbedderV2:
         for key, dim in _MODEL_DIMENSIONS.items():
             if key in self.model_name or self.model_name in key:
                 return dim
-        # 未知模型默认 1024（BGE-M3 系列主流维度）
-        logger.warning(
-            "Unknown model '%s', assuming dimension=1024. "
-            "Add to _MODEL_DIMENSIONS if different.",
-            self.model_name,
+        # Unknown model — raise so caller adds to _MODEL_DIMENSIONS or registers
+        raise ValueError(
+            f"Unknown model '{self.model_name}'. "
+            f"Add it to _MODEL_DIMENSIONS or use register_local_model()."
         )
-        return 1024
 
     def load(self) -> bool:
         """显式加载模型. 返回 True=成功, False=失败. 失败不降级."""
@@ -94,6 +89,7 @@ class EmbedderV2:
                 return True
             except Exception as e:
                 logger.warning("Registered local path failed: %s", e)
+                logger.debug("Load attempt failed", exc_info=True)
 
         # 2. 尝试 ModelScope mirror（国内更快）
         try:
@@ -113,6 +109,7 @@ class EmbedderV2:
             return True
         except Exception as e:
             logger.info("ModelScope failed for '%s': %s", self.model_name, e)
+            logger.debug("Load attempt failed", exc_info=True)
 
         # 3. 尝试 HuggingFace
         try:
@@ -129,6 +126,7 @@ class EmbedderV2:
                 "Failed to load model '%s' from any source: %s",
                 self.model_name, e,
             )
+            logger.debug("Load attempt failed", exc_info=True)
             self._loaded = False
             self._model = None
             return False
@@ -147,12 +145,15 @@ class EmbedderV2:
     def _verify_and_set_dimension(self) -> None:
         """验证实际维度与预期一致"""
         actual = self._model.get_embedding_dimension()
+        if actual is None:
+            raise RuntimeError(
+                f"Model '{self.model_name}' returned None dimension"
+            )
         expected = self.dimension  # 从 _MODEL_DIMENSIONS 推导
         if actual != expected:
-            logger.warning(
-                "Dimension mismatch for '%s': actual=%d, expected=%d. "
-                "Using actual=%d.",
-                self.model_name, actual, expected, actual,
+            raise ValueError(
+                f"Dimension mismatch for '{self.model_name}': "
+                f"actual={actual}, expected={expected}"
             )
         self._actual_dimension = actual
 
@@ -178,20 +179,3 @@ class EmbedderV2:
         if not self._loaded:
             raise RuntimeError("Embedder not loaded")
         return self._model
-
-    def export_onnx(self, output_path: str) -> str:
-        """导出 ONNX 量化模型（用于 CPU 推理优化）"""
-        from optimum.onnxruntime import ORTModelForFeatureExtraction
-        from transformers import AutoTokenizer
-
-        if not self._loaded:
-            raise RuntimeError("Embedder not loaded")
-
-        tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        onnx_model = ORTModelForFeatureExtraction.from_pretrained(
-            self.model_name, export=True
-        )
-        onnx_model.save_pretrained(output_path)
-        tokenizer.save_pretrained(output_path)
-        logger.info("ONNX model exported to %s", output_path)
-        return output_path

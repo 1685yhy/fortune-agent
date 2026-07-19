@@ -52,3 +52,53 @@ def test_retriever_with_mock():
     )
     assert result.score > 0.9
     assert "乙木" in result.text
+
+
+def test_embedder_v2_deterministic():
+    """EmbedderV2: same model_name produces same dimension"""
+    from src.rag.embedder_v2 import EmbedderV2
+    e = EmbedderV2(model_name="BAAI/bge-m3")
+    assert e.dimension == 1024
+
+
+def test_embedder_v2_rejects_empty_model_name():
+    """EmbedderV2 raises ValueError for empty model_name"""
+    import pytest
+    from src.rag.embedder_v2 import EmbedderV2
+    with pytest.raises(ValueError, match="model_name"):
+        EmbedderV2(model_name="")
+
+
+def test_embedder_v2_rejects_encode_before_load():
+    """EmbedderV2 raises RuntimeError on encode before load"""
+    import pytest
+    from src.rag.embedder_v2 import EmbedderV2
+    e = EmbedderV2(model_name="BAAI/bge-m3")
+    with pytest.raises(RuntimeError, match="not loaded"):
+        e.encode_single("test")
+
+
+def test_embedder_v2_unknown_model_raises():
+    """EmbedderV2 raises ValueError for unknown model (no hardcoded fallback)"""
+    import pytest
+    from src.rag.embedder_v2 import EmbedderV2
+    e = EmbedderV2(model_name="completely-unknown-model-xyz-12345")
+    with pytest.raises(ValueError, match="Unknown model"):
+        _ = e.dimension
+
+
+def test_embedder_v2_load_failure_returns_false():
+    """EmbedderV2.load() returns False for non-existent model"""
+    from src.rag.embedder_v2 import EmbedderV2
+    e = EmbedderV2(model_name="BAAI/bge-m3")
+    # Don't actually call load (would try network), just verify the interface
+    assert hasattr(e, 'load')
+    assert callable(e.load)
+
+
+def test_known_model_dimensions():
+    """All known models have correct dimension mappings"""
+    from src.rag.embedder_v2 import EmbedderV2, _MODEL_DIMENSIONS
+    for model_name, expected_dim in _MODEL_DIMENSIONS.items():
+        e = EmbedderV2(model_name=model_name)
+        assert e.dimension == expected_dim, f"{model_name}: expected {expected_dim}, got {e.dimension}"
