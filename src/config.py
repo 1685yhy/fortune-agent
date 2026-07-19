@@ -12,7 +12,7 @@ class Settings:
     db_path: Path = field(default_factory=lambda: Path("/mnt/d/fortune-data/userdata/fortune.db"))
     claude_api_key: str = ""
     claude_model: str = "claude-sonnet-5"
-    embedding_model: str = "BAAI/bge-m3"
+    embedding_model: str = "BAAI/bge-large-zh-v1.5"
     embedding_collection: str = "fortune_books_v4_bge_m3"
     embedding_dimension: int = 1024
     # Push settings
