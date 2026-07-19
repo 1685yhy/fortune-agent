@@ -102,3 +102,13 @@ def test_known_model_dimensions():
     for model_name, expected_dim in _MODEL_DIMENSIONS.items():
         e = EmbedderV2(model_name=model_name)
         assert e.dimension == expected_dim, f"{model_name}: expected {expected_dim}, got {e.dimension}"
+
+
+def test_collection_manager_validation():
+    """CollectionManager reports valid=False for non-existent collection"""
+    from src.rag.collection_manager import CollectionManager
+    cm = CollectionManager("/tmp", "nonexistent_collection_test_xyz", 1024)
+    report = cm.validate()
+    assert report.exists is False
+    assert report.valid is False
+    assert len(report.errors) > 0
