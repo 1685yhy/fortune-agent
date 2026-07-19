@@ -101,16 +101,16 @@ for query in queries:
 
 ```bash
 # Total queries
-wc -l benchmar_queries.jsonl
+wc -l benchmark_queries.jsonl
 
 # Count by domain
-jq -r '.domain' benchmar_queries.jsonl | sort | uniq -c | sort -rn
+jq -r '.domain' benchmark_queries.jsonl | sort | uniq -c | sort -rn
 
 # Count by difficulty
-jq -r '.difficulty' benchmar_queries.jsonl | sort | uniq -c | sort -rn
+jq -r '.difficulty' benchmark_queries.jsonl | sort | uniq -c | sort -rn
 
 # Count by domain + difficulty
-jq -r '"\(.domain)_\(.difficulty)"' benchmar_queries.jsonl | sort | uniq -c | sort -rn
+jq -r '"\(.domain)_\(.difficulty)"' benchmark_queries.jsonl | sort | uniq -c | sort -rn
 ```
 
 ## Generation

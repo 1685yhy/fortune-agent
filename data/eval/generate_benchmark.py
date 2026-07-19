@@ -17,6 +17,7 @@ Usage:
 import argparse
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -48,8 +49,11 @@ DOMAIN_CONFIGS = {
     "zeri":     {"cn": "择日",     "l1": 40,  "l2": 35,  "l3": 25},
 }
 
-# How many queries per API call per difficulty
-BATCH_SIZES = {"L1": 15, "L2": 10, "L3": 8}
+# How many queries per API call per difficulty.
+# Flash model: faster inference allows larger batches.
+# Pro model: uses reasoning tokens first, so smaller batches leave room for output.
+BATCH_SIZES_FLASH = {"L1": 15, "L2": 12, "L3": 10}
+BATCH_SIZES_PRO = {"L1": 10, "L2": 8, "L3": 6}
 
 # ---------------------------------------------------------------------------
 # Prompt content for each domain x difficulty
@@ -202,8 +206,12 @@ def make_http_client():
     )
 
 
-def call_deepseek(client, messages, model, max_tokens=4096, temperature=0.85):
-    """Call DeepSeek Chat API and return the content text."""
+def call_deepseek(client, messages, model, max_tokens=8192, temperature=0.85):
+    """Call DeepSeek Chat API and return the content text.
+
+    DeepSeek V4 Pro uses reasoning tokens before output content, so we
+    need a generous max_tokens budget to ensure the content isn't cut off.
+    """
     headers = {
         "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
@@ -216,7 +224,13 @@ def call_deepseek(client, messages, model, max_tokens=4096, temperature=0.85):
     }
     resp = client.post(API_URL, headers=headers, json=payload)
     resp.raise_for_status()
-    return resp.json()["choices"][0]["message"]["content"]
+    data = resp.json()
+    msg = data["choices"][0]["message"]
+    # Prefer content; fall back to reasoning_content if content is empty
+    text = (msg.get("content") or "").strip()
+    if not text:
+        text = (msg.get("reasoning_content") or "").strip()
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -340,10 +354,22 @@ def validate_items(items, domain, difficulty):
         item.setdefault("difficulty", difficulty)
         if "query" not in item or not isinstance(item["query"], str) or not item["query"].strip():
             continue
-        if not isinstance(item.get("expected_dimensions"), list):
-            item["expected_dimensions"] = []
-        if not isinstance(item.get("reference_answer_hints"), list):
-            item["reference_answer_hints"] = []
+        # Normalize expected_dimensions: accept string or list
+        dims = item.get("expected_dimensions")
+        if isinstance(dims, str):
+            dims = [d.strip() for d in dims.replace("、", ",").split(",") if d.strip()]
+        if not isinstance(dims, list):
+            dims = []
+        item["expected_dimensions"] = dims
+        # Normalize reference_answer_hints: accept string or list
+        hints = item.get("reference_answer_hints")
+        if isinstance(hints, str):
+            hints = [h.strip() for h in hints.replace("；", ";").split(";") if h.strip()]
+            if not hints:
+                hints = [hints.strip()] if hints.strip() else []
+        if not isinstance(hints, list):
+            hints = []
+        item["reference_answer_hints"] = hints
         valid.append(item)
     return valid
 
@@ -352,9 +378,8 @@ def validate_items(items, domain, difficulty):
 # Batch generation
 # ---------------------------------------------------------------------------
 
-def generate_batch(client, domain, difficulty, count, dry_run=False):
-    """Generate a single batch of queries using the LLM."""
-    model = MODEL_FLASH if dry_run else MODEL_PRO
+def generate_batch(client, domain, difficulty, count, model=MODEL_FLASH, max_tokens=4096):
+    """Generate a single batch of queries using the LLM (JSON output mode)."""
     sys_prompt, user_prompt = build_prompt(domain, difficulty, count)
 
     messages = [
@@ -366,20 +391,139 @@ def generate_batch(client, domain, difficulty, count, dry_run=False):
     items = parse_response(text)
     if items is None:
         sys.stderr.write(f"    [PARSE-FAIL] Could not parse response for {domain}_{difficulty}\n")
+        sys.stderr.flush()
         return []
 
     items = validate_items(items, domain, difficulty)
     return items[:count]
 
 
+def _build_plaintext_prompt(domain_key, difficulty, count):
+    """Build a prompt that asks for plain-text numbered queries (no JSON)."""
+    cfg = DOMAIN_CONFIGS[domain_key]
+    guide = DOMAIN_GUIDES[domain_key][difficulty]
+    diff_label = DIFFICULTY_LABELS[difficulty]
+    dims_pool = {
+        "bazi":     ["财运","事业","感情","婚姻","健康","学业","子女","父母","官运","流年","大运"],
+        "ziwei":    ["财运","事业","感情","健康","迁移","官禄","福德","田宅","子女","夫妻"],
+        "fengshui": ["财运","事业","健康","家庭","学业","人际关系","桃花","官非"],
+        "dream":    ["事业","感情","健康","财运","家庭","学业","人际关系","心理"],
+        "mianxiang":["事业","财运","感情","健康","性格","婚姻","子女","晚运"],
+        "qimen":    ["事业","财运","出行","决策","诉讼","考试","合作","开店"],
+        "xingming": ["事业","财运","健康","婚姻","学业","人际关系","改名"],
+        "zeri":     ["婚姻","搬家","开业","动土","出行","签约","入学","安葬"],
+    }
+    dims = dims_pool.get(domain_key, ["事业","财运","感情","健康"])
+    dims_str = "、".join(dims)
+
+    prompt = f"""请为{cfg['cn']}领域生成{count}条{diff_label}难度的用户查询。
+
+## 查询风格指导
+{guide}
+
+## 质量要求
+1. 语言自然真实，像用户在问算命师傅
+2. 混合不同性别、年龄段(20-60代)、职业和地域
+3. 每一条都不同，避免重复
+4. 输出纯文本，每行一条，用"1. " "2. " "3. "开头
+5. 不要出现额外的说明文字，只要查询列表
+
+## 查询可能涉及的维度
+{dims_str}
+
+例：
+1. 我是1988年属龙的，最近三年财运一直不好，什么时候能好转？
+2. 师傅，我女儿1994年属狗的，32岁了还没结婚，什么时候能遇到正缘？
+3. 我是1985年属牛的，做销售工作，明年是本命年会不会有影响？
+
+请输出{count}条查询："""
+    return prompt
+
+
+def generate_batch_plaintext(client, domain, difficulty, count, model=MODEL_FLASH):
+    """Generate queries as plain text (numbered list), avoiding JSON parse issues."""
+    prompt = _build_plaintext_prompt(domain, difficulty, count)
+    messages = [{"role": "user", "content": prompt}]
+    text = call_deepseek(client, messages, model)
+
+    # Parse numbered list
+    lines = text.strip().split("\n")
+    queries = []
+    for line in lines:
+        line = line.strip()
+        # Match "1. ..." or "1、..." or "1) ..."
+        match = re.match(r'^\d+[\.\、\)]\s*(.*?)$', line)
+        if match:
+            q = match.group(1).strip()
+            if len(q) > 5:  # Minimum meaningful query length
+                queries.append(q)
+
+    if not queries:
+        sys.stderr.write(f"    [PT-FAIL] Could not extract plaintext queries for {domain}_{difficulty}\n")
+        sys.stderr.flush()
+        return []
+
+    return queries[:count]
+
+
+def make_items_from_plaintext(queries, domain, difficulty, dims_pool=None):
+    """Wrap plaintext queries into benchmark JSON items."""
+    if dims_pool is None:
+        dims_pool = {
+            "bazi":     ["财运","事业","感情","婚姻","健康","学业","流年运势"],
+            "ziwei":    ["财运","事业","感情","健康","迁移","官禄","夫妻"],
+            "fengshui": ["财运","事业","健康","家庭","学业","官非"],
+            "dream":    ["事业","感情","健康","财运","家庭","心理"],
+            "mianxiang":["事业","财运","感情","健康","性格","婚姻"],
+            "qimen":    ["事业","财运","出行","决策","合作","考试"],
+            "xingming": ["事业","财运","健康","婚姻","学业","改名"],
+            "zeri":     ["婚姻","搬家","开业","动土","出行","签约"],
+        }
+    dims = dims_pool.get(domain, ["事业","财运","感情"])
+    hints = ["需要分析相关维度运势", "结合用户具体信息判断", "注意流年影响"]
+
+    items = []
+    for i, q in enumerate(queries):
+        # Pick 2-3 random dimensions
+        n_dims = min(len(dims), random.randint(2, 3))
+        selected_dims = random.sample(dims, n_dims)
+        items.append({
+            "id": f"{domain}_{difficulty}_{i + 1:03d}",
+            "domain": domain,
+            "difficulty": difficulty,
+            "query": q,
+            "expected_dimensions": selected_dims,
+            "reference_answer_hints": hints[:],
+        })
+    return items
+
+
+def generate_batch_fast(client, domain, difficulty, count, model=MODEL_FLASH):
+    """Generate queries using plaintext mode (avoids JSON parse failures).
+
+    Returns JSON items ready for the benchmark.
+    """
+    queries = generate_batch_plaintext(client, domain, difficulty, count, model=model)
+    if not queries:
+        return []
+    return make_items_from_plaintext(queries, domain, difficulty)
+
+
 # ---------------------------------------------------------------------------
 # Main generation loop
 # ---------------------------------------------------------------------------
 
-def generate_all(dry_run=False, single_domain=None):
+def _log(msg):
+    """Print with immediate flush so background runners see progress."""
+    print(msg, flush=True)
+
+
+def generate_all(dry_run=False, single_domain=None, use_pro=False):
     """Generate all benchmark queries across domains and difficulties."""
     client = make_http_client()
-    all_queries = []
+    all_queries = _load_existing()
+    model = MODEL_PRO if use_pro else MODEL_FLASH
+    batch_sizes = BATCH_SIZES_PRO if use_pro else BATCH_SIZES_FLASH
 
     domains_to_process = (
         [single_domain] if single_domain
@@ -388,7 +532,7 @@ def generate_all(dry_run=False, single_domain=None):
 
     for domain in domains_to_process:
         if domain not in DOMAIN_CONFIGS:
-            print(f"  [SKIP] Unknown domain: {domain}")
+            _log(f"  [SKIP] Unknown domain: {domain}")
             continue
         cfg = DOMAIN_CONFIGS[domain]
 
@@ -400,37 +544,49 @@ def generate_all(dry_run=False, single_domain=None):
 
             label = f"{domain}_{diff_key}"
 
+            # Skip if already satisfied from previous run
+            existing_count = len([q for q in all_queries
+                                 if q["domain"] == domain and q["difficulty"] == diff_key])
+            if existing_count >= target and not dry_run:
+                _log(f"  {label}: already {existing_count}/{target}, skipping")
+                continue
+
             if dry_run:
                 # Dry-run: generate just 3 samples with the flash model
                 try:
-                    items = generate_batch(client, domain, diff_key, 3, dry_run=True)
+                    items = generate_batch(client, domain, diff_key, 3, model=MODEL_FLASH)
                 except Exception as exc:
                     items = []
-                    print(f"  {label}: ERROR — {exc}")
-                print(f"\n{'─' * 60}")
-                print(f"  {label} — {len(items)} samples")
+                    _log(f"  {label}: ERROR — {exc}")
+                _log(f"\n{'─' * 60}")
+                _log(f"  {label} — {len(items)} samples")
                 for it in items:
-                    print(f"    [{it['id']}] {it['query'][:100]}")
+                    _log(f"    [{it['id']}] {it['query'][:100]}")
                 continue
 
             # Full generation
-            print(f"\n{'─' * 60}")
-            print(f"  {label}  →  target {target}")
-            generated = []
+            _log(f"\n{'─' * 60}")
+            _log(f"  {label}  →  target {target} (existing {existing_count})")
+            generated = [q for q in all_queries
+                         if q["domain"] == domain and q["difficulty"] == diff_key]
 
             for attempt in range(1, 31):  # max 30 attempts per combo
                 remaining = target - len(generated)
                 if remaining <= 0:
                     break
-                to_gen = min(BATCH_SIZES[diff_key], remaining)
+                to_gen = min(batch_sizes[diff_key], remaining)
                 try:
-                    items = generate_batch(client, domain, diff_key, to_gen)
+                    # Primary: try JSON mode (returns parsed items)
+                    items = generate_batch(client, domain, diff_key, to_gen, model=model)
+                    if not items:
+                        # Fallback: plaintext mode (avoids JSON parse failures)
+                        items = generate_batch_fast(client, domain, diff_key, to_gen, model=model)
                     generated.extend(items)
-                    print(f"    batch {attempt:2d}: +{len(items):2d}  →  "
-                          f"{len(generated):3d}/{target}")
+                    _log(f"    batch {attempt:2d}: +{len(items):2d}  →  "
+                         f"{len(generated):3d}/{target}")
                     time.sleep(1.2)  # polite rate limiting
                 except Exception as exc:
-                    print(f"    batch {attempt:2d}: FAILED — {exc}")
+                    _log(f"    batch {attempt:2d}: FAILED — {exc}")
                     time.sleep(3.0)
                     continue
 
@@ -438,11 +594,14 @@ def generate_all(dry_run=False, single_domain=None):
             for i, item in enumerate(generated):
                 item["id"] = f"{domain}_{diff_key}_{i + 1:03d}"
 
+            # Replace the old entries with renumbered ones
+            all_queries = [q for q in all_queries
+                           if not (q["domain"] == domain and q["difficulty"] == diff_key)]
             all_queries.extend(generated)
 
             if len(generated) < target:
-                print(f"  [WARN] {label}: only got {len(generated)}/{target} "
-                      f"({target - len(generated)} missing)")
+                _log(f"  [WARN] {label}: only got {len(generated)}/{target} "
+                     f"({target - len(generated)} missing)")
 
             # Incremental save so partial progress is never lost
             _save_queries(all_queries)
@@ -536,13 +695,18 @@ def main():
         "--domain", type=str, default=None,
         help="Generate only queries for a specific domain (e.g. bazi)"
     )
+    parser.add_argument(
+        "--pro", action="store_true",
+        help="Use deepseek-v4-pro (slower but higher quality)"
+    )
     args = parser.parse_args()
 
     SCRIPT_DIR.mkdir(parents=True, exist_ok=True)
 
+    model_name = MODEL_PRO if args.pro else MODEL_FLASH
     print(f"╔{'═' * 58}╗")
     print(f"║  易理明灯 — Evaluation Benchmark Generator")
-    print(f"║  Model:   {MODEL_FLASH if args.dry_run else MODEL_PRO}")
+    print(f"║  Model:   {model_name}")
     print(f"║  Output:  {SCRIPT_DIR / OUTPUT_FILE}")
     print(f"╚{'═' * 58}╝")
 
@@ -551,7 +715,7 @@ def main():
     elif args.domain:
         print(f"\n  Single-domain mode: {args.domain}\n")
 
-    generate_all(dry_run=args.dry_run, single_domain=args.domain)
+    generate_all(dry_run=args.dry_run, single_domain=args.domain, use_pro=args.pro)
 
     print(f"\nDone.")
 
