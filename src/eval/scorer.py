@@ -6,6 +6,7 @@ to ensure consistency across queries and competitors.
 
 import json
 import logging
+import re
 from dataclasses import dataclass, asdict
 from typing import Optional
 
@@ -258,20 +259,93 @@ class LLMScorer:
         return data["choices"][0]["message"]["content"]
 
     def _parse_scores(self, raw: str) -> dict[str, DimensionScore]:
-        """Extract DimensionScores from raw LLM JSON output."""
-        # Try to extract JSON block
-        json_str = raw.strip()
+        """Extract DimensionScores from raw LLM JSON output.
+
+        Uses multiple fallback strategies for robustness:
+        1. Exact JSON parsing after extracting code blocks
+        2. Iterative brace-matching extraction
+        3. Regex-based score extraction from any text format
+        """
+        raw_stripped = raw.strip()
+        if not raw_stripped:
+            logger.info("Empty scoring response — returning zeros")
+            return self._build_from_dict({})
+
+        # Strategy 1: Extract JSON block and parse
+        json_str = raw_stripped
         if "```json" in json_str:
             json_str = json_str.split("```json")[1].split("```")[0].strip()
         elif "```" in json_str:
             json_str = json_str.split("```")[1].split("```")[0].strip()
 
-        data = json.loads(json_str)
+        # Try to parse JSON directly
+        try:
+            data = json.loads(json_str)
+            return self._build_from_dict(data)
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 2: Find the first { ... } block that looks like JSON
+        brace_start = json_str.find("{")
+        if brace_start >= 0:
+            # Try progressively nearer brace matches
+            for end_offset in range(len(json_str), brace_start, -1):
+                candidate = json_str[brace_start:end_offset]
+                try:
+                    data = json.loads(candidate)
+                    return self._build_from_dict(data)
+                except json.JSONDecodeError:
+                    continue
+
+        # Strategy 3: Regex extraction of scores from any text format
+        logger.info("Falling back to regex score extraction")
+        dim_patterns = {
+            dim: re.compile(
+                rf'"{dim}"\s*:\s*{{.*?"score"\s*:\s*([\d.]+).*?"justification"\s*:\s*"(.+?)"\s*}}',
+                re.DOTALL,
+            )
+            for dim in ("accuracy", "completeness", "personalization", "actionability", "citation_quality")
+        }
+
+        result = {}
+        for dim in ("accuracy", "completeness", "personalization", "actionability", "citation_quality"):
+            score = 0.0
+            justification = "Extracted via regex fallback"
+
+            # Try structured pattern
+            m = dim_patterns[dim].search(raw)
+            if m:
+                score = float(m.group(1))
+                justification = m.group(2)[:300]
+            else:
+                # Broader regex: "dim": { "score": X, ...
+                m2 = re.search(
+                    rf'"{dim}"[^}}]*?"score"\s*:\s*([\d.]+)',
+                    raw, re.DOTALL
+                )
+                if m2:
+                    score = float(m2.group(1))
+
+                # Try to find some justification text nearby
+                jm = re.search(
+                    rf'"{dim}"[^}}]*?"justification"\s*:\s*"([^"]+)"',
+                    raw, re.DOTALL
+                )
+                if jm:
+                    justification = jm.group(1)[:300]
+
+            score = max(0.0, min(10.0, score))
+            result[dim] = DimensionScore(score=score, justification=justification)
+
+        return result
+
+    def _build_from_dict(self, data: dict) -> dict[str, DimensionScore]:
+        """Build DimensionScores from a parsed dict."""
         result = {}
         for dim in ("accuracy", "completeness", "personalization", "actionability", "citation_quality"):
             entry = data.get(dim, {})
             score = float(entry.get("score", 0))
-            score = max(0.0, min(10.0, score))  # clamp
+            score = max(0.0, min(10.0, score))
             justification = entry.get("justification", "") or ""
             result[dim] = DimensionScore(score=score, justification=justification)
         return result
