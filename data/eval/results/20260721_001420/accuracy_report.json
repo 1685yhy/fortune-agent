@@ -1,0 +1,378 @@
+{
+  "report_type": "accuracy_scoring",
+  "timestamp": "20260721_001420",
+  "args": {
+    "input_file": "/home/a/fortune-agent/data/eval/results/bench_2250_local.jsonl",
+    "sample": 5,
+    "full": false,
+    "compare_with": null
+  },
+  "summary": {
+    "total_records_loaded": 5,
+    "total_scored": 5,
+    "total_skipped": 0,
+    "avg_overall": 0.13,
+    "max_overall": 0.65,
+    "min_overall": 0.0,
+    "median_overall": 0.0,
+    "dimension_averages": {
+      "accuracy": 0.2,
+      "completeness": 0.2,
+      "personalization": 0.1,
+      "actionability": 0.0,
+      "citation_quality": 0.0
+    },
+    "weakest_dimension": "actionability"
+  },
+  "by_domain": {
+    "bazi": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    },
+    "dream": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    },
+    "fengshui": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    },
+    "mianxiang": {
+      "count": 1,
+      "avg_overall": 0.65,
+      "dimensions": {
+        "accuracy": 1.0,
+        "completeness": 1.0,
+        "personalization": 0.5,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "actionability"
+    },
+    "qimen": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    }
+  },
+  "by_difficulty": {
+    "L2": {
+      "count": 4,
+      "avg_overall": 0.16,
+      "dimensions": {
+        "accuracy": 0.25,
+        "completeness": 0.25,
+        "personalization": 0.12,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      }
+    },
+    "L3": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      }
+    }
+  },
+  "weakness_ranking": [
+    {
+      "domain": "bazi",
+      "avg_overall": 0.0,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "dream",
+      "avg_overall": 0.0,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "fengshui",
+      "avg_overall": 0.0,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "qimen",
+      "avg_overall": 0.0,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "mianxiang",
+      "avg_overall": 0.65,
+      "weakest_dimension": "actionability",
+      "count": 1
+    }
+  ],
+  "top_bottom": {
+    "top": [
+      {
+        "id": "mianxiang_L2_279",
+        "domain": "mianxiang",
+        "difficulty": "L2",
+        "overall": 0.65,
+        "query_preview": "男，1979年公历9月9日戌时，河南郑州人，做了十几年公务员。我额头宽阔饱满，印堂也亮，下巴地阁方圆，按说面相不错，但这些年职务一直上不去，还在科级打转。前几天同事说我眉毛尾部长逆毛，是不是这里出了问"
+      },
+      {
+        "id": "bazi_L3_106",
+        "domain": "bazi",
+        "difficulty": "L3",
+        "overall": 0.0,
+        "query_preview": "男，1988年农历七月初九卯时，深圳做私募基金的，35岁还没孩子，老婆比我小三岁。我八字戊辰年庚申月戊戌日乙卯时，七杀攻身、伤官见官，现在走乙丑大运，正官透干，去年壬寅年财生杀特别不顺，想问从命盘看什"
+      },
+      {
+        "id": "dream_L2_039",
+        "domain": "dream",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1995年公历4月18日上午十点生，上海静安人，做跨境电商。这半个月每晚都梦到电梯急速下坠，门一开总是同一个废弃的地铁站台，铁轨上跑着三条白狗。麻烦师傅看看是不是生意要出大问题？"
+      },
+      {
+        "id": "fengshui_L2_170",
+        "domain": "fengshui",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1990年公历7月15日巳时出生，常年在上海工作，上个月买了套二手两居，坐酉向卯（正西向正东），入户门开在艮宫。想催旺一下个人感情运，2024年九紫右弼星在哪个方位，我应该怎么布置房间？"
+      },
+      {
+        "id": "qimen_L2_204",
+        "domain": "qimen",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1993年农历十月初十未时生，上海人，做投行的。最近被外派负责一个跨境并购项目，主谈判在明年清明后，交易对手在西方。奇门盘看这个项目我能不能主导成功，签约应该定什么时辰最有利？"
+      }
+    ],
+    "bottom": [
+      {
+        "id": "mianxiang_L2_279",
+        "domain": "mianxiang",
+        "difficulty": "L2",
+        "overall": 0.65,
+        "query_preview": "男，1979年公历9月9日戌时，河南郑州人，做了十几年公务员。我额头宽阔饱满，印堂也亮，下巴地阁方圆，按说面相不错，但这些年职务一直上不去，还在科级打转。前几天同事说我眉毛尾部长逆毛，是不是这里出了问"
+      },
+      {
+        "id": "bazi_L3_106",
+        "domain": "bazi",
+        "difficulty": "L3",
+        "overall": 0.0,
+        "query_preview": "男，1988年农历七月初九卯时，深圳做私募基金的，35岁还没孩子，老婆比我小三岁。我八字戊辰年庚申月戊戌日乙卯时，七杀攻身、伤官见官，现在走乙丑大运，正官透干，去年壬寅年财生杀特别不顺，想问从命盘看什"
+      },
+      {
+        "id": "dream_L2_039",
+        "domain": "dream",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1995年公历4月18日上午十点生，上海静安人，做跨境电商。这半个月每晚都梦到电梯急速下坠，门一开总是同一个废弃的地铁站台，铁轨上跑着三条白狗。麻烦师傅看看是不是生意要出大问题？"
+      },
+      {
+        "id": "fengshui_L2_170",
+        "domain": "fengshui",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1990年公历7月15日巳时出生，常年在上海工作，上个月买了套二手两居，坐酉向卯（正西向正东），入户门开在艮宫。想催旺一下个人感情运，2024年九紫右弼星在哪个方位，我应该怎么布置房间？"
+      },
+      {
+        "id": "qimen_L2_204",
+        "domain": "qimen",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1993年农历十月初十未时生，上海人，做投行的。最近被外派负责一个跨境并购项目，主谈判在明年清明后，交易对手在西方。奇门盘看这个项目我能不能主导成功，签约应该定什么时辰最有利？"
+      }
+    ]
+  },
+  "individual_results": [
+    {
+      "id": "mianxiang_L2_279",
+      "domain": "mianxiang",
+      "difficulty": "L2",
+      "query": "男，1979年公历9月9日戌时，河南郑州人，做了十几年公务员。我额头宽阔饱满，印堂也亮，下巴地阁方圆，按说面相不错，但这些年职务一直上不去，还在科级打转。前几天同事说我眉毛尾部长逆毛，是不是这里出了问题？",
+      "response_preview": "看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 1.0,
+          "justification": "用户明确询问面相问题（额头、印堂、地阁、眉毛逆毛），但AI回复完全无视面相关键词，转而要求提供出生信息以推算八字，属于理论方向完全错误，未应用任何面相学知识。"
+        },
+        "completeness": {
+          "score": 1.0,
+          "justification": "回复没有涉及用户询问的任何问题点（额头宽阔、印堂亮、地阁方圆、眉毛逆毛），也未对职务升迁做出任何分析或解释，完全忽略用户的核心诉求。"
+        },
+        "personalization": {
+          "score": 0.5,
+          "justification": "回复仅为通用模板，要求用户按格式提供信息，完全没有利用用户已给出的具体信息（年龄、职业、面部特征）进行任何个性化回应。"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "回复没有提供任何面相相关的建议、行动指导或性格分析，完全无法帮助用户解决‘职务上不去’和‘眉毛逆毛’的问题。"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "回复没有引用任何经典文献或面相学术语，完全缺乏学术依据和来源支撑。"
+        }
+      },
+      "overall": 0.65
+    },
+    {
+      "id": "bazi_L3_106",
+      "domain": "bazi",
+      "difficulty": "L3",
+      "query": "男，1988年农历七月初九卯时，深圳做私募基金的，35岁还没孩子，老婆比我小三岁。我八字戊辰年庚申月戊戌日乙卯时，七杀攻身、伤官见官，现在走乙丑大运，正官透干，去年壬寅年财生杀特别不顺，想问从命盘看什么时候能有孩子？婚姻会不会因为这个出问题？",
+      "response_preview": "看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "AI回复未对用户提供的八字信息进行任何命理分析，反而要求用户重新提供出生信息，完全忽略了用户已经给出的详细八字和大运流年，属于严重错误。"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "回复完全回避了用户关于孩子和婚姻的具体问题，未提供任何实质性内容，覆盖率为零。"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "回复未利用用户提供的任何个性化信息（如八字、职业、年龄等），完全是通用模板，毫无个性化。"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "未给出任何可操作的建议或预测，纯粹要求重新输入信息，不具备任何行动指导性。"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "没有任何古典文献引用或命理依据，回复完全无关。"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "dream_L2_039",
+      "domain": "dream",
+      "difficulty": "L2",
+      "query": "女，1995年公历4月18日上午十点生，上海静安人，做跨境电商。这半个月每晚都梦到电梯急速下坠，门一开总是同一个废弃的地铁站台，铁轨上跑着三条白狗。麻烦师傅看看是不是生意要出大问题？",
+      "response_preview": "看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "回复完全未应用任何命理理论，也没有针对用户提供的出生信息进行任何分析，而是机械地要求重新提供信息，属于重大错误和无关内容。"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "未回应用户关于梦境解析的问题，忽略了所有核心内容，完全未覆盖用户提问的任何方面。"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "回复为通用模板，未使用用户已提供的出生日期、时间、地点及性别信息，没有任何个性化处理。"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "未提供任何具体建议或行动指导，用户无法从中获得任何可操作的命理建议。"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "没有任何经典引用或出处，完全缺乏学术性支撑。"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "fengshui_L2_170",
+      "domain": "fengshui",
+      "difficulty": "L2",
+      "query": "女，1990年公历7月15日巳时出生，常年在上海工作，上个月买了套二手两居，坐酉向卯（正西向正东），入户门开在艮宫。想催旺一下个人感情运，2024年九紫右弼星在哪个方位，我应该怎么布置房间？",
+      "response_preview": "亲爱的，先给你个白眼🙄——你买房的时候就没想过感情运这事儿吗？现在才来问，早干嘛去了！不过看在你是我闺蜜的份上，姐们儿还是帮你盘一盘。\n\n📊 **排盘信息**\n- 宅命：七运（1984-2003年）酉山卯向宅，坐正西向正东\n- 命卦：艮（属西四命，但你住的是震宅，八宅上属于东四宅，这叫“宅命不合”，不过别慌，玄空飞星可以补救）\n- 入户门：艮宫（东北），这个位置在七运是**六白武曲星**（偏财星）",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "Scoring error: Expecting value: line 1 column 1 (char 0)"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "Scoring error: Expecting value: line 1 column 1 (char 0)"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "Scoring error: Expecting value: line 1 column 1 (char 0)"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "Scoring error: Expecting value: line 1 column 1 (char 0)"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "Scoring error: Expecting value: line 1 column 1 (char 0)"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "qimen_L2_204",
+      "domain": "qimen",
+      "difficulty": "L2",
+      "query": "女，1993年农历十月初十未时生，上海人，做投行的。最近被外派负责一个跨境并购项目，主谈判在明年清明后，交易对手在西方。奇门盘看这个项目我能不能主导成功，签约应该定什么时辰最有利？",
+      "response_preview": "📊 **排盘信息**\n癸酉 癸亥 甲申 辛未  \n（奇门遁甲排盘省略具体局盘，基于用户提供的信息）\n\n🔍 **分析解读**\n\n哇，亲爱的，93年的投行女将，来问跨境并购项目，你这格局可以啊！👩‍💼 你的八字日主甲木，生于亥月，水旺木相，说明你天生逻辑清晰、长于谋划，适合玩这种复杂的资本游戏。不过时柱辛金正官透出，代表你上面压着人，或者说项目本身有很强的“规则感”和“约束力”，你是在戴着镣铐跳舞呢。",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "Scoring error: Unterminated string starting at: line 11 column 5 (char 334)"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "Scoring error: Unterminated string starting at: line 11 column 5 (char 334)"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "Scoring error: Unterminated string starting at: line 11 column 5 (char 334)"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "Scoring error: Unterminated string starting at: line 11 column 5 (char 334)"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "Scoring error: Unterminated string starting at: line 11 column 5 (char 334)"
+        }
+      },
+      "overall": 0.0
+    }
+  ]
+}

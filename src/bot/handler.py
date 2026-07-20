@@ -61,11 +61,100 @@ INTENT_KEYWORDS = {
 }
 
 # 八字信息提取
+# 时辰 → 小时映射
+CHINESE_HOUR_MAP = {
+    "子时": 23, "丑时": 1, "寅时": 3, "卯时": 5, "辰时": 7,
+    "巳时": 9, "午时": 11, "未时": 13, "申时": 15, "酉时": 17,
+    "戌时": 19, "亥时": 21,
+    "子": 23, "丑": 1, "寅": 3, "卯": 5, "辰": 7,
+    "巳": 9, "午": 11, "未": 13, "申": 15, "酉": 17, "戌": 19, "亥": 21,
+}
+
+# 中文数字 → 阿拉伯数字
+_CN_NUMS = {
+    "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+    "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+    "正": 1, "冬": 11, "腊": 12,
+}
+_CN_TENS = {"二十": 20, "廿": 20, "三十": 30, "卅": 30, "十": 10}
+
+def _parse_cn_num(s):
+    """Parse Chinese number string to int. 正月→1, 三月→3, 十三→13, 二十→20, 廿五→25, 三十→30"""
+    s = s.strip()
+    if s.isdigit():
+        return int(s)
+    for ten_str, ten_val in _CN_TENS.items():
+        if s.startswith(ten_str):
+            rest = s[len(ten_str):]
+            if not rest:
+                return ten_val
+            if rest in _CN_NUMS:
+                return ten_val + _CN_NUMS[rest]
+    if s in _CN_NUMS:
+        return _CN_NUMS[s]
+    return None
+
+def _parse_cn_month_day(text):
+    """Try to parse Chinese lunar date like 三月初三, 六月十八, 冬月十一, 腊月廿五.
+    Returns (month, day) or None."""
+    m = re.search(
+        r'(正月|一月|二月|三月|四月|五月|六月|七月|八月|九月|十月|'
+        r'冬月|十一月|腊月|十二月|'
+        r'正|一|二|三|四|五|六|七|八|九|十|冬|腊)'
+        r'\s*月\s*'
+        r'(初[一二三四五六七八九十]|'
+        r'[一二二两三三四四五五六六七七八八九九]?十[一二三四五六七八九]?|'
+        r'二十|廿[一二三四五六七八九]?|三十|卅十?|'
+        r'零[一二三四五六七八九]|'
+        r'[一二三四五六七八九])'
+        r'\s*[日号]?',
+        text
+    )
+    if m:
+        month_str = m.group(1)
+        day_str = m.group(2)
+        # Parse month
+        month_map = {"正": 1, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+                     "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
+                     "冬": 11, "腊": 12}
+        month = month_map.get(month_str[0])
+        if month is None:
+            month = month_map.get(month_str.replace("月",""))
+        # Parse day
+        if "初" in day_str:
+            day = _parse_cn_num(day_str.replace("初", ""))
+        else:
+            day = _parse_cn_num(day_str)
+        if month and day and 1 <= month <= 12 and 1 <= day <= 31:
+            return month, day
+    return None
+
+# 时间描述 → 小时：凌晨3点→3, 早上6点→6, 中午12点→12, 下午3点→15, 晚上8点→20, 夜里23点→23
+_TIME_ADJUST = {
+    "凌晨": 0, "早上": 0, "早晨": 0, "上午": 0,
+    "中午": 0, "正午": 0,
+    "下午": 12, "傍晚": 12, "黄昏": 12,
+    "晚上": 12, "夜里": 12, "夜间": 12, "半夜": 12,
+}
+
+def _parse_chinese_hour(time_str: str) -> Optional[int]:
+    """Parse Chinese time period (时辰) to hour."""
+    for name, hour in CHINESE_HOUR_MAP.items():
+        if name in time_str:
+            return hour
+    return None
+
 BAZI_EXTRACT_PATTERNS = [
-    # 1990年5月20日 15点 北京 男
+    # 1990年5月20日 15点30分 北京 男
     r'(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日.*?(\d{1,2})\s*[点时:：]\s*(\d{0,2}).*?([男女])',
     # 1990-05-20 15:00 北京 男
     r'(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2}).*?([男女])',
+    # [男女]，1989年12月11日子时，广东
+    r'([男女])\s*[,，]\s*(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日.*?([子丑寅卯辰巳午未申酉戌亥])时',
+    # 1989年12月11日 子时 广东 男
+    r'(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日.*?([子丑寅卯辰巳午未申酉戌亥])时.*?([男女])',
+    # 1989年12月11日 广东 女
+    r'(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日.*?([男女])',
 ]
 
 
@@ -642,35 +731,86 @@ class MessageHandler:
         return cleaned
 
     def _extract_bazi_info(self, msg: str) -> Optional[Tuple]:
-        """从消息中提取八字信息"""
-        for pattern in BAZI_EXTRACT_PATTERNS:
-            match = re.search(pattern, msg)
-            if match:
-                groups = match.groups()
-                year = int(groups[0])
-                month = int(groups[1])
-                day = int(groups[2])
-                hour = int(groups[3]) if groups[3] else 0
-                minute = int(groups[4]) if len(groups) > 4 and groups[4] else 0
-                gender = groups[-1]
+        """从消息中提取八字信息 — 支持农历中文数字、时间描述、多种格式."""
+        # Step 1: Extract year
+        year = None
+        ym = re.search(r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})', msg)
+        if ym:
+            year = int(ym.group(1) or ym.group(2) or ym.group(3) or ym.group(4))
 
-                # 下午/晚上 → 24小时制转换
-                if re.search(r'(下午|晚上|傍晚|夜间)', msg):
+        if not year or year < 1900 or year > 2100:
+            return None
+
+        # Step 2: Extract month and day — try Chinese lunar first
+        month = day = None
+        cn_md = _parse_cn_month_day(msg)
+        if cn_md:
+            month, day = cn_md
+        else:
+            # Try numeric date: 8月15日, 8-15, 10月10日, 11.20
+            md = re.search(r'(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
+            if md:
+                month = int(md.group(1))
+                day = int(md.group(2))
+
+        if not month or not day or month < 1 or month > 12 or day < 1 or day > 31:
+            return None
+
+        # Step 3: Extract time
+        hour = 0
+        minute = 0
+
+        # Time descriptions: 凌晨3点→3, 下午3点→15, 晚上8点→20
+        tm_desc = re.search(
+            r'(凌晨|早上|早晨|上午|中午|正午|下午|傍晚|黄昏|晚上|夜里|夜间|半夜)'
+            r'\s*(\d{1,2})?\s*[点时]?\s*(\d{0,2})?\s*[分]?',
+            msg
+        )
+        if tm_desc:
+            desc = tm_desc.group(1)
+            h_val = int(tm_desc.group(2) or 0)
+            m_val = int(tm_desc.group(3) or 0)
+            adj = _TIME_ADJUST.get(desc, 0)
+            # Don't add adjustment if hour is already in 24h format (>= 13)
+            if h_val >= 13:
+                hour = h_val
+            else:
+                hour = h_val + adj
+            minute = m_val
+
+        # Also try 时辰
+        if hour == 0:
+            shichen = re.search(r'([子丑寅卯辰巳午未申酉戌亥])时', msg)
+            if shichen:
+                hour = CHINESE_HOUR_MAP.get(shichen.group(1), 0)
+
+        # Also try numeric time: 15:30, 15点30, 23:00
+        if hour == 0:
+            tm_num = re.search(r'(\d{1,2})\s*[点时:：]\s*(\d{0,2})', msg)
+            if tm_num:
+                hour = int(tm_num.group(1))
+                minute = int(tm_num.group(2) or 0)
+                # Check if PM adjustment needed
+                if re.search(r'(下午|晚上|傍晚|夜间|夜里)', msg):
                     if 1 <= hour <= 12:
                         hour += 12
-                elif re.search(r'^(上午|早上|早晨|凌晨)', msg):
-                    pass  # 保持原样
 
-                # 从消息中尝试提取城市
-                city_match = re.search(r'([一-鿿]{2,4}(?:市|省))', msg)
-                if city_match:
-                    city = city_match.group(1)
-                else:
-                    # 后备：匹配已知城市名称（无后缀）
-                    city_match = re.search(r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
-                    city = city_match.group(1) if city_match else "北京"
-                return (year, month, day, hour, minute, city, gender)
-        return None
+        # Step 4: Extract gender
+        gender = "男"
+        if "女" in msg:
+            gender = "女"
+
+        # Step 5: Extract city
+        city = "北京"
+        city_match = re.search(r'([一-鿿]{2,4}(?:市|省))', msg)
+        if city_match:
+            city = city_match.group(1)
+        else:
+            city_match = re.search(r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
+            if city_match:
+                city = city_match.group(1)
+
+        return (year, month, day, hour, minute, city, gender)
 
     def _do_bazi_analysis(
         self, year, month, day, hour, minute, city, gender, question, user_id,

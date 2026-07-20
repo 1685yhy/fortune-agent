@@ -1,0 +1,152 @@
+[
+  {
+    "id": "fengshui_L2_056",
+    "domain": "fengshui",
+    "difficulty": "L2",
+    "query": "女，1995年农历十一月初八辰时，成都。新房坐癸向丁，客厅东西两边各有一个窗，形成穿堂煞，怎么化解？我老是失眠。",
+    "status": "scored",
+    "scores": {
+      "accuracy": {
+        "score": 0.0,
+        "justification": ""
+      },
+      "completeness": {
+        "score": 0.0,
+        "justification": ""
+      },
+      "personalization": {
+        "score": 0.0,
+        "justification": ""
+      },
+      "actionability": {
+        "score": 0.0,
+        "justification": ""
+      },
+      "citation_quality": {
+        "score": 0.0,
+        "justification": ""
+      }
+    },
+    "overall": 0.0
+  },
+  {
+    "id": "qimen_L3_047",
+    "domain": "qimen",
+    "difficulty": "L3",
+    "query": "男，1970年庚戌年九月初九午时，南京，建筑设计院副院长。我八字庚金日主，身强用火，今年甲辰年，大运己丑。院内竞聘院长，竞争对手属虎，我办公室在二楼东南角，下月甲申日答辩。起时家奇门看看我能胜出吗？如何布置办公室增加胜算？",
+    "status": "scored",
+    "scores": {
+      "accuracy": {
+        "score": 0.0,
+        "justification": ""
+      },
+      "completeness": {
+        "score": 0.0,
+        "justification": ""
+      },
+      "personalization": {
+        "score": 0.0,
+        "justification": ""
+      },
+      "actionability": {
+        "score": 0.0,
+        "justification": ""
+      },
+      "citation_quality": {
+        "score": 0.0,
+        "justification": ""
+      }
+    },
+    "overall": 0.0
+  },
+  {
+    "id": "mianxiang_L2_163",
+    "domain": "mianxiang",
+    "difficulty": "L2",
+    "query": "男，2000年公历10月30日亥时生的，河南郑州人，是个程序员，我眼睛细长眼尾特别上翘像丹凤眼，但左眼下面有滴泪痣，都说这种面相桃花多但烂，是真的吗？",
+    "status": "scored",
+    "scores": {
+      "accuracy": {
+        "score": 0.0,
+        "justification": "AI回复完全未涉及用户提出的面相问题，而是误以为用户需要提供出生信息（实际已提供），理论应用完全错误，与命理领域无关。"
+      },
+      "completeness": {
+        "score": 0.0,
+        "justification": "用户询问关于丹凤眼和滴泪痣的面相解释，AI回复未涵盖任何相关内容，完全忽略了用户的问题。"
+      },
+      "personalization": {
+        "score": 0.0,
+        "justification": "AI回复没有利用用户已提供的出生时间、地点、职业、面相特征等具体信息，反而要求重复提供，毫无个性化。"
+      },
+      "actionability": {
+        "score": 0.0,
+        "justification": "AI未给出任何基于面相或命理的建议，回复内容无法帮助用户解决实际疑问。"
+      },
+      "citation_quality": {
+        "score": 0.0,
+        "justification": "回复中没有引用任何经典文献或命理依据，完全缺乏专业支撑。"
+      }
+    },
+    "overall": 0.0
+  },
+  {
+    "id": "dream_L3_006",
+    "domain": "dream",
+    "difficulty": "L3",
+    "query": "男，1969年己酉年七月初一卯时，山东青岛人，刚退休的中学老师。八字辛金日主，原局土厚金埋，用神木疏土，但木弱。上个月腰受伤后，连续梦到自己在原始森林里迷路，怎么走都出不去，昨晚梦到一头巨大的石狮子压在自己胸口，喘不过气。今年癸卯流年，卯木是偏财，是不是用神木到了却被酉所冲，反而不吉？我生辰里卯酉冲本就厉害，年纪大了，这些梦是不是健康大灾的预兆？很怕脑血管或心脏出问题。",
+    "status": "scored",
+    "scores": {
+      "accuracy": {
+        "score": 0.0,
+        "justification": "回复完全没有涉及命理理论，而是要求用户提供已经给出的出生信息，存在明显误解，属于重大错误。"
+      },
+      "completeness": {
+        "score": 0.0,
+        "justification": "回复未回答用户关于八字、流年、梦境预兆的任何问题，完全忽略几乎所有内容。"
+      },
+      "personalization": {
+        "score": 0.0,
+        "justification": "回复未利用用户已提供的具体信息（出生日期、地点、性别），完全是通用的模板式回复。"
+      },
+      "actionability": {
+        "score": 0.0,
+        "justification": "未提供任何建议或可操作内容。"
+      },
+      "citation_quality": {
+        "score": 0.0,
+        "justification": "没有任何经典引用或命理参考文献。"
+      }
+    },
+    "overall": 0.0
+  },
+  {
+    "id": "bazi_L2_249",
+    "domain": "bazi",
+    "difficulty": "L2",
+    "query": "女，1995年农历十月初五寅时，南京做设计。我八字缺火，喜用神是火，现在谈婚论嫁，打算2026丙午年结婚，那年火特别旺，是不是对婚姻和运气都特别好？",
+    "status": "scored",
+    "scores": {
+      "accuracy": {
+        "score": 1.5,
+        "justification": "八字排盘出现重大错误：用户为1995年农历十月初五寅时，换算公历应为1995年11月27日，月柱应为丁亥（亥月，乙年丁亥），但AI回复排为乙酉（酉月），月柱完全错误。日柱、时柱及后续分析均基于错误命盘，导致五行统计、用神判断、格局分析等全盘失实。命理理论应用严重失误。"
+      },
+      "completeness": {
+        "score": 3.0,
+        "justification": "虽然回复内容涉及排盘、五行分析、婚姻运势、流年判断、行动建议等多个方面，看似全面，但所有分析建立在错误的八字基础上，实质性内容无效。若能正确排盘，其结构完整，但错误的基础导致覆盖的信息没有价值，故只能给出低分。"
+      },
+      "personalization": {
+        "score": 4.0,
+        "justification": "回复中提到了用户的具体信息（1995年、设计行业、缺火、结婚意向等），并针对其个人给出了建议（如注意婚礼低调、春季学习等），有一定个性化。但由于八字断错，所谓的‘缺火’、‘用神火’等判断基于错误命盘，实际并未真正回应用户的真实命局，个性化只是表面形式。"
+      },
+      "actionability": {
+        "score": 7.0,
+        "justification": "Extracted via regex fallback"
+      },
+      "citation_quality": {
+        "score": 0.0,
+        "justification": "Extracted via regex fallback"
+      }
+    },
+    "overall": 3.05
+  }
+]

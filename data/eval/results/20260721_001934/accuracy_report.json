@@ -1,0 +1,378 @@
+{
+  "report_type": "accuracy_scoring",
+  "timestamp": "20260721_001934",
+  "args": {
+    "input_file": "/home/a/fortune-agent/data/eval/results/bench_2250_local.jsonl",
+    "sample": 5,
+    "full": false,
+    "compare_with": "20260721_001710/scored_results.json"
+  },
+  "summary": {
+    "total_records_loaded": 5,
+    "total_scored": 5,
+    "total_skipped": 0,
+    "avg_overall": 0.61,
+    "max_overall": 3.05,
+    "min_overall": 0.0,
+    "median_overall": 0.0,
+    "dimension_averages": {
+      "accuracy": 0.3,
+      "completeness": 0.6,
+      "personalization": 0.8,
+      "actionability": 1.4,
+      "citation_quality": 0.0
+    },
+    "weakest_dimension": "citation_quality"
+  },
+  "by_domain": {
+    "bazi": {
+      "count": 1,
+      "avg_overall": 3.05,
+      "dimensions": {
+        "accuracy": 1.5,
+        "completeness": 3.0,
+        "personalization": 4.0,
+        "actionability": 7.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "citation_quality"
+    },
+    "dream": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    },
+    "fengshui": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    },
+    "mianxiang": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    },
+    "qimen": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    }
+  },
+  "by_difficulty": {
+    "L2": {
+      "count": 3,
+      "avg_overall": 1.02,
+      "dimensions": {
+        "accuracy": 0.5,
+        "completeness": 1.0,
+        "personalization": 1.33,
+        "actionability": 2.33,
+        "citation_quality": 0.0
+      }
+    },
+    "L3": {
+      "count": 2,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      }
+    }
+  },
+  "weakness_ranking": [
+    {
+      "domain": "dream",
+      "avg_overall": 0.0,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "fengshui",
+      "avg_overall": 0.0,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "mianxiang",
+      "avg_overall": 0.0,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "qimen",
+      "avg_overall": 0.0,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "bazi",
+      "avg_overall": 3.05,
+      "weakest_dimension": "citation_quality",
+      "count": 1
+    }
+  ],
+  "top_bottom": {
+    "top": [
+      {
+        "id": "bazi_L2_249",
+        "domain": "bazi",
+        "difficulty": "L2",
+        "overall": 3.05,
+        "query_preview": "女，1995年农历十月初五寅时，南京做设计。我八字缺火，喜用神是火，现在谈婚论嫁，打算2026丙午年结婚，那年火特别旺，是不是对婚姻和运气都特别好？"
+      },
+      {
+        "id": "fengshui_L2_056",
+        "domain": "fengshui",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1995年农历十一月初八辰时，成都。新房坐癸向丁，客厅东西两边各有一个窗，形成穿堂煞，怎么化解？我老是失眠。"
+      },
+      {
+        "id": "qimen_L3_047",
+        "domain": "qimen",
+        "difficulty": "L3",
+        "overall": 0.0,
+        "query_preview": "男，1970年庚戌年九月初九午时，南京，建筑设计院副院长。我八字庚金日主，身强用火，今年甲辰年，大运己丑。院内竞聘院长，竞争对手属虎，我办公室在二楼东南角，下月甲申日答辩。起时家奇门看看我能胜出吗？如"
+      },
+      {
+        "id": "mianxiang_L2_163",
+        "domain": "mianxiang",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "男，2000年公历10月30日亥时生的，河南郑州人，是个程序员，我眼睛细长眼尾特别上翘像丹凤眼，但左眼下面有滴泪痣，都说这种面相桃花多但烂，是真的吗？"
+      },
+      {
+        "id": "dream_L3_006",
+        "domain": "dream",
+        "difficulty": "L3",
+        "overall": 0.0,
+        "query_preview": "男，1969年己酉年七月初一卯时，山东青岛人，刚退休的中学老师。八字辛金日主，原局土厚金埋，用神木疏土，但木弱。上个月腰受伤后，连续梦到自己在原始森林里迷路，怎么走都出不去，昨晚梦到一头巨大的石狮子压"
+      }
+    ],
+    "bottom": [
+      {
+        "id": "bazi_L2_249",
+        "domain": "bazi",
+        "difficulty": "L2",
+        "overall": 3.05,
+        "query_preview": "女，1995年农历十月初五寅时，南京做设计。我八字缺火，喜用神是火，现在谈婚论嫁，打算2026丙午年结婚，那年火特别旺，是不是对婚姻和运气都特别好？"
+      },
+      {
+        "id": "fengshui_L2_056",
+        "domain": "fengshui",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1995年农历十一月初八辰时，成都。新房坐癸向丁，客厅东西两边各有一个窗，形成穿堂煞，怎么化解？我老是失眠。"
+      },
+      {
+        "id": "qimen_L3_047",
+        "domain": "qimen",
+        "difficulty": "L3",
+        "overall": 0.0,
+        "query_preview": "男，1970年庚戌年九月初九午时，南京，建筑设计院副院长。我八字庚金日主，身强用火，今年甲辰年，大运己丑。院内竞聘院长，竞争对手属虎，我办公室在二楼东南角，下月甲申日答辩。起时家奇门看看我能胜出吗？如"
+      },
+      {
+        "id": "mianxiang_L2_163",
+        "domain": "mianxiang",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "男，2000年公历10月30日亥时生的，河南郑州人，是个程序员，我眼睛细长眼尾特别上翘像丹凤眼，但左眼下面有滴泪痣，都说这种面相桃花多但烂，是真的吗？"
+      },
+      {
+        "id": "dream_L3_006",
+        "domain": "dream",
+        "difficulty": "L3",
+        "overall": 0.0,
+        "query_preview": "男，1969年己酉年七月初一卯时，山东青岛人，刚退休的中学老师。八字辛金日主，原局土厚金埋，用神木疏土，但木弱。上个月腰受伤后，连续梦到自己在原始森林里迷路，怎么走都出不去，昨晚梦到一头巨大的石狮子压"
+      }
+    ]
+  },
+  "individual_results": [
+    {
+      "id": "fengshui_L2_056",
+      "domain": "fengshui",
+      "difficulty": "L2",
+      "query": "女，1995年农历十一月初八辰时，成都。新房坐癸向丁，客厅东西两边各有一个窗，形成穿堂煞，怎么化解？我老是失眠。",
+      "response_preview": "好的宝子，你这新房风水问题，姐姐我一眼就看穿了。你失眠，跟这“穿堂煞”肯定脱不了干系，不过别慌，咱有招儿👇\n\n📊 **排盘/风水信息**\n- **宅卦**：震宅（东四宅） | **命卦**：坎（东四命）\n- **坐向**：癸山丁向（坐北朝南偏东）\n- **当前运**：七运（1984-2023年，你买房时若在2024前则按此，若在2024后则归八运，但七运宅气仍有残留）\n- **四吉方**：东（伏位",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": ""
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "qimen_L3_047",
+      "domain": "qimen",
+      "difficulty": "L3",
+      "query": "男，1970年庚戌年九月初九午时，南京，建筑设计院副院长。我八字庚金日主，身强用火，今年甲辰年，大运己丑。院内竞聘院长，竞争对手属虎，我办公室在二楼东南角，下月甲申日答辩。起时家奇门看看我能胜出吗？如何布置办公室增加胜算？",
+      "response_preview": "📊 **排盘信息**\n你提供的竞聘时间点为甲申日，未指定具体时辰。为助你决策，我以子时（23:00-1:00）起盘推算，原因是子时为一日之始，取先机之气。若答辩在白天，以此盘为参考判断趋势。\n\n🔍 **分析解读**\n\n### 1. 奇门盘象：你与对手的能量对比\n- **你（年命庚戌）**：庚金落兑宫（属金），逢天芮星（主管、考核）与死门（表示竞争激烈、需破局）。地盘得“丙奇”——你背景扎实、技术过",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": ""
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "mianxiang_L2_163",
+      "domain": "mianxiang",
+      "difficulty": "L2",
+      "query": "男，2000年公历10月30日亥时生的，河南郑州人，是个程序员，我眼睛细长眼尾特别上翘像丹凤眼，但左眼下面有滴泪痣，都说这种面相桃花多但烂，是真的吗？",
+      "response_preview": "看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "AI回复完全未涉及用户提出的面相问题，而是误以为用户需要提供出生信息（实际已提供），理论应用完全错误，与命理领域无关。"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "用户询问关于丹凤眼和滴泪痣的面相解释，AI回复未涵盖任何相关内容，完全忽略了用户的问题。"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "AI回复没有利用用户已提供的出生时间、地点、职业、面相特征等具体信息，反而要求重复提供，毫无个性化。"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "AI未给出任何基于面相或命理的建议，回复内容无法帮助用户解决实际疑问。"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "回复中没有引用任何经典文献或命理依据，完全缺乏专业支撑。"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "dream_L3_006",
+      "domain": "dream",
+      "difficulty": "L3",
+      "query": "男，1969年己酉年七月初一卯时，山东青岛人，刚退休的中学老师。八字辛金日主，原局土厚金埋，用神木疏土，但木弱。上个月腰受伤后，连续梦到自己在原始森林里迷路，怎么走都出不去，昨晚梦到一头巨大的石狮子压在自己胸口，喘不过气。今年癸卯流年，卯木是偏财，是不是用神木到了却被酉所冲，反而不吉？我生辰里卯酉冲本就厉害，年纪大了，这些梦是不是健康大灾的预兆？很怕脑血管或心脏出问题。",
+      "response_preview": "看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "回复完全没有涉及命理理论，而是要求用户提供已经给出的出生信息，存在明显误解，属于重大错误。"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "回复未回答用户关于八字、流年、梦境预兆的任何问题，完全忽略几乎所有内容。"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "回复未利用用户已提供的具体信息（出生日期、地点、性别），完全是通用的模板式回复。"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "未提供任何建议或可操作内容。"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "没有任何经典引用或命理参考文献。"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "bazi_L2_249",
+      "domain": "bazi",
+      "difficulty": "L2",
+      "query": "女，1995年农历十月初五寅时，南京做设计。我八字缺火，喜用神是火，现在谈婚论嫁，打算2026丙午年结婚，那年火特别旺，是不是对婚姻和运气都特别好？",
+      "response_preview": "你的八字是乙亥 乙酉 己巳\n\n---\n\n🧧 **八字命盘**\n\n📅 1995.10.5 3:0 南京 女\n\n```\n    年柱   月柱   日柱   时柱\n天干  乙     乙     己     丙  \n地支  亥     酉     巳     寅  \n藏干 壬,甲    辛    丙,庚,戊  甲,丙,戊\n纳音  山头    泉中    大林    炉中 \n```\n\n☀️ 日主：己土 ",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 1.5,
+          "justification": "八字排盘出现重大错误：用户为1995年农历十月初五寅时，换算公历应为1995年11月27日，月柱应为丁亥（亥月，乙年丁亥），但AI回复排为乙酉（酉月），月柱完全错误。日柱、时柱及后续分析均基于错误命盘，导致五行统计、用神判断、格局分析等全盘失实。命理理论应用严重失误。"
+        },
+        "completeness": {
+          "score": 3.0,
+          "justification": "虽然回复内容涉及排盘、五行分析、婚姻运势、流年判断、行动建议等多个方面，看似全面，但所有分析建立在错误的八字基础上，实质性内容无效。若能正确排盘，其结构完整，但错误的基础导致覆盖的信息没有价值，故只能给出低分。"
+        },
+        "personalization": {
+          "score": 4.0,
+          "justification": "回复中提到了用户的具体信息（1995年、设计行业、缺火、结婚意向等），并针对其个人给出了建议（如注意婚礼低调、春季学习等），有一定个性化。但由于八字断错，所谓的‘缺火’、‘用神火’等判断基于错误命盘，实际并未真正回应用户的真实命局，个性化只是表面形式。"
+        },
+        "actionability": {
+          "score": 7.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        }
+      },
+      "overall": 3.05
+    }
+  ]
+}

@@ -1,0 +1,216 @@
+{
+  "report_type": "accuracy_scoring",
+  "timestamp": "20260721_001702",
+  "args": {
+    "input_file": "/home/a/fortune-agent/data/eval/results/sample_2250.jsonl",
+    "sample": 6,
+    "full": false,
+    "compare_with": null
+  },
+  "summary": {
+    "total_records_loaded": 0,
+    "total_scored": 0,
+    "total_skipped": 0,
+    "avg_overall": 0,
+    "max_overall": 0,
+    "min_overall": 0,
+    "median_overall": 0,
+    "dimension_averages": {},
+    "weakest_dimension": ""
+  },
+  "by_domain": {},
+  "by_difficulty": {},
+  "weakness_ranking": [],
+  "top_bottom": {
+    "top": [],
+    "bottom": []
+  },
+  "individual_results": [
+    {
+      "id": "xingming_L3_267",
+      "domain": "xingming",
+      "difficulty": "L3",
+      "query": "女，1992年壬申年腊月廿三辰时，北京人，做新媒体编辑。八字壬申、癸丑、丁丑、甲辰，水多木漂，日主丁火微弱，忌神水旺。原名“王海宁”三字全属水，总格29画，婚姻宫伏吟严重。想改一个补火土的名字，同时考虑生肖猴的喜忌，能助感情和事业的，最好从三才五格上化解水火不交的象。",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "mianxiang_L3_033",
+      "domain": "mianxiang",
+      "difficulty": "L3",
+      "query": "男，1986年农历八月初三酉时，武汉人在深圳做跨境电商。八字身强杀旺，现在大运壬子，流年遇卯，官杀混杂压力大。面相上山根低陷，下巴尖削，颧骨却高，最近眼白发灰。想问问师傅，今年能否突破瓶颈，这面相和运势配合吗？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "fengshui_L2_079",
+      "domain": "fengshui",
+      "difficulty": "L2",
+      "query": "男，1963年九月初九巳时，深圳人，独栋别墅坐向为癸山丁向，想在后院建水池，风水师傅说要看八字忌不忌水，我命中火旺，能建吗？水应该放在哪个方位？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "dream_L3_074",
+      "domain": "dream",
+      "difficulty": "L3",
+      "query": "男，1985年乙丑年七月初五丑时，上海做金融风控，八字身强比劫旺，现正行庚午偏财大运。最近反复梦见洪水淹没办公室、家里炉灶起火、还有去世的爷爷坐在客厅不说话。明年丙午流年，跟大运午午自刑，这些梦是不是在预示什么？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "qimen_L3_054",
+      "domain": "qimen",
+      "difficulty": "L3",
+      "query": "男，1995年公历3月22日申时，河南郑州人，现居北京做金融分析师，从财格真，现在大运正官，流年伤官。我想辞职去东南沿海发展，但那边竞争对手多，起个奇门局看看我适合往东南走吗？什么时间动身能求到财？咋布局能让我新工作顺一点？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "bazi_L2_103",
+      "domain": "bazi",
+      "difficulty": "L2",
+      "query": "男，1969年公历2月14日晚上10点，沈阳人，退休返聘做技术顾问。我癸水日主，生于寅月，伤官旺，这辈子一直奔波。现在大运辛酉，梟印夺食，是不是对身体健康和晚年财运很不利？特别是今年甲辰年，甲木伤官透出，又与流年辰土财星犯着什么说法？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    }
+  ]
+}

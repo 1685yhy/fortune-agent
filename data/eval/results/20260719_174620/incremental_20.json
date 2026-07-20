@@ -1,0 +1,471 @@
+[
+  {
+    "id": "bazi_L1_042",
+    "domain": "bazi",
+    "difficulty": "L1",
+    "query": "我属马，对象属鼠，是不是六冲不好？还能成吗？",
+    "our_response": null,
+    "expected_dimensions": [
+      "感情合婚",
+      "生肖六冲",
+      "化解方法"
+    ],
+    "reference_hints": [
+      "午子冲为水火冲",
+      "看八字有无合解",
+      "建议用木通关"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L2_060",
+    "domain": "bazi",
+    "difficulty": "L2",
+    "query": "老师您好，辛金日主，生在寅月，现在走庚寅大运，2025乙巳年与流年构成寅巳申三刑。寅是财星，巳是正官，申是劫财，三刑入命，是不是健康有隐患？尤其是肝胆和呼吸系统？有没有什么需要注意的月份？",
+    "our_response": null,
+    "expected_dimensions": [
+      "健康",
+      "三刑",
+      "五行病理",
+      "应期分析"
+    ],
+    "reference_hints": [
+      "辛金寅月财旺身弱，庚寅大运比肩帮身但地支寅木财星伏吟",
+      "2025乙巳，三刑引动寅巳申，木火金相战，易有肝胆（木）、心脏（火）、肺部（金）问题",
+      "注意巳月、申月、寅月发作，需用土来通关和解，如辰戌丑未月"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L1_023",
+    "domain": "bazi",
+    "difficulty": "L1",
+    "query": "我属蛇，01年，男，今年高考，想问问考运怎么样？有没有需要注意的？",
+    "our_response": null,
+    "expected_dimensions": [
+      "学业考试",
+      "流年考运",
+      "文昌贵人"
+    ],
+    "reference_hints": [
+      "分析印星与食伤的作用",
+      "看流年是否有合化助考",
+      "给出备考建议（方位、颜色）"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L2_054",
+    "domain": "bazi",
+    "difficulty": "L2",
+    "query": "老师，庚金日主，生在巳月，目前走癸未大运，想问2026丙午年的事业和财运。丙午与年柱庚子天克地冲，流年又是官杀旺地，会不会有丢官或者破大财？有没有化解办法？",
+    "our_response": null,
+    "expected_dimensions": [
+      "事业",
+      "财运",
+      "天克地冲",
+      "官杀混局"
+    ],
+    "reference_hints": [
+      "庚金巳月官星当令，癸未大运伤官生财，2026丙午官杀混杂且冲年柱庚子",
+      "天克地冲主变动，若原局有申酉帮身，则官杀可担，否则压力大",
+      "财星为火，但被冲克，需分析原局财星是否受损，午未合能否化解"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L1_050",
+    "domain": "bazi",
+    "difficulty": "L1",
+    "query": "属龙的今年犯太岁，会不会有大麻烦啊？我1976年出生，做点小生意，心里有点慌。",
+    "our_response": null,
+    "expected_dimensions": [
+      "犯太岁",
+      "整体运势"
+    ],
+    "reference_hints": [
+      "分析本命年与流年地支的冲刑",
+      "说明犯太岁的一般影响范围",
+      "给出化解方法如拜太岁或佩戴饰品"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L3_070",
+    "domain": "bazi",
+    "difficulty": "L3",
+    "query": "您好，我男，二十八岁，深圳做互联网，八字财星多但身弱，现在走食神大运。最近有个同事对我有意思，我想谈恋爱又怕影响事业晋升，公司里竞争很激烈。您说今年能谈吗？该怎么平衡？",
+    "our_response": null,
+    "expected_dimensions": [
+      "感情",
+      "事业",
+      "大运影响",
+      "人生决策"
+    ],
+    "reference_hints": [
+      "食神大运生财，财星为妻，身弱则易为感情所累",
+      "若原局有印星则可在事业上得到支持，否则谈恋爱分心",
+      "今年流年如果帮身则可兼顾，否则建议以事业为主"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L3_021",
+    "domain": "bazi",
+    "difficulty": "L3",
+    "query": "师傅您好，我男，北京人，34岁，做IT开发的。八字身弱财旺，现在走偏财大运，明年流年是正印。最近想辞职创业，您看适合吗？合伙好还是单干好？选什么行业方向呢？另外我八字里有个劫财，会不会有合作纠纷？",
+    "our_response": null,
+    "expected_dimensions": [
+      "事业创业分析",
+      "大运流年吉凶",
+      "神煞与合作风险"
+    ],
+    "reference_hints": [
+      "分析八字身弱财旺，劫财在命局中的影响，判断创业是否有利",
+      "偏财大运逢正印流年，印星生身，有一定助力，但需结合日主强弱",
+      "建议合伙需避开劫财为忌的年份，行业可选火土相关或技术领域"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L2_089",
+    "domain": "bazi",
+    "difficulty": "L2",
+    "query": "浙江，2002年2月8日寅时，男，大三。甲木日主，月令寅，大运丁卯。明年2024甲辰年比肩透出，辰为水库培木，想问考研能考上吗？",
+    "our_response": null,
+    "expected_dimensions": [
+      "学业考试",
+      "比肩竞争",
+      "流年与命局配合"
+    ],
+    "reference_hints": [
+      "甲木身强，印比皆旺，有利学业",
+      "流年甲辰比肩，竞争激烈，但辰土为财耗身，需加倍努力",
+      "丁卯大运伤官泄秀，利于发挥才华，考试运不错"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L2_088",
+    "domain": "bazi",
+    "difficulty": "L2",
+    "query": "女，1989年12月11日子时，广东财务主管。癸水日主，月令子，大运己未。2025乙巳年，乙木食神生巳火财星，但巳亥冲，今年投资财运怎么样？",
+    "our_response": null,
+    "expected_dimensions": [
+      "财运投资",
+      "食神生财",
+      "冲合关系"
+    ],
+    "reference_hints": [
+      "乙木食神透出，生巳火财星，主有投资机会",
+      "巳亥冲，亥为日主根气，冲动根基不稳，投资有风险",
+      "己未大运七杀克身，压力大，需谨慎决策"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L3_064",
+    "domain": "bazi",
+    "difficulty": "L3",
+    "query": "我父亲今年六十，浙江做生意的，八字食神生财，但今年偏印运冲了食神，他一直担心小儿子继承不了家业。您算算他晚年运势如何？儿子能不能接手？有没有什么风水补救的办法？",
+    "our_response": null,
+    "expected_dimensions": [
+      "子女运势",
+      "事业传承",
+      "晚年财运",
+      "风水调候"
+    ],
+    "reference_hints": [
+      "偏印夺食需看原局有无制化，若大运流年有财星则可缓解",
+      "儿子运势需单独排盘，看能否继承其父食神生财之格",
+      "晚年财运以食神为用，应避免投资扩张，守成为上"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L1_111",
+    "domain": "bazi",
+    "difficulty": "L1",
+    "query": "我八字里官星多是不是代表感情路不顺？一直单身，什么时候能遇到正缘？我是1994年属狗的女生。",
+    "our_response": null,
+    "expected_dimensions": [
+      "感情",
+      "婚姻"
+    ],
+    "reference_hints": [
+      "分析官星数量与日主关系",
+      "看是否有比劫争夫",
+      "结合大运桃花星判断应期"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L3_049",
+    "domain": "bazi",
+    "difficulty": "L3",
+    "query": "大师，男戊戌乙卯辛未己丑，沈阳27岁刚硕士毕业，两个选择：国企行政稳但钱少，互联网产品经理钱多累且不稳，适合哪个？印重适合考编？单身何时有对象？",
+    "our_response": null,
+    "expected_dimensions": [
+      "职业选择",
+      "考编运势",
+      "感情缘分"
+    ],
+    "reference_hints": [
+      "印重用食伤，互联网属火木更适合",
+      "考编需官星配合，当前大运更利公职",
+      "感情待金水旺年，日支未土藏偏财"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L2_021",
+    "domain": "bazi",
+    "difficulty": "L2",
+    "query": "老哥，我乙木日主生在亥月，正印旺，现在走戊辰大运。今年2024甲辰年，劫财坐比肩，我48岁，在江苏做工程师，想问工作会不会有变动？可能被裁员吗？",
+    "our_response": null,
+    "expected_dimensions": [
+      "工作变动",
+      "劫财比肩",
+      "印星与官星"
+    ],
+    "reference_hints": [
+      "乙木亥月得印旺，戊辰大运正财合身，但辰辰自刑不利稳定",
+      "2024甲辰年，甲木劫财透出，辰土加重财星，有被同事竞争或减薪风险",
+      "建议低调行事，主动学习新技能，留意内部转岗机会"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L1_082",
+    "domain": "bazi",
+    "difficulty": "L1",
+    "query": "我金命，女孩子，喜欢穿衣服，是不是金命适合戴白色金色？开运颜色有哪些？",
+    "our_response": null,
+    "expected_dimensions": [
+      "五行对应颜色",
+      "开运搭配",
+      "补益五行"
+    ],
+    "reference_hints": [
+      "金对应白色、金色、银色",
+      "若金弱则需土色（黄、棕）生助",
+      "避免火色（红、紫）克金"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L2_078",
+    "domain": "bazi",
+    "difficulty": "L2",
+    "query": "师傅，我是四川的，男，1982年生，乙木日主生在酉月，日支卯，现在走丁亥大运，2025乙巳年想看看婚姻走势，跟老婆会不会离婚？",
+    "our_response": null,
+    "expected_dimensions": [
+      "夫妻宫",
+      "妻星与日主",
+      "大运流年合冲",
+      "比劫与财关系"
+    ],
+    "reference_hints": [
+      "乙木酉月夫星当令，日支卯木为根，身偏弱",
+      "丁亥大运食神透干，亥卯半合木局助身",
+      "2025乙巳年，比肩透干，巳酉半合金局引动官星，有竞争之象",
+      "乙木克己土财星，注意外情干扰，夫妻宫卯被巳火泄，易生矛盾"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L3_058",
+    "domain": "bazi",
+    "difficulty": "L3",
+    "query": "师傅，我今年45岁，男，1979年己未年七月十五申时，八字己未壬申辛丑丙申。现在走丙子大运。我在广州一家外贸公司做中层，最近有个朋友拉我一起在泰国搞跨境电商，需要我投钱还可能要过去管理。我家里有老有小，担心风险太大。这八字适合出国发展吗？财运上能成吗？",
+    "our_response": null,
+    "expected_dimensions": [
+      "出国发展适宜性",
+      "合伙财运",
+      "大运流年",
+      "家庭六亲"
+    ],
+    "reference_hints": [
+      "日主辛金身旺，喜火木，丙子大运官星透出但子申合水，合而不化",
+      "跨境电商属火木行业，八字财星暗藏，有机会但需防比劫夺财",
+      "出国看驿马，申金为驿马，去泰国属东南亚木火地，有利"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L2_076",
+    "domain": "bazi",
+    "difficulty": "L2",
+    "query": "师傅，我是浙江的男生，2000年出生，丙火日主生在寅月，日支午，现在走辛丑大运，2025乙巳年要考研，能考上吗？学业运势怎么样？",
+    "our_response": null,
+    "expected_dimensions": [
+      "印星与食伤",
+      "官杀与学业",
+      "大运流年印比",
+      "日主强弱"
+    ],
+    "reference_hints": [
+      "丙火寅月长生，日支午火得强根，身旺喜金水",
+      "辛丑大运正财合身，乙巳流年印星透干，巳火为禄，学业有助力",
+      "乙木正印生身，但丙火过旺，需注意心态急躁",
+      "2025年巳寅相刑，注意人际关系，考试需专注"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L3_004",
+    "domain": "bazi",
+    "difficulty": "L3",
+    "query": "先生，我今年53岁，男，做建材生意二十多年了。八字的师傅说我是从弱格，用神是财官。现在走食神大运，流年是正财，手头有些闲钱想再投资，朋友推荐搞光伏和数字货币，您看哪个方向更符合命理？另外这两年感觉身体不如以前，老失眠，是不是要补财库还是别的？",
+    "our_response": null,
+    "expected_dimensions": [
+      "投资方向",
+      "财运走势",
+      "健康问题",
+      "从格用神分析"
+    ],
+    "reference_hints": [
+      "从弱格喜财官，食神生财的年份宜投资实业而非投机",
+      "光伏属火（食神），数字币属水（偏财），需结合具体八字五行走势",
+      "失眠可能是火土过旺，建议调理肝火，而非单纯补财库",
+      "大运食神泄身，流年正财耗身，需注意劳逸结合"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L1_102",
+    "domain": "bazi",
+    "difficulty": "L1",
+    "query": "我女儿是2018年出生的，属狗，想给她看看学业运，什么时候开窍？",
+    "our_response": null,
+    "expected_dimensions": [
+      "学业",
+      "子女八字",
+      "印星"
+    ],
+    "reference_hints": [
+      "2018戊戌年命主印星较旺",
+      "看印星是否得力及大运走势",
+      "建议培养专注力，注意小学阶段"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  },
+  {
+    "id": "bazi_L3_048",
+    "domain": "bazi",
+    "difficulty": "L3",
+    "query": "师傅，女乙丑癸未乙亥丙戌，深圳设计39岁走辛巳运，事业停滞是七杀运吗？明年和老公去国外定居对事业婚姻有何影响？一直未孕是八字问题？",
+    "our_response": null,
+    "expected_dimensions": [
+      "事业发展",
+      "移民影响",
+      "子女运势"
+    ],
+    "reference_hints": [
+      "辛巳七杀有压迫也含机遇，需结合流年",
+      "移民选北方或西方利亥水用神",
+      "子女宫受制可调理，时机重要"
+    ],
+    "score": {
+      "total_score": 0,
+      "summary": "API调用失败"
+    },
+    "error": "API call failed",
+    "competitor_context_used": false
+  }
+]

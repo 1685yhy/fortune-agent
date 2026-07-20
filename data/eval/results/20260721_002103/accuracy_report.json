@@ -1,0 +1,349 @@
+{
+  "report_type": "accuracy_scoring",
+  "timestamp": "20260721_002103",
+  "args": {
+    "input_file": "/home/a/fortune-agent/data/eval/results/bench_2250_local.jsonl",
+    "sample": 5,
+    "full": false,
+    "compare_with": "20260721_001710/scored_results.json"
+  },
+  "summary": {
+    "total_records_loaded": 5,
+    "total_scored": 4,
+    "total_skipped": 1,
+    "avg_overall": 2.41,
+    "max_overall": 7.65,
+    "min_overall": 0.0,
+    "median_overall": 1.8,
+    "dimension_averages": {
+      "accuracy": 3.38,
+      "completeness": 2.38,
+      "personalization": 2.25,
+      "actionability": 2.38,
+      "citation_quality": 0.0
+    },
+    "weakest_dimension": "citation_quality"
+  },
+  "by_domain": {
+    "bazi": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    },
+    "dream": {
+      "count": 1,
+      "avg_overall": 0.2,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 1.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    },
+    "mianxiang": {
+      "count": 1,
+      "avg_overall": 1.8,
+      "dimensions": {
+        "accuracy": 6.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "completeness"
+    },
+    "qimen": {
+      "count": 1,
+      "avg_overall": 7.65,
+      "dimensions": {
+        "accuracy": 7.5,
+        "completeness": 9.5,
+        "personalization": 8.0,
+        "actionability": 9.5,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "citation_quality"
+    }
+  },
+  "by_difficulty": {
+    "L2": {
+      "count": 4,
+      "avg_overall": 2.41,
+      "dimensions": {
+        "accuracy": 3.38,
+        "completeness": 2.38,
+        "personalization": 2.25,
+        "actionability": 2.38,
+        "citation_quality": 0.0
+      }
+    }
+  },
+  "weakness_ranking": [
+    {
+      "domain": "bazi",
+      "avg_overall": 0.0,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "dream",
+      "avg_overall": 0.2,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "mianxiang",
+      "avg_overall": 1.8,
+      "weakest_dimension": "completeness",
+      "count": 1
+    },
+    {
+      "domain": "qimen",
+      "avg_overall": 7.65,
+      "weakest_dimension": "citation_quality",
+      "count": 1
+    }
+  ],
+  "top_bottom": {
+    "top": [
+      {
+        "id": "qimen_L2_033",
+        "domain": "qimen",
+        "difficulty": "L2",
+        "overall": 7.65,
+        "query_preview": "女，2000年公历2月14日巳时生，家在武汉，马上大学毕业，现在海投简历，面试了好几家公司。请奇门帮看看，应该选择哪个方向的单位去面试成功率最高？怎么布局能提升气场？"
+      },
+      {
+        "id": "mianxiang_L2_129",
+        "domain": "mianxiang",
+        "difficulty": "L2",
+        "overall": 1.8,
+        "query_preview": "男，1983年公历6月6日巳时，浙江人，额头三道抬头纹，印堂开阔，但眉头紧锁，事业运势？"
+      },
+      {
+        "id": "dream_L2_014",
+        "domain": "dream",
+        "difficulty": "L2",
+        "overall": 0.2,
+        "query_preview": "女，1993年腊月廿二亥时生，老家河南洛阳，现居深圳做电商。连续几个晚上梦见自己站在一个悬崖边，悬崖对岸开满大朵大朵的白花，我想跳过去但腿根本动不了，然后就掉下去了。现实中刚和合伙人闹掰，账上快没钱了"
+      },
+      {
+        "id": "bazi_L2_276",
+        "domain": "bazi",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1982年农历六月初六亥时出生，广东深圳人，离异。现在走到癸未大运，想知道这步大运的未土是不是冲了时支丑，会有什么影响？听说红鸾星动了，再婚可能性大吗？对方条件如何？"
+      }
+    ],
+    "bottom": [
+      {
+        "id": "qimen_L2_033",
+        "domain": "qimen",
+        "difficulty": "L2",
+        "overall": 7.65,
+        "query_preview": "女，2000年公历2月14日巳时生，家在武汉，马上大学毕业，现在海投简历，面试了好几家公司。请奇门帮看看，应该选择哪个方向的单位去面试成功率最高？怎么布局能提升气场？"
+      },
+      {
+        "id": "mianxiang_L2_129",
+        "domain": "mianxiang",
+        "difficulty": "L2",
+        "overall": 1.8,
+        "query_preview": "男，1983年公历6月6日巳时，浙江人，额头三道抬头纹，印堂开阔，但眉头紧锁，事业运势？"
+      },
+      {
+        "id": "dream_L2_014",
+        "domain": "dream",
+        "difficulty": "L2",
+        "overall": 0.2,
+        "query_preview": "女，1993年腊月廿二亥时生，老家河南洛阳，现居深圳做电商。连续几个晚上梦见自己站在一个悬崖边，悬崖对岸开满大朵大朵的白花，我想跳过去但腿根本动不了，然后就掉下去了。现实中刚和合伙人闹掰，账上快没钱了"
+      },
+      {
+        "id": "bazi_L2_276",
+        "domain": "bazi",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1982年农历六月初六亥时出生，广东深圳人，离异。现在走到癸未大运，想知道这步大运的未土是不是冲了时支丑，会有什么影响？听说红鸾星动了，再婚可能性大吗？对方条件如何？"
+      }
+    ]
+  },
+  "individual_results": [
+    {
+      "id": "dream_L2_014",
+      "domain": "dream",
+      "difficulty": "L2",
+      "query": "女，1993年腊月廿二亥时生，老家河南洛阳，现居深圳做电商。连续几个晚上梦见自己站在一个悬崖边，悬崖对岸开满大朵大朵的白花，我想跳过去但腿根本动不了，然后就掉下去了。现实中刚和合伙人闹掰，账上快没钱了，这梦是不是在警告我什么？",
+      "response_preview": "这些噩梦和现实的压力叠加，让你感到疲惫又无助，先别撑着，我愿意陪你一起看看这个梦在说什么。\n\n⚠️ 服务暂时不可用：'str' object has no attribute 'source'\n\n请稍后再试或换一种命理方式。",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "回复未包含任何命理分析，仅显示系统错误信息，完全没有应用正确的命理理论。"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "未对用户关于梦境、现实处境的命理咨询进行任何回应，完全遗漏所有问题要点。"
+        },
+        "personalization": {
+          "score": 1.0,
+          "justification": "开头有“先别撑着，我愿意陪你一起看看”等情感回应，但未使用用户提供的出生时间、地点、梦境等具体信息进行任何个性化分析，几乎可视为通用模板。"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "没有提供任何实际可行的建议或行动指南。"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "没有任何经典命理文献引用。"
+        }
+      },
+      "overall": 0.2
+    },
+    {
+      "id": "qimen_L2_033",
+      "domain": "qimen",
+      "difficulty": "L2",
+      "query": "女，2000年公历2月14日巳时生，家在武汉，马上大学毕业，现在海投简历，面试了好几家公司。请奇门帮看看，应该选择哪个方向的单位去面试成功率最高？怎么布局能提升气场？",
+      "response_preview": "好的宝贝，来啦来啦～ 看到你海投简历面试好几家，我这暴脾气就上来了！毕业季嘛，谁不是一边焦虑一边迷茫。不过别慌，姐用奇门遁甲给你盘一盘，咱们把方向盘清楚了再出手，保证比你瞎投效率高十倍 😎\n\n📊 **排盘信息**\n\n先按你2000年2月14日巳时（上午9-11点）生在武汉，加上当前时间（2024年3月立春后）起奇门阳遁三局。先给你摆开：\n\n**奇门阳遁三局**\n- 地盘值符：天冲星 在震宫\n- 值",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 7.5,
+          "justification": "奇门理论应用基本正确，如本命丙火落离宫配景门、时干庚落震宫配伤门等，符合经典口诀。但排盘细节（如阳遁三局的依据、乙奇落兑宫的具体推演）未清晰交代，存在小瑕疵。整体理论运用水平较高，无明显硬伤。"
+        },
+        "completeness": {
+          "score": 9.5,
+          "justification": "回复全面覆盖了用户问询的所有要点：择业方向（展示型/竞争型/避开型）、方位建议、布局提升气场（物品、颜色、心理仪式）、面试时间节点、成功率估算。还额外提供了心理暗示技巧和禁忌提醒，几乎没有遗漏，非常详尽。"
+        },
+        "personalization": {
+          "score": 8.0,
+          "justification": "分析紧密围绕用户个人信息（出生时间、地点、女性、应届生身份）展开，例如结合丙火在离宫的本命特点给出创意表达类职业建议，并根据武汉地理提出东向优先（光谷、武昌）。但部分建议（如顺时针走三圈、默念口诀）偏向通用模板，个性化程度仍有提升空间。"
+        },
+        "actionability": {
+          "score": 9.5,
+          "justification": "Extracted via regex fallback"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        }
+      },
+      "overall": 7.65
+    },
+    {
+      "id": "fengshui_L3_098",
+      "domain": "fengshui",
+      "difficulty": "L3",
+      "query": "女，1990年农历三月十八申时，成都小学老师34岁，刚搬进九运壬山丙向新房，客厅阳台外正对三角形尖角煞，卧室在东南巽宫已放阵子。我八字木旺缺水，日主乙木，2026年九紫入中如何调和健康与感情？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "bazi_L2_276",
+      "domain": "bazi",
+      "difficulty": "L2",
+      "query": "女，1982年农历六月初六亥时出生，广东深圳人，离异。现在走到癸未大运，想知道这步大运的未土是不是冲了时支丑，会有什么影响？听说红鸾星动了，再婚可能性大吗？对方条件如何？",
+      "response_preview": "命盘已排出【壬戌 丙午 庚申 丁亥】，日主庚金。正在深度推演中~ 🌟\n\n---\n\n🧧 **八字命盘**\n\n📅 1982.6.6 21:0 深圳 女\n\n```\n    年柱   月柱   日柱   时柱\n天干  壬     丙     庚     丁  \n地支  戌     午     申     亥  \n藏干 戊,辛,丁  丁,己   庚,壬,戊  壬,甲 \n纳音  大海    天河    石榴 ",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": ""
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": ""
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "mianxiang_L2_129",
+      "domain": "mianxiang",
+      "difficulty": "L2",
+      "query": "男，1983年公历6月6日巳时，浙江人，额头三道抬头纹，印堂开阔，但眉头紧锁，事业运势？",
+      "response_preview": "你的八字是癸亥 丁巳 乙丑 辛巳，乙木日主，食神格。命里火气超旺，自带驿马星，是个行动力爆棚、想法多到停不下来的有趣灵魂🌟\n\n---\n\n🧧 **八字命盘**\n\n📅 1983.6.6 9:0 北京 男\n\n```\n    年柱   月柱   日柱   时柱\n天干  癸     丁     乙     辛  \n地支  亥     巳     丑     巳  \n藏干 壬,甲   丙,庚,戊  己,癸,辛",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 6.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        }
+      },
+      "overall": 1.8
+    }
+  ],
+  "comparison": {
+    "other_file": "20260721_001710/scored_results.json",
+    "other_stats": {
+      "avg_overall": 1.55,
+      "total_scored": 5,
+      "dimension_averages": {
+        "accuracy": 3.1,
+        "completeness": 1.4,
+        "personalization": 0.6,
+        "actionability": 1.0,
+        "citation_quality": 0.0
+      }
+    }
+  }
+}

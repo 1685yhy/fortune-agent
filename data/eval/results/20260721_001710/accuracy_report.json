@@ -1,0 +1,533 @@
+{
+  "report_type": "accuracy_scoring",
+  "timestamp": "20260721_001710",
+  "args": {
+    "input_file": "/home/a/fortune-agent/data/eval/results/bench_2250_local.jsonl",
+    "sample": 10,
+    "full": false,
+    "compare_with": null
+  },
+  "summary": {
+    "total_records_loaded": 10,
+    "total_scored": 5,
+    "total_skipped": 5,
+    "avg_overall": 1.55,
+    "max_overall": 3.35,
+    "min_overall": 0.0,
+    "median_overall": 1.95,
+    "dimension_averages": {
+      "accuracy": 3.1,
+      "completeness": 1.4,
+      "personalization": 0.6,
+      "actionability": 1.0,
+      "citation_quality": 0.0
+    },
+    "weakest_dimension": "citation_quality"
+  },
+  "by_domain": {
+    "bazi": {
+      "count": 1,
+      "avg_overall": 1.95,
+      "dimensions": {
+        "accuracy": 6.5,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "completeness"
+    },
+    "dream": {
+      "count": 1,
+      "avg_overall": 0.3,
+      "dimensions": {
+        "accuracy": 1.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "completeness"
+    },
+    "qimen": {
+      "count": 1,
+      "avg_overall": 2.15,
+      "dimensions": {
+        "accuracy": 1.0,
+        "completeness": 2.0,
+        "personalization": 3.0,
+        "actionability": 5.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "citation_quality"
+    },
+    "xingming": {
+      "count": 1,
+      "avg_overall": 3.35,
+      "dimensions": {
+        "accuracy": 7.0,
+        "completeness": 5.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "personalization"
+    },
+    "ziwei": {
+      "count": 1,
+      "avg_overall": 0.0,
+      "dimensions": {
+        "accuracy": 0.0,
+        "completeness": 0.0,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      },
+      "weakest_dimension": "accuracy"
+    }
+  },
+  "by_difficulty": {
+    "L2": {
+      "count": 4,
+      "avg_overall": 1.4,
+      "dimensions": {
+        "accuracy": 3.62,
+        "completeness": 1.25,
+        "personalization": 0.0,
+        "actionability": 0.0,
+        "citation_quality": 0.0
+      }
+    },
+    "L3": {
+      "count": 1,
+      "avg_overall": 2.15,
+      "dimensions": {
+        "accuracy": 1.0,
+        "completeness": 2.0,
+        "personalization": 3.0,
+        "actionability": 5.0,
+        "citation_quality": 0.0
+      }
+    }
+  },
+  "weakness_ranking": [
+    {
+      "domain": "ziwei",
+      "avg_overall": 0.0,
+      "weakest_dimension": "accuracy",
+      "count": 1
+    },
+    {
+      "domain": "dream",
+      "avg_overall": 0.3,
+      "weakest_dimension": "completeness",
+      "count": 1
+    },
+    {
+      "domain": "bazi",
+      "avg_overall": 1.95,
+      "weakest_dimension": "completeness",
+      "count": 1
+    },
+    {
+      "domain": "qimen",
+      "avg_overall": 2.15,
+      "weakest_dimension": "citation_quality",
+      "count": 1
+    },
+    {
+      "domain": "xingming",
+      "avg_overall": 3.35,
+      "weakest_dimension": "personalization",
+      "count": 1
+    }
+  ],
+  "top_bottom": {
+    "top": [
+      {
+        "id": "xingming_L2_262",
+        "domain": "xingming",
+        "difficulty": "L2",
+        "overall": 3.35,
+        "query_preview": "我家双胞胎儿子2023年公历3月29日申时，生于北京，因为剖腹产，时辰正好申时末。老大叫‘孟云帆’，老二叫‘孟云舟’。想请师傅分别看看两个人的八字喜用会不会不一样，这两个名字的五行和数理对他们各自的运"
+      },
+      {
+        "id": "qimen_L3_114",
+        "domain": "qimen",
+        "difficulty": "L3",
+        "overall": 2.15,
+        "query_preview": "女，公历1990年8月15日申时，现居深圳，做金融分析。八字丁火日主身弱而财星旺盛，用神喜木火。当前走壬戌大运，流年甲辰伤官透干，感觉心力交瘁。现在有一家外资银行提供了机会，新公司在正北坎位，和我现在"
+      },
+      {
+        "id": "bazi_L2_182",
+        "domain": "bazi",
+        "difficulty": "L2",
+        "overall": 1.95,
+        "query_preview": "男，1987年公历11月23日酉时出生，北京人，金融行业。现在走辛酉大运，2026丙午流年，伤官见官，会不会有官非？事业上要注意什么？"
+      },
+      {
+        "id": "dream_L2_196",
+        "domain": "dream",
+        "difficulty": "L2",
+        "overall": 0.3,
+        "query_preview": "男，1976年公历12月8日亥时，沈阳，做小生意，梦到自己在老家的旧房子里，天花板流下血水，地上全是蛇，我在梦里念阿弥陀佛才醒。最近生意不顺。"
+      },
+      {
+        "id": "ziwei_L2_035",
+        "domain": "ziwei",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1989年农历腊月廿二巳时，浙江宁波人，自己开美容院。财帛宫武曲化禄但被地空地劫夹，这两年赚得多也花得多，想买一套商铺，但担心现金流断，盘里看什么时候入手最好？"
+      }
+    ],
+    "bottom": [
+      {
+        "id": "xingming_L2_262",
+        "domain": "xingming",
+        "difficulty": "L2",
+        "overall": 3.35,
+        "query_preview": "我家双胞胎儿子2023年公历3月29日申时，生于北京，因为剖腹产，时辰正好申时末。老大叫‘孟云帆’，老二叫‘孟云舟’。想请师傅分别看看两个人的八字喜用会不会不一样，这两个名字的五行和数理对他们各自的运"
+      },
+      {
+        "id": "qimen_L3_114",
+        "domain": "qimen",
+        "difficulty": "L3",
+        "overall": 2.15,
+        "query_preview": "女，公历1990年8月15日申时，现居深圳，做金融分析。八字丁火日主身弱而财星旺盛，用神喜木火。当前走壬戌大运，流年甲辰伤官透干，感觉心力交瘁。现在有一家外资银行提供了机会，新公司在正北坎位，和我现在"
+      },
+      {
+        "id": "bazi_L2_182",
+        "domain": "bazi",
+        "difficulty": "L2",
+        "overall": 1.95,
+        "query_preview": "男，1987年公历11月23日酉时出生，北京人，金融行业。现在走辛酉大运，2026丙午流年，伤官见官，会不会有官非？事业上要注意什么？"
+      },
+      {
+        "id": "dream_L2_196",
+        "domain": "dream",
+        "difficulty": "L2",
+        "overall": 0.3,
+        "query_preview": "男，1976年公历12月8日亥时，沈阳，做小生意，梦到自己在老家的旧房子里，天花板流下血水，地上全是蛇，我在梦里念阿弥陀佛才醒。最近生意不顺。"
+      },
+      {
+        "id": "ziwei_L2_035",
+        "domain": "ziwei",
+        "difficulty": "L2",
+        "overall": 0.0,
+        "query_preview": "女，1989年农历腊月廿二巳时，浙江宁波人，自己开美容院。财帛宫武曲化禄但被地空地劫夹，这两年赚得多也花得多，想买一套商铺，但担心现金流断，盘里看什么时候入手最好？"
+      }
+    ]
+  },
+  "individual_results": [
+    {
+      "id": "qimen_L3_114",
+      "domain": "qimen",
+      "difficulty": "L3",
+      "query": "女，公历1990年8月15日申时，现居深圳，做金融分析。八字丁火日主身弱而财星旺盛，用神喜木火。当前走壬戌大运，流年甲辰伤官透干，感觉心力交瘁。现在有一家外资银行提供了机会，新公司在正北坎位，和我现在离位的办公室恰好形成水火冲射。想用奇门遁甲起局看此次跳槽是否真正利于事业发展？如果要去，选择哪个节气办理入职能借天时？我在谈判时随身携带什么属性的物品能增加运势？",
+      "response_preview": "命盘已排出【庚午 甲申 壬子 戊申】，日主壬水。正在深度推演中~ 🌟\n\n---\n\n🧧 **八字命盘**\n\n📅 1990.8.15 15:0 深圳 女\n\n```\n    年柱   月柱   日柱   时柱\n天干  庚     甲     壬     戊  \n地支  午     申     子     申  \n藏干 丁,己   庚,壬,戊   癸    庚,壬,戊\n纳音  路旁    泉中    桑柘",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 1.0,
+          "justification": "用户明确自称丁火日主身弱，但AI排盘为壬水日主，且八字排盘完全错误（庚午年8月15日申时应为丁火日主），导致后续所有分析基于错误日主，属于重大事实错误。五行、用神等理论应用完全偏离，准确性极低。"
+        },
+        "completeness": {
+          "score": 2.0,
+          "justification": "用户核心要求是奇门遁甲起局分析跳槽、节气入职时机、谈判物品，但AI未做任何奇门排盘，仅用八字分析，且未回答节气选择（建议2027年立夏与当前流年无关，忽略用户当下需求）。仅部分回应了物品属性，整体遗漏严重。"
+        },
+        "personalization": {
+          "score": 3.0,
+          "justification": "回复中提到了用户所在地（深圳）、职业（金融分析）、办公室方位等细节，有一定个性化痕迹。但由于日主错误，所有个性化分析（如七杀压力、金水过旺）均基于错误命盘，实际与用户无关，个性化效果大打折扣。"
+        },
+        "actionability": {
+          "score": 5.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        }
+      },
+      "overall": 2.15
+    },
+    {
+      "id": "bazi_L2_182",
+      "domain": "bazi",
+      "difficulty": "L2",
+      "query": "男，1987年公历11月23日酉时出生，北京人，金融行业。现在走辛酉大运，2026丙午流年，伤官见官，会不会有官非？事业上要注意什么？",
+      "response_preview": "看到你对伤官见官的格局有些担心，先别着急，流年与大运的互动不一定是坏事，只要提前注意行为分寸，完全可以化险为夷。\n\n你的八字丁卯 辛亥 丙子 丁酉，丙火日主。命带天乙贵人，一生常有贵人暗中相助，是特别幸运的配置呢🌟\n\n---\n\n🧧 **八字命盘**\n\n📅 1987.11.23 17:0 北京 男\n\n```\n    年柱   月柱   日柱   时柱\n天干  丁     辛     丙     丁 ",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 6.5,
+          "justification": "Extracted via regex fallback"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        }
+      },
+      "overall": 1.95
+    },
+    {
+      "id": "bazi_L3_141",
+      "domain": "bazi",
+      "difficulty": "L3",
+      "query": "男，1983年正月十一申时，成都，高校教师。八字火炎土燥，金为用神，但局中缺金，现在走比肩大运，想移民到加拿大，五行上金水之地，从命理上看是否有利？移民时机选哪年好？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "ziwei_L2_035",
+      "domain": "ziwei",
+      "difficulty": "L2",
+      "query": "女，1989年农历腊月廿二巳时，浙江宁波人，自己开美容院。财帛宫武曲化禄但被地空地劫夹，这两年赚得多也花得多，想买一套商铺，但担心现金流断，盘里看什么时候入手最好？",
+      "response_preview": "看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "AI完全没有应用紫微斗数命理理论进行任何分析，错误地要求用户重新提供已经包含在提问中的出生信息（农历1989年腊月廿二巳时、浙江宁波、女），属于重大事实性错误，完全不符合命理分析的准确性要求。"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "用户询问财帛宫武曲化禄被地空地劫夹、现金流问题以及购买商铺的时机，AI回复完全忽略所有具体问题，未提供任何命理解读，回答内容与提问完全无关。"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "AI回复为完全通用的标准格式要求，未使用用户提供的任何个人信息（出生时间、地点、性别、行业、具体问题），没有任何个性化成分。"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "AI未给出任何建议或行动指导，完全不具备可行性。"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "AI回复中未引用任何经典文献或命理资料，无任何引用质量可言。"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "fengshui_L2_110",
+      "domain": "fengshui",
+      "difficulty": "L2",
+      "query": "我女儿1995年七月初七午时生的，属猪，在成都成华区买了一套房子是癸山丁向，阳台朝向是正南偏西15度。她说住进去两年感情一直不顺，请师傅看下是不是厨房压在了她的桃花位？怎么调理？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "xingming_L2_262",
+      "domain": "xingming",
+      "difficulty": "L2",
+      "query": "我家双胞胎儿子2023年公历3月29日申时，生于北京，因为剖腹产，时辰正好申时末。老大叫‘孟云帆’，老二叫‘孟云舟’。想请师傅分别看看两个人的八字喜用会不会不一样，这两个名字的五行和数理对他们各自的运势有什么影响？",
+      "response_preview": "命盘已排出【癸卯 乙卯 丙戌 丙申】，日主丙火。正在深度推演中~ 🌟\n\n---\n\n🧧 **八字命盘**\n\n📅 2023.3.29 15:0 北京 男\n\n```\n    年柱   月柱   日柱   时柱\n天干  癸     乙     丙     丙  \n地支  卯     卯     戌     申  \n藏干  乙     乙    戊,辛,丁  庚,壬,戊\n纳音  金箔    大溪    屋上",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 7.0,
+          "justification": "命理分析大致正确，双胞胎八字相同且判断身强木旺、用神为水基本合理。但存在细节问题：五行计数仅计本气未反映藏干；名字五行中'帆''舟'直接定为木缺乏严谨依据（帆字有争议）；引用《滴天髓》语句与上下文关联不紧。整体理论应用无明显硬伤，但不够精确。"
+        },
+        "completeness": {
+          "score": 5.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "Extracted via regex fallback"
+        }
+      },
+      "overall": 3.35
+    },
+    {
+      "id": "dream_L2_196",
+      "domain": "dream",
+      "difficulty": "L2",
+      "query": "男，1976年公历12月8日亥时，沈阳，做小生意，梦到自己在老家的旧房子里，天花板流下血水，地上全是蛇，我在梦里念阿弥陀佛才醒。最近生意不顺。",
+      "response_preview": "看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男",
+      "status": "scored",
+      "scores": {
+        "accuracy": {
+          "score": 1.0,
+          "justification": "AI助手完全未针对梦境内容进行命理解读，反而要求用户重新提供已给出的出生信息，属于严重的方向错误，没有正确应用任何命理理论。"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "用户询问梦境解析与生意不顺的关联，AI回复完全未涉及任何相关内容，也未分析用户提供的八字信息，完全忽略了提问核心。"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "用户已明确给出出生年月日时和地点，AI却未利用这些具体信息，回复是模板式的索取信息，毫无个性化内容。"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "没有提供任何可操作的建议，既没有解读梦境的吉凶，也没有针对生意不顺给出行动指导。"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "没有任何古典命理著作的引用，完全是机械式的回复。"
+        }
+      },
+      "overall": 0.3
+    },
+    {
+      "id": "fengshui_L3_076",
+      "domain": "fengshui",
+      "difficulty": "L3",
+      "query": "女，农历1990年庚午年九月初十午时，成都人，自由插画师。现居宅七运巳山亥向，大门朝西北，门口有电线杆，前院有葫芦形水池。八字庚金身强，正财格，现在壬寅大运，寅午半合火局克金，事业停滞。想问2027年丁未流年如何调整门路和水池，催旺财运和贵人？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "mianxiang_L3_138",
+      "domain": "mianxiang",
+      "difficulty": "L3",
+      "query": "女，1992年农历七月十五午时，成都人，中学老师。八字食神生财，日坐七杀。眼大有神但眼下有泪痣，颧骨微高，下巴圆润，气色偏黄。目前行甲子正官大运，想问问婚姻何时能稳定下来？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    },
+    {
+      "id": "zeri_L3_073",
+      "domain": "zeri",
+      "difficulty": "L3",
+      "query": "男，1978年戊午年九月初三午时，广东广州，做装修包工头，八字火炎土燥，用神金水，目前壬子大运。打算2025年农历六月翻修厨房，灶台要坐东向西。求个动工吉日，得避开岁破、三煞这些，也不能冲克我日柱，哪天合适？",
+      "status": "skipped",
+      "skip_reason": "empty_or_error",
+      "scores": {
+        "accuracy": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "completeness": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "personalization": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "actionability": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        },
+        "citation_quality": {
+          "score": 0.0,
+          "justification": "响应为空/错误"
+        }
+      },
+      "overall": 0.0
+    }
+  ]
+}
