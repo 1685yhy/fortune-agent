@@ -44,6 +44,7 @@ from src.storage.conversation_memory import ConversationMemory
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
 from .formatter import split_long_message, format_error, format_loading
+from src.reading_version import get_version_footer
 
 INTENT_KEYWORDS = {
     "bazi": ["八字", "命理", "命格", "运势", "算命", "排盘", "四柱"],
@@ -943,6 +944,9 @@ class MessageHandler:
         # 10. 反馈提示 (F3)
         personality = self._get_personality_mode(user_id) or "sassy"
         reply = self._add_feedback_prompt(reply, personality)
+
+        # Add reading version footer for traceability and reproducibility
+        reply += f"\n\n---\n{get_version_footer()}"
 
         # 11. 记录对话记忆
         if self.memory:

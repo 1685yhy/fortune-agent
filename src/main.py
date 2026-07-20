@@ -179,6 +179,11 @@ app = FastAPI(title="Fortune Agent", version="0.1.0", lifespan=lifespan)
 from .openai_compat import create_openai_router as _create_oai_router
 app.include_router(_create_oai_router(None))
 
+from .api.pricing import router as pricing_router
+
+# Pricing API
+app.include_router(pricing_router)
+
 # Models
 class ChatRequest(BaseModel):
     message: str = ""
@@ -735,6 +740,15 @@ async def membership_page():
     if html.exists():
         return HTMLResponse(html.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>会员页面未找到</h1>", status_code=404)
+
+
+@app.get("/pricing")
+async def pricing_page():
+    """透明定价页面"""
+    html = Path(__file__).parent / "static" / "pricing.html"
+    if html.exists():
+        return HTMLResponse(html.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>定价页面未找到</h1>", status_code=404)
 
 
 @app.get("/")
