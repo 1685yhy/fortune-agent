@@ -180,9 +180,13 @@ from .openai_compat import create_openai_router as _create_oai_router
 app.include_router(_create_oai_router(None))
 
 from .api.pricing import router as pricing_router
+from .api.scenarios import router as scenarios_router
 
 # Pricing API
 app.include_router(pricing_router)
+
+# Phase 2: Scenario API
+app.include_router(scenarios_router, prefix="/api")
 
 # Models
 class ChatRequest(BaseModel):
@@ -749,6 +753,15 @@ async def pricing_page():
     if html.exists():
         return HTMLResponse(html.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>定价页面未找到</h1>", status_code=404)
+
+
+@app.get("/scenarios")
+async def scenarios_page():
+    """Phase 2: Scenario picker page"""
+    html = Path(__file__).parent / "static" / "scenarios.html"
+    if html.exists():
+        return HTMLResponse(html.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>场景页面未找到</h1>", status_code=404)
 
 
 @app.get("/")

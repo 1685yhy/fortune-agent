@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>场景选择 — 易理明灯</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #f5f5f7;
+    color: #1d1d1f;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .container {
+    max-width: 960px;
+    margin: 0 auto;
+    padding: 40px 24px 80px;
+  }
+
+  /* Header */
+  .header {
+    text-align: center;
+    margin-bottom: 48px;
+  }
+  .header h1 {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+    margin-bottom: 8px;
+    color: #1d1d1f;
+  }
+  .header p {
+    font-size: 16px;
+    color: #6e6e73;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  /* Scenario Grid */
+  .scenario-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+
+  .scenario-card {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 28px 24px 24px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    border: 1px solid #e8e8ed;
+    position: relative;
+    overflow: hidden;
+  }
+  .scenario-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0,0,0,0.08);
+    border-color: #c7c7cc;
+  }
+  .scenario-card:active {
+    transform: translateY(0);
+  }
+
+  .scenario-card .icon {
+    font-size: 36px;
+    margin-bottom: 12px;
+    display: block;
+    line-height: 1;
+  }
+  .scenario-card h3 {
+    font-size: 18px;
+    font-weight: 600;
+    color: #1d1d1f;
+    margin-bottom: 6px;
+    letter-spacing: -0.01em;
+  }
+  .scenario-card p {
+    font-size: 14px;
+    color: #6e6e73;
+    line-height: 1.5;
+  }
+  .scenario-card .selected-badge {
+    display: none;
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    background: #007aff;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 10px;
+    border-radius: 12px;
+  }
+  .scenario-card.selected {
+    border-color: #007aff;
+    background: #f5f9ff;
+  }
+  .scenario-card.selected .selected-badge {
+    display: block;
+  }
+
+  /* Prompt Area */
+  .prompt-section {
+    background: #ffffff;
+    border-radius: 16px;
+    border: 1px solid #e8e8ed;
+    padding: 28px;
+    margin-bottom: 24px;
+  }
+  .prompt-section label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+    color: #1d1d1f;
+    margin-bottom: 10px;
+  }
+  .prompt-section textarea {
+    width: 100%;
+    min-height: 120px;
+    padding: 14px 16px;
+    border: 1px solid #d2d2d7;
+    border-radius: 10px;
+    font-size: 15px;
+    font-family: inherit;
+    line-height: 1.6;
+    color: #1d1d1f;
+    background: #fafafa;
+    resize: vertical;
+    transition: border-color 0.2s;
+  }
+  .prompt-section textarea:focus {
+    outline: none;
+    border-color: #007aff;
+    background: #fff;
+  }
+
+  .prompt-section .hint {
+    font-size: 13px;
+    color: #8e8e93;
+    margin-top: 8px;
+  }
+
+  /* Action buttons */
+  .actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+  }
+  .actions button {
+    padding: 12px 32px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: inherit;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .actions .primary-btn {
+    background: #007aff;
+    color: #fff;
+  }
+  .actions .primary-btn:hover {
+    background: #0056cc;
+  }
+  .actions .primary-btn:disabled {
+    background: #b3d4ff;
+    cursor: not-allowed;
+  }
+  .actions .secondary-btn {
+    background: #e8e8ed;
+    color: #1d1d1f;
+  }
+  .actions .secondary-btn:hover {
+    background: #d2d2d7;
+  }
+
+  /* Info bar */
+  .info-bar {
+    text-align: center;
+    padding: 16px;
+    background: #f5f5f7;
+    border-radius: 12px;
+    margin-bottom: 32px;
+    font-size: 14px;
+    color: #6e6e73;
+  }
+  .info-bar strong {
+    color: #1d1d1f;
+  }
+
+  /* Loading */
+  .loading {
+    display: none;
+    text-align: center;
+    padding: 24px;
+    color: #6e6e73;
+    font-size: 15px;
+  }
+  .loading.active {
+    display: block;
+  }
+  .spinner {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 2.5px solid #e8e8ed;
+    border-top-color: #007aff;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Result area */
+  .result-area {
+    display: none;
+    background: #ffffff;
+    border-radius: 16px;
+    border: 1px solid #e8e8ed;
+    padding: 28px;
+    margin-top: 24px;
+    white-space: pre-wrap;
+    font-size: 15px;
+    line-height: 1.7;
+  }
+  .result-area.active {
+    display: block;
+  }
+
+  /* API test link */
+  .api-hint {
+    text-align: center;
+    margin-top: 24px;
+    font-size: 13px;
+    color: #aeaeb2;
+  }
+  .api-hint a {
+    color: #aeaeb2;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .api-hint a:hover {
+    color: #6e6e73;
+  }
+
+  /* Mobile */
+  @media (max-width: 720px) {
+    .scenario-grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .container { padding: 24px 16px 60px; }
+    .header h1 { font-size: 26px; }
+    .scenario-card { padding: 20px 18px; }
+    .actions { flex-direction: column; align-items: center; }
+    .actions button { width: 100%; max-width: 320px; }
+  }
+
+  @media (max-width: 440px) {
+    .scenario-grid { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">
+    <h1>你想了解什么？</h1>
+    <p>选择一个场景，系统会根据你的八字生成专属命理分析报告</p>
+  </div>
+
+  <!-- Scenario Cards -->
+  <div class="scenario-grid" id="scenarioGrid">
+    <!-- Populated by JS -->
+  </div>
+
+  <!-- Info bar -->
+  <div class="info-bar">
+    已有八字信息？系统将自动读取。<br>
+    还没有？在提交时补充出生信息即可。
+  </div>
+
+  <!-- Prompt Editor -->
+  <div class="prompt-section">
+    <label for="promptInput">分析需求</label>
+    <textarea id="promptInput" placeholder="选择一个场景模板，或直接输入你想问的问题…&#10;&#10;例如：我今年财运如何？"></textarea>
+    <div class="hint">提示：输入出生信息后点击「开始分析」，系统将结合你的八字进行深度解读</div>
+  </div>
+
+  <!-- Actions -->
+  <div class="actions">
+    <button class="secondary-btn" id="clearBtn">清空</button>
+    <button class="primary-btn" id="submitBtn" disabled>开始分析</button>
+  </div>
+
+  <!-- Loading -->
+  <div class="loading" id="loading">
+    <span class="spinner"></span>
+    正在分析你的命盘…
+  </div>
+
+  <!-- Result -->
+  <div class="result-area" id="resultArea"></div>
+
+  <!-- API hint -->
+  <div class="api-hint">
+    <a href="/api/scenarios" target="_blank">API: /api/scenarios</a>
+  </div>
+</div>
+
+<script>
+// Scenario data — mirrors the backend API response
+const SCENARIOS = [
+  {
+    "id": "career_change",
+    "icon": "💼",
+    "title": "我该不该换工作",
+    "description": "分析当前工作运势和跳槽的最佳时机",
+    "prompt_template": "我在考虑换工作，请根据我的八字分析：1)当前工作的发展空间和运势 2)跳槽的最佳时机窗口 3)适合的行业方向 4)需要注意的风险",
+    "category": "career"
+  },
+  {
+    "id": "love_relationship",
+    "icon": "❤️",
+    "title": "这段感情能走下去吗",
+    "description": "看缘分深浅，分析感情发展走向",
+    "prompt_template": "我想了解这段感情的发展前景，请根据我的八字分析：1)这段感情的缘分深浅 2)可能遇到的阻碍和挑战 3)感情发展的关键时间点 4)如何经营这段关系",
+    "category": "love"
+  },
+  {
+    "id": "wealth_year",
+    "icon": "💰",
+    "title": "今年财运如何",
+    "description": "分析正财偏财运，掌握财富机遇",
+    "prompt_template": "我想了解今年的财运，请根据我的八字分析：1)今年正财运和偏财运趋势 2)财运最佳的时间窗口 3)适合的投资和理财方向 4)需要注意的破财风险",
+    "category": "wealth"
+  },
+  {
+    "id": "health_concern",
+    "icon": "🏥",
+    "title": "健康需要注意什么",
+    "description": "从命理角度分析健康隐忧",
+    "prompt_template": "我想了解健康方面的注意事项，请根据我的八字分析：1)命局中哪些五行偏弱，对应哪些身体部位容易出问题 2)大运流年对健康的影响 3)需要注意的年份和季节 4)日常养生保健建议",
+    "category": "health"
+  },
+  {
+    "id": "property_move",
+    "icon": "🏠",
+    "title": "适合搬家/买房吗",
+    "description": "分析不动产方面的运势，选对时机行动",
+    "prompt_template": "我想了解在房产方面的运势，请根据我的八字分析：1)当前是否适合买房或搬家 2)对居住环境的风水建议 3)适合的方位和朝向 4)不动产投资的吉凶时机",
+    "category": "property"
+  },
+  {
+    "id": "compatibility",
+    "icon": "🤝",
+    "title": "和他/她合不合",
+    "description": "合婚配对分析，看两人的命理是否相合",
+    "prompt_template": "我想了解两人的缘分和配对情况，请根据双方的八字分析：1)两人的五行互补和冲突 2)感情中的主要矛盾点 3)长期相处的前景 4)如何调和彼此的差异",
+    "category": "compatibility"
+  }
+];
+
+let selectedId = null;
+
+// Render cards
+function renderCards() {
+  const grid = document.getElementById('scenarioGrid');
+  grid.innerHTML = SCENARIOS.map(s => `
+    <div class="scenario-card" data-id="${s.id}" onclick="selectCard('${s.id}')">
+      <span class="selected-badge">已选</span>
+      <span class="icon">${s.icon}</span>
+      <h3>${s.title}</h3>
+      <p>${s.description}</p>
+    </div>
+  `).join('');
+}
+
+// Select card
+function selectCard(id) {
+  // Deselect all
+  document.querySelectorAll('.scenario-card').forEach(c => c.classList.remove('selected'));
+  // Select
+  const card = document.querySelector(`.scenario-card[data-id="${id}"]`);
+  if (card) {
+    card.classList.add('selected');
+    selectedId = id;
+    const scenario = SCENARIOS.find(s => s.id === id);
+    if (scenario) {
+      document.getElementById('promptInput').value = scenario.prompt_template;
+    }
+    document.getElementById('submitBtn').disabled = false;
+  }
+}
+
+// Clear
+document.getElementById('clearBtn').addEventListener('click', () => {
+  document.querySelectorAll('.scenario-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('promptInput').value = '';
+  document.getElementById('resultArea').classList.remove('active');
+  document.getElementById('resultArea').textContent = '';
+  document.getElementById('loading').classList.remove('active');
+  selectedId = null;
+  document.getElementById('submitBtn').disabled = true;
+});
+
+// Submit — calls the chat API
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  const prompt = document.getElementById('promptInput').value.trim();
+  if (!prompt) return;
+
+  const btn = document.getElementById('submitBtn');
+  const loading = document.getElementById('loading');
+  const resultArea = document.getElementById('resultArea');
+
+  btn.disabled = true;
+  loading.classList.add('active');
+  resultArea.classList.remove('active');
+  resultArea.textContent = '';
+
+  try {
+    const resp = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: prompt, user_id: 'web_user' }),
+    });
+    const data = await resp.json();
+    const reply = data.reply || data.error || '暂无回复';
+    resultArea.textContent = reply;
+    resultArea.classList.add('active');
+  } catch (err) {
+    resultArea.textContent = '⚠️ 请求失败，请确认服务是否运行。\n错误：' + err.message;
+    resultArea.classList.add('active');
+  } finally {
+    loading.classList.remove('active');
+    btn.disabled = false;
+  }
+});
+
+// Init
+renderCards();
+</script>
+
+</body>
+</html>

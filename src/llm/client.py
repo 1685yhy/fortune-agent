@@ -99,11 +99,21 @@ class FortuneLLM:
         user_question: str,
         personality_mode: Optional[str] = None,
         use_pro: bool = False,  # Pro opt-in only (unreliable on small servers)
+        extra_system_prompt: str = None,  # Phase 2: structured report prompt
     ) -> AnalysisResult:
         """命理分析 - 默认用 Flash（可靠+快速），Pro 可选。
 
         Flash with optimized prompts + RAG delivers quality analysis in 8-15s.
         Pro is opt-in only (60-80s, unstable on <8GB RAM servers).
+
+        Args:
+            chart_data: Bazi result or raw chart string.
+            references: RAG search results.
+            user_question: The user's question text.
+            personality_mode: One of "sassy", "analyst", "gentle", or None.
+            use_pro: Whether to use the deep/pro model.
+            extra_system_prompt: Additional system prompt appended to the
+                personality prompt (used for structured report format).
         """
         if isinstance(chart_data, str):
             chart_str = chart_data
@@ -118,6 +128,8 @@ class FortuneLLM:
         )
         resolved_mode = self._resolve_mood(user_question, personality_mode)
         system_prompt = PERSONALITY_PROMPTS.get(resolved_mode, PERSONALITY_PROMPTS["sassy"])
+        if extra_system_prompt:
+            system_prompt = system_prompt + "\n\n" + extra_system_prompt
 
         # Flash-first: reliable, fast, sufficient with RAG
         if not use_pro:

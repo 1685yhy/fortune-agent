@@ -329,6 +329,77 @@ class MessageHandler:
         return 500
 
     # ============================================================
+    # Phase 2: Scenario Router — structured report for known scenarios
+    # ============================================================
+
+    SCENARIO_KEYWORDS = {
+        "career": ["换工作", "跳槽", "辞职", "创业", "工作", "职业", "上班", "事业"],
+        "love": ["感情", "分手", "离婚", "结婚", "恋爱", "正缘", "桃花", "爱情"],
+        "wealth": ["财运", "赚钱", "投资", "亏", "钱", "财", "收入", "理财"],
+        "health": ["健康", "身体", "病", "手术", "体检", "住院", "养生"],
+        "property": ["搬家", "买房", "房产", "装修", "迁居", "不动产"],
+        "compatibility": ["合不合", "配对", "合婚", "配不配", "八字合", "匹配"],
+    }
+
+    SCENARIO_MAP = {
+        "career": {
+            "id": "career_change",
+            "prompt_template": "我在考虑换工作，请根据我的八字分析：1)当前工作的发展空间和运势 2)跳槽的最佳时机窗口 3)适合的行业方向 4)需要注意的风险",
+        },
+        "love": {
+            "id": "love_relationship",
+            "prompt_template": "我想了解这段感情的发展前景，请根据我的八字分析：1)这段感情的缘分深浅 2)可能遇到的阻碍和挑战 3)感情发展的关键时间点 4)如何经营这段关系",
+        },
+        "wealth": {
+            "id": "wealth_year",
+            "prompt_template": "我想了解今年的财运，请根据我的八字分析：1)今年正财运和偏财运趋势 2)财运最佳的时间窗口 3)适合的投资和理财方向 4)需要注意的破财风险",
+        },
+        "health": {
+            "id": "health_concern",
+            "prompt_template": "我想了解健康方面的注意事项，请根据我的八字分析：1)命局中哪些五行偏弱，对应哪些身体部位容易出问题 2)大运流年对健康的影响 3)需要注意的年份和季节 4)日常养生保健建议",
+        },
+        "property": {
+            "id": "property_move",
+            "prompt_template": "我想了解在房产方面的运势，请根据我的八字分析：1)当前是否适合买房或搬家 2)对居住环境的风水建议 3)适合的方位和朝向 4)不动产投资的吉凶时机",
+        },
+        "compatibility": {
+            "id": "compatibility",
+            "prompt_template": "我想了解两人的缘分和配对情况，请根据双方的八字分析：1)两人的五行互补和冲突 2)感情中的主要矛盾点 3)长期相处的前景 4)如何调和彼此的差异",
+        },
+    }
+
+    def _route_by_scenario(self, msg: str, user_id: str) -> Optional[dict]:
+        """If the message matches a known scenario, return its structured info.
+
+        Returns:
+            dict with keys: category, id, prompt_template, or None if no match.
+        """
+        if not msg:
+            return None
+
+        # Check each scenario's keywords
+        matches = []
+        for category, keywords in self.SCENARIO_KEYWORDS.items():
+            for kw in keywords:
+                if kw in msg:
+                    matches.append(category)
+                    break  # one keyword match per category is enough
+
+        if not matches:
+            return None
+
+        # Pick the best match: prioritize by keyword density
+        best_category = max(matches, key=lambda cat: sum(1 for kw in self.SCENARIO_KEYWORDS[cat] if kw in msg))
+
+        info = self.SCENARIO_MAP.get(best_category)
+        if info:
+            return {
+                "category": best_category,
+                **info,
+            }
+        return None
+
+    # ============================================================
     # AI Message Analysis — emotion + intent in ONE call (no keywords)
     # ============================================================
 
@@ -836,8 +907,30 @@ class MessageHandler:
         search_query = f"{result.day_master} {question}"
         refs = self.retriever.search(search_query, category="bazi", top_k=15)
 
-        # 5. LLM分析
-        analysis = self.llm.analyze(result, refs, question, personality_mode=self._get_personality_mode(user_id))
+        # 5. Phase 2: Scenario-aware structured report
+        scenario_info = self._route_by_scenario(question, user_id)
+        if scenario_info:
+            from src.llm.report_prompts import STRUCTURED_REPORT_PROMPT, SCENARIO_FOCUS_PROMPTS
+            extra_prompt = STRUCTURED_REPORT_PROMPT
+            cat = scenario_info.get("category", "")
+            if cat in SCENARIO_FOCUS_PROMPTS:
+                extra_prompt += "\n\n" + SCENARIO_FOCUS_PROMPTS[cat]
+            # Inject scenario prompt template into the question
+            enhanced_question = (
+                scenario_info["prompt_template"]
+                + "\n\n用户的原始问题：\n"
+                + question
+            )
+            analysis = self.llm.analyze(
+                result, refs, enhanced_question,
+                personality_mode=self._get_personality_mode(user_id),
+                extra_system_prompt=extra_prompt,
+            )
+        else:
+            analysis = self.llm.analyze(
+                result, refs, question,
+                personality_mode=self._get_personality_mode(user_id),
+            )
 
         # 6. 生成命盘图片
         chart_url = ""
