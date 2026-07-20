@@ -1,0 +1,5051 @@
+{
+  "overall_accuracy": 100.0,
+  "acceptance_threshold": 99.5,
+  "passed": true,
+  "total_samples": 500,
+  "total_discrepancies": 0,
+  "dimensions": {
+    "pillars": {
+      "correct": 500,
+      "total": 500,
+      "accuracy_pct": 100.0
+    },
+    "shishen": {
+      "correct": 2000,
+      "total": 2000,
+      "accuracy_pct": 100.0
+    },
+    "nayin": {
+      "correct": 2000,
+      "total": 2000,
+      "accuracy_pct": 100.0
+    },
+    "dayun": {
+      "correct": 3000,
+      "total": 3000,
+      "accuracy_pct": 100.0
+    },
+    "day_master": {
+      "correct": 500,
+      "total": 500,
+      "accuracy_pct": 100.0
+    },
+    "canggan": {
+      "correct": 4519,
+      "total": 4519,
+      "accuracy_pct": 100.0
+    }
+  },
+  "weights": {
+    "pillars": 0.4,
+    "shishen": 0.2,
+    "canggan": 0.15,
+    "nayin": 0.1,
+    "dayun": 0.1,
+    "day_master": 0.05
+  },
+  "discrepancies": [],
+  "sample_results": [
+    {
+      "sample": "1940-02-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1905-12-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-06-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-09-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-03-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-01-05 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-08-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1930-07-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-07-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1910-06-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1910-04-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1933-02-04 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-12-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-11-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-10-01 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1910-01-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-08-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-05-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1964-02-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-05-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-07-15 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-07-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-05-28 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-08-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-07-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-07-15 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-04-28 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-09-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-04-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-08-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1930-12-31 23:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-05-01 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-03-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1995-11-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-11-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-04-05 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-05-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-01-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-02-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-04-25 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1928-02-04 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-11-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1997-02-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-02-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-05-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-07-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-07-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-10-05 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1930-01-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-11-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-07-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-05-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-07-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-09-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-01-15 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-06-25 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-02-25 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1995-07-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-04-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-04-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-06-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-08-25 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-09-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-06-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-03-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-05-01 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-05-20 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1962-02-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1985-07-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-04-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-08-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1910-06-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-12-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-10-05 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-05-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-02-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-05-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-12-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-07-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-08-10 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-08-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2018-02-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-02-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-04-10 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-01-05 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-10-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-03-28 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 4,
+      "canggan_total": 4,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2008-02-04 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-09-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1998-02-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1961-02-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1949-02-04 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-11-10 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-06-20 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1930-11-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-08-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-01-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-04-10 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-06-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-08-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-12-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-06-10 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-05-15 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-08-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-01-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-11-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-05-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-04-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-07-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-03-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-11-05 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-05-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-05-20 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-09-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-04-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-04-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-08-20 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-10-15 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-10-25 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-12-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-12-15 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-08-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-03-25 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-06-15 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-01-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1985-06-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-05-05 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1905-07-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-03-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-01-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-05-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-04-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-06-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-05-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1927-02-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1930-06-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-04-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-04-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-02-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-04-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-01-10 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-07-10 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-04-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2025-12-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-08-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-06-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-10-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-09-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-09-25 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-03-20 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-08-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2025-03-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-07-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-12-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-11-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-04-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-12-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-05-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1905-08-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-09-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1964-02-04 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-07-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-06-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-07-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-08-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-03-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1910-06-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1985-12-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-06-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-12-20 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-02-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-07-20 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-04-05 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-08-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-08-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-12-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-07-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2021-02-04 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-11-20 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-01-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-01-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-03-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-02-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1995-06-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-09-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-12-20 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-07-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-03-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-04-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-09-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-10-20 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-07-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-01-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-12-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-02-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1954-02-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-04-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-01-10 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-11-25 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-07-20 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-03-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 5,
+      "canggan_total": 5,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1972-02-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-10-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2012-02-04 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-04-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-12-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1905-02-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1932-02-04 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-01-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-07-20 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-11-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-04-10 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-03-01 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-08-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-10-05 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-07-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-07-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-04-28 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-03-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-07-20 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-04-15 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-10-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-09-05 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-08-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-04-20 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-04-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1953-02-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-12-01 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-11-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-07-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-09-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-11-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-06-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-11-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-01-25 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-09-10 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-05-15 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-05-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-10-25 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1930-01-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-12-10 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-04-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-03-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1969-02-04 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-10-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-11-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-10-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-01-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1930-03-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-05-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2025-07-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1982-02-04 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-03-10 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 4,
+      "canggan_total": 4,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1957-02-04 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-11-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-03-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-04-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-08-28 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-07-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-12-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-12-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1982-02-04 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-07-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-09-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2017-02-04 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-06-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-08-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-07-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-10-05 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-08-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1995-02-04 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-04-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-08-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-02-20 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-09-05 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-05-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-08-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-01-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-08-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-12-20 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 4,
+      "canggan_total": 4,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-09-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-10-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-06-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-12-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-04-28 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-06-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-08-15 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-05-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-10-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-12-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-04-01 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-10-01 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-05-05 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-01-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-12-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1930-12-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 5,
+      "canggan_total": 5,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-07-05 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 5,
+      "canggan_total": 5,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-05-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-04-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-02-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-07-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-03-20 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-06-15 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-12-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2006-02-04 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-10-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-10-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-03-15 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1910-10-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-02-15 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-03-05 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-01-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-04-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-03-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-06-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-01-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-02-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1995-10-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-04-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1972-02-04 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-08-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1995-06-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-04-25 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-02-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-06-20 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-10-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-12-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1905-12-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-10-25 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1989-02-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-12-25 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-12-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-05-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1938-02-04 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-05-25 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-01-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-11-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-02-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-09-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-01-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1995-02-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-03-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-07-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-02-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1905-11-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-03-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-09-20 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1985-10-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-07-20 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-04-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-07-25 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1995-04-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-11-10 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-09-28 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1986-02-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1910-02-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-06-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-03-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-10-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-04-15 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1910-12-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1938-02-05 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-05-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-12-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-11-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-07-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-11-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-06-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-06-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1954-02-04 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-01-28 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-06-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-07-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-02-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2025-05-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-06-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-01-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-02-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-05-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1985-12-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-11-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-01-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-12-28 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-10-20 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-07-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-12-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1985-08-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-10-15 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-11-25 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-03-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-02-04 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-06-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-04-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-09-15 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1976-02-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-11-15 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-01-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-02-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-09-20 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-05-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-01-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1985-05-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-05-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-12-01 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-12-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-08-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-11-25 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2021-02-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-08-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1930-05-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-08-28 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2025-01-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-03-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1932-02-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1968-02-04 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1980-08-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-04-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-08-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-03-01 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1905-11-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-07-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-09-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-01-10 06:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-08-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-10-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-01-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1955-04-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-06-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-06-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-09-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-08-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-03-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-06-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1935-12-01 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-10-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-12-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-09-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2025-03-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-05-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1915-11-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1971-02-04 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1940-12-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-11-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1945-09-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-05-15 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1985-01-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 4,
+      "canggan_total": 4,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-12-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-09-28 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-12-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-02-04 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-05-28 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-01-05 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2015-05-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-03-01 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-11-15 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-07-10 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2025-06-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-04-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1970-04-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-06-25 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-10-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1925-12-15 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-09-10 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1967-02-04 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-06-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-03-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1985-02-28 16:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1930-02-01 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1949-02-04 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-03-28 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-10-15 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-05-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 12,
+      "canggan_total": 12,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1950-04-10 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-08-15 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-12-28 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-01-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-11-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1986-02-04 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2020-06-28 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-02-05 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1920-11-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1960-02-04 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-06-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-07-15 06:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1905-07-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-05-05 18:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-01-28 00:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1900-06-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1995-04-15 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-12-15 12:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 7,
+      "canggan_total": 7,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-07-15 18:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2005-05-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1965-01-01 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2024-05-01 12:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 11,
+      "canggan_total": 11,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1962-02-04 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 8,
+      "canggan_total": 8,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1975-06-10 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 6,
+      "canggan_total": 6,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2010-06-28 08:00 女",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1910-03-28 16:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "2000-07-10 00:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 10,
+      "canggan_total": 10,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    },
+    {
+      "sample": "1990-04-01 08:00 男",
+      "pillars_match": true,
+      "shishen_match": 4,
+      "canggan_match": 9,
+      "canggan_total": 9,
+      "nayin_match": 4,
+      "dayun_match": 6,
+      "day_master_match": true
+    }
+  ],
+  "benchmark_time": "2026-07-21T01:25:06.694131"
+}

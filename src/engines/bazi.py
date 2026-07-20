@@ -65,6 +65,13 @@ class BaziEngine:
                   hour: int, minute: int, city: str,
                   gender: str) -> BaziResult:
         """排八字命盘"""
+        # 处理晚子时 (23:00-23:59): 使用次日日期, 时柱仍为子时
+        if hour >= 23:
+            from datetime import datetime as dt, timedelta
+            d = dt(year, month, day) + timedelta(days=1)
+            year, month, day = d.year, d.month, d.day
+            hour = 0
+            minute = 0
         solar = Solar.fromYmdHms(year, month, day, hour, minute, 0)
         lunar = solar.getLunar()
         eight_char = lunar.getEightChar()
