@@ -159,6 +159,10 @@ async def lifespan(app: FastAPI):
         session_dao=session_dao,
     )
 
+    # Phase 3: Setup calendar API with DAO and handler reference
+    from .api.calendar import setup as setup_calendar
+    setup_calendar(dao, handler)
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -181,12 +185,16 @@ app.include_router(_create_oai_router(None))
 
 from .api.pricing import router as pricing_router
 from .api.scenarios import router as scenarios_router
+from .api.calendar import router as calendar_router
 
 # Pricing API
 app.include_router(pricing_router)
 
 # Phase 2: Scenario API
 app.include_router(scenarios_router, prefix="/api")
+
+# Phase 3: Calendar API
+app.include_router(calendar_router)
 
 # Models
 class ChatRequest(BaseModel):

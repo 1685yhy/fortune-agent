@@ -43,6 +43,7 @@ from src.storage.preference_dao import PreferenceDAO, UserPreferences
 from src.storage.conversation_memory import ConversationMemory
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
+from src.memory.user_memory import UserMemory
 from .formatter import split_long_message, format_error, format_loading
 from src.reading_version import get_version_footer
 
@@ -205,6 +206,8 @@ class MessageHandler:
         self.cache = ResponseCache(max_size=500)
         # E4: ML quality predictor (online learning)
         self.quality_predictor = QualityPredictor()
+        # Phase 3: User Memory System — persistent cross-session memory
+        self.memory_system = UserMemory()
 
     # ============================================================
     # Personality Mode Management
@@ -460,6 +463,10 @@ class MessageHandler:
 
         # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
         analysis = self._analyze_message(msg)
+
+        # Phase 3: Track mood in user memory
+        if self.memory_system and analysis.emotion_label:
+            self.memory_system.add_mood_record(user_id, analysis.emotion_label)
 
         # Save user message to session history
         if self.session_dao:
@@ -902,6 +909,21 @@ class MessageHandler:
             "bazi": result.bazi,
         })
         self.dao.save_consultation(user_id, question, result)
+
+        # Phase 3: Save to user memory system
+        if self.memory_system:
+            self.memory_system.save_bazi_info(user_id, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute,
+                "city": city, "gender": gender,
+                "bazi": result.bazi,
+                "day_master": getattr(result, "day_master", ""),
+            })
+            # Extract topic from question
+            user_context = self._extract_user_context(question)
+            if user_context:
+                self.memory_system.add_concern(user_id, user_context)
+                self.memory_system.remember(user_id, "last_topic", user_context)
 
         # 4. 检索古籍
         search_query = f"{result.day_master} {question}"
@@ -2028,6 +2050,11 @@ class MessageHandler:
         确保 LLM 优先提供情感支持而非索要信息。
         """
         if msg.strip() in ('',' ','?','？'):
+            # Phase 3: Mood-aware greeting for returning users
+            if self.memory_system and self.memory_system.has_memory(user_id):
+                greeting = self.memory_system.get_greeting(user_id)
+                if greeting:
+                    return f"欢迎回来！{greeting}"
             return '您好！我是易理明灯AI命理顾问。直接告诉我您的出生日期，我帮您看八字。'
 
         # 如果消息含数字或年份，可能是用户尝试提供出生信息，引导一下
