@@ -1,13 +1,14 @@
 """Fortune Agent - FastAPI 主入口."""
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query, Depends, Header
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
 from .config import load_settings
@@ -28,6 +29,15 @@ from .storage.dao import UserDAO
 from .storage.member_dao import MemberDAO
 from .storage.session_dao import SessionDAO
 
+# Security imports
+from .security.ratelimit import RateLimiter, RateLimitMiddleware
+from .security.auth import AuthHandler
+from .security.sanitizer import InputSanitizer
+from .security.encryption import DataEncryptor
+from .security.privacy import PrivacyManager, PIPL_DISCLAIMER
+from .security.audit import AuditLogger
+from .security.router import router as security_router, init_security_router
+
 logger = logging.getLogger(__name__)
 
 # 全局实例
@@ -47,6 +57,13 @@ llm = None
 member_dao = None
 session_dao = None
 _push_task = None  # 后台推送任务
+
+# Security globals
+security_rate_limiter = None
+security_auth = None
+security_sanitizer = None
+security_encryptor = None
+security_audit = None
 
 
 async def _daily_push_worker():
@@ -83,6 +100,7 @@ async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
     global mianxiang_engine, zeri_engine, dream_engine, embedder, retriever, dao, llm, handler
     global _push_task, member_dao, session_dao
+    global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
     # 配置日志
     logging.basicConfig(
@@ -91,6 +109,34 @@ async def lifespan(app: FastAPI):
     )
 
     settings = load_settings()
+
+    # ── Init Security Components ─────────────────────────────
+    security_rate_limiter = RateLimiter()
+    security_auth = AuthHandler()
+    security_sanitizer = InputSanitizer()
+    security_encryptor = DataEncryptor()
+    security_audit = AuditLogger()
+
+    # Set shared auth handler so FastAPI dependencies use consistent JWT key
+    from .security.auth import set_auth_handler as _set_auth
+    _set_auth(security_auth)
+
+    db_path = str(settings.db_path)
+    privacy_manager = PrivacyManager(db_path, security_encryptor)
+
+    # Init security router with all components
+    init_security_router(
+        db_path=db_path,
+        auth_handler=security_auth,
+        privacy_manager=privacy_manager,
+        audit_logger=security_audit,
+        sanitizer=security_sanitizer,
+        encryptor=security_encryptor,
+    )
+
+    logger.info("Security system: rate_limiter=✓ auth=✓ sanitizer=✓ encryption=✓ audit=✓ privacy=✓")
+
+    # ── Init Engines ─────────────────────────────────────────
     engine = BaziEngine()
     ziwei_engine = ZiweiEngine()
     liuyao_engine = LiuyaoEngine()
@@ -194,6 +240,27 @@ from .api.visual_report import router as visual_report_router
 from .api.compatibility import router as compatibility_router
 from .api.share import router as share_router
 
+# Security API router
+app.include_router(security_router)
+
+# Rate limiting middleware (registered after all routers)
+app.add_middleware(RateLimitMiddleware, limiter=security_rate_limiter)
+
+# ── Disclaimer Middleware ────────────────────────────────────
+# Adds PIPL disclaimer header to all API responses
+from starlette.middleware.base import BaseHTTPMiddleware
+
+DISCLAIMER_HEADER = "Entertainment purposes only. Personal data protected per PIPL."
+
+class _DisclaimerMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith("/api/") and "text/html" not in response.headers.get("content-type", ""):
+            response.headers["X-Disclaimer"] = DISCLAIMER_HEADER
+        return response
+
+app.add_middleware(_DisclaimerMiddleware)
+
 # Pricing API
 app.include_router(pricing_router)
 
@@ -222,13 +289,35 @@ class ChatResponse(BaseModel):
     parts: Optional[list] = None  # 拆分后的多条消息
     membership: Optional[dict] = None  # 用户会员信息
     consultation_id: Optional[int] = None  # Sprint 4: 反馈用咨询ID
+    disclaimer: str = PIPL_DISCLAIMER  # PIPL 免责声明
 
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest) -> ChatResponse:
-    """聊天接口 - 包含会员配额检查"""
+async def chat(req: ChatRequest, request: Request = None) -> ChatResponse:
+    """聊天接口 - 包含会员配额检查和输入过滤"""
     if handler is None or member_dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
+
+    # ── 输入安全检测 ───────────────────────────────────────
+    if security_sanitizer and req.message:
+        cleaned, is_attack, attack_type = security_sanitizer.clean_and_check(req.message)
+        if is_attack:
+            ip = ""
+            if request:
+                forwarded = request.headers.get("X-Forwarded-For", "")
+                ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "")
+            if security_audit:
+                security_audit.attack_detected(attack_type, req.user_id, ip, req.message[:80])
+            return ChatResponse(
+                reply="⚠️ 输入包含不安全内容，已拦截。请使用正常语言描述您的问题。",
+                membership=member_dao.get_membership(req.user_id) if member_dao else None,
+            )
+        req.message = cleaned
+
+    if security_sanitizer and req.voice_text:
+        cleaned, is_attack, attack_type = security_sanitizer.clean_and_check(req.voice_text)
+        if not is_attack:
+            req.voice_text = cleaned
 
     # 配额检查
     if not member_dao.check_quota(req.user_id):
@@ -288,6 +377,44 @@ async def stats():
     if dao is None:
         return {"error": "Not ready"}
     return dao.get_user_stats()
+
+
+# ──────────────────────────────────────────
+# Privacy / Data Rights Endpoints
+# ──────────────────────────────────────────
+
+@app.get("/api/user/export/{user_id}")
+async def user_data_export(user_id: str, request: Request):
+    """Export all user data (PIPL Art. 45 data portability)."""
+    from .security.router import init_security_router as _init_sec
+    pm = PrivacyManager(str(load_settings().db_path), DataEncryptor())
+    audit = AuditLogger()
+    ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
+    ua = request.headers.get("User-Agent", "")
+    audit.data_export(user_id, ip, ua)
+    data = pm.export_user_data(user_id)
+    if data is None:
+        raise HTTPException(status_code=404, detail="用户不存在或无数据")
+    return {"status": "ok", "data": data, "disclaimer": PIPL_DISCLAIMER}
+
+
+@app.delete("/api/user/data/{user_id}")
+async def user_data_deletion(user_id: str, request: Request, confirm: bool = Query(True)):
+    """Delete all user data (PIPL Art. 47 right to be forgotten)."""
+    if not confirm:
+        raise HTTPException(status_code=400, detail="请确认删除操作")
+    pm = PrivacyManager(str(load_settings().db_path), DataEncryptor())
+    audit = AuditLogger()
+    ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
+    audit.data_deletion(user_id, ip)
+    deleted = pm.delete_user_data(user_id)
+    logger.warning("Data deletion completed for user %s", user_id)
+    return {
+        "status": "ok",
+        "message": "所有个人数据已删除（不可恢复）",
+        "records_deleted": deleted,
+        "disclaimer": PIPL_DISCLAIMER,
+    }
 
 
 @app.post("/api/push-daily")
