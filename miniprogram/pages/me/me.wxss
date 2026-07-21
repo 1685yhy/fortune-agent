@@ -1,0 +1,372 @@
+/* 我的 — 个人中心样式 */
+
+.page-me {
+  min-height: 100vh;
+  padding-bottom: 40px;
+  background: var(--color-bg);
+}
+
+/* 用户头部 */
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-md);
+  background: var(--gradient-primary);
+  color: #fff;
+}
+
+.profile-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 2px solid rgba(255,255,255,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.1);
+}
+
+.avatar-img {
+  width: 100%;
+  height: 100%;
+}
+
+.avatar-placeholder {
+  font-size: 32px;
+}
+
+.profile-info {
+  flex: 1;
+}
+
+.profile-name {
+  font-size: var(--font-lg);
+  font-weight: 700;
+  display: block;
+  color: #fff;
+}
+
+.profile-badge {
+  font-size: var(--font-xs);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  background: rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.8);
+  display: inline-block;
+  margin-top: 4px;
+}
+
+.login-badge {
+  background: var(--color-accent);
+  color: #1a1a2e;
+  font-weight: 600;
+}
+
+.profile-edit {
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(255,255,255,0.3);
+  font-size: var(--font-sm);
+  color: rgba(255,255,255,0.8);
+}
+
+/* 区块 */
+.section {
+  margin-top: var(--spacing-md);
+  padding: 0 var(--spacing-md);
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) 0;
+}
+
+.section-title {
+  font-size: var(--font-md);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.section-action {
+  padding: 4px 14px;
+  border-radius: var(--radius-full);
+  background: rgba(201, 169, 110, 0.12);
+  color: var(--color-accent-dark);
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+
+/* 八字卡片 */
+.bazi-card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-md) var(--spacing-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.bazi-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.bazi-row:last-child {
+  border-bottom: none;
+}
+
+.bazi-label {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+}
+
+.bazi-value {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.bazi-empty {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  text-align: center;
+  border: 2px dashed var(--color-border);
+}
+
+.bazi-empty-text {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+}
+
+/* 设置卡片 */
+.settings-card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.setting-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.setting-item:last-child {
+  border-bottom: none;
+}
+
+.setting-left {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.setting-icon {
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
+}
+
+.setting-icon.danger {
+  color: var(--color-danger);
+}
+
+.setting-label {
+  font-size: var(--font-md);
+  color: var(--color-text);
+}
+
+.danger-label {
+  color: var(--color-danger);
+}
+
+.setting-value {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+}
+
+.setting-arrow {
+  font-size: 20px;
+  color: var(--color-text-tertiary);
+  font-weight: 300;
+}
+
+.setting-switch {
+  transform: scale(0.8);
+}
+
+/* 反馈输入 */
+.feedback-item {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--spacing-sm);
+}
+
+.feedback-input-area {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.feedback-input {
+  flex: 1;
+  padding: 8px 0;
+  font-size: var(--font-md);
+  color: var(--color-text);
+  background: transparent;
+  border: none;
+}
+
+/* ===== 弹窗通用 ===== */
+.bazi-overlay,
+.disclaimer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--transition-normal);
+}
+
+.bazi-overlay.show,
+.disclaimer-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.bazi-sheet,
+.disclaimer-sheet {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--color-bg-card);
+  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  display: flex;
+  flex-direction: column;
+  max-height: 80vh;
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* 弹窗头部 */
+.bazi-editor-header,
+.disclaimer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--spacing-lg);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.bazi-editor-title,
+.disclaimer-title {
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.bazi-editor-close,
+.disclaimer-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--color-bg-card-alt);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-sm);
+  color: var(--color-text-secondary);
+}
+
+/* 弹窗体 */
+.bazi-editor-body,
+.disclaimer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--spacing-lg);
+  max-height: 55vh;
+}
+
+.disclaimer-text {
+  font-size: var(--font-md);
+  color: var(--color-text);
+  line-height: 2;
+  white-space: pre-wrap;
+  display: block;
+}
+
+/* 表单组 */
+.form-group {
+  margin-bottom: var(--spacing-lg);
+}
+
+.form-label {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  display: block;
+  margin-bottom: var(--spacing-sm);
+}
+
+.form-picker {
+  padding: 12px 16px;
+  background: var(--color-bg-card-alt);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-md);
+  color: var(--color-text);
+}
+
+.form-radio-group {
+  display: flex;
+  gap: var(--spacing-lg);
+}
+
+.form-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card-alt);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-md);
+  color: var(--color-text-secondary);
+}
+
+.form-radio.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent-dark);
+  background: rgba(201, 169, 110, 0.08);
+}
+
+/* 弹窗底部 */
+.bazi-editor-footer {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border-top: 1px solid var(--color-divider);
+  display: flex;
+  justify-content: center;
+}
+
+/* 暗色模式 */
+@media (prefers-color-scheme: dark) {
+  .profile-header {
+    background: linear-gradient(135deg, #0d0d1a 0%, #1a1a3e 100%);
+  }
+}

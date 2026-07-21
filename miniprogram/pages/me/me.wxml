@@ -1,0 +1,268 @@
+<!-- 我的 — 个人中心 -->
+
+<view class="page-me">
+  <!-- 用户头部 -->
+  <view class="profile-header">
+    <view class="profile-avatar">
+      <image wx:if="{{userInfo && userInfo.avatarUrl}}" src="{{userInfo.avatarUrl}}" class="avatar-img" mode="aspectFill" />
+      <text wx:else class="avatar-placeholder">🔮</text>
+    </view>
+    <view class="profile-info">
+      <text class="profile-name">{{userInfo ? userInfo.nickName : '易理明灯用户'}}</text>
+      <text class="profile-badge" wx:if="{{isLoggedIn}}">已绑定微信</text>
+      <text class="profile-badge login-badge" wx:else bindtap="handleLogin">点击登录</text>
+    </view>
+    <view class="profile-edit" bindtap="getUserProfile" wx:if="{{isLoggedIn}}">
+      <text>编辑</text>
+    </view>
+  </view>
+
+  <!-- 八字档案 -->
+  <view class="section">
+    <view class="section-header">
+      <text class="section-title">📜 八字档案</text>
+      <view class="section-action" bindtap="openBaziEditor">
+        <text wx:if="{{!hasBazi}}">添加</text>
+        <text wx:else>编辑</text>
+      </view>
+    </view>
+
+    <view class="bazi-card" wx:if="{{hasBazi}}">
+      <view class="bazi-row">
+        <text class="bazi-label">出生年</text>
+        <text class="bazi-value">{{baziInfo.birthYear}} 年</text>
+      </view>
+      <view class="bazi-row">
+        <text class="bazi-label">出生月</text>
+        <text class="bazi-value">{{baziInfo.birthMonth}} 月</text>
+      </view>
+      <view class="bazi-row">
+        <text class="bazi-label">出生日</text>
+        <text class="bazi-value">{{baziInfo.birthDay}} 日</text>
+      </view>
+      <view class="bazi-row">
+        <text class="bazi-label">时辰</text>
+        <text class="bazi-value">
+          <block wx:if="{{baziInfo.birthHour == 0}}">子时(23-01)</block>
+          <block wx:elif="{{baziInfo.birthHour == 1}}">丑时(01-03)</block>
+          <block wx:elif="{{baziInfo.birthHour == 2}}">寅时(03-05)</block>
+          <block wx:elif="{{baziInfo.birthHour == 3}}">卯时(05-07)</block>
+          <block wx:elif="{{baziInfo.birthHour == 4}}">辰时(07-09)</block>
+          <block wx:elif="{{baziInfo.birthHour == 5}}">巳时(09-11)</block>
+          <block wx:elif="{{baziInfo.birthHour == 6}}">午时(11-13)</block>
+          <block wx:elif="{{baziInfo.birthHour == 7}}">未时(13-15)</block>
+          <block wx:elif="{{baziInfo.birthHour == 8}}">申时(15-17)</block>
+          <block wx:elif="{{baziInfo.birthHour == 9}}">酉时(17-19)</block>
+          <block wx:elif="{{baziInfo.birthHour == 10}}">戌时(19-21)</block>
+          <block wx:elif="{{baziInfo.birthHour == 11}}">亥时(21-23)</block>
+        </text>
+      </view>
+      <view class="bazi-row">
+        <text class="bazi-label">性别</text>
+        <text class="bazi-value">{{baziInfo.gender === 'male' ? '男' : '女'}}</text>
+      </view>
+      <view class="bazi-row">
+        <text class="bazi-label">历法</text>
+        <text class="bazi-value">{{baziInfo.calendar === 'solar' ? '公历' : '农历'}}</text>
+      </view>
+    </view>
+
+    <view class="bazi-empty" wx:else>
+      <text class="bazi-empty-text">设置出生信息以获取精准运势</text>
+    </view>
+  </view>
+
+  <!-- 设置列表 -->
+  <view class="section">
+    <view class="section-header">
+      <text class="section-title">⚙️ 设置</text>
+    </view>
+
+    <view class="settings-card">
+      <!-- 每日推送 -->
+      <view class="setting-item">
+        <view class="setting-left">
+          <text class="setting-icon">🔔</text>
+          <text class="setting-label">运势订阅</text>
+        </view>
+        <switch class="setting-switch" checked="{{dailyPush}}" bindchange="toggleDailyPush" color="#c9a96e" />
+      </view>
+
+      <!-- 数据导出 -->
+      <view class="setting-item" bindtap="exportData">
+        <view class="setting-left">
+          <text class="setting-icon">📤</text>
+          <text class="setting-label">数据导出</text>
+        </view>
+        <text class="setting-arrow">›</text>
+      </view>
+
+      <!-- 数据删除 -->
+      <view class="setting-item" bindtap="deleteData">
+        <view class="setting-left">
+          <text class="setting-icon danger">🗑️</text>
+          <text class="setting-label danger-label">删除所有数据</text>
+        </view>
+        <text class="setting-arrow">›</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 关于 -->
+  <view class="section">
+    <view class="section-header">
+      <text class="section-title">ℹ️ 关于</text>
+    </view>
+
+    <view class="settings-card">
+      <view class="setting-item">
+        <view class="setting-left">
+          <text class="setting-icon">📱</text>
+          <text class="setting-label">版本</text>
+        </view>
+        <text class="setting-value">{{appVersion}}</text>
+      </view>
+
+      <view class="setting-item" bindtap="toggleDisclaimer">
+        <view class="setting-left">
+          <text class="setting-icon">⚖️</text>
+          <text class="setting-label">免责声明</text>
+        </view>
+        <text class="setting-arrow">›</text>
+      </view>
+
+      <!-- 反馈 -->
+      <view class="setting-item feedback-item">
+        <view class="feedback-input-area">
+          <text class="setting-icon">💬</text>
+          <input class="feedback-input" type="text" placeholder="提供反馈帮助改进..." value="{{feedbackText}}" bindinput="onFeedbackInput" />
+        </view>
+        <button class="btn btn-primary btn-small" loading="{{sendingFeedback}}" bindtap="submitFeedback">发送</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 免责声明弹窗 -->
+  <view class="disclaimer-overlay {{showDisclaimer ? 'show' : ''}}" bindtap="toggleDisclaimer">
+    <view class="disclaimer-sheet" catchtap>
+      <view class="disclaimer-header">
+        <text class="disclaimer-title">免责声明</text>
+        <view class="disclaimer-close" bindtap="toggleDisclaimer">
+          <text>✕</text>
+        </view>
+      </view>
+      <view class="disclaimer-body">
+        <text class="disclaimer-text">
+          易理明灯是一款基于 AI 技术的传统文化辅助工具。
+
+          1. 所有命理分析结果仅供参考，不构成任何生活决策建议。
+          2. 用户个人信息将严格保密，仅用于命理计算。
+          3. 本应用不提供医疗、法律、金融等专业建议。
+          4. 请理性看待命理分析，切勿过度依赖。
+          5. 最终解释权归易理明灯所有。
+
+          使用即代表同意以上条款。
+        </text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ===== 八字编辑弹窗 ===== -->
+  <view class="bazi-overlay {{showBaziEditor ? 'show' : ''}}" bindtap="closeBaziEditor">
+    <view class="bazi-sheet" catchtap>
+      <view class="bazi-editor-header">
+        <text class="bazi-editor-title">{{hasBazi ? '编辑八字' : '添加八字'}}</text>
+        <view class="bazi-editor-close" bindtap="closeBaziEditor">
+          <text>✕</text>
+        </view>
+      </view>
+
+      <scroll-view class="bazi-editor-body" scroll-y="{{true}}">
+        <!-- 出生日期 -->
+        <view class="form-group">
+          <text class="form-label">出生年份</text>
+          <picker mode="selector" range="{{years}}" bindchange="onBirthYearChange" value="{{years.indexOf(birthYear)}}">
+            <view class="form-picker">
+              <text>{{birthYear}} 年</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">出生月份</text>
+          <picker mode="selector" range="{{months}}" bindchange="onBirthMonthChange" value="{{months.indexOf(birthMonth)}}">
+            <view class="form-picker">
+              <text>{{birthMonth}} 月</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">出生日期</text>
+          <picker mode="selector" range="{{days}}" bindchange="onBirthDayChange" value="{{days.indexOf(birthDay)}}">
+            <view class="form-picker">
+              <text>{{birthDay}} 日</text>
+            </view>
+          </picker>
+        </view>
+
+        <!-- 出生时辰 -->
+        <view class="form-group">
+          <text class="form-label">出生时辰</text>
+          <picker mode="selector" range="{{hours}}" bindchange="onBirthHourChange" value="{{hours.indexOf(birthHour)}}">
+            <view class="form-picker">
+              <text>
+                <block wx:if="{{birthHour == 0}}">子时(23-01)</block>
+                <block wx:elif="{{birthHour == 1}}">丑时(01-03)</block>
+                <block wx:elif="{{birthHour == 2}}">寅时(03-05)</block>
+                <block wx:elif="{{birthHour == 3}}">卯时(05-07)</block>
+                <block wx:elif="{{birthHour == 4}}">辰时(07-09)</block>
+                <block wx:elif="{{birthHour == 5}}">巳时(09-11)</block>
+                <block wx:elif="{{birthHour == 6}}">午时(11-13)</block>
+                <block wx:elif="{{birthHour == 7}}">未时(13-15)</block>
+                <block wx:elif="{{birthHour == 8}}">申时(15-17)</block>
+                <block wx:elif="{{birthHour == 9}}">酉时(17-19)</block>
+                <block wx:elif="{{birthHour == 10}}">戌时(19-21)</block>
+                <block wx:elif="{{birthHour == 11}}">亥时(21-23)</block>
+              </text>
+            </view>
+          </picker>
+        </view>
+
+        <!-- 性别 -->
+        <view class="form-group">
+          <text class="form-label">性别</text>
+          <view class="form-radio-group">
+            <label class="form-radio {{gender === 'male' ? 'active' : ''}}">
+              <radio value="male" checked="{{gender === 'male'}}" bindchange="onGenderChange" color="#c9a96e" />
+              <text>男</text>
+            </label>
+            <label class="form-radio {{gender === 'female' ? 'active' : ''}}">
+              <radio value="female" checked="{{gender === 'female'}}" bindchange="onGenderChange" color="#c9a96e" />
+              <text>女</text>
+            </label>
+          </view>
+        </view>
+
+        <!-- 历法 -->
+        <view class="form-group">
+          <text class="form-label">历法</text>
+          <view class="form-radio-group">
+            <label class="form-radio {{calendar === 'solar' ? 'active' : ''}}">
+              <radio value="solar" checked="{{calendar === 'solar'}}" bindchange="onCalendarChange" color="#c9a96e" />
+              <text>公历</text>
+            </label>
+            <label class="form-radio {{calendar === 'lunar' ? 'active' : ''}}">
+              <radio value="lunar" checked="{{calendar === 'lunar'}}" bindchange="onCalendarChange" color="#c9a96e" />
+              <text>农历</text>
+            </label>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="bazi-editor-footer">
+        <button class="btn btn-primary" bindtap="saveBazi">保存八字信息</button>
+      </view>
+    </view>
+  </view>
+</view>

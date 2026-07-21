@@ -1,0 +1,124 @@
+<!-- 报告 — 历史解读列表 -->
+
+<view class="page-reports">
+  <!-- 头部 -->
+  <view class="reports-header">
+    <text class="reports-title">解读报告</text>
+    <text class="reports-subtitle">历史命理分析记录</text>
+  </view>
+
+  <!-- 加载中 -->
+  <view class="loading-container" wx:if="{{loading}}">
+    <view class="loading-spinner"></view>
+    <text class="loading-text">加载报告中...</text>
+  </view>
+
+  <!-- 报告列表 -->
+  <view class="report-list" wx:if="{{!loading && reports.length > 0}}">
+    <view
+      class="report-item"
+      wx:for="{{reports}}"
+      wx:key="id"
+      data-id="{{item.id}}"
+      bindtap="viewDetail"
+    >
+      <view class="report-card">
+        <view class="report-card-top">
+          <view class="report-meta">
+            <text class="report-date">{{item.date}}</text>
+            <text class="report-scenario">{{item.scenarioLabel}}</text>
+          </view>
+          <view class="report-score" wx:if="{{item.score}}">
+            <text class="report-score-text">{{item.score}}</text>
+          </view>
+        </view>
+
+        <text class="report-summary">{{item.summary}}</text>
+
+        <view class="report-tags" wx:if="{{item.tags && item.tags.length}}">
+          <text class="report-tag" wx:for="{{item.tags}}" wx:for-item="tag" wx:key="*this">{{tag}}</text>
+        </view>
+
+        <view class="report-actions">
+          <view class="report-action report-action-view">
+            <text>查看详情 →</text>
+          </view>
+          <view class="report-action report-action-share" data-id="{{item.id}}" bindtap="shareReport" catchtap>
+            <text>📤 分享</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 加载更多 -->
+    <view class="load-more" wx:if="{{hasMore}}">
+      <view class="loading-spinner" style="width:24px;height:24px;border-width:2px;"></view>
+      <text class="loading-text">加载更多...</text>
+    </view>
+
+    <view class="load-more" wx:elif="{{!hasMore && reports.length > 0}}">
+      <text class="load-end-text">— 已显示全部报告 —</text>
+    </view>
+  </view>
+
+  <!-- 空状态 -->
+  <view class="empty-state" wx:if="{{!loading && reports.length === 0}}">
+    <text class="empty-state-icon">📋</text>
+    <text class="empty-state-text">还没有解读报告\n去对话页开始一次咨询吧</text>
+    <button class="btn btn-primary" bindtap="goChat">去对话</button>
+  </view>
+
+  <!-- ========== 详情弹窗 ========== -->
+  <view class="detail-overlay {{showDetail ? 'show' : ''}}" bindtap="closeDetail">
+    <view class="detail-sheet" catchtap>
+      <view class="detail-header">
+        <text class="detail-title">解读详情</text>
+        <view class="detail-close" bindtap="closeDetail">
+          <text>✕</text>
+        </view>
+      </view>
+
+      <scroll-view class="detail-body" scroll-y="{{true}}">
+        <view class="detail-loading" wx:if="{{detailLoading}}">
+          <view class="loading-spinner"></view>
+        </view>
+
+        <view wx:else>
+          <view class="detail-meta">
+            <view class="detail-meta-item">
+              <text class="detail-meta-label">日期</text>
+              <text class="detail-meta-value">{{currentReport.date}}</text>
+            </view>
+            <view class="detail-meta-item">
+              <text class="detail-meta-label">场景</text>
+              <text class="detail-meta-value">{{currentReport.scenarioLabel}}</text>
+            </view>
+            <view class="detail-meta-item" wx:if="{{currentReport.score}}">
+              <text class="detail-meta-label">运势分</text>
+              <text class="detail-meta-value">{{currentReport.score}}/100</text>
+            </view>
+          </view>
+
+          <view class="detail-content">
+            <text class="detail-content-text">{{currentReport.fullContent || currentReport.summary}}</text>
+          </view>
+
+          <view class="detail-extras" wx:if="{{currentReport.luckyColor || currentReport.luckyDirection}}">
+            <view class="extra-item" wx:if="{{currentReport.luckyColor}}">
+              <text class="extra-label">幸运色</text>
+              <text class="extra-value">{{currentReport.luckyColor}}</text>
+            </view>
+            <view class="extra-item" wx:if="{{currentReport.luckyDirection}}">
+              <text class="extra-label">幸运方向</text>
+              <text class="extra-value">{{currentReport.luckyDirection}}</text>
+            </view>
+          </view>
+        </view>
+      </scroll-view>
+
+      <view class="detail-footer">
+        <button class="btn btn-primary btn-small" data-id="{{currentReport.id}}" bindtap="shareReport">📤 分享报告</button>
+      </view>
+    </view>
+  </view>
+</view>

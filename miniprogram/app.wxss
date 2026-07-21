@@ -1,0 +1,265 @@
+/* ========================================
+   易理明灯 v5.0 — 全局样式
+   Design: Deep Indigo + Gold, 8px grid
+   ======================================== */
+
+/* ---- CSS 变量（设计令牌） ---- */
+page {
+  /* 主色调 */
+  --color-primary: #1a1a2e;
+  --color-primary-light: #2d2d5e;
+  --color-accent: #c9a96e;
+  --color-accent-light: #d4b87a;
+  --color-accent-dark: #b8954a;
+
+  /* 语义色 */
+  --color-success: #4caf50;
+  --color-warning: #ff9800;
+  --color-danger: #e74c3c;
+  --color-info: #5b8def;
+
+  /* 中性色 */
+  --color-text: #1a1a2e;
+  --color-text-secondary: #666680;
+  --color-text-tertiary: #9999aa;
+  --color-bg: #f5f0eb;
+  --color-bg-card: #ffffff;
+  --color-bg-card-alt: #faf8f5;
+  --color-border: #eee8e0;
+  --color-divider: #f0ece6;
+
+  /* 间距 */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+
+  /* 圆角 */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 999px;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+  --shadow-glow: 0 4px 20px rgba(201,169,110,0.25);
+
+  /* 字体 */
+  --font-xs: 11px;
+  --font-sm: 13px;
+  --font-md: 15px;
+  --font-lg: 17px;
+  --font-xl: 20px;
+  --font-2xl: 24px;
+  --font-3xl: 32px;
+
+  /* 转场 */
+  --transition-fast: 0.2s ease;
+  --transition-normal: 0.3s ease;
+
+  /* 背景 */
+  --gradient-primary: linear-gradient(135deg, #1a1a2e 0%, #2d2d5e 100%);
+  --gradient-card: linear-gradient(135deg, #2d2d5e 0%, #1a1a2e 100%);
+  --gradient-gold: linear-gradient(135deg, #c9a96e 0%, #d4b87a 50%, #c9a96e 100%);
+  --gradient-warm: linear-gradient(135deg, #f5f0eb 0%, #faf5ee 100%);
+}
+
+/* ---- 暗色模式 ---- */
+@media (prefers-color-scheme: dark) {
+  page {
+    --color-text: #e8e4e0;
+    --color-text-secondary: #aaaabc;
+    --color-text-tertiary: #777790;
+    --color-bg: #12121a;
+    --color-bg-card: #1e1e2e;
+    --color-bg-card-alt: #252538;
+    --color-border: #2a2a40;
+    --color-divider: #222236;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+  }
+}
+
+/* ---- Reset & Base ---- */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+page {
+  font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+  font-size: var(--font-md);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+view, text, image, button, input, textarea {
+  font-family: inherit;
+}
+
+/* ---- 通用组件 ---- */
+
+/* 卡片 */
+.card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-lg);
+  margin: var(--spacing-md) var(--spacing-md) 0;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow var(--transition-normal);
+}
+
+.card:hover, .card:active {
+  box-shadow: var(--shadow-md);
+}
+
+/* 按钮 */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 24px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-md);
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  background: var(--color-bg-card-alt);
+  color: var(--color-text);
+}
+
+.btn-primary {
+  background: var(--gradient-gold);
+  color: #1a1a2e;
+  font-weight: 600;
+  box-shadow: var(--shadow-glow);
+}
+
+.btn-primary:active {
+  opacity: 0.85;
+  transform: scale(0.97);
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.btn-small {
+  padding: 6px 16px;
+  font-size: var(--font-sm);
+}
+
+/* 标签/芯片 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border-radius: var(--radius-full);
+  font-size: var(--font-xs);
+  font-weight: 500;
+  background: var(--color-bg-card-alt);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.chip-accent {
+  background: rgba(201, 169, 110, 0.12);
+  color: var(--color-accent-dark);
+  border-color: rgba(201, 169, 110, 0.3);
+}
+
+/* 分隔线 */
+.divider {
+  height: 1px;
+  background: var(--color-divider);
+  margin: var(--spacing-md) 0;
+}
+
+/* 加载 */
+.loading-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-2xl) 0;
+}
+
+.loading-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading-text {
+  margin-top: var(--spacing-sm);
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+}
+
+/* 空状态 */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-2xl) var(--spacing-lg);
+  text-align: center;
+}
+
+.empty-state-icon {
+  font-size: 48px;
+  margin-bottom: var(--spacing-md);
+  opacity: 0.6;
+}
+
+.empty-state-text {
+  font-size: var(--font-md);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+/* 列表项 */
+.list-item {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-md) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.list-item:last-child {
+  border-bottom: none;
+}
+
+/* Toast */
+.toast {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0,0,0,0.8);
+  color: #fff;
+  padding: 12px 24px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-sm);
+  z-index: 9999;
+  pointer-events: none;
+}

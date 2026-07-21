@@ -1,0 +1,116 @@
+<!-- 对话 — AI 聊天页面 -->
+
+<view class="page-chat">
+  <!-- 顶部导航栏 -->
+  <view class="chat-header">
+    <view class="chat-header-left">
+      <text class="chat-title">AI 命运伴侣</text>
+    </view>
+    <view class="chat-header-right">
+      <view class="header-btn" bindtap="toggleScenarios">
+        <text>🎯 场景</text>
+      </view>
+      <view class="header-btn" bindtap="clearChat">
+        <text>🗑️</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 场景选择面板 -->
+  <view class="scenario-panel" wx:if="{{showScenarios}}">
+    <view
+      class="scenario-item {{selectedScenario === item.id ? 'active' : ''}}"
+      wx:for="{{scenarios}}"
+      wx:key="id"
+      data-id="{{item.id}}"
+      data-label="{{item.label}}"
+      bindtap="selectScenario"
+    >
+      <text class="scenario-icon">{{item.icon}}</text>
+      <text class="scenario-label">{{item.label}}</text>
+      <text class="scenario-check" wx:if="{{selectedScenario === item.id}}">✓</text>
+    </view>
+  </view>
+
+  <!-- 消息列表 -->
+  <scroll-view
+    class="message-list"
+    scroll-y="{{true}}"
+    scroll-with-animation="{{true}}"
+    scroll-into-view="{{scrollToView}}"
+    upper-threshold="50"
+  >
+    <view class="message-container">
+      <!-- 消息气泡 -->
+      <view
+        class="message-wrapper {{msg.role === 'user' ? 'user' : 'assistant'}}"
+        wx:for="{{messages}}"
+        wx:key="id"
+        wx:for-item="msg"
+      >
+        <!-- 场景切换提示 -->
+        <view class="scenario-hint" wx:if="{{msg.type === 'scenario_hint'}}">
+          <text class="scenario-hint-text">{{msg.content}}</text>
+        </view>
+
+        <!-- 普通消息 -->
+        <view wx:else class="message-bubble {{msg.role}} {{msg.type === 'structured' ? 'structured' : ''}}">
+          <view class="bubble-avatar">
+            <text wx:if="{{msg.role === 'assistant'}}">🔮</text>
+            <text wx:else>👤</text>
+          </view>
+          <view class="bubble-content">
+            <view class="bubble-text">
+              <rich-text nodes="{{msg.content}}" wx:if="{{msg.content.includes('\n')}}"></rich-text>
+              <text wx:else>{{msg.content}}</text>
+            </view>
+
+            <!-- 结构化报告（折叠） -->
+            <view class="structured-report" wx:if="{{msg.structured}}">
+              <view class="report-collapse" bindtap="toggleReport">
+                <text class="report-collapse-title">📊 查看完整分析</text>
+              </view>
+            </view>
+
+            <view class="bubble-time">
+              <text>{{msg.time}}</text>
+              <text class="bubble-copy" data-content="{{msg.content}}" bindtap="copyMessage">复制</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 打字中指示器 -->
+      <view class="message-wrapper assistant" wx:if="{{isTyping}}">
+        <view class="typing-indicator">
+          <view class="typing-avatar">🔮</view>
+          <view class="typing-bubble">
+            <text class="typing-text">分析中{{typingDots}}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 滚动锚点 -->
+      <view id="scroll-bottom"></view>
+    </view>
+  </scroll-view>
+
+  <!-- 输入区域 -->
+  <view class="input-bar">
+    <view class="input-wrapper">
+      <input
+        class="text-input"
+        type="text"
+        placeholder="输入你想问的..."
+        value="{{inputText}}"
+        bindinput="onInput"
+        bindconfirm="sendMessage"
+        confirm-type="send"
+        disabled="{{sending}}"
+      />
+      <view class="send-btn {{inputText.trim() ? 'active' : ''}}" bindtap="sendMessage">
+        <text>发送</text>
+      </view>
+    </view>
+  </view>
+</view>

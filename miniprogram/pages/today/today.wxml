@@ -1,0 +1,108 @@
+<!-- 今日 — 运势卡片页面 -->
+
+<view class="page-today">
+  <!-- 头部：日期 + 干支 -->
+  <view class="header">
+    <view class="header-top">
+      <text class="header-date">{{fortune.date}}</text>
+      <view class="header-ganzhi">
+        <text class="ganzhi-badge">{{ganzhi}}</text>
+      </view>
+    </view>
+    <text class="header-subtitle">每日运势</text>
+  </view>
+
+  <!-- 加载状态 -->
+  <view class="loading-container" wx:if="{{loading}}">
+    <view class="loading-spinner"></view>
+    <text class="loading-text">星盘运转中...</text>
+  </view>
+
+  <!-- 运势卡片 -->
+  <view class="fortune-card-wrapper" wx:if="{{!loading && hasBazi}}">
+    <!-- 滑动容器 -->
+    <swiper
+      class="fortune-swiper"
+      circular="{{false}}"
+      current="{{swipeIndex === 0 ? 1 : swipeIndex === -1 ? 0 : 2}}"
+      bindchange="onSwipeChange"
+    >
+      <swiper-item>
+        <view class="card-placeholder">昨日</view>
+      </swiper-item>
+      <swiper-item>
+        <view class="fortune-card" data-theme="{{scoreLevel}}">
+          <!-- 运势分数环 -->
+          <view class="score-ring">
+            <view class="score-ring-inner">
+              <text class="score-number">{{score}}</text>
+              <text class="score-label">分</text>
+            </view>
+            <view class="score-ring-bg" style="background: conic-gradient(var(--color-accent) 0deg {{score * 3.6}}deg, var(--color-border) {{score * 3.6}}deg 360deg);"></view>
+          </view>
+
+          <!-- 运势等级 -->
+          <view class="score-level">
+            <text class="level-icon">{{moodIcon}}</text>
+            <text class="level-text">
+              <block wx:if="{{scoreLevel === 'excellent'}}">大吉</block>
+              <block wx:elif="{{scoreLevel === 'good'}}">上吉</block>
+              <block wx:elif="{{scoreLevel === 'fair'}}">中平</block>
+              <block wx:else>待时</block>
+            </text>
+          </view>
+
+          <!-- 宜 / 忌 -->
+          <view class="yi-ji-section">
+            <view class="yi-column" wx:if="{{yi.length}}">
+              <text class="yi-ji-title yi-title">宜</text>
+              <view class="yi-ji-item" wx:for="{{yi}}" wx:key="index">
+                <text class="yi-ji-action">{{item.action}}</text>
+                <text class="yi-ji-time">{{item.time}}</text>
+              </view>
+            </view>
+
+            <view class="ji-column" wx:if="{{ji.length}}">
+              <text class="yi-ji-title ji-title">忌</text>
+              <view class="yi-ji-item" wx:for="{{ji}}" wx:key="index">
+                <text class="yi-ji-action">{{item.action}}</text>
+                <text class="yi-ji-time">{{item.time}}</text>
+              </view>
+            </view>
+          </view>
+
+          <!-- 分隔线 -->
+          <view class="card-divider"></view>
+
+          <!-- 今日箴言 -->
+          <view class="advice-section">
+            <text class="advice-label">💡 今日提醒</text>
+            <text class="advice-text">{{advice}}</text>
+          </view>
+
+          <!-- 心情提示 -->
+          <view class="mood-section">
+            <text class="mood-text">😊 {{mood}}</text>
+          </view>
+        </view>
+      </swiper-item>
+      <swiper-item>
+        <view class="card-placeholder">明日</view>
+      </swiper-item>
+    </swiper>
+
+    <!-- 滑动指示 -->
+    <view class="swipe-hint">
+      <text class="swipe-hint-text">← 左右滑动查看前后 →</text>
+    </view>
+  </view>
+
+  <!-- 未设置八字 -->
+  <view class="no-bazi" wx:if="{{!loading && !hasBazi}}">
+    <view class="empty-state">
+      <text class="empty-state-icon">📅</text>
+      <text class="empty-state-text">设置你的出生信息\n获取专属每日运势</text>
+      <button class="btn btn-primary" bindtap="goEditProfile">去设置八字</button>
+    </view>
+  </view>
+</view>
