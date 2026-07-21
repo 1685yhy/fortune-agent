@@ -18,7 +18,7 @@
   </view>
 
   <!-- 八字档案 -->
-  <view class="section">
+  <view class="section stagger-1">
     <view class="section-header">
       <text class="section-title"> 八字档案</text>
       <view class="section-action" bindtap="openBaziEditor">
@@ -73,7 +73,7 @@
   </view>
 
   <!-- 设置列表 -->
-  <view class="section">
+  <view class="section stagger-2">
     <view class="section-header">
       <text class="section-title">️ 设置</text>
     </view>
@@ -109,7 +109,7 @@
   </view>
 
   <!-- 关于 -->
-  <view class="section">
+  <view class="section stagger-3">
     <view class="section-header">
       <text class="section-title">关于</text>
     </view>

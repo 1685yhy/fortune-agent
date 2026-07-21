@@ -49,6 +49,9 @@ page {
   --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
   --shadow-glow: 0 4px 20px rgba(201,169,110,0.25);
 
+  /* 卡片文本（在渐变深色背景上） */
+  --color-text-card: #ffffff;
+
   /* 字体 */
   --font-xs: 11px;
   --font-sm: 13px;
@@ -100,10 +103,37 @@ page {
   background-color: var(--color-bg);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  letter-spacing: 0.02em;
+  text-rendering: optimizeLegibility;
 }
 
 view, text, image, button, input, textarea {
   font-family: inherit;
+  letter-spacing: inherit;
+}
+
+/* ---- Typography helpers ---- */
+.text-heading {
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+.text-body {
+  line-height: 1.6;
+  letter-spacing: 0.02em;
+}
+
+.text-semi {
+  font-weight: 500;
+}
+
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* ---- 通用组件 ---- */
@@ -187,7 +217,11 @@ view, text, image, button, input, textarea {
   margin: var(--spacing-md) 0;
 }
 
-/* 加载 */
+/* ========================================
+   加载 & 空状态
+   ======================================== */
+
+/* 加载容器 */
 .loading-container {
   display: flex;
   flex-direction: column;
@@ -196,23 +230,89 @@ view, text, image, button, input, textarea {
   padding: var(--spacing-2xl) 0;
 }
 
+/* 太极阴阳加载动画 */
 .loading-spinner {
-  width: 32px;
-  height: 32px;
-  border: 3px solid var(--color-border);
-  border-top-color: var(--color-accent);
+  width: 36px;
+  height: 36px;
+  position: relative;
   border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+  background: var(--color-bg-card-alt);
+  box-shadow: inset 0 0 0 2px var(--color-border);
 }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.loading-spinner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 18px;
+  background: var(--color-accent);
+  border-radius: 0 0 50% 50%;
+  animation: yinYangPulse 1.5s ease-in-out infinite;
 }
 
+.loading-spinner::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 18px;
+  height: 18px;
+  background: var(--color-text-tertiary);
+  border-radius: 50% 50% 0 0;
+  animation: yinYangPulse 1.5s ease-in-out infinite reverse;
+}
+
+@keyframes yinYangPulse {
+  0%, 100% { opacity: 0.6; transform: translateX(-50%) scale(0.95); }
+  50% { opacity: 1; transform: translateX(-50%) scale(1.05); }
+}
+
+/* 替代加载（小尺寸） */
+.loading-spinner-sm {
+  width: 24px;
+  height: 24px;
+  position: relative;
+  border-radius: 50%;
+  background: var(--color-bg-card-alt);
+  box-shadow: inset 0 0 0 2px var(--color-border);
+}
+
+.loading-spinner-sm::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 12px;
+  background: var(--color-accent);
+  border-radius: 0 0 50% 50%;
+  animation: yinYangPulse 1.5s ease-in-out infinite;
+}
+
+.loading-spinner-sm::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 12px;
+  height: 12px;
+  background: var(--color-text-tertiary);
+  border-radius: 50% 50% 0 0;
+  animation: yinYangPulse 1.5s ease-in-out infinite reverse;
+}
+
+/* 加载文字 */
 .loading-text {
-  margin-top: var(--spacing-sm);
+  margin-top: var(--spacing-md);
   font-size: var(--font-sm);
   color: var(--color-text-tertiary);
+  letter-spacing: 0.06em;
 }
 
 /* 空状态 */
@@ -263,3 +363,76 @@ view, text, image, button, input, textarea {
   z-index: 9999;
   pointer-events: none;
 }
+
+/* ========================================
+   Entrance Animations
+   ======================================== */
+
+/* Fade + Slide Up */
+@keyframes fadeSlideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Fade + Slide Down */
+@keyframes fadeSlideDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Fade + Slide In from Left */
+@keyframes fadeSlideLeft {
+  from { opacity: 0; transform: translateX(-16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Fade + Slide In from Right */
+@keyframes fadeSlideRight {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* Scale In (subtle) */
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+/* Number Count visual pulse (for score counter) */
+@keyframes countPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* Entrance utility classes */
+.animate-fade-up {
+  animation: fadeSlideUp 0.4s ease-out both;
+}
+
+.animate-fade-down {
+  animation: fadeSlideDown 0.35s ease-out both;
+}
+
+.animate-fade-left {
+  animation: fadeSlideLeft 0.35s ease-out both;
+}
+
+.animate-scale {
+  animation: scaleIn 0.35s ease-out both;
+}
+
+.animate-count {
+  animation: countPulse 0.6s ease-out;
+}
+
+/* Stagger delay helpers */
+.stagger-0 { animation-delay: 0s; }
+.stagger-1 { animation-delay: 0.06s; }
+.stagger-2 { animation-delay: 0.12s; }
+.stagger-3 { animation-delay: 0.20s; }
+.stagger-4 { animation-delay: 0.28s; }
+.stagger-5 { animation-delay: 0.36s; }
+.stagger-6 { animation-delay: 0.44s; }
+.stagger-7 { animation-delay: 0.52s; }
+.stagger-8 { animation-delay: 0.60s; }

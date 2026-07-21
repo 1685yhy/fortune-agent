@@ -10,13 +10,13 @@
   <!-- 加载中 -->
   <view class="loading-container" wx:if="{{loading}}">
     <view class="loading-spinner"></view>
-    <text class="loading-text">加载报告中...</text>
+    <text class="loading-text">{{loadingText}}</text>
   </view>
 
   <!-- 报告列表 -->
   <view class="report-list" wx:if="{{!loading && reports.length > 0}}">
     <view
-      class="report-item"
+      class="report-item animate-fade-up stagger-{{index}}"
       wx:for="{{reports}}"
       wx:key="id"
       data-id="{{item.id}}"
@@ -52,8 +52,8 @@
 
     <!-- 加载更多 -->
     <view class="load-more" wx:if="{{hasMore}}">
-      <view class="loading-spinner" style="width:24px;height:24px;border-width:2px;"></view>
-      <text class="loading-text">加载更多...</text>
+      <view class="loading-spinner-sm"></view>
+      <text class="loading-text">{{loadingText || '加载更多...'}}</text>
     </view>
 
     <view class="load-more" wx:elif="{{!hasMore && reports.length > 0}}">
@@ -62,8 +62,13 @@
   </view>
 
   <!-- 空状态 -->
-  <view class="empty-state" wx:if="{{!loading && reports.length === 0}}">
-    <text class="empty-state-icon"></text>
+  <view class="empty-state animate-scale" wx:if="{{!loading && reports.length === 0}}">
+    <view class="empty-state-icon">
+      <view class="report-icon-empty">
+        <view class="report-icon-bar report-icon-bar-left"></view>
+        <view class="report-icon-bar report-icon-bar-right"></view>
+      </view>
+    </view>
     <text class="empty-state-text">还没有解读报告\n去对话页开始一次咨询吧</text>
     <button class="btn btn-primary" bindtap="goChat">去对话</button>
   </view>

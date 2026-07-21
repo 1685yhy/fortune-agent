@@ -14,13 +14,19 @@ Page({
   },
 
   onLoad() {
+    this.startLoadingTextRotation();
     this.loadReports();
+  },
+
+  onUnload() {
+    this.clearLoadingTextRotation();
   },
 
   onShow() {
     // 从详情返回时刷新
     if (this.data.showDetail) return;
     if (this.data.reports.length === 0) {
+      this.startLoadingTextRotation();
       this.loadReports();
     }
   },
@@ -41,6 +47,24 @@ Page({
     if (this.data.hasMore && !this.data.loading) {
       this.setData({ page: this.data.page + 1 });
       this.loadReports();
+    }
+  },
+
+  // ---- 加载文字轮播 ----
+  startLoadingTextRotation() {
+    const texts = ['加载报告中...', '读取命盘中...', '解析数据中...', '即将就绪'];
+    let i = 0;
+    this.setData({ loadingText: texts[0] });
+    this._loadingTimer = setInterval(() => {
+      i = (i + 1) % texts.length;
+      this.setData({ loadingText: texts[i] });
+    }, 2000);
+  },
+
+  clearLoadingTextRotation() {
+    if (this._loadingTimer) {
+      clearInterval(this._loadingTimer);
+      this._loadingTimer = null;
     }
   },
 
@@ -74,6 +98,7 @@ Page({
         this.setData({ loading: false });
       })
       .finally(() => {
+        this.clearLoadingTextRotation();
         if (callback) callback();
       });
   },
@@ -201,6 +226,11 @@ Page({
       title: `易理明灯 - ${report.scenarioLabel}解读：${report.summary.slice(0, 20)}...`,
       path: `/pages/reports/reports`,
     };
+  },
+
+  // ---- 页面跳转 ----
+  goChat() {
+    wx.switchTab({ url: '/pages/chat/chat' });
   },
 
   // ---- 场景图标映射 ----

@@ -40,6 +40,7 @@
   padding: var(--spacing-lg);
   box-shadow: var(--shadow-sm);
   transition: all var(--transition-fast);
+  animation: fadeSlideUp 0.35s ease-out both;
 }
 
 .report-card:active {
@@ -78,7 +79,7 @@
   width: 40px;
   height: 40px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #c9a96e, #d4b87a);
+  background: var(--gradient-gold);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -301,4 +302,36 @@
   border-top: 1px solid var(--color-divider);
   display: flex;
   justify-content: center;
+}
+
+/* 空状态报告图标 */
+.report-icon-empty {
+  width: 64px;
+  height: 48px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 10px;
+  opacity: 0.5;
+}
+
+.report-icon-bar {
+  width: 16px;
+  background: var(--color-accent);
+  border-radius: 4px 4px 0 0;
+}
+
+.report-icon-bar-left {
+  height: 40px;
+}
+
+.report-icon-bar-right {
+  height: 24px;
+}
+
+/* 暗色模式 */
+@media (prefers-color-scheme: dark) {
+  .detail-overlay {
+    background: rgba(0, 0, 0, 0.7);
+  }
 }

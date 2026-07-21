@@ -21,13 +21,19 @@ Page({
   },
 
   onLoad() {
+    this.startLoadingTextRotation();
     this.loadToday();
   },
 
   onShow() {
     if (this.data.fortune === null) {
+      this.startLoadingTextRotation();
       this.loadToday();
     }
+  },
+
+  onUnload() {
+    this.clearLoadingTextRotation();
   },
 
   onPullDownRefresh() {
@@ -36,6 +42,24 @@ Page({
       wx.stopPullDownRefresh();
       this.setData({ refreshing: false });
     });
+  },
+
+  // ---- 排盘文字轮播 ----
+  startLoadingTextRotation() {
+    const texts = ['星盘运转中...', '排盘中...', '解读中...', '即将就绪'];
+    let i = 0;
+    this.setData({ loadingText: texts[0] });
+    this._loadingTimer = setInterval(() => {
+      i = (i + 1) % texts.length;
+      this.setData({ loadingText: texts[i] });
+    }, 2000);
+  },
+
+  clearLoadingTextRotation() {
+    if (this._loadingTimer) {
+      clearInterval(this._loadingTimer);
+      this._loadingTimer = null;
+    }
   },
 
   loadToday(callback) {
@@ -56,6 +80,7 @@ Page({
       })
       .finally(() => {
         this.setData({ loading: false });
+        this.clearLoadingTextRotation();
         if (callback) callback();
       });
   },
@@ -105,7 +130,7 @@ Page({
 
     this.setData({
       fortune: data,
-      score,
+      score: 0,
       scoreLevel,
       ganzhi: data.ganzhi || '甲子日',
       yi: (data.yi || []).slice(0, 3),
@@ -116,6 +141,31 @@ Page({
       hasBazi: true,
       swipeIndex: 0,
     });
+
+    // 分数计数动画
+    this.animateScore(score);
+  },
+
+  // ---- 分数递增动画 ----
+  animateScore(targetScore) {
+    if (this._scoreTimer) {
+      clearInterval(this._scoreTimer);
+    }
+
+    let current = 0;
+    const steps = Math.min(targetScore, 20); // 最多20步
+    const increment = Math.max(1, Math.floor(targetScore / steps));
+    const delay = Math.max(20, Math.floor(400 / steps));
+
+    this._scoreTimer = setInterval(() => {
+      current += increment;
+      if (current >= targetScore) {
+        current = targetScore;
+        clearInterval(this._scoreTimer);
+        this._scoreTimer = null;
+      }
+      this.setData({ score: current });
+    }, delay);
   },
 
   // 滑动切换日期

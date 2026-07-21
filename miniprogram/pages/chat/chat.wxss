@@ -68,6 +68,7 @@
   color: var(--color-text-secondary);
   transition: all var(--transition-fast);
   min-height: 44px;
+  animation: fadeSlideLeft 0.35s ease-out both;
 }
 
 .scenario-item.active {
@@ -166,9 +167,10 @@
 }
 
 .user .bubble-text {
-  background: linear-gradient(135deg, #c9a96e, #d4b87a);
+  background: var(--gradient-gold);
   color: #1a1a2e;
   border-bottom-right-radius: 4px;
+  animation: fadeSlideUp 0.3s ease-out both;
 }
 
 .assistant .bubble-text {
@@ -176,6 +178,7 @@
   color: var(--color-text);
   border-bottom-left-radius: 4px;
   border: 1px solid var(--color-border);
+  animation: fadeSlideUp 0.3s ease-out both;
 }
 
 /* 结构化报告 */
@@ -311,6 +314,10 @@
 /* 暗色模式 */
 @media (prefers-color-scheme: dark) {
   .user .bubble-text {
+    background: var(--gradient-gold);
+  }
+
+  .send-btn.active {
     background: linear-gradient(135deg, #b8944a, #c9a96e);
   }
 }

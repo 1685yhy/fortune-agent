@@ -15,7 +15,7 @@
   <!-- 加载状态 -->
   <view class="loading-container" wx:if="{{loading}}">
     <view class="loading-spinner"></view>
-    <text class="loading-text">星盘运转中...</text>
+    <text class="loading-text">{{loadingText}}</text>
   </view>
 
   <!-- 运势卡片 -->
@@ -56,7 +56,7 @@
           <view class="yi-ji-section">
             <view class="yi-column" wx:if="{{yi.length}}">
               <text class="yi-ji-title yi-title">宜</text>
-              <view class="yi-ji-item" wx:for="{{yi}}" wx:key="index">
+              <view class="yi-ji-item stagger-{{index + 1}}" wx:for="{{yi}}" wx:key="index">
                 <text class="yi-ji-action">{{item.action}}</text>
                 <text class="yi-ji-time">{{item.time}}</text>
               </view>
@@ -64,7 +64,7 @@
 
             <view class="ji-column" wx:if="{{ji.length}}">
               <text class="yi-ji-title ji-title">忌</text>
-              <view class="yi-ji-item" wx:for="{{ji}}" wx:key="index">
+              <view class="yi-ji-item stagger-{{index + 1}}" wx:for="{{ji}}" wx:key="index">
                 <text class="yi-ji-action">{{item.action}}</text>
                 <text class="yi-ji-time">{{item.time}}</text>
               </view>
@@ -75,13 +75,13 @@
           <view class="card-divider"></view>
 
           <!-- 今日箴言 -->
-          <view class="advice-section">
+          <view class="advice-section animate-fade-up stagger-4">
             <text class="advice-label">今日提醒</text>
             <text class="advice-text">{{advice}}</text>
           </view>
 
           <!-- 心情提示 -->
-          <view class="mood-section">
+          <view class="mood-section animate-fade-up stagger-5">
             <text class="mood-text">{{mood}}</text>
           </view>
         </view>
@@ -98,9 +98,14 @@
   </view>
 
   <!-- 未设置八字 -->
-  <view class="no-bazi" wx:if="{{!loading && !hasBazi}}">
+  <view class="no-bazi animate-fade-up" wx:if="{{!loading && !hasBazi}}">
     <view class="empty-state">
-      <text class="empty-state-icon"></text>
+      <view class="empty-state-icon">
+        <view class="fortune-icon-empty">
+          <view class="fortune-icon-circle"></view>
+          <view class="fortune-icon-line"></view>
+        </view>
+      </view>
       <text class="empty-state-text">设置你的出生信息\n获取专属每日运势</text>
       <button class="btn btn-primary" bindtap="goEditProfile">去设置八字</button>
     </view>

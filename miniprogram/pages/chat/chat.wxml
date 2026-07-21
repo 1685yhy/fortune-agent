@@ -19,7 +19,7 @@
   <!-- 场景选择面板 -->
   <view class="scenario-panel" wx:if="{{showScenarios}}">
     <view
-      class="scenario-item {{selectedScenario === item.id ? 'active' : ''}}"
+      class="scenario-item stagger-{{index}} {{selectedScenario === item.id ? 'active' : ''}}"
       wx:for="{{scenarios}}"
       wx:key="id"
       data-id="{{item.id}}"
