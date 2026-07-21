@@ -5,7 +5,7 @@
   <view class="profile-header">
     <view class="profile-avatar">
       <image wx:if="{{userInfo && userInfo.avatarUrl}}" src="{{userInfo.avatarUrl}}" class="avatar-img" mode="aspectFill" />
-      <text wx:else class="avatar-placeholder">🔮</text>
+      <text wx:else class="avatar-placeholder"></text>
     </view>
     <view class="profile-info">
       <text class="profile-name">{{userInfo ? userInfo.nickName : '易理明灯用户'}}</text>
@@ -91,7 +91,7 @@
       <!-- 数据导出 -->
       <view class="setting-item" bindtap="exportData">
         <view class="setting-left">
-          <text class="setting-icon">📤</text>
+          <text class="setting-icon"></text>
           <text class="setting-label">数据导出</text>
         </view>
         <text class="setting-arrow">›</text>
@@ -100,7 +100,7 @@
       <!-- 数据删除 -->
       <view class="setting-item" bindtap="deleteData">
         <view class="setting-left">
-          <text class="setting-icon danger">🗑️</text>
+          <text class="setting-icon danger"></text>
           <text class="setting-label danger-label">删除所有数据</text>
         </view>
         <text class="setting-arrow">›</text>
@@ -111,7 +111,7 @@
   <!-- 关于 -->
   <view class="section">
     <view class="section-header">
-      <text class="section-title">ℹ️ 关于</text>
+      <text class="section-title">关于</text>
     </view>
 
     <view class="settings-card">
@@ -266,3 +266,4 @@
     </view>
   </view>
 </view>
+x

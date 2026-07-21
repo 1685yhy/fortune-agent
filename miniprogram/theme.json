@@ -1,0 +1,26 @@
+{
+  "light": {
+    "bgPrimary": "#fafaf9",
+    "bgCard": "#ffffff",
+    "textPrimary": "#1c1917",
+    "textSecondary": "#78716c",
+    "accent": "#c9a96e",
+    "accentDark": "#1a1a2e",
+    "border": "#e7e5e4",
+    "navBg": "#1a1a2e",
+    "navText": "#ffffff",
+    "tabBarBg": "#fafaf9"
+  },
+  "dark": {
+    "bgPrimary": "#0f0f14",
+    "bgCard": "#1a1a24",
+    "textPrimary": "#e8e4e0",
+    "textSecondary": "#8b8680",
+    "accent": "#c9a96e",
+    "accentDark": "#2a2a3e",
+    "border": "#2a2a34",
+    "navBg": "#0f0f14",
+    "navText": "#e8e4e0",
+    "tabBarBg": "#0f0f14"
+  }
+}

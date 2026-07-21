@@ -8,10 +8,10 @@
     </view>
     <view class="chat-header-right">
       <view class="header-btn" bindtap="toggleScenarios">
-        <text>🎯 场景</text>
+        <text>场景</text>
       </view>
       <view class="header-btn" bindtap="clearChat">
-        <text>🗑️</text>
+        <text>清空</text>
       </view>
     </view>
   </view>
@@ -56,19 +56,19 @@
         <!-- 普通消息 -->
         <view wx:else class="message-bubble {{msg.role}} {{msg.type === 'structured' ? 'structured' : ''}}">
           <view class="bubble-avatar">
-            <text wx:if="{{msg.role === 'assistant'}}">🔮</text>
-            <text wx:else>👤</text>
+            <text wx:if="{{msg.role === 'assistant'}}">命</text>
+            <text wx:else>我</text>
           </view>
           <view class="bubble-content">
             <view class="bubble-text">
-              <rich-text nodes="{{msg.content}}" wx:if="{{msg.content.includes('\n')}}"></rich-text>
+              <rich-text nodes="{{msg.content}}" wx:if="{{msg.content.indexOf('\n') > -1}}"></rich-text>
               <text wx:else>{{msg.content}}</text>
             </view>
 
             <!-- 结构化报告（折叠） -->
             <view class="structured-report" wx:if="{{msg.structured}}">
               <view class="report-collapse" bindtap="toggleReport">
-                <text class="report-collapse-title">📊 查看完整分析</text>
+                <text class="report-collapse-title">查看完整分析</text>
               </view>
             </view>
 
@@ -83,7 +83,7 @@
       <!-- 打字中指示器 -->
       <view class="message-wrapper assistant" wx:if="{{isTyping}}">
         <view class="typing-indicator">
-          <view class="typing-avatar">🔮</view>
+          <view class="typing-avatar">命</view>
           <view class="typing-bubble">
             <text class="typing-text">分析中{{typingDots}}</text>
           </view>

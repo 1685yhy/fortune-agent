@@ -336,7 +336,7 @@ Page({
 
   onShareAppMessage() {
     return {
-      title: '🔮 易理明灯 — AI 命运伴侣，懂你的命理助手',
+      title: '易理明灯 - AI 命运伴侣',
       path: '/pages/me/me',
     };
   },

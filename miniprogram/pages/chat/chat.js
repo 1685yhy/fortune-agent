@@ -9,11 +9,11 @@ Page({
     scrollToView: '',
     selectedScenario: '',
     scenarios: [
-      { id: '', label: '💬 随便聊聊', icon: '💬' },
-      { id: 'career', label: '💼 换工作', icon: '💼' },
-      { id: 'love', label: '❤️ 感情', icon: '❤️' },
-      { id: 'wealth', label: '💰 财运', icon: '💰' },
-      { id: 'health', label: '🏥 健康', icon: '🏥' },
+      { id: '', label: '随便聊聊', icon: 'chat' },
+      { id: 'career', label: '换工作', icon: 'career' },
+      { id: 'love', label: '感情', icon: 'love' },
+      { id: 'wealth', label: '财运', icon: 'wealth' },
+      { id: 'health', label: '健康', icon: 'health' },
     ],
     showScenarios: false,
     typingText: '',
@@ -192,7 +192,7 @@ Page({
     const content = e.currentTarget.dataset.content || '';
     wx.setClipboardData({
       data: content,
-      success: () => wx.showToast({ title: '已复制', icon: 'success' }),
+      success: () => wx.showToast({ title: '已复制', icon: 'none' }),
     });
   },
 
@@ -235,7 +235,7 @@ Page({
 
   onShareAppMessage() {
     return {
-      title: '🔮 易理明灯 — AI 命运伴侣',
+      title: '易理明灯 - AI 命运伴侣',
       path: '/pages/chat/chat',
     };
   },

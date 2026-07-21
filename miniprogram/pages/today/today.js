@@ -148,7 +148,7 @@ Page({
   onShareAppMessage() {
     const data = this.data;
     return {
-      title: `🔮 今日运势 ${data.score}分 — ${data.advice?.slice(0, 20) || '易理明灯'}`,
+      title: ` ${data.score}分 — ${data.advice?.slice(0, 20) || '易理明灯'}`,
       path: '/pages/today/today',
     };
   },

@@ -44,7 +44,7 @@
             <text>查看详情 →</text>
           </view>
           <view class="report-action report-action-share" data-id="{{item.id}}" bindtap="shareReport" catchtap>
-            <text>📤 分享</text>
+            <text>分享</text>
           </view>
         </view>
       </view>
@@ -63,7 +63,7 @@
 
   <!-- 空状态 -->
   <view class="empty-state" wx:if="{{!loading && reports.length === 0}}">
-    <text class="empty-state-icon">📋</text>
+    <text class="empty-state-icon"></text>
     <text class="empty-state-text">还没有解读报告\n去对话页开始一次咨询吧</text>
     <button class="btn btn-primary" bindtap="goChat">去对话</button>
   </view>
@@ -117,7 +117,7 @@
       </scroll-view>
 
       <view class="detail-footer">
-        <button class="btn btn-primary btn-small" data-id="{{currentReport.id}}" bindtap="shareReport">📤 分享报告</button>
+        <button class="btn btn-primary btn-small" data-id="{{currentReport.id}}" bindtap="shareReport">分享报告</button>
       </view>
     </view>
   </view>

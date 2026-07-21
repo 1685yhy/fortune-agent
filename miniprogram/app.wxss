@@ -22,11 +22,11 @@ page {
   --color-text: #1a1a2e;
   --color-text-secondary: #666680;
   --color-text-tertiary: #9999aa;
-  --color-bg: #f5f0eb;
+  --color-bg: #fafaf9;
   --color-bg-card: #ffffff;
-  --color-bg-card-alt: #faf8f5;
-  --color-border: #eee8e0;
-  --color-divider: #f0ece6;
+  --color-bg-card-alt: #f5f4f0;
+  --color-border: #e7e5e4;
+  --color-divider: #f0efed;
 
   /* 间距 */
   --spacing-xs: 4px;
@@ -66,7 +66,7 @@ page {
   --gradient-primary: linear-gradient(135deg, #1a1a2e 0%, #2d2d5e 100%);
   --gradient-card: linear-gradient(135deg, #2d2d5e 0%, #1a1a2e 100%);
   --gradient-gold: linear-gradient(135deg, #c9a96e 0%, #d4b87a 50%, #c9a96e 100%);
-  --gradient-warm: linear-gradient(135deg, #f5f0eb 0%, #faf5ee 100%);
+  --gradient-warm: linear-gradient(135deg, #fafaf9 0%, #f0efed 100%);
 }
 
 /* ---- 暗色模式 ---- */
@@ -118,7 +118,7 @@ view, text, image, button, input, textarea {
   transition: box-shadow var(--transition-normal);
 }
 
-.card:hover, .card:active {
+.card:active {
   box-shadow: var(--shadow-md);
 }
 

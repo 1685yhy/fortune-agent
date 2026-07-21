@@ -9,20 +9,20 @@
     "navigationBarBackgroundColor": "#1a1a2e",
     "navigationBarTitleText": "易理明灯",
     "navigationBarTextStyle": "white",
-    "backgroundColor": "#f5f0eb",
+    "backgroundColor": "#fafaf9",
     "backgroundTextStyle": "dark"
   },
   "tabBar": {
     "color": "#999999",
     "selectedColor": "#c9a96e",
-    "backgroundColor": "#ffffff",
-    "borderStyle": "black",
+    "backgroundColor": "#fafaf9",
+    "borderStyle": "white",
     "list": [
       {
         "pagePath": "pages/today/today",
         "text": "今日",
-        "iconPath": "icons/home.png",
-        "selectedIconPath": "icons/home-active.png"
+        "iconPath": "icons/today.png",
+        "selectedIconPath": "icons/today-active.png"
       },
       {
         "pagePath": "pages/chat/chat",
@@ -44,7 +44,9 @@
       }
     ]
   },
+  "darkmode": true,
+  "themeLocation": "theme.json",
+  "lazyCodeLoading": "requiredComponents",
   "style": "v2",
-  "sitemapLocation": "sitemap.json",
-  "requiredBackgroundModes": ["audio"]
+  "sitemapLocation": "sitemap.json"
 }

@@ -84,7 +84,7 @@ Page({
         id: 'demo-1',
         date: '2026-07-21',
         scenario: 'career',
-        scenarioLabel: '💼 事业',
+        scenarioLabel: '事业',
         summary: '流年正官透干，事业运稳步上升。春季有贵人提携，适合拓展人脉。',
         score: 82,
         tags: ['事业', '正官', '贵人'],
@@ -93,7 +93,7 @@ Page({
         id: 'demo-2',
         date: '2026-07-18',
         scenario: 'love',
-        scenarioLabel: '❤️ 感情',
+        scenarioLabel: '感情',
         summary: '桃花运渐旺，七杀坐夫妻宫。建议多参与社交活动，缘分可能在西方。',
         score: 75,
         tags: ['感情', '桃花', '七杀'],
@@ -102,7 +102,7 @@ Page({
         id: 'demo-3',
         date: '2026-07-15',
         scenario: 'wealth',
-        scenarioLabel: '💰 财运',
+        scenarioLabel: '财运',
         summary: '正财稳健，偏财有波动。不宜高风险投资，稳中求进为上策。',
         score: 70,
         tags: ['财运', '正财', '稳健'],
@@ -111,7 +111,7 @@ Page({
         id: 'demo-4',
         date: '2026-07-10',
         scenario: 'health',
-        scenarioLabel: '🏥 健康',
+        scenarioLabel: '健康',
         summary: '木气过旺注意肝胆，金水不足易感疲惫。建议规律作息，多饮水。',
         score: 65,
         tags: ['健康', '肝胆', '调理'],
@@ -195,10 +195,10 @@ Page({
   onShareAppMessage() {
     const report = this.data.reports.find(r => r.id === this.data.shareReportId) || this.data.currentReport;
     if (!report) {
-      return { title: '🔮 易理明灯 — 我的命理解读报告', path: '/pages/reports/reports' };
+      return { title: '易理明灯 - 我的命理解读报告', path: '/pages/reports/reports' };
     }
     return {
-      title: `🔮 ${report.scenarioLabel}解读：${report.summary.slice(0, 20)}...`,
+      title: `易理明灯 - ${report.scenarioLabel}解读：${report.summary.slice(0, 20)}...`,
       path: `/pages/reports/reports`,
     };
   },
@@ -206,11 +206,11 @@ Page({
   // ---- 场景图标映射 ----
   getScenarioIcon(scenario) {
     const icons = {
-      career: '💼',
-      love: '❤️',
-      wealth: '💰',
-      health: '🏥',
+      career: '',
+      love: '',
+      wealth: '',
+      health: '',
     };
-    return icons[scenario] || '📊';
+    return '';
   },
 });

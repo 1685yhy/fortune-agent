@@ -76,13 +76,13 @@
 
           <!-- 今日箴言 -->
           <view class="advice-section">
-            <text class="advice-label">💡 今日提醒</text>
+            <text class="advice-label">今日提醒</text>
             <text class="advice-text">{{advice}}</text>
           </view>
 
           <!-- 心情提示 -->
           <view class="mood-section">
-            <text class="mood-text">😊 {{mood}}</text>
+            <text class="mood-text">{{mood}}</text>
           </view>
         </view>
       </swiper-item>
@@ -100,7 +100,7 @@
   <!-- 未设置八字 -->
   <view class="no-bazi" wx:if="{{!loading && !hasBazi}}">
     <view class="empty-state">
-      <text class="empty-state-icon">📅</text>
+      <text class="empty-state-icon"></text>
       <text class="empty-state-text">设置你的出生信息\n获取专属每日运势</text>
       <button class="btn btn-primary" bindtap="goEditProfile">去设置八字</button>
     </view>
