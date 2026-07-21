@@ -57,7 +57,7 @@
     </view>
 
     <view class="load-more" wx:elif="{{!hasMore && reports.length > 0}}">
-      <text class="load-end-text">— 已显示全部报告 —</text>
+      <text class="load-end-text">- 已显示全部报告 -</text>
     </view>
   </view>
 
@@ -74,7 +74,7 @@
       <view class="detail-header">
         <text class="detail-title">解读详情</text>
         <view class="detail-close" bindtap="closeDetail">
-          <text>✕</text>
+          <text>x</text>
         </view>
       </view>
 

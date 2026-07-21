@@ -5,7 +5,7 @@ const app = getApp();
 
 // ---- 配置 ----
 const CONFIG = {
-  baseURL: 'https://124.221.233.214',
+  baseURL: 'http://124.221.233.214:8765',
   timeout: 15000,
 };
 

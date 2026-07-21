@@ -28,7 +28,7 @@
     >
       <text class="scenario-icon">{{item.icon}}</text>
       <text class="scenario-label">{{item.label}}</text>
-      <text class="scenario-check" wx:if="{{selectedScenario === item.id}}">✓</text>
+      <text class="scenario-check" wx:if="{{selectedScenario === item.id}}">√</text>
     </view>
   </view>
 

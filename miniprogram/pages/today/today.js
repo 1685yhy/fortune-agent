@@ -1,4 +1,4 @@
-// 今日 — Daily Fortune Card
+// 今日 - Daily Fortune Card
 const api = require('../../utils/api');
 
 Page({
@@ -97,10 +97,10 @@ Page({
 
     // 根据运势给出心情表情
     const moodIcons = {
-      excellent: '🌟',
-      good: '☀️',
-      fair: '⛅',
-      poor: '🌧️',
+      excellent: '大吉',
+      good: '晴',
+      fair: '多云',
+      poor: '雨',
     };
 
     this.setData({
@@ -148,7 +148,7 @@ Page({
   onShareAppMessage() {
     const data = this.data;
     return {
-      title: ` ${data.score}分 — ${data.advice?.slice(0, 20) || '易理明灯'}`,
+      title: ` ${data.score}分 - ${data.advice?.slice(0, 20) || '易理明灯'}`,
       path: '/pages/today/today',
     };
   },

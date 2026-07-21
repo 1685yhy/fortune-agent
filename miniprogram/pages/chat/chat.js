@@ -51,7 +51,7 @@ Page({
     const welcome = {
       id: 'welcome',
       role: 'assistant',
-      content: '你好！我是易理明灯 AI 命运伴侣 🌟\n\n我可以帮你：\n• 查看八字运势，解读命理格局\n• 分析事业、感情、财运等人生课题\n• 提供每日宜忌建议\n\n选一个话题开始吧 👇',
+      content: '你好！我是易理明灯 AI 命运伴侣\n\n我可以帮你：\n• 查看八字运势，解读命理格局\n• 分析事业、感情、财运等人生课题\n• 提供每日宜忌建议\n\n选一个话题开始吧 请说',
       time: this.getTimeString(),
       type: 'text',
     };
@@ -155,7 +155,7 @@ Page({
       const errMsg = {
         id: 'msg-' + Date.now() + 2,
         role: 'assistant',
-        content: '网络开小差了，请稍后再试 🙏',
+        content: '网络开小差了，请稍后再试 感谢',
         time: this.getTimeString(),
         type: 'text',
       };
