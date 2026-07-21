@@ -55,7 +55,7 @@ App({
         // 安全存储登录态
         security.setSecure('auth', {
           token: res.token,
-          userId: res.user?.id,
+          userId: res.user ? res.user.id : undefined,
           loginTime: Date.now(),
         });
 
@@ -73,7 +73,7 @@ App({
   // ---- 本地模式（离线或后端不可用） ----
   initLocalMode() {
     const auth = security.getSecure('auth');
-    if (auth?.token) {
+    if (auth && auth.token) {
       this.globalData.token = auth.token;
       this.globalData.isLoggedIn = true;
       api.setToken(auth.token);

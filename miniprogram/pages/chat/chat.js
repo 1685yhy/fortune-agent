@@ -1,5 +1,6 @@
 // 对话 — AI 命运伴侣聊天
 const api = require('../../utils/api');
+const security = require('../../utils/security');
 
 Page({
   data: {
@@ -33,11 +34,15 @@ Page({
   // ---- 历史消息 ----
   loadHistory() {
     try {
-      const saved = wx.getStorageSync('ylm_chat_messages');
-      if (saved && saved.length > 0) {
-        this.setData({ messages: saved });
-        this.scrollToBottom();
-        return;
+      const encrypted = wx.getStorageSync('ylm_chat_messages');
+      if (encrypted) {
+        const str = security.decrypt(encrypted);
+        const saved = JSON.parse(str);
+        if (saved && saved.length > 0) {
+          this.setData({ messages: saved });
+          this.scrollToBottom();
+          return;
+        }
       }
     } catch (e) {
       console.warn('[Chat] Failed to load history');
@@ -213,7 +218,7 @@ Page({
   saveHistory() {
     try {
       const recent = this.data.messages.slice(-50);
-      wx.setStorageSync('ylm_chat_messages', recent);
+      wx.setStorageSync('ylm_chat_messages', security.encrypt(JSON.stringify(recent)));
     } catch (e) {
       console.warn('[Chat] Failed to save history');
     }

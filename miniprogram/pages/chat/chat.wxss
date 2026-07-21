@@ -37,6 +37,11 @@
   background: var(--color-bg-card-alt);
   font-size: var(--font-sm);
   color: var(--color-text-secondary);
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 场景面板 */
@@ -62,6 +67,7 @@
   font-size: var(--font-sm);
   color: var(--color-text-secondary);
   transition: all var(--transition-fast);
+  min-height: 44px;
 }
 
 .scenario-item.active {
@@ -281,7 +287,7 @@
 
 .send-btn {
   width: 56px;
-  height: 36px;
+  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;

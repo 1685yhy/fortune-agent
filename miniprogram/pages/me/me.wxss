@@ -71,6 +71,11 @@
   border: 1px solid rgba(255,255,255,0.3);
   font-size: var(--font-sm);
   color: rgba(255,255,255,0.8);
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 区块 */
@@ -99,6 +104,11 @@
   color: var(--color-accent-dark);
   font-size: var(--font-sm);
   font-weight: 500;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 八字卡片 */
@@ -199,6 +209,12 @@
   font-size: 20px;
   color: var(--color-text-tertiary);
   font-weight: 300;
+  padding: 10px;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .setting-switch {

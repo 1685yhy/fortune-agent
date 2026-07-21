@@ -5,6 +5,9 @@ const app = getApp();
 
 // ---- 配置 ----
 const CONFIG = {
+  // TODO: Switch to HTTPS for production and add a proper domain name.
+  // WeChat requires all production API requests to use HTTPS.
+  // Current: HTTP on port 8765 for development only.
   baseURL: 'http://124.221.233.214:8765',
   timeout: 15000,
 };
@@ -224,6 +227,21 @@ function getPricing() {
   });
 }
 
+// ---- 反馈 ----
+
+/**
+ * 提交用户反馈
+ * @param {string} text - 反馈内容
+ * @param {boolean} isAnonymous - 是否匿名
+ * @returns {Promise}
+ */
+function feedback(text, isAnonymous = false) {
+  return request('/api/user/feedback', {
+    method: 'POST',
+    data: { text, is_anonymous: isAnonymous },
+  });
+}
+
 // ---- 导出 ----
 
 module.exports = {
@@ -250,6 +268,7 @@ module.exports = {
   updateBazi,
   getUserProfile,
   updateSubscription,
+  feedback,
 
   // Share
   generateShareCard,

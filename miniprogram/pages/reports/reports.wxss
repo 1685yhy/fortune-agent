@@ -128,6 +128,11 @@
   font-size: var(--font-sm);
   color: var(--color-text-tertiary);
   padding: 4px 0;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .report-action-view {
