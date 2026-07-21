@@ -1,9 +1,9 @@
-from pathlib import Path
 """Fortune Agent - FastAPI 主入口."""
 import asyncio
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Header
@@ -163,6 +163,10 @@ async def lifespan(app: FastAPI):
     from .api.calendar import setup as setup_calendar
     setup_calendar(dao, handler)
 
+    # Phase 4: Setup compatibility API with LLM reference
+    from .api.compatibility import setup as setup_compatibility
+    setup_compatibility(llm)
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -186,6 +190,9 @@ app.include_router(_create_oai_router(None))
 from .api.pricing import router as pricing_router
 from .api.scenarios import router as scenarios_router
 from .api.calendar import router as calendar_router
+from .api.visual_report import router as visual_report_router
+from .api.compatibility import router as compatibility_router
+from .api.share import router as share_router
 
 # Pricing API
 app.include_router(pricing_router)
@@ -195,6 +202,11 @@ app.include_router(scenarios_router, prefix="/api")
 
 # Phase 3: Calendar API
 app.include_router(calendar_router)
+
+# Phase 4: Social Virality
+app.include_router(visual_report_router)     # /api/report, /report, /api/report/generate
+app.include_router(compatibility_router)     # /api/compatibility, /compatibility
+app.include_router(share_router)             # /api/share, /share
 
 # Models
 class ChatRequest(BaseModel):
