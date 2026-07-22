@@ -22,7 +22,7 @@
       data-id="{{item.id}}"
       bindtap="viewDetail"
     >
-      <view class="report-card">
+      <view class="report-card card-tint-{{item.scenario || 'default'}}">
         <view class="report-card-top">
           <view class="report-meta">
             <text class="report-date">{{item.date}}</text>

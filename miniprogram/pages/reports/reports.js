@@ -92,6 +92,11 @@ Page({
       })
       .catch(() => {
         // 后端不可用，使用演示数据
+        wx.showToast({
+          title: '加载失败，已显示示例数据',
+          icon: 'none',
+          duration: 2000,
+        });
         if (this.data.page === 1) {
           this.setDemoData();
         }
@@ -185,6 +190,11 @@ Page({
         }
       })
       .catch(() => {
+        wx.showToast({
+          title: '详情报错，已使用本地数据',
+          icon: 'none',
+          duration: 2000,
+        });
         this.setData({
           currentReport: {
             ...report,
