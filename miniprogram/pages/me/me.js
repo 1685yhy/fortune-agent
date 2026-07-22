@@ -164,12 +164,22 @@ Page({
   // ---- 获取用户信息 ----
   // 微信已废弃 wx.getUserProfile，改用头像昵称填写能力
   getUserProfile() {
-    // 用户信息通过 open-type="chooseAvatar" + nickname 输入获取
-    // 此处保留方法签名兼容，实际信息由 WXML 组件填写
+    // 引导用户通过头像选择器更新资料
+    wx.showModal({
+      title: '编辑资料',
+      content: '点击头像区域的编辑按钮，即可选择新头像。如需修改昵称，请在微信个人资料中更改。',
+      showCancel: false,
+    });
   },
   onChooseAvatar(e) {
     const { avatarUrl } = e.detail;
-    this.setData({ 'userInfo.avatarUrl': avatarUrl });
+    // 更新本地数据
+    const userInfo = { ...(this.data.userInfo || {}), avatarUrl };
+    this.setData({ userInfo });
+    // 同步到全局
+    const app = getApp();
+    app.globalData.userInfo = userInfo;
+    wx.showToast({ title: '头像已更新', icon: 'success' });
   },
 
   // ---- 八字编辑器 ----

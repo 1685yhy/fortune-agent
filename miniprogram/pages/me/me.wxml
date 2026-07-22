@@ -12,9 +12,9 @@
       <text class="profile-badge" wx:if="{{isLoggedIn}}">已绑定微信</text>
       <text class="profile-badge login-badge" wx:else bindtap="handleLogin">点击登录</text>
     </view>
-    <view class="profile-edit" bindtap="getUserProfile" wx:if="{{isLoggedIn}}">
+    <button class="profile-edit" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar" wx:if="{{isLoggedIn}}">
       <text>编辑</text>
-    </view>
+    </button>
   </view>
 
   <!-- 数据统计 -->
