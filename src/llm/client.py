@@ -212,12 +212,13 @@ class FortuneLLM:
                 self._pro_semaphore.release()
 
     def _format_chart(self, r: BaziResult) -> str:
+        gender_line = f"\n性别：{r.gender}" if r.gender else ""
         return f"""八字：{' '.join(r.bazi)}
 日主：{r.day_master}
 五行：{r.wuxing}
 十神：{' '.join(r.shishen)}
 格局：{r.geju}
-用神：{r.yongshen}
+用神：{r.yongshen}{gender_line}
 大运：{' → '.join(f'{age}岁{ganzhi}' for age, ganzhi in r.dayun[:5])}
 神煞：{'、'.join(r.shensha) if r.shensha else '无'}"""
 

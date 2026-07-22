@@ -55,6 +55,7 @@ class BaziResult:
     yongshen: str         # "水木"
     shensha: List[str]    # ["天乙贵人","驿马"]
     nayin: List[str]      # 纳音
+    gender: str = ""      # P1-3: 原始性别，可能为 "unknown"
     raw_data: dict = field(default_factory=dict)
 
 
@@ -64,9 +65,14 @@ class BaziEngine:
     def calculate(self, year: int, month: int, day: int,
                   hour: int, minute: int, city: str,
                   gender: str) -> BaziResult:
-        """排八字命盘"""
+        """排八字命盘
+
+        P1-3: 当 gender 为 "unknown" 时，默认按男排盘（大运顺排），
+        但在结果中标注性别未知。
+        """
+        # P1-3: Handle unknown gender — default to 男 for calculation
+        calc_gender = gender if gender in ("男", "女") else "男"
         # 处理晚子时 (23:00-23:59): 使用次日日期, 时柱仍为子时
-        if hour >= 23:
             from datetime import datetime as dt, timedelta
             d = dt(year, month, day) + timedelta(days=1)
             year, month, day = d.year, d.month, d.day
@@ -119,7 +125,7 @@ class BaziEngine:
             nayin.append(NAYIN.get(p, ""))
 
         # 大运
-        dayun = self._calc_dayun(lunar, gender, bazi_pillars)
+        dayun = self._calc_dayun(lunar, calc_gender, bazi_pillars)
 
         # 流年（简化：使用 lunar-python 或计算）
         liunian = self._calc_liunian(lunar, day_gan)
@@ -144,6 +150,7 @@ class BaziEngine:
             yongshen=yongshen,
             shensha=shensha,
             nayin=nayin,
+            gender=gender,
         )
 
     def _calc_shishen(self, day_gan: str, target_gan: str) -> str:

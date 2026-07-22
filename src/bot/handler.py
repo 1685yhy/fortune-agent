@@ -1016,10 +1016,12 @@ class MessageHandler:
                     if 1 <= hour <= 12:
                         hour += 12
 
-        # Step 4: Extract gender
-        gender = "男"
+        # Step 4: Extract gender — P1-3: default to "unknown" instead of "男"
+        gender = "unknown"
         if "女" in msg:
             gender = "女"
+        elif "男" in msg:
+            gender = "男"
 
         # Step 5: Extract city
         city = "北京"
@@ -1067,6 +1069,16 @@ class MessageHandler:
                 self.memory_system.add_concern(user_id, user_context)
                 self.memory_system.remember(user_id, "last_topic", user_context)
 
+        # 4. P1-3: If gender is unknown, add instruction for gender-neutral language
+        gender_note = ""
+        if gender == "unknown":
+            gender_note = "
+
+【注意：用户未提供性别，分析时请使用中性表述，如「命主」而非「他/她」，不要默认任何性别倾向】"
+            question_with_gender = question + gender_note
+        else:
+            question_with_gender = question
+
         # 4. 检索古籍
         search_query = f"{result.day_master} {question}"
         refs = self.retriever.search(search_query, category="bazi", top_k=15)
@@ -1075,7 +1087,7 @@ class MessageHandler:
         pref_extra = self._get_personalized_context(user_id)
 
         # Phase 2: Scenario-aware structured report
-        scenario_info = self._route_by_scenario(question, user_id)
+        scenario_info = self._route_by_scenario(question_with_gender, user_id)
         if scenario_info:
             from src.llm.report_prompts import STRUCTURED_REPORT_PROMPT, SCENARIO_FOCUS_PROMPTS
             extra_prompt = STRUCTURED_REPORT_PROMPT
@@ -1097,7 +1109,7 @@ class MessageHandler:
             )
         else:
             analysis = self.llm.analyze(
-                result, refs, question,
+                result, refs, question_with_gender,
                 personality_mode=self._get_personality_mode(user_id),
                 extra_system_prompt=pref_extra if pref_extra else None,
             )
@@ -1306,9 +1318,11 @@ class MessageHandler:
 
     def _gen_info_collection_prompt(self, msg: str) -> str:
         """AI generates contextual info-collection prompt based on what user said."""
+        # P1-3: explicitly prompt for gender, don't default to male
         prompt = (
             f"用户说：「{msg}」，想了解八字命理但还没提供出生信息。\n"
             "请生成一段友善的引导，请用户提供：出生年月日时、出生地、性别。\n"
+            "提醒用户性别很重要（影响大运走向），尽量明确告知。\n"
             "风格：像朋友一样自然，不要死板。给出一个具体示例。\n"
             "用现代中文，不要用「小友」「老夫」。50-80字。\n"
             "直接返回文本，不要引号不要JSON。"
@@ -1316,7 +1330,7 @@ class MessageHandler:
         result = self._quick_flash(prompt, max_tokens=120)
         return result or ("好的，想帮你看看八字～请告诉我：\n"
                           "📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n"
-                          "📍 出生城市\n👤 性别\n\n"
+                          "📍 出生城市\n👤 性别（男/女，这个很重要，影响大运方向）\n\n"
                           "💡 示例：1990年5月20日 下午3点 北京 男")
 
     def _gen_followup_questions(self, result, question: str) -> str:
