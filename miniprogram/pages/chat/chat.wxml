@@ -116,7 +116,17 @@
 
   <!-- 输入区域 -->
   <view class="input-bar">
+    <!-- 语音录制中状态 -->
+    <view class="recording-bar" wx:if="{{isRecording}}">
+      <view class="recording-wave">
+        <view class="wave-bar" wx:for="{{[1,2,3,4,5]}}" wx:key="*this" style="animation-delay: {{item * 0.1}}s;"></view>
+      </view>
+      <text class="recording-hint">正在聆听... 松开发送</text>
+    </view>
     <view class="input-wrapper">
+      <view class="input-btn" bindtouchstart="startRecord" bindtouchend="stopRecord">
+        <text class="input-btn-icon">{{isRecording ? '🔴' : '🎤'}}</text>
+      </view>
       <input
         class="text-input"
         type="text"
@@ -127,6 +137,9 @@
         confirm-type="send"
         disabled="{{sending}}"
       />
+      <view class="input-btn" bindtap="chooseImage">
+        <text class="input-btn-icon">📷</text>
+      </view>
       <view class="send-btn {{inputText.trim() ? 'active' : ''}}" bindtap="sendMessage">
         <text>发送</text>
       </view>

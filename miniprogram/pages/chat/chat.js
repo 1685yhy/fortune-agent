@@ -21,10 +21,119 @@ Page({
     typingText: '',
     typingDots: '',
     isTyping: false,
+    // 语音+图片
+    isRecording: false,
+    imagePreview: '',
+    _recorder: null,
   },
 
   onLoad() {
     this.loadHistory();
+    this._initRecorder();
+  },
+
+  // ---- 语音录制 ----
+  _initRecorder() {
+    const rm = wx.getRecorderManager();
+    rm.onStart(() => { this.setData({ isRecording: true }); });
+    rm.onStop((res) => {
+      this.setData({ isRecording: false });
+      if (res.tempFilePath) {
+        this.sendVoice(res.tempFilePath);
+      }
+    });
+    rm.onError((e) => {
+      this.setData({ isRecording: false });
+      wx.showToast({ title: '录音失败', icon: 'none' });
+    });
+    this._recorder = rm;
+  },
+
+  startRecord() {
+    if (this.data.sending) return;
+    this._recorder.start({ format: 'mp3', duration: 60000 });
+  },
+
+  stopRecord() {
+    this._recorder.stop();
+  },
+
+  async sendVoice(filePath) {
+    const userMsg = {
+      id: 'msg-' + Date.now(),
+      role: 'user',
+      content: '[语音消息]',
+      time: this.getTimeString(),
+      type: 'voice',
+      voicePath: filePath,
+    };
+    const msgs = [...this.data.messages, userMsg];
+    this.setData({ messages: msgs, sending: true, isTyping: true });
+    this.saveHistory();
+    this.scrollToBottom();
+
+    try {
+      const reply = await api.chat('[语音消息]', this.data.selectedScenario, []);
+      this._addReply(reply);
+    } catch (e) {
+      this._addReply({ reply: '语音识别暂不可用，请用文字描述你的问题 🙏' });
+    }
+  },
+
+  // ---- 图片选择 ----
+  chooseImage() {
+    if (this.data.sending) return;
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ['image'],
+      sourceType: ['album', 'camera'],
+      success: (res) => {
+        const tempPath = res.tempFiles[0].tempFilePath;
+        this.setData({ imagePreview: tempPath });
+        this.sendImage(tempPath);
+      },
+    });
+  },
+
+  cancelImage() {
+    this.setData({ imagePreview: '' });
+  },
+
+  async sendImage(filePath) {
+    const userMsg = {
+      id: 'msg-' + Date.now(),
+      role: 'user',
+      content: '[图片]',
+      time: this.getTimeString(),
+      type: 'image',
+      imagePath: filePath,
+    };
+    const msgs = [...this.data.messages, userMsg];
+    this.setData({ messages: msgs, imagePreview: '', sending: true, isTyping: true });
+    this.saveHistory();
+    this.scrollToBottom();
+
+    try {
+      const reply = await api.chat('[图片分析请求]', this.data.selectedScenario, []);
+      this._addReply(reply);
+    } catch (e) {
+      this._addReply({ reply: '图片分析暂不可用，请描述你想了解的内容 🙏' });
+    }
+  },
+
+  _addReply(data) {
+    const reply = typeof data === 'string' ? data : (data.reply || '');
+    const assistantMsg = {
+      id: 'msg-' + Date.now(),
+      role: 'assistant',
+      content: reply,
+      time: this.getTimeString(),
+      type: 'text',
+    };
+    const msgs = [...this.data.messages, assistantMsg];
+    this.setData({ messages: msgs, sending: false, isTyping: false });
+    this.saveHistory();
+    this.scrollToBottom();
   },
 
   onShow() {
