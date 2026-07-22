@@ -199,7 +199,7 @@
         <!-- 出生日期 -->
         <view class="form-group">
           <text class="form-label">出生年份</text>
-          <picker mode="selector" range="{{years}}" bindchange="onBirthYearChange" value="{{years.indexOf(birthYear)}}">
+          <picker mode="selector" range="{{years}}" bindchange="onBirthYearChange" value="{{pickerYearIdx}}">
             <view class="form-picker">
               <text>{{birthYear}} 年</text>
             </view>
@@ -208,7 +208,7 @@
 
         <view class="form-group">
           <text class="form-label">出生月份</text>
-          <picker mode="selector" range="{{months}}" bindchange="onBirthMonthChange" value="{{months.indexOf(birthMonth)}}">
+          <picker mode="selector" range="{{months}}" bindchange="onBirthMonthChange" value="{{pickerMonthIdx}}">
             <view class="form-picker">
               <text>{{birthMonth}} 月</text>
             </view>
@@ -217,7 +217,7 @@
 
         <view class="form-group">
           <text class="form-label">出生日期</text>
-          <picker mode="selector" range="{{days}}" bindchange="onBirthDayChange" value="{{days.indexOf(birthDay)}}">
+          <picker mode="selector" range="{{days}}" bindchange="onBirthDayChange" value="{{pickerDayIdx}}">
             <view class="form-picker">
               <text>{{birthDay}} 日</text>
             </view>
@@ -227,7 +227,7 @@
         <!-- 出生时辰 -->
         <view class="form-group">
           <text class="form-label">出生时辰</text>
-          <picker mode="selector" range="{{hours}}" bindchange="onBirthHourChange" value="{{hours.indexOf(birthHour)}}">
+          <picker mode="selector" range="{{hours}}" bindchange="onBirthHourChange" value="{{pickerHourIdx}}">
             <view class="form-picker">
               <text>
                 <block wx:if="{{birthHour == 0}}">子时(23-01)</block>
