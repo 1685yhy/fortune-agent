@@ -84,7 +84,13 @@ def create_openai_router(_handler=None):
 
         try:
             # process() handles intent detection + routing internally via AI
-            reply = handler.process(user_message, req.user or "cow_user")
+            # Use provided user ID, or derive a stable ID from first message content
+            # to keep multi-turn sessions coherent across anonymous API users
+            uid = req.user
+            if not uid:
+                import hashlib
+                uid = "api_" + hashlib.md5(user_message.encode()[:100]).hexdigest()[:12]
+            reply = handler.process(user_message, uid)
         except Exception as e:
             reply = f"⚠️ 处理出错：{str(e)}"
 
@@ -105,7 +111,11 @@ def create_openai_router(_handler=None):
         if handler is None:
             raise HTTPException(status_code=503, detail="Not ready")
         try:
-            reply = handler.process(req.prompt, req.user or "cow_user")
+            uid = req.user
+            if not uid:
+                import hashlib
+                uid = "api_" + hashlib.md5(req.prompt.encode()[:100]).hexdigest()[:12]
+            reply = handler.process(req.prompt, uid)
         except Exception as e:
             reply = f"⚠️ {e}"
         token_count = max(len(reply) // 2, 1)  # approx tokens
