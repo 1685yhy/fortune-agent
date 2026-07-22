@@ -87,7 +87,7 @@ class FortuneLLM:
         resp = self._client.post(
             "https://api.deepseek.com/v1/chat/completions",
             headers=headers,
-            json={"model": self.model, "messages": messages, "max_tokens": 500, "temperature": 0.8},
+            json={"model": self.model, "messages": messages, "max_tokens": 300, "temperature": 0.8},
         )
         data = resp.json()
         return data["choices"][0]["message"]["content"]
@@ -132,9 +132,10 @@ class FortuneLLM:
             system_prompt = system_prompt + "\n\n" + extra_system_prompt
 
         # Flash-first: reliable, fast, sufficient with RAG
+        # P1-1: reduce default max_tokens to keep replies concise
         if not use_pro:
             return self._call_deepseek_model(
-                user_message, self.model, max_tokens=1500,
+                user_message, self.model, max_tokens=800,
                 custom_prompt=system_prompt,
                 timeout=60.0,
             )
@@ -142,7 +143,7 @@ class FortuneLLM:
         # Pro only if explicitly requested
         try:
             return self._call_deepseek_model(
-                user_message, self.deep_model, max_tokens=2000,
+                user_message, self.deep_model, max_tokens=1200,
                 custom_prompt=system_prompt,
                 timeout=90.0,
             )
@@ -150,12 +151,12 @@ class FortuneLLM:
             import logging
             logging.getLogger(__name__).warning("Pro failed, falling back to Flash")
             return self._call_deepseek_model(
-                user_message, self.model, max_tokens=1200,
+                user_message, self.model, max_tokens=800,
                 custom_prompt=system_prompt,
                 timeout=30.0,
             )
 
-    def _call_deepseek_model(self, user_message: str, model: str, max_tokens: int = 500,
+    def _call_deepseek_model(self, user_message: str, model: str, max_tokens: int = 300,
                              use_system_prompt: bool = True,
                              custom_prompt: str = None,
                              timeout: float = 60.0) -> AnalysisResult:
