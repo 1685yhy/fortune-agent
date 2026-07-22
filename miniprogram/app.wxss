@@ -3,54 +3,65 @@
    Design: Deep Indigo + Gold, 8px grid
    ======================================== */
 
-/* ---- CSS 变量（设计令牌） ---- */
+/* 深色道家主题 — 底色 */
 page {
-  /* 主色调 */
-  --color-primary: #1a1a2e;
-  --color-primary-light: #2d2d5e;
-  --color-accent: #c9a96e;
-  --color-accent-light: #d4b87a;
-  --color-accent-dark: #b8954a;
+  /* 深色道家主题 — 底色 */
+  --bg-deep: #0F172A;
+  --bg-card: #1E293B;
+  --bg-card-alt: #273548;
+
+  /* 金色系统 */
+  --gold: #B8860B;
+  --gold-light: #D4A843;
+  --gold-glow: rgba(184,134,11,0.25);
+
+  /* 浅色区域(宣纸) */
+  --paper: #F5F0E8;
+  --ink: #1C1917;
 
   /* 语义色 */
-  --color-success: #4caf50;
-  --color-warning: #ff9800;
-  --color-danger: #e74c3c;
-  --color-info: #5b8def;
+  --stone: #78716C;
+  --cinnabar: #C2413D;
+  --jade: #5B8C5A;
+  --success: #4A8C4A;
+  --warning: #C2852A;
+  --danger: #C2413D;
+  --info: #5B8CA8;
 
-  /* 中性色 */
-  --color-text: #1a1a2e;
-  --color-text-secondary: #666680;
-  --color-text-tertiary: #9999aa;
-  --color-bg: #fafaf9;
-  --color-bg-card: #ffffff;
-  --color-bg-card-alt: #f5f4f0;
-  --color-border: #e7e5e4;
-  --color-divider: #f0efed;
+  /* 文字色(暗底) */
+  --color-text: #E8E4E0;
+  --color-text-secondary: #98948E;
+  --color-text-tertiary: #78716C;
+  --color-text-card: #FFFFFF;
 
-  /* 间距 */
-  --spacing-xs: 4px;
-  --spacing-sm: 8px;
-  --spacing-md: 16px;
-  --spacing-lg: 24px;
-  --spacing-xl: 32px;
-  --spacing-2xl: 48px;
+  /* 背景色 */
+  --color-bg: var(--bg-deep);
+  --color-bg-card: var(--bg-card);
+  --color-bg-card-alt: var(--bg-card-alt);
+  --color-border: #334155;
+  --color-divider: #1E293B;
 
-  /* 圆角 */
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 24px;
+  /* 间距(8px基准) */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --space-3xl: 64px;
+
+  /* 圆角(卡片≤16px) */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 16px;
   --radius-full: 999px;
 
-  /* 阴影 */
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
-  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
-  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
-  --shadow-glow: 0 4px 20px rgba(201,169,110,0.25);
-
-  /* 卡片文本（在渐变深色背景上） */
-  --color-text-card: #ffffff;
+  /* 阴影(暗色底适配) */
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-md: 0 2px 8px rgba(0,0,0,0.4);
+  --shadow-lg: 0 4px 16px rgba(0,0,0,0.5);
+  --shadow-glow: 0 2px 16px var(--gold-glow);
 
   /* 字体 */
   --font-xs: 11px;
@@ -60,37 +71,35 @@ page {
   --font-xl: 20px;
   --font-2xl: 24px;
   --font-3xl: 32px;
+  --font-4xl: 40px;
 
   /* 转场 */
-  --transition-fast: 0.2s ease;
-  --transition-normal: 0.3s ease;
+  --transition-fast: 0.2s ease-out;
+  --transition-normal: 0.3s ease-out;
 
-  /* 背景 */
-  --gradient-primary: linear-gradient(135deg, #1a1a2e 0%, #2d2d5e 100%);
-  --gradient-card: linear-gradient(135deg, #2d2d5e 0%, #1a1a2e 100%);
-  --gradient-gold: linear-gradient(135deg, #c9a96e 0%, #d4b87a 50%, #c9a96e 100%);
-  --gradient-warm: linear-gradient(135deg, #fafaf9 0%, #f0efed 100%);
+  /* 渐变色 */
+  --gradient-primary: linear-gradient(180deg, #0F172A 0%, #1A2744 100%);
+  --gradient-card: linear-gradient(135deg, #1E293B 0%, #273548 100%);
+  --gradient-gold: linear-gradient(135deg, #B8860B 0%, #D4A843 50%, #B8860B 100%);
 }
 
-/* ---- 暗色模式 ---- */
-@media (prefers-color-scheme: dark) {
+/* 暗色模式微调 — 深底已是默认，这里只做微调 */
+@media (prefers-color-scheme: light) {
   page {
-    --color-text: #e8e4e0;
-    --color-text-secondary: #aaaabc;
-    --color-text-tertiary: #777790;
-    --color-bg: #12121a;
-    --color-bg-card: #1e1e2e;
-    --color-bg-card-alt: #252538;
-    --color-border: #2a2a40;
-    --color-divider: #222236;
-    --shadow-sm: 0 1px 3px rgba(0,0,0,0.2);
-    --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
-    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+    --color-bg: #F5F0E8;
+    --color-bg-card: #FFFFFF;
+    --color-bg-card-alt: #F0EBE0;
+    --color-text: #1C1917;
+    --color-text-secondary: #78716C;
+    --color-text-tertiary: #A09890;
+    --color-border: #E0DBD2;
+    --color-divider: #F0EBE0;
   }
 }
 
-/* ---- Reset & Base ---- */
-* {
+/* Reset — 小程序基础重置 */
+page, view, text, image, scroll-view, button, input, textarea, navigator, icon, canvas,
+video, map, picker, switch, label, form, radio, checkbox, slider, progress {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
@@ -102,9 +111,7 @@ page {
   color: var(--color-text);
   background-color: var(--color-bg);
   line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
   letter-spacing: 0.02em;
-  text-rendering: optimizeLegibility;
 }
 
 view, text, image, button, input, textarea {
@@ -128,13 +135,7 @@ view, text, image, button, input, textarea {
 }
 
 /* ---- Reduced motion ---- */
-@media (prefers-reduced-motion: reduce) {
-  * {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-}
+/* 微信小程序不支持 * 通配符和 @media，移除 reduced-motion 动画覆盖 */
 
 /* ---- 通用组件 ---- */
 
@@ -170,7 +171,7 @@ view, text, image, button, input, textarea {
 
 .btn-primary {
   background: var(--gradient-gold);
-  color: #1a1a2e;
+  color: var(--ink);
   font-weight: 600;
   box-shadow: var(--shadow-glow);
 }
