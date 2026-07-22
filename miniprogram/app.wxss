@@ -36,10 +36,10 @@ page {
 
   /* 背景色 */
   --color-bg: var(--bg-deep);
-  --color-bg-card: var(--bg-card);
-  --color-bg-card-alt: var(--bg-card-alt);
-  --color-border: #334155;
-  --color-divider: #1E293B;
+  --color-bg-card: #162032;
+  --color-bg-card-alt: #1C2D42;
+  --color-border: #253545;
+  --color-divider: #1A2A3A;
 
   /* 间距(8px基准) */
   --space-xs: 4px;

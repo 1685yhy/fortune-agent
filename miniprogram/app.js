@@ -25,11 +25,15 @@ App({
   // ---- 微信登录 ----
   async wechatLogin() {
     try {
-      // Step 1: wx.login() → code
-      const { code } = await new Promise((resolve, reject) => {
+      // Step 1: wx.login() with 3s timeout for dev environment
+      const { code } = await new Promise((resolve) => {
+        var done = false;
+        var timer = setTimeout(function() {
+          if (!done) { done = true; resolve({ code: null }); }
+        }, 3000);
         wx.login({
-          success: resolve,
-          fail: reject,
+          success: function(res) { if (!done) { done = true; clearTimeout(timer); resolve(res); } },
+          fail: function() { if (!done) { done = true; clearTimeout(timer); resolve({ code: null }); } }
         });
       });
 
@@ -59,7 +63,7 @@ App({
           loginTime: Date.now(),
         });
 
-        console.log('[登录] 成功');
+        // 登录成功
       } else {
         // 使用本地模式
         this.initLocalMode();
@@ -90,8 +94,9 @@ App({
   // ---- 系统主题检测 ----
   detectTheme() {
     try {
-      const sysInfo = wx.getSystemInfoSync();
-      const theme = sysInfo.theme || 'light';
+      // 使用新版 API 替代已废弃的 getSystemInfoSync
+      const appBase = wx.getAppBaseInfo ? wx.getAppBaseInfo() : {};
+      const theme = appBase.theme || 'light';
       this.globalData.theme = theme;
 
       // 监听主题变化

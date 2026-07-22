@@ -44,6 +44,7 @@ from src.storage.conversation_memory import ConversationMemory
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
 from src.memory.user_memory import UserMemory
+from src.engines.similarity import SimilarityEngine
 from .formatter import split_long_message, format_error, format_loading
 from src.reading_version import get_version_footer
 
@@ -208,6 +209,13 @@ class MessageHandler:
         self.quality_predictor = QualityPredictor()
         # Phase 3: User Memory System — persistent cross-session memory
         self.memory_system = UserMemory()
+
+        # Phase 5: Similarity Engine — 命例相似度匹配
+        # DB path: data/wenzhen_charts.db relative to project root
+        import os as _os
+        _proj_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+        _sim_db = _os.path.join(_proj_root, "data", "wenzhen_charts.db")
+        self.similarity_engine = SimilarityEngine(_sim_db) if _os.path.exists(_sim_db) else None
 
     # ============================================================
     # Personality Mode Management
@@ -1048,6 +1056,24 @@ class MessageHandler:
             reply += advice_section
         if chart_url:
             reply += f"\n\n📊 命盘图片：{chart_url}"
+
+        # Phase 5: 命例相似度分析
+        if self.similarity_engine:
+            try:
+                sim_report = self.similarity_engine.search({
+                    "day_master": result.day_master,
+                    "bazi": result.bazi,
+                    "shishen": result.shishen,
+                    "shensha": result.shensha if hasattr(result, 'shensha') else [],
+                    "dayun": result.dayun if hasattr(result, 'dayun') else [],
+                    "gender": gender,
+                }, top_k=10)
+                if sim_report and sim_report.top_matches:
+                    reply += "\n\n🔮 **命例相似度分析**（基于44,493条命例）\n"
+                    reply += sim_report.insight_text
+            except Exception:
+                pass  # 相似度分析失败不阻塞主流程
+
         if instant_reply:
             reply = instant_reply + "\n\n---\n\n" + reply
 

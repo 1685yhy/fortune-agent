@@ -16,14 +16,14 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: var(--space-3xl);
-  padding-bottom: var(--space-lg);
+  padding-top: 72px;
+  padding-bottom: var(--space-2xl);
 }
 
 .hero-canvas-wrap {
   position: relative;
-  width: 220px;
-  height: 220px;
+  width: 240px;
+  height: 240px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -32,8 +32,8 @@
 .hero-canvas {
   position: absolute;
   top: 0; left: 0;
-  width: 220px;
-  height: 220px;
+  width: 240px;
+  height: 240px;
 }
 .hero-canvas-ring { opacity: 0; transition: opacity 0.6s ease-out; }
 .hero-canvas-ring.visible { opacity: 1; }
@@ -46,37 +46,38 @@
   z-index: 2;
 }
 .ring-score {
-  font-size: var(--font-4xl);
-  font-weight: 700;
-  color: var(--gold-light);
+  font-size: 56px;
+  font-weight: 300;
+  color: var(--color-text);
   line-height: 1;
+  letter-spacing: -0.02em;
 }
 .ring-unit {
   font-size: var(--font-sm);
-  color: var(--stone);
-  margin-top: 2px;
+  color: var(--color-text-tertiary);
+  margin-top: 4px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
 }
 .ring-level {
-  font-size: var(--font-xl);
-  font-weight: 600;
-  color: var(--gold);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
   margin-top: var(--space-xs);
+  letter-spacing: 0.08em;
 }
-.ring-level.excellent { color: var(--gold-light); }
-.ring-level.good { color: var(--jade); }
-.ring-level.fair { color: var(--warning); }
-.ring-level.poor { color: var(--cinnabar); }
 
 .hero-date {
-  margin-top: var(--space-md);
+  margin-top: var(--space-xl);
   display: flex;
   align-items: center;
   opacity: 0;
   animation: fadeUp 0.5s ease-out 0.8s forwards;
 }
 .hero-date-text {
-  font-size: var(--font-md);
-  color: var(--stone);
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.04em;
 }
 .hero-jieqi {
   font-size: var(--font-sm);
@@ -84,57 +85,60 @@
 }
 
 .hero-advice {
-  margin-top: var(--space-sm);
-  padding: 0 var(--space-xl);
+  margin-top: var(--space-md);
+  padding: 0 var(--space-2xl);
   display: flex;
   align-items: flex-start;
   opacity: 0;
   animation: fadeUp 0.5s ease-out 1.0s forwards;
 }
 .advice-mark {
-  font-size: var(--font-2xl);
+  font-size: var(--font-xl);
   color: var(--gold);
   line-height: 1;
-  margin: 0 4px;
+  margin: 0 2px;
+  font-weight: 300;
 }
 .advice-text {
-  font-size: var(--font-lg);
+  font-size: var(--font-md);
   color: var(--color-text-secondary);
   text-align: center;
-  line-height: 1.6;
-  max-width: 320px;
+  line-height: 1.7;
+  max-width: 300px;
 }
 
 /* ---- Section 通用 ---- */
 .section {
   padding: var(--space-xl) var(--space-lg);
   opacity: 0;
-  transform: translateY(20px);
+  transform: translateY(16px);
 }
 .page.animated .section {
-  animation: fadeUp 0.5s ease-out forwards;
+  animation: fadeUp 0.6s ease-out forwards;
 }
 .page.animated .section:nth-child(2) { animation-delay: 1.0s; }
-.page.animated .section:nth-child(3) { animation-delay: 1.15s; }
-.page.animated .section:nth-child(4) { animation-delay: 1.3s; }
-.page.animated .section:nth-child(5) { animation-delay: 1.45s; }
-.page.animated .section:nth-child(6) { animation-delay: 1.6s; }
+.page.animated .section:nth-child(3) { animation-delay: 1.12s; }
+.page.animated .section:nth-child(4) { animation-delay: 1.24s; }
+.page.animated .section:nth-child(5) { animation-delay: 1.36s; }
+.page.animated .section:nth-child(6) { animation-delay: 1.48s; }
 
 .section-header {
   display: flex;
   flex-direction: row;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-lg);
 }
 .section-title {
-  font-size: var(--font-lg);
-  font-weight: 600;
-  color: var(--color-text);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.06em;
 }
 .section-hint {
-  font-size: var(--font-xs);
-  color: var(--stone);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  opacity: 0.6;
 }
 
 /* ---- 时辰时间线 ---- */
@@ -150,18 +154,17 @@
 }
 .hour-item {
   flex-shrink: 0;
-  width: 64px;
+  width: 56px;
   padding: var(--space-sm);
   border-radius: var(--radius-md);
-  background: var(--bg-card);
+  background: transparent;
   display: flex;
   flex-direction: column;
   align-items: center;
   transition: all var(--transition-fast);
 }
 .hour-item.active {
-  background: var(--bg-card-alt);
-  border: 1px solid var(--gold);
+  background: rgba(255,255,255,0.04);
 }
 .hour-name {
   font-size: var(--font-sm);
@@ -214,8 +217,9 @@
   flex-direction: column;
   align-items: center;
   padding: var(--space-lg) var(--space-sm);
-  background: var(--bg-card);
+  background: rgba(255,255,255,0.02);
   border-radius: var(--radius-lg);
+  border: 1px solid rgba(255,255,255,0.04);
 }
 .lucky-icon {
   width: 32px;
@@ -247,13 +251,13 @@
 }
 .yi-ji-col {
   flex: 1;
-  padding: var(--space-md);
-  background: var(--bg-card);
+  padding: var(--space-lg) var(--space-md);
   border-radius: var(--radius-lg);
+  background: rgba(255,255,255,0.015);
 }
 .yi-ji-title {
   font-size: var(--font-md);
-  font-weight: 600;
+  font-weight: 500;
   margin-bottom: var(--space-sm);
   display: block;
 }
@@ -294,18 +298,19 @@
   flex-direction: column;
   align-items: center;
   padding: var(--space-md);
-  background: var(--bg-card);
+  background: rgba(255,255,255,0.02);
   border-radius: var(--radius-lg);
+  border: 1px solid rgba(255,255,255,0.04);
   min-width: 72px;
   min-height: 72px;
   transition: all var(--transition-fast);
 }
 .mood-btn:active {
-  transform: scale(0.92);
-  background: var(--bg-card-alt);
+  transform: scale(0.94);
+  background: rgba(255,255,255,0.05);
 }
 .mood-btn.active {
-  border: 1px solid var(--gold);
+  background: rgba(255,255,255,0.06);
 }
 .mood-emoji {
   font-size: var(--font-2xl);

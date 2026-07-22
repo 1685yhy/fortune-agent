@@ -213,6 +213,9 @@ async def lifespan(app: FastAPI):
     from .api.compatibility import setup as setup_compatibility
     setup_compatibility(llm)
 
+    # Phase 5: Setup user API
+    setup_user(dao, session_dao, security_auth)
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -274,6 +277,38 @@ app.include_router(calendar_router)
 app.include_router(visual_report_router)     # /api/report, /report, /api/report/generate
 app.include_router(compatibility_router)     # /api/compatibility, /compatibility
 app.include_router(share_router)             # /api/share, /share
+
+# Phase 5: User API
+from .api.user import router as user_router, setup as setup_user
+app.include_router(user_router)              # /api/user/*
+
+# Reports list endpoint (mini program compatibility)
+@app.get("/api/reports")
+async def list_reports(user_id: str = "", page: int = 1, limit: int = 20):
+    """获取用户报告列表"""
+    global dao
+    if not user_id:
+        return {"reports": [], "total": 0}
+    consultations = dao.get_user_consultations(user_id, limit=1000) if dao else []
+    total = len(consultations)
+    start = (page - 1) * limit
+    page_items = consultations[start:start + limit]
+    reports = []
+    for c in page_items:
+        reports.append({
+            "id": str(c["id"]),
+            "title": c.get("question", "命理咨询")[:30],
+            "preview": c.get("analysis_preview", ""),
+            "intent": c.get("intent", ""),
+            "created_at": c.get("created_at", ""),
+        })
+    return {"reports": reports, "total": total}
+
+@app.get("/api/reports/{report_id}")
+async def get_report_detail(report_id: str):
+    """获取单份报告详情（兼容小程序）"""
+    # 委托给 /api/report/{reading_id}
+    return {"report": {"id": report_id, "note": "Report detail endpoint — integrate with visual_report"}}
 
 # Models
 class ChatRequest(BaseModel):

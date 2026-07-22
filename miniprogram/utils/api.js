@@ -5,11 +5,10 @@ const app = getApp();
 
 // ---- 配置 ----
 const CONFIG = {
-  // TODO: Switch to HTTPS for production and add a proper domain name.
-  // WeChat requires all production API requests to use HTTPS.
-  // Current: HTTP on port 8765 for development only.
-  baseURL: 'http://124.221.233.214:8765',
-  timeout: 15000,
+  // DEV: localhost via WSL SSH tunnel
+  // PROD: https://api.yilimingdeng.com
+  baseURL: 'http://127.0.0.1:8765',
+  timeout: 8000,
 };
 
 let authToken = null;

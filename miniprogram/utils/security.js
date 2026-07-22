@@ -11,7 +11,8 @@ function encode(str) {
   for (let i = 0; i < str.length; i++) {
     result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
   }
-  return wx.arrayBufferToBase64 ? btoa(result) : Buffer.from(result, 'binary').toString('base64');
+  // 使用内置 btoa（微信小程序环境可用）；微信不支持 Buffer
+  try { return btoa(result); } catch(e) { return result; }
 }
 
 function decode(encoded) {
