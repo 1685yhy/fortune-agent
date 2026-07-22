@@ -138,7 +138,14 @@ Page({
 
   // ---- 入场动画编排 ----
   async _startEntrance() {
-    const reduceMotion = wx.getWindowInfo().reduceMotion;
+    // Check if user prefers reduced motion (safely fall back if API unavailable)
+    let reduceMotion = false;
+    try {
+      const info = wx.getAppBaseInfo ? wx.getAppBaseInfo() : wx.getSystemInfoSync();
+      reduceMotion = !!info.reduceMotion;
+    } catch (e) {
+      reduceMotion = false;
+    }
     if (reduceMotion) {
       // 跳过动画，直接展示
       this.setData({ _animated: true, showTaiji: false, showParticles: false, showRing: true });
