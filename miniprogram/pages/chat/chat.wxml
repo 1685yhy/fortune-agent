@@ -16,6 +16,19 @@
     </view>
   </view>
 
+  <!-- 人格模式切换 -->
+  <view class="personality-bar">
+    <view class="personality-chip {{personality === 'sassy' ? 'active' : ''}}" data-mode="sassy" bindtap="onPersonalityTap">
+      <text>毒舌</text>
+    </view>
+    <view class="personality-chip {{personality === 'analyst' ? 'active' : ''}}" data-mode="analyst" bindtap="onPersonalityTap">
+      <text>分析</text>
+    </view>
+    <view class="personality-chip {{personality === 'gentle' ? 'active' : ''}}" data-mode="gentle" bindtap="onPersonalityTap">
+      <text>温柔</text>
+    </view>
+  </view>
+
   <!-- 场景选择面板 -->
   <view class="scenario-panel" wx:if="{{showScenarios}}">
     <view
@@ -41,6 +54,13 @@
     upper-threshold="50"
   >
     <view class="message-container">
+      <!-- 空状态 -->
+      <view class="chat-empty" wx:if="{{messages.length === 0 && !isTyping}}">
+        <text class="chat-empty-icon">🔮</text>
+        <text class="chat-empty-title">命理师已就位</text>
+        <text class="chat-empty-hint">选择上方场景或直接告诉我你的困惑，AI命理师为你解读</text>
+      </view>
+
       <!-- 消息气泡 -->
       <view
         class="message-wrapper {{msg.role === 'user' ? 'user' : 'assistant'}}"
@@ -61,8 +81,7 @@
           </view>
           <view class="bubble-content">
             <view class="bubble-text">
-              <rich-text nodes="{{msg.content}}" wx:if="{{msg.content.indexOf('\n') > -1}}"></rich-text>
-              <text wx:else>{{msg.content}}</text>
+              <rich-text nodes="{{msg.richNodes || msg.content}}"></rich-text>
             </view>
 
             <!-- 结构化报告（折叠） -->

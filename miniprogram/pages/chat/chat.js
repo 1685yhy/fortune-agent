@@ -17,6 +17,7 @@ Page({
       { id: 'health', label: '健康', icon: 'health' },
     ],
     showScenarios: false,
+    personality: 'sassy',
     typingText: '',
     typingDots: '',
     isTyping: false,
@@ -92,6 +93,12 @@ Page({
       this.saveHistory();
       this.scrollToBottom();
     }
+  },
+
+  // ---- 人格模式切换 ----
+  onPersonalityTap(e) {
+    const mode = e.currentTarget.dataset.mode;
+    this.setData({ personality: mode });
   },
 
   // ---- 输入 ----

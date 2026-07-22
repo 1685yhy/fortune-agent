@@ -44,6 +44,31 @@
   justify-content: center;
 }
 
+/* 人格模式切换栏 */
+.personality-bar {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-deep);
+}
+
+.personality-chip {
+  flex: 1;
+  text-align: center;
+  padding: 8px 0;
+  border-radius: var(--radius-full);
+  font-size: var(--font-sm);
+  color: var(--stone);
+  background: var(--bg-card);
+  transition: all var(--transition-fast);
+}
+
+.personality-chip.active {
+  background: var(--gold);
+  color: var(--ink);
+  font-weight: 600;
+}
+
 /* 场景面板 */
 .scenario-panel {
   background: var(--color-bg-card);
@@ -72,9 +97,9 @@
 }
 
 .scenario-item.active {
-  background: rgba(201, 169, 110, 0.15);
+  background: var(--gold-glow);
   color: var(--gold);
-  border: 1px solid rgba(201, 169, 110, 0.3);
+  border: 1px solid var(--gold);
 }
 
 .scenario-icon {
@@ -174,7 +199,7 @@
 }
 
 .assistant .bubble-text {
-  background: var(--color-bg-card-alt);
+  background: var(--gold-glow);
   color: var(--color-text);
   border-bottom-left-radius: 4px;
   border: 1px solid var(--color-border);
@@ -188,9 +213,9 @@
 
 .report-collapse {
   padding: 10px 16px;
-  background: rgba(201, 169, 110, 0.1);
+  background: var(--gold-glow);
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(201, 169, 110, 0.2);
+  border: 1px solid var(--gold);
 }
 
 .report-collapse-title {
@@ -277,6 +302,11 @@
   border: 1px solid var(--color-border);
 }
 
+.input-wrapper:focus-within {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 1px var(--gold-glow);
+}
+
 .text-input {
   flex: 1;
   padding: 8px 16px;
@@ -309,6 +339,36 @@
 
 .send-btn:active {
   transform: scale(0.95);
+}
+
+/* 空状态 */
+.chat-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-3xl) var(--space-xl);
+  text-align: center;
+}
+
+.chat-empty-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-lg);
+  opacity: 0.6;
+}
+
+.chat-empty-title {
+  font-size: var(--font-xl);
+  color: var(--color-text);
+  font-weight: 600;
+  margin-bottom: var(--space-sm);
+}
+
+.chat-empty-hint {
+  font-size: var(--font-sm);
+  color: var(--stone);
+  max-width: 260px;
+  line-height: 1.6;
 }
 
 /* 暗色模式 */
