@@ -3,7 +3,7 @@
 /* ---- 页面容器 ---- */
 .page {
   min-height: 100vh;
-  background: var(--bg-deep);
+  background: var(--gradient-primary);
   opacity: 0;
   transition: opacity 0.4s ease-out;
 }
