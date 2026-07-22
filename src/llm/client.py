@@ -58,7 +58,7 @@ class FortuneLLM:
                              or None to auto-detect from message.
         """
         resolved_mode = self._resolve_mood(user_message, personality_mode)
-        return self._call_deepseek_model(user_message, self.model, max_tokens=300,
+        return self._call_deepseek_model(user_message, self.model, max_tokens=500,
                                          custom_prompt=CHAT_PROMPT)
 
     def chat_conversation(self, history: list, personality_mode: Optional[str] = None) -> str:
@@ -87,7 +87,7 @@ class FortuneLLM:
         resp = self._client.post(
             "https://api.deepseek.com/v1/chat/completions",
             headers=headers,
-            json={"model": self.model, "messages": messages, "max_tokens": 300, "temperature": 0.8},
+            json={"model": self.model, "messages": messages, "max_tokens": 500, "temperature": 0.8},
         )
         data = resp.json()
         return data["choices"][0]["message"]["content"]
@@ -198,8 +198,20 @@ class FortuneLLM:
                 return AnalysisResult(
                     response=f"AI 服务暂时不可用，请稍后再试 🙏",
                     tokens_used=0, model=model)
+            content = data["choices"][0]["message"]["content"]
+            # Retry once if reply is empty or severely truncated
+            if not content or len(content) < 15:
+                import logging
+                logging.getLogger(__name__).warning(f"Empty/short reply ({len(content)} chars), retrying")
+                resp = self._client.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers=headers, json=payload,
+                )
+                data = resp.json()
+                if "error" not in data:
+                    content = data["choices"][0]["message"]["content"]
             return AnalysisResult(
-                response=data["choices"][0]["message"]["content"],
+                response=content or "AI 服务暂时不可用，请稍后重试 🙏",
                 tokens_used=data.get("usage", {}).get("total_tokens", 0),
                 model=model,
             )

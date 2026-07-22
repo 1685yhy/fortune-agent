@@ -94,7 +94,7 @@
   flex: 1;
   text-align: center;
   padding: var(--space-md);
-  background: var(--bg-card);
+  background: var(--color-bg-card);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
 }

@@ -37,13 +37,14 @@
 }
 
 .report-card {
-  background: rgba(255,255,255,0.02);
+  background: var(--color-bg-card);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
-  border: 1px solid rgba(255,255,255,0.04);
-  box-shadow: none;
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
   transition: all var(--transition-fast);
   animation: fadeSlideUp 0.35s ease-out both;
+  position: relative;
 }
 
 .report-card:active {
@@ -51,21 +52,21 @@
   box-shadow: var(--shadow-md);
 }
 
-/* 卡片场景色调 — subtle tint based on report type */
+/* 卡片场景色调 — subtle accent bar on the left */
 .card-tint-career {
-  background: linear-gradient(135deg, rgba(91,140,90,0.06), rgba(255,255,255,0.02));
+  border-left: 3px solid rgba(91,140,90,0.5);
 }
 .card-tint-love {
-  background: linear-gradient(135deg, rgba(194,65,61,0.06), rgba(255,255,255,0.02));
+  border-left: 3px solid rgba(194,65,61,0.5);
 }
 .card-tint-wealth {
-  background: linear-gradient(135deg, rgba(184,134,11,0.08), rgba(255,255,255,0.02));
+  border-left: 3px solid rgba(184,134,11,0.5);
 }
 .card-tint-health {
-  background: linear-gradient(135deg, rgba(91,140,162,0.06), rgba(255,255,255,0.02));
+  border-left: 3px solid rgba(91,140,162,0.5);
 }
 .card-tint-default {
-  background: rgba(255,255,255,0.02);
+  border-left: 3px solid var(--color-border);
 }
 
 .report-card-top {
