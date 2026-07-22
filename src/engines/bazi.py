@@ -73,6 +73,7 @@ class BaziEngine:
         # P1-3: Handle unknown gender — default to 男 for calculation
         calc_gender = gender if gender in ("男", "女") else "男"
         # 处理晚子时 (23:00-23:59): 使用次日日期, 时柱仍为子时
+        if hour >= 23:
             from datetime import datetime as dt, timedelta
             d = dt(year, month, day) + timedelta(days=1)
             year, month, day = d.year, d.month, d.day

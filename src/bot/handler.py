@@ -536,70 +536,44 @@ class MessageHandler:
                 return ack + "\n\n" + reply
             return f"好的，已切换到{name}模式！有什么想问的尽管说~"
 
-        # Step 0.6: P1-2 额度检查 — 免费用户每日3次限制
+                # Step 0.6: P1-2 额度检查 — 免费用户每日3次限制
         remaining, is_limited = self._check_quota(user_id)
         if is_limited:
             if remaining <= 0:
-                msg_warning = (
-                    "💡 你今天的免费额度已用完。成为会员即可无限畅聊，基础版仅需 19.9 元/月。
-
-"
-                    "回复「会员」了解更多升级方案。
-"
-                    "或回复「👍」告诉我之前的分析有用，帮助我改进～"
-                )
+                msg_warning = "💡 你今天的免费额度已用完。成为会员即可无限畅聊，基础版仅需 19.9 元/月。\n\n回复「会员」了解更多升级方案。\n或回复「👍」告诉我之前的分析有用，帮助我改进～"
                 if self.session_dao:
                     self.session_dao.add_message(user_id, "assistant", msg_warning)
                 return msg_warning
             elif remaining == 1:
                 # 倒计时提醒：仅剩1次免费机会
                 msg = (
-                    "💡 你还有 1 次免费提问机会，之后可以升级会员继续使用。
-
-"
+                    "💡 你还有 1 次免费提问机会，之后可以升级会员继续使用。\n\n"
                     + msg
                 )
 
         # Handle "会员" keyword — show upgrade info
         if msg.strip() in ("会员", "升级", "付费", "套餐", "价格", "多少钱"):
             upgrade_msg = (
-                "🌟 **易理明灯会员计划**
-
-"
-                "📌 **基础版** 19.9元/月
-"
-                "  - 每月50次完整命理分析
-"
-                "  - 含命盘图表
-"
-                "  - 无广告
-
-"
-                "📌 **专业版** 39.9元/月
-"
-                "  - 每月150次分析
-"
-                "  - 含PDF详细报告
-"
-                "  - 优先回复
-
-"
-                "📌 **年度版** 168元/年（省65%）
-"
-                "  - 专业版全部功能
-"
-                "  - 每周运势推送
-
-"
-                "💡 免费用户每天可享3次基础分析。
-"
+                "🌟 **易理明灯会员计划**\n\n"
+                "📌 **基础版** 19.9元/月\n"
+                "  - 每月50次完整命理分析\n"
+                "  - 含命盘图表\n"
+                "  - 无广告\n\n"
+                "📌 **专业版** 39.9元/月\n"
+                "  - 每月150次分析\n"
+                "  - 含PDF详细报告\n"
+                "  - 优先回复\n\n"
+                "📌 **年度版** 168元/年（省65%）\n"
+                "  - 专业版全部功能\n"
+                "  - 每周运势推送\n\n"
+                "💡 免费用户每天可享3次基础分析。\n"
                 "回复「开通基础版」即可升级！"
             )
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", upgrade_msg)
             return upgrade_msg
 
-        # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
+        # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)# Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
         analysis = self._analyze_message(msg)
 
         # Phase 3: Track mood in user memory
@@ -1072,9 +1046,7 @@ class MessageHandler:
         # 4. P1-3: If gender is unknown, add instruction for gender-neutral language
         gender_note = ""
         if gender == "unknown":
-            gender_note = "
-
-【注意：用户未提供性别，分析时请使用中性表述，如「命主」而非「他/她」，不要默认任何性别倾向】"
+            gender_note = "\n\n【注意：用户未提供性别，分析时请使用中性表述，如「命主」而非「他/她」，不要默认任何性别倾向】"
             question_with_gender = question + gender_note
         else:
             question_with_gender = question
