@@ -40,6 +40,8 @@ except ImportError:
 
 from src.storage.session_dao import SessionDAO
 from src.storage.preference_dao import PreferenceDAO, UserPreferences
+from src.storage.member_dao import MemberDAO
+from src.storage.member_dao import MemberDAO
 from src.storage.conversation_memory import ConversationMemory
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
@@ -184,6 +186,7 @@ class MessageHandler:
         dao: UserDAO,
         dream_engine: DreamEngine = None,
         session_dao: SessionDAO = None,
+        member_dao: MemberDAO = None,  # P1-2: quota management
     ):
         self.engine = engine
         self.ziwei_engine = ziwei_engine
@@ -196,6 +199,9 @@ class MessageHandler:
         self.llm = llm
         self.dao = dao
         self.session_dao = session_dao
+        # P1-2: Membership / quota management
+        db_path = getattr(dao, 'db_path', '') if dao else ''
+        self.member_dao = member_dao or (MemberDAO(db_path) if db_path else None)
         self._personality_modes = {}  # user_id -> mode string
         # F1: Preference learner — gets db_path from dao
         db_path = getattr(dao, 'db_path', '') if dao else ''
@@ -369,6 +375,38 @@ class MessageHandler:
         return 500
 
     # ============================================================
+    # P1-2: Quota Check — free tier daily limit with warnings
+    # ============================================================
+
+    def _check_quota(self, user_id: str) -> tuple:
+        """Check user's remaining quota.
+
+        Returns:
+            (remaining: int, is_limited: bool)
+            remaining = -1 means unlimited (paid user).
+        """
+        if not self.member_dao:
+            return -1, False  # No quota system = unlimited
+        try:
+            membership = self.member_dao.get_membership(user_id)
+            limit = membership.get("queries_limit")
+            used = membership.get("queries_used", 0)
+            if limit is None:
+                return -1, False  # Unlimited
+            remaining = max(0, limit - used)
+            return remaining, True
+        except Exception:
+            return -1, False
+
+    def _consume_quota(self, user_id: str) -> None:
+        """Mark one query as used."""
+        if self.member_dao:
+            try:
+                self.member_dao.use_quota(user_id)
+            except Exception:
+                pass
+
+    # ============================================================
     # Phase 2: Scenario Router — structured report for known scenarios
     # ============================================================
 
@@ -498,6 +536,69 @@ class MessageHandler:
                 return ack + "\n\n" + reply
             return f"好的，已切换到{name}模式！有什么想问的尽管说~"
 
+        # Step 0.6: P1-2 额度检查 — 免费用户每日3次限制
+        remaining, is_limited = self._check_quota(user_id)
+        if is_limited:
+            if remaining <= 0:
+                msg_warning = (
+                    "💡 你今天的免费额度已用完。成为会员即可无限畅聊，基础版仅需 19.9 元/月。
+
+"
+                    "回复「会员」了解更多升级方案。
+"
+                    "或回复「👍」告诉我之前的分析有用，帮助我改进～"
+                )
+                if self.session_dao:
+                    self.session_dao.add_message(user_id, "assistant", msg_warning)
+                return msg_warning
+            elif remaining == 1:
+                # 倒计时提醒：仅剩1次免费机会
+                msg = (
+                    "💡 你还有 1 次免费提问机会，之后可以升级会员继续使用。
+
+"
+                    + msg
+                )
+
+        # Handle "会员" keyword — show upgrade info
+        if msg.strip() in ("会员", "升级", "付费", "套餐", "价格", "多少钱"):
+            upgrade_msg = (
+                "🌟 **易理明灯会员计划**
+
+"
+                "📌 **基础版** 19.9元/月
+"
+                "  - 每月50次完整命理分析
+"
+                "  - 含命盘图表
+"
+                "  - 无广告
+
+"
+                "📌 **专业版** 39.9元/月
+"
+                "  - 每月150次分析
+"
+                "  - 含PDF详细报告
+"
+                "  - 优先回复
+
+"
+                "📌 **年度版** 168元/年（省65%）
+"
+                "  - 专业版全部功能
+"
+                "  - 每周运势推送
+
+"
+                "💡 免费用户每天可享3次基础分析。
+"
+                "回复「开通基础版」即可升级！"
+            )
+            if self.session_dao:
+                self.session_dao.add_message(user_id, "assistant", upgrade_msg)
+            return upgrade_msg
+
         # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
         analysis = self._analyze_message(msg)
 
@@ -511,6 +612,7 @@ class MessageHandler:
 
         # Priority: xuetang keywords trump everything
         if any(kw in msg for kw in ["学堂", "学习教程", "命理入门"]):
+            self._consume_quota(user_id)
             reply = self._handle_xuetang(msg, user_id)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply, intent="xuetang")
@@ -521,12 +623,14 @@ class MessageHandler:
             # Only skip confidant if user explicitly provides birth date info
             has_birth_info = bool(re.search(r'\d{4}\s*[年/-]', msg))
             if not has_birth_info:
+                self._consume_quota(user_id)
                 reply = self._handle_confidant(msg, user_id, analysis)
                 if self.session_dao:
                     self.session_dao.add_message(user_id, "assistant", reply)
                 return reply
 
         if analysis.intent is None:
+            self._consume_quota(user_id)
             reply = self._free_chat(msg, user_id, emotion_label=analysis.emotion_label)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply)
@@ -553,6 +657,7 @@ class MessageHandler:
         handler = handler_map.get(analysis.intent)
         if handler:
             try:
+                self._consume_quota(user_id)
                 reply = handler(msg, user_id)
             except Exception as e:
                 reply = f"⚠️ 服务暂时不可用：{str(e)[:100]}\n\n请稍后再试或换一种命理方式。"
