@@ -11,6 +11,10 @@ Page({
     hasBazi: false,
     baziInfo: null,
 
+    // 统计与会员
+    stats: {},
+    memberPlan: '免费',
+
     // 编辑八字弹窗
     showBaziEditor: false,
     birthYear: '1990',
@@ -25,7 +29,7 @@ Page({
     pushEnabled: false,
 
     // 关于
-    appVersion: 'v5.0.0',
+    appVersion: 'v6.0.0',
     showDisclaimer: false,
     feedbackText: '',
     sendingFeedback: false,
@@ -34,6 +38,11 @@ Page({
     months: [],
     days: [],
     hours: [],
+    // 预计算 picker 索引（避免 WXML 中调用 indexOf）
+    pickerYearIdx: 0,
+    pickerMonthIdx: 0,
+    pickerDayIdx: 0,
+    pickerHourIdx: 0,
   },
 
   onLoad() {
@@ -75,6 +84,18 @@ Page({
     }
 
     this.setData({ years, months, days, hours });
+    this.updatePickerIndices();
+  },
+
+  // 预计算 picker 选中索引（避免 WXML 中使用 indexOf）
+  updatePickerIndices() {
+    const d = this.data;
+    this.setData({
+      pickerYearIdx: d.years.indexOf(String(d.birthYear)),
+      pickerMonthIdx: d.months.indexOf(String(d.birthMonth)),
+      pickerDayIdx: d.days.indexOf(String(d.birthDay)),
+      pickerHourIdx: d.hours.indexOf(String(d.birthHour)),
+    });
   },
 
   // ---- 加载用户数据 ----
@@ -92,6 +113,26 @@ Page({
     if (pushSetting) {
       this.setData({ dailyPush: pushSetting.enabled || false });
     }
+
+    // 从 API 拉取用户资料（含统计数据）
+    if (gd.isLoggedIn) {
+      api.getUserProfile()
+        .then((profile) => {
+          const update = {};
+          if (profile.stats) update.stats = profile.stats;
+          if (profile.memberPlan) update.memberPlan = profile.memberPlan;
+          if (Object.keys(update).length) this.setData(update);
+        })
+        .catch(() => {});
+    }
+  },
+
+  // ---- 计算八字显示标签 ----
+  getBaziLabel(baziInfo) {
+    if (!baziInfo || !baziInfo.birthYear) return '';
+    const animals = ['鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪'];
+    const idx = (parseInt(baziInfo.birthYear) - 4) % 12;
+    return animals[idx < 0 ? idx + 12 : idx];
   },
 
   // ---- 微信登录 ----
@@ -113,7 +154,7 @@ Page({
               }
             })
             .catch(() => {
-              wx.showToast({ title: '登录失败', icon: 'none' });
+              wx.showToast({ title: '登录失败，请下拉重试', icon: 'none' });
             });
         }
       },
@@ -121,17 +162,14 @@ Page({
   },
 
   // ---- 获取用户信息 ----
+  // 微信已废弃 wx.getUserProfile，改用头像昵称填写能力
   getUserProfile() {
-    wx.getUserProfile({
-      desc: '用于显示个人头像和昵称',
-      success: (res) => {
-        app.globalData.userInfo = res.userInfo;
-        this.setData({ userInfo: res.userInfo });
-      },
-      fail: () => {
-        // 用户拒绝，使用默认
-      },
-    });
+    // 用户信息通过 open-type="chooseAvatar" + nickname 输入获取
+    // 此处保留方法签名兼容，实际信息由 WXML 组件填写
+  },
+  onChooseAvatar(e) {
+    const { avatarUrl } = e.detail;
+    this.setData({ 'userInfo.avatarUrl': avatarUrl });
   },
 
   // ---- 八字编辑器 ----
@@ -154,15 +192,19 @@ Page({
 
   onBirthYearChange(e) {
     this.setData({ birthYear: this.data.years[e.detail.value] });
+    this.updatePickerIndices();
   },
   onBirthMonthChange(e) {
     this.setData({ birthMonth: this.data.months[e.detail.value] });
+    this.updatePickerIndices();
   },
   onBirthDayChange(e) {
     this.setData({ birthDay: this.data.days[e.detail.value] });
+    this.updatePickerIndices();
   },
   onBirthHourChange(e) {
     this.setData({ birthHour: this.data.hours[e.detail.value] });
+    this.updatePickerIndices();
   },
   onGenderChange(e) {
     this.setData({ gender: e.detail.value });
@@ -224,17 +266,9 @@ Page({
 
     // 请求订阅权限
     if (newVal) {
-      wx.requestSubscribeMessage({
-        tmplIds: [],
-        success: () => {
-          security.setSecure('pushSetting', { enabled: true });
-          api.updateSubscription(true).catch(() => {});
-        },
-        fail: () => {
-          this.setData({ dailyPush: false });
-          wx.showToast({ title: '订阅失败', icon: 'none' });
-        },
-      });
+      // 待申请模板ID后启用：wx.requestSubscribeMessage({ tmplIds: ['...'] })
+      wx.showToast({ title: '每日推送将在下个版本开放', icon: 'none' });
+      this.setData({ dailyPush: false });
     } else {
       security.setSecure('pushSetting', { enabled: false });
       api.updateSubscription(false).catch(() => {});

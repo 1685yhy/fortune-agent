@@ -17,6 +17,22 @@
     </view>
   </view>
 
+  <!-- 数据统计 -->
+  <view class="stats-row">
+    <view class="stat-card">
+      <text class="stat-value">{{stats.totalConsultations || 0}}</text>
+      <text class="stat-label">咨询次数</text>
+    </view>
+    <view class="stat-card">
+      <text class="stat-value">{{stats.accuracy || '--'}}</text>
+      <text class="stat-label">准确率</text>
+    </view>
+    <view class="stat-card">
+      <text class="stat-value">{{memberPlan}}</text>
+      <text class="stat-label">当前套餐</text>
+    </view>
+  </view>
+
   <!-- 八字档案 -->
   <view class="section stagger-1">
     <view class="section-header">
@@ -78,9 +94,10 @@
       <text class="section-title">️ 设置</text>
     </view>
 
-    <view class="settings-card">
+    <view class="settings-group">
+      <text class="settings-group-title">推送与数据</text>
       <!-- 每日推送 -->
-      <view class="setting-item">
+      <view class="settings-item">
         <view class="setting-left">
           <text class="setting-icon"></text>
           <text class="setting-label">运势订阅</text>
@@ -89,7 +106,7 @@
       </view>
 
       <!-- 数据导出 -->
-      <view class="setting-item" bindtap="exportData">
+      <view class="settings-item" bindtap="exportData">
         <view class="setting-left">
           <text class="setting-icon"></text>
           <text class="setting-label">数据导出</text>
@@ -98,7 +115,7 @@
       </view>
 
       <!-- 数据删除 -->
-      <view class="setting-item" bindtap="deleteData">
+      <view class="settings-item" bindtap="deleteData">
         <view class="setting-left">
           <text class="setting-icon danger"></text>
           <text class="setting-label danger-label">删除所有数据</text>
@@ -114,8 +131,9 @@
       <text class="section-title">关于</text>
     </view>
 
-    <view class="settings-card">
-      <view class="setting-item">
+    <view class="settings-group">
+      <text class="settings-group-title">应用信息</text>
+      <view class="settings-item">
         <view class="setting-left">
           <text class="setting-icon"></text>
           <text class="setting-label">版本</text>
@@ -123,7 +141,7 @@
         <text class="setting-value">{{appVersion}}</text>
       </view>
 
-      <view class="setting-item" bindtap="toggleDisclaimer">
+      <view class="settings-item" bindtap="toggleDisclaimer">
         <view class="setting-left">
           <text class="setting-icon">️</text>
           <text class="setting-label">免责声明</text>
@@ -132,7 +150,7 @@
       </view>
 
       <!-- 反馈 -->
-      <view class="setting-item feedback-item">
+      <view class="settings-item feedback-item">
         <view class="feedback-input-area">
           <text class="setting-icon"></text>
           <input class="feedback-input" type="text" placeholder="提供反馈帮助改进..." value="{{feedbackText}}" bindinput="onFeedbackInput" />

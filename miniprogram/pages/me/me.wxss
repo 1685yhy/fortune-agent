@@ -2,31 +2,33 @@
 
 .page-me {
   min-height: 100vh;
-  padding-bottom: 40px;
+  padding-bottom: var(--space-2xl);
   background: var(--color-bg);
 }
 
-/* 用户头部 */
+/* ========================================
+   用户头部 — 居中布局 + 渐变背景
+   ======================================== */
 .profile-header {
+  padding: var(--space-2xl) var(--space-lg) var(--space-lg);
+  background: var(--gradient-card);
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-lg) var(--space-lg) var(--space-md);
-  background: var(--gradient-primary);
-  color: var(--color-text-card);
 }
 
 .profile-avatar {
-  width: 64px;
-  height: 64px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   overflow: hidden;
   flex-shrink: 0;
-  border: 2px solid rgba(255,255,255,0.2);
+  border: 2px solid var(--gold);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(255,255,255,0.1);
+  background: var(--bg-card-alt);
+  margin-bottom: var(--space-md);
 }
 
 .avatar-img {
@@ -39,7 +41,8 @@
 }
 
 .profile-info {
-  flex: 1;
+  text-align: center;
+  margin-bottom: var(--space-sm);
 }
 
 .profile-name {
@@ -53,10 +56,10 @@
   font-size: var(--font-xs);
   padding: 2px 10px;
   border-radius: var(--radius-full);
-  background: rgba(255,255,255,0.15);
-  color: rgba(255,255,255,0.8);
+  background: var(--gold-glow);
+  color: var(--stone);
   display: inline-block;
-  margin-top: 4px;
+  margin-top: var(--space-xs);
 }
 
 .login-badge {
@@ -65,19 +68,12 @@
   font-weight: 600;
 }
 
-@media (prefers-color-scheme: dark) {
-  .login-badge {
-    background: var(--gold-light);
-    color: var(--ink);
-  }
-}
-
 .profile-edit {
   padding: 6px 14px;
   border-radius: var(--radius-full);
-  border: 1px solid rgba(255,255,255,0.3);
+  border: 1px solid var(--color-border);
   font-size: var(--font-sm);
-  color: rgba(255,255,255,0.8);
+  color: var(--color-text-secondary);
   min-width: 44px;
   min-height: 44px;
   display: flex;
@@ -85,7 +81,41 @@
   justify-content: center;
 }
 
-/* 区块 */
+/* ========================================
+   数据统计行
+   ======================================== */
+.stats-row {
+  display: flex;
+  gap: var(--space-md);
+  margin: var(--space-md);
+}
+
+.stat-card {
+  flex: 1;
+  text-align: center;
+  padding: var(--space-md);
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+.stat-value {
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  color: var(--gold-light);
+  display: block;
+}
+
+.stat-label {
+  font-size: var(--font-xs);
+  color: var(--stone);
+  margin-top: var(--space-xs);
+  display: block;
+}
+
+/* ========================================
+   区块
+   ======================================== */
 .section {
   margin-top: var(--space-md);
   padding: 0 var(--space-md);
@@ -108,7 +138,7 @@
 .section-action {
   padding: 4px 14px;
   border-radius: var(--radius-full);
-  background: rgba(201, 169, 110, 0.12);
+  background: var(--gold-glow);
   color: var(--gold);
   font-size: var(--font-sm);
   font-weight: 500;
@@ -119,7 +149,9 @@
   justify-content: center;
 }
 
-/* 八字卡片 */
+/* ========================================
+   八字卡片
+   ======================================== */
 .bazi-card {
   background: var(--color-bg-card);
   border-radius: var(--radius-lg);
@@ -132,7 +164,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 0;
+  padding: var(--space-sm) 0;
   border-bottom: 1px solid var(--color-divider);
 }
 
@@ -164,7 +196,43 @@
   color: var(--color-text-tertiary);
 }
 
-/* 设置卡片 */
+/* ========================================
+   设置分组 — 卡片式分组
+   ======================================== */
+.settings-group {
+  margin: 0;
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.settings-group-title {
+  padding: var(--space-md) var(--space-md) var(--space-sm);
+  font-size: var(--font-xs);
+  color: var(--stone);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  display: block;
+}
+
+.settings-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-divider);
+  min-height: 48px;
+}
+
+.settings-item:last-child {
+  border-bottom: none;
+}
+
+/* ========================================
+   旧版设置卡片兼容
+   ======================================== */
 .settings-card {
   background: var(--color-bg-card);
   border-radius: var(--radius-lg);
@@ -246,19 +314,21 @@
 
 .feedback-input {
   flex: 1;
-  padding: 8px 0;
+  padding: var(--space-sm) 0;
   font-size: var(--font-md);
   color: var(--color-text);
   background: transparent;
   border: none;
 }
 
-/* ===== 弹窗通用 ===== */
+/* ========================================
+   弹窗 — 暗色道家主题
+   ======================================== */
 .bazi-overlay,
 .disclaimer-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
   z-index: 100;
   opacity: 0;
   pointer-events: none;
@@ -379,7 +449,7 @@
 .form-radio.active {
   border-color: var(--gold);
   color: var(--gold);
-  background: rgba(201, 169, 110, 0.08);
+  background: var(--gold-glow);
 }
 
 /* 弹窗底部 */
@@ -388,15 +458,4 @@
   border-top: 1px solid var(--color-divider);
   display: flex;
   justify-content: center;
-}
-
-/* 暗色模式 */
-@media (prefers-color-scheme: dark) {
-  .profile-header {
-    background: var(--gradient-card);
-  }
-
-  .profile-edit {
-    border-color: rgba(255, 255, 255, 0.15);
-  }
 }
