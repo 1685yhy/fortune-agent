@@ -1,205 +1,298 @@
-// 今日 - Daily Fortune Card
+// 易理明灯 — 今日运势（仪式感首页）
+const canvasHelper = require('../../utils/canvas-helper');
 const api = require('../../utils/api');
+
+// 时辰数据
+const HOURS = [
+  { name: '子', time: '23-01', ganzhi: '', mark: '', level: '' },
+  { name: '丑', time: '01-03', ganzhi: '', mark: '', level: '' },
+  { name: '寅', time: '03-05', ganzhi: '', mark: '', level: '' },
+  { name: '卯', time: '05-07', ganzhi: '', mark: '', level: '' },
+  { name: '辰', time: '07-09', ganzhi: '', mark: '', level: '' },
+  { name: '巳', time: '09-11', ganzhi: '', mark: '', level: '' },
+  { name: '午', time: '11-13', ganzhi: '', mark: '', level: '' },
+  { name: '未', time: '13-15', ganzhi: '', mark: '', level: '' },
+  { name: '申', time: '15-17', ganzhi: '', mark: '', level: '' },
+  { name: '酉', time: '17-19', ganzhi: '', mark: '', level: '' },
+  { name: '戌', time: '19-21', ganzhi: '', mark: '', level: '' },
+  { name: '亥', time: '21-23', ganzhi: '', mark: '', level: '' },
+];
+
+const MOODS = [
+  { key: 'joy', emoji: '😊', label: '喜悦' },
+  { key: 'calm', emoji: '😌', label: '平和' },
+  { key: 'anxious', emoji: '😰', label: '焦虑' },
+  { key: 'sad', emoji: '😢', label: '低落' },
+];
+
+const LEVEL_LABELS = {
+  excellent: '大吉', good: '吉', fair: '平', poor: '凶',
+};
+
+// 时辰五行生克计算（纯规则引擎）
+function calcHourMark(dayStem, hourBranch) {
+  const stemWx = { '甲': '木', '乙': '木', '丙': '火', '丁': '火', '戊': '土', '己': '土', '庚': '金', '辛': '金', '壬': '水', '癸': '水' };
+  const branchWx = { '子': '水', '丑': '土', '寅': '木', '卯': '木', '辰': '土', '巳': '火', '午': '火', '未': '土', '申': '金', '酉': '金', '戌': '土', '亥': '水' };
+  const generate = { '木': '火', '火': '土', '土': '金', '金': '水', '水': '木' }; // 我生
+  const same = (stemWx[dayStem] === branchWx[hourBranch]);
+  const iGenerate = (generate[stemWx[dayStem]] === branchWx[hourBranch]);
+  if (same) return { mark: '旺', level: 'good' };
+  if (iGenerate) return { mark: '生', level: 'good' };
+  return { mark: '平', level: 'fair' };
+}
 
 Page({
   data: {
-    loading: true,
-    error: false,
-    swipeIndex: 0, // 0=today, -1=yesterday, 1=tomorrow
-    dates: [],
-    fortune: null,
-    score: 0,
-    scoreLevel: '', // excellent, good, fair, poor
+    _animated: false,
+    showTaiji: true,
+    showParticles: false,
+    showRing: false,
+    date: '',
+    lunarDate: '',
+    jieqi: '',
     ganzhi: '',
+    score: 0,
+    scoreLevel: 'fair',
+    levelLabel: '',
+    aiAdvice: '',
+    hours: HOURS,
+    selectedHour: null,
+    luckyColor: { name: '', hex: '' },
+    luckyDirection: '',
+    luckyNumber: '',
     yi: [],
     ji: [],
-    advice: '',
+    weekPreview: [],
+    moods: MOODS,
     mood: '',
-    moodIcon: '',
-    hasBazi: false,
-    refreshing: false,
+    moodSaved: false,
+    touchStartX: 0,
+    touchStartY: 0,
   },
 
-  onLoad() {
-    this.startLoadingTextRotation();
-    this.loadToday();
+  onReady() {
+    this._loadData();
   },
 
-  onShow() {
-    if (this.data.fortune === null) {
-      this.startLoadingTextRotation();
-      this.loadToday();
+  // ---- 数据加载 ----
+  async _loadData() {
+    try {
+      const data = await api.getTodayFortune();
+      this._processData(data);
+      this._startEntrance();
+    } catch (e) {
+      this._showFallback();
     }
   },
 
-  onUnload() {
-    this.clearLoadingTextRotation();
-  },
+  _processData(data) {
+    if (!data) return this._showFallback();
 
-  onPullDownRefresh() {
-    this.setData({ refreshing: true });
-    this.loadToday(() => {
-      wx.stopPullDownRefresh();
-      this.setData({ refreshing: false });
-    });
-  },
+    const score = Math.min(100, Math.max(0, Math.round((data.score || 70))));
+    const level = score >= 85 ? 'excellent' : score >= 70 ? 'good' : score >= 55 ? 'fair' : 'poor';
 
-  // ---- 排盘文字轮播 ----
-  startLoadingTextRotation() {
-    const texts = ['星盘运转中...', '排盘中...', '解读中...', '即将就绪'];
-    let i = 0;
-    this.setData({ loadingText: texts[0] });
-    this._loadingTimer = setInterval(() => {
-      i = (i + 1) % texts.length;
-      this.setData({ loadingText: texts[i] });
-    }, 2000);
-  },
-
-  clearLoadingTextRotation() {
-    if (this._loadingTimer) {
-      clearInterval(this._loadingTimer);
-      this._loadingTimer = null;
-    }
-  },
-
-  loadToday(callback) {
-    this.setData({ loading: true, error: false });
-
-    api.getTodayFortune()
-      .then((res) => {
-        if (!res || res.error) {
-          // 演示数据（当后端不可用时）
-          this.setDemoData();
-        } else {
-          this.processFortuneData(res);
-        }
-      })
-      .catch(() => {
-        // 后端不可用，使用演示数据
-        this.setDemoData();
-      })
-      .finally(() => {
-        this.setData({ loading: false });
-        this.clearLoadingTextRotation();
-        if (callback) callback();
-      });
-  },
-
-  setDemoData() {
-    const today = new Date();
-    const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`;
-
-    this.setData({
-      fortune: {
-        date: dateStr,
-        ganzhi: '甲子日',
-        score: Math.floor(Math.random() * 30) + 65,
-        yi: [
-          { action: '求财', time: '09:00-11:00' },
-          { action: '签约', time: '14:00-16:00' },
-          { action: '出行', time: '吉时皆宜' },
-        ],
-        ji: [
-          { action: '争执', time: '全天' },
-          { action: '借贷', time: '不宜' },
-        ],
-        advice: '今日宜静心思考，顺势而为。财运渐起，把握良机。',
-        mood: '内心平和，适宜规划未来',
-      },
-      hasBazi: getApp().globalData.hasBazi || true,
+    // 计算时辰标记
+    const dayStem = (data.day_ganzhi || '甲')[0];
+    const hoursWithMark = HOURS.map((h, i) => {
+      const { mark, level: markLevel } = calcHourMark(dayStem, DIZHI[i]);
+      const now = new Date();
+      const currentHour = now.getHours();
+      const hourStart = i * 2 - 1; // 子时 23-01 → index 0 covers 23, 0
+      const isActive = (currentHour >= (hourStart < 0 ? hourStart + 24 : hourStart) &&
+                        currentHour < (hourStart + 2 < 0 ? hourStart + 26 : hourStart + 2));
+      return { ...h, mark, level: markLevel, active: isActive };
     });
 
-    this.processFortuneData(this.data.fortune);
-  },
-
-  processFortuneData(data) {
-    const score = data.score || 85;
-    let scoreLevel = 'good';
-    if (score >= 85) scoreLevel = 'excellent';
-    else if (score >= 70) scoreLevel = 'good';
-    else if (score >= 55) scoreLevel = 'fair';
-    else scoreLevel = 'poor';
-
-    // 根据运势给出心情表情
-    const moodIcons = {
-      excellent: '大吉',
-      good: '晴',
-      fair: '多云',
-      poor: '雨',
-    };
-
     this.setData({
-      fortune: data,
+      date: data.date || '',
+      lunarDate: data.lunar_date || data.date || '',
+      jieqi: data.jieqi || '',
+      ganzhi: data.day_ganzhi || '',
       score: 0,
-      scoreLevel,
-      ganzhi: data.ganzhi || '甲子日',
-      yi: (data.yi || []).slice(0, 3),
-      ji: (data.ji || []).slice(0, 3),
-      advice: data.advice || '保持平和，顺势而为',
-      mood: data.mood || '心境平和',
-      moodIcon: moodIcons[scoreLevel],
-      hasBazi: true,
-      swipeIndex: 0,
+      targetScore: score,
+      scoreLevel: level,
+      levelLabel: LEVEL_LABELS[level] || '平',
+      aiAdvice: data.personal_advice || '',
+      hours: hoursWithMark,
+      yi: (data.suitable || data.yi || []).slice(0, 3).map(a => typeof a === 'string' ? { action: a } : a),
+      ji: (data.unsuitable || data.ji || []).slice(0, 3).map(a => typeof a === 'string' ? { action: a } : a),
+      luckyColor: data.lucky_color || { name: '暖金', hex: '#D4A843' },
+      luckyDirection: data.lucky_direction || '东南',
+      luckyNumber: data.lucky_number || '6, 8',
     });
-
-    // 分数计数动画
-    this.animateScore(score);
   },
 
-  // ---- 分数递增动画 ----
-  animateScore(targetScore) {
-    if (this._scoreTimer) {
-      clearInterval(this._scoreTimer);
+  _showFallback() {
+    this.setData({
+      score: 70, targetScore: 70, scoreLevel: 'good', levelLabel: '吉',
+      aiAdvice: '保持平和，顺势而为。',
+      _animated: true, showTaiji: false, showParticles: false, showRing: true,
+      hours: HOURS.map(h => ({ ...h, mark: '平', level: 'fair' })),
+      yi: [{ action: '保持好心情' }, { action: '与朋友交流' }],
+      ji: [{ action: '冲动决策' }, { action: '过度消费' }],
+      luckyColor: { name: '暖金', hex: '#D4A843' },
+      luckyDirection: '东南', luckyNumber: '6, 8',
+    });
+    this._drawRing(70);
+  },
+
+  // ---- 入场动画编排 ----
+  async _startEntrance() {
+    const reduceMotion = wx.getWindowInfo().reduceMotion;
+    if (reduceMotion) {
+      // 跳过动画，直接展示
+      this.setData({ _animated: true, showTaiji: false, showParticles: false, showRing: true });
+      this._animateScore(this.data.targetScore);
+      return;
     }
 
-    let current = 0;
-    const steps = Math.min(targetScore, 20); // 最多20步
-    const increment = Math.max(1, Math.floor(targetScore / steps));
-    const delay = Math.max(20, Math.floor(400 / steps));
-
-    this._scoreTimer = setInterval(() => {
-      current += increment;
-      if (current >= targetScore) {
-        current = targetScore;
-        clearInterval(this._scoreTimer);
-        this._scoreTimer = null;
-      }
-      this.setData({ score: current });
-    }, delay);
+    // Phase 1: 太极旋转 (800ms)
+    this._drawTaijiAnimation(1600).then(() => {
+      // Phase 2: 太极→粒子过渡 (600ms)
+      this.setData({ showTaiji: false, showParticles: true });
+      return this._drawParticleAnimation(600);
+    }).then(() => {
+      // Phase 3: 粒子聚拢成环 → 展示环 (600ms)
+      this.setData({ showParticles: false, showRing: true });
+      return this._drawRing(this.data.targetScore);
+    }).then(() => {
+      // Phase 4: 分数翻滚 (800ms)
+      return this._animateScore(this.data.targetScore);
+    }).then(() => {
+      // Phase 5: 显示页面内容
+      this.setData({ _animated: true });
+    });
   },
 
-  // 滑动切换日期
-  onSwipeChange(e) {
-    const current = e.detail.current;
-    this.setData({ swipeIndex: current === 1 ? 0 : current === 0 ? -1 : 1 });
+  _drawTaijiAnimation(duration) {
+    return new Promise((resolve) => {
+      const query = wx.createSelectorQuery().in(this);
+      query.select('#taijiCanvas').fields({ node: true, size: true }).exec((res) => {
+        if (!res[0] || !res[0].node) { resolve(); return; }
+        const canvas = res[0].node;
+        const startTime = Date.now();
+        const totalRotation = Math.PI * 4; // 转两圈
+
+        const tick = () => {
+          const elapsed = Date.now() - startTime;
+          const progress = Math.min(1, elapsed / duration);
+          // ease-out-quint
+          const eased = 1 - Math.pow(1 - progress, 5);
+          canvasHelper.drawTaiji(canvas, 160, totalRotation * eased);
+
+          if (progress < 1) {
+            this._taijiRAF = requestAnimationFrame(tick);
+          } else {
+            resolve();
+          }
+        };
+        tick();
+      });
+    });
   },
 
-  // 滑动查看前后日期
-  swipePrev() {
-    const idx = this.data.swipeIndex - 1;
-    this.setData({ swipeIndex: idx });
-    // TODO: 加载前一天的运势
+  _drawParticleAnimation(duration) {
+    return new Promise((resolve) => {
+      const query = wx.createSelectorQuery().in(this);
+      query.select('#particleCanvas').fields({ node: true, size: true }).exec((res) => {
+        if (!res[0] || !res[0].node) { resolve(); return; }
+        const canvas = res[0].node;
+        const particles = canvasHelper.createRingParticles(200, 30);
+        const startTime = Date.now();
+
+        const tick = () => {
+          const elapsed = Date.now() - startTime;
+          const progress = Math.min(1, elapsed / duration);
+          const eased = 1 - Math.pow(1 - progress, 3);
+
+          // 插值粒子位置
+          const frame = particles.map(p => ({
+            ...p,
+            x: p.ox + (p.x - p.ox) * eased,
+            y: p.oy + (p.y - p.oy) * eased,
+            alpha: 0.3 + 0.5 * eased,
+          }));
+          canvasHelper.drawParticles(canvas, 200, frame);
+
+          if (progress < 1) {
+            this._particleRAF = requestAnimationFrame(tick);
+          } else {
+            resolve();
+          }
+        };
+        tick();
+      });
+    });
   },
 
-  swipeNext() {
-    const idx = this.data.swipeIndex + 1;
-    this.setData({ swipeIndex: idx });
-    // TODO: 加载后一天的运势
+  // 兼容旧方法名
+  animateScore(targetScore) {
+    return this._animateScore(targetScore);
   },
 
-  goChat() {
-    wx.switchTab({ url: '/pages/chat/chat' });
+  _animateScore(targetScore) {
+    return new Promise((resolve) => {
+      let current = 0;
+      const steps = Math.min(targetScore, 25);
+      const increment = Math.max(1, Math.floor(targetScore / steps));
+      const delay = Math.max(40, Math.floor(800 / steps));
+
+      const timer = setInterval(() => {
+        current += increment;
+        if (current >= targetScore) { current = targetScore; clearInterval(timer); }
+        this.setData({ score: current });
+        this._drawRing(current);
+        if (current >= targetScore) resolve();
+      }, delay);
+    });
   },
 
-  goEditProfile() {
-    wx.switchTab({ url: '/pages/me/me' });
+  // 兼容旧调用
+  _drawScoreRing(score) {
+    this._drawRing(score);
   },
 
+  _drawRing(percent) {
+    const query = wx.createSelectorQuery().in(this);
+    query.select('#ringCanvas').fields({ node: true, size: true }).exec((res) => {
+      if (!res[0] || !res[0].node) return;
+      canvasHelper.drawRing(res[0].node, percent, 200);
+    });
+  },
+
+  // ---- 交互 ----
+  onHourTap(e) {
+    const index = e.currentTarget.dataset.index;
+    const hour = this.data.hours[index];
+    this.setData({ selectedHour: hour });
+  },
+
+  onMoodTap(e) {
+    const key = e.currentTarget.dataset.key;
+    this.setData({ mood: key, moodSaved: true });
+    // TODO: 调用 /api/user/mood 保存
+  },
+
+  // 左右滑动切换日期
+  onTouchStart(e) {
+    this.setData({ touchStartX: e.touches[0].clientX, touchStartY: e.touches[0].clientY });
+  },
+  onTouchEnd(e) {
+    const dx = e.changedTouches[0].clientX - this.data.touchStartX;
+    const dy = e.changedTouches[0].clientY - this.data.touchStartY;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+      // 左滑=下一天，右滑=前一天
+      console.log('Swipe:', dx > 0 ? 'prev' : 'next');
+    }
+  },
+
+  // 分享
   onShareAppMessage() {
-    const data = this.data;
     return {
-      title: ` ${data.score}分 - ${(data.advice ? data.advice.slice(0, 20) : '') || '易理明灯'}`,
+      title: '今日运势 · ' + this.data.ganzhi,
       path: '/pages/today/today',
     };
   },
 });
+
+const DIZHI = ['子', '丑', '寅', '卯', '辰', '巳', '午', '未', '申', '酉', '戌', '亥'];
