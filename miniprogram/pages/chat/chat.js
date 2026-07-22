@@ -25,6 +25,8 @@ Page({
     isRecording: false,
     imagePreview: '',
     _recorder: null,
+    // 结构化报告展开状态
+    reportExpanded: false,
   },
 
   onLoad() {
@@ -309,6 +311,10 @@ Page({
   },
 
   // ---- 消息操作 ----
+  toggleReport(e) {
+    this.setData({ reportExpanded: !this.data.reportExpanded });
+  },
+
   copyMessage(e) {
     const content = e.currentTarget.dataset.content || '';
     wx.setClipboardData({
