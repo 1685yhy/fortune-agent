@@ -126,13 +126,14 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--space-sm) var(--space-sm) var(--space-sm) 0;
+  padding: var(--space-xs) var(--space-sm) var(--space-xs) 0;
 }
 
 .section-title {
-  font-size: var(--font-md);
-  font-weight: 700;
-  color: var(--color-text);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.06em;
 }
 
 .section-action {
