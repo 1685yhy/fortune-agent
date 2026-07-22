@@ -349,7 +349,7 @@ Page({
 
     this.setData({ sendingFeedback: true });
     try {
-      await api.feedback(Date.now().toString(), true); // demo
+      await api.feedback(this.data.feedbackText, true);
       this.setData({ feedbackText: '', sendingFeedback: false });
       wx.showToast({ title: '感谢你的反馈！', icon: 'success' });
     } catch (e) {
