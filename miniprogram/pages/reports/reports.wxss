@@ -8,7 +8,7 @@
 
 /* 头部 */
 .reports-header {
-  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-sm);
+  padding: var(--space-lg) var(--space-lg) var(--space-sm);
 }
 
 .reports-title {
@@ -27,17 +27,17 @@
 
 /* 报告列表 */
 .report-list {
-  padding: var(--spacing-sm) var(--spacing-md) var(--spacing-xl);
+  padding: var(--space-sm) var(--space-md) var(--space-xl);
 }
 
 .report-item {
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--space-md);
 }
 
 .report-card {
   background: var(--color-bg-card);
   border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
+  padding: var(--space-lg);
   box-shadow: var(--shadow-sm);
   transition: all var(--transition-fast);
   animation: fadeSlideUp 0.35s ease-out both;
@@ -52,13 +52,13 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--space-sm);
 }
 
 .report-meta {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
 }
 
 .report-date {
@@ -71,7 +71,7 @@
   font-size: var(--font-xs);
   padding: 2px 10px;
   background: rgba(201, 169, 110, 0.12);
-  color: var(--color-accent-dark);
+  color: var(--gold);
   border-radius: var(--radius-full);
 }
 
@@ -88,7 +88,7 @@
 .report-score-text {
   font-size: var(--font-sm);
   font-weight: 700;
-  color: #1a1a2e;
+  color: var(--ink);
 }
 
 .report-summary {
@@ -96,7 +96,7 @@
   color: var(--color-text-secondary);
   line-height: 1.7;
   display: block;
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--space-sm);
 }
 
 /* 标签 */
@@ -104,7 +104,7 @@
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--space-sm);
 }
 
 .report-tag {
@@ -121,7 +121,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-top: var(--spacing-sm);
+  padding-top: var(--space-sm);
   border-top: 1px solid var(--color-divider);
 }
 
@@ -137,7 +137,7 @@
 }
 
 .report-action-view {
-  color: var(--color-accent-dark);
+  color: var(--gold);
   font-weight: 500;
 }
 
@@ -146,8 +146,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--spacing-sm);
-  padding: var(--spacing-lg) 0;
+  gap: var(--space-sm);
+  padding: var(--space-lg) 0;
 }
 
 .load-end-text {
@@ -193,7 +193,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--spacing-lg);
+  padding: var(--space-lg);
   border-bottom: 1px solid var(--color-divider);
 }
 
@@ -218,22 +218,22 @@
 .detail-body {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-lg);
+  padding: var(--space-lg);
   max-height: 55vh;
 }
 
 .detail-loading {
   display: flex;
   justify-content: center;
-  padding: var(--spacing-2xl);
+  padding: var(--space-2xl);
 }
 
 /* 详情元数据 */
 .detail-meta {
   background: var(--color-bg-card-alt);
   border-radius: var(--radius-md);
-  padding: var(--spacing-md);
-  margin-bottom: var(--spacing-lg);
+  padding: var(--space-md);
+  margin-bottom: var(--space-lg);
 }
 
 .detail-meta-item {
@@ -259,7 +259,7 @@
 
 /* 详情内容 */
 .detail-content {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--space-lg);
 }
 
 .detail-content-text {
@@ -274,13 +274,13 @@
 .detail-extras {
   background: var(--color-bg-card-alt);
   border-radius: var(--radius-md);
-  padding: var(--spacing-md);
+  padding: var(--space-md);
 }
 
 .extra-item {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
   padding: 6px 0;
 }
 
@@ -298,7 +298,7 @@
 
 /* 底部 */
 .detail-footer {
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--space-md) var(--space-lg);
   border-top: 1px solid var(--color-divider);
   display: flex;
   justify-content: center;
@@ -317,7 +317,7 @@
 
 .report-icon-bar {
   width: 16px;
-  background: var(--color-accent);
+  background: var(--gold);
   border-radius: 4px 4px 0 0;
 }
 

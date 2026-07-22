@@ -10,10 +10,10 @@
 .profile-header {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
-  padding: var(--spacing-lg) var(--spacing-lg) var(--spacing-md);
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-lg) var(--space-md);
   background: var(--gradient-primary);
-  color: #fff;
+  color: var(--color-text-card);
 }
 
 .profile-avatar {
@@ -46,7 +46,7 @@
   font-size: var(--font-lg);
   font-weight: 700;
   display: block;
-  color: #fff;
+  color: var(--color-text-card);
 }
 
 .profile-badge {
@@ -60,15 +60,15 @@
 }
 
 .login-badge {
-  background: var(--color-accent);
-  color: #1a1a2e;
+  background: var(--gold);
+  color: var(--ink);
   font-weight: 600;
 }
 
 @media (prefers-color-scheme: dark) {
   .login-badge {
-    background: var(--color-accent-light);
-    color: #1a1a2e;
+    background: var(--gold-light);
+    color: var(--ink);
   }
 }
 
@@ -87,8 +87,8 @@
 
 /* 区块 */
 .section {
-  margin-top: var(--spacing-md);
-  padding: 0 var(--spacing-md);
+  margin-top: var(--space-md);
+  padding: 0 var(--space-md);
   animation: fadeSlideUp 0.35s ease-out both;
 }
 
@@ -96,7 +96,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--spacing-sm) var(--spacing-sm) var(--spacing-sm) 0;
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) 0;
 }
 
 .section-title {
@@ -109,7 +109,7 @@
   padding: 4px 14px;
   border-radius: var(--radius-full);
   background: rgba(201, 169, 110, 0.12);
-  color: var(--color-accent-dark);
+  color: var(--gold);
   font-size: var(--font-sm);
   font-weight: 500;
   min-width: 44px;
@@ -123,7 +123,7 @@
 .bazi-card {
   background: var(--color-bg-card);
   border-radius: var(--radius-lg);
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--space-md) var(--space-lg);
   box-shadow: var(--shadow-sm);
   animation: fadeSlideUp 0.35s ease-out both;
 }
@@ -154,7 +154,7 @@
 .bazi-empty {
   background: var(--color-bg-card);
   border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
+  padding: var(--space-lg);
   text-align: center;
   border: 2px dashed var(--color-border);
 }
@@ -177,7 +177,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--space-md) var(--space-lg);
   border-bottom: 1px solid var(--color-divider);
 }
 
@@ -188,7 +188,7 @@
 .setting-left {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
 }
 
 .setting-icon {
@@ -235,13 +235,13 @@
 .feedback-item {
   flex-direction: column;
   align-items: stretch;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
 }
 
 .feedback-input-area {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
 }
 
 .feedback-input {
@@ -296,7 +296,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: var(--spacing-lg);
+  padding: var(--space-lg);
   border-bottom: 1px solid var(--color-divider);
 }
 
@@ -325,7 +325,7 @@
 .disclaimer-body {
   flex: 1;
   overflow-y: auto;
-  padding: var(--spacing-lg);
+  padding: var(--space-lg);
   max-height: 55vh;
 }
 
@@ -339,7 +339,7 @@
 
 /* 表单组 */
 .form-group {
-  margin-bottom: var(--spacing-lg);
+  margin-bottom: var(--space-lg);
 }
 
 .form-label {
@@ -347,7 +347,7 @@
   font-weight: 600;
   color: var(--color-text-secondary);
   display: block;
-  margin-bottom: var(--spacing-sm);
+  margin-bottom: var(--space-sm);
 }
 
 .form-picker {
@@ -361,7 +361,7 @@
 
 .form-radio-group {
   display: flex;
-  gap: var(--spacing-lg);
+  gap: var(--space-lg);
 }
 
 .form-radio {
@@ -377,14 +377,14 @@
 }
 
 .form-radio.active {
-  border-color: var(--color-accent);
-  color: var(--color-accent-dark);
+  border-color: var(--gold);
+  color: var(--gold);
   background: rgba(201, 169, 110, 0.08);
 }
 
 /* 弹窗底部 */
 .bazi-editor-footer {
-  padding: var(--spacing-md) var(--spacing-lg);
+  padding: var(--space-md) var(--space-lg);
   border-top: 1px solid var(--color-divider);
   display: flex;
   justify-content: center;
@@ -393,7 +393,7 @@
 /* 暗色模式 */
 @media (prefers-color-scheme: dark) {
   .profile-header {
-    background: linear-gradient(135deg, #0d0d1a 0%, #1a1a3e 100%);
+    background: var(--gradient-card);
   }
 
   .profile-edit {

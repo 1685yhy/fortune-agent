@@ -12,7 +12,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--space-sm) var(--space-md);
   background: var(--color-bg-card);
   border-bottom: 1px solid var(--color-border);
   position: sticky;
@@ -28,7 +28,7 @@
 
 .chat-header-right {
   display: flex;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
 }
 
 .header-btn {
@@ -47,9 +47,9 @@
 /* 场景面板 */
 .scenario-panel {
   background: var(--color-bg-card);
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--space-sm) var(--space-md);
   display: flex;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
   flex-wrap: wrap;
   border-bottom: 1px solid var(--color-border);
   position: sticky;
@@ -73,7 +73,7 @@
 
 .scenario-item.active {
   background: rgba(201, 169, 110, 0.15);
-  color: var(--color-accent-dark);
+  color: var(--gold);
   border: 1px solid rgba(201, 169, 110, 0.3);
 }
 
@@ -86,7 +86,7 @@
 }
 
 .scenario-check {
-  color: var(--color-accent);
+  color: var(--gold);
   font-weight: 700;
 }
 
@@ -98,13 +98,13 @@
 }
 
 .message-container {
-  padding: var(--spacing-md);
-  padding-bottom: var(--spacing-lg);
+  padding: var(--space-md);
+  padding-bottom: var(--space-lg);
 }
 
 /* 消息包裹 */
 .message-wrapper {
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--space-md);
   display: flex;
 }
 
@@ -119,7 +119,7 @@
 /* 场景切换提示 */
 .scenario-hint {
   text-align: center;
-  padding: var(--spacing-sm);
+  padding: var(--space-sm);
   width: 100%;
 }
 
@@ -134,7 +134,7 @@
 /* 消息气泡 */
 .message-bubble {
   display: flex;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
   max-width: 85%;
 }
 
@@ -168,7 +168,7 @@
 
 .user .bubble-text {
   background: var(--gradient-gold);
-  color: #1a1a2e;
+  color: var(--ink);
   border-bottom-right-radius: 4px;
   animation: fadeSlideUp 0.3s ease-out both;
 }
@@ -183,7 +183,7 @@
 
 /* 结构化报告 */
 .structured-report {
-  margin-top: var(--spacing-sm);
+  margin-top: var(--space-sm);
 }
 
 .report-collapse {
@@ -196,14 +196,14 @@
 .report-collapse-title {
   font-size: var(--font-sm);
   font-weight: 600;
-  color: var(--color-accent-dark);
+  color: var(--gold);
 }
 
 /* 消息时间 */
 .bubble-time {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
   margin-top: 4px;
   padding: 0 4px;
 }
@@ -230,7 +230,7 @@
 /* 打字指示器 */
 .typing-indicator {
   display: flex;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
   align-items: flex-end;
 }
 
@@ -260,7 +260,7 @@
 
 /* 输入区域 */
 .input-bar {
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--space-sm) var(--space-md);
   background: var(--color-bg-card);
   border-top: 1px solid var(--color-border);
   position: sticky;
@@ -270,7 +270,7 @@
 .input-wrapper {
   display: flex;
   align-items: center;
-  gap: var(--spacing-sm);
+  gap: var(--space-sm);
   background: var(--color-bg-card-alt);
   border-radius: var(--radius-xl);
   padding: 4px;
@@ -304,7 +304,7 @@
 
 .send-btn.active {
   background: var(--gradient-gold);
-  color: #1a1a2e;
+  color: var(--ink);
 }
 
 .send-btn:active {
@@ -318,6 +318,6 @@
   }
 
   .send-btn.active {
-    background: linear-gradient(135deg, #b8944a, #c9a96e);
+    background: var(--gradient-gold);
   }
 }
