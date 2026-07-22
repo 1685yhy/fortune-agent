@@ -11,7 +11,7 @@ PLANS = {
     "free": {
         "label": "免费版",
         "price": 0,
-        "queries_limit": 3,
+        "queries_limit": 20,
         "period_days": 1,  # daily reset for free
         "features": ["基础分析"],
     },

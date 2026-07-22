@@ -1,0 +1,36 @@
+{
+  "mood_history": [
+    {
+      "mood": "害怕",
+      "topic": "",
+      "timestamp": "2026-07-22T19:35:39.774585"
+    },
+    {
+      "mood": "neutral",
+      "topic": "",
+      "timestamp": "2026-07-22T19:36:04.894280"
+    }
+  ],
+  "last_topic": "我是1969年八月十五生的，看",
+  "_updated_at": "2026-07-22T19:36:09.056615",
+  "bazi_info": {
+    "year": 1969,
+    "month": 8,
+    "day": 15,
+    "hour": 0,
+    "minute": 0,
+    "city": "北京",
+    "gender": "男",
+    "bazi": [
+      "己酉",
+      "壬申",
+      "壬戌",
+      "庚子"
+    ],
+    "day_master": "壬水"
+  },
+  "consultation_count": 1,
+  "concerns": [
+    "我是1969年八月十五生的，看"
+  ]
+}

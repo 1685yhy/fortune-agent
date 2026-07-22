@@ -13,10 +13,10 @@
     "backgroundTextStyle": "dark"
   },
   "tabBar": {
-    "color": "#7a7a88",
-    "selectedColor": "#9a7b2e",
-    "backgroundColor": "#fafaf9",
-    "borderStyle": "white",
+    "color": "#78716C",
+    "selectedColor": "#D4A843",
+    "backgroundColor": "#0F172A",
+    "borderStyle": "black",
     "list": [
       {
         "pagePath": "pages/today/today",

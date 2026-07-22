@@ -116,11 +116,11 @@
 .page.animated .section {
   animation: fadeUp 0.6s ease-out forwards;
 }
-.page.animated .section:nth-child(2) { animation-delay: 1.0s; }
-.page.animated .section:nth-child(3) { animation-delay: 1.12s; }
-.page.animated .section:nth-child(4) { animation-delay: 1.24s; }
-.page.animated .section:nth-child(5) { animation-delay: 1.36s; }
-.page.animated .section:nth-child(6) { animation-delay: 1.48s; }
+.page.animated .section:nth-child(2) { animation-delay: 0.5s; }
+.page.animated .section:nth-child(3) { animation-delay: 0.58s; }
+.page.animated .section:nth-child(4) { animation-delay: 0.66s; }
+.page.animated .section:nth-child(5) { animation-delay: 0.74s; }
+.page.animated .section:nth-child(6) { animation-delay: 0.82s; }
 
 .section-header {
   display: flex;
