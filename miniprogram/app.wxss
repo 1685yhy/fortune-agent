@@ -143,8 +143,8 @@ view, text, image, button, input, textarea {
 .card {
   background: var(--color-bg-card);
   border-radius: var(--radius-lg);
-  padding: var(--spacing-lg);
-  margin: var(--spacing-md) var(--spacing-md) 0;
+  padding: var(--space-lg);
+  margin: var(--space-md) var(--space-md) 0;
   box-shadow: var(--shadow-sm);
   transition: box-shadow var(--transition-normal);
 }
@@ -206,16 +206,16 @@ view, text, image, button, input, textarea {
 }
 
 .chip-accent {
-  background: rgba(201, 169, 110, 0.12);
-  color: var(--color-accent-dark);
-  border-color: rgba(201, 169, 110, 0.3);
+  background: var(--gold-glow);
+  color: var(--gold);
+  border-color: var(--gold);
 }
 
 /* 分隔线 */
 .divider {
   height: 1px;
   background: var(--color-divider);
-  margin: var(--spacing-md) 0;
+  margin: var(--space-md) 0;
 }
 
 /* ========================================
@@ -228,7 +228,7 @@ view, text, image, button, input, textarea {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-2xl) 0;
+  padding: var(--space-2xl) 0;
 }
 
 /* 太极阴阳加载动画 */
@@ -249,7 +249,7 @@ view, text, image, button, input, textarea {
   transform: translateX(-50%);
   width: 18px;
   height: 18px;
-  background: var(--color-accent);
+  background: var(--gold);
   border-radius: 0 0 50% 50%;
   animation: yinYangPulse 1.5s ease-in-out infinite;
 }
@@ -262,7 +262,7 @@ view, text, image, button, input, textarea {
   transform: translateX(-50%);
   width: 18px;
   height: 18px;
-  background: var(--color-text-tertiary);
+  background: var(--stone);
   border-radius: 50% 50% 0 0;
   animation: yinYangPulse 1.5s ease-in-out infinite reverse;
 }
@@ -290,7 +290,7 @@ view, text, image, button, input, textarea {
   transform: translateX(-50%);
   width: 12px;
   height: 12px;
-  background: var(--color-accent);
+  background: var(--gold);
   border-radius: 0 0 50% 50%;
   animation: yinYangPulse 1.5s ease-in-out infinite;
 }
@@ -303,14 +303,14 @@ view, text, image, button, input, textarea {
   transform: translateX(-50%);
   width: 12px;
   height: 12px;
-  background: var(--color-text-tertiary);
+  background: var(--stone);
   border-radius: 50% 50% 0 0;
   animation: yinYangPulse 1.5s ease-in-out infinite reverse;
 }
 
 /* 加载文字 */
 .loading-text {
-  margin-top: var(--spacing-md);
+  margin-top: var(--space-md);
   font-size: var(--font-sm);
   color: var(--color-text-tertiary);
   letter-spacing: 0.06em;
@@ -322,13 +322,13 @@ view, text, image, button, input, textarea {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--spacing-2xl) var(--spacing-lg);
+  padding: var(--space-2xl) var(--space-lg);
   text-align: center;
 }
 
 .empty-state-icon {
   font-size: 48px;
-  margin-bottom: var(--spacing-md);
+  margin-bottom: var(--space-md);
   opacity: 0.6;
 }
 
@@ -342,7 +342,7 @@ view, text, image, button, input, textarea {
 .list-item {
   display: flex;
   align-items: center;
-  padding: var(--spacing-md) 0;
+  padding: var(--space-md) 0;
   border-bottom: 1px solid var(--color-divider);
 }
 
