@@ -341,7 +341,7 @@
   transform: scale(0.95);
 }
 
-/* 空状态 */
+/* 空状态 — 大气居中布局 */
 .chat-empty {
   display: flex;
   flex-direction: column;
@@ -349,12 +349,15 @@
   justify-content: center;
   padding: var(--space-3xl) var(--space-xl);
   text-align: center;
+  min-height: 60vh;
 }
 
 .chat-empty-icon {
-  font-size: 48px;
+  font-size: 72px;
   margin-bottom: var(--space-lg);
-  opacity: 0.6;
+  opacity: 0.35;
+  filter: blur(0.5px);
+  text-shadow: 0 0 40px rgba(212,168,67,0.15);
 }
 
 .chat-empty-title {
@@ -362,13 +365,15 @@
   color: var(--color-text);
   font-weight: 600;
   margin-bottom: var(--space-sm);
+  letter-spacing: 0.04em;
 }
 
 .chat-empty-hint {
   font-size: var(--font-sm);
-  color: var(--stone);
-  max-width: 260px;
-  line-height: 1.6;
+  color: var(--color-text-tertiary);
+  max-width: 280px;
+  line-height: 1.8;
+  letter-spacing: 0.03em;
 }
 
 /* 暗色模式 */

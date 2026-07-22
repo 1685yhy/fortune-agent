@@ -63,14 +63,10 @@
 
   <!-- 空状态 -->
   <view class="empty-state animate-scale" wx:if="{{!loading && reports.length === 0}}">
-    <view class="empty-state-icon">
-      <view class="report-icon-empty">
-        <view class="report-icon-bar report-icon-bar-left"></view>
-        <view class="report-icon-bar report-icon-bar-right"></view>
-      </view>
-    </view>
-    <text class="empty-state-text">还没有解读报告\n去对话页开始一次咨询吧</text>
-    <button class="btn btn-primary" bindtap="goChat">去对话</button>
+    <text class="empty-state-icon-reports">📊</text>
+    <text class="empty-state-title">暂无解读报告</text>
+    <text class="empty-state-hint">去对话页和 AI 命理师聊聊\n你的运势、感情、事业...</text>
+    <button class="btn btn-primary empty-state-btn" bindtap="goChat">去对话</button>
   </view>
 
   <!-- ========== 详情弹窗 ========== -->
