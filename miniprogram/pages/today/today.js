@@ -271,6 +271,13 @@ Page({
   onHourTap(e) {
     const index = e.currentTarget.dataset.index;
     const hour = this.data.hours[index];
+    // Generate advice text based on mark level
+    const adviceMap = {
+      'good': '此时辰与日主相生，气场和谐，宜开展重要事务，顺势而为可获天时之利。',
+      'fair': '此时辰气场平和，无大吉亦无大凶，日常事务可正常进行，宜静养收敛。',
+      'poor': '此时辰与日主相克，气场略有不顺，宜静不宜动，避免重要决策。',
+    };
+    hour.advice = adviceMap[hour.level] || '此时辰平平无奇，按计划行事即可。';
     this.setData({ selectedHour: hour });
   },
 
