@@ -1745,14 +1745,26 @@ class MessageHandler:
     # ============================================================
 
     def _handle_dream(self, msg: str, user_id: str) -> str:
-        """处理解梦请求 - 提取完整梦境 + 处境"""
+        """处理解梦请求 - 提取完整梦境 + 处境
+
+        P0-1 修复: 如果用户在本会话中已经分享过梦境内容，
+        则直接使用已有梦境内容进行分析，不再要求重新描述。
+        """
         # 去掉触发词，保留完整描述
         for kw in ["帮我解梦", "解梦", "做梦"]:
             msg = msg.replace(kw, "", 1)
         dream_text = msg.strip()
 
         if not dream_text or len(dream_text) < 2:
-            return """🌙 请描述您的梦境，我来为您解梦：
+            # P0-1: 检查会话历史中是否有已分享的梦境内容
+            if self.session_dao:
+                history = self.session_dao.get_context_for_llm(user_id, history_limit=20)
+                for m in reversed(history):
+                    if m["role"] == "user" and any(kw in m["content"] for kw in ["梦见", "梦到", "做梦", "梦见了"]):
+                        dream_text = m["content"]
+                        break
+            if not dream_text or len(dream_text) < 2:
+                return """🌙 请描述您的梦境，我来为您解梦：
 
 您可以详细说说：
 • 梦里发生了什么？
@@ -2109,6 +2121,9 @@ class MessageHandler:
 
         当检测到情绪信号时，将情绪上下文注入提示词，
         确保 LLM 优先提供情感支持而非索要信息。
+
+        P0-1 修复: 总是加载完整会话历史传给 LLM (history_limit=20)，
+        确保多轮对话上下文不丢失。不再因为只有 1 条消息就走单消息模式。
         """
         if msg.strip() in ('',' ','?','？'):
             # Phase 3: Mood-aware greeting for returning users
@@ -2116,16 +2131,26 @@ class MessageHandler:
                 greeting = self.memory_system.get_greeting(user_id)
                 if greeting:
                     return f"欢迎回来！{greeting}"
+            # 检查是否有已保存的八字 — 如果有，直接引导到八字分析而非要求重新提供
+            saved = self.dao.get_user_bazi(user_id) if self.dao else None
+            if saved:
+                return '欢迎回来！您的八字信息已保存，有什么想了解的可以直接问～'
             return '您好！我是易理明灯AI命理顾问。直接告诉我您的出生日期，我帮您看八字。'
 
-        # 如果消息含数字或年份，可能是用户尝试提供出生信息，引导一下
+        # 如果消息含数字或年份且用户已有八字，直接路由到八字分析
         # 注意: "男"/"女" 必须是独立出现(性别标记)，不能是 "渣男"/"美女" 等词的一部分
         has_year = bool(re.search(r'\d{4}', msg))
         has_gender = bool(re.search(r'(?:^|[^\w])[男女](?:$|[^\w])', msg))
-        if has_year or has_gender:
+        saved_bazi = self.dao.get_user_bazi(user_id) if self.dao else None
+        if (has_year or has_gender) and not saved_bazi:
             return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
+        if saved_bazi and (has_year or has_gender):
+            # 用户已有八字，但提供了新的出生信息，可能想更新或已有信息
+            intent_result = self._analyze_message(msg)
+            if intent_result.intent == "bazi":
+                return self._handle_bazi(msg, user_id)
 
-        # 所有其他消息 → 用 LLM 自然对话
+        # 所有其他消息 → 用 LLM 自然对话（总是带完整会话历史）
         try:
             # Build preference hint for LLM (P3: personalized RLHF context)
             pref_hint = self._get_personalized_context(user_id)
@@ -2153,17 +2178,17 @@ class MessageHandler:
             if emotion_hint:
                 combined_hint = combined_hint + "\n" + emotion_hint if combined_hint else emotion_hint
 
+            # P0-1: 总是加载完整会话历史传给LLM (最多20条)，确保多轮上下文不丢失
             if self.session_dao:
-                # 加载最近对话历史，传给LLM以获得上下文感知的回复
-                history = self.session_dao.get_context_for_llm(user_id, history_limit=15)
-                if len(history) > 1:
+                history = self.session_dao.get_context_for_llm(user_id, history_limit=20)
+                if len(history) >= 1:
                     if combined_hint:
                         history[-1] = {
                             "role": "user",
                             "content": history[-1]["content"] + f"\n\n{combined_hint}"
                         }
                     return self.llm.chat_conversation(history, personality_mode=self._get_personality_mode(user_id))
-            # 无历史或历史不足时，用单消息模式
+            # 无会话存储时，用单消息模式
             chat_msg = msg
             if combined_hint:
                 chat_msg = msg + f"\n\n{combined_hint}"

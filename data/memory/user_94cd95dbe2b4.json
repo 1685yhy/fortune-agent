@@ -1,0 +1,16 @@
+{
+  "mood_history": [
+    {
+      "mood": "neutral",
+      "topic": "",
+      "timestamp": "2026-07-22T18:53:05.614555"
+    },
+    {
+      "mood": "中性",
+      "topic": "",
+      "timestamp": "2026-07-22T18:53:35.904306"
+    }
+  ],
+  "last_topic": "",
+  "_updated_at": "2026-07-22T18:53:35.904331"
+}

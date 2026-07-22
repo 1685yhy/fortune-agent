@@ -1,0 +1,26 @@
+{
+  "mood_history": [
+    {
+      "mood": "中性",
+      "topic": "",
+      "timestamp": "2026-07-22T18:48:59.941403"
+    },
+    {
+      "mood": "neutral",
+      "topic": "",
+      "timestamp": "2026-07-22T18:49:31.667280"
+    },
+    {
+      "mood": "好奇",
+      "topic": "",
+      "timestamp": "2026-07-22T18:50:41.224588"
+    },
+    {
+      "mood": "neutral",
+      "topic": "",
+      "timestamp": "2026-07-22T18:51:32.553641"
+    }
+  ],
+  "last_topic": "",
+  "_updated_at": "2026-07-22T18:51:32.553654"
+}
