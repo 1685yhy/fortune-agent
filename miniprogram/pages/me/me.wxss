@@ -266,7 +266,7 @@
 }
 
 .setting-icon.danger {
-  color: var(--color-danger);
+  color: var(--danger);
 }
 
 .setting-label {
@@ -275,7 +275,7 @@
 }
 
 .danger-label {
-  color: var(--color-danger);
+  color: var(--danger);
 }
 
 .setting-value {
