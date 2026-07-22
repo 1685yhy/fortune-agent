@@ -15,6 +15,10 @@ Page({
     stats: {},
     memberPlan: '免费',
 
+    // P3: RLHF 偏好画像
+    preferences: null,
+    hasPreferences: false,
+
     // 编辑八字弹窗
     showBaziEditor: false,
     birthYear: '1990',
@@ -122,6 +126,16 @@ Page({
           if (profile.stats) update.stats = profile.stats;
           if (profile.memberPlan) update.memberPlan = profile.memberPlan;
           if (Object.keys(update).length) this.setData(update);
+        })
+        .catch(() => {});
+
+      // P3: 拉取 RLHF 偏好画像
+      api.getUserPreferences(gd.userInfo?.id || '')
+        .then((prefs) => {
+          this.setData({
+            preferences: prefs,
+            hasPreferences: prefs && prefs.has_data,
+          });
         })
         .catch(() => {});
     }

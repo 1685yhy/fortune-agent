@@ -13,21 +13,26 @@ from pydantic import BaseModel
 
 from src.storage.dao import UserDAO
 from src.storage.session_dao import SessionDAO
+from src.storage.preference_dao import PreferenceDAO
 
 router = APIRouter(tags=["user"])
 
 # 全局引用，由 main.py 在 lifespan 中设置
 _dao: Optional[UserDAO] = None
 _session_dao: Optional[SessionDAO] = None
+_preference_dao: Optional[PreferenceDAO] = None
 _auth_handler = None
 
 
 def setup(dao: UserDAO, session_dao: Optional[SessionDAO] = None, auth_handler=None):
     """在应用启动时设置 DAO 和认证引用。"""
-    global _dao, _session_dao, _auth_handler
+    global _dao, _session_dao, _preference_dao, _auth_handler
     _dao = dao
     _session_dao = session_dao
     _auth_handler = auth_handler
+    # Lazy init PreferenceDAO from UserDAO's db_path
+    if dao and hasattr(dao, 'db_path') and dao.db_path:
+        _preference_dao = PreferenceDAO(dao.db_path)
 
 
 # ── 请求模型 ────────────────────────────────────────────────────
@@ -209,6 +214,51 @@ async def user_feedback(req: FeedbackRequest, user_id: str = ""):
         "success": True,
         "message": "感谢你的反馈！我们会认真对待每一条建议。",
         "submitted_as": display_user,
+    }
+
+
+@router.get("/api/user/preferences")
+async def user_preferences(user_id: str = ""):
+    """获取用户偏好画像。
+
+    返回学习到的风格、话题偏好、准确率等信息。
+    """
+    global _preference_dao
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    if not _preference_dao:
+        return {
+            "has_data": False,
+            "preferred_style": None,
+            "top_topics": [],
+            "accuracy_pct": None,
+            "feedback_count": 0,
+            "is_mature": False,
+        }
+
+    prefs = _preference_dao.get(user_id)
+    style_names = {"sassy": "毒舌直接", "analyst": "理性分析", "gentle": "温柔陪伴"}
+    topic_names = {"wealth": "财运", "love": "感情", "career": "事业",
+                   "health": "健康", "growth": "个人成长"}
+
+    # Top 3 topics
+    topic_weights = {"wealth": prefs.topic_wealth, "love": prefs.topic_love,
+                     "career": prefs.topic_career, "health": prefs.topic_health,
+                     "growth": prefs.topic_growth}
+    sorted_topics = sorted(topic_weights, key=topic_weights.get, reverse=True)
+    top_topics = [topic_names.get(t, t) for t in sorted_topics[:3] if topic_weights[t] > 0.1]
+
+    return {
+        "has_data": prefs.is_mature,
+        "preferred_style": style_names.get(prefs.preferred_style, prefs.preferred_style) if prefs.is_mature else None,
+        "preferred_style_key": prefs.preferred_style if prefs.is_mature else None,
+        "top_topics": top_topics,
+        "length_preference": "short" if prefs.prefer_short else "normal",
+        "accuracy_pct": prefs.accuracy_pct,
+        "feedback_count": prefs.feedback_count,
+        "is_mature": prefs.is_mature,
     }
 
 

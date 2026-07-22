@@ -308,6 +308,8 @@ class MessageHandler:
 
             if updated.is_mature and updated.accuracy_pct is not None:
                 reply += f"\n📊 你的认可率：{updated.accuracy_pct}%（{updated.feedback_count}次反馈）"
+                if updated.accuracy_pct >= 80:
+                    reply += "\n🎯 超过80%了！我已经很了解你的偏好了，之后的回答会更贴合你的口味～"
 
             return reply
         except Exception:
@@ -329,6 +331,33 @@ class MessageHandler:
             return ""
         prefs = self.preference_dao.get(user_id)
         return prefs.to_prompt_hint()
+
+    def _get_personalized_context(self, user_id: str) -> str:
+        """Get personalized context using PERSONALIZED_CONTEXT_TEMPLATE.
+
+        Richer format than _get_preference_hint, suitable for extra_system_prompt.
+        Returns empty string if preferences not yet mature.
+        """
+        if not self.preference_dao:
+            return ""
+        prefs = self.preference_dao.get(user_id)
+        if not prefs.is_mature:
+            return ""
+        from src.llm.prompts import PERSONALIZED_CONTEXT_TEMPLATE
+        _sn = {"sassy": "毒舌直接", "analyst": "理性分析", "gentle": "温柔陪伴"}
+        _tn = {"wealth": "财运", "love": "感情", "career": "事业",
+               "health": "健康", "growth": "个人成长"}
+        _tw = {"wealth": prefs.topic_wealth, "love": prefs.topic_love,
+               "career": prefs.topic_career, "health": prefs.topic_health,
+               "growth": prefs.topic_growth}
+        _sorted = sorted(_tw, key=_tw.get, reverse=True)
+        _top3 = [_tn.get(t, t) for t in _sorted[:3]]
+        return PERSONALIZED_CONTEXT_TEMPLATE.format(
+            preferred_style=_sn.get(prefs.preferred_style, prefs.preferred_style),
+            top_topics="、".join(_top3),
+            length_pref="简短精炼" if prefs.prefer_short else "适中详细",
+            accuracy_pct=prefs.accuracy_pct if prefs.accuracy_pct is not None else "暂无",
+        )
 
     def _get_preferred_max_tokens(self, user_id: str) -> int:
         """Get preferred max_tokens based on user's length preference."""
@@ -937,11 +966,16 @@ class MessageHandler:
         search_query = f"{result.day_master} {question}"
         refs = self.retriever.search(search_query, category="bazi", top_k=15)
 
-        # 5. Phase 2: Scenario-aware structured report
+        # 5. P3: Build personalized preference context for LLM injection
+        pref_extra = self._get_personalized_context(user_id)
+
+        # Phase 2: Scenario-aware structured report
         scenario_info = self._route_by_scenario(question, user_id)
         if scenario_info:
             from src.llm.report_prompts import STRUCTURED_REPORT_PROMPT, SCENARIO_FOCUS_PROMPTS
             extra_prompt = STRUCTURED_REPORT_PROMPT
+            if pref_extra:
+                extra_prompt += "\n\n" + pref_extra
             cat = scenario_info.get("category", "")
             if cat in SCENARIO_FOCUS_PROMPTS:
                 extra_prompt += "\n\n" + SCENARIO_FOCUS_PROMPTS[cat]
@@ -960,6 +994,7 @@ class MessageHandler:
             analysis = self.llm.analyze(
                 result, refs, question,
                 personality_mode=self._get_personality_mode(user_id),
+                extra_system_prompt=pref_extra if pref_extra else None,
             )
 
         # 6. 生成命盘图片
@@ -2092,8 +2127,8 @@ class MessageHandler:
 
         # 所有其他消息 → 用 LLM 自然对话
         try:
-            # Build preference hint for LLM (F2)
-            pref_hint = self._get_preference_hint(user_id)
+            # Build preference hint for LLM (P3: personalized RLHF context)
+            pref_hint = self._get_personalized_context(user_id)
 
             # Build emotional context hint for the LLM
             emotion_hint = ""

@@ -241,6 +241,19 @@ function feedback(text, isAnonymous = false) {
   });
 }
 
+// ---- 用户偏好 ----
+
+/**
+ * 获取用户偏好画像（RLHF 学习结果）
+ * @param {string} userId - 用户 ID
+ * @returns {Promise<{has_data, preferred_style, top_topics, accuracy_pct, feedback_count, is_mature}>}
+ */
+function getUserPreferences(userId) {
+  return request(`/api/user/preferences?user_id=${encodeURIComponent(userId)}`, {
+    method: 'GET',
+  });
+}
+
 // ---- 导出 ----
 
 module.exports = {
@@ -268,6 +281,9 @@ module.exports = {
   getUserProfile,
   updateSubscription,
   feedback,
+
+  // Preferences
+  getUserPreferences,
 
   // Share
   generateShareCard,

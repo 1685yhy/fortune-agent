@@ -33,6 +33,28 @@
     </view>
   </view>
 
+  <!-- AI 了解你（RLHF 偏好画像） -->
+  <view class="section stagger-1" wx:if="{{hasPreferences && preferences}}">
+    <view class="section-header">
+      <text class="section-title"> AI 了解你</text>
+    </view>
+    <view class="pref-card">
+      <view class="pref-row">
+        <text class="pref-label">偏好风格</text>
+        <text class="pref-value">{{preferences.preferred_style || '学习中'}}</text>
+      </view>
+      <view class="pref-row">
+        <text class="pref-label">关注话题</text>
+        <text class="pref-value">{{preferences.top_topics.join('、')}}</text>
+      </view>
+      <view class="pref-row">
+        <text class="pref-label">认可率</text>
+        <text class="pref-value">{{preferences.accuracy_pct}}%（{{preferences.feedback_count}}次反馈）</text>
+      </view>
+      <view class="pref-note">继续反馈让我更懂你～用 👍/👎 告诉我对不对</view>
+    </view>
+  </view>
+
   <!-- 八字档案 -->
   <view class="section stagger-1">
     <view class="section-header">

@@ -270,6 +270,16 @@ SYSTEM_PROMPT_GENTLE = """你是「易理明灯」AI命理顾问——温柔陪�
 5. 给出切实可行的建议，而非空洞的吉凶判断
 """
 
+PERSONALIZED_CONTEXT_TEMPLATE = """
+## 用户偏好（从历史反馈学习）
+- 偏好风格: {preferred_style}
+- 关注话题: {top_topics}
+- 偏好长度: {length_pref}
+- 准确率: {accuracy_pct}%
+
+请根据以上偏好调整回答风格和内容侧重。
+"""
+
 PERSONALITY_PROMPTS = {
     "sassy": SYSTEM_PROMPT_SASSY,
     "analyst": SYSTEM_PROMPT_ANALYST,
