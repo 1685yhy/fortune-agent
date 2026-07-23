@@ -244,6 +244,10 @@ async def lifespan(app: FastAPI):
     from .api.advisor import setup as setup_advisor
     setup_advisor(dao, llm)
 
+    # Task 6: Setup xuetang API
+    from .api.xuetang import setup as setup_xuetang
+    setup_xuetang(dao, retriever)
+
     # Phase 5: Setup user API
     setup_user(dao, session_dao, security_auth)
 
@@ -332,6 +336,10 @@ app.include_router(hourly_router)            # /api/hourly-fortune
 # Task 5: Advisor API
 from .api.advisor import router as advisor_router
 app.include_router(advisor_router)           # /api/advisor
+
+# Task 6: Xuetang API
+from .api.xuetang import router as xuetang_router
+app.include_router(xuetang_router)           # /api/xuetang
 
 # Reports list endpoint (mini program compatibility)
 @app.get("/api/reports")

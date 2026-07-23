@@ -2011,8 +2011,12 @@ class MessageHandler:
     # ============================================================
 
     def _handle_xuetang(self, msg: str, user_id: str) -> str:
-        """Handle learning/tutorial requests."""
-        from src.engines.xuetang import list_topics, get_lesson
+        """Handle learning/tutorial requests with optional personalization.
+
+        If the user has saved bazi data, the lesson will include
+        personalized examples based on their chart.
+        """
+        from src.engines.xuetang import list_topics, get_lesson, personalized_lesson
 
         # Remove trigger words
         for kw in ["学堂", "学习", "教程"]:
@@ -2022,7 +2026,31 @@ class MessageHandler:
         if not topic or topic in ("", "列表", "目录", "帮助"):
             return list_topics()
 
-        return get_lesson(topic, retriever=self.retriever if hasattr(self, 'retriever') else None)
+        # Check if user has saved bazi for personalization
+        retriever = self.retriever if hasattr(self, 'retriever') else None
+        bazi_data = None
+        try:
+            if self.dao:
+                saved = self.dao.get_user_bazi(user_id)
+                if saved and saved.get("bazi"):
+                    bazi_data = {
+                        "day_master": saved.get("day_master", ""),
+                        "bazi": saved.get("bazi", []),
+                        "geju": saved.get("geju", ""),
+                        "yongshen": saved.get("yongshen", ""),
+                    }
+        except Exception:
+            # If reading bazi fails, fall back to standard lesson
+            pass
+
+        if bazi_data:
+            try:
+                return personalized_lesson(topic, bazi_data=bazi_data, retriever=retriever)
+            except Exception:
+                # If personalization fails, fall back to standard lesson
+                pass
+
+        return get_lesson(topic, retriever=retriever)
 
     # ============================================================
     # AI 建议 (Advisor V2)
