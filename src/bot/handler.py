@@ -65,6 +65,7 @@ INTENT_KEYWORDS = {
     "hehun": ["合婚", "配对", "配不配", "婚姻匹配"],
     "dream": ["解梦", "做梦", "梦见", "梦到", "梦"],
     "calendar": ["今日运势", "今日日历", "今日宜忌", "幸运日历", "今天运势", "今天宜忌", "今日运程", "流时运势", "时辰运势", "今日时辰"],
+    "hourly": ["几点", "什么时候", "时辰", "今天什么时候", "时运"],
     "xuetang": ["学堂", "学习", "教程", "入门"],
 }
 
@@ -565,7 +566,9 @@ class MessageHandler:
             "hehun": self._handle_hehun,
             "dream": self._handle_dream,
             "calendar": self._handle_calendar,
+            "hourly": self._handle_hourly,
             "xuetang": self._handle_xuetang,
+            "advisor": self._handle_advisor,
         }
 
         handler = handler_map.get(analysis.intent)
@@ -2062,6 +2065,82 @@ class MessageHandler:
             return reply
         except Exception as e:
             return f"📅 日历生成失败：{str(e)[:100]}"
+
+    # ============================================================
+    # 时辰运势 (Hourly Fortune)
+    # ============================================================
+
+    def _handle_hourly(self, msg: str, user_id: str) -> str:
+        """Handle hourly fortune requests — 十二时辰逐时分析."""
+        saved = self.dao.get_user_bazi(user_id)
+        if not saved:
+            return ("⏰ 想查看今日十二时辰运势，需要先设置八字哦～\n"
+                    "告诉我你的出生日期，例如：1990年5月20日 下午3点 北京 男")
+
+        try:
+            # Compute today's stem & branch
+            from datetime import datetime, timezone, timedelta
+            now = datetime.now(timezone(timedelta(hours=8)))
+            date_str = now.strftime("%Y-%m-%d")
+
+            stems = ["甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸"]
+            branches = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
+            ref = datetime(2026, 1, 1, tzinfo=timezone(timedelta(hours=8)))
+            dt = datetime(now.year, now.month, now.day, tzinfo=timezone(timedelta(hours=8)))
+            days_diff = (dt - ref).days
+            day_stem = stems[(1 + days_diff) % 10]
+            day_branch = branches[(5 + days_diff) % 12]
+
+            # Extract user's day master
+            bazi_list = saved.get("bazi", ["?"])
+            day_master = bazi_list[2] if len(bazi_list) >= 3 else "?"
+            wx_map = {"甲": "木", "乙": "木", "丙": "火", "丁": "火",
+                      "戊": "土", "己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水"}
+            user_wx = wx_map.get(day_master, "土")
+            user_day_master = user_wx + day_master
+
+            # Generate hourly fortune
+            from src.engines.hourly_fortune import get_hourly_fortune, format_hourly_card
+            hourly = get_hourly_fortune(user_day_master, day_branch)
+            reply = format_hourly_card(user_day_master, day_branch)
+
+            # Optional: LLM summary for the best hours
+            api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+            if api_key:
+                try:
+                    best = [h for h in hourly if h["rating"] in ("excellent", "good")][:3]
+                    if best:
+                        best_names = "、".join(h["name"] for h in best)
+                        activities = "；".join(
+                            "、".join(h["activities"]) for h in best if h["activities"]
+                        )
+                        prompt = (
+                            f"用户日主{user_day_master}，今日日支{day_branch}（{day_stem}{day_branch}日）。"
+                            f"今日最佳时段：{best_names}，适宜活动：{activities}。"
+                            "请用一句话给出今日时辰运势的总结建议（20字以内），语气温暖实用。直接返回文本。"
+                        )
+                        import httpx
+                        resp = httpx.post(
+                            "https://api.deepseek.com/v1/chat/completions",
+                            headers={"Authorization": f"Bearer {api_key}",
+                                     "Content-Type": "application/json"},
+                            json={
+                                "model": "deepseek-v4-flash",
+                                "messages": [{"role": "user", "content": prompt}],
+                                "max_tokens": 80,
+                                "temperature": 0.7,
+                            },
+                            timeout=10.0,
+                        )
+                        summary = resp.json()["choices"][0]["message"]["content"].strip()
+                        if summary:
+                            reply += f"\n\n💬 {summary}"
+                except Exception:
+                    pass  # Summary is best-effort
+
+            return reply
+        except Exception as e:
+            return f"⏰ 时辰运势生成失败：{str(e)[:100]}"
 
     def _format_calendar(self, day) -> str:
         """Format a CalendarDay into a WeChat-friendly message."""
