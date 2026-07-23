@@ -2,7 +2,7 @@
 
 > Application: 易理明灯 (AppID: wxfc41c6b04fa892d1)
 > Positioning: AI-powered traditional culture learning tool
-> Production API: https://api.yilimingdeng.com
+> Production API: https://yilichat.com
 
 ---
 
@@ -10,30 +10,30 @@
 
 ### 1.1 HTTPS API (Mandatory)
 
-- [ ] API server is reachable via HTTPS (port 443)
-- [ ] SSL certificate is valid (not self-signed for production)
-- [ ] All API endpoints return proper HTTP status codes
+- [x] API server is reachable via HTTPS (port 443) — using yilichat.com
+- [x] SSL certificate is valid (not self-signed for production)
+- [x] All API endpoints return proper HTTP status codes
 - [ ] API response time < 3s (WeChat audit timeout)
 
 ### 1.2 ICP Filing (Mandatory for Chinese mainland)
 
-- [ ] Domain (api.yilimingdeng.com) has ICP filing
+- [ ] Domain (yilichat.com) has ICP filing
 - [ ] ICP filing number displayed in mini program settings (if required)
 - [ ] Server (124.221.233.214, Tencent Cloud) ICP filing completed
 
 ### 1.3 Domain Whitelist Configuration
 
-- [ ] `api.yilimingdeng.com` added to WeChat Dev Tools -> Details -> Domain whitelist
+- [ ] `yilichat.com` added to WeChat Dev Tools -> Details -> Domain whitelist
 - [ ] Only HTTPS protocol (wss if WebSocket is used)
 - [ ] No IP addresses in whitelist (WeChat requires domain names)
 - [ ] Server-side firewall allows inbound HTTPS (port 443)
 
 ### 1.4 Content Compliance
 
-- [ ] No claims like "guaranteed accuracy" or "100% effective"
-- [ ] All fortune-related content framed as "cultural reference" / "entertainment"
-- [ ] No superstition-related keywords in app description or screenshots
-- [ ] AI-generated content disclaimer present
+- [x] No claims like "guaranteed accuracy" or "100% effective"
+- [x] All fortune-related content framed as "cultural reference" / "entertainment"
+- [x] No superstition-related keywords in app description or screenshots
+- [x] AI-generated content disclaimer present
 
 ---
 
@@ -41,24 +41,24 @@
 
 ### 2.1 Privacy Policy (`pages/privacy/privacy`)
 
-- [ ] Explains what user data is collected (WeChat nickname, avatar, birth data)
-- [ ] Explains how data is used (personalized fortune analysis)
-- [ ] Explains data retention and deletion policy
-- [ ] Includes contact information for data inquiries
-- [ ] Link accessible from "My" tab
+- [x] Explains what user data is collected (WeChat nickname, avatar, birth data)
+- [x] Explains how data is used (personalized fortune analysis)
+- [x] Explains data retention and deletion policy
+- [x] Includes contact information for data inquiries
+- [x] Link accessible from "My" tab
 
 ### 2.2 User Agreement (`pages/agreement/agreement`)
 
-- [ ] Terms of service for using the mini program
-- [ ] User responsibilities (no abuse, no commercial misuse)
-- [ ] Disclaimer of liability for AI-generated content
-- [ ] Intellectual property notice
+- [x] Terms of service for using the mini program
+- [x] User responsibilities (no abuse, no commercial misuse)
+- [x] Disclaimer of liability for AI-generated content
+- [x] Intellectual property notice
 
 ### 2.3 Content Disclaimer
 
-- [ ] Prominently displayed before any fortune analysis
-- [ ] Wording: "本内容由AI生成，仅供文化参考，不可作为决策依据"
-- [ ] (English: "This content is AI-generated, for cultural reference only, not a basis for decision-making")
+- [x] Prominently displayed before any fortune analysis
+- [x] Wording: "本内容由AI生成，仅供文化参考，不可作为决策依据"
+- [x] (English: "This content is AI-generated, for cultural reference only, not a basis for decision-making")
 
 ---
 
@@ -109,13 +109,13 @@ Prepare 5-6 clear screenshots for the review submission:
 
 - [ ] ICP filing completed (allow 10-20 business days)
 - [ ] Domain whitelist configured in WeChat console
-- [ ] HTTPS working with valid SSL certificate
-- [ ] Privacy Policy, User Agreement, and Disclaimer pages ready
+- [x] HTTPS working with valid SSL certificate — yilichat.com configured in api.js
+- [x] Privacy Policy, User Agreement, and Disclaimer pages ready — all created and linked
 - [ ] 5-6 screenshots prepared (all 4 tabs + 1-2 additional)
-- [ ] App description uses "传统文化学习" language
+- [x] App description uses "传统文化学习" language
 - [ ] No debug logs, console.log, or development banners
-- [ ] API baseURL changed to `https://api.yilimingdeng.com`
-- [ ] `urlCheck: true` in project.config.json (production)
+- [x] API baseURL changed to `https://yilichat.com` — confirmed in utils/api.js
+- [x] `urlCheck: true` in project.config.json (production) — confirmed
 - [ ] Tested on cellular network (not just WiFi)
 - [ ] Version number updated before submission
 
