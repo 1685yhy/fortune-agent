@@ -1,13 +1,11 @@
 """LLM 客户端 - 支持 Claude 和 DeepSeek."""
 from dataclasses import dataclass
-from typing import List, Optional, Union
+from typing import List, Union
 import threading
 import httpx
-import json
 
-from .prompts import PERSONALITY_PROMPTS, CHAT_PROMPT, USER_CONTEXT_TEMPLATE
+from .prompts import SYSTEM_PROMPT, CHAT_PROMPT, USER_CONTEXT_TEMPLATE
 from src.engines.bazi import BaziResult
-from src.engines.mood_detector import MoodDetector, MoodResult
 from src.rag.retriever import ChunkResult
 
 
@@ -20,8 +18,6 @@ class AnalysisResult:
 
 class FortuneLLM:
     """算命助手 LLM 封装 - 双模型：Flash(快聊) + Pro(深度分析)
-
-    Sprint 7: personality_mode=None enables automatic mood detection.
     Server hardening: shared httpx client + Pro call semaphore.
     """
 
@@ -34,49 +30,18 @@ class FortuneLLM:
         self.model = model          # 快速模型 (日常聊天)
         self.deep_model = deep_model  # 深度模型 (命理分析)
         self.provider = provider
-        # Sprint 7: AI mood detector (reuses same Flash model for speed)
-        self.mood_detector = MoodDetector(api_key=api_key, model=model)
         # Server hardening: shared httpx client with connection pooling
         self._client = httpx.Client(
             timeout=httpx.Timeout(120.0, connect=15.0),
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
         )
 
-    def _resolve_mood(self, user_message: str, personality_mode: Optional[str]) -> str:
-        """Auto-detect mood if personality_mode is None, else return override."""
-        if personality_mode is not None:
-            return personality_mode
-        mood_result = self.mood_detector.detect(user_message)
-        return mood_result.mood
+    def chat(self, user_message: str) -> AnalysisResult:
+        """自由对话 - 用快速模型（V4 Flash），轻量人设提示。"""
+        return self._call_deepseek_model(user_message, self.model, max_tokens=500)
 
-    def chat(self, user_message: str, personality_mode: Optional[str] = None) -> AnalysisResult:
-        """自由对话 - 用快速模型（V4 Flash），轻量人设提示。
-
-        Args:
-            user_message: User's input text.
-            personality_mode: One of "sassy", "analyst", "gentle",
-                             or None to auto-detect from message.
-        """
-        resolved_mode = self._resolve_mood(user_message, personality_mode)
-        return self._call_deepseek_model(user_message, self.model, max_tokens=500,
-                                         custom_prompt=CHAT_PROMPT)
-
-    def chat_conversation(self, history: list, personality_mode: Optional[str] = None) -> str:
-        """多轮对话 - 带完整上下文的自然聊天。
-
-        Args:
-            history: List of message dicts with "role" and "content".
-            personality_mode: One of "sassy", "analyst", "gentle",
-                             or None to auto-detect from last user message.
-        """
-        # Auto-detect mood from last user message if no override
-        if personality_mode is None:
-            last_user_msg = next(
-                (m["content"] for m in reversed(history) if m["role"] == "user"),
-                "",
-            )
-            mood_result = self.mood_detector.detect(last_user_msg) if last_user_msg else MoodResult("sassy", 0.5, "中性")
-            personality_mode = mood_result.mood
+    def chat_conversation(self, history: list) -> str:
+        """多轮对话 - 带完整上下文的自然聊天。"""
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -97,24 +62,10 @@ class FortuneLLM:
         chart_data: Union[BaziResult, str],
         references: List[ChunkResult],
         user_question: str,
-        personality_mode: Optional[str] = None,
-        use_pro: bool = False,  # Pro opt-in only (unreliable on small servers)
-        extra_system_prompt: str = None,  # Phase 2: structured report prompt
+        use_pro: bool = False,
+        extra_system_prompt: str = None,
     ) -> AnalysisResult:
-        """命理分析 - 默认用 Flash（可靠+快速），Pro 可选。
-
-        Flash with optimized prompts + RAG delivers quality analysis in 8-15s.
-        Pro is opt-in only (60-80s, unstable on <8GB RAM servers).
-
-        Args:
-            chart_data: Bazi result or raw chart string.
-            references: RAG search results.
-            user_question: The user's question text.
-            personality_mode: One of "sassy", "analyst", "gentle", or None.
-            use_pro: Whether to use the deep/pro model.
-            extra_system_prompt: Additional system prompt appended to the
-                personality prompt (used for structured report format).
-        """
+        """命理分析 - 默认用 Flash（可靠+快速），Pro 可选。"""
         if isinstance(chart_data, str):
             chart_str = chart_data
         else:
@@ -126,17 +77,15 @@ class FortuneLLM:
             references=refs_str,
             question=user_question,
         )
-        resolved_mode = self._resolve_mood(user_question, personality_mode)
-        system_prompt = PERSONALITY_PROMPTS.get(resolved_mode, PERSONALITY_PROMPTS["sassy"])
+        system_prompt = SYSTEM_PROMPT
         if extra_system_prompt:
             system_prompt = system_prompt + "\n\n" + extra_system_prompt
 
         # Flash-first: reliable, fast, sufficient with RAG
-        # P1-1: reduce default max_tokens to keep replies concise
         if not use_pro:
             return self._call_deepseek_model(
                 user_message, self.model, max_tokens=800,
-                custom_prompt=system_prompt,
+                system_prompt=system_prompt,
                 timeout=60.0,
             )
 
@@ -144,7 +93,7 @@ class FortuneLLM:
         try:
             return self._call_deepseek_model(
                 user_message, self.deep_model, max_tokens=1200,
-                custom_prompt=system_prompt,
+                system_prompt=system_prompt,
                 timeout=90.0,
             )
         except Exception:
@@ -152,13 +101,12 @@ class FortuneLLM:
             logging.getLogger(__name__).warning("Pro failed, falling back to Flash")
             return self._call_deepseek_model(
                 user_message, self.model, max_tokens=800,
-                custom_prompt=system_prompt,
+                system_prompt=system_prompt,
                 timeout=30.0,
             )
 
     def _call_deepseek_model(self, user_message: str, model: str, max_tokens: int = 300,
-                             use_system_prompt: bool = True,
-                             custom_prompt: str = None,
+                             system_prompt: str = None,
                              timeout: float = 60.0) -> AnalysisResult:
         """调用 DeepSeek API — 使用共享连接池和并发控制"""
         is_pro = (model == self.deep_model)
@@ -176,12 +124,7 @@ class FortuneLLM:
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             }
-            messages = []
-            if custom_prompt:
-                messages.append({"role": "system", "content": custom_prompt})
-            elif use_system_prompt:
-                prompt = PERSONALITY_PROMPTS.get("sassy", "")
-                messages.append({"role": "system", "content": prompt})
+            messages = [{"role": "system", "content": system_prompt or CHAT_PROMPT}]
             messages.append({"role": "user", "content": user_message})
             payload = {
                 "model": model,

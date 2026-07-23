@@ -571,7 +571,6 @@ async def get_daily_calendar(req: CalendarRequest):
 
     # Get user preferences
     preferences = handler._get_preference_hint(user_id) if hasattr(handler, '_get_preference_hint') else ""
-    personality = handler._get_personality_mode(user_id) or "sassy"
 
     # Get API key
     api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
@@ -579,7 +578,7 @@ async def get_daily_calendar(req: CalendarRequest):
     try:
         from .engines.calendar import LuckyCalendar
         cal = LuckyCalendar(api_key)
-        day = cal.daily(saved, req.date, personality, preferences)
+        day = cal.daily(saved, req.date, preferences=preferences)
         return {"status": "ok", "calendar": _calendar_day_to_dict(day)}
     except Exception as e:
         return {"status": "error", "message": str(e)[:200],
@@ -598,13 +597,12 @@ async def get_week_calendar(req: CalendarRequest):
         return {"status": "no_bazi", "message": "请先设置八字信息"}
 
     preferences = handler._get_preference_hint(user_id) if hasattr(handler, '_get_preference_hint') else ""
-    personality = handler._get_personality_mode(user_id) or "sassy"
     api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
 
     try:
         from .engines.calendar import LuckyCalendar
         cal = LuckyCalendar(api_key)
-        days = cal.week(saved, personality, preferences)
+        days = cal.week(saved, preferences=preferences)
         return {"status": "ok", "calendar": [_calendar_day_to_dict(d) for d in days]}
     except Exception as e:
         return {"status": "error", "message": str(e)[:200]}
@@ -655,7 +653,6 @@ from fastapi import UploadFile, File, Form
 async def face_reading(
     image: UploadFile = File(...),
     user_id: str = Form("anonymous"),
-    personality: str = Form("sassy"),
 ):
     """CV 精确面相分析 — 上传自拍照片，返回精确测量 + 古籍解读"""
     if handler is None:
@@ -690,7 +687,7 @@ async def face_reading(
 
         api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
         report = generate_report(metrics, retriever=handler.retriever if hasattr(handler, 'retriever') else None,
-                                 api_key=api_key, personality=personality)
+                                 api_key=api_key)
 
         return {
             "status": "ok",

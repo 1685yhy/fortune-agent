@@ -128,14 +128,12 @@ class LuckyCalendar:
         return f"{user_wx}(你) vs {day_wx}(今日)"
 
     def daily(self, user_bazi: dict, date_str: str = None,
-              personality: str = "sassy",
               preferences: str = "") -> CalendarDay:
         """Generate personalized calendar for a single day.
 
         Args:
             user_bazi: Dict with bazi info (bazi list, day_master, wuxing, dayun, etc.)
             date_str: Date in YYYY-MM-DD format (defaults to today).
-            personality: User's personality mode for tone adaptation.
             preferences: User preference hint string from feedback loop.
 
         Returns:
@@ -163,20 +161,12 @@ class LuckyCalendar:
             f"当前大运：{dayun}\n"
         )
 
-        # Personality tone directive
-        tone_directives = {
-            "sassy": "语气犀利带点调侃，像朋友说实话。但宜忌的内容本身要专业准确。",
-            "analyst": "语气理性专业，可以适当用百分比来表达运势强度。",
-            "gentle": "语气温柔鼓励，多给正向能量，让人感到被支持。",
-        }
-        tone = tone_directives.get(personality, tone_directives["sassy"])
-
         prompt = CALENDAR_PROMPT.format(
             chart_info=chart_info,
             date=date_str,
             day_stem_branch=f"{day_stem}{day_branch}",
             day_relation=day_relation,
-            preferences=f"风格要求：{tone}\n{preferences}" if preferences else f"风格要求：{tone}",
+            preferences=f"风格要求：用现代中文、自然亲切的语气。\n{preferences}" if preferences else "风格要求：用现代中文、自然亲切的语气。",
         )
 
         try:
@@ -225,14 +215,13 @@ class LuckyCalendar:
             special_note=data.get("special_note", ""),
         )
 
-    def week(self, user_bazi: dict, personality: str = "sassy",
-             preferences: str = "") -> List[CalendarDay]:
+    def week(self, user_bazi: dict, preferences: str = "") -> List[CalendarDay]:
         """Generate 7-day calendar preview (today + 6 days)."""
         today = datetime.now()
         days = []
         for i in range(7):
             date_str = (today + timedelta(days=i)).strftime("%Y-%m-%d")
-            day = self.daily(user_bazi, date_str, personality, preferences)
+            day = self.daily(user_bazi, date_str, preferences)
             days.append(day)
         return days
 

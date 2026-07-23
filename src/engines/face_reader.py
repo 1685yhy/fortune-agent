@@ -356,11 +356,10 @@ def _evaluate(m) -> Tuple[List[str], List[str]]:
 
 
 # ============================================================
-# Report generation (unchanged API)
+# Report generation
 # ============================================================
 
-def generate_report(metrics: FaceMetrics, retriever=None, api_key: str = "",
-                    personality: str = "sassy") -> str:
+def generate_report(metrics: FaceMetrics, retriever=None, api_key: str = "") -> str:
     search_terms = [f"{metrics.nose_type} 面相", f"{metrics.eye_type} 面相", f"{metrics.face_shape} 面相"]
     refs = []
     if retriever:
@@ -387,8 +386,7 @@ def generate_report(metrics: FaceMetrics, retriever=None, api_key: str = "",
     if api_key:
         try:
             import httpx
-            tones = {"sassy": "犀利带点幽默", "analyst": "理性专业", "gentle": "温暖鼓励"}
-            prompt = f"精通《麻衣神相》的面相专家。根据数据生成200-350字报告。风格：{tones.get(personality, tones['sassy'])}。\n\n{mt}{rtxt}"
+            prompt = f"精通《麻衣神相》的面相专家。根据数据生成200-350字报告。用现代中文、自然亲切的语气。\n\n{mt}{rtxt}"
             resp = httpx.post(
                 "https://api.deepseek.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},

@@ -190,8 +190,7 @@ class PalmReader:
         return metrics
 
 
-def generate_palm_report(metrics: PalmMetrics, retriever=None, api_key: str = "",
-                         personality: str = "sassy") -> str:
+def generate_palm_report(metrics: PalmMetrics, retriever=None, api_key: str = "") -> str:
     """Generate palm reading report from CV measurements + RAG."""
     lines_text = "## 掌纹检测\n"
     for name, data in [("生命线", metrics.life_line), ("智慧线", metrics.wisdom_line),

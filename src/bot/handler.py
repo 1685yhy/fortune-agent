@@ -1,7 +1,7 @@
 """消息处理 - 意图识别和信息收集."""
 import os
 import re
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Tuple, Any
 
 from src.engines.bazi import BaziEngine, BaziResult
 from src.engines.ziwei import ZiweiEngine, ZiweiResult
@@ -166,13 +166,6 @@ BAZI_EXTRACT_PATTERNS = [
 class MessageHandler:
     """消息处理器"""
 
-    # Personality switching keywords — ordered longest-first to avoid partial matches
-    PERSONALITY_SWITCH_KEYWORDS = {
-        "sassy": ["毒舌闺蜜", "毒舌", "犀利", "嘴毒", "换个风格", "换风格"],
-        "analyst": ["分析师", "理性", "数据", "专业", "严谨", "客观模式"],
-        "gentle": ["温柔一点", "温柔", "暖心", "陪伴", "温和", "温暖"],
-    }
-
     def __init__(
         self,
         engine: BaziEngine,
@@ -202,7 +195,6 @@ class MessageHandler:
         # P1-2: Membership / quota management
         db_path = getattr(dao, 'db_path', '') if dao else ''
         self.member_dao = member_dao or (MemberDAO(db_path) if db_path else None)
-        self._personality_modes = {}  # user_id -> mode string
         # F1: Preference learner — gets db_path from dao
         db_path = getattr(dao, 'db_path', '') if dao else ''
         self.preference_dao = PreferenceDAO(db_path) if db_path else None
@@ -224,37 +216,6 @@ class MessageHandler:
         self.similarity_engine = SimilarityEngine(_sim_db) if _os.path.exists(_sim_db) else None
 
     # ============================================================
-    # Personality Mode Management
-    # ============================================================
-
-    def _get_personality_mode(self, user_id: str) -> Optional[str]:
-        """Get user's personality mode: explicit override > learned preference > None (auto-detect)."""
-        # 1. Explicit override (user typed "毒舌模式")
-        if user_id in self._personality_modes:
-            return self._personality_modes[user_id]
-        # 2. Learned preference (from feedback)
-        if self.preference_dao:
-            prefs = self.preference_dao.get(user_id)
-            if prefs.is_mature:
-                return prefs.preferred_style
-        # 3. Auto-detect from message
-        return None
-
-    def _set_personality_mode(self, user_id: str, mode: str):
-        """Set user's personality mode."""
-        valid_modes = {"sassy", "analyst", "gentle"}
-        if mode in valid_modes:
-            self._personality_modes[user_id] = mode
-
-    def _detect_personality_switch(self, msg: str):
-        """Check if user wants to switch personality mode. Returns mode name or None."""
-        for mode, keywords in self.PERSONALITY_SWITCH_KEYWORDS.items():
-            for kw in keywords:
-                if kw in msg:
-                    return mode
-        return None
-
-    # ============================================================
     # Feedback Learning (F1-F3)
     # ============================================================
 
@@ -271,7 +232,7 @@ class MessageHandler:
         try:
             # Get current context for learning
             prefs = self.preference_dao.get(user_id)
-            current_style = self._get_personality_mode(user_id) or prefs.preferred_style or ""
+            current_style = prefs.preferred_style or ""
 
             # Detect topic from last conversation
             last_topic = ""
@@ -300,7 +261,7 @@ class MessageHandler:
                 self.quality_predictor.update(
                     message=last_msg,
                     hour=datetime.datetime.now().hour,
-                    personality=current_style or "sassy",
+                    personality="",
                     emotion=emotion_label,
                     topic=last_topic or "general",
                     response_len=0,  # We don't know the exact response that got this feedback
@@ -321,15 +282,9 @@ class MessageHandler:
         except Exception:
             return "感谢反馈！" if is_positive else "收到，会继续改进～"
 
-    def _add_feedback_prompt(self, reply: str, personality_mode: str = None) -> str:
-        """Append natural feedback prompt matching the personality style."""
-        prompts = {
-            "sassy": "\n\n———\n💅 说得有没有道理？👍 夸我  👎 骂我（我记着，下次改）",
-            "analyst": "\n\n———\n📊 这个分析对你有帮助吗？👍 有帮助  👎 不太准",
-            "gentle": "\n\n———\n🌷 希望这些对你有帮助～如果觉得有用就点个 👍，不满意就点 👎，我会努力做得更好",
-        }
-        prompt = prompts.get(personality_mode, prompts["sassy"])
-        return reply + prompt
+    def _add_feedback_prompt(self, reply: str) -> str:
+        """Append unified feedback prompt."""
+        return reply + "\n\n———\n💬 这个分析对你有帮助吗？👍 有帮助  👎 不太准"
 
     def _get_preference_hint(self, user_id: str) -> str:
         """Get preference hint for LLM prompt injection. Empty if not mature."""
@@ -339,9 +294,8 @@ class MessageHandler:
         return prefs.to_prompt_hint()
 
     def _get_personalized_context(self, user_id: str) -> str:
-        """Get personalized context using PERSONALIZED_CONTEXT_TEMPLATE.
+        """Get personalized context from learned preferences.
 
-        Richer format than _get_preference_hint, suitable for extra_system_prompt.
         Returns empty string if preferences not yet mature.
         """
         if not self.preference_dao:
@@ -349,8 +303,6 @@ class MessageHandler:
         prefs = self.preference_dao.get(user_id)
         if not prefs.is_mature:
             return ""
-        from src.llm.prompts import PERSONALIZED_CONTEXT_TEMPLATE
-        _sn = {"sassy": "毒舌直接", "analyst": "理性分析", "gentle": "温柔陪伴"}
         _tn = {"wealth": "财运", "love": "感情", "career": "事业",
                "health": "健康", "growth": "个人成长"}
         _tw = {"wealth": prefs.topic_wealth, "love": prefs.topic_love,
@@ -358,11 +310,12 @@ class MessageHandler:
                "growth": prefs.topic_growth}
         _sorted = sorted(_tw, key=_tw.get, reverse=True)
         _top3 = [_tn.get(t, t) for t in _sorted[:3]]
-        return PERSONALIZED_CONTEXT_TEMPLATE.format(
-            preferred_style=_sn.get(prefs.preferred_style, prefs.preferred_style),
-            top_topics="、".join(_top3),
-            length_pref="简短精炼" if prefs.prefer_short else "适中详细",
-            accuracy_pct=prefs.accuracy_pct if prefs.accuracy_pct is not None else "暂无",
+        return (
+            f"\n## 用户偏好（从历史反馈学习）\n"
+            f"- 关注话题: {'、'.join(_top3)}\n"
+            f"- 偏好长度: {'简短精炼' if prefs.prefer_short else '适中详细'}\n"
+            f"- 准确率: {prefs.accuracy_pct if prefs.accuracy_pct is not None else '暂无'}%\n"
+            f"\n请根据以上偏好调整回答内容和详细程度。\n"
         )
 
     def _get_preferred_max_tokens(self, user_id: str) -> int:
@@ -515,28 +468,7 @@ class MessageHandler:
         if msg in ("👍", "👎", "好评", "差评", "准", "不准", "good", "bad") or msg.startswith("👍") or msg.startswith("👎"):
             return self._handle_feedback(msg, user_id)
 
-        # Step 0: 人格切换检查
-        switch_mode = self._detect_personality_switch(msg)
-        if switch_mode:
-            self._set_personality_mode(user_id, switch_mode)
-            mode_names = {
-                "sassy": "毒舌闺蜜 👄",
-                "analyst": "理性分析师 📊",
-                "gentle": "温柔陪伴者 🌷",
-            }
-            name = mode_names.get(switch_mode, switch_mode)
-            remaining = msg
-            for mode_kws in self.PERSONALITY_SWITCH_KEYWORDS.values():
-                for kw in mode_kws:
-                    remaining = remaining.replace(kw, "")
-            remaining = remaining.strip().lstrip("，。,!！模式，、 ")
-            if remaining and len(remaining) >= 3:
-                ack = f"已切到{name}模式~"
-                reply = self.process(remaining, user_id)
-                return ack + "\n\n" + reply
-            return f"好的，已切换到{name}模式！有什么想问的尽管说~"
-
-                # Step 0.6: P1-2 额度检查 — 免费用户每日3次限制
+        # Step 0.6: P1-2 额度检查 — 免费用户每日3次限制
         remaining, is_limited = self._check_quota(user_id)
         if is_limited:
             if remaining <= 0:
@@ -741,12 +673,10 @@ class MessageHandler:
 
             # Generate report
             api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
-            personality = self._get_personality_mode("") or "sassy"
             report = generate_report(
                 metrics,
                 retriever=self.retriever if hasattr(self, 'retriever') else None,
                 api_key=api_key,
-                personality=personality,
             )
             return report
         except Exception:
@@ -1076,13 +1006,11 @@ class MessageHandler:
             )
             analysis = self.llm.analyze(
                 result, refs, enhanced_question,
-                personality_mode=self._get_personality_mode(user_id),
                 extra_system_prompt=extra_prompt,
             )
         else:
             analysis = self.llm.analyze(
                 result, refs, question_with_gender,
-                personality_mode=self._get_personality_mode(user_id),
                 extra_system_prompt=pref_extra if pref_extra else None,
             )
 
@@ -1109,10 +1037,9 @@ class MessageHandler:
                 # 从用户问题中提取处境信息（去掉日期时间部分后的剩余文本）
                 user_context = self._extract_user_context(question)
                 api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
-                personality = self._get_personality_mode(user_id) or "sassy"
                 advice_data = advisor.generate(
                     result, user_context=user_context,
-                    personality=personality, api_key=api_key,
+                    api_key=api_key,
                 )
 
                 actions = advice_data.get("actions", [])
@@ -1207,8 +1134,7 @@ class MessageHandler:
             reply += "\n\n" + followup
 
         # 10. 反馈提示 (F3)
-        personality = self._get_personality_mode(user_id) or "sassy"
-        reply = self._add_feedback_prompt(reply, personality)
+        reply = self._add_feedback_prompt(reply)
 
         # Add reading version footer for traceability and reproducibility
         reply += f"\n\n---\n{get_version_footer()}"
@@ -1430,7 +1356,7 @@ class MessageHandler:
             if not refs:
                 refs = self.retriever.search(search_query, top_k=15)  # fallback: any category
             chart_str = self._format_ziwei_chart(result)
-            analysis = self.llm.analyze(chart_str, refs, question, personality_mode=self._get_personality_mode(user_id))
+            analysis = self.llm.analyze(chart_str, refs, question)
 
             # 生成紫微斗数命盘图片
             chart_url = ""
@@ -1500,7 +1426,7 @@ class MessageHandler:
             if not refs:
                 refs = self.retriever.search(f"六爻 {question}", top_k=15)
             chart_str = self._format_liuyao_chart(result)
-            analysis = self.llm.analyze(chart_str, refs, question, personality_mode=self._get_personality_mode(user_id))
+            analysis = self.llm.analyze(chart_str, refs, question)
             return analysis.response
         except Exception as e:
             return f"⚠️ 六爻起卦暂时不可用：{str(e)[:100]}\n\n请稍后重试。"
@@ -1576,7 +1502,7 @@ class MessageHandler:
         # 4. LLM分析（带错误处理）
         try:
             chart_str = self._format_fengshui_chart(result)
-            analysis = self.llm.analyze(chart_str, refs, question, personality_mode=self._get_personality_mode(user_id))
+            analysis = self.llm.analyze(chart_str, refs, question)
 
             # 生成风水九宫飞星图
             chart_url = ""
@@ -1900,7 +1826,7 @@ class MessageHandler:
         # 4. 构建完整 Prompt 并调用 LLM
         from src.engines.dream import format_dream_prompt
         prompt = format_dream_prompt(dream_text, result, user_context, bazi_info)
-        analysis = self.llm.analyze(prompt, result.interpretations, dream_text, personality_mode=self._get_personality_mode(user_id))
+        analysis = self.llm.analyze(prompt, result.interpretations, dream_text)
 
         # 5. 组合回复
         return self._format_dream_response(dream_text, result, analysis.response)
@@ -1985,10 +1911,9 @@ class MessageHandler:
             from src.engines.calendar import LuckyCalendar
             cal = LuckyCalendar(api_key)
             preferences = self._get_preference_hint(user_id)
-            personality = self._get_personality_mode(user_id) or "sassy"
-            day = cal.daily(saved, None, personality, preferences)
+            day = cal.daily(saved, None, preferences=preferences)
 
-            reply = self._format_calendar(day, personality)
+            reply = self._format_calendar(day)
 
             # Hourly fortune (deterministic, no API call)
             try:
@@ -2007,7 +1932,7 @@ class MessageHandler:
                           "庚":"金","辛":"金","壬":"水","癸":"水"}
                 dm_element = wx_map.get(day_master, "土") + day_master if len(day_master) >= 1 else "未知"
 
-                hourly = format_hourly_card(dm_element, day_branch, personality)
+                hourly = format_hourly_card(dm_element, day_branch)
                 reply += "\n\n" + hourly
             except Exception:
                 pass  # Hourly is best-effort
@@ -2016,7 +1941,7 @@ class MessageHandler:
         except Exception as e:
             return f"📅 日历生成失败：{str(e)[:100]}"
 
-    def _format_calendar(self, day, personality: str = "sassy") -> str:
+    def _format_calendar(self, day) -> str:
         """Format a CalendarDay into a WeChat-friendly message."""
         lines = [f"📅 {day.date} 专属运势"]
 
@@ -2096,7 +2021,6 @@ class MessageHandler:
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             }
-            personality = self._get_personality_mode(user_id) or "gentle"
 
             messages = [
                 {"role": "system", "content": CONFIDANT_PROMPT},
@@ -2197,7 +2121,7 @@ class MessageHandler:
 
         # 多轮对话：把历史消息传给 LLM
         try:
-            reply = self.llm.chat_conversation(llm_history, personality_mode=self._get_personality_mode(user_id))
+            reply = self.llm.chat_conversation(llm_history)
         except Exception:
             reply = '我在这里，有什么困惑尽管说。'
 
@@ -2278,12 +2202,12 @@ class MessageHandler:
                             "role": "user",
                             "content": history[-1]["content"] + f"\n\n{combined_hint}"
                         }
-                    return self.llm.chat_conversation(history, personality_mode=self._get_personality_mode(user_id))
+                    return self.llm.chat_conversation(history)
             # 无会话存储时，用单消息模式
             chat_msg = msg
             if combined_hint:
                 chat_msg = msg + f"\n\n{combined_hint}"
-            result = self.llm.chat(chat_msg, personality_mode=self._get_personality_mode(user_id))
+            result = self.llm.chat(chat_msg)
             return result.response
         except Exception:
             return '我在这里。有什么想问的尽管说。若要看八字，请告知您的出生年月日时。'

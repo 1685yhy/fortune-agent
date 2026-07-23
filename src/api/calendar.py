@@ -57,13 +57,10 @@ async def get_today_calendar(
 
     # Get API key from handler's LLM
     api_key = ""
-    personality = "sassy"
     preferences = ""
     if _handler_ref:
         if hasattr(_handler_ref, 'llm') and _handler_ref.llm:
             api_key = getattr(_handler_ref.llm, 'api_key', '')
-        if hasattr(_handler_ref, '_get_personality_mode'):
-            personality = _handler_ref._get_personality_mode(user_id) or "sassy"
         if hasattr(_handler_ref, '_get_preference_hint'):
             pref_hint = _handler_ref._get_preference_hint(user_id)
             if pref_hint:
@@ -71,7 +68,7 @@ async def get_today_calendar(
 
     try:
         cal = LuckyCalendar(api_key) if api_key else LuckyCalendar("")
-        day = cal.daily(saved, date_str=None, personality=personality, preferences=preferences)
+        day = cal.daily(saved, date_str=None, preferences=preferences)
     except Exception:
         return _generate_generic_calendar()
 
