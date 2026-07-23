@@ -100,13 +100,14 @@ async def get_lesson(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"生成教程失败：{str(e)[:200]}")
 
-    # Build related topics list
+    # Build related topics list — only from the section that matches
     related_topics = []
     for sec, topics in CURRICULUM.items():
-        for t in topics:
-            if t != topic:
-                related_topics.append(t)
-        break  # Only related from same section
+        if sec == section:
+            for t in topics:
+                if t != topic:
+                    related_topics.append(t)
+            break
 
     return {
         "topic": topic,

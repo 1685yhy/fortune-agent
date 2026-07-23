@@ -1864,12 +1864,13 @@ class MessageHandler:
         # Compute both charts
         year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a = info_a
         year_b, month_b, day_b, hour_b, minute_b, city_b, gender_b = info_b
-        result_a = self.engine.calculate(year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a or "男")
-        result_b = self.engine.calculate(year_b, month_b, day_b, hour_b, minute_b, city_b, gender_b or "女")
 
         # Null guard — return early if engine is not injected
         if self.hehun_engine is None:
             return "⚠️ 合婚配对功能暂时不可用，请稍后再试。"
+
+        result_a = self.engine.calculate(year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a or "男")
+        result_b = self.engine.calculate(year_b, month_b, day_b, hour_b, minute_b, city_b, gender_b or "女")
 
         # Engine matching
         hehun_result = self.hehun_engine.match(result_a, result_b)

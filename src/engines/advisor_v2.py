@@ -308,12 +308,7 @@ class AdaptiveAdvisor:
                 "style_notes": "..."
             }
         """
-        personality = "sassy"
-        personality_label = {
-            "sassy": "毒舌闺蜜",
-            "analyst": "理性分析师",
-            "gentle": "温柔陪伴者",
-        }.get(personality, "毒舌闺蜜")
+        personality_label = "毒舌闺蜜"
 
         try:
             # 1. 名人匹配
