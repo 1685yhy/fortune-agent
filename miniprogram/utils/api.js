@@ -5,9 +5,9 @@ const app = getApp();
 
 // ---- 配置 ----
 const CONFIG = {
-  // DEV: localhost via WSL SSH tunnel (开发测试用)
-  // PROD: https://api.yilimingdeng.com (生产环境，微信审核通过后切换)
-  baseURL: 'http://127.0.0.1:8765',
+  // DEV: http://127.0.0.1:8765 (SSH tunnel, 开发用)
+  // PROD: https://yilichat.com (生产环境)
+  baseURL: 'https://yilichat.com',
   timeout: 8000,
 };
 
