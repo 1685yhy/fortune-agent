@@ -45,7 +45,7 @@ Component({
     },
 
     _drawRing(percent) {
-      const query = this.createSelectorQuery();
+      const query = this.createSelectorQuery().in(this);
       query.select('#scoreRingCanvas').fields({ node: true, size: true }).exec((res) => {
         if (!res[0] || !res[0].node) return;
         const canvas = res[0].node;
