@@ -387,6 +387,14 @@ Page({
     this.setData({ showDisclaimer: !this.data.showDisclaimer });
   },
 
+  // ---- 政策页面跳转 ----
+  goPrivacy() {
+    wx.navigateTo({ url: '/pages/privacy/privacy' });
+  },
+  goAgreement() {
+    wx.navigateTo({ url: '/pages/agreement/agreement' });
+  },
+
   // ---- 页面跳转 ----
   goHome() {
     wx.switchTab({ url: '/pages/today/today' });

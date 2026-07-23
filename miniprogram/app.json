@@ -7,7 +7,9 @@
     "pages/hehun/hehun",
     "pages/qimen/qimen",
     "pages/xingming/xingming",
-    "pages/xuetang/xuetang"
+    "pages/xuetang/xuetang",
+    "pages/privacy/privacy",
+    "pages/agreement/agreement"
   ],
   "window": {
     "navigationBarBackgroundColor": "#1a1a2e",

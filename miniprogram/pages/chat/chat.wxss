@@ -437,6 +437,42 @@
   color: rgba(255,255,255,0.9);
 }
 
+/* ========================================
+   免责声明横幅
+   ======================================== */
+.disclaimer-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  margin: var(--space-sm) var(--space-md);
+  background: var(--gold-glow);
+  border: 1px solid var(--gold);
+  border-radius: var(--radius-md);
+  animation: fadeSlideUp 0.4s ease-out both;
+}
+
+.disclaimer-banner-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.disclaimer-banner-text {
+  font-size: var(--font-sm);
+  color: var(--color-text);
+  line-height: 1.6;
+  flex: 1;
+}
+
+.disclaimer-inline-text {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: var(--space-sm) var(--space-md);
+  font-style: italic;
+}
+
 /* ---- 图片预览（发送前）---- */
 .image-preview-wrap {
   padding: var(--space-sm) var(--space-md);

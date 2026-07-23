@@ -208,6 +208,24 @@
         <text class="setting-arrow">›</text>
       </view>
 
+      <!-- 隐私政策 -->
+      <view class="settings-item" bindtap="goPrivacy">
+        <view class="setting-left">
+          <text class="setting-icon">🔒</text>
+          <text class="setting-label">隐私政策</text>
+        </view>
+        <text class="setting-arrow">›</text>
+      </view>
+
+      <!-- 用户协议 -->
+      <view class="settings-item" bindtap="goAgreement">
+        <view class="setting-left">
+          <text class="setting-icon">📜</text>
+          <text class="setting-label">用户协议</text>
+        </view>
+        <text class="setting-arrow">›</text>
+      </view>
+
       <!-- 反馈 -->
       <view class="settings-item feedback-item">
         <view class="feedback-input-area">
