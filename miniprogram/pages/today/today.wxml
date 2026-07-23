@@ -142,6 +142,6 @@
         <text class="mood-feedback-text">已记录，愿你今天一切顺遂</text>
       </view>
     </view>
-
+  </skeleton>
   </view>
 </view>

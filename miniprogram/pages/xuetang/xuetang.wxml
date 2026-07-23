@@ -9,7 +9,15 @@
     <text class="xuetang-subtitle">从零开始学易理，洞悉命运规律</text>
   </view>
 
-  <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[60, 90, 80]}}">
+  <!-- Error State -->
+  <empty-state
+    wx:if="{{showError}}"
+    type="{{errorType}}"
+    showAction="{{true}}"
+    bind:action="onErrorRetry"
+  />
+
+  <skeleton wx:else loading="{{skeletonLoading}}" type="card" lines="{{[60, 90, 80]}}">
     <!-- 加载中 -->
     <view class="loading-container" wx:if="{{loading}}">
       <view class="loading-spinner"></view>

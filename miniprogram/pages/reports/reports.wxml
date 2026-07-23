@@ -120,7 +120,6 @@
       <button class="btn btn-primary empty-state-btn" bindtap="goChat">去对话</button>
     </view>
   </skeleton>
-</view>
 
   <!-- ========== 详情弹窗 ========== -->
   <view class="detail-overlay {{showDetail ? 'show' : ''}}" bindtap="closeDetail">

@@ -71,11 +71,12 @@
     </view>
 
     <!-- ===== Error State ===== -->
-    <view wx:elif="{{error}}" class="error-card stagger-1">
-      <text class="error-icon">⚠</text>
-      <text class="error-text">{{error}}</text>
-      <button class="btn btn-ghost btn-small retry-btn" bindtap="onSubmit">重试</button>
-    </view>
+    <empty-state
+      wx:elif="{{showError}}"
+      type="{{errorType}}"
+      showAction="{{true}}"
+      bind:action="onErrorRetry"
+    />
 
     <!-- ===== Results Section ===== -->
     <view wx:elif="{{result}}" class="result-section">

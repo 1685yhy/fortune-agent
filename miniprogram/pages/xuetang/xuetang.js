@@ -195,6 +195,10 @@ Page({
     lesson: null,
     loading: false,
     showLesson: false,
+
+    // Error state
+    showError: false,
+    errorType: '',
   },
 
   onLoad() {
@@ -228,17 +232,13 @@ Page({
         }
         this.setData({ topics, loading: false });
       })
-      .catch(() => {
-        wx.showToast({
-          title: '加载失败，已显示示例课程',
-          icon: 'none',
-          duration: 2000,
+      .catch((e) => {
+        this.setData({
+          showError: true,
+          errorType: e && e.name === 'NetworkError' ? 'network' : 'server',
+          loading: false,
         });
-        this.setDemoTopics();
       })
-      .finally(() => {
-        this.setData({ loading: false });
-      });
   },
 
   setDemoTopics() {
@@ -269,13 +269,11 @@ Page({
           this.setDemoLesson(topicId);
         }
       })
-      .catch(() => {
-        wx.showToast({
-          title: '课程加载失败，已显示示例内容',
-          icon: 'none',
-          duration: 2000,
+      .catch((e) => {
+        this.setData({
+          showError: true,
+          errorType: e && e.name === 'NetworkError' ? 'network' : 'server',
         });
-        this.setDemoLesson(topicId);
       });
   },
 
@@ -294,6 +292,12 @@ Page({
       currentTopicName: '',
       lesson: null,
     });
+  },
+
+  // ---- Retry after error ----
+  onErrorRetry() {
+    this.setData({ showError: false, loading: true });
+    this.loadTopics();
   },
 
   // ---- 分享 ----

@@ -100,4 +100,10 @@ Page({
       judgment: `姓名「${surname}${givenName}」(${gender === 'male' ? '男' : '女'})，五格数理分析显示姓名格局良好。天格主祖先福荫，人格主一生命运核心，地格主早年运势，外格主社交人际，总格主整体成就。`,
     };
   },
+
+  // ---- Retry after error ----
+  onErrorRetry() {
+    this.setData({ showError: false });
+    this.onSubmit();
+  },
 });
