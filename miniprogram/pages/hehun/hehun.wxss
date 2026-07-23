@@ -1,0 +1,434 @@
+/* 合婚配对 — 样式 */
+
+.page-hehun {
+  min-height: 100vh;
+  padding-bottom: var(--space-3xl);
+  background: var(--color-bg);
+}
+
+/* ========================================
+   Header
+   ======================================== */
+.hh-header {
+  padding: var(--space-xl) var(--space-lg) var(--space-lg);
+  background: var(--gradient-card);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.hh-header-icon {
+  font-size: 36px;
+  margin-bottom: var(--space-sm);
+}
+
+.hh-header-title {
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  color: var(--color-text-card);
+  margin-bottom: var(--space-xs);
+}
+
+.hh-header-subtitle {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+/* ========================================
+   Empty State
+   ======================================== */
+.empty-state {
+  padding: var(--space-3xl) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.empty-state-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-md);
+}
+
+.empty-state-text {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+  max-width: 240px;
+  line-height: 1.6;
+}
+
+/* ========================================
+   Card
+   ======================================== */
+.card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  margin: 0 var(--space-md) var(--space-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.card-header {
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.card-title {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--gold-light);
+}
+
+/* ========================================
+   Form Groups (matching me.me patterns)
+   ======================================== */
+.form-group {
+  margin-bottom: var(--space-md);
+}
+
+.form-label {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  display: block;
+  margin-bottom: var(--space-sm);
+}
+
+.form-picker {
+  padding: 12px 16px;
+  background: var(--color-bg-card-alt);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-md);
+  color: var(--color-text);
+}
+
+.form-radio-group {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.form-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card-alt);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-md);
+  color: var(--color-text-secondary);
+  flex: 1;
+  justify-content: center;
+}
+
+.form-radio.active {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--gold-glow);
+}
+
+/* ========================================
+   Divider
+   ======================================== */
+.hh-divider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-md) var(--space-lg);
+  gap: var(--space-md);
+}
+
+.hh-divider-line {
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.hh-divider-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+/* ========================================
+   Submit Button
+   ======================================== */
+.hh-submit-wrap {
+  padding: var(--space-lg) var(--space-md);
+}
+
+.hh-submit-btn {
+  width: 100%;
+  padding: 14px 0;
+  border-radius: var(--radius-md);
+  background: var(--gradient-gold);
+  border: none;
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: var(--ink);
+  text-align: center;
+  box-shadow: var(--shadow-md);
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hh-submit-btn[disabled] {
+  opacity: 0.7;
+}
+
+/* ========================================
+   Loading State
+   ======================================== */
+.hh-loading {
+  padding: var(--space-3xl) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.hh-spinner {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: 3px solid var(--color-border);
+  border-top-color: var(--gold);
+  animation: spin 0.8s linear infinite;
+  margin-bottom: var(--space-lg);
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.hh-loading-text {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-sm);
+}
+
+.hh-loading-sub {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+}
+
+/* ========================================
+   Score Ring (CSS circular ring)
+   ======================================== */
+.score-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-xl) var(--space-lg);
+}
+
+.score-ring-wrap {
+  position: relative;
+  width: 160px;
+  height: 160px;
+  margin-bottom: var(--space-lg);
+}
+
+.score-ring-bg {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--color-bg-card-alt);
+  border: 8px solid var(--color-border);
+}
+
+.score-ring-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 8px));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 8px));
+}
+
+.score-ring-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.score-ring-number {
+  font-size: var(--font-4xl);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.score-ring-label {
+  font-size: var(--font-sm);
+  color: var(--color-text-secondary);
+  margin-top: 2px;
+}
+
+.score-ring-title {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: var(--space-sm);
+}
+
+.score-ring-desc {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+  text-align: center;
+  max-width: 260px;
+  line-height: 1.5;
+}
+
+/* ========================================
+   Breakdown Cards Row
+   ======================================== */
+.breakdown-row {
+  display: flex;
+  gap: var(--space-sm);
+  padding: 0 var(--space-md);
+  margin-bottom: var(--space-md);
+}
+
+.breakdown-card {
+  flex: 1;
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-md) var(--space-sm);
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.breakdown-icon {
+  font-size: 20px;
+  margin-bottom: var(--space-xs);
+}
+
+.breakdown-label {
+  font-size: var(--font-xs);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-sm);
+}
+
+.breakdown-score {
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  line-height: 1;
+  margin-bottom: var(--space-xs);
+}
+
+.breakdown-detail {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  line-height: 1.3;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ========================================
+   Advice List
+   ======================================== */
+.advice-card {
+  padding-bottom: var(--space-lg);
+}
+
+.advice-list {
+  padding-top: var(--space-sm);
+}
+
+.advice-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.advice-item:last-child {
+  border-bottom: none;
+}
+
+.advice-dot {
+  font-size: var(--font-md);
+  color: var(--gold);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.advice-text {
+  font-size: var(--font-sm);
+  color: var(--color-text);
+  line-height: 1.6;
+  flex: 1;
+}
+
+/* ========================================
+   Reset / Retry / Error
+   ======================================== */
+.hh-reset-wrap {
+  padding: var(--space-lg) var(--space-md);
+}
+
+.hh-reset-btn {
+  width: 100%;
+  padding: 12px 0;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card-alt);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-md);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-align: center;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hh-error {
+  padding: var(--space-3xl) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.hh-error-icon {
+  font-size: 40px;
+  margin-bottom: var(--space-md);
+}
+
+.hh-error-text {
+  font-size: var(--font-sm);
+  color: var(--danger);
+  margin-bottom: var(--space-lg);
+  line-height: 1.5;
+  max-width: 280px;
+}
+
+.hh-retry-btn {
+  padding: 10px 32px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card-alt);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-md);
+  color: var(--color-text);
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
