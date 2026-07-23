@@ -49,6 +49,8 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
     import os
     if os.getenv("ANTHROPIC_API_KEY"):
         settings.claude_api_key = os.getenv("ANTHROPIC_API_KEY")
+    if os.getenv("DEEPSEEK_API_KEY"):
+        settings.claude_api_key = os.getenv("DEEPSEEK_API_KEY")
     if os.getenv("ADMIN_KEY"):
         settings.admin_key = os.getenv("ADMIN_KEY")
     if os.getenv("EMBEDDING_MODEL"):

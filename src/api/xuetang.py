@@ -9,19 +9,23 @@ from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException, Query
 
+from ..services.narrative import NarrativeService
+
 router = APIRouter(tags=["xuetang"])
 
 # ── 全局依赖注入 ──────────────────────────────────────────────────
 
 _dao = None
 _retriever = None
+_narrative: Optional[NarrativeService] = None
 
 
-def setup(dao, retriever):
+def setup(dao, retriever, narrative: NarrativeService = None):
     """在主应用生命周期中注入 DAO 和 Retriever 实例。"""
-    global _dao, _retriever
+    global _dao, _retriever, _narrative
     _dao = dao
     _retriever = retriever
+    _narrative = narrative
 
 
 # ── API 端点 ─────────────────────────────────────────────────────
@@ -47,6 +51,7 @@ async def get_topics():
     return {
         "status": "ok",
         "curriculum": levels,
+        "narrative": "",
     }
 
 
@@ -116,4 +121,5 @@ async def get_lesson(
         "personalized": bool(bazi_data),
         "personalized_example": personalized_example,
         "related_topics": related_topics,
+        "narrative": "",
     }

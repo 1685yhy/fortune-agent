@@ -8,6 +8,8 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from ..services.narrative import NarrativeService
+
 router = APIRouter(tags=["hehun"])
 
 # ── Pydantic 模型 ─────────────────────────────────────────────────
@@ -37,19 +39,22 @@ class HehunResponse(BaseModel):
     rizhu: dict
     advice: list[str]
     summary: str
+    narrative: str = ""
 
 
 # ── 全局依赖注入 ──────────────────────────────────────────────────
 
 _hehun_engine = None
 _bazi_engine = None
+_narrative: Optional[NarrativeService] = None
 
 
-def setup(hehun_engine, bazi_engine):
+def setup(hehun_engine, bazi_engine, narrative: NarrativeService = None):
     """在主应用生命周期中注入引擎实例。"""
-    global _hehun_engine, _bazi_engine
+    global _hehun_engine, _bazi_engine, _narrative
     _hehun_engine = hehun_engine
     _bazi_engine = bazi_engine
+    _narrative = narrative
 
 
 # ── API 端点 ─────────────────────────────────────────────────────
@@ -75,27 +80,44 @@ async def hehun_match(req: HehunRequest):
     # 合婚匹配
     result = _hehun_engine.match(r1, r2)
 
-    return HehunResponse(
-        total_score=result.score,
-        wuxing={
+    # 构建结构化结果字典
+    result_dict = {
+        "total_score": result.score,
+        "wuxing": {
             "score": result.bazi_match.get("score", 0),
             "detail": result.bazi_match.get("complement_desc", ""),
             "complement": result.bazi_match.get("complement_details", []),
             "deficiency": "",
         },
-        shengxiao={
+        "shengxiao": {
             "type": result.shengxiao,
             "score": result.shengxiao_score,
             "relation": result.shengxiao_detail.get("relation", ""),
             "shengxiao_1": result.shengxiao_detail.get("shengxiao1", ""),
             "shengxiao_2": result.shengxiao_detail.get("shengxiao2", ""),
         },
-        rizhu={
+        "rizhu": {
             "score": result.rizhu_score,
             "detail": result.rizhu,
             "rizhi_relation": result.rizhu_detail.get("ri_zhi_relation", ""),
             "rigan_relation": result.rizhu_detail.get("ri_gan_relation", ""),
         },
+    }
+
+    # LLM narrative
+    narrative_text = ""
+    if _narrative:
+        try:
+            narrative_text = _narrative.hehun(result_dict)
+        except Exception:
+            pass
+
+    return HehunResponse(
+        total_score=result_dict["total_score"],
+        wuxing=result_dict["wuxing"],
+        shengxiao=result_dict["shengxiao"],
+        rizhu=result_dict["rizhu"],
         advice=result.advice.split('\n'),
         summary=f"综合评分：{result.score}/100。{result.bazi_match.get('complement_desc', '')}。{result.shengxiao}。{result.rizhu}。",
+        narrative=narrative_text,
     )

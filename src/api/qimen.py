@@ -9,6 +9,8 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..services.narrative import NarrativeService
+
 router = APIRouter(tags=["qimen"])
 
 # ── Pydantic 模型 ─────────────────────────────────────────────────
@@ -46,6 +48,7 @@ class QimenResponse(BaseModel):
     bazi: str
     palaces: list[PalaceInfo]
     analysis: str = ""
+    narrative: str = ""
 
 
 # ── 全局依赖注入 ──────────────────────────────────────────────────
@@ -53,14 +56,16 @@ class QimenResponse(BaseModel):
 _qimen_engine = None
 _retriever = None
 _llm = None
+_narrative: Optional[NarrativeService] = None
 
 
-def setup(qimen_engine, retriever=None, llm=None):
+def setup(qimen_engine, retriever=None, llm=None, narrative: NarrativeService = None):
     """在主应用生命周期中注入引擎、检索器和 LLM 实例。"""
-    global _qimen_engine, _retriever, _llm
+    global _qimen_engine, _retriever, _llm, _narrative
     _qimen_engine = qimen_engine
     _retriever = retriever
     _llm = llm
+    _narrative = narrative
 
 
 # ── API 端点 ─────────────────────────────────────────────────────
@@ -111,6 +116,31 @@ async def qimen_analysis(req: QimenRequest):
         except Exception as e:
             analysis = f"AI 分析暂时不可用：{str(e)[:100]}"
 
+    # 5. LLM narrative layer
+    narrative_text = ""
+    if _narrative:
+        try:
+            chart_dict = {
+                "dun_type": result.dun_type,
+                "ju_number": result.ju_number,
+                "zhifu_star": result.zhifu_star,
+                "zhishi_door": result.zhishi_door,
+                "solar_term": result.raw_data.get("solar_term", ""),
+                "yuan": result.raw_data.get("yuan", ""),
+                "bazi": " ".join(bazi_raw) if isinstance(bazi_raw, list) else str(bazi_raw),
+                "palaces": [{
+                    "palace": f"{name}宫",
+                    "bashen": result.bashen.get(name, ""),
+                    "jiuxing": result.jiuxing.get(name, ""),
+                    "bamen": result.bamen.get(name, ""),
+                    "tianpan": result.tianpan.get(name, ""),
+                    "dipan": result.dipan.get(name, ""),
+                } for name in lo_shu_order],
+            }
+            narrative_text = _narrative.qimen(chart_dict, req.question or "奇门遁甲运筹")
+        except Exception:
+            pass
+
     return QimenResponse(
         dun_type=result.dun_type,
         ju_number=result.ju_number,
@@ -121,4 +151,5 @@ async def qimen_analysis(req: QimenRequest):
         bazi=" ".join(bazi_raw) if isinstance(bazi_raw, list) else str(bazi_raw),
         palaces=palaces,
         analysis=analysis,
+        narrative=narrative_text,
     )

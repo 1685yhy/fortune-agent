@@ -9,6 +9,8 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from ..services.narrative import NarrativeService
+
 router = APIRouter(tags=["xingming"])
 
 # ── Pydantic 模型 ─────────────────────────────────────────────────
@@ -31,17 +33,20 @@ class XingmingResponse(BaseModel):
     overall: str
     wuxing: dict
     bazi_match: Optional[dict] = None
+    narrative: str = ""
 
 
 # ── 全局依赖注入 ──────────────────────────────────────────────────
 
 _xingming_engine = None
+_narrative: Optional[NarrativeService] = None
 
 
-def setup(xingming_engine) -> None:
+def setup(xingming_engine, narrative: NarrativeService = None) -> None:
     """在主应用生命周期中注入 XingmingEngine 实例。"""
-    global _xingming_engine
+    global _xingming_engine, _narrative
     _xingming_engine = xingming_engine
+    _narrative = narrative
 
 
 # ── API 端点 ──────────────────────────────────────────────────────
@@ -60,6 +65,26 @@ async def analyze_xingming(req: XingmingRequest):
         gender=req.gender,
     )
 
+    # LLM narrative
+    narrative_text = ""
+    if _narrative:
+        try:
+            result_dict = {
+                "surname": req.surname,
+                "given_name": req.given_name,
+                "gender": req.gender,
+                "wuge": result.wuge,
+                "sancai": result.sancai,
+                "sancai_ji": result.sancai_ji,
+                "stroke_counts": result.stroke_counts,
+                "analysis": result.analysis,
+                "overall": result.overall,
+                "wuxing": result.wuxing,
+            }
+            narrative_text = _narrative.xingming(result_dict)
+        except Exception:
+            pass
+
     return XingmingResponse(
         wuge=result.wuge,
         sancai=result.sancai,
@@ -69,4 +94,5 @@ async def analyze_xingming(req: XingmingRequest):
         overall=result.overall,
         wuxing=result.wuxing,
         bazi_match=None,
+        narrative=narrative_text,
     )

@@ -11,6 +11,7 @@ from fastapi import APIRouter, Query
 
 from src.engines.hourly_fortune import get_hourly_fortune
 from src.storage.dao import UserDAO
+from src.services.narrative import NarrativeService
 
 router = APIRouter(tags=["hourly"])
 
@@ -26,12 +27,14 @@ BRANCHES = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉"
 
 # 全局引用，由 main.py 在 lifespan 中设置
 _dao: Optional[UserDAO] = None
+_narrative: Optional[NarrativeService] = None
 
 
-def setup(dao: UserDAO):
+def setup(dao: UserDAO, narrative: NarrativeService = None):
     """在应用启动时设置 DAO 引用。"""
-    global _dao
+    global _dao, _narrative
     _dao = dao
+    _narrative = narrative
 
 
 def _day_stem_branch(date_str: str) -> tuple:
@@ -131,6 +134,25 @@ async def get_hourly_fortune_api(
         best = [s for s in slots if s["rating"] == "good"]
     worst = [s for s in slots if s["rating"] == "poor"]
 
+    # LLM narrative
+    narrative_text = ""
+    if _narrative:
+        try:
+            result_dict = {
+                "date": date,
+                "day_ganzhi": f"{day_stem}{day_branch}",
+                "day_stem": day_stem,
+                "day_branch": day_branch,
+                "user_day_master": user_day_master,
+                "total_slots": len(slots),
+                "slots": slots,
+                "best_hours": [s["name"] for s in best[:3]],
+                "worst_hours": [s["name"] for s in worst[:3]],
+            }
+            narrative_text = _narrative.hourly(result_dict)
+        except Exception:
+            pass
+
     return {
         "status": "ok",
         "date": date,
@@ -142,4 +164,5 @@ async def get_hourly_fortune_api(
         "slots": slots,
         "best_hours": [s["name"] for s in best[:3]],
         "worst_hours": [s["name"] for s in worst[:3]],
+        "narrative": narrative_text,
     }

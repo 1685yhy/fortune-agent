@@ -9,6 +9,8 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..services.narrative import NarrativeService
+
 router = APIRouter(tags=["advisor"])
 
 # ── Pydantic 模型 ─────────────────────────────────────────────────
@@ -50,19 +52,22 @@ class AdvisorResponse(BaseModel):
     celebrity_matches: List[CelebrityMatch] = []
     advice: DomainAdvice = DomainAdvice()
     summary: str = ""
+    narrative: str = ""
 
 
 # ── 全局依赖注入 ──────────────────────────────────────────────────
 
 _dao = None
 _llm = None
+_narrative: Optional[NarrativeService] = None
 
 
-def setup(dao, llm):
+def setup(dao, llm, narrative: NarrativeService = None):
     """在主应用生命周期中注入 DAO 和 LLM 实例。"""
-    global _dao, _llm
+    global _dao, _llm, _narrative
     _dao = dao
     _llm = llm
+    _narrative = narrative
 
 
 # ── API 端点 ─────────────────────────────────────────────────────
@@ -182,4 +187,5 @@ async def get_advisor(req: AdvisorRequest):
         celebrity_matches=celeb_matches,
         advice=DomainAdvice(**domain_advice),
         summary=summary,
+        narrative=narrative_text,
     )

@@ -207,6 +207,12 @@ async def lifespan(app: FastAPI):
     member_dao = MemberDAO(str(settings.db_path))
     session_dao = SessionDAO(str(settings.db_path))
     llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-v4-flash", deep_model="deepseek-v4-pro", provider="deepseek")
+
+    # ── Init Narrative Service ──────────────────────────────────
+    from .services.narrative import NarrativeService
+    narrative_svc = NarrativeService(llm)
+    logger.info("Narrative Service: ✅")
+
     handler = MessageHandler(
         engine, ziwei_engine, liuyao_engine, fengshui_engine,
         mianxiang_engine, zeri_engine, retriever, llm, dao, dream_engine=dream_engine,
@@ -226,27 +232,27 @@ async def lifespan(app: FastAPI):
 
     # Task 1: Setup hehun API with hehun_engine + bazi_engine
     from .api.hehun import setup as setup_hehun
-    setup_hehun(hehun_engine, engine)
+    setup_hehun(hehun_engine, engine, narrative_svc)
 
     # Task 3: Setup xingming API with xingming_engine
     from .api.xingming import setup as setup_xingming
-    setup_xingming(xingming_engine)
+    setup_xingming(xingming_engine, narrative_svc)
 
     # Task 2: Setup qimen API with qimen_engine, retriever, llm
     from .api.qimen import setup as setup_qimen
-    setup_qimen(qimen_engine, retriever, llm)
+    setup_qimen(qimen_engine, retriever, llm, narrative_svc)
 
     # Task 4: Setup hourly fortune API
     from .api.hourly import setup as setup_hourly
-    setup_hourly(dao)
+    setup_hourly(dao, narrative_svc)
 
     # Task 5: Setup advisor API
     from .api.advisor import setup as setup_advisor
-    setup_advisor(dao, llm)
+    setup_advisor(dao, llm, narrative_svc)
 
     # Task 6: Setup xuetang API
     from .api.xuetang import setup as setup_xuetang
-    setup_xuetang(dao, retriever)
+    setup_xuetang(dao, retriever, narrative_svc)
 
     # Phase 5: Setup user API
     setup_user(dao, session_dao, security_auth)
