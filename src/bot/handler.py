@@ -2017,6 +2017,117 @@ class MessageHandler:
         return get_lesson(topic, retriever=self.retriever if hasattr(self, 'retriever') else None)
 
     # ============================================================
+    # AI 建议 (Advisor V2)
+    # ============================================================
+
+    ADVISOR_KEYWORDS = ["建议", "怎么办", "有什么建议", "帮我分析"]
+
+    def _handle_advisor(self, msg: str, user_id: str) -> str:
+        """处理 AI 建议请求 — 基于八字 + 用户处境生成个性化建议."""
+        # 1. 检查用户八字是否已保存
+        saved = self.dao.get_user_bazi(user_id)
+        if not saved:
+            return ("💡 想为你生成专属建议，需要先了解你的命盘哦～\n"
+                    "请提供你的出生信息：出生年月日时、出生地、性别\n\n"
+                    "例如：1990年5月20日 下午3点 北京 男")
+
+        # 2. 提取用户处境（去掉排盘信息后的剩余文本）
+        user_context = self._extract_user_context(msg)
+        if not user_context:
+            # 从消息中提取关键词，如果没有具体语境，使用默认描述
+            user_context = "一般运势咨询"
+
+        # 3. 重新排盘
+        try:
+            result = self.engine.calculate(
+                saved["year"], saved["month"], saved["day"],
+                saved["hour"], saved["minute"], saved["city"],
+                saved["gender"],
+            )
+        except Exception as e:
+            return f"⚠️ 命盘重新计算失败：{str(e)[:100]}"
+
+        # 4. 调用 AdaptiveAdvisor 生成建议
+        api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+        try:
+            advisor = AdaptiveAdvisor()
+            advice_data = advisor.generate(
+                result, user_context=user_context, api_key=api_key,
+            )
+        except Exception as e:
+            return f"⚠️ AI 建议生成失败：{str(e)[:100]}\n\n请稍后再试或换个问题～"
+
+        # 5. 格式化回复
+        lines = []
+
+        # 5a. 名人匹配
+        celeb = advice_data.get("celebrity_match", {})
+        if celeb and celeb.get("name"):
+            lines.append(
+                f"🔮 **名人对照**：你和「{celeb['name']}」格局相似度 "
+                f"{celeb.get('similarity', 0)}%"
+            )
+            insight = celeb.get("insight", "")
+            if insight:
+                lines.append(f"\n{insight}")
+            lines.append("")
+
+        # 5b. 领域建议
+        actions = advice_data.get("actions", [])
+        if actions:
+            lines.append("📌 **AI 行动建议**（基于命局趋势 + 当前处境生成）\n")
+            icons = {"事业": "💼", "财运": "💰", "感情": "❤️", "健康": "🏥", "个人成长": "🌱"}
+            for a in actions:
+                cat = a.get("category", "")
+                advice = a.get("advice", "")
+                timing = a.get("timing", "")
+                confidence = a.get("confidence", "medium")
+                concrete_steps = a.get("concrete_steps", "")
+                success_metric = a.get("success_metric", "")
+
+                cf_icons = {"high": "✅", "medium": "📌", "low": "💡"}
+                cf = cf_icons.get(confidence, "📌")
+                icon = icons.get(cat, "")
+                timing_str = f"⏰ {timing}" if timing else ""
+
+                lines.append(f"{cf} {icon} **{cat}**")
+                lines.append(f"   {advice}")
+                if timing_str:
+                    lines.append(f"   {timing_str}")
+                if concrete_steps:
+                    lines.append(f"   📋 具体步骤：{concrete_steps}")
+                if success_metric:
+                    lines.append(f"   🎯 衡量标准：{success_metric}")
+                lines.append("")
+
+        # 5c. 随机发现
+        serendipity = advice_data.get("serendipity", "")
+        if serendipity:
+            lines.append(f"💫 {serendipity}\n")
+
+        # 5d. 每日小贴士
+        daily_tip = advice_data.get("daily_tip", "")
+        if daily_tip:
+            lines.append(f"💡 **今日贴士**：{daily_tip}")
+
+        # 5e. 风格备注
+        style_note = advice_data.get("style_notes", "")
+        if style_note:
+            lines.append(f"✨ {style_note}")
+
+        reply = "\n".join(lines)
+        if not reply:
+            reply = "💡 根据你的命盘分析，建议保持平稳心态，审时度势。具体建议需要结合你的实际问题来分析，不妨详细说说你的情况？"
+
+        # 6. 反馈提示
+        reply = self._add_feedback_prompt(reply)
+
+        # 7. 保存咨询记录
+        self.dao.save_consultation(user_id, msg, result, intent="advisor")
+
+        return reply
+
+    # ============================================================
     # AI 幸运日历
     # ============================================================
 

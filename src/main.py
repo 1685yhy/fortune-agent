@@ -240,6 +240,10 @@ async def lifespan(app: FastAPI):
     from .api.hourly import setup as setup_hourly
     setup_hourly(dao)
 
+    # Task 5: Setup advisor API
+    from .api.advisor import setup as setup_advisor
+    setup_advisor(dao, llm)
+
     # Phase 5: Setup user API
     setup_user(dao, session_dao, security_auth)
 
@@ -324,6 +328,10 @@ app.include_router(qimen_router)             # /api/qimen
 # Task 4: Hourly Fortune API
 from .api.hourly import router as hourly_router
 app.include_router(hourly_router)            # /api/hourly-fortune
+
+# Task 5: Advisor API
+from .api.advisor import router as advisor_router
+app.include_router(advisor_router)           # /api/advisor
 
 # Reports list endpoint (mini program compatibility)
 @app.get("/api/reports")
