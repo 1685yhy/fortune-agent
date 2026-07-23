@@ -254,6 +254,102 @@ function getUserPreferences(userId) {
   });
 }
 
+// ---- 合婚（Sub-project B）----
+
+/**
+ * 合婚配对分析
+ * @param {Object} data - { person1: {birthYear,birthMonth,birthDay,birthHour,gender,city}, person2: {...} }
+ * @returns {Promise<{score, wuxing, shengxiao, rizhu, advice}>}
+ */
+function hehun(data) {
+  return request('/api/hehun', {
+    method: 'POST',
+    data,
+    showLoading: true,
+  });
+}
+
+// ---- 奇门遁甲（Sub-project B）----
+
+/**
+ * 奇门遁甲占卜
+ * @param {Object} data - { date, time, city, question }
+ * @returns {Promise<{palaces, yongshen, analysis}>}
+ */
+function qimen(data) {
+  return request('/api/qimen', {
+    method: 'POST',
+    data,
+    showLoading: true,
+  });
+}
+
+// ---- 姓名学（Sub-project B）----
+
+/**
+ * 姓名学分析
+ * @param {Object} data - { surname, givenName, gender }
+ * @returns {Promise<{fiveCells, sancai, strokes, judgment}>}
+ */
+function xingming(data) {
+  return request('/api/xingming', {
+    method: 'POST',
+    data,
+    showLoading: true,
+  });
+}
+
+// ---- 时辰运势（Sub-project B）----
+
+/**
+ * 获取时辰运势列表
+ * @param {string} userId - 用户 ID
+ * @returns {Promise<{hours: Array}>}
+ */
+function getHourlyFortune(userId) {
+  return request(`/api/hourly-fortune?user_id=${encodeURIComponent(userId || '')}`, {
+    method: 'GET',
+  });
+}
+
+// ---- AI 建议（Sub-project B）----
+
+/**
+ * 获取 AI 建议（名人匹配+领域建议）
+ * @param {Object} data - { userId, scenario }
+ * @returns {Promise<{matches: Array, domainAdvice: Array}>}
+ */
+function getAdvisor(data = {}) {
+  return request('/api/advisor', {
+    method: 'POST',
+    data,
+    showLoading: true,
+  });
+}
+
+// ---- 学堂（Sub-project B）----
+
+/**
+ * 获取学堂话题列表
+ * @returns {Promise<{topics: Array}>}
+ */
+function getXuetangTopics() {
+  return request('/api/xuetang/topics', {
+    method: 'GET',
+  });
+}
+
+/**
+ * 获取学堂课程内容
+ * @param {string} topic - 话题标识
+ * @returns {Promise<{lesson: Object}>}
+ */
+function getXuetangLesson(topic) {
+  return request(`/api/xuetang/lesson?topic=${encodeURIComponent(topic)}`, {
+    method: 'GET',
+  });
+}
+
 // ---- 导出 ----
 
 module.exports = {
@@ -290,4 +386,13 @@ module.exports = {
 
   // Pricing
   getPricing,
+
+  // Sub-project B
+  hehun,
+  qimen,
+  xingming,
+  getHourlyFortune,
+  getAdvisor,
+  getXuetangTopics,
+  getXuetangLesson,
 };
