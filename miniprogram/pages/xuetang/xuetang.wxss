@@ -1,0 +1,234 @@
+/* 易理学堂 — 页面样式 */
+
+.page-xuetang {
+  min-height: 100vh;
+  padding-bottom: 20px;
+  background: var(--color-bg);
+}
+
+/* 头部 */
+.xuetang-header {
+  padding: var(--space-lg) var(--space-lg) var(--space-md);
+}
+
+.xuetang-title {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.06em;
+  display: block;
+}
+
+.xuetang-subtitle {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  opacity: 0.6;
+  margin-top: var(--space-xs);
+  display: block;
+}
+
+/* 话题列表 */
+.topic-list {
+  padding: var(--space-sm) var(--space-md) var(--space-xl);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.topic-item {
+  width: calc(50% - var(--space-md) / 2);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.topic-card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 160px;
+}
+
+.topic-card:active {
+  transform: scale(0.97);
+  box-shadow: var(--shadow-md);
+}
+
+.topic-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: var(--space-md);
+}
+
+.topic-icon {
+  font-size: 32px;
+  line-height: 1;
+  display: block;
+}
+
+.topic-badge {
+  background: var(--gold-glow);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(212, 168, 67, 0.3);
+}
+
+.topic-badge-text {
+  font-size: var(--font-xs);
+  color: var(--gold);
+  font-weight: 500;
+}
+
+.topic-name {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--color-text);
+  display: block;
+  margin-bottom: var(--space-xs);
+  letter-spacing: 0.03em;
+}
+
+.topic-desc {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+  line-height: 1.6;
+  display: block;
+  flex: 1;
+}
+
+/* ===== 课程详情态 ===== */
+
+.page-xuetang-detail {
+  min-height: 100vh;
+  background: var(--color-bg);
+  padding-bottom: var(--space-xl);
+}
+
+/* 返回按钮 */
+.detail-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: var(--space-md) var(--space-lg);
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.detail-back:active {
+  opacity: 0.7;
+}
+
+.detail-back-arrow {
+  font-size: var(--font-lg);
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.detail-back-text {
+  font-size: var(--font-sm);
+  color: var(--gold);
+  font-weight: 500;
+}
+
+/* 课程头部 */
+.lesson-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: 0 var(--space-lg) var(--space-lg);
+  border-bottom: 1px solid var(--color-divider);
+  margin-bottom: var(--space-lg);
+}
+
+.lesson-icon {
+  font-size: 40px;
+  line-height: 1;
+  display: block;
+}
+
+.lesson-header-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.lesson-title {
+  font-size: var(--font-xl);
+  font-weight: 700;
+  color: var(--color-text);
+  line-height: 1.3;
+  letter-spacing: 0.03em;
+  display: block;
+}
+
+.lesson-topic-label {
+  font-size: var(--font-xs);
+  color: var(--gold);
+  background: var(--gold-glow);
+  padding: 2px 12px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-self: flex-start;
+  border: 1px solid rgba(212, 168, 67, 0.2);
+}
+
+/* 课程正文 */
+.lesson-body {
+  padding: 0 var(--space-lg);
+  max-height: calc(100vh - 200px);
+}
+
+.lesson-content {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.lesson-content-text {
+  font-size: var(--font-md);
+  color: var(--color-text);
+  line-height: 1.9;
+  display: block;
+  white-space: pre-wrap;
+  letter-spacing: 0.03em;
+}
+
+/* 底部 */
+.lesson-footer {
+  text-align: center;
+  padding: var(--space-xl) 0 var(--space-lg);
+}
+
+.lesson-footer-text {
+  font-size: var(--font-xs);
+  color: var(--color-text-tertiary);
+  opacity: 0.5;
+  letter-spacing: 0.08em;
+}
+
+/* 空状态覆盖 */
+.empty-state-hint {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+  max-width: 280px;
+  line-height: 1.8;
+  letter-spacing: 0.03em;
+  white-space: pre-line;
+  margin-bottom: var(--space-xl);
+}
+
+.empty-state-title {
+  font-size: var(--font-xl);
+  color: var(--color-text);
+  font-weight: 600;
+  margin-bottom: var(--space-sm);
+  letter-spacing: 0.04em;
+}
