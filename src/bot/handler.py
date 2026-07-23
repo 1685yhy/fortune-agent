@@ -10,6 +10,7 @@ from src.engines.fengshui import FengshuiEngine, FengshuiResult
 from src.engines.mianxiang import MianxiangEngine, MianxiangResult
 from src.engines.zeri import ZeriEngine, ZeriResult
 from src.engines.dream import DreamEngine, DreamResult
+from src.engines.hehun import HehunEngine, HehunResult
 from src.engines.message_analyzer import MessageAnalyzer, MessageAnalysis
 try:
     from src.engines.advisor_v2 import AdaptiveAdvisor
@@ -178,6 +179,7 @@ class MessageHandler:
         llm: FortuneLLM,
         dao: UserDAO,
         dream_engine: DreamEngine = None,
+        hehun_engine: HehunEngine = None,
         session_dao: SessionDAO = None,
         member_dao: MemberDAO = None,  # P1-2: quota management
     ):
@@ -188,6 +190,7 @@ class MessageHandler:
         self.mianxiang_engine = mianxiang_engine
         self.zeri_engine = zeri_engine
         self.dream_engine = dream_engine
+        self.hehun_engine = hehun_engine
         self.retriever = retriever
         self.llm = llm
         self.dao = dao
@@ -762,6 +765,17 @@ class MessageHandler:
             if d in text:
                 return d
         return None
+
+    @staticmethod
+    def _get_shengxiao(result) -> str:
+        """从八字结果中提取生肖（年柱地支对应动物）。"""
+        DZ = "子丑寅卯辰巳午未申酉戌亥"
+        SX = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"]
+        if result and result.bazi and len(result.bazi) > 0 and len(result.bazi[0]) > 1:
+            zhi = result.bazi[0][1]
+            if zhi in DZ:
+                return SX[DZ.index(zhi)]
+        return ""
 
     def _extract_date(self, text: str) -> Optional[Tuple[int, int, int]]:
         """从文本中提取日期 (年,月,日)"""
@@ -1715,44 +1729,57 @@ class MessageHandler:
         return analysis.response
 
     # ============================================================
-    # 合婚配对 (Hehun) - RAG + LLM only, no dedicated engine
+    # 合婚配对 (Hehun) - 引擎计算五行/生肖/日柱 + LLM叙事
     # ============================================================
 
     def _handle_hehun(self, msg: str, user_id: str) -> str:
-        """处理合婚配对咨询"""
-        question = self._get_question_after_keywords(msg, [
-            "合婚", "配对", "婚姻匹配", "配不配", "看看", "帮我",
-        ])
-
-        if not question or len(question) < 2:
-            return """请告诉我双方的信息来进行配对分析：
-
-💡 示例1：男1990年属马，女1993年属鸡，配不配？
-💡 示例2：男 1990年5月20日 北京，女 1992年8月15日 上海"""
-
-        # 1. 检索古籍
-        refs = self.retriever.search(f"合婚配对 {question}", category="hehun", top_k=15)
-
-        # 2. 尝试提取双方八字信息
+        """合婚配对 - 提取双方信息，引擎计算匹配度，LLM生成叙事分析"""
+        # Extract both parties' birth info
+        parts = re.split(r'[，。,\.\s]+女|女方|对方|对象|伴侣', msg)
         info_a = self._extract_bazi_info(msg)
+
+        # Try to extract second person
         info_b = None
-        remainder = msg
-        if info_a:
-            # Try to find second person's info
-            match = re.search(r'男.*?([\d年月日时分点\s男女]{5,})', msg)
-            if match:
-                remainder = msg.replace(match.group(0), '', 1)
-            remaining_bazi = self._extract_bazi_info(remainder)
-            if remaining_bazi:
-                info_b = remaining_bazi
+        if info_a and len(parts) > 1:
+            info_b = self._extract_bazi_info(parts[1] if len(parts) > 1 else '')
+        if not info_b:
+            # Try alternative split: "男...女..."
+            male_match = re.search(r'男[^女]*', msg)
+            female_match = re.search(r'女.*', msg)
+            if male_match and female_match:
+                info_a = self._extract_bazi_info(male_match.group())
+                info_b = self._extract_bazi_info(female_match.group())
 
-        chart_str = f"合婚配对咨询：{question}"
-        if info_a:
-            chart_str += f"\n第一人：{info_a[0]}年{info_a[1]}月{info_a[2]}日 {info_a[3]}时 {info_a[5]} {info_a[6]}"
-        if info_b:
-            chart_str += f"\n第二人：{info_b[0]}年{info_b[1]}月{info_b[2]}日 {info_b[3]}时 {info_b[5]} {info_b[6]}"
+        if not info_a or not info_b:
+            return """请提供双方的信息进行合婚分析：
 
-        analysis = self.llm.analyze(chart_str, refs, question)
+💡 **示例1**：男 1990年5月20日8时 北京，女 1992年8月15日14时 上海
+💡 **示例2**：男1990年属马，女1993年属鸡
+
+我会分析：五行互补 | 生肖配对 | 日柱关系 | 综合评分"""
+
+        # Compute both charts
+        year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a = info_a
+        year_b, month_b, day_b, hour_b, minute_b, city_b, gender_b = info_b
+        result_a = self.engine.calculate(year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a or "男")
+        result_b = self.engine.calculate(year_b, month_b, day_b, hour_b, minute_b, city_b, gender_b or "女")
+
+        # Engine matching
+        hehun_result = self.hehun_engine.match(result_a, result_b)
+        shengxiao_a = self._get_shengxiao(result_a)
+        shengxiao_b = self._get_shengxiao(result_b)
+
+        # Build structured chart string
+        chart_str = f"""男方八字：{' '.join(result_a.bazi)}  日主{result_a.day_master}  属{shengxiao_a}
+女方八字：{' '.join(result_b.bazi)}  日主{result_b.day_master}  属{shengxiao_b}
+
+五行互补得分：{hehun_result.wuxing_score}/100 — {hehun_result.bazi_match.get('complement_desc', '')}
+生肖配对：{hehun_result.shengxiao}
+日柱关系得分：{hehun_result.rizhu_score}/100 — {hehun_result.rizhu}
+综合评分：{hehun_result.score}/100"""
+
+        refs = self.retriever.search(f"合婚 婚姻匹配 {shengxiao_a} {shengxiao_b}", category="hehun", top_k=15)
+        analysis = self.llm.analyze(chart_str, refs, f"分析这对男女的婚姻匹配度，给出3条化解建议")
 
         return analysis.response
 

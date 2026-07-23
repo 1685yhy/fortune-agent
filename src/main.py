@@ -19,6 +19,7 @@ from .engines.fengshui import FengshuiEngine
 from .engines.mianxiang import MianxiangEngine
 from .engines.zeri import ZeriEngine
 from .engines.dream import DreamEngine
+from .engines.hehun import HehunEngine
 from .rag.embedder import Embedder
 from .rag.retriever import Retriever
 from .rag.collection_manager import CollectionManager
@@ -98,7 +99,7 @@ async def _daily_push_worker():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
-    global mianxiang_engine, zeri_engine, dream_engine, embedder, retriever, dao, llm, handler
+    global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, embedder, retriever, dao, llm, handler
     global _push_task, member_dao, session_dao
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
@@ -144,6 +145,7 @@ async def lifespan(app: FastAPI):
     mianxiang_engine = MianxiangEngine()
     zeri_engine = ZeriEngine()
     dream_engine = DreamEngine()
+    hehun_engine = HehunEngine()
     # 初始化 Embedder（确定性加载）
     embedder = Embedder(model_name=settings.embedding_model)
     if not embedder.load():
@@ -202,6 +204,7 @@ async def lifespan(app: FastAPI):
     handler = MessageHandler(
         engine, ziwei_engine, liuyao_engine, fengshui_engine,
         mianxiang_engine, zeri_engine, retriever, llm, dao, dream_engine=dream_engine,
+        hehun_engine=hehun_engine,
         session_dao=session_dao,
     )
 
@@ -212,6 +215,10 @@ async def lifespan(app: FastAPI):
     # Phase 4: Setup compatibility API with LLM reference
     from .api.compatibility import setup as setup_compatibility
     setup_compatibility(llm)
+
+    # Task 1: Setup hehun API with hehun_engine + bazi_engine
+    from .api.hehun import setup as setup_hehun
+    setup_hehun(hehun_engine, engine)
 
     # Phase 5: Setup user API
     setup_user(dao, session_dao, security_auth)
@@ -281,6 +288,10 @@ app.include_router(share_router)             # /api/share, /share
 # Phase 5: User API
 from .api.user import router as user_router, setup as setup_user
 app.include_router(user_router)              # /api/user/*
+
+# Task 1: Hehun matching API
+from .api.hehun import router as hehun_router
+app.include_router(hehun_router)             # /api/hehun
 
 # Reports list endpoint (mini program compatibility)
 @app.get("/api/reports")
