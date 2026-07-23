@@ -288,7 +288,6 @@ class AdaptiveAdvisor:
         self,
         bazi_result: BaziResult,
         user_context: str = "",
-        personality: str = "sassy",
         api_key: str = "",
     ) -> dict:
         """使用LLM动态生成个性化建议。
@@ -296,7 +295,6 @@ class AdaptiveAdvisor:
         Args:
             bazi_result: 八字排盘结果
             user_context: 用户当前处境/问题描述
-            personality: 人格模式 (sassy/analyst/gentle)
             api_key: DeepSeek API密钥
 
         Returns:
@@ -310,6 +308,7 @@ class AdaptiveAdvisor:
                 "style_notes": "..."
             }
         """
+        personality = "sassy"
         personality_label = {
             "sassy": "毒舌闺蜜",
             "analyst": "理性分析师",

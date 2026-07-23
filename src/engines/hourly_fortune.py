@@ -119,8 +119,7 @@ def _wx_generates(parent: str, child: str) -> bool:
     return generation.get(parent) == child
 
 
-def format_hourly_card(user_day_master: str, day_branch: str,
-                       personality: str = "sassy") -> str:
+def format_hourly_card(user_day_master: str, day_branch: str) -> str:
     """Format the hourly fortune as a WeChat-friendly text card."""
     hourly = get_hourly_fortune(user_day_master, day_branch)
 

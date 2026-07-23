@@ -261,7 +261,6 @@ class MessageHandler:
                 self.quality_predictor.update(
                     message=last_msg,
                     hour=datetime.datetime.now().hour,
-                    personality="",
                     emotion=emotion_label,
                     topic=last_topic or "general",
                     response_len=0,  # We don't know the exact response that got this feedback
