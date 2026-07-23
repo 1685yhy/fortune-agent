@@ -1,0 +1,168 @@
+<!-- 隐私政策 -->
+<view class="page-privacy">
+  <scroll-view class="privacy-scroll" scroll-y="{{true}}" enhanced>
+    <view class="privacy-header">
+      <text class="privacy-icon">🔒</text>
+      <text class="privacy-title">隐私政策</text>
+      <text class="privacy-subtitle">最后更新：2026年7月</text>
+    </view>
+
+    <view class="privacy-section">
+      <text class="privacy-section-title">一、引言</text>
+      <text class="privacy-text">
+        易理明灯（以下简称"我们"）深知个人信息对您的重要性，并会全力保护您的个人信息安全。本隐私政策旨在向您说明我们在您使用本小程序过程中如何收集、使用、存储和保护您的个人信息。
+      </text>
+      <text class="privacy-text">
+        请您在使用本小程序前仔细阅读并充分理解本隐私政策的全部内容。一旦您开始使用本小程序，即表示您已充分理解并同意本政策。如您不同意本政策的任何内容，请立即停止使用本小程序。
+      </text>
+    </view>
+
+    <view class="privacy-section">
+      <text class="privacy-section-title">二、我们收集的信息</text>
+      <text class="privacy-text">在您使用本小程序的过程中，我们可能会收集以下类型的信息：</text>
+
+      <view class="privacy-list">
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">1.</text>
+          <text class="privacy-list-text">微信基础信息：包括您的微信昵称、头像，用于在"我的"页面展示您的个人资料。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">2.</text>
+          <text class="privacy-list-text">出生信息：您自愿填写的出生年月日、时辰及性别，用于提供八字命理分析服务。这是本小程序核心功能所必需的信息。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">3.</text>
+          <text class="privacy-list-text">使用记录：您的对话记录、报告历史，用于为您提供连续的服务体验和个性化分析。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">4.</text>
+          <text class="privacy-list-text">设备信息：设备型号、操作系统版本，用于优化小程序的兼容性和性能。</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="privacy-section">
+      <text class="privacy-section-title">三、信息的使用</text>
+      <text class="privacy-text">我们收集的信息将用于以下目的：</text>
+      <view class="privacy-list">
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">1.</text>
+          <text class="privacy-list-text">根据您提供的出生信息，为您生成个性化的命理分析和传统文化解读。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">2.</text>
+          <text class="privacy-list-text">保存您的对话历史和报告，方便您随时查看和回顾。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">3.</text>
+          <text class="privacy-list-text">改进我们的AI模型和算法，提升分析结果的准确性和用户体验。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">4.</text>
+          <text class="privacy-list-text">根据您使用过程中的偏好反馈，为您推荐更合适的内容。</text>
+        </view>
+      </view>
+      <text class="privacy-text highlight">
+        我们承诺：您的个人信息仅用于为您提供个性化分析服务，绝不会出售或分享给任何第三方。
+      </text>
+    </view>
+
+    <view class="privacy-section">
+      <text class="privacy-section-title">四、信息的存储与保护</text>
+      <view class="privacy-list">
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">1.</text>
+          <text class="privacy-list-text">存储位置：您的个人信息将存储在我们的服务器上，采用行业标准的安全技术进行保护。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">2.</text>
+          <text class="privacy-list-text">存储期限：我们仅在为您提供服务所必需的期限内保留您的个人信息。当您请求删除数据或注销账户后，我们将在合理时间内删除您的信息。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">3.</text>
+          <text class="privacy-list-text">安全措施：我们采用加密传输（HTTPS）、数据加密存储、访问权限控制等多种安全措施保护您的数据安全。</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="privacy-section">
+      <text class="privacy-section-title">五、您的权利</text>
+      <text class="privacy-text">根据相关法律法规，您享有以下权利：</text>
+      <view class="privacy-list">
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">1.</text>
+          <text class="privacy-list-text">查询权：您可以在"我的"页面查看您已填写的个人信息。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">2.</text>
+          <text class="privacy-list-text">更正权：您可以在"我的"页面编辑您的八字信息。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">3.</text>
+          <text class="privacy-list-text">删除权：您可以通过"我的"页面的"删除所有数据"功能清除本地数据，或通过下方联系方式请求删除服务器数据。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">4.</text>
+          <text class="privacy-list-text">注销权：您可以通过联系我们对您的账户进行注销，注销后我们将删除您的所有个人信息。</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="privacy-section">
+      <text class="privacy-section-title">六、信息共享与第三方</text>
+      <text class="privacy-text">
+        我们不会将您的个人信息分享给任何第三方，以下情况除外：
+      </text>
+      <view class="privacy-list">
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">1.</text>
+          <text class="privacy-list-text">获得您的明确同意后。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">2.</text>
+          <text class="privacy-list-text">根据法律法规或政府主管部门的要求。</text>
+        </view>
+        <view class="privacy-list-item">
+          <text class="privacy-list-bullet">3.</text>
+          <text class="privacy-list-text">为保护我们或他人的合法权益所必需。</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="privacy-section">
+      <text class="privacy-section-title">七、隐私政策的更新</text>
+      <text class="privacy-text">
+        我们可能会不时更新本隐私政策。更新后的政策将在小程序内公布，重大变更我们会通过弹窗或推送等方式通知您。建议您定期查看本页面以了解最新信息。
+      </text>
+    </view>
+
+    <view class="privacy-section">
+      <text class="privacy-section-title">八、联系方式</text>
+      <text class="privacy-text">
+        如您对本隐私政策有任何疑问，或需要行使您的数据权利（查询、更正、删除、注销等），请通过以下方式联系我们：
+      </text>
+      <view class="contact-card">
+        <view class="contact-row">
+          <text class="contact-label">邮箱</text>
+          <text class="contact-value">yilimingdang@163.com</text>
+        </view>
+        <view class="contact-row">
+          <text class="contact-label">微信公众号</text>
+          <text class="contact-value">易理明灯</text>
+        </view>
+        <view class="contact-row">
+          <text class="contact-label">工作时间</text>
+          <text class="contact-value">工作日 9:00 - 18:00</text>
+        </view>
+      </view>
+      <text class="privacy-text">
+        我们将在收到您的请求后15个工作日内予以回复。
+      </text>
+    </view>
+
+    <view class="privacy-footer">
+      <text class="privacy-footer-text">易理明灯 版权所有</text>
+      <text class="privacy-footer-text">联系我们：yilimingdang@163.com</text>
+    </view>
+  </scroll-view>
+</view>

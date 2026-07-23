@@ -1,0 +1,176 @@
+<!-- 用户协议 -->
+<view class="page-agreement">
+  <scroll-view class="agreement-scroll" scroll-y="{{true}}" enhanced>
+    <view class="agreement-header">
+      <text class="agreement-icon">📜</text>
+      <text class="agreement-title">用户协议</text>
+      <text class="agreement-subtitle">最后更新：2026年7月</text>
+    </view>
+
+    <view class="agreement-section">
+      <text class="agreement-section-title">一、总则</text>
+      <text class="agreement-text">
+        欢迎使用易理明灯（以下简称"本小程序"）。本协议是您与本小程序运营方之间关于使用本小程序服务所订立的协议。请您仔细阅读本协议的全部内容，特别是免除或限制责任的条款。
+      </text>
+      <text class="agreement-text">
+        通过访问或使用本小程序，即表示您已阅读、理解并同意受本协议的约束。如您不同意本协议的任何内容，请立即停止使用本小程序。
+      </text>
+    </view>
+
+    <view class="agreement-section">
+      <text class="agreement-section-title">二、服务说明</text>
+      <text class="agreement-text">
+        易理明灯是一款基于人工智能技术的传统文化辅助学习工具，提供以下功能：
+      </text>
+      <view class="agreement-list">
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">1.</text>
+          <text class="agreement-list-text">八字命理分析：基于传统命理学理论的AI智能解读。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">2.</text>
+          <text class="agreement-list-text">每日运势参考：提供传统文化角度的日常宜忌建议。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">3.</text>
+          <text class="agreement-list-text">传统文化知识：包含易理、姓名学、合婚、奇门遁甲等传统文化内容。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">4.</text>
+          <text class="agreement-list-text">AI智能对话：提供基于传统命理文化的智能问答服务。</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="agreement-section">
+      <text class="agreement-section-title">三、用户责任</text>
+      <view class="agreement-list">
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">1.</text>
+          <text class="agreement-list-text">您承诺提供的个人信息真实、准确。因提供虚假信息导致的后果由您自行承担。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">2.</text>
+          <text class="agreement-list-text">您不得利用本小程序从事任何违法违规活动，包括但不限于传播迷信诈骗内容、进行非法集资、散布虚假信息等。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">3.</text>
+          <text class="agreement-list-text">您不得对本小程序进行反向工程、反编译、破解或试图获取源代码。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">4.</text>
+          <text class="agreement-list-text">您不得通过自动化手段（包括但不限于爬虫、脚本等）批量访问本小程序服务。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">5.</text>
+          <text class="agreement-list-text">您不得将本小程序用于任何商业目的，包括但不限于转售服务、整合后重新发布等。</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="agreement-section">
+      <text class="agreement-section-title">四、AI生成内容免责声明</text>
+      <view class="disclaimer-card">
+        <text class="disclaimer-card-title">重要提示</text>
+        <text class="disclaimer-card-text">
+          本小程序生成的所有内容（包括但不限于八字分析、运势预测、命理解读等）均由人工智能技术生成，仅供传统文化学习和娱乐参考之用，不可作为任何决策的依据。
+        </text>
+      </view>
+      <view class="agreement-list">
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">1.</text>
+          <text class="agreement-list-text">AI生成内容可能存在偏差或不准确之处，我们不保证其准确性、完整性或可靠性。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">2.</text>
+          <text class="agreement-list-text">您应理性看待所有分析结果，切勿过度依赖。重要决策（如投资、医疗、法律等）请咨询相关专业人士。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">3.</text>
+          <text class="agreement-list-text">我们不对因使用本小程序内容而产生的任何直接或间接损失承担责任。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">4.</text>
+          <text class="agreement-list-text">本小程序不提供医疗、法律、金融等专业领域的建议，相关内容仅供参考。</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="agreement-section">
+      <text class="agreement-section-title">五、知识产权</text>
+      <text class="agreement-text">
+        1. 本小程序的整体设计、界面、代码、算法、数据分析模型及核心技术均受知识产权法律保护，归运营方所有。
+      </text>
+      <text class="agreement-text">
+        2. 本小程序中涉及的传统文化知识内容（包括但不限于八字理论、命理学说等）属于公共文化知识，不主张知识产权。
+      </text>
+      <text class="agreement-text">
+        3. 您在使用本小程序过程中生成的个人分析报告，您享有个人使用范围内的使用权，但不得用于商业盈利目的。
+      </text>
+      <text class="agreement-text">
+        4. 未经我们书面许可，任何第三方不得以任何形式复制、传播、修改、转售本小程序的任何内容。
+      </text>
+    </view>
+
+    <view class="agreement-section">
+      <text class="agreement-section-title">六、免责条款</text>
+      <view class="agreement-list">
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">1.</text>
+          <text class="agreement-list-text">本小程序提供的所有命理分析、运势预测等内容均基于传统文化理论，仅供文化参考，不可作为投资、婚姻、职业、医疗等实际决策的依据。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">2.</text>
+          <text class="agreement-list-text">因网络故障、系统维护、第三方服务异常等原因导致的服务中断，我们不承担责任。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">3.</text>
+          <text class="agreement-list-text">您因使用本小程序产生的任何间接、附带、特殊或后果性损失，我们不承担赔偿责任。</text>
+        </view>
+        <view class="agreement-list-item">
+          <text class="agreement-list-bullet">4.</text>
+          <text class="agreement-list-text">本小程序中的第三方链接或内容，由第三方负责，我们不对其准确性和合法性负责。</text>
+        </view>
+      </view>
+      <text class="agreement-text highlight">
+        理性看待命运，积极面对生活。传统文化是智慧的结晶，而非人生的枷锁。
+      </text>
+    </view>
+
+    <view class="agreement-section">
+      <text class="agreement-section-title">七、协议修改</text>
+      <text class="agreement-text">
+        我们有权根据需要修改本协议，修改后的协议将在小程序内公布。如您不同意修改后的协议，请停止使用本小程序。继续使用即视为您接受修改后的协议。
+      </text>
+    </view>
+
+    <view class="agreement-section">
+      <text class="agreement-section-title">八、法律适用与争议解决</text>
+      <text class="agreement-text">
+        本协议的订立、执行和解释均适用中华人民共和国法律。因本协议引起的或与本协议有关的任何争议，双方应友好协商解决；协商不成的，提交运营方所在地有管辖权的人民法院诉讼解决。
+      </text>
+    </view>
+
+    <view class="agreement-section">
+      <text class="agreement-section-title">九、联系方式</text>
+      <text class="agreement-text">
+        如您对本协议有任何疑问或建议，请通过以下方式联系我们：
+      </text>
+      <view class="contact-card">
+        <view class="contact-row">
+          <text class="contact-label">邮箱</text>
+          <text class="contact-value">yilimingdang@163.com</text>
+        </view>
+        <view class="contact-row">
+          <text class="contact-label">微信公众号</text>
+          <text class="contact-value">易理明灯</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="agreement-footer">
+      <text class="agreement-footer-text">易理明灯 版权所有</text>
+      <text class="agreement-footer-text">本内容由AI生成，仅供文化参考，不可作为决策依据</text>
+    </view>
+  </scroll-view>
+</view>

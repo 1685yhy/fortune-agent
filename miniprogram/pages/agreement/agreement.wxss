@@ -1,0 +1,185 @@
+/* 用户协议 — 深色道家主题 */
+
+.page-agreement {
+  min-height: 100vh;
+  background: var(--color-bg);
+}
+
+.agreement-scroll {
+  height: 100vh;
+  padding: var(--space-lg);
+}
+
+/* ========================================
+   头部
+   ======================================== */
+.agreement-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-2xl) 0 var(--space-xl);
+}
+
+.agreement-icon {
+  font-size: 48px;
+  margin-bottom: var(--space-md);
+}
+
+.agreement-title {
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  color: var(--color-text-card);
+  margin-bottom: var(--space-xs);
+}
+
+.agreement-subtitle {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+}
+
+/* ========================================
+   内容区块
+   ======================================== */
+.agreement-section {
+  margin-bottom: var(--space-xl);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.agreement-section-title {
+  display: block;
+  font-size: var(--font-lg);
+  font-weight: 700;
+  color: var(--gold-light);
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.agreement-text {
+  display: block;
+  font-size: var(--font-md);
+  color: var(--color-text);
+  line-height: 1.8;
+  margin-bottom: var(--space-sm);
+}
+
+.agreement-text.highlight {
+  color: var(--gold-light);
+  font-weight: 500;
+  background: var(--gold-glow);
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-sm);
+  border-left: 3px solid var(--gold);
+}
+
+/* ========================================
+   列表
+   ======================================== */
+.agreement-list {
+  margin-top: var(--space-sm);
+}
+
+.agreement-list-item {
+  display: flex;
+  gap: var(--space-sm);
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.agreement-list-item:last-child {
+  border-bottom: none;
+}
+
+.agreement-list-bullet {
+  font-size: var(--font-md);
+  color: var(--gold);
+  font-weight: 600;
+  flex-shrink: 0;
+  width: 20px;
+}
+
+.agreement-list-text {
+  font-size: var(--font-md);
+  color: var(--color-text);
+  line-height: 1.7;
+  flex: 1;
+}
+
+/* ========================================
+   免责声明卡片
+   ======================================== */
+.disclaimer-card {
+  background: var(--gold-glow);
+  border: 1px solid var(--gold);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin: var(--space-md) 0;
+}
+
+.disclaimer-card-title {
+  display: block;
+  font-size: var(--font-sm);
+  font-weight: 700;
+  color: var(--gold);
+  margin-bottom: var(--space-xs);
+}
+
+.disclaimer-card-text {
+  display: block;
+  font-size: var(--font-md);
+  color: var(--color-text);
+  line-height: 1.7;
+}
+
+/* ========================================
+   联系卡片
+   ======================================== */
+.contact-card {
+  background: var(--color-bg-card-alt);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin: var(--space-md) 0;
+}
+
+.contact-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--space-sm) 0;
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.contact-row:last-child {
+  border-bottom: none;
+}
+
+.contact-label {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+}
+
+.contact-value {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--gold);
+}
+
+/* ========================================
+   页脚
+   ======================================== */
+.agreement-footer {
+  text-align: center;
+  padding: var(--space-xl) 0 var(--space-2xl);
+}
+
+.agreement-footer-text {
+  display: block;
+  font-size: var(--font-xs);
+  color: var(--color-text-tertiary);
+  line-height: 1.8;
+}
