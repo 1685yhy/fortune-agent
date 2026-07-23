@@ -21,6 +21,7 @@ from .engines.zeri import ZeriEngine
 from .engines.dream import DreamEngine
 from .engines.hehun import HehunEngine
 from .engines.qimen import QimenEngine
+from .engines.xingming import XingmingEngine
 from .rag.embedder import Embedder
 from .rag.retriever import Retriever
 from .rag.collection_manager import CollectionManager
@@ -52,6 +53,7 @@ mianxiang_engine = None
 zeri_engine = None
 dream_engine = None
 qimen_engine = None
+xingming_engine = None
 embedder = None
 retriever = None
 dao = None
@@ -101,7 +103,7 @@ async def _daily_push_worker():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
-    global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, qimen_engine, embedder, retriever, dao, llm, handler
+    global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, qimen_engine, xingming_engine, embedder, retriever, dao, llm, handler
     global _push_task, member_dao, session_dao
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
@@ -148,6 +150,7 @@ async def lifespan(app: FastAPI):
     zeri_engine = ZeriEngine()
     dream_engine = DreamEngine()
     hehun_engine = HehunEngine()
+    xingming_engine = XingmingEngine()
     # 初始化 Embedder（确定性加载）
     embedder = Embedder(model_name=settings.embedding_model)
     if not embedder.load():
@@ -207,6 +210,7 @@ async def lifespan(app: FastAPI):
         engine, ziwei_engine, liuyao_engine, fengshui_engine,
         mianxiang_engine, zeri_engine, retriever, llm, dao, dream_engine=dream_engine,
         hehun_engine=hehun_engine,
+        xingming_engine=xingming_engine,
         session_dao=session_dao,
     )
 
@@ -221,6 +225,10 @@ async def lifespan(app: FastAPI):
     # Task 1: Setup hehun API with hehun_engine + bazi_engine
     from .api.hehun import setup as setup_hehun
     setup_hehun(hehun_engine, engine)
+
+    # Task 3: Setup xingming API with xingming_engine
+    from .api.xingming import setup as setup_xingming
+    setup_xingming(xingming_engine)
 
     # Phase 5: Setup user API
     setup_user(dao, session_dao, security_auth)
@@ -294,6 +302,10 @@ app.include_router(user_router)              # /api/user/*
 # Task 1: Hehun matching API
 from .api.hehun import router as hehun_router
 app.include_router(hehun_router)             # /api/hehun
+
+# Task 3: Xingming API
+from .api.xingming import router as xingming_router
+app.include_router(xingming_router)          # /api/xingming
 
 # Reports list endpoint (mini program compatibility)
 @app.get("/api/reports")

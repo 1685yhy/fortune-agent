@@ -12,6 +12,7 @@ from src.engines.zeri import ZeriEngine, ZeriResult
 from src.engines.dream import DreamEngine, DreamResult
 from src.engines.hehun import HehunEngine
 from src.engines.qimen import QimenEngine
+from src.engines.xingming import XingmingEngine
 from src.engines.message_analyzer import MessageAnalyzer, MessageAnalysis
 try:
     from src.engines.advisor_v2 import AdaptiveAdvisor
@@ -182,6 +183,7 @@ class MessageHandler:
         dream_engine: DreamEngine = None,
         hehun_engine: HehunEngine = None,
         qimen_engine: QimenEngine = None,
+        xingming_engine: XingmingEngine = None,
         session_dao: SessionDAO = None,
         member_dao: MemberDAO = None,  # P1-2: quota management
     ):
@@ -194,6 +196,7 @@ class MessageHandler:
         self.dream_engine = dream_engine
         self.hehun_engine = hehun_engine
         self.qimen_engine = qimen_engine
+        self.xingming_engine = xingming_engine
         self.retriever = retriever
         self.llm = llm
         self.dao = dao
@@ -1732,7 +1735,11 @@ class MessageHandler:
     # ============================================================
 
     def _handle_xingming(self, msg: str, user_id: str) -> str:
-        """处理姓名学咨询"""
+        """处理姓名学咨询 — 提取姓名 → XingmingEngine 计算五格 → LLM 叙事"""
+        # Null guard
+        if self.xingming_engine is None:
+            return "⚠️ 姓名学引擎暂不可用，请稍后再试。"
+
         question = self._get_question_after_keywords(msg, [
             "起名", "改名", "名字", "姓名", "看看", "帮我",
         ])
@@ -1744,17 +1751,67 @@ class MessageHandler:
 💡 示例2：给2026年出生的龙宝宝起名，姓王
 💡 示例3：想改名字，有什么建议"""
 
-        # 提取名字（从消息中提取连续2-4个中文字符作为名字候选）
+        # 1. 提取姓名 — 优先从引号内提取，或从连续中文字符识别
         name_match = re.search(r'[""「『]([一-鿿]{2,4})[""」』]', msg)
         if not name_match:
-            name_match = re.search(r'分析?([一-鿿]{2,4})', msg)
+            name_match = re.search(r'(?:分析?|叫|给|为)([一-鿿]{2,4})', msg)
+        if not name_match:
+            name_match = re.search(r'([一-鿿]{2,4})(?:这|的)', msg)
+        if not name_match:
+            name_match = re.search(r'^.*?([一-鿿]{2,4})', msg)
         name = name_match.group(1) if name_match else ""
 
-        # 1. 检索古籍
+        if not name or len(name) < 2:
+            return "请提供完整的姓名（至少两个字），例如「张伟」「李小明」。"
+
+        # 拆分姓氏和名字（默认姓1字，名=剩余）
+        surname = name[0]
+        given_name = name[1:]
+        # 尝试识别复姓
+        compound_surnames = {"欧阳", "上官", "司马", "司徒", "诸葛", "夏侯", "慕容", "皇甫",
+                             "令狐", "长孙", "宇文", "鲜于", "钟离", "独孤", "达奚", "万俟"}
+        if len(name) >= 3 and name[:2] in compound_surnames:
+            surname = name[:2]
+            given_name = name[2:]
+
+        # 性别推断
+        gender = "男"
+        if any(w in msg for w in ["女", "女性", "姑娘", "女士"]):
+            gender = "女"
+
+        # 2. 引擎计算五格三才
+        result = self.xingming_engine.analyze(surname, given_name, gender)
+
+        # 3. 格式化为结构化字盘
+        wuge_str = "  ".join(f"{k}={v}" for k, v in result.wuge.items())
+        sancai_str = f"{result.sancai} ({result.sancai_ji})"
+        analysis_lines = []
+        for cell, info in result.analysis.items():
+            analysis_lines.append(
+                f"【{cell}】{info.get('数字','?')}数 — {info.get('吉凶','?')} — "
+                f"{info.get('运势','')}。{info.get('详解','')}"
+            )
+        chart_lines = [
+            f"姓名：{surname} {given_name}",
+            f"性别：{gender}",
+            f"笔画：姓={result.stroke_counts.get(surname,'?')}  "
+            f"名1={result.stroke_counts.get(given_name[0],'?') if given_name else '?'}  "
+            f"名2={result.stroke_counts.get(given_name[1],'?') if len(given_name) > 1 else '?'}",
+            f"五格：{wuge_str}",
+            f"三才：{sancai_str}",
+            f"五行：{result.wuxing}",
+            "---",
+            "各格详解：",
+            *analysis_lines,
+            "---",
+            f"综合：{result.overall}",
+        ]
+        chart_str = "\n".join(chart_lines)
+
+        # 4. 检索古籍
         refs = self.retriever.search(f"姓名学 {name} {question}", category="xingming", top_k=15)
 
-        # 2. LLM分析
-        chart_str = f"姓名咨询：{name} 问题：{question}"
+        # 5. LLM 生成叙事分析
         analysis = self.llm.analyze(chart_str, refs, question)
 
         return analysis.response
