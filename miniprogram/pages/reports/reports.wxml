@@ -7,6 +7,48 @@
     <text class="reports-subtitle">历史命理分析记录</text>
   </view>
 
+  <!-- ====== AI建议卡片（Sub-project B）====== -->
+  <view class="advisor-section animate-fade-up" wx:if="{{!loading && showAdvisor && advisorData}}">
+    <view class="section-header">
+      <text class="section-title"> AI 建议</text>
+      <view class="section-action" bindtap="toggleAdvisor">
+        <text>{{showAdvisor ? '收起' : '展开'}}</text>
+      </view>
+    </view>
+
+    <view class="advisor-card" wx:if="{{advisorData}}">
+      <!-- 名人匹配 -->
+      <view class="advisor-subsection" wx:if="{{advisorData.matches && advisorData.matches.length}}">
+        <text class="advisor-subtitle">命格相似名人</text>
+        <view class="advisor-matches">
+          <view class="advisor-match-item" wx:for="{{advisorData.matches}}" wx:key="index">
+            <view class="match-name-row">
+              <text class="match-name">{{item.name}}</text>
+              <text class="match-type">{{item.type}}</text>
+            </view>
+            <text class="match-reason">{{item.reason}}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- 领域建议 -->
+      <view class="advisor-subsection" wx:if="{{advisorData.domainAdvice && advisorData.domainAdvice.length}}">
+        <text class="advisor-subtitle">领域运势建议</text>
+        <view class="advisor-advices">
+          <view class="advisor-advice-item" wx:for="{{advisorData.domainAdvice}}" wx:key="index">
+            <text class="advice-domain-tag">{{item.domain}}</text>
+            <text class="advice-text">{{item.advice}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="advisor-loading" wx:elif="{{advisorLoading}}">
+      <view class="loading-spinner-sm"></view>
+      <text class="loading-text">AI 分析中...</text>
+    </view>
+  </view>
+
   <!-- 加载中 -->
   <view class="loading-container" wx:if="{{loading}}">
     <view class="loading-spinner"></view>

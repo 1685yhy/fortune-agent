@@ -11,11 +11,17 @@ Page({
     showDetail: false,
     currentReport: null,
     detailLoading: false,
+
+    // ---- Advisor（Sub-project B）----
+    advisorData: null,
+    advisorLoading: false,
+    showAdvisor: false,
   },
 
   onLoad() {
     this.startLoadingTextRotation();
     this.loadReports();
+    this.loadAdvisor();
   },
 
   onUnload() {
@@ -41,6 +47,7 @@ Page({
       wx.stopPullDownRefresh();
       this.setData({ refreshing: false });
     });
+    this.loadAdvisor();
   },
 
   onReachBottom() {
@@ -106,6 +113,49 @@ Page({
         this.clearLoadingTextRotation();
         if (callback) callback();
       });
+  },
+
+  // ---- AI 建议（Sub-project B）----
+  async loadAdvisor() {
+    this.setData({ advisorLoading: true });
+    try {
+      const app = getApp();
+      const userId = app.globalData?.userInfo?.id || '';
+      const data = await api.getAdvisor({ userId });
+      if (data) {
+        this.setData({
+          advisorData: data,
+          advisorLoading: false,
+          showAdvisor: true,
+        });
+      } else {
+        this.setFallbackAdvisor();
+      }
+    } catch (e) {
+      this.setFallbackAdvisor();
+    }
+  },
+
+  setFallbackAdvisor() {
+    this.setData({
+      advisorData: {
+        matches: [
+          { name: '诸葛亮', type: '军师', reason: '八字格局相似，同样具有敏锐洞察力和决策力' },
+          { name: '范蠡', type: '商圣', reason: '五行偏财透干，适合经商和投资决策' },
+        ],
+        domainAdvice: [
+          { domain: '事业', advice: '今年正官透干，利于职场晋升和项目主导。春夏之季宜主动争取机会，秋冬宜稳守成果。' },
+          { domain: '财运', advice: '偏财在时柱，投资眼光独到，但需注意风险分散。建议关注科技和教育板块。' },
+          { domain: '感情', advice: '七杀坐夫妻宫，感情上需要更多耐心和包容。下半年桃花运渐旺，有机会遇到志同道合之人。' },
+        ],
+      },
+      advisorLoading: false,
+      showAdvisor: true,
+    });
+  },
+
+  toggleAdvisor() {
+    this.setData({ showAdvisor: !this.data.showAdvisor });
   },
 
   setDemoData() {

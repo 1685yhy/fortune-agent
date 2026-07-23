@@ -375,3 +375,118 @@
     background: rgba(0, 0, 0, 0.7);
   }
 }
+
+/* ========================================
+   AI 建议（Sub-project B）
+   ======================================== */
+.advisor-section {
+  padding: 0 var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+.advisor-card {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.advisor-subsection {
+  margin-bottom: var(--space-lg);
+}
+
+.advisor-subsection:last-child {
+  margin-bottom: 0;
+}
+
+.advisor-subtitle {
+  font-size: var(--font-xs);
+  color: var(--gold);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  display: block;
+  margin-bottom: var(--space-md);
+  text-transform: uppercase;
+}
+
+.advisor-matches {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.advisor-match-item {
+  padding: var(--space-md);
+  background: var(--color-bg-card-alt);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--gold);
+}
+
+.match-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.match-name {
+  font-size: var(--font-md);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.match-type {
+  font-size: var(--font-xs);
+  padding: 1px 8px;
+  border-radius: var(--radius-full);
+  background: var(--gold-glow);
+  color: var(--gold);
+}
+
+.match-reason {
+  font-size: var(--font-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  display: block;
+}
+
+.advisor-advices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.advisor-advice-item {
+  padding: var(--space-md);
+  background: var(--color-bg-card-alt);
+  border-radius: var(--radius-md);
+}
+
+.advice-domain-tag {
+  display: inline-block;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--color-text);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+  background: var(--gold-glow);
+  margin-bottom: var(--space-sm);
+}
+
+.advice-text {
+  font-size: var(--font-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+  display: block;
+}
+
+.advisor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-xl) 0;
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+}
