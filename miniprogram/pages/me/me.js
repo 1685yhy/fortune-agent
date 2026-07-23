@@ -392,6 +392,20 @@ Page({
     wx.switchTab({ url: '/pages/today/today' });
   },
 
+  // Sub-project B: navigate to new pages
+  goHehun() {
+    wx.navigateTo({ url: '/pages/hehun/hehun' });
+  },
+  goQimen() {
+    wx.navigateTo({ url: '/pages/qimen/qimen' });
+  },
+  goXingming() {
+    wx.navigateTo({ url: '/pages/xingming/xingming' });
+  },
+  goXuetang() {
+    wx.navigateTo({ url: '/pages/xuetang/xuetang' });
+  },
+
   onShareAppMessage() {
     return {
       title: '易理明灯 - AI 命运伴侣',

@@ -3,7 +3,11 @@
     "pages/today/today",
     "pages/chat/chat",
     "pages/reports/reports",
-    "pages/me/me"
+    "pages/me/me",
+    "pages/hehun/hehun",
+    "pages/qimen/qimen",
+    "pages/xingming/xingming",
+    "pages/xuetang/xuetang"
   ],
   "window": {
     "navigationBarBackgroundColor": "#1a1a2e",

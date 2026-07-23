@@ -10,6 +10,9 @@
       <view class="header-btn" bindtap="toggleScenarios">
         <text>场景</text>
       </view>
+      <view class="header-btn" bindtap="goXuetang">
+        <text>学堂</text>
+      </view>
       <view class="header-btn" bindtap="clearChat">
         <text>清空</text>
       </view>

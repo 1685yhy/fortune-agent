@@ -360,6 +360,10 @@ Page({
     });
   },
 
+  goXuetang() {
+    wx.navigateTo({ url: '/pages/xuetang/xuetang' });
+  },
+
   onShareAppMessage() {
     return {
       title: '易理明灯 - AI 命运伴侣',

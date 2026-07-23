@@ -147,8 +147,45 @@
     </view>
   </view>
 
-  <!-- 关于 -->
+  <!-- 更多工具（Sub-project B） -->
   <view class="section stagger-3">
+    <view class="section-header">
+      <text class="section-title"> 更多工具</text>
+    </view>
+    <view class="settings-group">
+      <view class="settings-item" bindtap="goHehun">
+        <view class="setting-left">
+          <text class="setting-icon">💑</text>
+          <text class="setting-label">合婚配对</text>
+        </view>
+        <text class="setting-arrow">›</text>
+      </view>
+      <view class="settings-item" bindtap="goQimen">
+        <view class="setting-left">
+          <text class="setting-icon">☯</text>
+          <text class="setting-label">奇门遁甲</text>
+        </view>
+        <text class="setting-arrow">›</text>
+      </view>
+      <view class="settings-item" bindtap="goXingming">
+        <view class="setting-left">
+          <text class="setting-icon"></text>
+          <text class="setting-label">姓名学</text>
+        </view>
+        <text class="setting-arrow">›</text>
+      </view>
+      <view class="settings-item" bindtap="goXuetang">
+        <view class="setting-left">
+          <text class="setting-icon">📖</text>
+          <text class="setting-label">易理学堂</text>
+        </view>
+        <text class="setting-arrow">›</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 关于 -->
+  <view class="section stagger-4">
     <view class="section-header">
       <text class="section-title">关于</text>
     </view>
