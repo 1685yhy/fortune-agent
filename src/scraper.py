@@ -66,7 +66,21 @@ async def scrape_url(
             page_timeout=timeout * 1000,  # ms
         ) if wait_for else None
 
-        async with AsyncWebCrawler() as crawler:
+        # 反爬绕过：模拟真实浏览器
+        browser_cfg = {
+            "headless": True,
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+            "extra_headers": {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                "Accept-Encoding": "gzip, deflate",
+                "Cache-Control": "no-cache",
+                "Referer": "https://www.google.com/",
+            },
+            "java_script_enabled": True,
+        }
+
+        async with AsyncWebCrawler(**browser_cfg) as crawler:
             result = await crawler.arun(url=url, config=config)
             return ScrapeResult(
                 url=url,

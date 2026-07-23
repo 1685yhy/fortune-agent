@@ -10,7 +10,8 @@ from src.engines.fengshui import FengshuiEngine, FengshuiResult
 from src.engines.mianxiang import MianxiangEngine, MianxiangResult
 from src.engines.zeri import ZeriEngine, ZeriResult
 from src.engines.dream import DreamEngine, DreamResult
-from src.engines.hehun import HehunEngine, HehunResult
+from src.engines.hehun import HehunEngine
+from src.engines.qimen import QimenEngine
 from src.engines.message_analyzer import MessageAnalyzer, MessageAnalysis
 try:
     from src.engines.advisor_v2 import AdaptiveAdvisor
@@ -180,6 +181,7 @@ class MessageHandler:
         dao: UserDAO,
         dream_engine: DreamEngine = None,
         hehun_engine: HehunEngine = None,
+        qimen_engine: QimenEngine = None,
         session_dao: SessionDAO = None,
         member_dao: MemberDAO = None,  # P1-2: quota management
     ):
@@ -191,6 +193,7 @@ class MessageHandler:
         self.zeri_engine = zeri_engine
         self.dream_engine = dream_engine
         self.hehun_engine = hehun_engine
+        self.qimen_engine = qimen_engine
         self.retriever = retriever
         self.llm = llm
         self.dao = dao
@@ -765,17 +768,6 @@ class MessageHandler:
             if d in text:
                 return d
         return None
-
-    @staticmethod
-    def _get_shengxiao(result) -> str:
-        """从八字结果中提取生肖（年柱地支对应动物）。"""
-        DZ = "子丑寅卯辰巳午未申酉戌亥"
-        SX = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"]
-        if result and result.bazi and len(result.bazi) > 0 and len(result.bazi[0]) > 1:
-            zhi = result.bazi[0][1]
-            if zhi in DZ:
-                return SX[DZ.index(zhi)]
-        return ""
 
     def _extract_date(self, text: str) -> Optional[Tuple[int, int, int]]:
         """从文本中提取日期 (年,月,日)"""
@@ -1676,25 +1668,64 @@ class MessageHandler:
         return '\n'.join(lines)
 
     # ============================================================
-    # 奇门遁甲 (Qimen) - RAG + LLM only, no dedicated engine
+    # 奇门遁甲 (Qimen) - 引擎排盘 + RAG + LLM
     # ============================================================
 
     def _handle_qimen(self, msg: str, user_id: str) -> str:
-        """处理奇门遁甲咨询"""
+        """处理奇门遁甲咨询 - 使用QimenEngine完整排盘 + LLM用神解读"""
+        # 提取用户所问之事
         question = self._get_question_after_keywords(msg, [
             "奇门", "遁甲", "奇门遁甲", "看看", "帮我",
         ])
         if not question:
             question = "奇门遁甲运筹"
 
-        # 1. 检索古籍
-        refs = self.retriever.search(f"奇门遁甲 {question}", category="qimen", top_k=15)
+        # 1. 提取日期时间
+        from datetime import datetime
+        date_info = self._extract_date(msg)
+        if date_info:
+            year, month, day = date_info
+        else:
+            # 无日期信息 — 用当前时间
+            now = datetime.now()
+            year, month, day = now.year, now.month, now.day
 
-        # 2. LLM分析（无排盘数据）
-        chart_str = f"奇门遁甲咨询：{question}"
+        # 提取时辰
+        hour = 12  # 默认午时
+        hour_match = re.search(r'(\d{1,2})\s*[点时:：]', msg)
+        if hour_match:
+            raw_hour = int(hour_match.group(1))
+            # 如果用户写"下午3点"之类，做偏移
+            if re.search(r'(下午|晚上|傍晚|夜间|夜里)', msg) and 1 <= raw_hour <= 12:
+                hour = raw_hour + 12
+            else:
+                hour = raw_hour
+        else:
+            shichen_match = re.search(r'([子丑寅卯辰巳午未申酉戌亥])时', msg)
+            if shichen_match:
+                hour = CHINESE_HOUR_MAP.get(shichen_match.group(1), 12)
+
+        # 2. 排盘
+        result = self.qimen_engine.calculate(year, month, day, hour)
+
+        # 3. 格式化命盘
+        chart_str = self.qimen_engine.print_chart(result)
+
+        # 4. 检索古籍
+        refs = self.retriever.search(f"奇门遁甲 {question}", category="qimen", top_k=15)
+        if not refs:
+            refs = self.retriever.search(f"奇门遁甲 {question}", top_k=15)  # fallback
+
+        # 5. LLM 用神分析
         analysis = self.llm.analyze(chart_str, refs, question)
 
-        return analysis.response
+        # 6. 组合回复
+        reply = chart_str + "\n\n" + analysis.response
+
+        # 7. 反馈提示
+        reply = self._add_feedback_prompt(reply)
+
+        return reply
 
     # ============================================================
     # 姓名学 (Xingming) - RAG + LLM only, no dedicated engine
@@ -1764,10 +1795,14 @@ class MessageHandler:
         result_a = self.engine.calculate(year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a or "男")
         result_b = self.engine.calculate(year_b, month_b, day_b, hour_b, minute_b, city_b, gender_b or "女")
 
+        # Null guard — return early if engine is not injected
+        if self.hehun_engine is None:
+            return "⚠️ 合婚配对功能暂时不可用，请稍后再试。"
+
         # Engine matching
         hehun_result = self.hehun_engine.match(result_a, result_b)
-        shengxiao_a = self._get_shengxiao(result_a)
-        shengxiao_b = self._get_shengxiao(result_b)
+        shengxiao_a = hehun_result.shengxiao_detail.get("shengxiao1", "")
+        shengxiao_b = hehun_result.shengxiao_detail.get("shengxiao2", "")
 
         # Build structured chart string
         chart_str = f"""男方八字：{' '.join(result_a.bazi)}  日主{result_a.day_master}  属{shengxiao_a}

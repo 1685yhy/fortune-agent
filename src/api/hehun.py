@@ -32,11 +32,10 @@ class HehunRequest(BaseModel):
 class HehunResponse(BaseModel):
     """合婚匹配结果"""
     total_score: int
-    wuxing_score: int
-    wuxing_detail: str
+    wuxing: dict
     shengxiao: dict
     rizhu: dict
-    advice: str
+    advice: list[str]
     summary: str
 
 
@@ -76,29 +75,20 @@ async def hehun_match(req: HehunRequest):
     # 合婚匹配
     result = _hehun_engine.match(r1, r2)
 
-    # 取生肖
-    def _shengxiao_from_result(bazi_result) -> str:
-        DZ = "子丑寅卯辰巳午未申酉戌亥"
-        SX = ["鼠", "牛", "虎", "兔", "龙", "蛇", "马", "羊", "猴", "鸡", "狗", "猪"]
-        if bazi_result and bazi_result.bazi and len(bazi_result.bazi) > 0 and len(bazi_result.bazi[0]) > 1:
-            zhi = bazi_result.bazi[0][1]
-            if zhi in DZ:
-                return SX[DZ.index(zhi)]
-        return ""
-
-    sx1 = _shengxiao_from_result(r1)
-    sx2 = _shengxiao_from_result(r2)
-
     return HehunResponse(
         total_score=result.score,
-        wuxing_score=result.wuxing_score,
-        wuxing_detail=result.bazi_match.get("complement_desc", ""),
+        wuxing={
+            "score": result.bazi_match.get("score", 0),
+            "detail": result.bazi_match.get("complement_desc", ""),
+            "complement": result.bazi_match.get("complement_details", []),
+            "deficiency": "",
+        },
         shengxiao={
             "type": result.shengxiao,
             "score": result.shengxiao_score,
             "relation": result.shengxiao_detail.get("relation", ""),
-            "shengxiao_1": sx1,
-            "shengxiao_2": sx2,
+            "shengxiao_1": result.shengxiao_detail.get("shengxiao1", ""),
+            "shengxiao_2": result.shengxiao_detail.get("shengxiao2", ""),
         },
         rizhu={
             "score": result.rizhu_score,
@@ -106,6 +96,6 @@ async def hehun_match(req: HehunRequest):
             "rizhi_relation": result.rizhu_detail.get("ri_zhi_relation", ""),
             "rigan_relation": result.rizhu_detail.get("ri_gan_relation", ""),
         },
-        advice=result.advice,
+        advice=result.advice.split('\n'),
         summary=f"综合评分：{result.score}/100。{result.bazi_match.get('complement_desc', '')}。{result.shengxiao}。{result.rizhu}。",
     )

@@ -20,6 +20,7 @@ from .engines.mianxiang import MianxiangEngine
 from .engines.zeri import ZeriEngine
 from .engines.dream import DreamEngine
 from .engines.hehun import HehunEngine
+from .engines.qimen import QimenEngine
 from .rag.embedder import Embedder
 from .rag.retriever import Retriever
 from .rag.collection_manager import CollectionManager
@@ -50,6 +51,7 @@ fengshui_engine = None
 mianxiang_engine = None
 zeri_engine = None
 dream_engine = None
+qimen_engine = None
 embedder = None
 retriever = None
 dao = None
@@ -99,7 +101,7 @@ async def _daily_push_worker():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
-    global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, embedder, retriever, dao, llm, handler
+    global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, qimen_engine, embedder, retriever, dao, llm, handler
     global _push_task, member_dao, session_dao
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
