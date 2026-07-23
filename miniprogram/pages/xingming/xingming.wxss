@@ -1,0 +1,318 @@
+/* 姓名学 — 五格姓名分析样式 */
+
+.page-xingming {
+  min-height: 100vh;
+  padding-bottom: var(--space-2xl);
+  background: var(--color-bg);
+}
+
+/* ========================================
+   Page Header
+   ======================================== */
+.page-header {
+  padding: var(--space-xl) var(--space-lg) var(--space-lg);
+  text-align: center;
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.page-title {
+  font-size: var(--font-2xl);
+  font-weight: 700;
+  color: var(--color-text-card);
+  display: block;
+  margin-bottom: var(--space-sm);
+}
+
+.page-desc {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+  display: block;
+  line-height: 1.6;
+}
+
+/* ========================================
+   Form Card
+   ======================================== */
+.form-card {
+  margin: 0 var(--space-md);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.form-group {
+  margin-bottom: var(--space-lg);
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  display: block;
+  margin-bottom: var(--space-sm);
+}
+
+.form-input {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--color-bg-card-alt);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-md);
+  color: var(--color-text);
+  line-height: 1.4;
+}
+
+.form-input-placeholder {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-md);
+}
+
+/* ========================================
+   Radio Toggle
+   ======================================== */
+.form-radio-group {
+  display: flex;
+  gap: var(--space-lg);
+}
+
+.form-radio {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-card-alt);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-md);
+  color: var(--color-text-secondary);
+}
+
+.form-radio.active {
+  border-color: var(--gold);
+  color: var(--gold);
+  background: var(--gold-glow);
+}
+
+/* ========================================
+   Submit Button
+   ======================================== */
+.submit-wrap {
+  padding: var(--space-lg) var(--space-md);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.btn-submit {
+  width: 100%;
+  padding: 14px 24px;
+  font-size: var(--font-lg);
+  letter-spacing: 0.08em;
+}
+
+.btn-submit[disabled] {
+  opacity: 0.5;
+}
+
+/* ========================================
+   Error Card
+   ======================================== */
+.error-card {
+  margin: var(--space-lg) var(--space-md);
+  padding: var(--space-xl);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.error-icon {
+  font-size: 36px;
+  display: block;
+  margin-bottom: var(--space-md);
+}
+
+.error-text {
+  font-size: var(--font-md);
+  color: var(--danger);
+  display: block;
+  margin-bottom: var(--space-lg);
+  line-height: 1.6;
+}
+
+.retry-btn {
+  margin: 0 auto;
+}
+
+/* ========================================
+   Results Section
+   ======================================== */
+.result-section {
+  padding: 0 var(--space-md);
+}
+
+.result-header {
+  text-align: center;
+  padding: var(--space-lg) 0;
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.result-name {
+  font-size: var(--font-3xl);
+  font-weight: 700;
+  color: var(--gold-light);
+  display: block;
+  margin-bottom: var(--space-xs);
+}
+
+.result-gender {
+  font-size: var(--font-sm);
+  color: var(--color-text-tertiary);
+  display: block;
+}
+
+/* ========================================
+   Section Header
+   ======================================== */
+.section-header {
+  padding: var(--space-sm) var(--space-sm) var(--space-xs);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.section-title {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.06em;
+}
+
+/* ========================================
+   Five Cells Table
+   ======================================== */
+.five-cells {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.cell-row {
+  display: flex;
+  align-items: center;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-divider);
+}
+
+.cell-row:last-child {
+  border-bottom: none;
+}
+
+.cell-label {
+  width: 60px;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  flex-shrink: 0;
+}
+
+.cell-strokes {
+  flex: 1;
+  font-size: var(--font-sm);
+  color: var(--color-text-secondary);
+  text-align: center;
+}
+
+.cell-wuxing {
+  width: 40px;
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--gold-light);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.cell-luck {
+  width: 40px;
+  font-size: var(--font-sm);
+  font-weight: 700;
+  text-align: center;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+}
+
+.luck-good {
+  color: var(--success);
+  background: rgba(74, 140, 74, 0.15);
+}
+
+.luck-bad {
+  color: var(--danger);
+  background: rgba(194, 65, 61, 0.15);
+}
+
+/* ========================================
+   Sancai Card
+   ======================================== */
+.sancai-card {
+  margin-top: var(--space-md);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+  border-left: 3px solid var(--gold);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.sancai-header {
+  margin-bottom: var(--space-sm);
+}
+
+.sancai-title {
+  font-size: var(--font-md);
+  font-weight: 700;
+  color: var(--gold-light);
+}
+
+.sancai-text {
+  font-size: var(--font-sm);
+  color: var(--color-text);
+  line-height: 1.8;
+  display: block;
+}
+
+/* ========================================
+   Judgment Card
+   ======================================== */
+.judgment-card {
+  margin-top: var(--space-md);
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  box-shadow: var(--shadow-sm);
+  animation: fadeSlideUp 0.35s ease-out both;
+}
+
+.judgment-header {
+  margin-bottom: var(--space-sm);
+}
+
+.judgment-title {
+  font-size: var(--font-md);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.judgment-text {
+  font-size: var(--font-sm);
+  color: var(--color-text-secondary);
+  line-height: 1.8;
+  display: block;
+}
