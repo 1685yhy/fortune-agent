@@ -34,12 +34,13 @@ Analyze the user's message and return BOTH:
 - If NOT needs_soothe: soothe_text = ""
 
 ## 2. Intent Classification
-Classify into EXACTLY ONE: bazi, ziwei, liuyao, fengshui, zeri, mianxiang, qimen, xingming, hehun, dream, calendar, free_chat
+Classify into EXACTLY ONE: bazi, ziwei, liuyao, fengshui, zeri, mianxiang, qimen, xingming, hehun, dream, calendar, advisor, free_chat
 
 Rules:
 - Birth date (year-month-day) = "bazi" regardless of other words
 - Dream description (梦见/梦到/做梦) = "dream"
 - Daily fortune / today's luck requests (今日运势/今天运气/今日宜忌/今天宜忌/今日运程/今日日历/今天适合) = "calendar"
+- Life advice / guidance requests (建议/怎么办/有什么建议/帮我分析/我该怎么做/给我点建议) = "advisor"
 - Pure emotional expression with NO fortune-telling request = "free_chat"
 - Colloquial fortune-telling: "看下命""算一下""运气怎么样" = "bazi"
 

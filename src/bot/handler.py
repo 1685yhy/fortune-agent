@@ -533,6 +533,14 @@ class MessageHandler:
                 self.session_dao.add_message(user_id, "assistant", reply, intent="xuetang")
             return reply
 
+        # Task 5: advisor keyword fallback — catch "建议"/"怎么办" even if AI misses it
+        if any(kw in msg for kw in ["建议", "怎么办", "有什么建议", "帮我分析", "我该怎么做"]):
+            self._consume_quota(user_id)
+            reply = self._handle_advisor(msg, user_id)
+            if self.session_dao:
+                self.session_dao.add_message(user_id, "assistant", reply, intent="advisor")
+            return reply
+
         # H1: 心事树洞 — user sharing a story (overrides fortune intent when no birth info)
         if analysis.is_sharing:
             # Only skip confidant if user explicitly provides birth date info
