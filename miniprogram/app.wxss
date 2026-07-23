@@ -366,6 +366,194 @@ view, text, image, button, input, textarea {
 }
 
 /* ========================================
+   Premium Gradients
+   ======================================== */
+
+.gradient-hero { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); }
+.gradient-gold { background: linear-gradient(135deg, #D4A843 0%, #C5923E 50%, #B88332 100%); }
+.gradient-card { background: linear-gradient(180deg, #1E293B 0%, #1a2332 100%); }
+.gradient-warm { background: linear-gradient(135deg, #2D1B00 0%, #1a1a2e 100%); }
+.gradient-divider { background: linear-gradient(90deg, transparent, var(--gold-glow), transparent); }
+
+/* ========================================
+   Page Transitions
+   ======================================== */
+
+/* Slide-in from right for new pages */
+.page-enter {
+  animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Fade in for content */
+.content-enter {
+  animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ========================================
+   Micro-Interactions & Button Feedback
+   ======================================== */
+
+/* Button press feedback */
+.btn-press:active,
+button:active {
+  transform: scale(0.97);
+  transition: transform 0.12s ease-out;
+}
+
+/* Card hover/touch effect */
+.card-hover {
+  transition: box-shadow var(--transition-normal), transform var(--transition-fast);
+}
+
+.card-hover:active {
+  box-shadow: var(--shadow-lg);
+  transform: translateY(-1px);
+}
+
+/* Input focus ring */
+.input-focus:focus-within {
+  border-color: var(--gold) !important;
+  box-shadow: 0 0 0 2px var(--gold-glow) !important;
+}
+
+/* Tab bar smooth icon transition */
+.tab-icon {
+  transition: all var(--transition-normal);
+}
+
+/* ========================================
+   Typography Refinements
+   ======================================== */
+
+/* Typography scale */
+.typo-display {
+  font-size: var(--font-3xl);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-weight: 700;
+}
+
+.typo-h1 {
+  font-size: var(--font-2xl);
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  font-weight: 700;
+}
+
+.typo-h2 {
+  font-size: var(--font-xl);
+  line-height: 1.25;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+.typo-h3 {
+  font-size: var(--font-lg);
+  line-height: 1.3;
+  letter-spacing: 0.02em;
+  font-weight: 600;
+}
+
+.typo-body {
+  font-size: var(--font-md);
+  line-height: 1.6;
+  letter-spacing: 0.03em;
+}
+
+.typo-small {
+  font-size: var(--font-sm);
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+}
+
+.typo-xs {
+  font-size: var(--font-xs);
+  line-height: 1.4;
+  letter-spacing: 0.05em;
+}
+
+/* Chinese text optimizations */
+.typo-cn {
+  letter-spacing: 0.5px;
+  line-height: 1.7;
+}
+
+/* Premium text effects */
+.text-glow {
+  text-shadow: 0 0 20px var(--gold-glow);
+}
+
+.text-gradient-gold {
+  background: linear-gradient(135deg, #D4A843 0%, #C5923E 50%, #B88332 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ========================================
+   Border-Radius Consistency
+   ======================================== */
+
+.radius-sm { border-radius: var(--radius-sm); }
+.radius-md { border-radius: var(--radius-md); }
+.radius-lg { border-radius: var(--radius-lg); }
+.radius-xl { border-radius: var(--radius-xl); }
+.radius-full { border-radius: var(--radius-full); }
+
+/* ========================================
+   Enhanced Dividers
+   ======================================== */
+
+.divider-gradient {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold-glow), transparent);
+  margin: var(--space-lg) 0;
+  border: none;
+}
+
+.divider-section {
+  height: 6px;
+  background: linear-gradient(180deg, transparent, var(--color-divider), transparent);
+  margin: var(--space-lg) 0;
+  opacity: 0.5;
+}
+
+/* ========================================
+   Card System Refinements
+   ======================================== */
+
+.card-premium {
+  background: var(--color-bg-card);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  transition: all var(--transition-normal);
+}
+
+.card-premium:active {
+  box-shadow: var(--shadow-lg);
+  border-color: rgba(212,168,67,0.3);
+}
+
+.card-hero {
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
+  border: 1px solid var(--color-border);
+  background: linear-gradient(180deg, var(--color-bg-card) 0%, var(--color-bg-card-alt) 100%);
+}
+
+/* ========================================
    Entrance Animations
    ======================================== */
 

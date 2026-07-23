@@ -1,5 +1,5 @@
 <!-- 合婚配对 -->
-<view class="page-hehun">
+<view class="page-hehun content-enter">
 
   <!-- ===== Header ===== -->
   <view class="hh-header">
@@ -8,233 +8,228 @@
     <text class="hh-header-subtitle">输入双方出生信息，查看五行姻缘契合度</text>
   </view>
 
-  <!-- ===== Empty State (before form submission) ===== -->
-  <view class="empty-state" wx:if="{{!submitted && result === null}}">
-    <text class="empty-state-icon">💑</text>
-    <text class="empty-state-text">输入双方信息，查看你们的缘分契合度</text>
-  </view>
+  <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[60, 90, 75, 50, 85]}}">
+    <!-- ===== Empty State (before form submission) ===== -->
+    <view class="empty-state" wx:if="{{!submitted && result === null}}">
+      <text class="empty-state-icon">💑</text>
+      <text class="empty-state-text">输入双方信息，查看你们的缘分契合度</text>
+    </view>
 
-  <!-- ===== Form Section ===== -->
-  <view class="hh-form-section" wx:if="{{!submitted || result === null}}">
+    <!-- ===== Form Section ===== -->
+    <view class="hh-form-section" wx:if="{{!submitted || result === null}}">
 
-    <!-- Person 1 -->
-    <view class="card">
-      <view class="card-header">
-        <text class="card-title"> 对方一</text>
-      </view>
+      <!-- Person 1 -->
+      <view class="card">
+        <view class="card-header">
+          <text class="card-title"> 对方一</text>
+        </view>
 
-      <view class="form-group">
-        <text class="form-label">出生年份</text>
-        <picker mode="selector" range="{{years}}" bindchange="onP1BirthYearChange" value="{{p1PickerYearIdx}}">
-          <view class="form-picker">
-            <text>{{p1BirthYear}} 年</text>
+        <view class="form-group">
+          <text class="form-label">出生年份</text>
+          <picker mode="selector" range="{{years}}" bindchange="onP1BirthYearChange" value="{{p1PickerYearIdx}}">
+            <view class="form-picker">
+              <text>{{p1BirthYear}} 年</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">出生月份</text>
+          <picker mode="selector" range="{{months}}" bindchange="onP1BirthMonthChange" value="{{p1PickerMonthIdx}}">
+            <view class="form-picker">
+              <text>{{p1BirthMonth}} 月</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">出生日期</text>
+          <picker mode="selector" range="{{days}}" bindchange="onP1BirthDayChange" value="{{p1PickerDayIdx}}">
+            <view class="form-picker">
+              <text>{{p1BirthDay}} 日</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">出生时辰</text>
+          <picker mode="selector" range="{{hourLabels}}" bindchange="onP1BirthHourChange" value="{{p1PickerHourIdx}}">
+            <view class="form-picker">
+              <text>{{p1HourLabel}}</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">性别</text>
+          <view class="form-radio-group">
+            <label class="form-radio {{p1Gender === 'male' ? 'active' : ''}}">
+              <radio value="male" checked="{{p1Gender === 'male'}}" bindchange="onP1GenderChange" color="#D4A843" />
+              <text>男</text>
+            </label>
+            <label class="form-radio {{p1Gender === 'female' ? 'active' : ''}}">
+              <radio value="female" checked="{{p1Gender === 'female'}}" bindchange="onP1GenderChange" color="#D4A843" />
+              <text>女</text>
+            </label>
           </view>
-        </picker>
-      </view>
+        </view>
 
-      <view class="form-group">
-        <text class="form-label">出生月份</text>
-        <picker mode="selector" range="{{months}}" bindchange="onP1BirthMonthChange" value="{{p1PickerMonthIdx}}">
-          <view class="form-picker">
-            <text>{{p1BirthMonth}} 月</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">出生日期</text>
-        <picker mode="selector" range="{{days}}" bindchange="onP1BirthDayChange" value="{{p1PickerDayIdx}}">
-          <view class="form-picker">
-            <text>{{p1BirthDay}} 日</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">出生时辰</text>
-        <picker mode="selector" range="{{hourLabels}}" bindchange="onP1BirthHourChange" value="{{p1PickerHourIdx}}">
-          <view class="form-picker">
-            <text>{{p1HourLabel}}</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">性别</text>
-        <view class="form-radio-group">
-          <label class="form-radio {{p1Gender === 'male' ? 'active' : ''}}">
-            <radio value="male" checked="{{p1Gender === 'male'}}" bindchange="onP1GenderChange" color="#D4A843" />
-            <text>男</text>
-          </label>
-          <label class="form-radio {{p1Gender === 'female' ? 'active' : ''}}">
-            <radio value="female" checked="{{p1Gender === 'female'}}" bindchange="onP1GenderChange" color="#D4A843" />
-            <text>女</text>
-          </label>
+        <view class="form-group">
+          <text class="form-label">出生城市</text>
+          <picker mode="selector" range="{{cities}}" bindchange="onP1CityChange" value="{{p1PickerCityIdx}}">
+            <view class="form-picker">
+              <text>{{p1City}}</text>
+            </view>
+          </picker>
         </view>
       </view>
 
-      <view class="form-group">
-        <text class="form-label">出生城市</text>
-        <picker mode="selector" range="{{cities}}" bindchange="onP1CityChange" value="{{p1PickerCityIdx}}">
-          <view class="form-picker">
-            <text>{{p1City}}</text>
+      <!-- Divider -->
+      <view class="hh-divider">
+        <view class="hh-divider-line"></view>
+        <text class="hh-divider-icon">💕</text>
+        <view class="hh-divider-line"></view>
+      </view>
+
+      <!-- Person 2 -->
+      <view class="card">
+        <view class="card-header">
+          <text class="card-title"> 对方二</text>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">出生年份</text>
+          <picker mode="selector" range="{{years}}" bindchange="onP2BirthYearChange" value="{{p2PickerYearIdx}}">
+            <view class="form-picker">
+              <text>{{p2BirthYear}} 年</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">出生月份</text>
+          <picker mode="selector" range="{{months}}" bindchange="onP2BirthMonthChange" value="{{p2PickerMonthIdx}}">
+            <view class="form-picker">
+              <text>{{p2BirthMonth}} 月</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">出生日期</text>
+          <picker mode="selector" range="{{days}}" bindchange="onP2BirthDayChange" value="{{p2PickerDayIdx}}">
+            <view class="form-picker">
+              <text>{{p2BirthDay}} 日</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">出生时辰</text>
+          <picker mode="selector" range="{{hourLabels}}" bindchange="onP2BirthHourChange" value="{{p2PickerHourIdx}}">
+            <view class="form-picker">
+              <text>{{p2HourLabel}}</text>
+            </view>
+          </picker>
+        </view>
+
+        <view class="form-group">
+          <text class="form-label">性别</text>
+          <view class="form-radio-group">
+            <label class="form-radio {{p2Gender === 'male' ? 'active' : ''}}">
+              <radio value="male" checked="{{p2Gender === 'male'}}" bindchange="onP2GenderChange" color="#D4A843" />
+              <text>男</text>
+            </label>
+            <label class="form-radio {{p2Gender === 'female' ? 'active' : ''}}">
+              <radio value="female" checked="{{p2Gender === 'female'}}" bindchange="onP2GenderChange" color="#D4A843" />
+              <text>女</text>
+            </label>
           </view>
-        </picker>
-      </view>
-    </view>
+        </view>
 
-    <!-- Divider -->
-    <view class="hh-divider">
-      <view class="hh-divider-line"></view>
-      <text class="hh-divider-icon">💕</text>
-      <view class="hh-divider-line"></view>
-    </view>
-
-    <!-- Person 2 -->
-    <view class="card">
-      <view class="card-header">
-        <text class="card-title"> 对方二</text>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">出生年份</text>
-        <picker mode="selector" range="{{years}}" bindchange="onP2BirthYearChange" value="{{p2PickerYearIdx}}">
-          <view class="form-picker">
-            <text>{{p2BirthYear}} 年</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">出生月份</text>
-        <picker mode="selector" range="{{months}}" bindchange="onP2BirthMonthChange" value="{{p2PickerMonthIdx}}">
-          <view class="form-picker">
-            <text>{{p2BirthMonth}} 月</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">出生日期</text>
-        <picker mode="selector" range="{{days}}" bindchange="onP2BirthDayChange" value="{{p2PickerDayIdx}}">
-          <view class="form-picker">
-            <text>{{p2BirthDay}} 日</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">出生时辰</text>
-        <picker mode="selector" range="{{hourLabels}}" bindchange="onP2BirthHourChange" value="{{p2PickerHourIdx}}">
-          <view class="form-picker">
-            <text>{{p2HourLabel}}</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">性别</text>
-        <view class="form-radio-group">
-          <label class="form-radio {{p2Gender === 'male' ? 'active' : ''}}">
-            <radio value="male" checked="{{p2Gender === 'male'}}" bindchange="onP2GenderChange" color="#D4A843" />
-            <text>男</text>
-          </label>
-          <label class="form-radio {{p2Gender === 'female' ? 'active' : ''}}">
-            <radio value="female" checked="{{p2Gender === 'female'}}" bindchange="onP2GenderChange" color="#D4A843" />
-            <text>女</text>
-          </label>
+        <view class="form-group">
+          <text class="form-label">出生城市</text>
+          <picker mode="selector" range="{{cities}}" bindchange="onP2CityChange" value="{{p2PickerCityIdx}}">
+            <view class="form-picker">
+              <text>{{p2City}}</text>
+            </view>
+          </picker>
         </view>
       </view>
 
-      <view class="form-group">
-        <text class="form-label">出生城市</text>
-        <picker mode="selector" range="{{cities}}" bindchange="onP2CityChange" value="{{p2PickerCityIdx}}">
-          <view class="form-picker">
-            <text>{{p2City}}</text>
+      <!-- Submit Button -->
+      <view class="hh-submit-wrap">
+        <button class="hh-submit-btn" bindtap="onSubmit" loading="{{loading}}" disabled="{{loading}}">
+          <text wx:if="{{!loading}}"> 开始合婚配对</text>
+          <text wx:else>分析中...</text>
+        </button>
+      </view>
+    </view>
+
+    <!-- ===== Loading State ===== -->
+    <view class="hh-loading" wx:if="{{loading}}">
+      <view class="hh-spinner"></view>
+      <text class="hh-loading-text">正在推算八字合婚...</text>
+      <text class="hh-loading-sub">根据双方出生信息计算五行生克</text>
+    </view>
+
+    <!-- ===== Results Section ===== -->
+    <view class="hh-results" wx:if="{{submitted && result && !loading}}">
+
+      <!-- Score Ring -->
+      <view class="card score-card">
+        <score-ring score="{{result.score}}" size="200" color="{{scoreRingColor}}"></score-ring>
+        <text class="score-ring-title">综合契合度</text>
+        <text class="score-ring-desc">{{scoreDescription}}</text>
+      </view>
+
+      <!-- Breakdown Cards -->
+      <view class="breakdown-row">
+        <view class="breakdown-card" wx:if="{{result.wuxing}}">
+          <view class="breakdown-icon">🔥🌊</view>
+          <text class="breakdown-label">五行</text>
+          <text class="breakdown-score" style="color: {{wuxingScoreColor}};">{{result.wuxing.score}}</text>
+          <text class="breakdown-detail">{{result.wuxing.detail || ''}}</text>
+        </view>
+        <view class="breakdown-card" wx:if="{{result.shengxiao}}">
+          <view class="breakdown-icon">🐭🐴</view>
+          <text class="breakdown-label">生肖</text>
+          <text class="breakdown-score" style="color: {{shengxiaoScoreColor}};">{{result.shengxiao.score}}</text>
+          <text class="breakdown-detail">{{result.shengxiao.detail || ''}}</text>
+        </view>
+        <view class="breakdown-card" wx:if="{{result.rizhu}}">
+          <view class="breakdown-icon">☀️🌙</view>
+          <text class="breakdown-label">日主</text>
+          <text class="breakdown-score" style="color: {{rizhuScoreColor}};">{{result.rizhu.score}}</text>
+          <text class="breakdown-detail">{{result.rizhu.detail || ''}}</text>
+        </view>
+      </view>
+
+      <!-- Advice List -->
+      <view class="card advice-card" wx:if="{{result.advice && result.advice.length}}">
+        <view class="card-header">
+          <text class="card-title"> 相处建议</text>
+        </view>
+        <view class="advice-list">
+          <view class="advice-item" wx:for="{{result.advice}}" wx:key="index">
+            <text class="advice-dot">•</text>
+            <text class="advice-text">{{item}}</text>
           </view>
-        </picker>
-      </view>
-    </view>
-
-    <!-- Submit Button -->
-    <view class="hh-submit-wrap">
-      <button class="hh-submit-btn" bindtap="onSubmit" loading="{{loading}}" disabled="{{loading}}">
-        <text wx:if="{{!loading}}"> 开始合婚配对</text>
-        <text wx:else>分析中...</text>
-      </button>
-    </view>
-  </view>
-
-  <!-- ===== Loading State ===== -->
-  <view class="hh-loading" wx:if="{{loading}}">
-    <view class="hh-spinner"></view>
-    <text class="hh-loading-text">正在推算八字合婚...</text>
-    <text class="hh-loading-sub">根据双方出生信息计算五行生克</text>
-  </view>
-
-  <!-- ===== Results Section ===== -->
-  <view class="hh-results" wx:if="{{submitted && result && !loading}}">
-
-    <!-- Score Ring -->
-    <view class="card score-card">
-      <view class="score-ring-wrap">
-        <view class="score-ring-bg"></view>
-        <view class="score-ring-fill" style="background: conic-gradient({{scoreRingColor}} {{scorePercent}}%, transparent {{scorePercent}}%);"></view>
-        <view class="score-ring-center">
-          <text class="score-ring-number" style="color: {{scoreRingColor}};">{{result.score}}</text>
-          <text class="score-ring-label">分</text>
         </view>
       </view>
-      <text class="score-ring-title">综合契合度</text>
-      <text class="score-ring-desc">{{scoreDescription}}</text>
-    </view>
 
-    <!-- Breakdown Cards -->
-    <view class="breakdown-row">
-      <view class="breakdown-card" wx:if="{{result.wuxing}}">
-        <view class="breakdown-icon">🔥🌊</view>
-        <text class="breakdown-label">五行</text>
-        <text class="breakdown-score" style="color: {{wuxingScoreColor}};">{{result.wuxing.score}}</text>
-        <text class="breakdown-detail">{{result.wuxing.detail || ''}}</text>
-      </view>
-      <view class="breakdown-card" wx:if="{{result.shengxiao}}">
-        <view class="breakdown-icon">🐭🐴</view>
-        <text class="breakdown-label">生肖</text>
-        <text class="breakdown-score" style="color: {{shengxiaoScoreColor}};">{{result.shengxiao.score}}</text>
-        <text class="breakdown-detail">{{result.shengxiao.detail || ''}}</text>
-      </view>
-      <view class="breakdown-card" wx:if="{{result.rizhu}}">
-        <view class="breakdown-icon">☀️🌙</view>
-        <text class="breakdown-label">日主</text>
-        <text class="breakdown-score" style="color: {{rizhuScoreColor}};">{{result.rizhu.score}}</text>
-        <text class="breakdown-detail">{{result.rizhu.detail || ''}}</text>
+      <!-- Retry / Reset -->
+      <view class="hh-reset-wrap">
+        <button class="hh-reset-btn" bindtap="onReset">重新测算</button>
       </view>
     </view>
 
-    <!-- Advice List -->
-    <view class="card advice-card" wx:if="{{result.advice && result.advice.length}}">
-      <view class="card-header">
-        <text class="card-title"> 相处建议</text>
-      </view>
-      <view class="advice-list">
-        <view class="advice-item" wx:for="{{result.advice}}" wx:key="index">
-          <text class="advice-dot">•</text>
-          <text class="advice-text">{{item}}</text>
-        </view>
-      </view>
-    </view>
-
-    <!-- Retry / Reset -->
-    <view class="hh-reset-wrap">
-      <button class="hh-reset-btn" bindtap="onReset">重新测算</button>
-    </view>
-  </view>
-
-  <!-- ===== Error State ===== -->
-  <view class="hh-error" wx:if="{{error}}">
-    <text class="hh-error-icon">⚠️</text>
-    <text class="hh-error-text">{{error}}</text>
-    <button class="hh-retry-btn" bindtap="onSubmit">重试</button>
-  </view>
-
+    <!-- ===== Error State ===== -->
+    <empty-state
+      wx:if="{{showError}}"
+      type="{{errorType}}"
+      showAction="{{true}}"
+      bind:action="onErrorRetry"
+    />
+  </skeleton>
 </view>

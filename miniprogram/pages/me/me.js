@@ -1,11 +1,13 @@
 // 我的 — 个人中心 / 设置
 const api = require('../../utils/api');
 const security = require('../../utils/security');
+const { MESSAGES } = require('../../utils/messages');
 
 const app = getApp();
 
 Page({
   data: {
+    skeletonLoading: true,
     userInfo: null,
     isLoggedIn: false,
     hasBazi: false,
@@ -52,6 +54,12 @@ Page({
   onLoad() {
     this.initPickerData();
     this.loadUserData();
+  },
+
+  onReady() {
+    setTimeout(() => {
+      this.setData({ skeletonLoading: false });
+    }, 300);
   },
 
   onShow() {

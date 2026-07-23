@@ -1,115 +1,126 @@
 <!-- 报告 — 历史解读列表 -->
 
-<view class="page-reports">
+<view class="page-reports content-enter">
   <!-- 头部 -->
   <view class="reports-header">
     <text class="reports-title">解读报告</text>
     <text class="reports-subtitle">历史命理分析记录</text>
   </view>
 
-  <!-- ====== AI建议卡片（Sub-project B）====== -->
-  <view class="advisor-section animate-fade-up" wx:if="{{!loading && showAdvisor && advisorData}}">
-    <view class="section-header">
-      <text class="section-title"> AI 建议</text>
-      <view class="section-action" bindtap="toggleAdvisor">
-        <text>{{showAdvisor ? '收起' : '展开'}}</text>
-      </view>
-    </view>
+  <!-- Error State -->
+  <empty-state
+    wx:if="{{showError}}"
+    type="{{errorType}}"
+    showAction="{{true}}"
+    bind:action="onErrorRetry"
+  />
 
-    <view class="advisor-card" wx:if="{{advisorData}}">
-      <!-- 名人匹配 -->
-      <view class="advisor-subsection" wx:if="{{advisorData.matches && advisorData.matches.length}}">
-        <text class="advisor-subtitle">命格相似名人</text>
-        <view class="advisor-matches">
-          <view class="advisor-match-item" wx:for="{{advisorData.matches}}" wx:key="index">
-            <view class="match-name-row">
-              <text class="match-name">{{item.name}}</text>
-              <text class="match-type">{{item.type}}</text>
+  <skeleton wx:else loading="{{skeletonLoading}}" type="list" lines="{{[50, 80]}}" listCount="3">
+    <!-- ====== AI建议卡片（Sub-project B）====== -->
+    <view class="advisor-section animate-fade-up" wx:if="{{!loading && showAdvisor && advisorData}}">
+      <view class="section-header">
+        <text class="section-title"> AI 建议</text>
+        <view class="section-action" bindtap="toggleAdvisor">
+          <text>{{showAdvisor ? '收起' : '展开'}}</text>
+        </view>
+      </view>
+
+      <view class="advisor-card" wx:if="{{advisorData}}">
+        <!-- 名人匹配 -->
+        <view class="advisor-subsection" wx:if="{{advisorData.matches && advisorData.matches.length}}">
+          <text class="advisor-subtitle">命格相似名人</text>
+          <view class="advisor-matches">
+            <view class="advisor-match-item" wx:for="{{advisorData.matches}}" wx:key="index">
+              <view class="match-name-row">
+                <text class="match-name">{{item.name}}</text>
+                <text class="match-type">{{item.type}}</text>
+              </view>
+              <text class="match-reason">{{item.reason}}</text>
             </view>
-            <text class="match-reason">{{item.reason}}</text>
+          </view>
+        </view>
+
+        <!-- 领域建议 -->
+        <view class="advisor-subsection" wx:if="{{advisorData.domainAdvice && advisorData.domainAdvice.length}}">
+          <text class="advisor-subtitle">领域运势建议</text>
+          <view class="advisor-advices">
+            <view class="advisor-advice-item" wx:for="{{advisorData.domainAdvice}}" wx:key="index">
+              <text class="advice-domain-tag">{{item.domain}}</text>
+              <text class="advice-text">{{item.advice}}</text>
+            </view>
           </view>
         </view>
       </view>
 
-      <!-- 领域建议 -->
-      <view class="advisor-subsection" wx:if="{{advisorData.domainAdvice && advisorData.domainAdvice.length}}">
-        <text class="advisor-subtitle">领域运势建议</text>
-        <view class="advisor-advices">
-          <view class="advisor-advice-item" wx:for="{{advisorData.domainAdvice}}" wx:key="index">
-            <text class="advice-domain-tag">{{item.domain}}</text>
-            <text class="advice-text">{{item.advice}}</text>
-          </view>
-        </view>
+      <view class="advisor-loading" wx:elif="{{advisorLoading}}">
+        <view class="loading-spinner-sm"></view>
+        <text class="loading-text">AI 分析中...</text>
       </view>
     </view>
 
-    <view class="advisor-loading" wx:elif="{{advisorLoading}}">
-      <view class="loading-spinner-sm"></view>
-      <text class="loading-text">AI 分析中...</text>
+    <!-- 加载中 -->
+    <view class="loading-container" wx:if="{{loading}}">
+      <view class="loading-spinner"></view>
+      <text class="loading-text">{{loadingText}}</text>
     </view>
-  </view>
 
-  <!-- 加载中 -->
-  <view class="loading-container" wx:if="{{loading}}">
-    <view class="loading-spinner"></view>
-    <text class="loading-text">{{loadingText}}</text>
-  </view>
-
-  <!-- 报告列表 -->
-  <view class="report-list" wx:if="{{!loading && reports.length > 0}}">
-    <view
-      class="report-item animate-fade-up stagger-{{index}}"
-      wx:for="{{reports}}"
-      wx:key="id"
-      data-id="{{item.id}}"
-      bindtap="viewDetail"
-    >
-      <view class="report-card card-tint-{{item.scenario || 'default'}}">
-        <view class="report-card-top">
-          <view class="report-meta">
-            <text class="report-date">{{item.date}}</text>
-            <text class="report-scenario">{{item.scenarioLabel}}</text>
+    <!-- 报告列表 -->
+    <view class="report-list" wx:if="{{!loading && reports.length > 0}}">
+      <view
+        class="report-item animate-fade-up stagger-{{index}}"
+        wx:for="{{reports}}"
+        wx:key="id"
+        data-id="{{item.id}}"
+        bindtap="viewDetail"
+      >
+        <view class="report-card card-tint-{{item.scenario || 'default'}}">
+          <view class="report-card-top">
+            <view class="report-meta">
+              <text class="report-date">{{item.date}}</text>
+              <text class="report-scenario">{{item.scenarioLabel}}</text>
+            </view>
+            <view class="report-score" wx:if="{{item.score}}">
+              <text class="report-score-text">{{item.score}}</text>
+            </view>
           </view>
-          <view class="report-score" wx:if="{{item.score}}">
-            <text class="report-score-text">{{item.score}}</text>
+
+          <text class="report-summary">{{item.summary}}</text>
+
+          <view class="report-tags" wx:if="{{item.tags && item.tags.length}}">
+            <text class="report-tag" wx:for="{{item.tags}}" wx:for-item="tag" wx:key="*this">{{tag}}</text>
           </view>
-        </view>
 
-        <text class="report-summary">{{item.summary}}</text>
-
-        <view class="report-tags" wx:if="{{item.tags && item.tags.length}}">
-          <text class="report-tag" wx:for="{{item.tags}}" wx:for-item="tag" wx:key="*this">{{tag}}</text>
-        </view>
-
-        <view class="report-actions">
-          <view class="report-action report-action-view">
-            <text>查看详情 →</text>
-          </view>
-          <view class="report-action report-action-share" data-id="{{item.id}}" bindtap="shareReport" catchtap>
-            <text>分享</text>
+          <view class="report-actions">
+            <view class="report-action report-action-view">
+              <text>查看详情 →</text>
+            </view>
+            <view class="report-action report-action-share" data-id="{{item.id}}" bindtap="shareReport" catchtap>
+              <text>分享</text>
+            </view>
           </view>
         </view>
       </view>
+
+      <!-- 加载更多 -->
+      <view class="load-more" wx:if="{{hasMore}}">
+        <view class="loading-spinner-sm"></view>
+        <text class="loading-text">{{loadingText || '加载更多...'}}</text>
+      </view>
+
+      <view class="load-more" wx:elif="{{!hasMore && reports.length > 0}}">
+        <text class="load-end-text">- 已显示全部报告 -</text>
+      </view>
     </view>
 
-    <!-- 加载更多 -->
-    <view class="load-more" wx:if="{{hasMore}}">
-      <view class="loading-spinner-sm"></view>
-      <text class="loading-text">{{loadingText || '加载更多...'}}</text>
+    <!-- 空状态 -->
+    <view class="empty-state animate-scale" wx:if="{{!loading && reports.length === 0}}">
+      <text class="empty-state-icon-reports">📊</text>
+      <text class="empty-state-title">暂无解读报告</text>
+      <text class="empty-state-hint">去对话页和 AI 命理师聊聊\n你的运势、感情、事业...</text>
+      <button class="btn btn-primary empty-state-btn" bindtap="goChat">去对话</button>
     </view>
-
-    <view class="load-more" wx:elif="{{!hasMore && reports.length > 0}}">
-      <text class="load-end-text">- 已显示全部报告 -</text>
-    </view>
-  </view>
-
-  <!-- 空状态 -->
-  <view class="empty-state animate-scale" wx:if="{{!loading && reports.length === 0}}">
-    <text class="empty-state-icon-reports">📊</text>
-    <text class="empty-state-title">暂无解读报告</text>
-    <text class="empty-state-hint">去对话页和 AI 命理师聊聊\n你的运势、感情、事业...</text>
-    <button class="btn btn-primary empty-state-btn" bindtap="goChat">去对话</button>
-  </view>
+  </skeleton>
+</view>
 
   <!-- ========== 详情弹窗 ========== -->
   <view class="detail-overlay {{showDetail ? 'show' : ''}}" bindtap="closeDetail">

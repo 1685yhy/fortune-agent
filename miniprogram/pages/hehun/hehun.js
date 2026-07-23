@@ -1,5 +1,6 @@
 // 合婚配对 — 八字婚姻契合度分析
 const api = require('../../utils/api');
+const { MESSAGES } = require('../../utils/messages');
 
 const HOUR_LABELS = [
   '子时(23-01)', '丑时(01-03)', '寅时(03-05)', '卯时(05-07)',
@@ -58,10 +59,15 @@ Page({
     p2PickerCityIdx: 1,
 
     // States
+    skeletonLoading: true,
     submitted: false,
     loading: false,
     error: null,
     result: null,
+
+    // Error state
+    showError: false,
+    errorType: '',
 
     // Computed display values
     scorePercent: 0,
@@ -74,6 +80,10 @@ Page({
 
   onLoad() {
     this.initPickerData();
+    // Disable skeleton after initial render
+    setTimeout(() => {
+      this.setData({ skeletonLoading: false });
+    }, 300);
   },
 
   // ---- 初始化选择器数据 ----
@@ -217,10 +227,13 @@ Page({
       this.setData({ submitted: true, loading: false });
     } catch (err) {
       console.warn('[hehun] API call failed, using demo data:', err);
-      // Fallback to demo data when API fails
-      const demoResult = this.getDemoResult(person1, person2);
-      this._setResult(demoResult);
-      this.setData({ submitted: true, loading: false });
+      // Show error state — user can retry
+      this.setData({
+        showError: true,
+        errorType: err.name === 'NetworkError' ? 'network' : 'server',
+        loading: false,
+        submitted: false,
+      });
     }
   },
 
@@ -312,6 +325,12 @@ Page({
     }
     base.push('婚姻幸福与否，更多在于彼此的用心经营与相互珍惜');
     return base;
+  },
+
+  // ---- Retry after error ----
+  onErrorRetry() {
+    this.setData({ showError: false });
+    this.onSubmit();
   },
 
   // ---- Reset ----

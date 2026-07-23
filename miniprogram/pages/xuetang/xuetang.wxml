@@ -1,7 +1,7 @@
 <!-- 易理学堂 — 话题列表 / 课程详情 -->
 
 <!-- ===== 话题列表态 ===== -->
-<view class="page-xuetang" wx:if="{{!showLesson}}">
+<view class="page-xuetang content-enter" wx:if="{{!showLesson}}">
 
   <!-- 头部 -->
   <view class="xuetang-header">
@@ -9,44 +9,46 @@
     <text class="xuetang-subtitle">从零开始学易理，洞悉命运规律</text>
   </view>
 
-  <!-- 加载中 -->
-  <view class="loading-container" wx:if="{{loading}}">
-    <view class="loading-spinner"></view>
-    <text class="loading-text">加载课程中...</text>
-  </view>
+  <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[60, 90, 80]}}">
+    <!-- 加载中 -->
+    <view class="loading-container" wx:if="{{loading}}">
+      <view class="loading-spinner"></view>
+      <text class="loading-text">加载课程中...</text>
+    </view>
 
-  <!-- 话题列表 -->
-  <view class="topic-list" wx:if="{{!loading && topics.length > 0}}">
-    <view
-      class="topic-item animate-fade-up stagger-{{index}}"
-      wx:for="{{topics}}"
-      wx:key="id"
-      data-topic="{{item.id}}"
-      bindtap="selectTopic"
-    >
-      <view class="topic-card">
-        <view class="topic-card-top">
-          <text class="topic-icon">{{item.icon}}</text>
-          <view class="topic-badge" wx:if="{{item.lessonCount}}">
-            <text class="topic-badge-text">{{item.lessonCount}}节</text>
+    <!-- 话题列表 -->
+    <view class="topic-list" wx:if="{{!loading && topics.length > 0}}">
+      <view
+        class="topic-item animate-fade-up stagger-{{index}}"
+        wx:for="{{topics}}"
+        wx:key="id"
+        data-topic="{{item.id}}"
+        bindtap="selectTopic"
+      >
+        <view class="topic-card">
+          <view class="topic-card-top">
+            <text class="topic-icon">{{item.icon}}</text>
+            <view class="topic-badge" wx:if="{{item.lessonCount}}">
+              <text class="topic-badge-text">{{item.lessonCount}}节</text>
+            </view>
           </view>
+          <text class="topic-name">{{item.name}}</text>
+          <text class="topic-desc">{{item.description}}</text>
         </view>
-        <text class="topic-name">{{item.name}}</text>
-        <text class="topic-desc">{{item.description}}</text>
       </view>
     </view>
-  </view>
 
-  <!-- 空状态 -->
-  <view class="empty-state animate-scale" wx:if="{{!loading && topics.length === 0}}">
-    <text class="empty-state-icon">📚</text>
-    <text class="empty-state-title">暂无课程</text>
-    <text class="empty-state-hint">课程内容正在筹备中\n敬请期待</text>
-  </view>
+    <!-- 空状态 -->
+    <view class="empty-state animate-scale" wx:if="{{!loading && topics.length === 0}}">
+      <text class="empty-state-icon">📚</text>
+      <text class="empty-state-title">暂无课程</text>
+      <text class="empty-state-hint">课程内容正在筹备中\n敬请期待</text>
+    </view>
+  </skeleton>
 </view>
 
 <!-- ===== 课程详情态 ===== -->
-<view class="page-xuetang-detail" wx:if="{{showLesson}}">
+<view class="page-xuetang-detail content-enter" wx:if="{{showLesson}}">
   <!-- 返回按钮 -->
   <view class="detail-back" bindtap="backToList">
     <text class="detail-back-arrow">←</text>
@@ -63,12 +65,14 @@
   </view>
 
   <!-- 课程内容 -->
-  <scroll-view class="lesson-body" scroll-y="{{true}}">
-    <view class="lesson-content animate-fade-up">
-      <text class="lesson-content-text">{{lesson.content}}</text>
-    </view>
-    <view class="lesson-footer">
-      <text class="lesson-footer-text">— 易理明灯 · 学堂 —</text>
-    </view>
-  </scroll-view>
+  <skeleton loading="{{lessonSkeletonLoading && !lesson}}" type="text" lines="{{[90, 80, 70, 85, 60, 75]}}">
+    <scroll-view class="lesson-body" scroll-y="{{true}}">
+      <view class="lesson-content animate-fade-up">
+        <text class="lesson-content-text">{{lesson.content}}</text>
+      </view>
+      <view class="lesson-footer">
+        <text class="lesson-footer-text">— 易理明灯 · 学堂 —</text>
+      </view>
+    </scroll-view>
+  </skeleton>
 </view>

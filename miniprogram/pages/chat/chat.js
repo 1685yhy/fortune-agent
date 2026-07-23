@@ -1,9 +1,11 @@
 // 对话 — AI 命运伴侣聊天
 const api = require('../../utils/api');
 const security = require('../../utils/security');
+const { MESSAGES } = require('../../utils/messages');
 
 Page({
   data: {
+    skeletonLoading: true,
     messages: [],
     inputText: '',
     sending: false,
@@ -32,6 +34,12 @@ Page({
   onLoad() {
     this.loadHistory();
     this._initRecorder();
+  },
+
+  onReady() {
+    setTimeout(() => {
+      this.setData({ skeletonLoading: false });
+    }, 300);
   },
 
   // ---- 语音录制 ----
@@ -275,10 +283,11 @@ Page({
       this.scrollToBottom();
     } catch (e) {
       this.clearTypingAnimation();
+      const errType = e.name === 'NetworkError' ? MESSAGES.network : MESSAGES.server;
       const errMsg = {
         id: 'msg-' + Date.now() + 2,
         role: 'assistant',
-        content: '网络开小差了，请稍后再试 感谢',
+        content: errType.subtitle + '，' + errType.detail,
         time: this.getTimeString(),
         type: 'text',
       };

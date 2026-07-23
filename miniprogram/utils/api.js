@@ -2,6 +2,7 @@
 // Backend: https://124.221.233.214/api
 
 const app = getApp();
+const { MESSAGES } = require('./messages');
 
 // ---- 配置 ----
 const CONFIG = {
@@ -12,6 +13,91 @@ const CONFIG = {
 };
 
 let authToken = null;
+
+// ---- Step 4: In-Memory Client Cache ----
+// Stores GET results + timestamp, auto-invalidates after TTL.
+// Skips network for cached data within TTL to reduce bandwidth and latency.
+const MEM_CACHE = {};
+
+/**
+ * Cached GET request — returns cached data if within TTL, else fetches.
+ * After fetching, the result is stored in MEM_CACHE for subsequent calls.
+ *
+ * @param {string} url - Full API endpoint path (e.g. '/api/calendar/today')
+ * @param {number} ttlMs - TTL in milliseconds (default 10 minutes)
+ * @returns {Promise<any>}
+ */
+function cachedGet(url, ttlMs = 600000) {
+  const now = Date.now();
+  const cached = MEM_CACHE[url];
+  if (cached && (now - cached.time) < ttlMs) {
+    console.log(`[Cache] HIT ${url} (age: ${Math.round((now - cached.time) / 1000)}s)`);
+    return Promise.resolve(cached.data);
+  }
+  // Cache miss or expired — fetch from network
+  return new Promise((resolve, reject) => {
+    wx.request({
+      url: `${CONFIG.baseURL}${url}`,
+      method: 'GET',
+      header: buildHeaders(),
+      timeout: CONFIG.timeout,
+      success: (res) => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          MEM_CACHE[url] = { data: res.data, time: now };
+          resolve(res.data);
+        } else if (res.statusCode === 401) {
+          authToken = null;
+          wx.showToast({ title: '登录已过期，请重新进入', icon: 'none' });
+          reject(new Error('Unauthorized'));
+        } else if (res.statusCode === 429) {
+          const quotaErr = new Error(MESSAGES.quota.detail);
+          quotaErr.name = 'QuotaError';
+          quotaErr.messages = MESSAGES.quota;
+          reject(quotaErr);
+        } else if (res.statusCode === 503) {
+          const serverErr = new Error(MESSAGES.server.detail);
+          serverErr.name = 'ServerError';
+          serverErr.messages = MESSAGES.server;
+          reject(serverErr);
+        } else if (res.statusCode >= 500) {
+          const serverErr = new Error(MESSAGES.server.detail);
+          serverErr.name = 'ServerError';
+          serverErr.messages = MESSAGES.server;
+          reject(serverErr);
+        } else {
+          reject(res.data || { error: '请求失败' });
+        }
+      },
+      fail: (err) => {
+        console.error('[API] cachedGet error:', err);
+        const netErr = new Error(MESSAGES.network.detail);
+        netErr.name = 'NetworkError';
+        netErr.messages = MESSAGES.network;
+        reject(netErr);
+      },
+    });
+  });
+}
+
+/**
+ * Clear a specific MEM_CACHE entry or flush the entire cache.
+ * @param {string|null} url - Specific URL to clear, or null to clear all.
+ */
+function clearCache(url = null) {
+  if (url) {
+    delete MEM_CACHE[url];
+  } else {
+    Object.keys(MEM_CACHE).forEach((k) => delete MEM_CACHE[k]);
+  }
+}
+
+function buildHeaders() {
+  const header = { 'Content-Type': 'application/json' };
+  if (authToken) {
+    header['Authorization'] = `Bearer ${authToken}`;
+  }
+  return header;
+}
 
 // ---- Token 管理 ----
 function setToken(token) {
@@ -57,6 +143,24 @@ function request(url, options = {}) {
           authToken = null;
           wx.showToast({ title: '登录已过期，请重新进入', icon: 'none' });
           reject(new Error('Unauthorized'));
+        } else if (res.statusCode === 429) {
+          // Rate limit
+          const quotaErr = new Error(MESSAGES.quota.detail);
+          quotaErr.name = 'QuotaError';
+          quotaErr.messages = MESSAGES.quota;
+          reject(quotaErr);
+        } else if (res.statusCode === 503) {
+          // Service unavailable
+          const serverErr = new Error(MESSAGES.server.detail);
+          serverErr.name = 'ServerError';
+          serverErr.messages = MESSAGES.server;
+          reject(serverErr);
+        } else if (res.statusCode >= 500) {
+          // Other server errors
+          const serverErr = new Error(MESSAGES.server.detail);
+          serverErr.name = 'ServerError';
+          serverErr.messages = MESSAGES.server;
+          reject(serverErr);
         } else {
           reject(res.data || { error: '请求失败' });
         }
@@ -64,7 +168,10 @@ function request(url, options = {}) {
       fail: (err) => {
         if (showLoading) wx.hideLoading();
         console.error('[API] request error:', err);
-        reject(new Error('网络连接失败，请检查网络设置'));
+        const netErr = new Error(MESSAGES.network.detail);
+        netErr.name = 'NetworkError';
+        netErr.messages = MESSAGES.network;
+        reject(netErr);
       },
     });
   });
@@ -87,14 +194,11 @@ function login(code) {
 // ---- 日历/运势 ----
 
 /**
- * 获取今日运势
+ * 获取今日运势 (cached, 10 min TTL)
  * @returns {Promise<{date, ganzhi, score, yi, ji, advice, mood}>}
  */
 function getTodayFortune() {
-  return request('/api/calendar/today', {
-    method: 'GET',
-    showLoading: false,
-  });
+  return cachedGet('/api/calendar/today');
 }
 
 /**
@@ -103,9 +207,7 @@ function getTodayFortune() {
  * @returns {Promise}
  */
 function getDateFortune(date) {
-  return request(`/api/calendar/today?date=${date}`, {
-    method: 'GET',
-  });
+  return cachedGet(`/api/calendar/today?date=${date}`);
 }
 
 // ---- 场景列表 ----
@@ -302,14 +404,12 @@ function xingming(data) {
 // ---- 时辰运势（Sub-project B）----
 
 /**
- * 获取时辰运势列表
+ * 获取时辰运势列表 (cached, 10 min TTL)
  * @param {string} userId - 用户 ID
  * @returns {Promise<{hours: Array}>}
  */
 function getHourlyFortune(userId) {
-  return request(`/api/hourly-fortune?user_id=${encodeURIComponent(userId || '')}`, {
-    method: 'GET',
-  });
+  return cachedGet(`/api/hourly-fortune?user_id=${encodeURIComponent(userId || '')}`, 600000); // 10min
 }
 
 // ---- AI 建议（Sub-project B）----
@@ -330,24 +430,20 @@ function getAdvisor(data = {}) {
 // ---- 学堂（Sub-project B）----
 
 /**
- * 获取学堂话题列表
+ * 获取学堂话题列表 (cached, 24h TTL)
  * @returns {Promise<{topics: Array}>}
  */
 function getXuetangTopics() {
-  return request('/api/xuetang/topics', {
-    method: 'GET',
-  });
+  return cachedGet('/api/xuetang/topics', 86400000); // 24h
 }
 
 /**
- * 获取学堂课程内容
+ * 获取学堂课程内容 (cached, 1h TTL)
  * @param {string} topic - 话题标识
  * @returns {Promise<{lesson: Object}>}
  */
 function getXuetangLesson(topic) {
-  return request(`/api/xuetang/lesson?topic=${encodeURIComponent(topic)}`, {
-    method: 'GET',
-  });
+  return cachedGet(`/api/xuetang/lesson?topic=${encodeURIComponent(topic)}`, 3600000); // 1h
 }
 
 // ---- 导出 ----
@@ -357,6 +453,10 @@ module.exports = {
   login,
   setToken,
   getToken,
+
+  // Cache utilities (Step 4)
+  cachedGet,
+  clearCache,
 
   // Calendar
   getTodayFortune,

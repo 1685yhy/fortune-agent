@@ -1,5 +1,6 @@
 // 易理学堂 — 知识课程
 const api = require('../../utils/api');
+const { MESSAGES } = require('../../utils/messages');
 
 const DEMO_TOPICS = [
   {
@@ -186,6 +187,8 @@ const DEMO_LESSONS = {
 
 Page({
   data: {
+    skeletonLoading: true,
+    lessonSkeletonLoading: true,
     topics: [],
     currentTopic: null,
     currentTopicName: '',
@@ -196,6 +199,12 @@ Page({
 
   onLoad() {
     this.loadTopics();
+  },
+
+  onReady() {
+    setTimeout(() => {
+      this.setData({ skeletonLoading: false, lessonSkeletonLoading: false });
+    }, 400);
   },
 
   onShow() {

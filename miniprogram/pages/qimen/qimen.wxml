@@ -1,5 +1,5 @@
 <!-- 易理明灯 — 奇门遁甲 -->
-<view class="page">
+<view class="page content-enter">
 
   <!-- Header -->
   <view class="header-section">
@@ -8,148 +8,151 @@
     <text class="header-desc">天地人三才定位，排盘占卜吉凶祸福</text>
   </view>
 
-  <!-- === Input Form === -->
-  <view class="card form-card" wx:if="{{!submitted || !result}}">
-    <!-- 日期 -->
-    <view class="form-group">
-      <text class="form-label">选择日期</text>
-      <picker mode="date" value="{{date}}" bindchange="onDateChange">
-        <view class="form-input form-input-picker">
-          <text class="form-input-text {{date ? '' : 'placeholder'}}">{{date || '请选择日期'}}</text>
-          <text class="form-arrow">▸</text>
-        </view>
-      </picker>
-    </view>
-
-    <!-- 时间 -->
-    <view class="form-group">
-      <text class="form-label">选择时辰</text>
-      <picker mode="time" value="{{time}}" bindchange="onTimeChange">
-        <view class="form-input form-input-picker">
-          <text class="form-input-text {{time ? '' : 'placeholder'}}">{{time || '请选择时间'}}</text>
-          <text class="form-arrow">▸</text>
-        </view>
-      </picker>
-    </view>
-
-    <!-- 城市 -->
-    <view class="form-group">
-      <text class="form-label">所在城市</text>
-      <input
-        class="form-input"
-        type="text"
-        value="{{city}}"
-        placeholder="请输入城市名称"
-        placeholder-class="form-placeholder"
-        bindinput="onCityInput"
-        maxlength="20"
-      />
-    </view>
-
-    <!-- 问题 -->
-    <view class="form-group">
-      <text class="form-label">想问的问题</text>
-      <textarea
-        class="form-textarea"
-        value="{{question}}"
-        placeholder="请输入你想问的问题..."
-        placeholder-class="form-placeholder"
-        bindinput="onQuestionInput"
-        maxlength="200"
-        auto-height
-      />
-    </view>
-
-    <!-- Submit Button -->
-    <view class="form-submit">
-      <button class="btn btn-primary btn-submit" bindtap="onSubmit" disabled="{{loading}}">
-        <text wx:if="{{!loading}}">开始占卜</text>
-        <text wx:if="{{loading}}">排盘中...</text>
-      </button>
-    </view>
-  </view>
-
-  <!-- === Loading State === -->
-  <view class="loading-container" wx:if="{{loading}}">
-    <view class="loading-spinner"></view>
-    <text class="loading-text">奇门排盘中...</text>
-  </view>
-
-  <!-- === Error State === -->
-  <view class="empty-state" wx:if="{{error && !loading}}">
-    <text class="empty-state-icon">⚠️</text>
-    <text class="empty-state-text">{{error}}</text>
-    <button class="btn btn-ghost btn-small" style="margin-top: var(--space-md);" bindtap="onRetry">重新占卜</button>
-  </view>
-
-  <!-- === Results Section === -->
-  <view wx:if="{{result && !loading}}" class="results-section">
-
-    <!-- 3x3 Palace Grid -->
-    <view class="card palace-card">
-      <text class="card-title">奇门九宫盘</text>
-      <text class="card-subtitle">{{result.dateStr || date}} · {{result.timeStr || time}}</text>
-      <view class="palace-grid">
-        <view
-          class="palace-cell {{item.position === 5 ? 'palace-center' : ''}} animate-scale stagger-{{index}}"
-          wx:for="{{result.palaces}}"
-          wx:key="position"
-          data-index="{{index}}"
-        >
-          <text class="palace-name">{{item.name}}</text>
-          <text class="palace-element {{item.wuxingClass || ''}}">{{item.wuxing || ''}}</text>
-          <view class="palace-info">
-            <text class="palace-label">神</text>
-            <text class="palace-value">{{item.bashen}}</text>
+  <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[80, 50, 90, 70]}}">
+    <!-- === Input Form === -->
+    <view class="card form-card" wx:if="{{!submitted || !result}}">
+      <!-- 日期 -->
+      <view class="form-group">
+        <text class="form-label">选择日期</text>
+        <picker mode="date" value="{{date}}" bindchange="onDateChange">
+          <view class="form-input form-input-picker">
+            <text class="form-input-text {{date ? '' : 'placeholder'}}">{{date || '请选择日期'}}</text>
+            <text class="form-arrow">▸</text>
           </view>
-          <view class="palace-info">
-            <text class="palace-label">星</text>
-            <text class="palace-value">{{item.jiuxing}}</text>
+        </picker>
+      </view>
+
+      <!-- 时间 -->
+      <view class="form-group">
+        <text class="form-label">选择时辰</text>
+        <picker mode="time" value="{{time}}" bindchange="onTimeChange">
+          <view class="form-input form-input-picker">
+            <text class="form-input-text {{time ? '' : 'placeholder'}}">{{time || '请选择时间'}}</text>
+            <text class="form-arrow">▸</text>
           </view>
-          <view class="palace-info">
-            <text class="palace-label">门</text>
-            <text class="palace-value {{item.bamenClass || ''}}">{{item.bamen}}</text>
-          </view>
-        </view>
+        </picker>
+      </view>
+
+      <!-- 城市 -->
+      <view class="form-group">
+        <text class="form-label">所在城市</text>
+        <input
+          class="form-input"
+          type="text"
+          value="{{city}}"
+          placeholder="请输入城市名称"
+          placeholder-class="form-placeholder"
+          bindinput="onCityInput"
+          maxlength="20"
+        />
+      </view>
+
+      <!-- 问题 -->
+      <view class="form-group">
+        <text class="form-label">想问的问题</text>
+        <textarea
+          class="form-textarea"
+          value="{{question}}"
+          placeholder="请输入你想问的问题..."
+          placeholder-class="form-placeholder"
+          bindinput="onQuestionInput"
+          maxlength="200"
+          auto-height
+        />
+      </view>
+
+      <!-- Submit Button -->
+      <view class="form-submit">
+        <button class="btn btn-primary btn-submit" bindtap="onSubmit" disabled="{{loading}}">
+          <text wx:if="{{!loading}}">开始占卜</text>
+          <text wx:if="{{loading}}">排盘中...</text>
+        </button>
       </view>
     </view>
 
-    <!-- Yongshen Analysis -->
-    <view class="card analysis-card animate-fade-up stagger-3" wx:if="{{result.yongshen}}">
-      <text class="card-title">用神分析</text>
-      <view class="yongshen-section">
-        <view class="yongshen-item" wx:for="{{result.yongshen}}" wx:key="name">
-          <text class="yongshen-name">{{item.name}}</text>
-          <text class="yongshen-colon">：</text>
-          <text class="yongshen-value">{{item.value}}</text>
+    <!-- === Loading State === -->
+    <view class="loading-container" wx:if="{{loading}}">
+      <view class="loading-spinner"></view>
+      <text class="loading-text">奇门排盘中...</text>
+    </view>
+
+    <!-- === Error State === -->
+    <empty-state
+      wx:if="{{showError}}"
+      type="{{errorType}}"
+      showAction="{{true}}"
+      bind:action="onErrorRetry"
+    />
+
+    <!-- === Results Section === -->
+    <view wx:if="{{result && !loading}}" class="results-section">
+
+      <!-- 3x3 Palace Grid -->
+      <view class="card palace-card">
+        <text class="card-title">奇门九宫盘</text>
+        <text class="card-subtitle">{{result.dateStr || date}} · {{result.timeStr || time}}</text>
+        <view class="palace-grid">
+          <view
+            class="palace-cell {{item.position === 5 ? 'palace-center' : ''}} animate-scale stagger-{{index}}"
+            wx:for="{{result.palaces}}"
+            wx:key="position"
+            data-index="{{index}}"
+          >
+            <text class="palace-name">{{item.name}}</text>
+            <text class="palace-element {{item.wuxingClass || ''}}">{{item.wuxing || ''}}</text>
+            <view class="palace-info">
+              <text class="palace-label">神</text>
+              <text class="palace-value">{{item.bashen}}</text>
+            </view>
+            <view class="palace-info">
+              <text class="palace-label">星</text>
+              <text class="palace-value">{{item.jiuxing}}</text>
+            </view>
+            <view class="palace-info">
+              <text class="palace-label">门</text>
+              <text class="palace-value {{item.bamenClass || ''}}">{{item.bamen}}</text>
+            </view>
+          </view>
         </view>
+      </view>
+
+      <!-- Yongshen Analysis -->
+      <view class="card analysis-card animate-fade-up stagger-3" wx:if="{{result.yongshen}}">
+        <text class="card-title">用神分析</text>
+        <view class="yongshen-section">
+          <view class="yongshen-item" wx:for="{{result.yongshen}}" wx:key="name">
+            <text class="yongshen-name">{{item.name}}</text>
+            <text class="yongshen-colon">：</text>
+            <text class="yongshen-value">{{item.value}}</text>
+          </view>
+        </view>
+      </view>
+
+      <!-- Overall Analysis -->
+      <view class="card analysis-card animate-fade-up stagger-4" wx:if="{{result.analysis}}">
+        <text class="card-title">综合分析</text>
+        <text class="analysis-text">{{result.analysis}}</text>
+      </view>
+
+      <!-- Action Advice -->
+      <view class="card analysis-card animate-fade-up stagger-5" wx:if="{{result.advice}}">
+        <text class="card-title">行动建议</text>
+        <text class="analysis-text advice-text">{{result.advice}}</text>
+      </view>
+
+      <!-- Re-divinate Button -->
+      <view class="form-submit" style="padding: 0 var(--space-md) var(--space-2xl);">
+        <button class="btn btn-ghost btn-submit" bindtap="onReset">重新占卜</button>
       </view>
     </view>
 
-    <!-- Overall Analysis -->
-    <view class="card analysis-card animate-fade-up stagger-4" wx:if="{{result.analysis}}">
-      <text class="card-title">综合分析</text>
-      <text class="analysis-text">{{result.analysis}}</text>
+    <!-- === Empty State (no interaction yet) === -->
+    <view class="empty-state" wx:if="{{!submitted && !loading && !result && !error}}">
+      <text class="empty-state-icon">📜</text>
+      <text class="empty-state-text">请填写信息开始奇门占卜</text>
     </view>
 
-    <!-- Action Advice -->
-    <view class="card analysis-card animate-fade-up stagger-5" wx:if="{{result.advice}}">
-      <text class="card-title">行动建议</text>
-      <text class="analysis-text advice-text">{{result.advice}}</text>
-    </view>
-
-    <!-- Re-divinate Button -->
-    <view class="form-submit" style="padding: 0 var(--space-md) var(--space-2xl);">
-      <button class="btn btn-ghost btn-submit" bindtap="onReset">重新占卜</button>
-    </view>
-  </view>
-
-  <!-- === Empty State (no interaction yet) === -->
-  <view class="empty-state" wx:if="{{!submitted && !loading && !result && !error}}">
-    <text class="empty-state-icon">📜</text>
-    <text class="empty-state-text">请填写信息开始奇门占卜</text>
-  </view>
-
-  <!-- Bottom Space -->
-  <view class="section-bottom-space"></view>
+    <!-- Bottom Space -->
+    <view class="section-bottom-space"></view>
+  </skeleton>
 </view>

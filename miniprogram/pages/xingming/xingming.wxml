@@ -1,5 +1,5 @@
 <!-- 姓名学 — 五格姓名分析 -->
-<view class="page-xingming">
+<view class="page-xingming content-enter">
 
   <!-- ===== Header ===== -->
   <view class="page-header stagger-0">
@@ -7,116 +7,117 @@
     <text class="page-desc">输入姓名，分析五格数理与三才配置</text>
   </view>
 
-  <!-- ===== Empty State (before submission) ===== -->
-  <view wx:if="{{!submitted && !loading && !result}}">
-    <!-- Input Form -->
-    <view class="form-card stagger-1">
-      <!-- Surname -->
-      <view class="form-group">
-        <text class="form-label">姓氏</text>
-        <input
-          class="form-input"
-          type="text"
-          placeholder="请输入姓氏"
-          placeholder-class="form-input-placeholder"
-          value="{{surname}}"
-          bindinput="onSurnameInput"
-          maxlength="4"
-        />
-      </view>
+  <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[60, 80, 50]}}">
+    <!-- ===== Empty State (before submission) ===== -->
+    <view wx:if="{{!submitted && !loading && !result}}">
+      <!-- Input Form -->
+      <view class="form-card stagger-1">
+        <!-- Surname -->
+        <view class="form-group">
+          <text class="form-label">姓氏</text>
+          <input
+            class="form-input"
+            type="text"
+            placeholder="请输入姓氏"
+            placeholder-class="form-input-placeholder"
+            value="{{surname}}"
+            bindinput="onSurnameInput"
+            maxlength="4"
+          />
+        </view>
 
-      <!-- Given Name -->
-      <view class="form-group">
-        <text class="form-label">名字</text>
-        <input
-          class="form-input"
-          type="text"
-          placeholder="请输入名字"
-          placeholder-class="form-input-placeholder"
-          value="{{givenName}}"
-          bindinput="onGivenNameInput"
-          maxlength="8"
-        />
-      </view>
+        <!-- Given Name -->
+        <view class="form-group">
+          <text class="form-label">名字</text>
+          <input
+            class="form-input"
+            type="text"
+            placeholder="请输入名字"
+            placeholder-class="form-input-placeholder"
+            value="{{givenName}}"
+            bindinput="onGivenNameInput"
+            maxlength="8"
+          />
+        </view>
 
-      <!-- Gender Radio Toggle -->
-      <view class="form-group">
-        <text class="form-label">性别</text>
-        <view class="form-radio-group">
-          <label class="form-radio {{gender === 'male' ? 'active' : ''}}">
-            <radio value="male" checked="{{gender === 'male'}}" bindchange="onGenderChange" color="#c9a96e" />
-            <text>男</text>
-          </label>
-          <label class="form-radio {{gender === 'female' ? 'active' : ''}}">
-            <radio value="female" checked="{{gender === 'female'}}" bindchange="onGenderChange" color="#c9a96e" />
-            <text>女</text>
-          </label>
+        <!-- Gender Radio Toggle -->
+        <view class="form-group">
+          <text class="form-label">性别</text>
+          <view class="form-radio-group">
+            <label class="form-radio {{gender === 'male' ? 'active' : ''}}">
+              <radio value="male" checked="{{gender === 'male'}}" bindchange="onGenderChange" color="#c9a96e" />
+              <text>男</text>
+            </label>
+            <label class="form-radio {{gender === 'female' ? 'active' : ''}}">
+              <radio value="female" checked="{{gender === 'female'}}" bindchange="onGenderChange" color="#c9a96e" />
+              <text>女</text>
+            </label>
+          </view>
         </view>
       </view>
-    </view>
 
-    <!-- Submit Button -->
-    <view class="submit-wrap stagger-2">
-      <button class="btn btn-primary btn-submit" bindtap="onSubmit" disabled="{{!surname || !givenName}}">
-        开始分析
-      </button>
-    </view>
-  </view>
-
-  <!-- ===== Loading State ===== -->
-  <view wx:elif="{{loading}}" class="loading-container stagger-1">
-    <view class="loading-spinner"></view>
-    <text class="loading-text">姓名分析中...</text>
-  </view>
-
-  <!-- ===== Error State ===== -->
-  <view wx:elif="{{error}}" class="error-card stagger-1">
-    <text class="error-icon">⚠</text>
-    <text class="error-text">{{error}}</text>
-    <button class="btn btn-ghost btn-small retry-btn" bindtap="onSubmit">重试</button>
-  </view>
-
-  <!-- ===== Results Section ===== -->
-  <view wx:elif="{{result}}" class="result-section">
-    <!-- Result Header -->
-    <view class="result-header stagger-1">
-      <text class="result-name">{{surname}}{{givenName}}</text>
-      <text class="result-gender">{{gender === 'male' ? '男' : '女'}}</text>
-    </view>
-
-    <!-- Five Cells Table -->
-    <view class="section-header stagger-2">
-      <text class="section-title">五格数理</text>
-    </view>
-    <view class="five-cells stagger-2">
-      <view
-        class="cell-row"
-        wx:for="{{result.fiveCells}}"
-        wx:key="index"
-        data-index="{{index}}"
-      >
-        <text class="cell-label">{{item.name}}</text>
-        <text class="cell-strokes">{{item.strokes}} 画</text>
-        <text class="cell-wuxing">{{item.wuxing}}</text>
-        <text class="cell-luck {{item.luck === '吉' ? 'luck-good' : 'luck-bad'}}">{{item.luck}}</text>
+      <!-- Submit Button -->
+      <view class="submit-wrap stagger-2">
+        <button class="btn btn-primary btn-submit" bindtap="onSubmit" disabled="{{!surname || !givenName}}">
+          开始分析
+        </button>
       </view>
     </view>
 
-    <!-- Sancai Analysis Card -->
-    <view class="sancai-card stagger-3">
-      <view class="sancai-header">
-        <text class="sancai-title">三才配置</text>
-      </view>
-      <text class="sancai-text">{{result.sancai}}</text>
+    <!-- ===== Loading State ===== -->
+    <view wx:elif="{{loading}}" class="loading-container stagger-1">
+      <view class="loading-spinner"></view>
+      <text class="loading-text">姓名分析中...</text>
     </view>
 
-    <!-- Overall Judgment -->
-    <view class="judgment-card stagger-4">
-      <view class="judgment-header">
-        <text class="judgment-title">综合评价</text>
-      </view>
-      <text class="judgment-text">{{result.judgment}}</text>
+    <!-- ===== Error State ===== -->
+    <view wx:elif="{{error}}" class="error-card stagger-1">
+      <text class="error-icon">⚠</text>
+      <text class="error-text">{{error}}</text>
+      <button class="btn btn-ghost btn-small retry-btn" bindtap="onSubmit">重试</button>
     </view>
-  </view>
 
+    <!-- ===== Results Section ===== -->
+    <view wx:elif="{{result}}" class="result-section">
+      <!-- Result Header -->
+      <view class="result-header stagger-1">
+        <text class="result-name">{{surname}}{{givenName}}</text>
+        <text class="result-gender">{{gender === 'male' ? '男' : '女'}}</text>
+      </view>
+
+      <!-- Five Cells Table -->
+      <view class="section-header stagger-2">
+        <text class="section-title">五格数理</text>
+      </view>
+      <view class="five-cells stagger-2">
+        <view
+          class="cell-row"
+          wx:for="{{result.fiveCells}}"
+          wx:key="index"
+          data-index="{{index}}"
+        >
+          <text class="cell-label">{{item.name}}</text>
+          <text class="cell-strokes">{{item.strokes}} 画</text>
+          <text class="cell-wuxing">{{item.wuxing}}</text>
+          <text class="cell-luck {{item.luck === '吉' ? 'luck-good' : 'luck-bad'}}">{{item.luck}}</text>
+        </view>
+      </view>
+
+      <!-- Sancai Analysis Card -->
+      <view class="sancai-card stagger-3">
+        <view class="sancai-header">
+          <text class="sancai-title">三才配置</text>
+        </view>
+        <text class="sancai-text">{{result.sancai}}</text>
+      </view>
+
+      <!-- Overall Judgment -->
+      <view class="judgment-card stagger-4">
+        <view class="judgment-header">
+          <text class="judgment-title">综合评价</text>
+        </view>
+        <text class="judgment-text">{{result.judgment}}</text>
+      </view>
+    </view>
+  </skeleton>
 </view>

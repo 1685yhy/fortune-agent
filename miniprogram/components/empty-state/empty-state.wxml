@@ -1,0 +1,31 @@
+<!-- 易理明灯 — Empty State Component -->
+<view class="empty-state-wrap">
+  <view class="empty-state-content">
+    <text class="empty-state-title">{{title}}</text>
+    <text class="empty-state-subtitle">{{subtitle}}</text>
+
+    <!-- Action hints (chat empty state) -->
+    <view class="empty-state-hints" wx:if="{{hints.length > 0}}">
+      <view
+        class="hint-chip"
+        wx:for="{{hints}}"
+        wx:key="index"
+        data-hint="{{item}}"
+      >
+        <text class="hint-text">"{{item}}"</text>
+      </view>
+    </view>
+
+    <!-- Action button -->
+    <button
+      class="empty-state-btn {{hasAction ? 'visible' : ''}}"
+      wx:if="{{hasAction}}"
+      bindtap="onAction"
+    >
+      <text>{{action}}</text>
+    </button>
+
+    <!-- Detail text -->
+    <text class="empty-state-detail" wx:if="{{detail}}">{{detail}}</text>
+  </view>
+</view>

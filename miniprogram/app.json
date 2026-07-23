@@ -55,5 +55,10 @@
   "themeLocation": "theme.json",
   "lazyCodeLoading": "requiredComponents",
   "style": "v2",
-  "sitemapLocation": "sitemap.json"
+  "sitemapLocation": "sitemap.json",
+  "usingComponents": {
+    "skeleton": "components/skeleton/skeleton",
+    "score-ring": "components/score-ring/score-ring",
+    "empty-state": "components/empty-state/empty-state"
+  }
 }

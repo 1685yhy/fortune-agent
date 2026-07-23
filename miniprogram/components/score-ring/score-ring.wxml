@@ -1,0 +1,8 @@
+<!-- 易理明灯 — Animated Score Ring Component -->
+<view class="score-ring-wrap" style="width: {{size}}px; height: {{size}}px;">
+  <canvas type="2d" id="scoreRingCanvas" class="score-ring-canvas" style="width: {{size}}px; height: {{size}}px;"></canvas>
+  <view class="score-ring-center">
+    <text class="score-ring-number" style="color: {{ringColor}};">{{displayScore}}</text>
+    <text class="score-ring-label" wx:if="{{showLabel}}">分</text>
+  </view>
+</view>

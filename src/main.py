@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from .config import load_settings
@@ -31,6 +31,13 @@ from .bot.formatter import split_long_message
 from .storage.dao import UserDAO
 from .storage.member_dao import MemberDAO
 from .storage.session_dao import SessionDAO
+
+# Step 4: Performance optimization imports
+from .utils.cache import (
+    ResponseCache, set_cache, get_cache,
+    TTL_PRECOMPUTE_DAILY, TTL_DAILY_FORTUNE, TTL_HOURLY_FORTUNE,
+    TTL_XUETANG_TOPICS, TTL_XUETANG_LESSON,
+)
 
 # Security imports
 from .security.ratelimit import RateLimiter, RateLimitMiddleware
@@ -62,6 +69,7 @@ llm = None
 member_dao = None
 session_dao = None
 _push_task = None  # 后台推送任务
+_precompute_task = None  # Step 4: 每日预计算任务
 
 # Security globals
 security_rate_limiter = None
@@ -69,6 +77,88 @@ security_auth = None
 security_sanitizer = None
 security_encryptor = None
 security_audit = None
+
+
+async def _daily_precompute_worker():
+    """Step 4: Background task that precomputes daily content.
+
+    Every hour, computes:
+    - Daily calendar (黄历) for anonymous users (generic daily fortune)
+    - Weather/season-based fortune tips
+    Stores results in cache with 'date:' prefix for instant serving.
+    """
+    global settings
+
+    # 天干五行映射 (inline to avoid circular import)
+    STEM_WUXING = {
+        "甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
+        "己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
+    }
+
+    while True:
+        try:
+            now = datetime.now(timezone(timedelta(hours=8)))
+            date_str = now.strftime("%Y-%m-%d")
+            cache = get_cache()
+
+            # Precompute generic daily calendar (anonymous / no-bazi fallback)
+            cache_key = f"date:generic_daily:{date_str}"
+            if cache.get(cache_key) is None:
+                try:
+                    from .engines.calendar import LuckyCalendar
+                    cal = LuckyCalendar("")
+                    from datetime import date as dt_date
+                    # Generate basic day stem/branch for the generic calendar
+                    day_stem, day_branch = cal._day_stem_branch(date_str)
+                    day_ganzhi = f"{day_stem}{day_branch}"
+                    day_wuxing = STEM_WUXING.get(day_stem, "")
+
+                    generic_daily = {
+                        "date": date_str,
+                        "day_ganzhi": day_ganzhi,
+                        "day_wuxing": day_wuxing,
+                        "suitable": ["保持好心情", "与朋友交流", "适度运动"],
+                        "unsuitable": ["冲动决策", "过度消费", "熬夜"],
+                        "personal_advice": "今日宜保持平和心态，顺势而为。",
+                        "mood_reminder": "保持好心情是最好的开运方式。",
+                    }
+                    cache.set(cache_key, generic_daily, ttl_seconds=TTL_PRECOMPUTE_DAILY)
+                    logger.info("Precomputed generic daily calendar: %s", date_str)
+                except Exception as e:
+                    logger.warning("Failed to precompute daily calendar: %s", e)
+
+            # Precompute season/weather-based fortune tip
+            season_key = f"date:season_tip:{date_str}"
+            if cache.get(season_key) is None:
+                try:
+                    month = now.month
+                    if 3 <= month <= 5:
+                        season = "春"
+                        tip = "春属木，宜舒展身心，多接触自然绿色，助旺肝气。"
+                    elif 6 <= month <= 8:
+                        season = "夏"
+                        tip = "夏属火，宜静心养神，午间小憩，避开酷热时段外出。"
+                    elif 9 <= month <= 11:
+                        season = "秋"
+                        tip = "秋属金，宜收敛内省，注意呼吸系统保养，早睡早起。"
+                    else:
+                        season = "冬"
+                        tip = "冬属水，宜温补养藏，注意保暖，晚睡早起待日光。"
+                    season_tip = {
+                        "season": season,
+                        "month": month,
+                        "tip": tip,
+                        "date": date_str,
+                    }
+                    cache.set(season_key, season_tip, ttl_seconds=TTL_PRECOMPUTE_DAILY)
+                    logger.info("Precomputed season tip: %s %s月", season, month)
+                except Exception as e:
+                    logger.warning("Failed to precompute season tip: %s", e)
+
+        except Exception as e:
+            logger.error("Daily precompute worker error: %s", e)
+
+        await asyncio.sleep(3600)  # Run every hour
 
 
 async def _daily_push_worker():
@@ -104,7 +194,7 @@ async def _daily_push_worker():
 async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
     global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, qimen_engine, xingming_engine, embedder, retriever, dao, llm, handler
-    global _push_task, member_dao, session_dao
+    global _push_task, _precompute_task, member_dao, session_dao
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
     # 配置日志
@@ -115,7 +205,12 @@ async def lifespan(app: FastAPI):
 
     settings = load_settings()
 
-    # ── Init Security Components ─────────────────────────────
+    # ── Step 4: Init Response Cache ────────────────────────────────────
+    _response_cache = ResponseCache(max_size=1000)
+    set_cache(_response_cache)
+    logger.info("ResponseCache initialized: max_size=1000, default_ttl=3600s")
+
+    # ── Init Security Components ───────────────────────────────────────
     security_rate_limiter = RateLimiter()
     security_auth = AuthHandler()
     security_sanitizer = InputSanitizer()
@@ -264,10 +359,16 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("推送功能已禁用")
 
+    # Step 4: Start daily precompute background task
+    _precompute_task = asyncio.create_task(_daily_precompute_worker())
+    logger.info("Daily precompute worker started (runs every 3600s)")
+
     yield
     # cleanup
     if _push_task and not _push_task.done():
         _push_task.cancel()
+    if _precompute_task and not _precompute_task.done():
+        _precompute_task.cancel()
 
 
 app = FastAPI(title="Fortune Agent", version="0.1.0", lifespan=lifespan)
@@ -304,6 +405,28 @@ class _DisclaimerMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(_DisclaimerMiddleware)
+
+# Step 4: Cache-Control headers middleware
+# Sets Cache-Control on GET endpoints based on URL patterns
+CACHE_CONTROL_RULES = [
+    ("/api/calendar/today", "public, max-age=600"),
+    ("/api/calendar/daily", "public, max-age=600"),
+    ("/api/hourly-fortune", "public, max-age=600"),
+    ("/api/xuetang/topics", "public, max-age=86400"),
+    ("/api/xuetang/lesson", "public, max-age=3600"),
+]
+
+class _CacheControlMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        if request.method == "GET":
+            for prefix, cache_control in CACHE_CONTROL_RULES:
+                if request.url.path.startswith(prefix):
+                    response.headers["Cache-Control"] = cache_control
+                    break
+        return response
+
+app.add_middleware(_CacheControlMiddleware)
 
 # Pricing API
 app.include_router(pricing_router)

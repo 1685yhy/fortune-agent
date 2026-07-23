@@ -1,5 +1,6 @@
 // 易理明灯 — 奇门遁甲
 const api = require('../../utils/api');
+const { MESSAGES } = require('../../utils/messages');
 
 // ---- Demo / Fallback Data ----
 const FALLBACK_PALACES = [
@@ -26,6 +27,7 @@ const FALLBACK_ADVICE = '1. 近期宜静不宜动，重大决策可延后至下�
 
 Page({
   data: {
+    skeletonLoading: true,
     date: '',
     time: '',
     city: '',
@@ -34,10 +36,17 @@ Page({
     loading: false,
     error: null,
     result: null,
+
+    // Error state
+    showError: false,
+    errorType: '',
   },
 
   onLoad() {
     this._setDefaultDateTime();
+    setTimeout(() => {
+      this.setData({ skeletonLoading: false });
+    }, 300);
   },
 
   // ---- 设置默认日期时间 ----
@@ -93,9 +102,12 @@ Page({
       this._processResult(result);
     } catch (e) {
       console.warn('[Qimen] API failed, using fallback:', e);
-      this._useFallback();
-    } finally {
-      this.setData({ loading: false });
+      this.setData({
+        showError: true,
+        errorType: e.name === 'NetworkError' ? 'network' : 'server',
+        loading: false,
+        submitted: false,
+      });
     }
   },
 
@@ -146,6 +158,11 @@ Page({
   },
 
   // ---- Retry / Reset ----
+  onErrorRetry() {
+    this.setData({ showError: false });
+    this.onSubmit();
+  },
+
   onRetry() {
     this.setData({ error: null, loading: false, submitted: false, result: null });
   },

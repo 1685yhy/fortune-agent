@@ -1,0 +1,29 @@
+<!-- 易理明灯 — Skeleton Loading Component -->
+<view class="skeleton {{type}}" wx:if="{{loading}}">
+  <!-- Card type skeleton -->
+  <view wx:if="{{type === 'card'}}" class="skeleton-card">
+    <view class="skeleton-card-img"></view>
+    <view class="skeleton-card-body">
+      <view class="skeleton-line skeleton-line-title" style="width: {{lines[0] || 60}}%;"></view>
+      <view class="skeleton-line" style="width: {{lines[1] || 90}}%;"></view>
+      <view class="skeleton-line" style="width: {{lines[2] || 75}}%;"></view>
+    </view>
+  </view>
+  <!-- List type skeleton -->
+  <view wx:elif="{{type === 'list'}}" class="skeleton-list">
+    <view class="skeleton-list-item" wx:for="{{listCount}}" wx:key="index">
+      <view class="skeleton-list-avatar"></view>
+      <view class="skeleton-list-body">
+        <view class="skeleton-line skeleton-line-title" style="width: {{lines[0] || 50}}%;"></view>
+        <view class="skeleton-line" style="width: {{lines[1] || 80}}%;"></view>
+      </view>
+    </view>
+  </view>
+  <!-- Text type skeleton (default) -->
+  <view wx:else class="skeleton-text">
+    <view class="skeleton-line" wx:for="{{lines}}" wx:for-index="i" wx:key="index"
+          style="width: {{item}}%; animation-delay: {{i * 0.12}}s;">
+    </view>
+  </view>
+</view>
+<slot wx:else />

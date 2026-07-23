@@ -1,8 +1,10 @@
 // 姓名学 — 五格姓名分析
 const api = require('../../utils/api');
+const { MESSAGES } = require('../../utils/messages');
 
 Page({
   data: {
+    skeletonLoading: true,
     surname: '',
     givenName: '',
     gender: 'male',
@@ -10,6 +12,16 @@ Page({
     loading: false,
     error: null,
     result: null,
+
+    // Error state
+    showError: false,
+    errorType: '',
+  },
+
+  onLoad() {
+    setTimeout(() => {
+      this.setData({ skeletonLoading: false });
+    }, 300);
   },
 
   // ---- 输入处理 ----
@@ -61,11 +73,11 @@ Page({
     } catch (e) {
       console.warn('[xingming] API failed, using demo data:', e);
 
-      // Demo data fallback
-      const demoResult = this.getDemoResult();
       this.setData({
+        showError: true,
+        errorType: e.name === 'NetworkError' ? 'network' : 'server',
         loading: false,
-        result: demoResult,
+        submitted: false,
       });
     }
   },

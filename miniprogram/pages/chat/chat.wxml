@@ -1,7 +1,7 @@
 <!-- 对话 — AI 聊天页面 -->
 <import src="disclaimer-tpl.wxml" />
 
-<view class="page-chat">
+<view class="page-chat content-enter">
   <!-- 顶部导航栏 -->
   <view class="chat-header">
     <view class="chat-header-left">
@@ -52,104 +52,107 @@
   <!-- 免责声明横幅 -->
   <template is="disclaimer-banner" />
 
-  <!-- 消息列表 -->
-  <scroll-view
-    class="message-list"
-    scroll-y="{{true}}"
-    scroll-with-animation="{{true}}"
-    scroll-into-view="{{scrollToView}}"
-    upper-threshold="50"
-  >
-    <view class="message-container">
-      <!-- 空状态 -->
-      <view class="chat-empty" wx:if="{{messages.length === 0 && !isTyping}}">
-        <text class="chat-empty-icon">🔮</text>
-        <text class="chat-empty-title">命理师已就位</text>
-        <text class="chat-empty-hint">选择上方场景或直接告诉我你的困惑，AI命理师为你解读</text>
-      </view>
+  <skeleton loading="{{skeletonLoading}}" type="text" lines="{{[80, 60, 90, 50, 75]}}">
+    <!-- 消息列表 -->
+    <scroll-view
+      class="message-list"
+      scroll-y="{{true}}"
+      scroll-with-animation="{{true}}"
+      scroll-into-view="{{scrollToView}}"
+      upper-threshold="50"
+    >
+      <view class="message-container">
+        <!-- 空状态 -->
+        <empty-state
+          wx:if="{{messages.length === 0 && !isTyping}}"
+          type="empty"
+          subtype="chat"
+          showAction="{{false}}"
+        />
 
-      <!-- 消息气泡 -->
-      <view
-        class="message-wrapper {{msg.role === 'user' ? 'user' : 'assistant'}}"
-        wx:for="{{messages}}"
-        wx:key="id"
-        wx:for-item="msg"
-      >
-        <!-- 场景切换提示 -->
-        <view class="scenario-hint" wx:if="{{msg.type === 'scenario_hint'}}">
-          <text class="scenario-hint-text">{{msg.content}}</text>
-        </view>
-
-        <!-- 普通消息 -->
-        <view wx:else class="message-bubble {{msg.role}} {{msg.type === 'structured' ? 'structured' : ''}}">
-          <view class="bubble-avatar">
-            <text wx:if="{{msg.role === 'assistant'}}">命</text>
-            <text wx:else>我</text>
+        <!-- 消息气泡 -->
+        <view
+          class="message-wrapper {{msg.role === 'user' ? 'user' : 'assistant'}}"
+          wx:for="{{messages}}"
+          wx:key="id"
+          wx:for-item="msg"
+        >
+          <!-- 场景切换提示 -->
+          <view class="scenario-hint" wx:if="{{msg.type === 'scenario_hint'}}">
+            <text class="scenario-hint-text">{{msg.content}}</text>
           </view>
-          <view class="bubble-content">
-            <view class="bubble-text">
-              <rich-text nodes="{{msg.richNodes || msg.content}}"></rich-text>
-            </view>
 
-            <!-- 结构化报告（折叠） -->
-            <view class="structured-report" wx:if="{{msg.structured}}">
-              <view class="report-collapse" bindtap="toggleReport">
-                <text class="report-collapse-title">查看完整分析</text>
+          <!-- 普通消息 -->
+          <view wx:else class="message-bubble {{msg.role}} {{msg.type === 'structured' ? 'structured' : ''}}">
+            <view class="bubble-avatar">
+              <text wx:if="{{msg.role === 'assistant'}}">命</text>
+              <text wx:else>我</text>
+            </view>
+            <view class="bubble-content">
+              <view class="bubble-text">
+                <rich-text nodes="{{msg.richNodes || msg.content}}"></rich-text>
+              </view>
+
+              <!-- 结构化报告（折叠） -->
+              <view class="structured-report" wx:if="{{msg.structured}}">
+                <view class="report-collapse" bindtap="toggleReport">
+                  <text class="report-collapse-title">查看完整分析</text>
+                </view>
+              </view>
+
+              <view class="bubble-time">
+                <text>{{msg.time}}</text>
+                <text class="bubble-copy" data-content="{{msg.content}}" bindtap="copyMessage">复制</text>
               </view>
             </view>
+          </view>
+        </view>
 
-            <view class="bubble-time">
-              <text>{{msg.time}}</text>
-              <text class="bubble-copy" data-content="{{msg.content}}" bindtap="copyMessage">复制</text>
+        <!-- 打字中指示器 -->
+        <view class="message-wrapper assistant" wx:if="{{isTyping}}">
+          <view class="typing-indicator">
+            <view class="typing-avatar">命</view>
+            <view class="typing-bubble">
+              <text class="typing-text">分析中{{typingDots}}</text>
             </view>
           </view>
         </view>
-      </view>
 
-      <!-- 打字中指示器 -->
-      <view class="message-wrapper assistant" wx:if="{{isTyping}}">
-        <view class="typing-indicator">
-          <view class="typing-avatar">命</view>
-          <view class="typing-bubble">
-            <text class="typing-text">分析中{{typingDots}}</text>
-          </view>
+        <!-- 滚动锚点 -->
+        <view id="scroll-bottom"></view>
+      </view>
+    </scroll-view>
+
+    <!-- 输入区域 -->
+    <view class="input-bar">
+      <!-- 语音录制中状态 -->
+      <view class="recording-bar" wx:if="{{isRecording}}">
+        <view class="recording-wave">
+          <view class="wave-bar" wx:for="{{[1,2,3,4,5]}}" wx:key="*this" style="animation-delay: {{item * 0.1}}s;"></view>
+        </view>
+        <text class="recording-hint">正在聆听... 松开发送</text>
+      </view>
+      <view class="input-wrapper">
+        <view class="input-btn" bindtouchstart="startRecord" bindtouchend="stopRecord">
+          <text class="input-btn-icon">{{isRecording ? '🔴' : '🎤'}}</text>
+        </view>
+        <input
+          class="text-input"
+          type="text"
+          placeholder="输入你想问的..."
+          value="{{inputText}}"
+          bindinput="onInput"
+          bindconfirm="sendMessage"
+          confirm-type="send"
+          disabled="{{sending}}"
+        />
+        <view class="input-btn" bindtap="chooseImage">
+          <text class="input-btn-icon">📷</text>
+        </view>
+        <view class="send-btn {{inputText.trim() ? 'active' : ''}}" bindtap="sendMessage">
+          <text>发送</text>
         </view>
       </view>
-
-      <!-- 滚动锚点 -->
-      <view id="scroll-bottom"></view>
     </view>
-  </scroll-view>
-
-  <!-- 输入区域 -->
-  <view class="input-bar">
-    <!-- 语音录制中状态 -->
-    <view class="recording-bar" wx:if="{{isRecording}}">
-      <view class="recording-wave">
-        <view class="wave-bar" wx:for="{{[1,2,3,4,5]}}" wx:key="*this" style="animation-delay: {{item * 0.1}}s;"></view>
-      </view>
-      <text class="recording-hint">正在聆听... 松开发送</text>
-    </view>
-    <view class="input-wrapper">
-      <view class="input-btn" bindtouchstart="startRecord" bindtouchend="stopRecord">
-        <text class="input-btn-icon">{{isRecording ? '🔴' : '🎤'}}</text>
-      </view>
-      <input
-        class="text-input"
-        type="text"
-        placeholder="输入你想问的..."
-        value="{{inputText}}"
-        bindinput="onInput"
-        bindconfirm="sendMessage"
-        confirm-type="send"
-        disabled="{{sending}}"
-      />
-      <view class="input-btn" bindtap="chooseImage">
-        <text class="input-btn-icon">📷</text>
-      </view>
-      <view class="send-btn {{inputText.trim() ? 'active' : ''}}" bindtap="sendMessage">
-        <text>发送</text>
-      </view>
-    </view>
-  </view>
+  </skeleton>
 </view>

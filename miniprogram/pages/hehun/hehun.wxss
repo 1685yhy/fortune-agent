@@ -221,7 +221,7 @@
 }
 
 /* ========================================
-   Score Ring (CSS circular ring)
+   Score Card (uses score-ring component)
    ======================================== */
 .score-card {
   display: flex;
@@ -230,54 +230,11 @@
   padding: var(--space-xl) var(--space-lg);
 }
 
-.score-ring-wrap {
-  position: relative;
-  width: 160px;
-  height: 160px;
-  margin-bottom: var(--space-lg);
-}
-
-.score-ring-bg {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: var(--color-bg-card-alt);
-  border: 8px solid var(--color-border);
-}
-
-.score-ring-fill {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 8px));
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 8px), #000 calc(100% - 8px));
-}
-
-.score-ring-center {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.score-ring-number {
-  font-size: var(--font-4xl);
-  font-weight: 700;
-  line-height: 1;
-}
-
-.score-ring-label {
-  font-size: var(--font-sm);
-  color: var(--color-text-secondary);
-  margin-top: 2px;
-}
-
 .score-ring-title {
   font-size: var(--font-md);
   font-weight: 600;
   color: var(--color-text);
+  margin-top: var(--space-lg);
   margin-bottom: var(--space-sm);
 }
 

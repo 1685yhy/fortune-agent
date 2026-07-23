@@ -1,6 +1,6 @@
 <!-- 我的 — 个人中心 -->
 
-<view class="page-me">
+<view class="page-me content-enter">
   <!-- 用户头部 -->
   <view class="profile-header">
     <view class="profile-avatar">
@@ -17,225 +17,231 @@
     </button>
   </view>
 
-  <!-- 数据统计 -->
-  <view class="stats-row">
-    <view class="stat-card">
-      <text class="stat-value">{{stats.totalConsultations || 0}}</text>
-      <text class="stat-label">咨询次数</text>
-    </view>
-    <view class="stat-card">
-      <text class="stat-value">{{stats.accuracy || '--'}}</text>
-      <text class="stat-label">准确率</text>
-    </view>
-    <view class="stat-card">
-      <text class="stat-value">{{memberPlan}}</text>
-      <text class="stat-label">当前套餐</text>
-    </view>
-  </view>
-
-  <!-- AI 了解你（RLHF 偏好画像） -->
-  <view class="section stagger-1" wx:if="{{hasPreferences && preferences}}">
-    <view class="section-header">
-      <text class="section-title"> AI 了解你</text>
-    </view>
-    <view class="pref-card">
-      <view class="pref-row">
-        <text class="pref-label">偏好风格</text>
-        <text class="pref-value">{{preferences.preferred_style || '学习中'}}</text>
+  <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[50, 90, 75, 60]}}">
+    <!-- 数据统计 -->
+    <view class="stats-row">
+      <view class="stat-card">
+        <text class="stat-value">{{stats.totalConsultations || 0}}</text>
+        <text class="stat-label">咨询次数</text>
       </view>
-      <view class="pref-row">
-        <text class="pref-label">关注话题</text>
-        <text class="pref-value">{{preferences.top_topics.join('、')}}</text>
+      <view class="stat-card">
+        <text class="stat-value">{{stats.accuracy || '--'}}</text>
+        <text class="stat-label">准确率</text>
       </view>
-      <view class="pref-row">
-        <text class="pref-label">认可率</text>
-        <text class="pref-value">{{preferences.accuracy_pct}}%（{{preferences.feedback_count}}次反馈）</text>
-      </view>
-      <view class="pref-note">继续反馈让我更懂你～用 👍/👎 告诉我对不对</view>
-    </view>
-  </view>
-
-  <!-- 八字档案 -->
-  <view class="section stagger-1">
-    <view class="section-header">
-      <text class="section-title"> 八字档案</text>
-      <view class="section-action" bindtap="openBaziEditor">
-        <text wx:if="{{!hasBazi}}">添加</text>
-        <text wx:else>编辑</text>
+      <view class="stat-card">
+        <text class="stat-value">{{memberPlan}}</text>
+        <text class="stat-label">当前套餐</text>
       </view>
     </view>
 
-    <view class="bazi-card" wx:if="{{hasBazi}}">
-      <view class="bazi-row">
-        <text class="bazi-label">出生年</text>
-        <text class="bazi-value">{{baziInfo.birthYear}} 年</text>
+    <!-- AI 了解你（RLHF 偏好画像） -->
+    <view class="section stagger-1" wx:if="{{hasPreferences && preferences}}">
+      <view class="section-header">
+        <text class="section-title"> AI 了解你</text>
       </view>
-      <view class="bazi-row">
-        <text class="bazi-label">出生月</text>
-        <text class="bazi-value">{{baziInfo.birthMonth}} 月</text>
-      </view>
-      <view class="bazi-row">
-        <text class="bazi-label">出生日</text>
-        <text class="bazi-value">{{baziInfo.birthDay}} 日</text>
-      </view>
-      <view class="bazi-row">
-        <text class="bazi-label">时辰</text>
-        <text class="bazi-value">
-          <block wx:if="{{baziInfo.birthHour == 0}}">子时(23-01)</block>
-          <block wx:elif="{{baziInfo.birthHour == 1}}">丑时(01-03)</block>
-          <block wx:elif="{{baziInfo.birthHour == 2}}">寅时(03-05)</block>
-          <block wx:elif="{{baziInfo.birthHour == 3}}">卯时(05-07)</block>
-          <block wx:elif="{{baziInfo.birthHour == 4}}">辰时(07-09)</block>
-          <block wx:elif="{{baziInfo.birthHour == 5}}">巳时(09-11)</block>
-          <block wx:elif="{{baziInfo.birthHour == 6}}">午时(11-13)</block>
-          <block wx:elif="{{baziInfo.birthHour == 7}}">未时(13-15)</block>
-          <block wx:elif="{{baziInfo.birthHour == 8}}">申时(15-17)</block>
-          <block wx:elif="{{baziInfo.birthHour == 9}}">酉时(17-19)</block>
-          <block wx:elif="{{baziInfo.birthHour == 10}}">戌时(19-21)</block>
-          <block wx:elif="{{baziInfo.birthHour == 11}}">亥时(21-23)</block>
-        </text>
-      </view>
-      <view class="bazi-row">
-        <text class="bazi-label">性别</text>
-        <text class="bazi-value">{{baziInfo.gender === 'male' ? '男' : '女'}}</text>
-      </view>
-      <view class="bazi-row">
-        <text class="bazi-label">历法</text>
-        <text class="bazi-value">{{baziInfo.calendar === 'solar' ? '公历' : '农历'}}</text>
-      </view>
-    </view>
-
-    <view class="bazi-empty" wx:else>
-      <text class="bazi-empty-text">设置出生信息以获取精准运势</text>
-    </view>
-  </view>
-
-  <!-- 设置列表 -->
-  <view class="section stagger-2">
-    <view class="section-header">
-      <text class="section-title">️ 设置</text>
-    </view>
-
-    <view class="settings-group">
-      <text class="settings-group-title">推送与数据</text>
-      <!-- 每日推送 -->
-      <view class="settings-item">
-        <view class="setting-left">
-          <text class="setting-icon"></text>
-          <text class="setting-label">运势订阅</text>
+      <view class="pref-card">
+        <view class="pref-row">
+          <text class="pref-label">偏好风格</text>
+          <text class="pref-value">{{preferences.preferred_style || '学习中'}}</text>
         </view>
-        <switch class="setting-switch" checked="{{dailyPush}}" bindchange="toggleDailyPush" color="#c9a96e" />
-      </view>
-
-      <!-- 数据导出 -->
-      <view class="settings-item" bindtap="exportData">
-        <view class="setting-left">
-          <text class="setting-icon"></text>
-          <text class="setting-label">数据导出</text>
+        <view class="pref-row">
+          <text class="pref-label">关注话题</text>
+          <text class="pref-value">{{preferences.top_topics.join('、')}}</text>
         </view>
-        <text class="setting-arrow">›</text>
-      </view>
-
-      <!-- 数据删除 -->
-      <view class="settings-item" bindtap="deleteData">
-        <view class="setting-left">
-          <text class="setting-icon danger"></text>
-          <text class="setting-label danger-label">删除所有数据</text>
+        <view class="pref-row">
+          <text class="pref-label">认可率</text>
+          <text class="pref-value">{{preferences.accuracy_pct}}%（{{preferences.feedback_count}}次反馈）</text>
         </view>
-        <text class="setting-arrow">›</text>
+        <view class="pref-note">继续反馈让我更懂你～用 👍/👎 告诉我对不对</view>
       </view>
     </view>
-  </view>
 
-  <!-- 更多工具（Sub-project B） -->
-  <view class="section stagger-3">
-    <view class="section-header">
-      <text class="section-title"> 更多工具</text>
-    </view>
-    <view class="settings-group">
-      <view class="settings-item" bindtap="goHehun">
-        <view class="setting-left">
-          <text class="setting-icon">💑</text>
-          <text class="setting-label">合婚配对</text>
+    <!-- 八字档案 -->
+    <view class="section stagger-1">
+      <view class="section-header">
+        <text class="section-title"> 八字档案</text>
+        <view class="section-action" bindtap="openBaziEditor">
+          <text wx:if="{{!hasBazi}}">添加</text>
+          <text wx:else>编辑</text>
         </view>
-        <text class="setting-arrow">›</text>
-      </view>
-      <view class="settings-item" bindtap="goQimen">
-        <view class="setting-left">
-          <text class="setting-icon">☯</text>
-          <text class="setting-label">奇门遁甲</text>
-        </view>
-        <text class="setting-arrow">›</text>
-      </view>
-      <view class="settings-item" bindtap="goXingming">
-        <view class="setting-left">
-          <text class="setting-icon"></text>
-          <text class="setting-label">姓名学</text>
-        </view>
-        <text class="setting-arrow">›</text>
-      </view>
-      <view class="settings-item" bindtap="goXuetang">
-        <view class="setting-left">
-          <text class="setting-icon">📖</text>
-          <text class="setting-label">易理学堂</text>
-        </view>
-        <text class="setting-arrow">›</text>
-      </view>
-    </view>
-  </view>
-
-  <!-- 关于 -->
-  <view class="section stagger-4">
-    <view class="section-header">
-      <text class="section-title">关于</text>
-    </view>
-
-    <view class="settings-group">
-      <text class="settings-group-title">应用信息</text>
-      <view class="settings-item">
-        <view class="setting-left">
-          <text class="setting-icon"></text>
-          <text class="setting-label">版本</text>
-        </view>
-        <text class="setting-value">{{appVersion}}</text>
       </view>
 
-      <view class="settings-item" bindtap="toggleDisclaimer">
-        <view class="setting-left">
-          <text class="setting-icon">️</text>
-          <text class="setting-label">免责声明</text>
+      <view class="bazi-card" wx:if="{{hasBazi}}">
+        <view class="bazi-row">
+          <text class="bazi-label">出生年</text>
+          <text class="bazi-value">{{baziInfo.birthYear}} 年</text>
         </view>
-        <text class="setting-arrow">›</text>
+        <view class="bazi-row">
+          <text class="bazi-label">出生月</text>
+          <text class="bazi-value">{{baziInfo.birthMonth}} 月</text>
+        </view>
+        <view class="bazi-row">
+          <text class="bazi-label">出生日</text>
+          <text class="bazi-value">{{baziInfo.birthDay}} 日</text>
+        </view>
+        <view class="bazi-row">
+          <text class="bazi-label">时辰</text>
+          <text class="bazi-value">
+            <block wx:if="{{baziInfo.birthHour == 0}}">子时(23-01)</block>
+            <block wx:elif="{{baziInfo.birthHour == 1}}">丑时(01-03)</block>
+            <block wx:elif="{{baziInfo.birthHour == 2}}">寅时(03-05)</block>
+            <block wx:elif="{{baziInfo.birthHour == 3}}">卯时(05-07)</block>
+            <block wx:elif="{{baziInfo.birthHour == 4}}">辰时(07-09)</block>
+            <block wx:elif="{{baziInfo.birthHour == 5}}">巳时(09-11)</block>
+            <block wx:elif="{{baziInfo.birthHour == 6}}">午时(11-13)</block>
+            <block wx:elif="{{baziInfo.birthHour == 7}}">未时(13-15)</block>
+            <block wx:elif="{{baziInfo.birthHour == 8}}">申时(15-17)</block>
+            <block wx:elif="{{baziInfo.birthHour == 9}}">酉时(17-19)</block>
+            <block wx:elif="{{baziInfo.birthHour == 10}}">戌时(19-21)</block>
+            <block wx:elif="{{baziInfo.birthHour == 11}}">亥时(21-23)</block>
+          </text>
+        </view>
+        <view class="bazi-row">
+          <text class="bazi-label">性别</text>
+          <text class="bazi-value">{{baziInfo.gender === 'male' ? '男' : '女'}}</text>
+        </view>
+        <view class="bazi-row">
+          <text class="bazi-label">历法</text>
+          <text class="bazi-value">{{baziInfo.calendar === 'solar' ? '公历' : '农历'}}</text>
+        </view>
       </view>
 
-      <!-- 隐私政策 -->
-      <view class="settings-item" bindtap="goPrivacy">
-        <view class="setting-left">
-          <text class="setting-icon">🔒</text>
-          <text class="setting-label">隐私政策</text>
-        </view>
-        <text class="setting-arrow">›</text>
-      </view>
-
-      <!-- 用户协议 -->
-      <view class="settings-item" bindtap="goAgreement">
-        <view class="setting-left">
-          <text class="setting-icon">📜</text>
-          <text class="setting-label">用户协议</text>
-        </view>
-        <text class="setting-arrow">›</text>
-      </view>
-
-      <!-- 反馈 -->
-      <view class="settings-item feedback-item">
-        <view class="feedback-input-area">
-          <text class="setting-icon"></text>
-          <input class="feedback-input" type="text" placeholder="提供反馈帮助改进..." value="{{feedbackText}}" bindinput="onFeedbackInput" />
-        </view>
-        <button class="btn btn-primary btn-small" loading="{{sendingFeedback}}" bindtap="submitFeedback">发送</button>
+      <view class="bazi-empty" wx:else>
+        <empty-state
+          type="empty"
+          subtype="bazi"
+          showAction="{{false}}"
+        />
       </view>
     </view>
-  </view>
+
+    <!-- 设置列表 -->
+    <view class="section stagger-2">
+      <view class="section-header">
+        <text class="section-title">️ 设置</text>
+      </view>
+
+      <view class="settings-group">
+        <text class="settings-group-title">推送与数据</text>
+        <!-- 每日推送 -->
+        <view class="settings-item">
+          <view class="setting-left">
+            <text class="setting-icon"></text>
+            <text class="setting-label">运势订阅</text>
+          </view>
+          <switch class="setting-switch" checked="{{dailyPush}}" bindchange="toggleDailyPush" color="#c9a96e" />
+        </view>
+
+        <!-- 数据导出 -->
+        <view class="settings-item" bindtap="exportData">
+          <view class="setting-left">
+            <text class="setting-icon"></text>
+            <text class="setting-label">数据导出</text>
+          </view>
+          <text class="setting-arrow">›</text>
+        </view>
+
+        <!-- 数据删除 -->
+        <view class="settings-item" bindtap="deleteData">
+          <view class="setting-left">
+            <text class="setting-icon danger"></text>
+            <text class="setting-label danger-label">删除所有数据</text>
+          </view>
+          <text class="setting-arrow">›</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 更多工具（Sub-project B） -->
+    <view class="section stagger-3">
+      <view class="section-header">
+        <text class="section-title"> 更多工具</text>
+      </view>
+      <view class="settings-group">
+        <view class="settings-item" bindtap="goHehun">
+          <view class="setting-left">
+            <text class="setting-icon">💑</text>
+            <text class="setting-label">合婚配对</text>
+          </view>
+          <text class="setting-arrow">›</text>
+        </view>
+        <view class="settings-item" bindtap="goQimen">
+          <view class="setting-left">
+            <text class="setting-icon">☯</text>
+            <text class="setting-label">奇门遁甲</text>
+          </view>
+          <text class="setting-arrow">›</text>
+        </view>
+        <view class="settings-item" bindtap="goXingming">
+          <view class="setting-left">
+            <text class="setting-icon"></text>
+            <text class="setting-label">姓名学</text>
+          </view>
+          <text class="setting-arrow">›</text>
+        </view>
+        <view class="settings-item" bindtap="goXuetang">
+          <view class="setting-left">
+            <text class="setting-icon">📖</text>
+            <text class="setting-label">易理学堂</text>
+          </view>
+          <text class="setting-arrow">›</text>
+        </view>
+      </view>
+    </view>
+
+    <!-- 关于 -->
+    <view class="section stagger-4">
+      <view class="section-header">
+        <text class="section-title">关于</text>
+      </view>
+
+      <view class="settings-group">
+        <text class="settings-group-title">应用信息</text>
+        <view class="settings-item">
+          <view class="setting-left">
+            <text class="setting-icon"></text>
+            <text class="setting-label">版本</text>
+          </view>
+          <text class="setting-value">{{appVersion}}</text>
+        </view>
+
+        <view class="settings-item" bindtap="toggleDisclaimer">
+          <view class="setting-left">
+            <text class="setting-icon">️</text>
+            <text class="setting-label">免责声明</text>
+          </view>
+          <text class="setting-arrow">›</text>
+        </view>
+
+        <!-- 隐私政策 -->
+        <view class="settings-item" bindtap="goPrivacy">
+          <view class="setting-left">
+            <text class="setting-icon">🔒</text>
+            <text class="setting-label">隐私政策</text>
+          </view>
+          <text class="setting-arrow">›</text>
+        </view>
+
+        <!-- 用户协议 -->
+        <view class="settings-item" bindtap="goAgreement">
+          <view class="setting-left">
+            <text class="setting-icon">📜</text>
+            <text class="setting-label">用户协议</text>
+          </view>
+          <text class="setting-arrow">›</text>
+        </view>
+
+        <!-- 反馈 -->
+        <view class="settings-item feedback-item">
+          <view class="feedback-input-area">
+            <text class="setting-icon"></text>
+            <input class="feedback-input" type="text" placeholder="提供反馈帮助改进..." value="{{feedbackText}}" bindinput="onFeedbackInput" />
+          </view>
+          <button class="btn btn-primary btn-small" loading="{{sendingFeedback}}" bindtap="submitFeedback">发送</button>
+        </view>
+      </view>
+    </view>
+  </skeleton>
 
   <!-- 免责声明弹窗 -->
   <view class="disclaimer-overlay {{showDisclaimer ? 'show' : ''}}" bindtap="toggleDisclaimer">

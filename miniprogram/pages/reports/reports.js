@@ -1,8 +1,10 @@
 // 报告 — 历史解读报告
 const api = require('../../utils/api');
+const { MESSAGES } = require('../../utils/messages');
 
 Page({
   data: {
+    skeletonLoading: true,
     reports: [],
     loading: true,
     refreshing: false,
@@ -16,12 +18,23 @@ Page({
     advisorData: null,
     advisorLoading: false,
     showAdvisor: false,
+
+    // Error state
+    showError: false,
+    errorType: '',
   },
 
   onLoad() {
     this.startLoadingTextRotation();
     this.loadReports();
     this.loadAdvisor();
+  },
+
+  onReady() {
+    // Clear skeleton after initial render
+    setTimeout(() => {
+      this.setData({ skeletonLoading: false });
+    }, 400);
   },
 
   onUnload() {
@@ -97,15 +110,20 @@ Page({
           loading: false,
         });
       })
-      .catch(() => {
-        // 后端不可用，使用演示数据
-        wx.showToast({
-          title: '加载失败，已显示示例数据',
-          icon: 'none',
-          duration: 2000,
-        });
+      .catch((e) => {
+        const errType = e && e.name === 'NetworkError' ? 'network' : 'server';
         if (this.data.page === 1) {
-          this.setDemoData();
+          this.setData({
+            showError: true,
+            errorType: errType,
+            loading: false,
+          });
+        } else {
+          wx.showToast({
+            title: errType === 'network' ? MESSAGES.network.subtitle : MESSAGES.server.subtitle,
+            icon: 'none',
+            duration: 2000,
+          });
         }
         this.setData({ loading: false });
       })
@@ -291,6 +309,18 @@ Page({
   // ---- 页面跳转 ----
   goChat() {
     wx.switchTab({ url: '/pages/chat/chat' });
+  },
+
+  // ---- Retry after error ----
+  onErrorRetry() {
+    this.setData({
+      showError: false,
+      loading: true,
+      page: 1,
+      hasMore: true,
+    });
+    this.startLoadingTextRotation();
+    this.loadReports();
   },
 
   // ---- 场景图标映射 ----

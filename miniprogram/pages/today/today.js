@@ -1,6 +1,7 @@
 // 易理明灯 — 今日运势（仪式感首页）
 const canvasHelper = require('../../utils/canvas-helper');
 const api = require('../../utils/api');
+const { MESSAGES } = require('../../utils/messages');
 
 // 时辰数据
 const HOURS = [
@@ -43,6 +44,8 @@ function calcHourMark(dayStem, hourBranch) {
 
 Page({
   data: {
+    skeletonLoading: true,
+    hourSkeletonLoading: true,
     _animated: false,
     showTaiji: true,
     showParticles: false,
@@ -69,6 +72,11 @@ Page({
     moodSaved: false,
     touchStartX: 0,
     touchStartY: 0,
+
+    // Error/empty state
+    showError: false,
+    errorType: '',
+    errorSubtype: '',
   },
 
   onReady() {
@@ -80,9 +88,16 @@ Page({
   async _loadData() {
     try {
       const data = await api.getTodayFortune();
+      this.setData({ skeletonLoading: false });
       this._processData(data);
       this._startEntrance();
     } catch (e) {
+      this.setData({
+        skeletonLoading: false,
+        showError: true,
+        errorType: e.name === 'NetworkError' ? 'network' : 'server',
+        errorSubtype: '',
+      });
       this._showFallback();
     }
   },
@@ -126,6 +141,7 @@ Page({
 
   _showFallback() {
     this.setData({
+      skeletonLoading: false, hourSkeletonLoading: false,
       score: 70, targetScore: 70, scoreLevel: 'good', levelLabel: '吉',
       aiAdvice: '保持平和，顺势而为。',
       _animated: true, showTaiji: false, showParticles: false, showRing: true,
@@ -179,11 +195,12 @@ Page({
           h.isWorst = i === worstHourIndex;
         });
 
-        this.setData({ hours: enhanced, hourlyLoaded: true });
+        this.setData({ hours: enhanced, hourlyLoaded: true, hourSkeletonLoading: false });
       }
     } catch (e) {
       // Keep existing locally-calculated hours
       console.warn('[Today] Hourly fortune API unavailable, using local calculation');
+      this.setData({ hourSkeletonLoading: false });
     }
   },
 
@@ -357,6 +374,12 @@ Page({
       title: '今日运势 · ' + this.data.ganzhi,
       path: '/pages/today/today',
     };
+  },
+
+  // ---- Retry after error ----
+  onErrorRetry() {
+    this.setData({ showError: false, skeletonLoading: true });
+    this._loadData();
   },
 });
 

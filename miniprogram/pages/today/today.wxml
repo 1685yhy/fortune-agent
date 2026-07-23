@@ -1,136 +1,147 @@
 <!-- 易理明灯 — 今日运势（仪式感首页） -->
 <view class="page {{_animated ? 'animated' : ''}}" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
 
-  <!-- Section 1: 运势核心区 -->
-  <view class="hero-section">
-    <!-- Canvas 动画层 -->
-    <view class="hero-canvas-wrap">
-      <!-- 太极(入场时) -->
-      <canvas type="2d" id="taijiCanvas" class="hero-canvas hero-canvas-taiji" wx:if="{{showTaiji}}"></canvas>
-      <!-- 粒子(过渡时) -->
-      <canvas type="2d" id="particleCanvas" class="hero-canvas hero-canvas-particles" wx:if="{{showParticles}}"></canvas>
-      <!-- 分数环(最终稳定) -->
-      <canvas type="2d" id="ringCanvas" class="hero-canvas hero-canvas-ring {{showRing ? 'visible' : ''}}"></canvas>
-      <!-- 环内文字(覆盖在Canvas上) -->
-      <view class="ring-label" wx:if="{{showRing}}">
-        <text class="ring-score">{{score}}</text>
-        <text class="ring-unit">分</text>
-        <text class="ring-level {{scoreLevel}}">{{levelLabel}}</text>
+  <!-- Error State -->
+  <empty-state
+    wx:if="{{showError}}"
+    type="{{errorType}}"
+    showAction="{{true}}"
+    bind:action="onErrorRetry"
+  />
+
+  <view wx:else>
+    <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[70, 90, 80, 60, 85]}}">
+    <!-- Section 1: 运势核心区 -->
+    <view class="hero-section">
+      <!-- Canvas 动画层 -->
+      <view class="hero-canvas-wrap">
+        <!-- 太极(入场时) -->
+        <canvas type="2d" id="taijiCanvas" class="hero-canvas hero-canvas-taiji" wx:if="{{showTaiji}}"></canvas>
+        <!-- 粒子(过渡时) -->
+        <canvas type="2d" id="particleCanvas" class="hero-canvas hero-canvas-particles" wx:if="{{showParticles}}"></canvas>
+        <!-- 分数环(最终稳定) -->
+        <canvas type="2d" id="ringCanvas" class="hero-canvas hero-canvas-ring {{showRing ? 'visible' : ''}}"></canvas>
+        <!-- 环内文字(覆盖在Canvas上) -->
+        <view class="ring-label" wx:if="{{showRing}}">
+          <text class="ring-score">{{score}}</text>
+          <text class="ring-unit">分</text>
+          <text class="ring-level {{scoreLevel}}">{{levelLabel}}</text>
+        </view>
+      </view>
+
+      <!-- 农历日期 -->
+      <view class="hero-date" wx:if="{{showRing}}">
+        <text class="hero-date-text">{{lunarDate}}</text>
+        <text class="hero-jieqi" wx:if="{{jieqi}}">· {{jieqi}}</text>
+      </view>
+
+      <!-- AI 一句话解读 -->
+      <view class="hero-advice" wx:if="{{showRing && aiAdvice}}">
+        <text class="advice-mark">"</text>
+        <text class="advice-text">{{aiAdvice}}</text>
+        <text class="advice-mark">"</text>
       </view>
     </view>
 
-    <!-- 农历日期 -->
-    <view class="hero-date" wx:if="{{showRing}}">
-      <text class="hero-date-text">{{lunarDate}}</text>
-      <text class="hero-jieqi" wx:if="{{jieqi}}">· {{jieqi}}</text>
+    <!-- Section 2: 时辰运势时间线 -->
+    <view class="section" wx:if="{{showRing}}">
+      <view class="section-header">
+        <text class="section-title">时辰运势</text>
+        <text class="section-hint">左右滑动查看全天</text>
+      </view>
+      <skeleton loading="{{hourSkeletonLoading}}" type="text" lines="{{[90, 70, 80]}}">
+        <scroll-view class="hour-scroll" scroll-x="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
+          <view class="hour-track">
+            <view
+              class="hour-item {{item.active ? 'active' : ''}} {{item.isBest ? 'hour-best' : ''}} {{item.isWorst ? 'hour-worst' : ''}}"
+              wx:for="{{hours}}"
+              wx:key="index"
+              data-index="{{index}}"
+              bindtap="onHourTap">
+              <text class="hour-name">{{item.name}}</text>
+              <text class="hour-time">{{item.time}}</text>
+              <text class="hour-mark {{item.level}}">{{item.mark}}</text>
+              <text class="hour-score" wx:if="{{item.score > 0}}">{{item.score}}</text>
+            </view>
+          </view>
+        </scroll-view>
+        <!-- 选中时辰详情 -->
+        <view class="hour-detail" wx:if="{{selectedHour}}">
+          <text class="hour-detail-ganzhi">{{selectedHour.ganzhi}}</text>
+          <text class="hour-detail-advice">{{selectedHour.advice}}</text>
+        </view>
+      </skeleton>
     </view>
 
-    <!-- AI 一句话解读 -->
-    <view class="hero-advice" wx:if="{{showRing && aiAdvice}}">
-      <text class="advice-mark">"</text>
-      <text class="advice-text">{{aiAdvice}}</text>
-      <text class="advice-mark">"</text>
+    <!-- Section 3: 幸运三连 -->
+    <view class="section" wx:if="{{showRing}}">
+      <view class="lucky-row">
+        <view class="lucky-card">
+          <view class="lucky-icon" style="background: {{luckyColor.hex}};"></view>
+          <text class="lucky-label">幸运色</text>
+          <text class="lucky-value">{{luckyColor.name}}</text>
+        </view>
+        <view class="lucky-card">
+          <text class="lucky-icon-text">🧭</text>
+          <text class="lucky-label">吉方</text>
+          <text class="lucky-value">{{luckyDirection}}</text>
+        </view>
+        <view class="lucky-card">
+          <text class="lucky-icon-text">🔢</text>
+          <text class="lucky-label">幸运数</text>
+          <text class="lucky-value">{{luckyNumber}}</text>
+        </view>
+      </view>
     </view>
-  </view>
 
-  <!-- Section 2: 时辰运势时间线 -->
-  <view class="section" wx:if="{{showRing}}">
-    <view class="section-header">
-      <text class="section-title">时辰运势</text>
-      <text class="section-hint">左右滑动查看全天</text>
+    <!-- Section 4: 宜忌 -->
+    <view class="section" wx:if="{{showRing}}">
+      <view class="yi-ji-row">
+        <view class="yi-ji-col yi">
+          <text class="yi-ji-title yi-title">宜</text>
+          <view class="yi-ji-item" wx:for="{{yi}}" wx:key="index">
+            <text class="yi-ji-text">{{item.action}}</text>
+            <text class="yi-ji-time" wx:if="{{item.time}}">{{item.time}}</text>
+          </view>
+        </view>
+        <view class="yi-ji-col ji">
+          <text class="yi-ji-title ji-title">忌</text>
+          <view class="yi-ji-item" wx:for="{{ji}}" wx:key="index">
+            <text class="yi-ji-text">{{item.action}}</text>
+            <text class="yi-ji-time" wx:if="{{item.time}}">{{item.time}}</text>
+          </view>
+        </view>
+      </view>
     </view>
-    <scroll-view class="hour-scroll" scroll-x="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
-      <view class="hour-track">
+
+    <!-- Section 5: 本周预览 -->
+    <view class="section" wx:if="{{showRing}}">
+      <view class="section-header">
+        <text class="section-title">本周运势</text>
+      </view>
+      <canvas type="2d" id="weekCanvas" class="week-canvas"></canvas>
+    </view>
+
+    <!-- Section 6: 心情记录 -->
+    <view class="section" wx:if="{{showRing}}">
+      <view class="section-header">
+        <text class="section-title">今日心情</text>
+      </view>
+      <view class="mood-row">
         <view
-          class="hour-item {{item.active ? 'active' : ''}} {{item.isBest ? 'hour-best' : ''}} {{item.isWorst ? 'hour-worst' : ''}}"
-          wx:for="{{hours}}"
-          wx:key="index"
-          data-index="{{index}}"
-          bindtap="onHourTap">
-          <text class="hour-name">{{item.name}}</text>
-          <text class="hour-time">{{item.time}}</text>
-          <text class="hour-mark {{item.level}}">{{item.mark}}</text>
-          <text class="hour-score" wx:if="{{item.score > 0}}">{{item.score}}</text>
+          class="mood-btn {{mood === item.key ? 'active' : ''}}"
+          wx:for="{{moods}}"
+          wx:key="key"
+          data-key="{{item.key}}"
+          bindtap="onMoodTap">
+          <text class="mood-emoji">{{item.emoji}}</text>
+          <text class="mood-label">{{item.label}}</text>
         </view>
       </view>
-    </scroll-view>
-    <!-- 选中时辰详情 -->
-    <view class="hour-detail" wx:if="{{selectedHour}}">
-      <text class="hour-detail-ganzhi">{{selectedHour.ganzhi}}</text>
-      <text class="hour-detail-advice">{{selectedHour.advice}}</text>
+      <view class="mood-feedback" wx:if="{{moodSaved}}">
+        <text class="mood-feedback-text">已记录，愿你今天一切顺遂</text>
+      </view>
     </view>
-  </view>
 
-  <!-- Section 3: 幸运三连 -->
-  <view class="section" wx:if="{{showRing}}">
-    <view class="lucky-row">
-      <view class="lucky-card">
-        <view class="lucky-icon" style="background: {{luckyColor.hex}};"></view>
-        <text class="lucky-label">幸运色</text>
-        <text class="lucky-value">{{luckyColor.name}}</text>
-      </view>
-      <view class="lucky-card">
-        <text class="lucky-icon-text">🧭</text>
-        <text class="lucky-label">吉方</text>
-        <text class="lucky-value">{{luckyDirection}}</text>
-      </view>
-      <view class="lucky-card">
-        <text class="lucky-icon-text">🔢</text>
-        <text class="lucky-label">幸运数</text>
-        <text class="lucky-value">{{luckyNumber}}</text>
-      </view>
-    </view>
   </view>
-
-  <!-- Section 4: 宜忌 -->
-  <view class="section" wx:if="{{showRing}}">
-    <view class="yi-ji-row">
-      <view class="yi-ji-col yi">
-        <text class="yi-ji-title yi-title">宜</text>
-        <view class="yi-ji-item" wx:for="{{yi}}" wx:key="index">
-          <text class="yi-ji-text">{{item.action}}</text>
-          <text class="yi-ji-time" wx:if="{{item.time}}">{{item.time}}</text>
-        </view>
-      </view>
-      <view class="yi-ji-col ji">
-        <text class="yi-ji-title ji-title">忌</text>
-        <view class="yi-ji-item" wx:for="{{ji}}" wx:key="index">
-          <text class="yi-ji-text">{{item.action}}</text>
-          <text class="yi-ji-time" wx:if="{{item.time}}">{{item.time}}</text>
-        </view>
-      </view>
-    </view>
-  </view>
-
-  <!-- Section 5: 本周预览 -->
-  <view class="section" wx:if="{{showRing}}">
-    <view class="section-header">
-      <text class="section-title">本周运势</text>
-    </view>
-    <canvas type="2d" id="weekCanvas" class="week-canvas"></canvas>
-  </view>
-
-  <!-- Section 6: 心情记录 -->
-  <view class="section" wx:if="{{showRing}}">
-    <view class="section-header">
-      <text class="section-title">今日心情</text>
-    </view>
-    <view class="mood-row">
-      <view
-        class="mood-btn {{mood === item.key ? 'active' : ''}}"
-        wx:for="{{moods}}"
-        wx:key="key"
-        data-key="{{item.key}}"
-        bindtap="onMoodTap">
-        <text class="mood-emoji">{{item.emoji}}</text>
-        <text class="mood-label">{{item.label}}</text>
-      </view>
-    </view>
-    <view class="mood-feedback" wx:if="{{moodSaved}}">
-      <text class="mood-feedback-text">已记录，愿你今天一切顺遂</text>
-    </view>
-  </view>
-
-  <!-- 底部留白 -->
-  <view class="section-bottom-space"></view>
 </view>
