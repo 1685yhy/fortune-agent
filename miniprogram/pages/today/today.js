@@ -56,6 +56,7 @@ Page({
     levelLabel: '',
     aiAdvice: '',
     hours: HOURS,
+    hourlyLoaded: false,
     selectedHour: null,
     luckyColor: { name: '', hex: '' },
     luckyDirection: '',
@@ -72,6 +73,7 @@ Page({
 
   onReady() {
     this._loadData();
+    this._loadHourlyFortune();
   },
 
   // ---- 数据加载 ----
@@ -134,6 +136,55 @@ Page({
       luckyDirection: '东南', luckyNumber: '6, 8',
     });
     this._drawRing(70);
+  },
+
+  // ---- 时辰运势 API 增强（Sub-project B）----
+  async _loadHourlyFortune() {
+    try {
+      const app = getApp();
+      const userId = app.globalData?.userInfo?.id || '';
+      const data = await api.getHourlyFortune(userId);
+      if (data && data.hours && data.hours.length === 12) {
+        // Merge API data with existing hours, preserving local mark info
+        const now = new Date();
+        const currentHour = now.getHours();
+        const enhanced = this.data.hours.map((h, i) => {
+          const apiHour = data.hours[i] || {};
+          const hourStart = i * 2 - 1;
+          const isActive = (currentHour >= (hourStart < 0 ? hourStart + 24 : hourStart) &&
+                            currentHour < (hourStart + 2 < 0 ? hourStart + 26 : hourStart + 2));
+          return {
+            ...h,
+            ganzhi: apiHour.ganzhi || h.ganzhi || '',
+            score: apiHour.score || 0,
+            advice: apiHour.advice || h.advice || '',
+            level: apiHour.level || h.level || 'fair',
+            mark: apiHour.mark || h.mark || '',
+            active: isActive,
+          };
+        });
+
+        // Determine best/worst hours
+        const scored = enhanced.filter(h => h.score > 0);
+        let bestHourIndex = -1, worstHourIndex = -1;
+        if (scored.length > 0) {
+          const best = scored.reduce((a, b) => (a.score || 0) >= (b.score || 0) ? a : b);
+          const worst = scored.reduce((a, b) => (a.score || 0) <= (b.score || 0) ? a : b);
+          bestHourIndex = enhanced.findIndex(h => h.name === best.name);
+          worstHourIndex = enhanced.findIndex(h => h.name === worst.name);
+        }
+
+        enhanced.forEach((h, i) => {
+          h.isBest = i === bestHourIndex;
+          h.isWorst = i === worstHourIndex;
+        });
+
+        this.setData({ hours: enhanced, hourlyLoaded: true });
+      }
+    } catch (e) {
+      // Keep existing locally-calculated hours
+      console.warn('[Today] Hourly fortune API unavailable, using local calculation');
+    }
   },
 
   // ---- 入场动画编排 ----

@@ -42,7 +42,7 @@
     <scroll-view class="hour-scroll" scroll-x="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
       <view class="hour-track">
         <view
-          class="hour-item {{item.active ? 'active' : ''}}"
+          class="hour-item {{item.active ? 'active' : ''}} {{item.isBest ? 'hour-best' : ''}} {{item.isWorst ? 'hour-worst' : ''}}"
           wx:for="{{hours}}"
           wx:key="index"
           data-index="{{index}}"
@@ -50,6 +50,7 @@
           <text class="hour-name">{{item.name}}</text>
           <text class="hour-time">{{item.time}}</text>
           <text class="hour-mark {{item.level}}">{{item.mark}}</text>
+          <text class="hour-score" wx:if="{{item.score > 0}}">{{item.score}}</text>
         </view>
       </view>
     </scroll-view>

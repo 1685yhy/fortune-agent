@@ -186,6 +186,37 @@
 .hour-mark.fair { color: var(--warning); background: rgba(194,133,42,0.15); }
 .hour-mark.poor { color: var(--cinnabar); background: rgba(194,65,61,0.15); }
 
+/* ---- 时辰评分数值 ---- */
+.hour-score {
+  font-size: 10px;
+  color: var(--color-text-tertiary);
+  margin-top: 2px;
+  font-weight: 500;
+}
+
+/* ---- 最佳/最差时辰高亮 ---- */
+.hour-best {
+  background: rgba(91,140,90,0.12);
+  border: 1px solid rgba(91,140,90,0.3);
+  border-radius: var(--radius-md);
+}
+.hour-best .hour-name {
+  color: var(--jade);
+  font-weight: 600;
+}
+.hour-worst {
+  background: rgba(194,65,61,0.08);
+  border: 1px solid rgba(194,65,61,0.2);
+  border-radius: var(--radius-md);
+}
+.hour-worst .hour-name {
+  color: var(--cinnabar);
+}
+.hour-worst .hour-mark.poor {
+  color: #fff;
+  background: var(--cinnabar);
+}
+
 .hour-detail {
   margin-top: var(--space-md);
   padding: var(--space-md);
