@@ -151,6 +151,7 @@ async def lifespan(app: FastAPI):
     dream_engine = DreamEngine()
     hehun_engine = HehunEngine()
     xingming_engine = XingmingEngine()
+    qimen_engine = QimenEngine()
     # 初始化 Embedder（确定性加载）
     embedder = Embedder(model_name=settings.embedding_model)
     if not embedder.load():
@@ -210,6 +211,7 @@ async def lifespan(app: FastAPI):
         engine, ziwei_engine, liuyao_engine, fengshui_engine,
         mianxiang_engine, zeri_engine, retriever, llm, dao, dream_engine=dream_engine,
         hehun_engine=hehun_engine,
+        qimen_engine=qimen_engine,
         xingming_engine=xingming_engine,
         session_dao=session_dao,
     )
@@ -229,6 +231,10 @@ async def lifespan(app: FastAPI):
     # Task 3: Setup xingming API with xingming_engine
     from .api.xingming import setup as setup_xingming
     setup_xingming(xingming_engine)
+
+    # Task 2: Setup qimen API with qimen_engine, retriever, llm
+    from .api.qimen import setup as setup_qimen
+    setup_qimen(qimen_engine, retriever, llm)
 
     # Phase 5: Setup user API
     setup_user(dao, session_dao, security_auth)
@@ -306,6 +312,10 @@ app.include_router(hehun_router)             # /api/hehun
 # Task 3: Xingming API
 from .api.xingming import router as xingming_router
 app.include_router(xingming_router)          # /api/xingming
+
+# Task 2: Qimen API
+from .api.qimen import router as qimen_router
+app.include_router(qimen_router)             # /api/qimen
 
 # Reports list endpoint (mini program compatibility)
 @app.get("/api/reports")

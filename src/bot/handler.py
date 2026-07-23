@@ -1708,6 +1708,10 @@ class MessageHandler:
             if shichen_match:
                 hour = CHINESE_HOUR_MAP.get(shichen_match.group(1), 12)
 
+        # Null guard — return early if engine is not injected
+        if self.qimen_engine is None:
+            return "⚠️ 奇门遁甲排盘功能暂时不可用，请稍后再试。"
+
         # 2. 排盘
         result = self.qimen_engine.calculate(year, month, day, hour)
 
