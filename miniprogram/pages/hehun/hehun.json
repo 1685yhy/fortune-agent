@@ -4,6 +4,6 @@
   "navigationBarBackgroundColor": "#0F172A",
   "navigationBarTextStyle": "white",
   "usingComponents": {
-    "score-ring": "components/score-ring/score-ring"
+    "score-ring": "/components/score-ring/score-ring"
   }
 }
