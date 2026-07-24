@@ -197,8 +197,9 @@ function login(code) {
  * 获取今日运势 (cached, 10 min TTL)
  * @returns {Promise<{date, ganzhi, score, yi, ji, advice, mood}>}
  */
-function getTodayFortune() {
-  return cachedGet('/api/calendar/today');
+function getTodayFortune(userId = '') {
+  const params = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+  return cachedGet(`/api/calendar/today${params}`);
 }
 
 /**
@@ -206,8 +207,10 @@ function getTodayFortune() {
  * @param {string} date - 日期 YYYY-MM-DD
  * @returns {Promise}
  */
-function getDateFortune(date) {
-  return cachedGet(`/api/calendar/today?date=${date}`);
+function getDateFortune(date, userId = '') {
+  const params = [`date=${date}`];
+  if (userId) params.push(`user_id=${encodeURIComponent(userId)}`);
+  return cachedGet(`/api/calendar/today?${params.join('&')}`);
 }
 
 // ---- 场景列表 ----

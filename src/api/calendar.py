@@ -34,7 +34,7 @@ def setup(dao: UserDAO, handler=None):
 
 @router.get("/api/calendar/today")
 async def get_today_calendar(
-    user_id: str = Query(..., description="用户 ID"),
+    user_id: str = Query(None, description="用户 ID（可选，未登录返回通用黄历）"),
 ):
     """获取用户今日专属运势日历。
 
@@ -50,7 +50,7 @@ async def get_today_calendar(
     global _dao, _handler_ref
 
     # Try to get user's bazi from DAO
-    saved = _dao.get_user_bazi(user_id) if _dao else None
+    saved = _dao.get_user_bazi(user_id) if (_dao and user_id) else None
 
     if not saved:
         return _generate_generic_calendar()

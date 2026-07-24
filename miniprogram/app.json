@@ -58,7 +58,6 @@
   "sitemapLocation": "sitemap.json",
   "usingComponents": {
     "skeleton": "components/skeleton/skeleton",
-    "score-ring": "components/score-ring/score-ring",
     "empty-state": "components/empty-state/empty-state"
   }
 }

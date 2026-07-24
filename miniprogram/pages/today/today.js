@@ -87,7 +87,9 @@ Page({
   // ---- 数据加载 ----
   async _loadData() {
     try {
-      const data = await api.getTodayFortune();
+      const app = getApp();
+      const userId = app.globalData?.userInfo?.id || '';
+      const data = await api.getTodayFortune(userId);
       this.setData({ skeletonLoading: false });
       this._processData(data);
       this._startEntrance();

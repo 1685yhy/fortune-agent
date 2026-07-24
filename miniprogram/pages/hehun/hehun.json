@@ -3,5 +3,7 @@
   "backgroundColor": "#0F172A",
   "navigationBarBackgroundColor": "#0F172A",
   "navigationBarTextStyle": "white",
-  "usingComponents": {}
+  "usingComponents": {
+    "score-ring": "components/score-ring/score-ring"
+  }
 }
