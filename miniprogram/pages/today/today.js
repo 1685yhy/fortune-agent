@@ -1,5 +1,4 @@
-// 易理明灯 — 今日运势（仪式感首页）
-const canvasHelper = require('../../utils/canvas-helper');
+// 易理明灯 — 今日运势（纯CSS运势首页）
 const api = require('../../utils/api');
 const { MESSAGES } = require('../../utils/messages');
 
@@ -47,16 +46,17 @@ Page({
     skeletonLoading: true,
     hourSkeletonLoading: true,
     _animated: false,
-    showTaiji: true,
-    showParticles: false,
-    showRing: false,
+    showRing: true,
+    displayScore: 0,
+    scorePct: 0,
+    scoreLevel: 'fair',
+    levelLabel: '',
+    scoreAdvice: '',
+    scoreFactors: [],
     date: '',
     lunarDate: '',
     jieqi: '',
     ganzhi: '',
-    score: 0,
-    scoreLevel: 'fair',
-    levelLabel: '',
     aiAdvice: '',
     hours: HOURS,
     hourlyLoaded: false,
@@ -92,7 +92,7 @@ Page({
       const data = await api.getTodayFortune(userId);
       this.setData({ skeletonLoading: false });
       this._processData(data);
-      this._startEntrance();
+      this.setData({ _animated: true });
     } catch (e) {
       this.setData({
         skeletonLoading: false,
@@ -107,8 +107,8 @@ Page({
   _processData(data) {
     if (!data) return this._showFallback();
 
-    const score = Math.min(100, Math.max(0, Math.round((data.score || 70))));
-    const level = score >= 85 ? 'excellent' : score >= 70 ? 'good' : score >= 55 ? 'fair' : 'poor';
+    const score = Math.min(100, Math.max(0, Math.round(data.score || this._calcDayScore(data))));
+    const level = score >= 85 ? 'excellent' : score >= 70 ? 'good' : score >= 50 ? 'fair' : 'poor';
 
     // 计算时辰标记
     const dayStem = (data.day_ganzhi || '甲')[0];
@@ -123,14 +123,16 @@ Page({
     });
 
     this.setData({
+      displayScore: score,
+      scorePct: score,
+      scoreLevel: level,
+      levelLabel: {excellent:'大吉',good:'吉',fair:'平',poor:'凶'}[level],
+      scoreAdvice: this._getScoreAdvice(level),
+      scoreFactors: this._calcScoreFactors(data, score),
       date: data.date || '',
       lunarDate: data.lunar_date || data.date || '',
       jieqi: data.jieqi || '',
       ganzhi: data.day_ganzhi || '',
-      score: 0,
-      targetScore: score,
-      scoreLevel: level,
-      levelLabel: LEVEL_LABELS[level] || '平',
       aiAdvice: data.personal_advice || '',
       hours: hoursWithMark,
       yi: (data.suitable || data.yi || []).slice(0, 3).map(a => typeof a === 'string' ? { action: a } : a),
@@ -138,22 +140,58 @@ Page({
       luckyColor: data.lucky_color || { name: '暖金', hex: '#D4A843' },
       luckyDirection: data.lucky_direction || '东南',
       luckyNumber: data.lucky_number || '6, 8',
+      showRing: true,
     });
+    // NO Canvas draw -- CSS renders the ring
+  },
+
+  _calcDayScore(data) {
+    // Score from day stem-branch harmony, wuxing, and season
+    const dayWx = data.day_wuxing || '';
+    const seasonWxMap = {'春':'木','夏':'火','秋':'金','冬':'水'};
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const season = month <= 3 ? '春' : month <= 6 ? '夏' : month <= 9 ? '秋' : '冬';
+
+    let score = 60; // base
+    // Season harmony
+    const wxCycle = {木:4, 火:3, 土:1, 金:3, 水:4};
+    if (dayWx && wxCycle[dayWx]) score += wxCycle[dayWx] * 2;
+    // Clash with season reduces score
+    const clash = {春:'金', 夏:'水', 秋:'火', 冬:'土'};
+    if (dayWx === clash[season]) score -= 10;
+
+    return Math.round(score);
+  },
+
+  _calcScoreFactors(data, score) {
+    const dayWx = data.day_wuxing || '未知';
+    const dayGz = data.day_ganzhi || '';
+    return [
+      {name:'日干支', value: dayGz ? Math.round(score * 0.3) : 20, color:'#D4A843'},
+      {name:'五行', value: dayWx !== '未知' ? Math.round(score * 0.35) : 22, color:'#5B8C5A'},
+      {name:'节气', value: data.jieqi ? Math.round(score * 0.35) : 18, color:'#6B8EB5'},
+    ];
+  },
+
+  _getScoreAdvice(level) {
+    return {excellent:'诸事皆宜，大胆行动', good:'顺势而为，小有收获', fair:'宜静不宜动，以守为主', poor:'避重就轻，明日后佳'}[level];
   },
 
   _showFallback() {
     this.setData({
       skeletonLoading: false, hourSkeletonLoading: false,
-      score: 70, targetScore: 70, scoreLevel: 'good', levelLabel: '吉',
+      displayScore: 70, scorePct: 70, scoreLevel: 'good',
+      levelLabel: '吉', scoreAdvice: '顺势而为，小有收获',
+      scoreFactors: [{name:'日干支', value:21, color:'#D4A843'},{name:'五行', value:25, color:'#5B8C5A'},{name:'节气', value:24, color:'#6B8EB5'}],
       aiAdvice: '保持平和，顺势而为。',
-      _animated: true, showTaiji: false, showParticles: false, showRing: true,
+      _animated: true, showRing: true,
       hours: HOURS.map(h => ({ ...h, mark: '平', level: 'fair' })),
       yi: [{ action: '保持好心情' }, { action: '与朋友交流' }],
       ji: [{ action: '冲动决策' }, { action: '过度消费' }],
       luckyColor: { name: '暖金', hex: '#D4A843' },
       luckyDirection: '东南', luckyNumber: '6, 8',
     });
-    this._drawRing(70);
   },
 
   // ---- 时辰运势 API 增强（Sub-project B）----
@@ -204,137 +242,6 @@ Page({
       console.warn('[Today] Hourly fortune API unavailable, using local calculation');
       this.setData({ hourSkeletonLoading: false });
     }
-  },
-
-  // ---- 入场动画编排 ----
-  async _startEntrance() {
-    // Check if user prefers reduced motion (safely fall back if API unavailable)
-    let reduceMotion = false;
-    try {
-      const info = wx.getAppBaseInfo ? wx.getAppBaseInfo() : wx.getSystemInfoSync();
-      reduceMotion = !!info.reduceMotion;
-    } catch (e) {
-      reduceMotion = false;
-    }
-    if (reduceMotion) {
-      // 跳过动画，直接展示
-      this.setData({ _animated: true, showTaiji: false, showParticles: false, showRing: true });
-      this._animateScore(this.data.targetScore);
-      return;
-    }
-
-    // Phase 1: 太极旋转 (800ms)
-    this._drawTaijiAnimation(1600).then(() => {
-      // Phase 2: 太极→粒子过渡 (600ms)
-      this.setData({ showTaiji: false, showParticles: true });
-      return this._drawParticleAnimation(600);
-    }).then(() => {
-      // Phase 3: 粒子聚拢成环 → 展示环 (600ms)
-      this.setData({ showParticles: false, showRing: true });
-      return this._drawRing(this.data.targetScore);
-    }).then(() => {
-      // Phase 4: 分数翻滚 (800ms)
-      return this._animateScore(this.data.targetScore);
-    }).then(() => {
-      // Phase 5: 显示页面内容
-      this.setData({ _animated: true });
-    });
-  },
-
-  _drawTaijiAnimation(duration) {
-    return new Promise((resolve) => {
-      const query = wx.createSelectorQuery().in(this);
-      query.select('#taijiCanvas').fields({ node: true, size: true }).exec((res) => {
-        if (!res[0] || !res[0].node) { resolve(); return; }
-        const canvas = res[0].node;
-        const startTime = Date.now();
-        const totalRotation = Math.PI * 4; // 转两圈
-
-        const tick = () => {
-          const elapsed = Date.now() - startTime;
-          const progress = Math.min(1, elapsed / duration);
-          // ease-out-quint
-          const eased = 1 - Math.pow(1 - progress, 5);
-          canvasHelper.drawTaiji(canvas, 160, totalRotation * eased);
-
-          if (progress < 1) {
-            this._taijiRAF = requestAnimationFrame(tick);
-          } else {
-            resolve();
-          }
-        };
-        tick();
-      });
-    });
-  },
-
-  _drawParticleAnimation(duration) {
-    return new Promise((resolve) => {
-      const query = wx.createSelectorQuery().in(this);
-      query.select('#particleCanvas').fields({ node: true, size: true }).exec((res) => {
-        if (!res[0] || !res[0].node) { resolve(); return; }
-        const canvas = res[0].node;
-        const particles = canvasHelper.createRingParticles(200, 30);
-        const startTime = Date.now();
-
-        const tick = () => {
-          const elapsed = Date.now() - startTime;
-          const progress = Math.min(1, elapsed / duration);
-          const eased = 1 - Math.pow(1 - progress, 3);
-
-          // 插值粒子位置
-          const frame = particles.map(p => ({
-            ...p,
-            x: p.ox + (p.x - p.ox) * eased,
-            y: p.oy + (p.y - p.oy) * eased,
-            alpha: 0.3 + 0.5 * eased,
-          }));
-          canvasHelper.drawParticles(canvas, 200, frame);
-
-          if (progress < 1) {
-            this._particleRAF = requestAnimationFrame(tick);
-          } else {
-            resolve();
-          }
-        };
-        tick();
-      });
-    });
-  },
-
-  // 兼容旧方法名
-  animateScore(targetScore) {
-    return this._animateScore(targetScore);
-  },
-
-  _animateScore(targetScore) {
-    return new Promise((resolve) => {
-      let current = 0;
-      const steps = Math.min(targetScore, 25);
-      const increment = Math.max(1, Math.floor(targetScore / steps));
-      const delay = Math.max(40, Math.floor(800 / steps));
-
-      const timer = setInterval(() => {
-        current += increment;
-        if (current >= targetScore) { current = targetScore; clearInterval(timer); }
-        this.setData({ score: current });
-        this._drawRing(current);
-        if (current >= targetScore) resolve();
-      }, delay);
-    });
-  },
-
-  // 兼容旧调用
-  _drawScoreRing(score) {
-    this._drawRing(score);
-  },
-
-  _drawRing(percent) {
-    const query = wx.createSelectorQuery().in(this);
-    query.select('#ringCanvas').fields({ node: true, size: true }).exec((res) => {
-      if (!res[0] || !res[0].node) return;
-      canvasHelper.drawRing(res[0].node, percent, 200);
-    });
   },
 
   // ---- 交互 ----

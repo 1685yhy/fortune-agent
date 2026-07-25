@@ -11,35 +11,34 @@
 
   <view wx:else>
     <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[70, 90, 80, 60, 85]}}">
-    <!-- Section 1: 运势核心区 -->
+    <!-- Section 1: 运势核心区 -- Pure CSS, always visible -->
     <view class="hero-section">
-      <!-- Canvas 动画层 -->
-      <view class="hero-canvas-wrap">
-        <!-- 太极(入场时) -->
-        <canvas type="2d" id="taijiCanvas" class="hero-canvas hero-canvas-taiji" wx:if="{{showTaiji}}"></canvas>
-        <!-- 粒子(过渡时) -->
-        <canvas type="2d" id="particleCanvas" class="hero-canvas hero-canvas-particles" wx:if="{{showParticles}}"></canvas>
-        <!-- 分数环(最终稳定) -->
-        <canvas type="2d" id="ringCanvas" class="hero-canvas hero-canvas-ring {{showRing ? 'visible' : ''}}"></canvas>
-        <!-- 环内文字(覆盖在Canvas上) -->
-        <view class="ring-label" wx:if="{{showRing}}">
-          <text class="ring-score">{{score}}</text>
-          <text class="ring-unit">分</text>
-          <text class="ring-level {{scoreLevel}}">{{levelLabel}}</text>
+      <view class="score-card">
+        <view class="score-ring-bg" style="--score-pct: {{scorePct}};">
+          <view class="score-inner">
+            <text class="score-number">{{displayScore}}</text>
+            <text class="score-unit">分</text>
+          </view>
+        </view>
+        <view class="score-level {{scoreLevel}}">
+          <text class="level-text">{{levelLabel}}</text>
+          <text class="level-sub">{{scoreAdvice}}</text>
+        </view>
+        <!-- 评分因子 -->
+        <view class="score-factors">
+          <view class="factor" wx:for="{{scoreFactors}}" wx:key="name">
+            <text class="factor-name">{{item.name}}</text>
+            <text class="factor-bar" style="width: {{item.value * 2}}rpx; background: {{item.color}};"></text>
+            <text class="factor-score">{{item.value}}</text>
+          </view>
         </view>
       </view>
 
-      <!-- 农历日期 -->
-      <view class="hero-date" wx:if="{{showRing}}">
-        <text class="hero-date-text">{{lunarDate}}</text>
-        <text class="hero-jieqi" wx:if="{{jieqi}}">· {{jieqi}}</text>
-      </view>
-
-      <!-- AI 一句话解读 -->
-      <view class="hero-advice" wx:if="{{showRing && aiAdvice}}">
-        <text class="advice-mark">"</text>
-        <text class="advice-text">{{aiAdvice}}</text>
-        <text class="advice-mark">"</text>
+      <!-- 日期 -->
+      <view class="hero-date">
+        <text class="hero-date-lunar">{{lunarDate}}</text>
+        <text class="hero-date-ganzhi">{{ganzhi}}</text>
+        <text class="hero-jieqi" wx:if="{{jieqi}}">{{jieqi}}</text>
       </view>
     </view>
 

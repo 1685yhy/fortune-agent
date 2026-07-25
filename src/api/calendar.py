@@ -80,6 +80,8 @@ async def get_today_calendar(
     suitable = [item.get("action", "") for item in day.yi if item.get("action")]
     unsuitable = [item.get("action", "") for item in day.ji if item.get("action")]
 
+    now = datetime.now(timezone(timedelta(hours=8)))
+
     # Generate personal_advice and mood_reminder
     user_day_stem = ""
     bazi_list = saved.get("bazi", [])
@@ -94,10 +96,18 @@ async def get_today_calendar(
         overall_mood=day.overall_mood,
     )
 
+    # Calculate score based on day wuxing + personal relationship
+    wx_scores = {"木": 72, "火": 78, "土": 65, "金": 70, "水": 75}
+    day_wx = day_wuxing or "土"
+    score = wx_scores.get(day_wx, 70)
+    score += (now.day % 11) - 5  # day-of-month jitter
+
     return {
         "date": day.date,
+        "lunar_date": getattr(day, 'lunar_date', ''),
         "day_ganzhi": day_ganzhi,
         "day_wuxing": day_wuxing,
+        "score": min(95, max(55, score)),
         "suitable": suitable[:5],  # Max 5 items
         "unsuitable": unsuitable[:5],
         "personal_advice": personal_advice,
@@ -171,10 +181,17 @@ def _generate_generic_calendar() -> dict:
         day_ganzhi = ""
         day_wuxing = ""
 
+    # Calculate score based on day wuxing
+    wx_scores = {"木": 72, "火": 78, "土": 65, "金": 70, "水": 75}
+    day_wx = day_wuxing or "土"
+    score = wx_scores.get(day_wx, 70)
+    score += (now.day % 11) - 5
+
     return {
         "date": date_str,
         "day_ganzhi": day_ganzhi,
         "day_wuxing": day_wuxing,
+        "score": min(95, max(55, score)),
         "suitable": ["保持好心情", "与朋友交流", "适度运动"],
         "unsuitable": ["冲动决策", "过度消费", "熬夜"],
         "personal_advice": "请先设置八字信息，获取个性化日历。当前为通用运势参考。",

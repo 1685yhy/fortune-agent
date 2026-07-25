@@ -11,100 +11,133 @@
   opacity: 1;
 }
 
-/* ---- Hero Section ---- */
+/* ---- Hero Section -- Pure CSS Score Card ---- */
 .hero-section {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding-top: 72px;
-  padding-bottom: var(--space-2xl);
+  padding: 60rpx 32rpx 40rpx;
 }
 
-.hero-canvas-wrap {
-  position: relative;
-  width: 240px;
-  height: 240px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.hero-canvas {
-  position: absolute;
-  top: 0; left: 0;
-  width: 240px;
-  height: 240px;
-}
-.hero-canvas-ring { opacity: 0; transition: opacity 0.6s ease-out; }
-.hero-canvas-ring.visible { opacity: 1; }
-
-.ring-label {
-  position: absolute;
+.score-card {
+  width: 100%;
+  background: linear-gradient(135deg, rgba(30,41,59,0.9) 0%, rgba(15,23,42,0.95) 100%);
+  border: 1px solid rgba(212,168,67,0.15);
+  border-radius: 24rpx;
+  padding: 40rpx 32rpx 32rpx;
   display: flex;
   flex-direction: column;
   align-items: center;
-  z-index: 2;
 }
-.ring-score {
-  font-size: 56px;
-  font-weight: 300;
-  color: var(--color-text);
+
+.score-ring-bg {
+  width: 180rpx;
+  height: 180rpx;
+  border-radius: 50%;
+  background: conic-gradient(var(--gold) calc(var(--score-pct) * 1%), transparent 0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  margin-bottom: 20rpx;
+}
+.score-ring-bg::before {
+  content: '';
+  position: absolute;
+  inset: 8rpx;
+  border-radius: 50%;
+  background: #0F172A;
+}
+
+.score-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.score-number {
+  font-size: 64rpx;
+  font-weight: 200;
+  color: #fff;
   line-height: 1;
-  letter-spacing: -0.02em;
 }
-.ring-unit {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
-  margin-top: 4px;
-  font-weight: 400;
-  letter-spacing: 0.12em;
+.score-unit {
+  font-size: 24rpx;
+  color: rgba(255,255,255,0.5);
+  margin-top: 4rpx;
 }
-.ring-level {
-  font-size: var(--font-sm);
-  font-weight: 500;
+
+.score-level {
+  text-align: center;
+  margin-bottom: 28rpx;
+}
+.level-text {
+  font-size: 36rpx;
+  font-weight: 600;
+}
+.score-level.excellent .level-text { color: #D4A843; }
+.score-level.good .level-text { color: #5B8C5A; }
+.score-level.fair .level-text { color: #C2852A; }
+.score-level.poor .level-text { color: #C2413D; }
+.level-sub {
+  font-size: 24rpx;
   color: var(--color-text-tertiary);
-  margin-top: var(--space-xs);
-  letter-spacing: 0.08em;
+  display: block;
+  margin-top: 6rpx;
+}
+
+.score-factors {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.factor {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+.factor-name {
+  width: 100rpx;
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  text-align: right;
+  flex-shrink: 0;
+}
+.factor-bar {
+  height: 8rpx;
+  border-radius: 4rpx;
+  background: var(--gold);
+  flex: 1;
+  transition: width 0.8s ease-out;
+}
+.factor-score {
+  width: 48rpx;
+  font-size: 24rpx;
+  color: var(--color-text);
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .hero-date {
-  margin-top: var(--space-xl);
-  display: flex;
-  align-items: center;
-  opacity: 0;
-  animation: fadeUp 0.5s ease-out 0.8s forwards;
+  text-align: center;
+  margin-top: 32rpx;
 }
-.hero-date-text {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
-  letter-spacing: 0.04em;
+.hero-date-lunar {
+  font-size: 32rpx;
+  color: var(--color-text);
+  display: block;
+}
+.hero-date-ganzhi {
+  font-size: 24rpx;
+  color: var(--color-text-secondary);
+  margin-top: 6rpx;
 }
 .hero-jieqi {
-  font-size: var(--font-sm);
+  font-size: 22rpx;
   color: var(--gold);
-}
-
-.hero-advice {
-  margin-top: var(--space-md);
-  padding: 0 var(--space-2xl);
-  display: flex;
-  align-items: flex-start;
-  opacity: 0;
-  animation: fadeUp 0.5s ease-out 1.0s forwards;
-}
-.advice-mark {
-  font-size: var(--font-xl);
-  color: var(--gold);
-  line-height: 1;
-  margin: 0 2px;
-  font-weight: 300;
-}
-.advice-text {
-  font-size: var(--font-md);
-  color: var(--color-text-secondary);
-  text-align: center;
-  line-height: 1.7;
-  max-width: 300px;
+  margin-top: 4rpx;
 }
 
 /* ---- Section 通用 ---- */
