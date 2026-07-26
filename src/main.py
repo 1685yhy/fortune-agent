@@ -47,6 +47,7 @@ from .security.encryption import DataEncryptor
 from .security.privacy import PrivacyManager, PIPL_DISCLAIMER
 from .security.audit import AuditLogger
 from .security.router import router as security_router, init_security_router
+from .validators.response_checker import ResponseValidator
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,9 @@ security_auth = None
 security_sanitizer = None
 security_encryptor = None
 security_audit = None
+
+# Accuracy validator
+_validator = ResponseValidator()
 
 
 async def _daily_precompute_worker():
@@ -566,6 +570,14 @@ async def chat(req: ChatRequest, request: Request = None) -> ChatResponse:
             )
         else:
             reply = handler.process(req.message, req.user_id)
+
+        # ── 准确率验证 ───────────────────────────────────────────
+        if reply and len(reply) > 10:
+            val_result = _validator.validate(reply, engine_data_used=True)
+            if not val_result["passed"]:
+                logger.warning(f"Accuracy issue in response: {val_result['violations']}")
+            if not val_result["has_citation"] and len(reply) > 300:
+                reply += "\n\n---\n📖 以上分析仅供参考，命理之说，信则有，不信则无。"
 
         # 成功响应后扣减配额
         member_dao.use_quota(req.user_id)
