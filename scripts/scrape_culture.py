@@ -49,6 +49,9 @@ CATEGORY_DIRS = {
     "fengshui": OUTPUT_DIR / "fengshui",
     "qimen": OUTPUT_DIR / "qimen",
     "modern": OUTPUT_DIR / "modern",
+    "face_reading": OUTPUT_DIR / "face_reading",
+    "marriage": OUTPUT_DIR / "marriage",
+    "naming": OUTPUT_DIR / "naming",
 }
 
 # ── Rate limiting ─────────────────────────────────────────────────────
@@ -236,6 +239,90 @@ SOURCES: dict[str, list[dict]] = {
             "url": "https://www.douban.com/search?q=%E5%91%BD%E7%90%86%E6%A1%88%E4%BE%8B&cat=1001",
             "title": "豆瓣 - 命理案例话题",
             "source_type": "douban_search",
+        },
+    ],
+    # ── E. 面相 (Face Reading) ─────────────────────────────────────────
+    "face_reading": [
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E9%BA%BB%E8%A1%A3%E7%A5%9E%E7%9B%B8",
+            "title": "麻衣神相（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E7%A5%9E%E7%9B%B8%E5%85%A8%E7%BC%96",
+            "title": "神相全编（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E6%9F%B3%E5%BA%84%E7%9B%B8%E6%B3%95",
+            "title": "柳庄相法（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E7%9B%B8%E7%90%86%E8%A1%A1%E7%9C%9F",
+            "title": "相理衡真（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://zh.wikisource.org/wiki/%E9%BA%BB%E8%A1%A3%E7%A5%9E%E7%9B%B8",
+            "title": "麻衣神相（维基文库）",
+            "source_type": "generic",
+        },
+    ],
+    # ── F. 合婚 (Marriage Compatibility) ────────────────────────────────
+    "marriage": [
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E5%90%88%E5%A9%9A",
+            "title": "合婚相关（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E5%85%AB%E5%AD%97%E5%A9%9A%E5%A7%BB",
+            "title": "八字婚姻（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E5%A9%9A%E5%A7%BB%E5%90%88%E5%A9%9A",
+            "title": "婚姻合婚（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E6%B7%B5%E6%B5%B7%E5%AD%90%E5%B9%B3+%E5%A9%9A%E5%A7%BB",
+            "title": "渊海子平·婚姻（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E4%B8%89%E5%91%BD%E9%80%9A%E4%BC%9A+%E5%90%88%E5%A9%9A",
+            "title": "三命通会·合婚（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+    ],
+    # ── G. 姓名学 (Naming / Character Analysis) ────────────────────────
+    "naming": [
+        {
+            "url": "https://ctext.org/shuo-wen-jie-zi.zh.txt",
+            "title": "说文解字（ctext.org 全文）",
+            "source_type": "ctext",
+        },
+        {
+            "url": "https://ctext.org/library.pl?if=gb&res=567",
+            "title": "康熙字典序（ctext.org）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E5%A7%93%E5%90%8D",
+            "title": "姓名相关（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E4%BA%94%E6%A0%BC",
+            "title": "五格数理（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
+        },
+        {
+            "url": "https://ctext.org/results.pl?searchu=%E5%A7%93%E5%90%8D%E5%AD%A6",
+            "title": "姓名学（ctext.org 搜索结果）",
+            "source_type": "ctext_web",
         },
     ],
 }
@@ -640,7 +727,7 @@ def main():
     )
     parser.add_argument(
         "--category", choices=list(SOURCES.keys()), default=None,
-        help="Only scrape this category (default: all)",
+        help="Only scrape this category (default: all). Choices: " + ", ".join(SOURCES.keys()),
     )
     parser.add_argument(
         "--limit", type=int, default=0,
