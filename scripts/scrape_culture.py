@@ -52,21 +52,48 @@ CATEGORY_DIRS = {
 }
 
 # ── Rate limiting ─────────────────────────────────────────────────────
-MIN_DELAY = 2.0  # seconds between requests to same domain
-MAX_DELAY = 3.5
+MIN_DELAY = 3.0   # seconds between requests to same domain (increased jitter)
+MAX_DELAY = 8.0
 
 # ── HTTP client defaults ──────────────────────────────────────────────
 
 DEFAULT_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/126.0.0.0 Safari/537.36"
-    ),
+    "Referer": "https://www.google.com/",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     "Accept-Encoding": "gzip, deflate",
 }
+
+# Modern browser User-Agent rotation pool (desktop + mobile)
+USER_AGENTS = [
+    # Chrome 126 Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    # Chrome 125 Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    # Chrome 126 macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    # Chrome 126 Linux
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+    # Firefox 127 Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:127.0) Gecko/20100101 Firefox/127.0",
+    # Firefox 127 macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:127.0) Gecko/20100101 Firefox/127.0",
+    # Safari 17.5 macOS
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/604.1",
+    # Edge 126 Windows
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0",
+]
+
+MOBILE_UAS = [
+    # iPhone Safari 17.5
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+    # Android Chrome 126
+    "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36",
+    # Android Chrome 125 (Samsung)
+    "Mozilla/5.0 (Linux; Android 14; SM-S928B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36",
+    # iPad Safari
+    "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
+]
 
 TIMEOUT = httpx.Timeout(30.0, connect=15.0, read=25.0)
 RETRIES = 3
@@ -242,6 +269,20 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 
+def _get_headers(url: str) -> dict:
+    """Build request headers with a rotated User-Agent.
+
+    Uses mobile User-Agent for Baidu Baike URLs (bypasses blocking),
+    and randomly rotates from the pool for all other domains.
+    """
+    headers = dict(DEFAULT_HEADERS)
+    if "baike.baidu.com" in url:
+        headers["User-Agent"] = random.choice(MOBILE_UAS)
+    else:
+        headers["User-Agent"] = random.choice(USER_AGENTS)
+    return headers
+
+
 async def fetch_url(client: httpx.AsyncClient, url: str) -> Optional[str]:
     """Fetch a URL with retries and rate limiting.
 
@@ -251,7 +292,7 @@ async def fetch_url(client: httpx.AsyncClient, url: str) -> Optional[str]:
     last_error = ""
     for attempt in range(1, RETRIES + 1):
         try:
-            resp = await client.get(url, headers=DEFAULT_HEADERS, timeout=TIMEOUT, follow_redirects=True)
+            resp = await client.get(url, headers=_get_headers(url), timeout=TIMEOUT, follow_redirects=True)
             resp.raise_for_status()
             # Detect encoding: try utf-8 first, fall back to detected
             content = resp.content
@@ -581,7 +622,7 @@ async def scrape_category(
         return [{"title": s["title"], "url": s["url"], "category": category, "dry_run": True} for s in sources]
 
     results = []
-    async with httpx.AsyncClient(verify=False) as client:
+    async with httpx.AsyncClient(verify=False, follow_redirects=True) as client:
         for source in tqdm(sources, desc=f"[{category}]", unit="source"):
             result = await scrape_source(client, source, category, output_dir)
             results.append(result)
