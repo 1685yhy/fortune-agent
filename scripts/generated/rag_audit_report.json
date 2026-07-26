@@ -1,0 +1,217 @@
+{
+  "status": "ok",
+  "audit_timestamp": "2026-07-26 10:51:37",
+  "total_queries": 20,
+  "overall_avg_relevance": 0.0,
+  "type_averages": {
+    "八字": {
+      "avg_relevance": 0.0,
+      "query_count": 3
+    },
+    "六爻": {
+      "avg_relevance": 0.0,
+      "query_count": 2
+    },
+    "合婚": {
+      "avg_relevance": 0.0,
+      "query_count": 2
+    },
+    "奇门遁甲": {
+      "avg_relevance": 0.0,
+      "query_count": 1
+    },
+    "姓名学": {
+      "avg_relevance": 0.0,
+      "query_count": 2
+    },
+    "择日": {
+      "avg_relevance": 0.0,
+      "query_count": 2
+    },
+    "紫微斗数": {
+      "avg_relevance": 0.0,
+      "query_count": 3
+    },
+    "面相": {
+      "avg_relevance": 0.0,
+      "query_count": 2
+    },
+    "风水": {
+      "avg_relevance": 0.0,
+      "query_count": 3
+    }
+  },
+  "coverage_gaps": [
+    "八字",
+    "六爻",
+    "合婚",
+    "奇门遁甲",
+    "姓名学",
+    "择日",
+    "紫微斗数",
+    "面相",
+    "风水"
+  ],
+  "results": [
+    {
+      "query": "正官格和七杀格的区别是什么？",
+      "type": "八字",
+      "retrieval_time_ms": 11554.3,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "日主弱而财星旺，应该如何取用神？",
+      "type": "八字",
+      "retrieval_time_ms": 124.7,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "八字中食神生财的条件是什么？",
+      "type": "八字",
+      "retrieval_time_ms": 114.9,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "紫微星在命宫代表什么性格特征？",
+      "type": "紫微斗数",
+      "retrieval_time_ms": 108.0,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "廉贞七杀在丑未宫坐命的格局如何？",
+      "type": "紫微斗数",
+      "retrieval_time_ms": 111.5,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "天相星在夫妻宫的含义是什么？",
+      "type": "紫微斗数",
+      "retrieval_time_ms": 109.0,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "六爻占卜中妻财爻动化回头克的解读",
+      "type": "六爻",
+      "retrieval_time_ms": 119.4,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "六爻中世爻和应爻的关系如何判断？",
+      "type": "六爻",
+      "retrieval_time_ms": 118.4,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "玄空飞星中当旺星和退气星的区别",
+      "type": "风水",
+      "retrieval_time_ms": 121.6,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "八宅风水中的东四命和西四命如何划分？",
+      "type": "风水",
+      "retrieval_time_ms": 118.1,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "房屋缺角在风水中的影响及化解方法",
+      "type": "风水",
+      "retrieval_time_ms": 101.9,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "结婚择日要避开哪些神煞？",
+      "type": "择日",
+      "retrieval_time_ms": 110.4,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "建除十二神中建日和除日的区别",
+      "type": "择日",
+      "retrieval_time_ms": 120.2,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "面相中印堂发暗代表什么？",
+      "type": "面相",
+      "retrieval_time_ms": 114.6,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "手相中生命线长短与寿命的关系",
+      "type": "面相",
+      "retrieval_time_ms": 109.0,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "生肖不合真的会影响婚姻吗？",
+      "type": "合婚",
+      "retrieval_time_ms": 153.6,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "八字合婚中年柱相冲如何化解？",
+      "type": "合婚",
+      "retrieval_time_ms": 115.4,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "五格剖象法中三才五格的配置吉凶",
+      "type": "姓名学",
+      "retrieval_time_ms": 113.1,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "姓名中总格数理对人生运势的影响",
+      "type": "姓名学",
+      "retrieval_time_ms": 110.8,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    },
+    {
+      "query": "奇门遁甲中值符值使的用法",
+      "type": "奇门遁甲",
+      "retrieval_time_ms": 142.8,
+      "num_results": 0,
+      "sources": [],
+      "relevance": 0.0
+    }
+  ]
+}
