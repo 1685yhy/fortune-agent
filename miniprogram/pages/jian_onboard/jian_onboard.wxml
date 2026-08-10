@@ -1,0 +1,128 @@
+<!-- 明灯晨笺 · 开启引导页（主动同意 + 时间自选）
+     红线（spec 三·推送授权与时间自选）：推送须用户主动开启；文案明示「每天早/晚一条运势推送，可随时关闭」，不误导 -->
+<view class="screen" style="--nav-off:{{navOff}}px">
+  <view class="navrow">
+    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+      <image class="back-icon" src="/assets/images/ic-back.png"></image>
+    </view>
+    <view class="nav-title">
+      <text>明灯晨笺</text>
+    </view>
+    <view class="nav-right"></view>
+  </view>
+
+  <scroll-view scroll-y class="jo-scroll">
+    <!-- 头部：朱砂印章「启」+ 标题 + 明示文案 -->
+    <view class="jo-head">
+      <view class="seal jo-seal"><text class="seal-char">启</text></view>
+      <view class="jo-title">开启明灯晨笺</view>
+      <view class="jo-sub">每天早/晚一条运势推送 · 可随时关闭</view>
+    </view>
+
+    <view wx:if="{{loading}}" class="jo-loading">
+      <view class="inkdot"></view>
+      <view class="inkdot"></view>
+      <view class="inkdot"></view>
+    </view>
+
+    <view wx:else class="jo-body">
+      <!-- 已开启态：状态条 -->
+      <view wx:if="{{enabled}}" class="jo-status">
+        <view class="seal jo-status-seal"><text class="seal-char">已</text></view>
+        <view class="jo-status-col">
+          <view class="jo-status-title">晨笺已开启</view>
+          <view class="jo-status-sub">每日按所选时间送达 · 随时可改可关</view>
+        </view>
+      </view>
+
+      <!-- 双线笺框：晨笺时间 -->
+      <view class="jo-jian">
+        <view class="jo-jian-head">
+          <text class="jo-jian-tag">晨笺</text>
+          <text class="jo-jian-name">早安运势</text>
+        </view>
+        <picker mode="selector" range="{{morningOptions}}" value="{{morningIdx}}" bindchange="onMorningChange">
+          <view class="jo-pick" hover-class="jo-pick-active" hover-stay-time="0">
+            <view class="jo-pick-col">
+              <view class="jo-pick-label">每日送达时间</view>
+              <view class="jo-pick-range">06:00 - 10:00 · 每 15 分钟</view>
+            </view>
+            <view class="jo-pick-time">{{morningTime}}</view>
+            <image class="jo-pick-chev" src="/assets/images/ic-chev.png"></image>
+          </view>
+        </picker>
+      </view>
+
+      <!-- 双线笺框：晚安时间 -->
+      <view class="jo-jian">
+        <view class="jo-jian-head">
+          <text class="jo-jian-tag">晚安</text>
+          <text class="jo-jian-name">灯下陪伴</text>
+        </view>
+        <picker mode="selector" range="{{nightOptions}}" value="{{nightIdx}}" bindchange="onNightChange">
+          <view class="jo-pick" hover-class="jo-pick-active" hover-stay-time="0">
+            <view class="jo-pick-col">
+              <view class="jo-pick-label">每日送达时间</view>
+              <view class="jo-pick-range">21:00 - 24:00 · 每 15 分钟</view>
+            </view>
+            <view class="jo-pick-time">{{nightTime}}</view>
+            <image class="jo-pick-chev" src="/assets/images/ic-chev.png"></image>
+          </view>
+        </picker>
+      </view>
+
+      <!-- 轻私语开关（默认开；关 = 纯金句模式） -->
+      <view class="jo-jian jo-whisper">
+        <view class="jo-whisper-col">
+          <view class="jo-whisper-title">轻私语</view>
+          <view class="jo-whisper-sub">推送里加一句记得你的事（仅分类级，不点破细节）；关闭后回到纯金句模式</view>
+        </view>
+        <switch class="jo-switch" checked="{{whisper}}" bindchange="onWhisperChange" color="#A93A2C" />
+      </view>
+
+      <!-- 主动同意按钮（仅未开启态） -->
+      <button wx:if="{{!enabled}}" class="jo-agree" hover-class="jo-agree-active" hover-stay-time="0" bindtap="onAgree">
+        我同意 · 开启晨笺
+      </button>
+      <!-- 已开启态：关闭入口 -->
+      <view wx:else class="jo-close" hover-class="jo-close-active" hover-stay-time="0" bindtap="onCloseTap">
+        关闭晨笺
+      </view>
+
+      <!-- 绑定状态区（服务号关注引导；真实二维码待服务号就绪） -->
+      <view class="jo-bind">
+        <view class="jo-bind-head">
+          <text class="jo-bind-title">服务号推送</text>
+          <text class="jo-bind-state {{bound ? 'jo-bind-state-on' : ''}}">{{invalid ? '订阅已失效' : (bound ? '已绑定' : '未绑定')}}</text>
+        </view>
+        <view wx:if="{{bound}}" class="jo-bind-txt">已绑定服务号，晨笺与晚安将通过服务号模板消息送达。</view>
+        <view wx:elif="{{invalid}}" class="jo-bind-txt">推送连续失败，订阅已失效 · 请重新绑定</view>
+        <block wx:else>
+          <view class="jo-bind-txt">关注服务号「易理明灯」后，晨笺与晚安才能推送送达；未绑定不影响小程序内使用，可随时在设置中关闭。</view>
+          <view class="jo-qr">
+            <view class="jo-qr-frame">服务号二维码</view>
+            <view class="jo-qr-txt">二维码就绪后展示 · 敬请期待</view>
+          </view>
+        </block>
+      </view>
+
+      <view class="jo-foot">主动开启 · 随时可关 · 明示不误导</view>
+    </view>
+  </scroll-view>
+
+  <!-- 关闭晨笺二次确认（双线笺框 · 朱砂警示） -->
+  <view class="jo-mask" wx:if="{{closeDialogVisible}}" catchtouchmove="noop" bindtap="closeCloseDialog">
+    <view class="jo-modal" catchtap="noop">
+      <view class="jo-modal-title">关闭晨笺</view>
+      <view class="jo-modal-body">
+        <text>关闭后不再推送晨笺与晚安，</text>
+        <text>已选时间将保留，随时可再开启。</text>
+      </view>
+      <view class="jo-modal-note">关闭当天即停 · 绝不默认发送</view>
+      <view class="jo-modal-actions">
+        <view class="jo-btn-ghost" hover-class="jo-btn-active" hover-stay-time="0" bindtap="closeCloseDialog">再想想</view>
+        <view class="jo-btn-danger" hover-class="jo-btn-active" hover-stay-time="0" bindtap="confirmClose">确认关闭</view>
+      </view>
+    </view>
+  </view>
+</view>

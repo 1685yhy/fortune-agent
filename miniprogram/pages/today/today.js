@@ -3,6 +3,11 @@ const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const shareCard = require('../../utils/shareCard');
 const lunar = require('../../utils/lunar');
+const streamHost = require('../../utils/streamHost'); // 收藏同步宿主用（见 _syncHostJian）
+
+/* 收藏复用现有收藏机制：ylm_chat_messages 中 role==='ai' && kept===true（favorites 页数据源）。
+   type:'jian' 为笺匣分类标记（Task 10 收藏页「笺」分类）。 */
+const MSG_KEY = 'ylm_chat_messages';
 
 /* 原型文案兜底（dir_b.html 755-797 行） */
 const DEFAULT_POEM = ['雾散灯明处', '恰是归程时。'];
@@ -50,12 +55,29 @@ Page({
     yiChips: DEFAULT_CHIPS,
     curTab: 'today',
     dark: false,
+    /* 晨笺卡：show=已开启且有数据；notEnabled=未开启（显示「开启晨笺」入口） */
+    jian: {
+      show: false,
+      notEnabled: false,
+      expanded: false,
+      saved: false,
+      savedId: '',
+      date: '',
+      ganzhiDate: '',
+      yi: [],
+      ji: [],
+      quote: '',
+      book: '',
+      privateLine: '',
+      question: '',
+    },
   },
 
   onLoad() {
     this._initNavOff();
     this._initDate();
     this._loadFortune();
+    this._loadJian();
     theme.bindTheme(this);
   },
 
@@ -135,6 +157,163 @@ Page({
           });
         });
       });
+  },
+
+  /* ═══ 晨笺卡（spec 三·小程序内晨笺卡 / 五·免费边界） ═══
+     开启态：拉 GET /api/jian/today 渲染卡片；未开启态：顶部「开启晨笺」入口；
+     接口失败/未开启均静默处理（无 error 噪音），新用户默认不推送、卡内仍可见 */
+  async _loadJian() {
+    let enabled = false;
+    try {
+      const app = getApp();
+      if (app && app.loginPromise) {
+        await Promise.race([
+          app.loginPromise,
+          new Promise((resolve) => setTimeout(resolve, 3000)),
+        ]);
+      }
+      const res = await api.getJianPrefs();
+      const p = (res && res.prefs) || {};
+      enabled = p.jian_enabled === 1 || p.jian_enabled === true;
+    } catch (e) {
+      return; // prefs 不可用：静默，什么都不显示
+    }
+    if (!enabled) {
+      this.setData({ 'jian.notEnabled': true, 'jian.show': false });
+      return;
+    }
+    try {
+      const res = await api.getJianToday();
+      if (!res || !res.day_ganzhi) return;
+      const date = res.date || '';
+      const now = date ? new Date(date.replace(/-/g, '/')) : new Date();
+      let ganzhiDate = '';
+      try {
+        ganzhiDate = `${lunar.formatLunarDate(now.getFullYear(), now.getMonth() + 1, now.getDate())} · ${res.day_ganzhi}`;
+      } catch (e) {
+        ganzhiDate = `${cnDate(now)} · ${res.day_ganzhi}`;
+      }
+      const yi = Array.isArray(res.suitable) ? res.suitable.filter(Boolean).slice(0, 3) : [];
+      const ji = Array.isArray(res.unsuitable) ? res.unsuitable.filter(Boolean).slice(0, 3) : [];
+      const savedId = `jian_${date || Date.now()}`;
+      this.setData({
+        'jian.show': true,
+        'jian.notEnabled': false,
+        'jian.date': date,
+        'jian.ganzhiDate': ganzhiDate,
+        'jian.yi': yi,
+        'jian.ji': ji,
+        'jian.quote': res.quote || '',
+        'jian.book': res.book || '',
+        'jian.privateLine': res.private_line || '',
+        'jian.question': res.question || '今天最想做成的一件事是什么?',
+        'jian.savedId': savedId,
+        'jian.saved': this._isJianSaved(savedId),
+      });
+    } catch (e) {
+      console.warn('[Today] 晨笺 API 不可用，隐藏卡片');
+    }
+  },
+
+  /* 今日笺是否已在收藏（同 id 去重） */
+  _isJianSaved(id) {
+    if (!id) return false;
+    try {
+      const list = wx.getStorageSync(MSG_KEY);
+      return Array.isArray(list) && list.some((m) => m && m.id === id);
+    } catch (e) {
+      return false;
+    }
+  },
+
+  /* 金句展开/收起（收起态一行 + 点开展开：书名 + 原文） */
+  onQuoteTap() {
+    this.setData({ 'jian.expanded': !this.data.jian.expanded });
+  },
+
+  /* 今日小问 → 对话页（问题经 globalData 预填为聊天首条消息） */
+  onQuestionTap() {
+    const q = this.data.jian.question;
+    try {
+      const app = getApp();
+      if (app && app.globalData) app.globalData.jianQuestion = q;
+    } catch (e) { /* ignore */ }
+    wx.reLaunch({ url: '/pages/chat/chat' });
+  },
+
+  /* 收藏/取消收藏：写入 ylm_chat_messages（kept 消息，favorites 页同数据源） */
+  onJianFav() {
+    if (this.data.jian.saved) {
+      this._unfavJian();
+      return;
+    }
+    const j = this.data.jian;
+    const quoteLine = j.quote
+      ? `"${j.quote}"${j.book ? '——《' + j.book + '》' : ''}`
+      : '';
+    const content = [
+      `晨笺 · ${j.ganzhiDate}`,
+      `宜:${(j.yi || []).join(' ')} 忌:${(j.ji || []).join(' ')}`,
+      quoteLine,
+      j.privateLine,
+      `今日小问:${j.question}`,
+    ].filter(Boolean).join('\n');
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const entry = {
+      id: j.savedId,
+      role: 'ai',
+      kept: true,
+      keptAt: Date.now(),
+      tag: '明灯 · 晨笺',
+      type: 'jian', // Task 10 笺匣「笺」分类标记
+      content,
+      time: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+    };
+    try {
+      const list = wx.getStorageSync(MSG_KEY);
+      const next = (Array.isArray(list) ? list : [])
+        .filter((m) => m && m.id !== entry.id)
+        .concat([entry]);
+      wx.setStorageSync(MSG_KEY, next);
+      this._syncHostJian(entry.id, entry);
+      this.setData({ 'jian.saved': true });
+      wx.showToast({ title: '已收藏 · 入笺匣', icon: 'none' });
+    } catch (e) {
+      wx.showToast({ title: '收藏失败，请重试', icon: 'none' });
+    }
+  },
+
+  /* 宿主同步（M2 根因修复）：收藏/取消收藏同时更新 streamHost.messages——
+     streamHost._save() 会把 host.messages 原样写回 ylm_chat_messages，若收藏条目只写 storage
+     不进 host，聊天页下一次发送/流式/删除/重置的保存都会把它覆盖抹除。
+     渲染层（chat._mirror / history._load）已排除 type==='jian'，host 保留不影响任何展示 */
+  _syncHostJian(id, entry) {
+    try {
+      const host = streamHost.getState().messages;
+      if (!Array.isArray(host)) return;
+      const next = host.filter((m) => m && m.id !== id);
+      if (entry) next.push(entry);
+      streamHost.setMessages(next);
+    } catch (e) { /* 同步失败不阻断收藏 */ }
+  },
+
+  _unfavJian() {
+    const id = this.data.jian.savedId;
+    try {
+      const list = wx.getStorageSync(MSG_KEY);
+      wx.setStorageSync(MSG_KEY, (Array.isArray(list) ? list : []).filter((m) => m && m.id !== id));
+      this._syncHostJian(id, null);
+      this.setData({ 'jian.saved': false });
+      wx.showToast({ title: '已取消收藏', icon: 'none' });
+    } catch (e) {
+      wx.showToast({ title: '操作失败，请重试', icon: 'none' });
+    }
+  },
+
+  /* 未开启态入口 → 开启引导页 */
+  onOpenJian() {
+    wx.navigateTo({ url: '/pages/jian_onboard/jian_onboard' });
   },
 
   /* 原型 onTalk：进入夜话 */

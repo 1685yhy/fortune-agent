@@ -543,6 +543,53 @@ function getSubscription() {
   });
 }
 
+// ---- 明灯晨笺（早晚双笺订阅：开关 + 时间自选 + 服务号绑定） ----
+
+/**
+ * 获取晨笺订阅偏好（开关 + 时间自选 + 服务号绑定状态）
+ * @returns {Promise<{prefs: {jian_enabled, jian_time, night_enabled, night_time, bound_status, mp_openid}}>}
+ */
+function getJianPrefs() {
+  return request('/api/jian/prefs', {
+    method: 'GET',
+  });
+}
+
+/**
+ * 更新晨笺订阅偏好（部分字段可空：开关 / 时间）
+ * @param {Object} patch - {jian_enabled?, jian_time?, night_enabled?, night_time?}（时间格式 HH:MM，如 "07:30"）
+ * @returns {Promise<{prefs: Object}>}
+ */
+function putJianPrefs(patch = {}) {
+  return request('/api/jian/prefs', {
+    method: 'PUT',
+    data: patch,
+  });
+}
+
+/**
+ * 绑定服务号（mp_openid 为服务号 openid；真实绑定待 unionid 交换校验，后端已限流）
+ * @param {string} mpOpenid - 服务号 openid
+ * @returns {Promise<{bound: boolean}>}
+ */
+function bindMp(mpOpenid) {
+  return request('/api/jian/bind', {
+    method: 'PUT',
+    data: { mp_openid: mpOpenid },
+  });
+}
+
+/**
+ * 今日晨笺（今日页晨笺卡数据）
+ * @returns {Promise<{date, day_ganzhi, suitable: string[], unsuitable: string[],
+ *                    quote, book, private_line, question}>}
+ */
+function getJianToday() {
+  return request('/api/jian/today', {
+    method: 'GET',
+  });
+}
+
 /**
  * 注销账号（账号中心）：POST /api/user/cancel
  * @param {string} confirmText - 确认文案（用户需输入「注销」二字）
@@ -974,6 +1021,12 @@ module.exports = {
   updateSubscription,
   getSubscription,
   cancelAccount,
+
+  // Jian (明灯晨笺：早晚双笺订阅)
+  getJianPrefs,
+  putJianPrefs,
+  bindMp,
+  getJianToday,
 
   // Persons (多人命主档案)
   getPersons,

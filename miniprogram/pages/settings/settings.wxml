@@ -50,6 +50,65 @@
       </view>
     </view>
 
+    <!-- 消息订阅（spec 三·订阅管理：晨笺/晚安开关、时间自选、个性化私语、服务号绑定态）
+         红线：开关关闭即 PUT enabled:false，绝不默认推送；未绑定仅提示不阻塞本页操作 -->
+    <view class="op-label"><text>消息订阅</text></view>
+    <view class="papercard me-list">
+      <view class="me-row row-line">
+        <view class="mr-ic"><image src="/assets/images/ic-bell.png"></image></view>
+        <view class="mr-label">晨笺 · 早安运势</view>
+        <switch class="stj-switch" checked="{{jianEnabled}}" disabled="{{jianLoading}}" bindchange="onJianSwitch" color="#A93A2C" />
+      </view>
+      <view class="me-row row-line">
+        <view class="mr-ic"><image src="/assets/images/ic-moon.png"></image></view>
+        <view class="mr-label">晚安 · 灯下陪伴</view>
+        <switch class="stj-switch" checked="{{nightEnabled}}" disabled="{{jianLoading}}" bindchange="onNightSwitch" color="#A93A2C" />
+      </view>
+      <picker mode="selector" range="{{morningOptions}}" value="{{morningIdx}}" bindchange="onMorningPick">
+        <view class="me-row row-line {{jianEnabled ? '' : 'stj-pick-dis'}}" hover-class="me-row-active" hover-stay-time="0">
+          <view class="mr-ic"><image src="/assets/images/ic-seal.png"></image></view>
+          <view class="stj-pick-col">
+            <view class="mr-label">晨笺送达时间</view>
+            <view class="stj-pick-range">06:00 - 10:00 · 每 15 分钟</view>
+          </view>
+          <view class="stj-time">{{morningTime}}</view>
+          <view class="mr-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+        </view>
+      </picker>
+      <picker mode="selector" range="{{nightOptions}}" value="{{nightIdx}}" bindchange="onNightPick">
+        <view class="me-row {{nightEnabled ? '' : 'stj-pick-dis'}}" hover-class="me-row-active" hover-stay-time="0">
+          <view class="mr-ic"><image src="/assets/images/ic-seal.png"></image></view>
+          <view class="stj-pick-col">
+            <view class="mr-label">晚安送达时间</view>
+            <view class="stj-pick-range">21:00 - 24:00 · 每 15 分钟</view>
+          </view>
+          <view class="stj-time">{{nightTime}}</view>
+          <view class="mr-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+        </view>
+      </picker>
+      <view class="me-row row-line">
+        <view class="mr-ic"><image src="/assets/images/ic-book2.png"></image></view>
+        <view class="stj-whisper-col">
+          <view class="mr-label">个性化私语</view>
+          <view class="stj-whisper-sub">推送里加一句记得你的事 · 关闭后回到纯金句模式</view>
+        </view>
+        <switch class="stj-switch" checked="{{whisper}}" bindchange="onWhisperSwitch" color="#A93A2C" />
+      </view>
+      <view class="me-row {{bound ? '' : 'stj-bind-row'}}">
+        <view class="mr-ic"><image src="/assets/images/ic-bell.png"></image></view>
+        <view class="stj-bind-col">
+          <view class="stj-bind-line">
+            <view class="mr-label">服务号推送</view>
+            <view class="stj-bind-state {{bound ? 'stj-bound' : ''}}">{{invalid ? '订阅已失效' : (bound ? '已绑定' : '未绑定')}}</view>
+          </view>
+          <view wx:if="{{invalid}}" class="stj-bind-hint">推送连续失败，订阅已失效 · 请重新绑定</view>
+          <view wx:elif="{{!bound}}" class="stj-bind-hint">关注服务号后可开启每日推送</view>
+        </view>
+        <view wx:if="{{invalid || !bound}}" class="stj-bind-btn" hover-class="stj-btn-active" hover-stay-time="0" bindtap="goJianOnboard">{{invalid ? '重新绑定' : '去绑定'}}</view>
+      </view>
+    </view>
+    <view class="stj-note">每天早/晚一条运势推送 · 随时可改可关 · 未开启绝不推送</view>
+
     <!-- 关于与隐私：灯下契约 / 秉烛之约 -->
     <view class="op-label"><text>关于与隐私</text></view>
     <view class="papercard me-list">

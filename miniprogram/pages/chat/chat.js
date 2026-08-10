@@ -36,6 +36,12 @@ const STORAGE_KEY = 'ylm_chat_messages';
 const ARCHIVE_KEY = 'ylm_chat_archives';
 const REACT_KEY = 'ylm_reactions';   // v1.2 表情反应：{消息id: [emoji...]}
 
+/* 晨笺收藏条目（today.js onJianFav 写入 type:'jian'）不是夜话，聊天/历史渲染一律排除；
+   仅渲染层过滤，storage 原样保留（favorites 笺匣仍展示） */
+function isJianEntry(m) {
+  return !!(m && m.type === 'jian');
+}
+
 /* v1.2 表情反应可选集（8 个常用） */
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🙏', '✨'];
 
@@ -90,6 +96,7 @@ Page({
     this._initNavOff();
     this._attachHost();
     this._loadHistory();
+    this._consumePrefill();
     theme.bindTheme(this);
     // 真机保护：语音/音频初始化失败不阻塞页面（各自再兜一层 try/catch）
     try { this._initSpeech(); } catch (e) { console.warn('[Chat] 语音初始化失败:', e); }
@@ -142,6 +149,25 @@ Page({
   },
 
   /* ═══ v1.1 全局流式宿主接线（切 tab 对话不中断） ═══ */
+
+  /* ═══ 晨笺「今日小问」预填（从今日页晨笺卡跳入，问题作为首条消息自动发出） ═══ */
+
+  _consumePrefill() {
+    const app = getApp();
+    const q = (app && app.globalData && app.globalData.jianQuestion) || '';
+    if (!q) return;
+    try {
+      delete app.globalData.jianQuestion;
+    } catch (e) {
+      app.globalData.jianQuestion = '';
+    }
+    // 等历史上屏/宿主就位后再发；只消费一次（页面实例级）
+    setTimeout(() => {
+      if (this._prefillSent) return;
+      this._prefillSent = true;
+      this._send(String(q));
+    }, 300);
+  },
 
   _attachHost() {
     this._lastTick = -1;
@@ -222,12 +248,16 @@ Page({
   },
 
   /* 消息镜像：仅对内容变化的消息重算 Markdown 节点树（流式时缓存命中不重算）；
-     同时把本地表情反应合并进镜像（reactions） */
+     同时把本地表情反应合并进镜像（reactions）。
+     M2：晨笺收藏条目(type==='jian')在此渲染层排除（host/storage 原样保留——streamHost._save
+     会把 host.messages 原样写回 ylm_chat_messages，若在存储层过滤，任何一次保存都会
+     永久抹除收藏的晨笺；favorites 笺匣仍展示） */
   _mirror(messages) {
-    const out = new Array(messages.length);
+    const vis = (Array.isArray(messages) ? messages : []).filter((m) => !isJianEntry(m));
+    const out = new Array(vis.length);
     const reactions = this.data.reactions || {};
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i];
+    for (let i = 0; i < vis.length; i++) {
+      const m = vis[i];
       const c = String(m.content || '');
       const cached = this._segCache;
       if (cached && cached.id === m.id && cached.content === c) {
@@ -247,7 +277,10 @@ Page({
     return out;
   },
 
-  /* 历史续读：宿主现场优先（可能后台生成中/刚完成）；无则 storage；再无则 SEED 开场 */
+  /* 历史续读：宿主现场优先（可能后台生成中/刚完成）；无则 storage；再无则 SEED 开场。
+     M2：晨笺条目(type==='jian')不在此过滤——host 必须保留它，否则 streamHost._save()
+     会把过滤后的数组写回 storage，永久抹除收藏条目；渲染层(_mirror)才做排除。
+     若会话里只剩晨笺条目（首访先收藏），补 SEED 开场保证聊天页非空（晨笺仍留在 host） */
   _loadHistory() {
     const hostState = streamHost.getState();
     let messages = null;
@@ -261,6 +294,9 @@ Page({
         console.warn('[Chat] 历史读取失败');
       }
       if (Array.isArray(saved) && saved.length) messages = saved;
+    }
+    if (Array.isArray(messages) && messages.length && messages.every((m) => isJianEntry(m))) {
+      messages = SEED.slice().concat(messages);
     }
     if (!messages || !messages.length) messages = SEED.slice();
     streamHost.setMessages(messages);

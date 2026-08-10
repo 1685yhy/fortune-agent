@@ -10,18 +10,70 @@
   </view>
 
   <scroll-view scroll-y class="fav-scroll">
-    <view wx:if="{{loaded && !items.length}}" class="fav-empty">
+    <!-- 分类（Task 10 笺匣：全部 / 笺 / 对话） -->
+    <view class="fav-tabs">
+      <view class="fav-tab {{cat === 'all' ? 'fav-tab-on' : ''}}" hover-class="fav-tab-active" hover-stay-time="0"
+        data-cat="all" bindtap="onCatTap">全部</view>
+      <view class="fav-tab {{cat === 'jian' ? 'fav-tab-on' : ''}}" hover-class="fav-tab-active" hover-stay-time="0"
+        data-cat="jian" bindtap="onCatTap">笺</view>
+      <view class="fav-tab {{cat === 'chat' ? 'fav-tab-on' : ''}}" hover-class="fav-tab-active" hover-stay-time="0"
+        data-cat="chat" bindtap="onCatTap">对话</view>
+    </view>
+
+    <view wx:if="{{loaded && !shown.length}}" class="fav-empty">
       <view class="fe-seal"><text class="fe-star">★</text></view>
-      <text class="fe-line1">还没有收藏</text>
-      <text class="fe-line2">点回复下的 ⭐ 收藏，好话存下来</text>
+      <text class="fe-line1">{{emptyTitle}}</text>
+      <text class="fe-line2">{{emptySub}}</text>
     </view>
 
     <view wx:else class="fav-list">
-      <view wx:for="{{items}}" wx:key="id" class="fav-card" hover-class="fav-card-active" hover-stay-time="0"
+      <view wx:for="{{shown}}" wx:key="id" class="fav-card {{item.isJian ? 'fav-jian' : ''}}"
+        hover-class="fav-card-active" hover-stay-time="0"
         data-content="{{item.content}}" bindtap="onItemTap"
         data-id="{{item.id}}" bindlongpress="onItemLongPress">
-        <view class="fc-tag">{{item.tag}}</view>
-        <view class="fc-body">{{item.content}}</view>
+
+        <!-- 笺分类：晨笺卡片（日期干支 + 宜忌 + 金句 + 轻私语 + 小问，非原文气泡） -->
+        <block wx:if="{{item.isJian && !item.jian.fallback}}">
+          <view class="fj-head">
+            <view class="seal fj-seal"><text class="seal-char">晨</text></view>
+            <view class="fj-title">{{item.jian.date}}</view>
+          </view>
+          <view class="fj-yiji">
+            <view class="fj-yiji-row">
+              <text class="fj-yiji-label">宜</text>
+              <view class="fj-chips">
+                <view class="inktag fj-chip" wx:for="{{item.jian.yiArr}}" wx:for-item="y" wx:key="*this">{{y}}</view>
+                <view wx:if="{{!item.jian.yiArr.length}}" class="fj-chip-empty">无</view>
+              </view>
+            </view>
+            <view class="fj-yiji-row">
+              <text class="fj-yiji-label fj-yiji-label-ji">忌</text>
+              <view class="fj-chips">
+                <view class="inktag fj-chip fj-chip-ji" wx:for="{{item.jian.jiArr}}" wx:for-item="j" wx:key="*this">{{j}}</view>
+                <view wx:if="{{!item.jian.jiArr.length}}" class="fj-chip-empty">无</view>
+              </view>
+            </view>
+          </view>
+          <view class="fj-quote" wx:if="{{item.jian.quote}}">
+            <text class="fj-quote-text">「{{item.jian.quote}}」</text>
+            <text class="fj-quote-book" wx:if="{{item.jian.book}}">——《{{item.jian.book}}》</text>
+          </view>
+          <view class="fj-private" wx:if="{{item.jian.privateLine}}">
+            <text class="fj-private-label">轻私语</text>
+            <text>{{item.jian.privateLine}}</text>
+          </view>
+          <view class="fj-question" wx:if="{{item.jian.question}}">
+            <text class="fj-question-label">今日小问</text>
+            <text>{{item.jian.question}}</text>
+          </view>
+        </block>
+
+        <!-- 对话分类（或格式兜底）：原文气泡 -->
+        <block wx:else>
+          <view class="fc-tag">{{item.tag}}</view>
+          <view class="fc-body">{{item.content}}</view>
+        </block>
+
         <view class="fc-foot">
           <text class="fc-time">藏于 {{item.keptLabel}}</text>
           <text class="fc-hint">点按复制 · 长按移除</text>

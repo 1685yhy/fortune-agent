@@ -12,6 +12,24 @@ logger = logging.getLogger(__name__)
 # 敏感字段加密（AES-256-GCM，密钥来自 ENCRYPTION_KEY 环境变量）
 _encryptor = None
 
+# ── 轻量表（jian_prefs 等）共享连接工厂 ─────────────────────────────
+# 测试可把 _DB_PATH 指向临时库（见 scripts/test_jian_api.py）；
+# 未设置时回落到 load_settings().db_path（生产路径）。
+_DB_PATH: Optional[str] = None
+
+
+def get_conn() -> sqlite3.Connection:
+    """打开 sqlite3 连接（轻量 DAO 复用）。
+
+    - check_same_thread=False：允许 TestClient 等跨线程复用同一连接；
+    - 测试注入：设置本模块 _DB_PATH 后返回指向临时库的连接。
+    """
+    path = _DB_PATH
+    if not path:
+        from ..config import load_settings
+        path = str(load_settings().db_path)
+    return sqlite3.connect(path, check_same_thread=False)
+
 
 def _get_encryptor():
     """惰性初始化 DataEncryptor（读取 ENCRYPTION_KEY；未配置时自动降级 dev 密钥并告警）。"""

@@ -1,4 +1,4 @@
-// 设置 — 墨韵纸笺（账号与登录 / 账号信息 / 关于与隐私 / 数据说明 / 危险区注销）
+// 设置 — 墨韵纸笺（账号与登录 / 账号信息 / 消息订阅 / 关于与隐私 / 数据说明 / 危险区注销）
 // 设置入口重构：登录·退出·更换账号·注销 自 me 页收进此页，功能代码复用 me.js 原实现（不重写）
 const api = require('../../utils/api');
 const security = require('../../utils/security');
@@ -6,6 +6,29 @@ const theme = require('../../utils/theme');
 
 /* 注销确认文案（原型 dir_o：输入框须与之一致才可确认） */
 const DEREG_CONFIRM = '注销';
+
+/* ═══ 消息订阅（spec 三·订阅管理 / 推送授权与时间自选 / 五·免费边界）
+     红线：推送必须主动开启；任何开关关闭 → PUT enabled:false，绝不默认发送。
+     时间改动仅在对应通道开启时落库；未开启时改动仅留在本地（开启时随开关一并带出）。 ═══ */
+const WHISPER_KEY = 'ylm_jian_whisper'; // 个性化私语本地偏好（后端字段待接入，同 jian_onboard 约定）
+
+// 晨笺 06:00-10:00 每 15 分钟；晚安 21:00-23:45 每 15 分钟（后端正则拒绝 24:00，同 jian_onboard）
+function buildTimeOptions(startHour, startMin, endHour, endMin) {
+  const out = [];
+  let cur = startHour * 60 + startMin;
+  const end = endHour * 60 + endMin;
+  while (cur <= end) {
+    const h = Math.floor(cur / 60);
+    const m = cur % 60;
+    out.push(('0' + h).slice(-2) + ':' + ('0' + m).slice(-2));
+    cur += 15;
+  }
+  return out;
+}
+const MORNING_OPTIONS = buildTimeOptions(6, 0, 10, 0); // 17 档 06:00-10:00
+const NIGHT_OPTIONS = buildTimeOptions(21, 0, 23, 45); // 12 档 21:00-23:45
+const MORNING_DEFAULT = '07:30';
+const NIGHT_DEFAULT = '23:00';
 
 Page({
   data: {
@@ -23,6 +46,19 @@ Page({
     deregDialogVisible: false,  // 注销确认弹层（输入「注销」解禁）
     deregInput: '',             // 注销确认输入
     deregDone: false,           // 注销成功页（账号已注销）
+    /* 消息订阅（晨笺/晚安开关、时间自选、个性化私语、服务号绑定态） */
+    jianLoading: true,          // prefs 拉取中（开关禁用防闪变）
+    jianEnabled: false,         // 晨笺开关
+    nightEnabled: false,        // 晚安开关
+    morningOptions: MORNING_OPTIONS,
+    morningIdx: MORNING_OPTIONS.indexOf(MORNING_DEFAULT),
+    morningTime: MORNING_DEFAULT,
+    nightOptions: NIGHT_OPTIONS,
+    nightIdx: NIGHT_OPTIONS.indexOf(NIGHT_DEFAULT),
+    nightTime: NIGHT_DEFAULT,
+    whisper: true,              // 个性化私语（默认开；本地偏好）
+    bound: false,               // 服务号绑定态（bound_status === 'bound'）
+    invalid: false,            // 订阅失效态（bound_status === 'invalid'，连续失败≥3次）
   },
 
   onLoad() {
@@ -32,6 +68,7 @@ Page({
 
   onShow() {
     this._deriveIdentity();
+    this._loadJianPrefs();
   },
 
   _initNavOff() {
@@ -68,6 +105,100 @@ Page({
     }
     // 体验模式（local_user）
     this.setData({ loggedIn: true, displayName: '小晚', avatarUrl: '', loginTag: '体验用户', realLogin: false, identityText: '体验用户' });
+  },
+
+  /* ═══ 消息订阅：拉取 prefs 水合（开关/时间/绑定态/私语）。
+       成功→填状态；失败→静默默认（关、07:30/23:00、未绑定），不打扰。
+       onShow 刷新：从 jian_onboard（去绑定）返回后绑定态同步更新；并发请求去重。 ═══ */
+  _loadJianPrefs() {
+    if (this._prefsBusy) return;
+    this._prefsBusy = true;
+    let whisper = true;
+    try {
+      const v = wx.getStorageSync(WHISPER_KEY);
+      if (v === 0 || v === '0') whisper = false;
+    } catch (e) { /* ignore */ }
+    api.getJianPrefs().then((res) => {
+      this._prefsBusy = false;
+      const p = (res && res.prefs) || {};
+      const morningTime = p.jian_time || MORNING_DEFAULT;
+      const nightTime = p.night_time || NIGHT_DEFAULT;
+      const mIdx = MORNING_OPTIONS.indexOf(morningTime);
+      const nIdx = NIGHT_OPTIONS.indexOf(nightTime);
+      this.setData({
+        jianLoading: false,
+        jianEnabled: p.jian_enabled === 1 || p.jian_enabled === true,
+        nightEnabled: p.night_enabled === 1 || p.night_enabled === true,
+        bound: p.bound_status === 'bound',
+        invalid: p.bound_status === 'invalid',
+        morningTime,
+        morningIdx: mIdx >= 0 ? mIdx : MORNING_OPTIONS.indexOf(MORNING_DEFAULT),
+        nightTime,
+        nightIdx: nIdx >= 0 ? nIdx : NIGHT_OPTIONS.indexOf(NIGHT_DEFAULT),
+        whisper,
+      });
+    }).catch(() => {
+      this._prefsBusy = false;
+      this.setData({ jianLoading: false, whisper }); // 静默降级：保持默认关态
+    });
+  },
+
+  /* 开关（红线：关闭 → PUT enabled:false，绝不默认发送；开启 → 带所选时间一并落库） */
+  onJianSwitch(e) {
+    if (this.data.jianLoading) return;
+    const on = !!e.detail.value;
+    const prev = this.data.jianEnabled;
+    this.setData({ jianEnabled: on });
+    const patch = { jian_enabled: on };
+    if (on) patch.jian_time = this.data.morningTime;
+    this._savePrefs(patch, 'jianEnabled', prev);
+  },
+
+  onNightSwitch(e) {
+    if (this.data.jianLoading) return;
+    const on = !!e.detail.value;
+    const prev = this.data.nightEnabled;
+    this.setData({ nightEnabled: on });
+    const patch = { night_enabled: on };
+    if (on) patch.night_time = this.data.nightTime;
+    this._savePrefs(patch, 'nightEnabled', prev);
+  },
+
+  /* 时间自选（仅在对应通道开启时落库；关闭时改动留在本地，开启时随开关带出） */
+  onMorningPick(e) {
+    const idx = Number(e.detail.value);
+    const time = MORNING_OPTIONS[idx];
+    this.setData({ morningIdx: idx, morningTime: time });
+    if (this.data.jianEnabled) this._savePrefs({ jian_time: time });
+  },
+
+  onNightPick(e) {
+    const idx = Number(e.detail.value);
+    const time = NIGHT_OPTIONS[idx];
+    this.setData({ nightIdx: idx, nightTime: time });
+    if (this.data.nightEnabled) this._savePrefs({ night_time: time });
+  },
+
+  /* 统一保存：成功静默 toast；失败回滚开关（revertField 指定）+ 提示。时间改动不回滚，下次成功落库 */
+  _savePrefs(patch, revertField, prev) {
+    api.putJianPrefs(patch).then(() => {
+      wx.showToast({ title: '已保存', icon: 'none' });
+    }).catch(() => {
+      if (revertField) this.setData({ [revertField]: prev });
+      wx.showToast({ title: '保存失败，请重试', icon: 'none' });
+    });
+  },
+
+  /* 个性化私语（本地偏好，默认开；后端 private_enabled 字段待接入后迁移，同 jian_onboard） */
+  onWhisperSwitch(e) {
+    const on = !!e.detail.value;
+    this.setData({ whisper: on });
+    try { wx.setStorageSync(WHISPER_KEY, on ? 1 : 0); } catch (err) { /* ignore */ }
+  },
+
+  /* 未绑定 → 去绑定（jian_onboard 引导页：服务号二维码/绑定引导；返回后 onShow 刷新状态） */
+  goJianOnboard() {
+    wx.navigateTo({ url: '/pages/jian_onboard/jian_onboard' });
   },
 
   /* ═══ 微信登录（复用 me.js _loginAgain：wx.login → code → JWT；后端不可用走 local_user 兜底） ═══ */

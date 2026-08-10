@@ -1,0 +1,384 @@
+/* ═══ 明灯晨笺 · 开启引导页（主动同意 + 时间自选）
+     视觉语言同设置页：宣纸底 + 朱砂印章「启」+ 双线笺框 + 竖排墨字 ═══ */
+
+.jo-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));   /* 95px */
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 19rpx 38rpx 56rpx;            /* 10px 20px 29px */
+  overflow-x: hidden;                    /* 真机修复：内容超宽时横向裁剪，页面不可横滑 */
+}
+
+/* ── 头部：印章「启」+ 标题 + 明示文案 ── */
+.jo-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 21rpx 0 36rpx;                /* 11px 19px */
+}
+.jo-seal {
+  width: 86rpx;                          /* 45px */
+  height: 86rpx;
+  font-size: 50rpx;                      /* 26px */
+  border-radius: 10rpx;                  /* 5px */
+  margin-bottom: 23rpx;                  /* 12px */
+}
+.jo-title {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 40rpx;                      /* 21px */
+  letter-spacing: .24em;
+  color: var(--ink);
+}
+.jo-sub {
+  margin-top: 12rpx;                     /* 6px */
+  font-family: var(--font-song);
+  font-size: 24rpx;                      /* 12.5px */
+  letter-spacing: .14em;
+  color: var(--ink-mid);
+  text-align: center;
+}
+
+/* ── 加载中（研墨三点） ── */
+.jo-loading {
+  display: flex;
+  justify-content: center;
+  gap: 12rpx;
+  padding: 90rpx 0;
+}
+
+/* ── 已开启状态条 ── */
+.jo-status {
+  display: flex;
+  align-items: center;
+  gap: 23rpx;                            /* 12px */
+  background: var(--paper-card);
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;                  /* 5px */
+  padding: 25rpx 31rpx;                  /* 13px 16px */
+  margin-bottom: 27rpx;                  /* 14px */
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+}
+.jo-status-seal {
+  width: 62rpx;                          /* 32px */
+  height: 62rpx;
+  font-size: 34rpx;                      /* 18px */
+  border-radius: 8rpx;                   /* 4px */
+}
+.jo-status-col { flex: 1; display: flex; flex-direction: column; }
+.jo-status-title {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 29rpx;                      /* 15px */
+  letter-spacing: .18em;
+  color: var(--ink);
+}
+.jo-status-sub {
+  margin-top: 4rpx;                      /* 2px */
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .1em;
+  color: var(--ink-soft);
+}
+
+/* ── 双线笺框（外框 + ::before 内框，同设置页注销弹层） ── */
+.jo-jian {
+  position: relative;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-strong);
+  border-radius: 10rpx;                  /* 5px */
+  padding: 26rpx 30rpx 24rpx;            /* 13px 16px 12px */
+  margin-bottom: 27rpx;                  /* 14px */
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+}
+.jo-jian::before {
+  content: '';
+  position: absolute;
+  inset: 8rpx;                           /* 4px */
+  border: 2rpx solid var(--line-soft);
+  border-radius: 6rpx;
+  pointer-events: none;
+}
+.jo-jian-head {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;                            /* 7px */
+  margin-bottom: 13rpx;                  /* 7px */
+}
+.jo-jian-tag {
+  font-family: var(--font-brush);
+  font-size: 26rpx;                      /* 13.5px */
+  letter-spacing: .14em;
+  color: var(--acc);
+}
+.jo-jian-name {
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .2em;
+  color: var(--ink-soft);
+}
+
+/* ── 时间选择行（picker 热区） ── */
+.jo-pick {
+  display: flex;
+  align-items: center;
+  gap: 19rpx;                            /* 10px */
+  padding: 8rpx 2rpx 4rpx;
+  border-radius: 8rpx;                   /* 4px */
+}
+.jo-pick-active { background: var(--acc-soft); }
+.jo-pick-col { flex: 1; display: flex; flex-direction: column; }
+.jo-pick-label {
+  font-family: var(--font-song);
+  font-size: 21rpx;                      /* 11px */
+  letter-spacing: .16em;
+  color: var(--ink-soft);
+}
+.jo-pick-range {
+  margin-top: 3rpx;
+  font-family: var(--font-song);
+  font-size: 18rpx;                      /* 9.5px */
+  letter-spacing: .08em;
+  color: var(--ink-faint);
+}
+.jo-pick-time {
+  font-family: var(--font-lat);          /* Instrument Serif 衬线拉丁：时刻数字点睛 */
+  font-style: italic;
+  font-size: 58rpx;                      /* 30px */
+  letter-spacing: .04em;
+  color: var(--ink);
+  line-height: 1.15;
+}
+.jo-pick-chev { width: 24rpx; height: 24rpx; opacity: .5; }
+
+/* ── 轻私语开关 ── */
+.jo-whisper {
+  display: flex;
+  align-items: center;
+  gap: 21rpx;                            /* 11px */
+}
+.jo-whisper-col { flex: 1; display: flex; flex-direction: column; }
+.jo-whisper-title {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 27rpx;                      /* 14px */
+  letter-spacing: .16em;
+  color: var(--ink);
+}
+.jo-whisper-sub {
+  margin-top: 6rpx;                      /* 3px */
+  font-family: var(--font-song);
+  font-size: 19rpx;                      /* 10px */
+  letter-spacing: .06em;
+  color: var(--ink-soft);
+  line-height: 1.65;
+}
+.jo-switch { transform: scale(.92); }
+
+/* ── 同意按钮（朱砂点睛 · 主动同意唯一入口） ── */
+.jo-agree {
+  width: 100%;
+  height: 92rpx;                         /* 48px */
+  border-radius: 10rpx;                  /* 5px */
+  background: var(--acc);
+  color: #FBF6E8;
+  font-family: var(--font-song);
+  font-size: 31rpx;                      /* 16px */
+  letter-spacing: .26em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 8rpx 22rpx rgba(120,40,30,.28);
+  border: none;
+  line-height: 1;
+  margin-top: 4rpx;
+  padding: 0;
+}
+.jo-agree::after { border: none; }
+.jo-agree-active { opacity: .88; transform: scale(.985); }
+
+/* ── 关闭晨笺（朱砂线框 · 已开启态） ── */
+.jo-close {
+  height: 88rpx;                         /* 46px */
+  border-radius: 10rpx;                  /* 5px */
+  border: 2rpx solid var(--acc-line);
+  color: var(--acc);
+  font-family: var(--font-song);
+  font-size: 27rpx;                      /* 14px */
+  letter-spacing: .26em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+}
+.jo-close-active { background: var(--acc-soft); }
+
+/* ── 绑定状态区（服务号关注引导） ── */
+.jo-bind {
+  margin-top: 34rpx;                     /* 18px */
+  background: var(--paper-deep);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 10rpx;                  /* 5px */
+  padding: 25rpx 30rpx 26rpx;            /* 13px 16px */
+}
+.jo-bind-head {
+  display: flex;
+  align-items: center;
+  gap: 13rpx;                            /* 7px */
+}
+.jo-bind-title {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 25rpx;                      /* 13px */
+  letter-spacing: .18em;
+  color: var(--ink);
+}
+.jo-bind-state {
+  font-family: var(--font-song);
+  font-size: 18rpx;                      /* 9.5px */
+  letter-spacing: .14em;
+  color: var(--ink-soft);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 4rpx;
+  padding: 3rpx 13rpx;
+  background: var(--tag-bg);
+}
+.jo-bind-state-on {
+  color: var(--success);
+  border-color: rgba(95,107,79,.35);
+}
+.jo-bind-txt {
+  margin-top: 14rpx;                     /* 7px */
+  font-family: var(--font-song);
+  font-size: 21rpx;                      /* 11px */
+  letter-spacing: .07em;
+  color: var(--ink-mid);
+  line-height: 1.7;
+}
+.jo-qr {
+  margin-top: 21rpx;                     /* 11px */
+  border: 2rpx dashed var(--line-mid);
+  border-radius: 10rpx;                  /* 5px */
+  background: var(--paper-card);
+  padding: 25rpx 0 22rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.jo-qr-frame {
+  width: 148rpx;                         /* 77px */
+  height: 148rpx;
+  border: 2rpx dashed var(--line-mid);
+  border-radius: 8rpx;                   /* 4px */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-faint);
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .2em;
+}
+.jo-qr-txt {
+  margin-top: 15rpx;                     /* 8px */
+  font-family: var(--font-song);
+  font-size: 19rpx;                      /* 10px */
+  letter-spacing: .1em;
+  color: var(--ink-soft);
+}
+
+/* ── 页脚 ── */
+.jo-foot {
+  margin-top: 34rpx;                     /* 18px */
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 18rpx;                      /* 9.5px */
+  letter-spacing: .3em;
+  color: var(--ink-faint);
+}
+
+/* ── 关闭晨笺二次确认弹层（双线笺框 · 朱砂警示，同设置页注销弹层） ── */
+.jo-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(228, 218, 196, .66);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 65rpx;                      /* 34px */
+}
+.jo-modal {
+  width: 100%;
+  max-width: 619rpx;                     /* 322px */
+  position: relative;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-strong);
+  border-radius: 8rpx;                   /* 4px */
+  box-shadow: 0 50rpx 115rpx rgba(40,28,14,.3);
+  padding: 46rpx 42rpx 38rpx;            /* 24px 22px 20px */
+}
+.jo-modal::before {
+  content: '';
+  position: absolute;
+  inset: 8rpx;                           /* 4px */
+  border: 2rpx solid var(--line-soft);
+  border-radius: 4rpx;
+  pointer-events: none;
+}
+.jo-modal-title {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 33rpx;                      /* 17px */
+  letter-spacing: .22em;
+  color: var(--ink);
+  text-align: center;
+}
+.jo-modal-body {
+  margin-top: 24rpx;                     /* 12px */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6rpx;
+  font-family: var(--font-song);
+  font-size: 24rpx;                      /* 12.5px */
+  letter-spacing: .06em;
+  color: var(--ink-mid);
+  line-height: 1.6;
+}
+.jo-modal-note {
+  margin-top: 18rpx;                     /* 9px */
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 19rpx;                      /* 10px */
+  letter-spacing: .12em;
+  color: var(--acc);
+}
+.jo-modal-actions {
+  margin-top: 33rpx;                     /* 17px */
+  display: flex;
+  gap: 22rpx;                            /* 11px */
+}
+.jo-btn-ghost, .jo-btn-danger {
+  flex: 1;
+  height: 82rpx;                         /* 43px */
+  border-radius: 8rpx;                   /* 4px */
+  font-family: var(--font-song);
+  font-size: 26rpx;                      /* 13.5px */
+  letter-spacing: .2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.jo-btn-ghost {
+  border: 2rpx solid var(--line);
+  color: var(--ink-mid);
+  background: transparent;
+}
+.jo-btn-danger {
+  background: var(--acc);
+  color: #FBF6E8;
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12);
+}
+.jo-btn-active { opacity: .85; transform: scale(.97); }
