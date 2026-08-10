@@ -1,0 +1,122 @@
+<view class="screen" style="--nav-off:{{navOff}}px">
+  <!-- ── 手记列表 ── -->
+  <block wx:if="{{view === 'list'}}">
+    <view class="navrow">
+      <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+      </view>
+      <view class="nav-title">
+        <image class="nav-t-icon" src="{{dark ? '/assets/images/ic-moon-dark.png' : '/assets/images/ic-moon.png'}}"></image>
+        <text>解梦手记</text>
+      </view>
+      <view class="nav-right"></view>
+    </view>
+
+    <scroll-view scroll-y class="dream-scroll">
+      <view class="dream-desc">
+        <view class="dd-dot"></view>
+        <text>记录每一次梦境解读 · 共 {{notes.length}} 记 · 墨未干</text>
+      </view>
+
+      <!-- 空态（原型：灯笼 + 两句 + 分隔线 + 诗行） -->
+      <view wx:if="{{loaded && !notes.length}}" class="empty">
+        <image class="empty-lantern" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
+        <view class="e-title">还没有解梦手记</view>
+        <view class="e-sub">在夜话里提起一个梦，明灯替你解读
+解毕，此记便入册</view>
+        <view class="e-line"></view>
+        <view class="e-poem">梦是心在夜里悄悄记账</view>
+      </view>
+
+      <!-- 手记条目 -->
+      <view wx:else>
+        <view wx:for="{{notes}}" wx:key="id"
+          class="note-row {{removing === item.id ? 'removing' : ''}}"
+          hover-class="note-row-active" hover-stay-time="0"
+          data-id="{{item.id}}" bindtap="onNoteTap">
+          <view class="note-in">
+            <view class="note-top">
+              <view class="note-date"><text class="note-dow">{{item.dow}}</text> · {{item.date}} {{item.time}}</view>
+              <view class="note-key">{{item.key}}</view>
+            </view>
+            <view class="note-dream">「{{item.dream}}」</view>
+            <view class="note-read">{{item.read}}</view>
+            <view class="note-foot">
+              <view class="nf-book">
+                <image class="nf-book-ic" src="{{dark ? '/assets/images/ic-book2-dark.png' : '/assets/images/ic-book2.png'}}"></image>
+                <text>{{item.quote}}</text>
+              </view>
+              <view class="nf-open">点开细读</view>
+            </view>
+          </view>
+        </view>
+        <view class="dream-note">夜话中的解梦，都会收进这本手记</view>
+      </view>
+    </scroll-view>
+  </block>
+
+  <!-- ── 手记详情（梦境原文 + 解梦结论 + 古籍角标） ── -->
+  <block wx:else>
+    <view class="navrow">
+      <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+      </view>
+      <view class="nav-title">
+        <text>解梦 · {{current.key}}</text>
+      </view>
+      <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0" bindtap="askDel">
+        <image class="nav-right-icon" src="{{dark ? '/assets/images/ic-kebab-dark.png' : '/assets/images/ic-kebab.png'}}"></image>
+      </view>
+    </view>
+
+    <scroll-view scroll-y class="detail-scroll">
+      <view class="dt-head">{{current.dow}} · {{current.date}} · 夜 {{current.time}}</view>
+
+      <!-- 梦境原文 -->
+      <view class="dt-dream">
+        <view class="dd-title">
+          <text>梦境原文</text>
+          <view class="t-line"></view>
+        </view>
+        <view class="dd-body">{{current.dream ? '「' + current.dream + '」' : '（未记录原文）'}}</view>
+        <view class="dd-time">梦 · {{current.date}} 夜</view>
+      </view>
+
+      <!-- 解梦结论 + 古籍引用角标 -->
+      <view class="jianzhu">
+        <view class="jz-tag">{{current.tag}}</view>
+        <view class="jz-body">{{current.read}}</view>
+        <view class="jz-quote">
+          <view class="q-badge">
+            <image class="q-book-ic" src="{{dark ? '/assets/images/ic-book2-dark.png' : '/assets/images/ic-book2.png'}}"></image>
+            <text>{{current.quote}}</text>
+          </view>
+          <text class="q-note">{{current.quoteNote}}</text>
+        </view>
+      </view>
+
+      <view class="dt-actions">
+        <view class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onContinue">
+          <image class="btn-send-ic" src="/assets/images/ic-send.png"></image>
+          <text>再问问这个梦</text>
+        </view>
+        <view class="dt-del-link" hover-class="btn-active" hover-stay-time="0" bindtap="askDel">删除此记</view>
+      </view>
+    </scroll-view>
+  </block>
+
+  <!-- 删除确认弹层（朱砂警示 · 双线笺框） -->
+  <view wx:if="{{dlgDel}}" class="modal-veil" catchtouchmove="noop" bindtap="closeDlgDel">
+    <view class="modal-card" catchtap="noop">
+      <view class="modal-title danger">删除此记？</view>
+      <view class="modal-body">
+        <text>「{{dlgDel.key}}」这一记删除后将</text><text class="mb-strong">不可恢复</text><text>。</text>
+        <text class="mb-line2">梦或许会忘，灯会记得你做过梦。</text>
+      </view>
+      <view class="modal-actions">
+        <view class="btn btn-ghost" hover-class="btn-active" hover-stay-time="0" bindtap="closeDlgDel">留着</view>
+        <view class="btn btn-acc" hover-class="btn-active" hover-stay-time="0" bindtap="confirmDel">确认删除</view>
+      </view>
+    </view>
+  </view>
+</view>

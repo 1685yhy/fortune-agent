@@ -45,11 +45,11 @@
           <text class="form-label">性别</text>
           <view class="form-radio-group">
             <label class="form-radio {{gender === 'male' ? 'active' : ''}}">
-              <radio value="male" checked="{{gender === 'male'}}" bindchange="onGenderChange" color="#c9a96e" />
+              <radio value="male" checked="{{gender === 'male'}}" bindchange="onGenderChange" color="#D4A574" />
               <text>男</text>
             </label>
             <label class="form-radio {{gender === 'female' ? 'active' : ''}}">
-              <radio value="female" checked="{{gender === 'female'}}" bindchange="onGenderChange" color="#c9a96e" />
+              <radio value="female" checked="{{gender === 'female'}}" bindchange="onGenderChange" color="#D4A574" />
               <text>女</text>
             </label>
           </view>

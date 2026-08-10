@@ -1,8 +1,4 @@
 {
-  "navigationBarTitleText": "今日运势",
-  "enablePullDownRefresh": true,
-  "backgroundColor": "#0F172A",
-  "navigationBarBackgroundColor": "#0F172A",
-  "navigationBarTextStyle": "white",
-  "usingComponents": {}
+  "usingComponents": {},
+  "navigationStyle": "custom"
 }

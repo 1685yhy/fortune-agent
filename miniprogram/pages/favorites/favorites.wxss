@@ -1,0 +1,118 @@
+/* ═══ 我的收藏 — 收藏星笺（墨韵：宣纸卡片列表 + 朱砂小标） ═══ */
+
+.fav-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));   /* 95px */
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 19rpx 38rpx 46rpx;           /* 10px 20px 24px */
+  overflow-x: hidden;
+}
+
+/* ── 空态 ── */
+.fav-empty {
+  padding: 150rpx 0 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.fe-seal {
+  width: 110rpx;
+  height: 110rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--acc-soft);
+  border: 3rpx solid var(--acc);
+  border-radius: 12rpx;
+  transform: rotate(-3deg);
+}
+.fe-star {
+  font-size: 60rpx;
+  color: var(--acc);
+}
+.fe-line1 {
+  margin-top: 30rpx;
+  font-family: var(--font-song);
+  font-size: 28rpx;
+  letter-spacing: .26em;
+  color: var(--ink-soft);
+}
+.fe-line2 {
+  margin-top: 12rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .12em;
+  color: var(--ink-faint);
+}
+
+/* ── 收藏卡片（宣纸笺，左朱砂细条，与对话明灯笺呼应） ── */
+.fav-list { display: flex; flex-direction: column; gap: 24rpx; }
+.fav-card {
+  position: relative;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;
+  padding: 25rpx 29rpx 21rpx;
+  box-shadow: 0 4rpx 15rpx var(--shadow-sm);
+}
+.fav-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 27rpx; bottom: 27rpx;
+  width: 4rpx;
+  background: var(--acc-soft);
+  border-radius: 2rpx;
+}
+.fav-card-active { border-color: var(--acc-line); background: var(--acc-soft); }
+.fc-tag {
+  display: inline-flex;
+  margin-bottom: 15rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .16em;
+  color: var(--ink-soft);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 4rpx;
+  padding: 4rpx 13rpx;
+  background: var(--tag-bg);
+}
+.fc-body {
+  font-family: var(--poem);
+  font-size: 29rpx;
+  line-height: 1.9;
+  letter-spacing: .03em;
+  color: var(--ink-mid);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 6;
+  overflow: hidden;
+}
+.fc-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 16rpx;
+}
+.fc-time {
+  font-family: var(--font-lat);
+  font-style: italic;
+  font-size: 19rpx;
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+}
+.fc-hint {
+  font-family: var(--font-song);
+  font-size: 18rpx;
+  letter-spacing: .08em;
+  color: var(--acc);
+}
+.fav-note {
+  text-align: center;
+  margin-top: 44rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .24em;
+  color: var(--ink-faint);
+}

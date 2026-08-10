@@ -1,410 +1,211 @@
-/* 易理明灯 — 今日运势样式 */
+/* ═══ 屏 1 · 今日 — 笺谱封面（dir_b.html 755-797 行逐行翻译，px×1.923→rpx） ═══ */
 
-/* ---- 页面容器 ---- */
-.page {
-  min-height: 100vh;
-  background: var(--gradient-primary);
-  opacity: 0;
-  transition: opacity 0.4s ease-out;
-}
-.page.animated {
-  opacity: 1;
-}
+/* 真机修复：保持 .screen 的 fixed 定位（此前 absolute 会让容器跟随内容伸展，真机上页面可横向滑动） */
+.today-wrap { position: fixed; inset: 0; display: flex; flex-direction: column; }
 
-/* ---- Hero Section -- Pure CSS Score Card ---- */
-.hero-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 60rpx 32rpx 40rpx;
+/* ── 外框（top:64 / lr:20 / bottom:40 / 1px 墨框 + 顶线 + 水痕晕染） ── */
+.today-frame {
+  position: absolute;
+  top: calc(123rpx + var(--nav-off));   /* 64px */
+  left: 38rpx;                           /* 20px */
+  right: 38rpx;
+  bottom: 77rpx;                         /* 40px */
+  border: 2rpx solid var(--line-strong); /* 1px */
+  border-radius: 4rpx;                   /* 2px */
 }
-
-.score-card {
-  width: 100%;
-  background: linear-gradient(135deg, rgba(30,41,59,0.9) 0%, rgba(15,23,42,0.95) 100%);
-  border: 1px solid rgba(212,168,67,0.15);
-  border-radius: 24rpx;
-  padding: 40rpx 32rpx 32rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-.score-ring-bg {
-  width: 180rpx;
-  height: 180rpx;
-  border-radius: 50%;
-  background: conic-gradient(var(--gold) calc(var(--score-pct) * 1%), transparent 0);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  margin-bottom: 20rpx;
-}
-.score-ring-bg::before {
+.today-frame::before {
   content: '';
   position: absolute;
-  inset: 8rpx;
-  border-radius: 50%;
-  background: #0F172A;
+  top: -10rpx; left: -10rpx; right: -10rpx;
+  height: 2rpx;                          /* 1px */
+  background: var(--line-strong);
+}
+.today-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 30%, transparent 60%, rgba(90,70,45,.05) 100%);
 }
 
-.score-inner {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.score-number {
-  font-size: 64rpx;
-  font-weight: 200;
-  color: #fff;
-  line-height: 1;
-}
-.score-unit {
-  font-size: 24rpx;
-  color: rgba(255,255,255,0.5);
-  margin-top: 4rpx;
+/* ── 竖排品牌（易理明灯） ── */
+.today-brand {
+  position: absolute;
+  top: calc(123rpx + var(--nav-off));   /* 64px */
+  left: 69rpx;                           /* 36px */
+  z-index: 25;
+  font-family: var(--font-brush);
+  font-size: 25rpx;                      /* 13px */
+  letter-spacing: .5em;
+  line-height: 1.7;
+  color: var(--ink-brand);
+  writing-mode: vertical-rl;
 }
 
-.score-level {
+/* ── 日期行（八月六日 ◆ 明日立秋 · 今夜宜早眠） ── */
+.today-date {
+  position: absolute;
+  top: calc(150rpx + var(--nav-off));   /* 78px */
+  left: 0; right: 0;
+  z-index: 25;
   text-align: center;
-  margin-bottom: 28rpx;
-}
-.level-text {
-  font-size: 36rpx;
-  font-weight: 600;
-}
-.score-level.excellent .level-text { color: #D4A843; }
-.score-level.good .level-text { color: #5B8C5A; }
-.score-level.fair .level-text { color: #C2852A; }
-.score-level.poor .level-text { color: #C2413D; }
-.level-sub {
-  font-size: 24rpx;
-  color: var(--color-text-tertiary);
-  display: block;
-  margin-top: 6rpx;
-}
-
-.score-factors {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 12rpx;
-}
-.factor {
+  font-family: var(--font-song);
+  font-size: 22rpx;                      /* 11.5px */
+  letter-spacing: .32em;
+  color: var(--ink-soft);
   display: flex;
   align-items: center;
-  gap: 12rpx;
-}
-.factor-name {
-  width: 100rpx;
-  font-size: 24rpx;
-  color: var(--color-text-secondary);
-  text-align: right;
-  flex-shrink: 0;
-}
-.factor-bar {
-  height: 8rpx;
-  border-radius: 4rpx;
-  background: var(--gold);
-  flex: 1;
-  transition: width 0.8s ease-out;
-}
-.factor-score {
-  width: 48rpx;
-  font-size: 24rpx;
-  color: var(--color-text);
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.hero-date {
-  text-align: center;
-  margin-top: 32rpx;
-}
-.hero-date-lunar {
-  font-size: 32rpx;
-  color: var(--color-text);
-  display: block;
-}
-.hero-date-ganzhi {
-  font-size: 24rpx;
-  color: var(--color-text-secondary);
-  margin-top: 6rpx;
-}
-.hero-jieqi {
-  font-size: 22rpx;
-  color: var(--gold);
-  margin-top: 4rpx;
-}
-
-/* ---- Section 通用 ---- */
-.section {
-  padding: var(--space-xl) var(--space-lg);
-  opacity: 0;
-  transform: translateY(16px);
-}
-.page.animated .section {
-  animation: fadeUp 0.6s ease-out forwards;
-}
-.page.animated .section:nth-child(2) { animation-delay: 0.5s; }
-.page.animated .section:nth-child(3) { animation-delay: 0.58s; }
-.page.animated .section:nth-child(4) { animation-delay: 0.66s; }
-.page.animated .section:nth-child(5) { animation-delay: 0.74s; }
-.page.animated .section:nth-child(6) { animation-delay: 0.82s; }
-
-.section-header {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: var(--space-lg);
-}
-.section-title {
-  font-size: var(--font-sm);
-  font-weight: 500;
-  color: var(--color-text-tertiary);
-  letter-spacing: 0.06em;
-}
-.section-hint {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  opacity: 0.6;
-}
-
-/* ---- 时辰时间线 ---- */
-.hour-scroll {
-  width: 100%;
-  white-space: nowrap;
-}
-.hour-track {
-  display: flex;
-  flex-direction: row;
-  gap: var(--space-sm);
-  padding: var(--space-sm) 0;
-}
-.hour-item {
-  flex-shrink: 0;
-  width: 56px;
-  padding: var(--space-sm);
-  border-radius: var(--radius-md);
-  background: transparent;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  transition: all var(--transition-fast);
-}
-.hour-item.active {
-  background: rgba(255,255,255,0.04);
-}
-.hour-name {
-  font-size: var(--font-sm);
-  color: var(--color-text);
-  font-weight: 500;
-}
-.hour-time {
-  font-size: var(--font-xs);
-  color: var(--stone);
-  margin-top: 2px;
-}
-.hour-mark {
-  font-size: var(--font-xs);
-  margin-top: 4px;
-  padding: 1px 6px;
-  border-radius: var(--radius-full);
-}
-.hour-mark.good { color: var(--jade); background: rgba(91,140,90,0.15); }
-.hour-mark.fair { color: var(--warning); background: rgba(194,133,42,0.15); }
-.hour-mark.poor { color: var(--cinnabar); background: rgba(194,65,61,0.15); }
-
-/* ---- 时辰评分数值 ---- */
-.hour-score {
-  font-size: 10px;
-  color: var(--color-text-tertiary);
-  margin-top: 2px;
-  font-weight: 500;
-}
-
-/* ---- 最佳/最差时辰高亮 ---- */
-.hour-best {
-  background: rgba(91,140,90,0.12);
-  border: 1px solid rgba(91,140,90,0.3);
-  border-radius: var(--radius-md);
-}
-.hour-best .hour-name {
-  color: var(--jade);
-  font-weight: 600;
-}
-.hour-worst {
-  background: rgba(194,65,61,0.08);
-  border: 1px solid rgba(194,65,61,0.2);
-  border-radius: var(--radius-md);
-}
-.hour-worst .hour-name {
-  color: var(--cinnabar);
-}
-.hour-worst .hour-mark.poor {
-  color: #fff;
-  background: var(--cinnabar);
-}
-
-.hour-detail {
-  margin-top: var(--space-md);
-  padding: var(--space-md);
-  background: var(--color-bg-card);
-  border-radius: var(--radius-lg);
-}
-.hour-detail-ganzhi {
-  font-size: var(--font-md);
-  color: var(--gold);
-  font-weight: 500;
-}
-.hour-detail-advice {
-  display: block;
-  font-size: var(--font-sm);
-  color: var(--color-text-secondary);
-  margin-top: var(--space-xs);
-  line-height: 1.5;
-}
-
-/* ---- 幸运三连 ---- */
-.lucky-row {
-  display: flex;
-  flex-direction: row;
-  gap: var(--space-md);
-}
-.lucky-card {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--space-lg) var(--space-sm);
-  background: var(--color-bg-card);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-}
-.lucky-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-full);
-  margin-bottom: var(--space-sm);
-}
-.lucky-icon-text {
-  font-size: var(--font-2xl);
-  margin-bottom: var(--space-sm);
-}
-.lucky-label {
-  font-size: var(--font-xs);
-  color: var(--stone);
-}
-.lucky-value {
-  font-size: var(--font-md);
-  color: var(--color-text);
-  font-weight: 500;
-  margin-top: var(--space-xs);
-  text-align: center;
-}
-
-/* ---- 宜忌 ---- */
-.yi-ji-row {
-  display: flex;
-  flex-direction: row;
-  gap: var(--space-md);
-}
-.yi-ji-col {
-  flex: 1;
-  padding: var(--space-lg) var(--space-md);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-card);
-}
-.yi-ji-title {
-  font-size: var(--font-md);
-  font-weight: 500;
-  margin-bottom: var(--space-sm);
-  display: block;
-}
-.yi-title { color: var(--jade); }
-.ji-title { color: var(--cinnabar); }
-.yi-ji-item {
-  display: flex;
-  flex-direction: row;
-  justify-content: space-between;
-  padding: var(--space-xs) 0;
-}
-.yi-ji-text {
-  font-size: var(--font-sm);
-  color: var(--color-text-secondary);
-}
-.yi-ji-time {
-  font-size: var(--font-xs);
-  color: var(--stone);
-}
-
-/* ---- 本周预览 ---- */
-.week-canvas {
-  width: 100%;
-  height: 120px;
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-card);
-}
-
-/* ---- 心情记录 ---- */
-.mood-row {
-  display: flex;
-  flex-direction: row;
-  gap: var(--space-md);
   justify-content: center;
+  gap: 19rpx;                            /* 10px */
 }
-.mood-btn {
+.today-date .zd {
+  width: 10rpx;                          /* 5px */
+  height: 10rpx;
+  transform: rotate(45deg);
+  background: var(--acc);
+  border-radius: 2rpx;
+}
+
+/* ── 主列（诗签 → 按钮 → 脚注，上下分布） ── */
+.today-col {
+  position: absolute;
+  inset: 0;
+  padding: calc(246rpx + var(--nav-off)) 65rpx 81rpx;  /* 128px 34px 42px */
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: var(--space-md);
-  background: var(--color-bg-card);
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-  min-width: 72px;
-  min-height: 72px;
-  transition: all var(--transition-fast);
+  justify-content: space-between;
 }
-.mood-btn:active {
-  transform: scale(0.94);
-  background: rgba(255,255,255,0.05);
+
+/* ── 诗签块 ── */
+.poem-block { display: flex; flex-direction: column; align-items: center; position: relative; }
+
+/* 水墨灯笼 135×218 → 260×419rpx：烛光两层独立呼吸 */
+.lantern-box { position: relative; width: 260rpx; height: 419rpx; }
+.lantern-body {
+  position: absolute; inset: 0;
+  width: 260rpx; height: 419rpx;
 }
-.mood-btn.active {
-  background: rgba(255,255,255,0.06);
+.lantern-glow {
+  position: absolute; left: 0; top: 0;
+  width: 260rpx; height: 419rpx;
+  pointer-events: none;
 }
-.mood-emoji {
-  font-size: var(--font-2xl);
-}
-.mood-label {
-  font-size: var(--font-xs);
-  color: var(--stone);
-  margin-top: var(--space-xs);
-}
-.mood-feedback {
-  margin-top: var(--space-md);
+.lantern-glow-delay { animation-delay: 1.2s; }
+
+.poem-lines { margin-top: 19rpx; }       /* 10px */
+.poem-line {
+  font-family: var(--poem);
+  font-weight: 400;
+  font-size: 48rpx;                      /* 25px */
+  line-height: 2;
+  letter-spacing: .14em;
+  color: var(--ink);
   text-align: center;
 }
-.mood-feedback-text {
-  font-size: var(--font-sm);
-  color: var(--jade);
+.poem-line .jk {
+  color: var(--acc);
+  font-size: 29rpx;                      /* 15px */
+  vertical-align: super;
+  letter-spacing: 0;
 }
 
-/* ---- 底部留白 ---- */
-.section-bottom-space {
-  height: var(--space-3xl);
+/* 印章（27px → 52rpx，朱砂「明」） */
+.seal-attach {
+  position: relative;
+  align-self: flex-end;
+  margin-right: 73rpx;                   /* 38px */
+  margin-top: -15rpx;                    /* -8px */
+}
+.seal-52 { width: 52rpx; height: 52rpx; font-size: 32rpx; }
+
+/* 两宜标签 */
+.yi-chips { display: flex; gap: 19rpx; margin-top: 12rpx; }  /* 10px 6px */
+.yi-chip { font-size: 21rpx; padding: 8rpx 23rpx; letter-spacing: .18em; }  /* 11px 4px 12px */
+
+/* 签文注 */
+.poem-note {
+  margin-top: 27rpx;                     /* 14px */
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+  display: flex;
+  align-items: center;
+  gap: 15rpx;                            /* 8px */
+}
+.poem-note::before, .poem-note::after {
+  content: '';
+  width: 31rpx;                          /* 16px */
+  height: 2rpx;                          /* 1px */
+  background: var(--line);
 }
 
-/* ---- 动画 ---- */
-@keyframes fadeUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to { opacity: 1; transform: translateY(0); }
+/* ── 想聊聊？按钮 + 截屏提示 ── */
+.talk-col { display: flex; flex-direction: column; align-items: center; gap: 27rpx; }  /* 14px */
+.talk-btn {
+  height: 92rpx;                         /* 48px */
+  width: 415rpx;                         /* 216px（原型观感） */
+  max-width: 100%;                       /* 真机修复：窄屏自适应，不再因 min-width 撑宽页面 */
+  min-width: 0;
+  padding: 0 58rpx;                      /* 30px */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 23rpx;                            /* 12px */
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-btn); /* 1px */
+  border-radius: 8rpx;                   /* 4px */
+  font-family: var(--font-song);
+  font-size: 31rpx;                      /* 16px */
+  letter-spacing: .22em;
+  color: var(--ink);
+  box-shadow: 0 4rpx 15rpx var(--shadow);  /* 0 2px 8px */
 }
+.talk-btn-active {
+  transform: translateY(2rpx) scale(.985);
+  box-shadow: 0 0 0 rgba(0,0,0,0);
+  background: var(--acc-soft);
+}
+.brush-arrow { width: 33rpx; height: 23rpx; }  /* 17×12 */
 
-@keyframes scaleIn {
-  from { opacity: 0; transform: scale(0.8); }
-  to { opacity: 1; transform: scale(1); }
+.shot-hint {
+  display: flex;
+  align-items: center;
+  gap: 13rpx;                            /* 7px */
+  justify-content: center;
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .2em;
+  color: var(--ink-soft);
+}
+.shot-ic { width: 25rpx; height: 25rpx; }  /* 13px */
+
+/* 隐藏的分享卡画布（off-screen） */
+.ink-card-canvas {
+  position: fixed;
+  left: -9999rpx;
+  top: 0;
+  width: 750px;
+  height: 1200px;
+}
+.shot-hint-active { color: var(--acc); }
+
+/* ── 脚注（三秒内，为你掌灯） ── */
+.today-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 13rpx;                            /* 7px */
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .24em;
+  color: var(--ink-faint);
+  padding-bottom: 8rpx;                  /* 4px */
+}
+.today-foot .fg {
+  width: 10rpx;                          /* 5px */
+  height: 10rpx;
+  border-radius: 50%;
+  background: var(--gold);
 }

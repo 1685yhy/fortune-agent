@@ -1,0 +1,124 @@
+<view class="screen" style="--nav-off:{{navOff}}px">
+  <!-- ── 列表：搜索 + 按日分组 ── -->
+  <block wx:if="{{view === 'list'}}">
+    <view class="navrow">
+      <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+      </view>
+      <view class="nav-title">
+        <image class="nav-t-icon" src="{{dark ? '/assets/images/ic-chat-dark.png' : '/assets/images/ic-chat.png'}}"></image>
+        <text>对话历史</text>
+      </view>
+      <view class="nav-right"></view>
+    </view>
+
+    <scroll-view scroll-y class="list-scroll" scroll-with-animation>
+      <view class="search-bar">
+        <view class="s-icon"></view>
+        <input class="search-input" value="{{q}}" bindinput="onSearchInput"
+          placeholder="搜索一句夜话…" placeholder-class="search-ph" confirm-type="search" />
+        <view wx:if="{{q}}" class="s-clear" hover-class="navrow-hover" hover-stay-time="0" bindtap="clearSearch">
+          <text class="s-clear-x">✕</text>
+        </view>
+      </view>
+
+      <!-- 空态 -->
+      <view wx:if="{{loaded && !groups.length}}" class="empty">
+        <view class="seal e-seal"><text class="seal-char">{{q ? '空' : '梦'}}</text></view>
+        <view class="e-title">{{q ? '没有找到相关的夜话' : '还没有对话'}}</view>
+        <view class="e-sub">{{q ? '换个字眼，再寻一寻' : '去和明灯聊一句 · 便有了记录'}}</view>
+      </view>
+
+      <!-- 日期分组 -->
+      <view wx:else>
+        <view wx:for="{{groups}}" wx:key="g" class="date-group">
+          <view class="date-label">
+            <view class="dl-dot"></view>
+            <text>{{item.g}}</text>
+            <text class="dl-count">{{item.items.length}} 段</text>
+          </view>
+          <view wx:for="{{item.items}}" wx:for-item="s" wx:key="id"
+            class="sess-row {{removing === s.id ? 'removing' : ''}}"
+            hover-class="sess-row-active" hover-stay-time="0"
+            data-id="{{s.id}}" bindtap="onRowTap">
+            <view class="sess-in">
+              <view class="sess-seal"><view class="seal seal-34"><text class="seal-char">{{s.seal}}</text></view></view>
+              <view class="sess-mid">
+                <view class="sess-sum"><text class="sq">「</text>{{s.summary}}</view>
+                <view class="sess-meta">
+                  <text>明灯 · {{s.time}}</text>
+                  <text class="sm-dot"></text>
+                  <text>{{s.count}} 条</text>
+                </view>
+              </view>
+              <view class="sess-del" hover-class="navrow-hover" hover-stay-time="0"
+                data-id="{{s.id}}" catchtap="askDel">
+                <image class="sess-del-ic" src="{{dark ? '/assets/images/ic-kebab-dark.png' : '/assets/images/ic-kebab.png'}}"></image>
+              </view>
+            </view>
+          </view>
+        </view>
+        <view class="hist-note">夜话存于本机 · 换设备不随行</view>
+      </view>
+    </scroll-view>
+  </block>
+
+  <!-- ── 会话预览（原型 preview 屏） ── -->
+  <block wx:else>
+    <view class="navrow">
+      <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+      </view>
+      <view class="nav-title">
+        <image class="nav-t-icon" src="/assets/images/ic-lantern-on.png"></image>
+        <text>夜话预览</text>
+      </view>
+      <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0" bindtap="askDel" data-id="{{current.id}}">
+        <image class="nav-right-icon" src="{{dark ? '/assets/images/ic-kebab-dark.png' : '/assets/images/ic-kebab.png'}}"></image>
+      </view>
+    </view>
+
+    <scroll-view scroll-y class="preview-scroll">
+      <view class="pv-head">{{current.lunar}} · 夜 · 共 {{current.count}} 条</view>
+      <view class="pv-msgs">
+        <block wx:for="{{current.msgs}}" wx:key="index">
+          <view wx:if="{{item.role === 'ai'}}" class="jianzhu">
+            <view class="jz-tag">{{item.tag}}</view>
+            <view class="jz-body">{{item.content}}</view>
+            <view class="jz-foot">
+              <text class="jz-time">明灯 · {{item.time}}</text>
+              <image class="jz-keep" src="{{dark ? '/assets/images/ic-keep-dark.png' : '/assets/images/ic-keep.png'}}"></image>
+            </view>
+          </view>
+          <view wx:else class="user-note">
+            <text>{{item.content}}</text>
+            <text class="u-time">我 · {{item.time}}</text>
+          </view>
+        </block>
+      </view>
+      <view wx:if="{{current.truncated}}" class="pv-dots">示 意 中 途</view>
+      <view class="pv-actions">
+        <view class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onContinue">
+          <image class="btn-send-ic" src="/assets/images/ic-send.png"></image>
+          <text>继续这段夜话</text>
+        </view>
+        <view class="pv-delete-link" hover-class="btn-active" hover-stay-time="0" bindtap="askDel" data-id="{{current.id}}">删除这段对话</view>
+      </view>
+    </scroll-view>
+  </block>
+
+  <!-- 删除确认弹层（朱砂警示 · 双线笺框） -->
+  <view wx:if="{{dlgDel}}" class="modal-veil" catchtouchmove="noop" bindtap="closeDlgDel">
+    <view class="modal-card" catchtap="noop">
+      <view class="modal-title danger">删除这段对话？</view>
+      <view class="modal-body">
+        <text>「{{dlgDel.brief}}」</text>
+        <text>删除后将</text><text class="mb-strong">不可恢复</text><text>，收藏与命书不受影响。</text>
+      </view>
+      <view class="modal-actions">
+        <view class="btn btn-ghost" hover-class="btn-active" hover-stay-time="0" bindtap="closeDlgDel">留着</view>
+        <view class="btn btn-acc" hover-class="btn-active" hover-stay-time="0" bindtap="confirmDel">确认删除</view>
+      </view>
+    </view>
+  </view>
+</view>

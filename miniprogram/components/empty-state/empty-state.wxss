@@ -1,12 +1,12 @@
-/* 易理明灯 — Empty State Component Styles */
+/* 易理明灯 — Empty State | 宣纸墨韵 */
 
 .empty-state-wrap {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: var(--space-3xl) var(--space-lg);
-  min-height: 240px;
+  padding: var(--space-xl) var(--space-lg);
+  min-height: 480rpx;
 }
 
 .empty-state-content {
@@ -14,22 +14,22 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  max-width: 320px;
+  max-width: 640rpx;
 }
 
 /* ---- Title ---- */
 .empty-state-title {
-  font-size: var(--font-xl);
+  font-size: var(--text-lg);
   font-weight: 500;
-  color: var(--color-text);
+  color: var(--ink-primary);
   letter-spacing: 0.02em;
   line-height: 1.4;
 }
 
 /* ---- Subtitle ---- */
 .empty-state-subtitle {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
   margin-top: var(--space-sm);
   line-height: 1.6;
   letter-spacing: 0.02em;
@@ -46,34 +46,34 @@
 
 .hint-chip {
   padding: var(--space-sm) var(--space-md);
-  background: var(--color-bg-card);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-full);
+  background: var(--bg-card);
+  border: 1rpx solid var(--line);
+  border-radius: var(--radius-pill);
   text-align: center;
-  transition: all var(--transition-fast);
+  transition: all 0.2s ease;
 }
 
 .hint-chip:active {
   transform: scale(0.97);
-  background: rgba(212, 168, 67, 0.06);
-  border-color: rgba(212, 168, 67, 0.3);
+  background: var(--acc-soft);
+  border-color: var(--acc);
 }
 
 .hint-text {
-  font-size: var(--font-sm);
-  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
   letter-spacing: 0.02em;
 }
 
 /* ---- Action Button ---- */
 .empty-state-btn {
   margin-top: var(--space-xl);
-  padding: var(--space-sm) var(--space-2xl);
-  min-height: 44px;
-  border-radius: var(--radius-full);
-  background: linear-gradient(135deg, rgba(212, 168, 67, 0.15), rgba(212, 168, 67, 0.08));
-  border: 1px solid rgba(212, 168, 67, 0.35);
-  font-size: var(--font-md);
+  padding: var(--space-sm) var(--space-xl);
+  min-height: 88rpx;
+  border-radius: 8rpx;
+  background: var(--paper-card);
+  border: 1rpx solid rgba(58,44,30,.6);
+  font-size: var(--text-base);
   color: var(--gold);
   font-weight: 500;
   letter-spacing: 0.04em;
@@ -81,8 +81,8 @@
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transform: translateY(8px);
-  transition: all var(--transition-normal);
+  transform: translateY(8rpx);
+  transition: all 0.3s ease;
 }
 
 .empty-state-btn.visible {
@@ -92,17 +92,17 @@
 
 .empty-state-btn:active {
   transform: scale(0.97);
-  background: linear-gradient(135deg, rgba(212, 168, 67, 0.25), rgba(212, 168, 67, 0.12));
+  background: var(--acc-soft);
 }
 
 /* ---- Detail text ---- */
 .empty-state-detail {
   display: block;
-  font-size: var(--font-xs);
-  color: var(--stone);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
   margin-top: var(--space-md);
   line-height: 1.5;
-  max-width: 280px;
+  max-width: 560rpx;
 }
 
 /* ---- Responsive ---- */

@@ -1,0 +1,380 @@
+/* ═══ 解梦手记 — 夜梦入册（原型 dir_s · 伍：日期+关键词+结论摘要 → 详情 + 古籍角标） ═══ */
+
+.navrow .nav-right { right: 190rpx; }   /* 与 me 页一致：避让微信胶囊 */
+.nav-t-icon { width: 27rpx; height: 27rpx; }  /* 标题旁小图标（原型 14px） */
+
+.dream-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));   /* 95px */
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 15rpx 38rpx 58rpx;           /* 8px 20px 30px */
+  overflow-x: hidden;
+}
+
+/* ── 页眉说明（虚线笺） ── */
+.dream-desc {
+  margin-bottom: 31rpx;                 /* 16px */
+  padding: 25rpx 31rpx;                 /* 13px 16px */
+  background: rgba(251, 247, 236, .5);
+  border: 2rpx dashed rgba(58, 44, 30, .24);
+  border-radius: 8rpx;                  /* 4px */
+  font-family: var(--font-song);
+  font-size: 21rpx;                     /* 11px */
+  letter-spacing: .14em;
+  line-height: 2;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  gap: 17rpx;                           /* 9px */
+}
+.dream-desc .dd-dot { width: 12rpx; height: 12rpx; border-radius: 50%; background: var(--gold); flex-shrink: 0; }
+
+/* ── 手记条目（日期+关键词+结论摘要两行） ── */
+.note-row {
+  position: relative;
+  overflow: hidden;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;                 /* 5px */
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+  margin-bottom: 21rpx;                 /* 11px */
+}
+.note-row-active { border-color: var(--acc-line); background: var(--acc-soft); }
+.note-row.removing {
+  animation: rowOut .32s cubic-bezier(.5,0,.8,.4) both;
+}
+@keyframes rowOut {
+  0% { opacity: 1; max-height: 290rpx; transform: translateX(0); }
+  100% { opacity: 0; max-height: 0; transform: translateX(88rpx); margin: 0; border-width: 0; }
+}
+.note-in { padding: 27rpx 31rpx; }     /* 14px 16px */
+.note-top { display: flex; align-items: center; gap: 17rpx; }
+.note-date {
+  font-family: var(--font-song);
+  font-size: 20rpx;                     /* 10.5px */
+  letter-spacing: .18em;
+  color: var(--ink-faint);
+}
+.note-date .note-dow { color: var(--ink-soft); font-weight: 600; font-size: 22rpx; }
+.note-key {
+  font-family: var(--font-song);
+  font-size: 21rpx;                     /* 11px */
+  letter-spacing: .16em;
+  color: var(--acc);
+  background: var(--acc-soft);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 5rpx;                  /* 2.5px */
+  padding: 5rpx 17rpx;                  /* 2.5px 9px */
+}
+.note-dream {
+  margin-top: 17rpx;                    /* 9px */
+  font-family: var(--poem);
+  font-size: 28rpx;                     /* 14.5px */
+  line-height: 1.9;
+  letter-spacing: .03em;
+  color: var(--ink);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+}
+.note-read {
+  margin-top: 13rpx;                    /* 7px */
+  font-family: var(--font-song);
+  font-size: 22rpx;                     /* 11.5px */
+  line-height: 1.9;
+  letter-spacing: .05em;
+  color: var(--ink-soft);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.note-foot {
+  margin-top: 17rpx;                    /* 9px */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-song);
+  font-size: 18rpx;                     /* 9.5px */
+  letter-spacing: .14em;
+  color: var(--ink-faint);
+}
+.note-foot .nf-book {
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  gap: 8rpx;                            /* 4px */
+}
+.nf-book-ic { width: 21rpx; height: 21rpx; opacity: .85; }
+.dream-note {
+  text-align: center;
+  margin-top: 44rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .24em;
+  color: var(--ink-faint);
+}
+
+/* ── 空态（原型：灯笼 + 两句 + 分隔线 + 诗行） ── */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 127rpx 85rpx 0;              /* 66px 44px */
+  text-align: center;
+}
+.empty-lantern { width: 148rpx; height: 246rpx; opacity: .92; }  /* h≈128px */
+.e-title {
+  margin-top: 39rpx;                    /* 20px */
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 31rpx;                     /* 16px */
+  letter-spacing: .24em;
+  color: var(--ink);
+}
+.e-sub {
+  margin-top: 19rpx;                    /* 10px */
+  font-family: var(--font-song);
+  font-size: 22rpx;                     /* 11.5px */
+  letter-spacing: .16em;
+  line-height: 2.1;
+  color: var(--ink-soft);
+  white-space: pre-line;
+}
+.e-line {
+  margin-top: 31rpx;                    /* 16px */
+  width: 231rpx;                        /* 120px */
+  height: 2rpx;
+  background: linear-gradient(90deg, transparent, var(--ink-faint), transparent);
+}
+.e-poem {
+  margin-top: 31rpx;                    /* 16px */
+  font-family: var(--poem);
+  font-size: 29rpx;                     /* 15px */
+  letter-spacing: .14em;
+  color: var(--ink-mid);
+  line-height: 2;
+}
+
+/* ═══ 详情页 ═══ */
+
+.detail-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));   /* 95px */
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 23rpx 38rpx 58rpx;           /* 12px 20px 30px */
+  overflow-x: hidden;
+}
+.dt-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 19rpx;                           /* 10px */
+  font-family: var(--font-song);
+  font-size: 19rpx;                     /* 10px */
+  letter-spacing: .3em;
+  color: var(--ink-faint);
+  margin: 12rpx 0 31rpx;                /* 6px 16px */
+}
+.dt-head::before, .dt-head::after {
+  content: '';
+  width: 54rpx;                         /* 28px */
+  height: 2rpx;
+  background: var(--line);
+}
+
+/* 梦境原文（深宣纸笺） */
+.dt-dream {
+  position: relative;
+  background: var(--paper-deep);
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;                 /* 5px */
+  padding: 31rpx 31rpx 25rpx;           /* 16px */
+}
+.dt-dream .dd-title {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 21rpx;                     /* 11px */
+  letter-spacing: .24em;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  gap: 13rpx;                           /* 7px */
+  margin-bottom: 19rpx;                 /* 10px */
+}
+.dt-dream .dd-title .t-line { flex: 1; height: 2rpx; background: var(--line-soft); }
+.dt-dream .dd-body {
+  font-family: var(--poem);
+  font-size: 29rpx;                     /* 15px */
+  line-height: 2.05;
+  letter-spacing: .04em;
+  color: var(--ink);
+}
+.dt-dream .dd-time {
+  margin-top: 19rpx;                    /* 10px */
+  text-align: right;
+  font-family: var(--font-lat);
+  font-style: italic;
+  font-size: 18rpx;                     /* 9.5px */
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+}
+
+/* 解梦结论（明灯笺注卡 + 古籍引用角标） */
+.jianzhu {
+  margin-top: 27rpx;                    /* 14px */
+  position: relative;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;
+  padding: 27rpx 31rpx 23rpx;           /* 14px 16px 12px */
+  box-shadow: 0 4rpx 15rpx var(--shadow-sm);
+}
+.jianzhu::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 27rpx; bottom: 27rpx;
+  width: 4rpx;
+  background: var(--acc-soft);
+  border-radius: 2rpx;
+}
+.jianzhu .jz-tag {
+  display: inline-flex;
+  margin-bottom: 15rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .16em;
+  color: var(--ink-soft);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 4rpx;
+  padding: 4rpx 13rpx;
+  background: var(--tag-bg);
+}
+.jianzhu .jz-body {
+  font-family: var(--poem);
+  font-size: 29rpx;                     /* 15px */
+  line-height: 2;
+  letter-spacing: .03em;
+  color: var(--ink-mid);
+}
+.jianzhu .jz-quote {
+  margin-top: 19rpx;                    /* 10px */
+  padding-top: 17rpx;                   /* 9px */
+  border-top: 2rpx dashed var(--line-soft);
+  display: flex;
+  align-items: center;
+  gap: 13rpx;                           /* 7px */
+  font-family: var(--font-song);
+  font-size: 19rpx;                     /* 10px */
+  letter-spacing: .14em;
+  color: var(--gold);
+}
+.jianzhu .jz-quote .q-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;                            /* 4px */
+  border: 2rpx solid var(--gold-soft);
+  background: rgba(176, 138, 79, .08);
+  border-radius: 5rpx;                  /* 2.5px */
+  padding: 4rpx 15rpx;                  /* 2px 8px */
+  color: var(--gold);
+  flex-shrink: 0;
+}
+.q-book-ic { width: 19rpx; height: 19rpx; opacity: .9; }
+.jianzhu .jz-quote .q-note { font-size: 18rpx; color: var(--ink-faint); letter-spacing: .1em; }
+
+/* ── 底部动作：再问问这个梦 / 删除链接 ── */
+.dt-actions {
+  margin-top: 39rpx;                    /* 20px */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 23rpx;                           /* 12px */
+}
+.btn {
+  height: 88rpx;                        /* 46px */
+  border-radius: 8rpx;                  /* 4px */
+  font-family: var(--font-song);
+  font-size: 27rpx;                     /* 14px */
+  letter-spacing: .22em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15rpx;                           /* 8px */
+  transition: transform .12s;
+}
+.btn-active { opacity: .82; transform: scale(.97); }
+.btn-ink { background: var(--ink); color: #F5EFE1; box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.2); }
+.btn-ghost { background: transparent; border: 2rpx solid var(--line); color: var(--ink-mid); }
+.btn-acc { background: var(--acc); color: #FBF6E8; box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 4rpx 12rpx rgba(120,40,30,.3); }
+.btn-wide { min-width: 442rpx; padding: 0 65rpx; }  /* 230px 34px */
+.btn-send-ic { width: 27rpx; height: 27rpx; }
+.dt-del-link {
+  font-family: var(--font-song);
+  font-size: 21rpx;                     /* 11px */
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+  padding: 6rpx 20rpx;
+}
+
+/* ═══ 删除确认弹层（双线笺框 · 朱砂警示） ═══ */
+.modal-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(228, 218, 196, .66);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 65rpx;                     /* 34px */
+}
+.modal-card {
+  width: 100%;
+  max-width: 619rpx;                    /* 322px */
+  position: relative;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-strong);
+  border-radius: 8rpx;                  /* 4px */
+  box-shadow: 0 50rpx 115rpx rgba(40,28,14,.3);
+  padding: 46rpx 42rpx 38rpx;           /* 24px 22px 20px */
+}
+.modal-card::before {
+  content: '';
+  position: absolute;
+  inset: 8rpx;                          /* 4px */
+  border: 2rpx solid var(--line-soft);
+  border-radius: 4rpx;
+  pointer-events: none;
+}
+.modal-title {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 33rpx;                     /* 17px */
+  letter-spacing: .22em;
+  color: var(--ink);
+  text-align: center;
+}
+.modal-title.danger { color: var(--acc); }
+.modal-body {
+  margin-top: 23rpx;                    /* 12px */
+  font-family: var(--font-song);
+  font-size: 25rpx;                     /* 13px */
+  line-height: 2;
+  letter-spacing: .04em;
+  color: var(--ink-mid);
+  text-align: center;
+}
+.modal-body .mb-strong { color: var(--acc); font-weight: 600; }
+.modal-body .mb-line2 { display: block; margin-top: 8rpx; }
+.modal-actions {
+  margin-top: 35rpx;                    /* 18px */
+  display: flex;
+  gap: 19rpx;                           /* 10px */
+}
+.modal-actions .btn { flex: 1; height: 85rpx; }  /* 44px */

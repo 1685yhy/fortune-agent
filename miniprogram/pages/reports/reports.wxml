@@ -1,177 +1,70 @@
-<!-- 报告 — 历史解读列表 -->
-
-<view class="page-reports content-enter">
-  <!-- 头部 -->
-  <view class="reports-header">
-    <text class="reports-title">解读报告</text>
-    <text class="reports-subtitle">历史命理分析记录</text>
+<view class="screen" style="--nav-off:{{navOff}}px">
+  <view class="navrow">
+    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goToday">
+      <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+    </view>
+    <view class="nav-title">
+      <text>命书</text>
+    </view>
+    <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0" bindtap="onShare">
+      <image class="nav-right-icon" src="{{dark ? '/assets/images/ic-share-dark.png' : '/assets/images/ic-share.png'}}"></image>
+    </view>
   </view>
 
-  <!-- Error State -->
-  <empty-state
-    wx:if="{{showError}}"
-    type="{{errorType}}"
-    showAction="{{true}}"
-    bind:action="onErrorRetry"
-  />
-
-  <skeleton wx:else loading="{{skeletonLoading}}" type="list" lines="{{[50, 80]}}" listCount="3">
-    <!-- ====== AI建议卡片（Sub-project B）====== -->
-    <view class="advisor-section animate-fade-up" wx:if="{{!loading && showAdvisor && advisorData}}">
-      <view class="section-header">
-        <text class="section-title"> AI 建议</text>
-        <view class="section-action" bindtap="toggleAdvisor">
-          <text>{{showAdvisor ? '收起' : '展开'}}</text>
-        </view>
-      </view>
-
-      <view class="advisor-card" wx:if="{{advisorData}}">
-        <!-- 名人匹配 -->
-        <view class="advisor-subsection" wx:if="{{advisorData.matches && advisorData.matches.length}}">
-          <text class="advisor-subtitle">命格相似名人</text>
-          <view class="advisor-matches">
-            <view class="advisor-match-item" wx:for="{{advisorData.matches}}" wx:key="index">
-              <view class="match-name-row">
-                <text class="match-name">{{item.name}}</text>
-                <text class="match-type">{{item.type}}</text>
-              </view>
-              <text class="match-reason">{{item.reason}}</text>
-            </view>
-          </view>
-        </view>
-
-        <!-- 领域建议 -->
-        <view class="advisor-subsection" wx:if="{{advisorData.domainAdvice && advisorData.domainAdvice.length}}">
-          <text class="advisor-subtitle">领域运势建议</text>
-          <view class="advisor-advices">
-            <view class="advisor-advice-item" wx:for="{{advisorData.domainAdvice}}" wx:key="index">
-              <text class="advice-domain-tag">{{item.domain}}</text>
-              <text class="advice-text">{{item.advice}}</text>
-            </view>
-          </view>
-        </view>
-      </view>
-
-      <view class="advisor-loading" wx:elif="{{advisorLoading}}">
-        <view class="loading-spinner-sm"></view>
-        <text class="loading-text">AI 分析中...</text>
+  <scroll-view scroll-y class="book-scroll">
+    <view class="book-cover">
+      <image class="book-stitch" src="/assets/images/stitch.png"></image>
+      <image class="book-ribbon" src="/assets/images/ribbon.png"></image>
+      <view class="bc-top">戊寅年 · 开卷</view>
+      <view class="bc-title">命<text class="bc-em">书</text></view>
+      <view class="bc-line"></view>
+      <view class="bc-sub">卷一至卷四 · 明灯谨录</view>
+      <view class="bc-seal">
+        <view class="seal seal-50"><text class="seal-char">明</text></view>
       </view>
     </view>
 
-    <!-- 加载中 -->
-    <view class="loading-container" wx:if="{{loading}}">
-      <view class="loading-spinner"></view>
-      <text class="loading-text">{{loadingText}}</text>
-    </view>
-
-    <!-- 报告列表 -->
-    <view class="report-list" wx:if="{{!loading && reports.length > 0}}">
-      <view
-        class="report-item animate-fade-up stagger-{{index}}"
-        wx:for="{{reports}}"
-        wx:key="id"
-        data-id="{{item.id}}"
-        bindtap="viewDetail"
-      >
-        <view class="report-card card-tint-{{item.scenario || 'default'}}">
-          <view class="report-card-top">
-            <view class="report-meta">
-              <text class="report-date">{{item.date}}</text>
-              <text class="report-scenario">{{item.scenarioLabel}}</text>
-            </view>
-            <view class="report-score" wx:if="{{item.score}}">
-              <text class="report-score-text">{{item.score}}</text>
-            </view>
-          </view>
-
-          <text class="report-summary">{{item.summary}}</text>
-
-          <view class="report-tags" wx:if="{{item.tags && item.tags.length}}">
-            <text class="report-tag" wx:for="{{item.tags}}" wx:for-item="tag" wx:key="*this">{{tag}}</text>
-          </view>
-
-          <view class="report-actions">
-            <view class="report-action report-action-view">
-              <text>查看详情 →</text>
-            </view>
-            <view class="report-action report-action-share" data-id="{{item.id}}" bindtap="shareReport" catchtap>
-              <text>分享</text>
-            </view>
-          </view>
+    <view class="papercard book-chapters">
+      <view wx:for="{{books}}" wx:key="noText" class="book-row {{index < books.length - 1 ? 'row-line' : ''}}"
+        hover-class="book-row-active" hover-stay-time="0">
+        <view class="br-no">
+          <view wx:if="{{item.read}}" class="r-dot"></view>
+          <view wx:else class="r-ring"></view>
+          <text>{{item.noText}}</text>
         </view>
-      </view>
-
-      <!-- 加载更多 -->
-      <view class="load-more" wx:if="{{hasMore}}">
-        <view class="loading-spinner-sm"></view>
-        <text class="loading-text">{{loadingText || '加载更多...'}}</text>
-      </view>
-
-      <view class="load-more" wx:elif="{{!hasMore && reports.length > 0}}">
-        <text class="load-end-text">- 已显示全部报告 -</text>
+        <view class="br-mid">
+          <view class="br-title">{{item.title}}</view>
+          <view class="br-sub">{{item.sub}}</view>
+        </view>
+        <view class="br-page">
+          <text>第{{item.page}}页</text>
+          <image class="chev" src="{{dark ? '/assets/images/ic-chev-dark.png' : '/assets/images/ic-chev.png'}}"></image>
+        </view>
       </view>
     </view>
 
-    <!-- 空状态 -->
-    <view class="empty-state animate-scale" wx:if="{{!loading && reports.length === 0}}">
-      <text class="empty-state-icon-reports">📊</text>
-      <text class="empty-state-title">暂无解读报告</text>
-      <text class="empty-state-hint">去对话页和 AI 命理师聊聊\n你的运势、感情、事业...</text>
-      <button class="btn btn-primary empty-state-btn" bindtap="goChat">去对话</button>
+    <view class="book-vertical">
+      <text class="vt">观命不执命 · 明灯谨识</text>
     </view>
-  </skeleton>
+  </scroll-view>
 
-  <!-- ========== 详情弹窗 ========== -->
-  <view class="detail-overlay {{showDetail ? 'show' : ''}}" bindtap="closeDetail">
-    <view class="detail-sheet" catchtap>
-      <view class="detail-header">
-        <text class="detail-title">解读详情</text>
-        <view class="detail-close" bindtap="closeDetail">
-          <text>x</text>
-        </view>
-      </view>
-
-      <scroll-view class="detail-body" scroll-y="{{true}}">
-        <view class="detail-loading" wx:if="{{detailLoading}}">
-          <view class="loading-spinner"></view>
-        </view>
-
-        <view wx:else>
-          <view class="detail-meta">
-            <view class="detail-meta-item">
-              <text class="detail-meta-label">日期</text>
-              <text class="detail-meta-value">{{currentReport.date}}</text>
-            </view>
-            <view class="detail-meta-item">
-              <text class="detail-meta-label">场景</text>
-              <text class="detail-meta-value">{{currentReport.scenarioLabel}}</text>
-            </view>
-            <view class="detail-meta-item" wx:if="{{currentReport.score}}">
-              <text class="detail-meta-label">运势分</text>
-              <text class="detail-meta-value">{{currentReport.score}}/100</text>
-            </view>
-          </view>
-
-          <view class="detail-content">
-            <text class="detail-content-text">{{currentReport.fullContent || currentReport.summary}}</text>
-          </view>
-
-          <view class="detail-extras" wx:if="{{currentReport.luckyColor || currentReport.luckyDirection}}">
-            <view class="extra-item" wx:if="{{currentReport.luckyColor}}">
-              <text class="extra-label">幸运色</text>
-              <text class="extra-value">{{currentReport.luckyColor}}</text>
-            </view>
-            <view class="extra-item" wx:if="{{currentReport.luckyDirection}}">
-              <text class="extra-label">幸运方向</text>
-              <text class="extra-value">{{currentReport.luckyDirection}}</text>
-            </view>
-          </view>
-        </view>
-      </scroll-view>
-
-      <view class="detail-footer">
-        <button class="btn btn-primary btn-small" data-id="{{currentReport.id}}" bindtap="shareReport">分享报告</button>
-      </view>
+  <view class="tabbar">
+    <view class="tab-item" bindtap="onTab" data-tab="today">
+      <image class="tab-ic" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+      <text class="tab-label">今日</text>
+    </view>
+    <view class="tab-item" bindtap="onTab" data-tab="chat">
+      <image class="tab-ic" src="{{dark ? '/assets/images/ic-chat-dark.png' : '/assets/images/ic-chat.png'}}"></image>
+      <text class="tab-label">聊天</text>
+    </view>
+    <view class="tab-item on" bindtap="onTab" data-tab="book">
+      <image class="tab-ic" src="/assets/images/ic-book-on.png"></image>
+      <text class="tab-label">命书</text>
+      <view class="dot"></view>
+    </view>
+    <view class="tab-item" bindtap="onTab" data-tab="me">
+      <image class="tab-ic" src="{{dark ? '/assets/images/ic-seal-dark.png' : '/assets/images/ic-seal.png'}}"></image>
+      <text class="tab-label">我的</text>
     </view>
   </view>
 </view>

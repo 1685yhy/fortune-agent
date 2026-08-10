@@ -1,146 +1,70 @@
-<!-- 易理明灯 — 今日运势（仪式感首页） -->
-<view class="page {{_animated ? 'animated' : ''}}" bindtouchstart="onTouchStart" bindtouchend="onTouchEnd">
+<view class="screen today-wrap" style="--nav-off:{{navOff}}px">
+  <view class="today-frame"></view>
+  <view class="today-brand">易理明灯</view>
+  <view class="today-date">
+    <text>{{dateText}}</text>
+    <view class="zd"></view>
+    <text>{{solarHint}}</text>
+  </view>
 
-  <!-- Error State -->
-  <empty-state
-    wx:if="{{showError}}"
-    type="{{errorType}}"
-    showAction="{{true}}"
-    bind:action="onErrorRetry"
-  />
-
-  <view wx:else>
-    <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[70, 90, 80, 60, 85]}}">
-    <!-- Section 1: 运势核心区 -- Pure CSS, always visible -->
-    <view class="hero-section">
-      <view class="score-card">
-        <view class="score-ring-bg" style="--score-pct: {{scorePct}};">
-          <view class="score-inner">
-            <text class="score-number">{{displayScore}}</text>
-            <text class="score-unit">分</text>
-          </view>
-        </view>
-        <view class="score-level {{scoreLevel}}">
-          <text class="level-text">{{levelLabel}}</text>
-          <text class="level-sub">{{scoreAdvice}}</text>
-        </view>
-        <!-- 评分因子 -->
-        <view class="score-factors">
-          <view class="factor" wx:for="{{scoreFactors}}" wx:key="name">
-            <text class="factor-name">{{item.name}}</text>
-            <text class="factor-bar" style="width: {{item.value * 2}}rpx; background: {{item.color}};"></text>
-            <text class="factor-score">{{item.value}}</text>
-          </view>
-        </view>
+  <view class="today-col">
+    <view class="poem-block">
+      <view class="lantern-box">
+        <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
+        <image class="lantern-glow lantern-glow-delay" src="/assets/images/lantern-glow2.png"></image>
+        <image class="lantern-body" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
       </view>
+      <view class="poem-lines">
+        <view class="poem-line">{{poemLines[0]}}<text class="jk">·</text></view>
+        <view class="poem-line">{{poemLines[1]}}</view>
+      </view>
+      <view class="seal-attach">
+        <view class="seal seal-52"><text class="seal-char">明</text></view>
+      </view>
+      <view class="yi-chips">
+        <view class="inktag yi-chip">{{yiChips[0]}}</view>
+        <view class="inktag yi-chip">{{yiChips[1]}}</view>
+      </view>
+      <view class="poem-note">签文只作心意，不作断言 · 明灯拟</view>
+    </view>
 
-      <!-- 日期 -->
-      <view class="hero-date">
-        <text class="hero-date-lunar">{{lunarDate}}</text>
-        <text class="hero-date-ganzhi">{{ganzhi}}</text>
-        <text class="hero-jieqi" wx:if="{{jieqi}}">{{jieqi}}</text>
+    <view class="talk-col">
+      <view class="talk-btn" hover-class="talk-btn-active" hover-stay-time="0" bindtap="goChat">
+        <text>想聊聊？</text>
+        <image class="brush-arrow" src="/assets/images/brush-arrow.png"></image>
+      </view>
+      <view class="shot-hint" hover-class="shot-hint-active" hover-stay-time="0" bindtap="onShot">
+        <image class="shot-ic" src="{{dark ? '/assets/images/ic-camera-soft-dark.png' : '/assets/images/ic-camera-soft.png'}}"></image>
+        <text>随手截屏 · 存为今晚的笺页</text>
       </view>
     </view>
 
-    <!-- Section 2: 时辰运势时间线 -->
-    <view class="section" wx:if="{{showRing}}">
-      <view class="section-header">
-        <text class="section-title">时辰运势</text>
-        <text class="section-hint">左右滑动查看全天</text>
-      </view>
-      <skeleton loading="{{hourSkeletonLoading}}" type="text" lines="{{[90, 70, 80]}}">
-        <scroll-view class="hour-scroll" scroll-x="{{true}}" enhanced="{{true}}" show-scrollbar="{{false}}">
-          <view class="hour-track">
-            <view
-              class="hour-item {{item.active ? 'active' : ''}} {{item.isBest ? 'hour-best' : ''}} {{item.isWorst ? 'hour-worst' : ''}}"
-              wx:for="{{hours}}"
-              wx:key="index"
-              data-index="{{index}}"
-              bindtap="onHourTap">
-              <text class="hour-name">{{item.name}}</text>
-              <text class="hour-time">{{item.time}}</text>
-              <text class="hour-mark {{item.level}}">{{item.mark}}</text>
-              <text class="hour-score" wx:if="{{item.score > 0}}">{{item.score}}</text>
-            </view>
-          </view>
-        </scroll-view>
-        <!-- 选中时辰详情 -->
-        <view class="hour-detail" wx:if="{{selectedHour}}">
-          <text class="hour-detail-ganzhi">{{selectedHour.ganzhi}}</text>
-          <text class="hour-detail-advice">{{selectedHour.advice}}</text>
-        </view>
-      </skeleton>
+    <view class="today-foot">
+      <view class="fg"></view>
+      <text>三秒内，为你掌灯</text>
+      <view class="fg"></view>
     </view>
+  </view>
 
-    <!-- Section 3: 幸运三连 -->
-    <view class="section" wx:if="{{showRing}}">
-      <view class="lucky-row">
-        <view class="lucky-card">
-          <view class="lucky-icon" style="background: {{luckyColor.hex}};"></view>
-          <text class="lucky-label">幸运色</text>
-          <text class="lucky-value">{{luckyColor.name}}</text>
-        </view>
-        <view class="lucky-card">
-          <text class="lucky-icon-text">🧭</text>
-          <text class="lucky-label">吉方</text>
-          <text class="lucky-value">{{luckyDirection}}</text>
-        </view>
-        <view class="lucky-card">
-          <text class="lucky-icon-text">🔢</text>
-          <text class="lucky-label">幸运数</text>
-          <text class="lucky-value">{{luckyNumber}}</text>
-        </view>
-      </view>
-    </view>
+  <canvas type="2d" id="inkCard" class="ink-card-canvas"></canvas>
 
-    <!-- Section 4: 宜忌 -->
-    <view class="section" wx:if="{{showRing}}">
-      <view class="yi-ji-row">
-        <view class="yi-ji-col yi">
-          <text class="yi-ji-title yi-title">宜</text>
-          <view class="yi-ji-item" wx:for="{{yi}}" wx:key="index">
-            <text class="yi-ji-text">{{item.action}}</text>
-            <text class="yi-ji-time" wx:if="{{item.time}}">{{item.time}}</text>
-          </view>
-        </view>
-        <view class="yi-ji-col ji">
-          <text class="yi-ji-title ji-title">忌</text>
-          <view class="yi-ji-item" wx:for="{{ji}}" wx:key="index">
-            <text class="yi-ji-text">{{item.action}}</text>
-            <text class="yi-ji-time" wx:if="{{item.time}}">{{item.time}}</text>
-          </view>
-        </view>
-      </view>
+  <view class="tabbar">
+    <view class="tab-item on" bindtap="onTab" data-tab="today">
+      <image class="tab-ic" src="/assets/images/ic-lantern-on.png"></image>
+      <text class="tab-label">今日</text>
+      <view class="dot"></view>
     </view>
-
-    <!-- Section 5: 本周预览 -->
-    <view class="section" wx:if="{{showRing}}">
-      <view class="section-header">
-        <text class="section-title">本周运势</text>
-      </view>
-      <canvas type="2d" id="weekCanvas" class="week-canvas"></canvas>
+    <view class="tab-item" bindtap="onTab" data-tab="chat">
+      <image class="tab-ic" src="{{dark ? '/assets/images/ic-chat-dark.png' : '/assets/images/ic-chat.png'}}"></image>
+      <text class="tab-label">聊天</text>
     </view>
-
-    <!-- Section 6: 心情记录 -->
-    <view class="section" wx:if="{{showRing}}">
-      <view class="section-header">
-        <text class="section-title">今日心情</text>
-      </view>
-      <view class="mood-row">
-        <view
-          class="mood-btn {{mood === item.key ? 'active' : ''}}"
-          wx:for="{{moods}}"
-          wx:key="key"
-          data-key="{{item.key}}"
-          bindtap="onMoodTap">
-          <text class="mood-emoji">{{item.emoji}}</text>
-          <text class="mood-label">{{item.label}}</text>
-        </view>
-      </view>
-      <view class="mood-feedback" wx:if="{{moodSaved}}">
-        <text class="mood-feedback-text">已记录，愿你今天一切顺遂</text>
-      </view>
+    <view class="tab-item" bindtap="onTab" data-tab="book">
+      <image class="tab-ic" src="{{dark ? '/assets/images/ic-book-dark.png' : '/assets/images/ic-book.png'}}"></image>
+      <text class="tab-label">命书</text>
     </view>
-  </skeleton>
+    <view class="tab-item" bindtap="onTab" data-tab="me">
+      <image class="tab-ic" src="{{dark ? '/assets/images/ic-seal-dark.png' : '/assets/images/ic-seal.png'}}"></image>
+      <text class="tab-label">我的</text>
+    </view>
   </view>
 </view>

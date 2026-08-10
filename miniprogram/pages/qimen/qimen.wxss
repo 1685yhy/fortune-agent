@@ -1,9 +1,20 @@
-/* 易理明灯 — 奇门遁甲样式 */
+/* 奇门遁甲 — 九宫排盘 | v6 靛蓝夜空 + 磨砂玻璃 + 暖金 */
 
 /* ---- 页面容器 ---- */
 .page {
   min-height: 100vh;
-  background: var(--gradient-primary);
+  padding-bottom: 120rpx;
+  background: var(--bg-night);
+}
+
+/* ---- 动画 ---- */
+.content-enter { animation: fadeUp 0.3s ease-out both; }
+.results-section .animate-scale { animation: scaleIn 0.35s ease-out both; }
+.results-section .animate-fade-up { animation: fadeUp 0.4s ease-out both; }
+
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 /* ---- Header ---- */
@@ -11,21 +22,21 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: var(--space-2xl) var(--space-lg) var(--space-lg);
+  padding: 80rpx var(--space-lg) var(--space-lg);
 }
 .header-icon {
-  font-size: 40px;
+  font-size: var(--text-lg);
   margin-bottom: var(--space-sm);
 }
 .header-title {
-  font-size: var(--font-2xl);
-  font-weight: 700;
+  font-size: var(--text-xl);
+  font-weight: 400;
   color: var(--gold-light);
   letter-spacing: 0.08em;
 }
 .header-desc {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
   margin-top: var(--space-xs);
   letter-spacing: 0.04em;
 }
@@ -40,23 +51,21 @@
 }
 .form-label {
   display: block;
-  font-size: var(--font-sm);
-  font-weight: 500;
-  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
   margin-bottom: var(--space-sm);
   letter-spacing: 0.04em;
 }
 .form-input {
   width: 100%;
-  height: 44px;
+  height: 88rpx;
   padding: 0 var(--space-md);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
+  background: var(--bg-input);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-md);
-  font-size: var(--font-md);
-  color: var(--color-text);
-  line-height: 44px;
-  transition: border-color var(--transition-fast);
+  font-size: var(--text-base);
+  color: var(--ink-primary);
+  line-height: 88rpx;
 }
 .form-input:focus {
   border-color: var(--gold);
@@ -69,45 +78,104 @@
   justify-content: space-between;
 }
 .form-input-text {
-  font-size: var(--font-md);
-  color: var(--color-text);
+  font-size: var(--text-base);
+  color: var(--ink-primary);
 }
 .form-input-text.placeholder {
-  color: var(--color-text-tertiary);
+  color: var(--ink-muted);
 }
 .form-arrow {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
-  transform: rotate(90deg);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
 }
 .form-textarea {
   width: 100%;
-  min-height: 80px;
+  min-height: 160rpx;
   padding: var(--space-md);
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
+  background: var(--bg-input);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-md);
-  font-size: var(--font-md);
-  color: var(--color-text);
+  font-size: var(--text-base);
+  color: var(--ink-primary);
   line-height: 1.6;
-  transition: border-color var(--transition-fast);
 }
 .form-textarea:focus {
   border-color: var(--gold);
   outline: none;
 }
 .form-placeholder {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-md);
+  color: var(--ink-muted);
+  font-size: var(--text-base);
 }
 .form-submit {
   margin-top: var(--space-lg);
 }
 .btn-submit {
   width: 100%;
-  height: 48px;
-  font-size: var(--font-lg);
+  height: 88rpx;
+  font-size: var(--text-base);
   letter-spacing: 0.08em;
+}
+
+/* ---- 加载 ---- */
+.loading-container {
+  padding: var(--space-xl) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.loading-spinner {
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 50%;
+  border: 4rpx solid rgba(255, 255, 255, 0.08);
+  border-top-color: var(--gold);
+  animation: spin 0.8s linear infinite;
+  margin-bottom: var(--space-lg);
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.loading-text {
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+}
+
+/* ---- 重新占卜（幽灵按钮） ---- */
+.btn-ghost {
+  width: 100%;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  letter-spacing: 0.08em;
+}
+
+/* ---- Empty State ---- */
+.empty-state {
+  padding: var(--space-xl) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.empty-state-icon {
+  font-size: var(--text-xl);
+  margin-bottom: var(--space-md);
+  opacity: 0.6;
+}
+.empty-state-text {
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  max-width: 480rpx;
+  line-height: 1.6;
 }
 
 /* ---- Palace Grid ---- */
@@ -116,49 +184,49 @@
 }
 .card-title {
   display: block;
-  font-size: var(--font-lg);
-  font-weight: 600;
-  color: var(--color-text);
+  font-size: var(--text-lg);
+  font-weight: 500;
+  color: var(--gold);
   margin-bottom: var(--space-xs);
+  letter-spacing: 0.04em;
 }
 .card-subtitle {
   display: block;
-  font-size: var(--font-xs);
-  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
   margin-bottom: var(--space-lg);
   letter-spacing: 0.02em;
 }
 .palace-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
+  gap: 4rpx;
 }
 .palace-cell {
-  background: var(--color-bg-card-alt);
-  border: 1px solid var(--color-border);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1rpx solid rgba(255, 255, 255, 0.07);
   border-radius: var(--radius-sm);
   padding: var(--space-sm);
   display: flex;
   flex-direction: column;
   align-items: center;
-  min-height: 90px;
-  transition: all var(--transition-fast);
+  min-height: 180rpx;
 }
 .palace-cell.palace-center {
   border-color: var(--gold);
-  background: linear-gradient(135deg, rgba(184,134,11,0.12) 0%, rgba(212,168,67,0.06) 100%);
-  box-shadow: 0 0 12px var(--gold-glow);
+  background: linear-gradient(135deg, rgba(212,165,116,0.12) 0%, rgba(232,205,168,0.05) 100%);
+  box-shadow: 0 0 24rpx rgba(212, 165, 116, 0.15);
 }
 .palace-name {
-  font-size: var(--font-sm);
+  font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--color-text);
-  margin-bottom: 2px;
+  color: var(--ink-primary);
+  margin-bottom: 4rpx;
   letter-spacing: 0.04em;
 }
 .palace-element {
-  font-size: 10px;
-  color: var(--color-text-tertiary);
+  font-size: 20rpx;
+  color: var(--ink-muted);
   margin-bottom: var(--space-xs);
 }
 .palace-cell.palace-center .palace-name {
@@ -168,33 +236,33 @@
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 3px;
+  gap: 4rpx;
   width: 100%;
   justify-content: center;
-  margin-top: 1px;
+  margin-top: 2rpx;
 }
 .palace-label {
-  font-size: 9px;
-  color: var(--color-text-tertiary);
+  font-size: 18rpx;
+  color: var(--ink-muted);
   opacity: 0.7;
 }
 .palace-value {
-  font-size: 10px;
-  color: var(--color-text-secondary);
+  font-size: 20rpx;
+  color: var(--ink-secondary);
   font-weight: 500;
 }
 .palace-cell.palace-center .palace-value {
-  color: var(--color-text);
+  color: var(--ink-primary);
 }
-/* Bamen color classes */
-.palace-value.open-door { color: var(--jade); }
-.palace-value.rest-door { color: var(--info); }
-.palace-value.life-door { color: var(--jade); }
-.palace-value.scare-door { color: var(--cinnabar); }
-.palace-value.terror-door { color: var(--cinnabar); }
-.palace-value.death-door { color: var(--danger); }
+/* 八门颜色 — v6 语义色 */
+.palace-value.open-door { color: var(--success); }
+.palace-value.rest-door { color: var(--lavender); }
+.palace-value.life-door { color: var(--success); }
+.palace-value.scare-door { color: var(--error); }
+.palace-value.terror-door { color: var(--error); }
+.palace-value.death-door { color: var(--error); }
 .palace-value.surprise-door { color: var(--warning); }
-.palace-value.leave-door { color: var(--info); }
+.palace-value.leave-door { color: var(--lavender); }
 
 /* ---- Analysis Cards ---- */
 .analysis-card {
@@ -211,48 +279,40 @@
   flex-direction: row;
   flex-wrap: wrap;
   padding: var(--space-sm) var(--space-md);
-  background: var(--color-bg);
+  background: rgba(255, 255, 255, 0.03);
   border-radius: var(--radius-sm);
-  border-left: 3px solid var(--gold);
+  border-left: 3rpx solid var(--gold);
 }
 .yongshen-name {
-  font-size: var(--font-md);
+  font-size: var(--text-sm);
   font-weight: 600;
   color: var(--gold-light);
 }
 .yongshen-colon {
-  font-size: var(--font-md);
-  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
 }
 .yongshen-value {
-  font-size: var(--font-md);
-  color: var(--color-text);
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
   line-height: 1.5;
   flex: 1;
 }
 .analysis-text {
   display: block;
-  font-size: var(--font-md);
-  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
   line-height: 1.8;
   margin-top: var(--space-md);
   letter-spacing: 0.02em;
 }
 .advice-text {
   color: var(--gold-light);
-  border-left: 3px solid var(--gold);
+  border-left: 3rpx solid var(--gold);
   padding-left: var(--space-md);
 }
 
 /* ---- Bottom Space ---- */
 .section-bottom-space {
-  height: var(--space-3xl);
-}
-
-/* ---- Animation Entry Overrides ---- */
-.results-section .animate-scale {
-  animation: scaleIn 0.35s ease-out both;
-}
-.results-section .animate-fade-up {
-  animation: fadeSlideUp 0.4s ease-out both;
+  height: var(--space-xl);
 }

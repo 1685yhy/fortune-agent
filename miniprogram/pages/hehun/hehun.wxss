@@ -1,17 +1,17 @@
-/* 合婚配对 — 样式 */
+/* 合婚配对 — 双星合璧 | v6 靛蓝夜空 + 磨砂玻璃 + 暖金 */
+.content-enter { animation: fadeUp 0.3s ease-out both; }
 
 .page-hehun {
   min-height: 100vh;
-  padding-bottom: var(--space-3xl);
-  background: var(--color-bg);
+  padding-bottom: 120rpx;
+  background: var(--bg-night);
 }
 
 /* ========================================
    Header
    ======================================== */
 .hh-header {
-  padding: var(--space-xl) var(--space-lg) var(--space-lg);
-  background: var(--gradient-card);
+  padding: 80rpx var(--space-lg) var(--space-lg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -19,29 +19,31 @@
 }
 
 .hh-header-icon {
-  font-size: 36px;
+  font-size: var(--text-lg);
   margin-bottom: var(--space-sm);
 }
 
 .hh-header-title {
-  font-size: var(--font-2xl);
-  font-weight: 700;
-  color: var(--color-text-card);
+  font-family: var(--font-brush);
+  font-size: var(--text-xl);
+  font-weight: 400;
+  color: var(--ink-primary);
+  letter-spacing: 0.06em;
   margin-bottom: var(--space-xs);
 }
 
 .hh-header-subtitle {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
-  max-width: 280px;
-  line-height: 1.5;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+  max-width: 560rpx;
+  line-height: 1.6;
 }
 
 /* ========================================
    Empty State
    ======================================== */
 .empty-state {
-  padding: var(--space-3xl) var(--space-lg);
+  padding: var(--space-xl) var(--space-lg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -49,62 +51,64 @@
 }
 
 .empty-state-icon {
-  font-size: 48px;
+  font-size: var(--text-xl);
   margin-bottom: var(--space-md);
 }
 
 .empty-state-text {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
-  max-width: 240px;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+  max-width: 480rpx;
   line-height: 1.6;
 }
 
 /* ========================================
-   Card
+   Card — 磨砂玻璃
    ======================================== */
 .card {
-  background: var(--color-bg-card);
-  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1rpx solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-md);
   padding: var(--space-lg);
-  margin: 0 var(--space-md) var(--space-md);
-  box-shadow: var(--shadow-sm);
+  margin: 0 var(--space-lg) var(--space-md);
 }
 
 .card-header {
   margin-bottom: var(--space-md);
   padding-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.06);
 }
 
 .card-title {
-  font-size: var(--font-md);
-  font-weight: 600;
-  color: var(--gold-light);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--gold);
+  letter-spacing: 0.04em;
 }
 
 /* ========================================
-   Form Groups (matching me.me patterns)
+   Form
    ======================================== */
 .form-group {
   margin-bottom: var(--space-md);
 }
 
 .form-label {
-  font-size: var(--font-sm);
-  font-weight: 600;
-  color: var(--color-text-secondary);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
   display: block;
   margin-bottom: var(--space-sm);
 }
 
 .form-picker {
-  padding: 12px 16px;
-  background: var(--color-bg-card-alt);
+  padding: var(--space-md);
+  background: var(--bg-input);
   border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  font-size: var(--font-md);
-  color: var(--color-text);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  font-size: var(--text-sm);
+  color: var(--ink-primary);
 }
 
 .form-radio-group {
@@ -115,25 +119,25 @@
 .form-radio {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 20px;
-  border-radius: var(--radius-md);
-  background: var(--color-bg-card-alt);
-  border: 1px solid var(--color-border);
-  font-size: var(--font-md);
-  color: var(--color-text-secondary);
-  flex: 1;
   justify-content: center;
+  gap: 6rpx;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-pill);
+  background: var(--bg-input);
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
+  flex: 1;
 }
 
 .form-radio.active {
   border-color: var(--gold);
   color: var(--gold);
-  background: var(--gold-glow);
+  background: rgba(212, 165, 116, 0.12);
 }
 
 /* ========================================
-   Divider
+   Divider — 金色渐变
    ======================================== */
 .hh-divider {
   display: flex;
@@ -145,34 +149,34 @@
 
 .hh-divider-line {
   flex: 1;
-  height: 1px;
-  background: var(--color-border);
+  height: 1rpx;
+  background: linear-gradient(90deg, rgba(212,165,116,0) 0%, rgba(212,165,116,0.4) 50%, rgba(212,165,116,0) 100%);
 }
 
 .hh-divider-icon {
-  font-size: 24px;
+  font-size: var(--text-sm);
   flex-shrink: 0;
 }
 
 /* ========================================
-   Submit Button
+   Submit Button — 暖金渐变
    ======================================== */
 .hh-submit-wrap {
-  padding: var(--space-lg) var(--space-md);
+  padding: var(--space-lg) var(--space-lg);
 }
 
 .hh-submit-btn {
   width: 100%;
-  padding: 14px 0;
-  border-radius: var(--radius-md);
-  background: var(--gradient-gold);
+  padding: var(--space-sm) 0;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(135deg, #D4A574 0%, #C9986A 100%);
   border: none;
-  font-size: var(--font-lg);
-  font-weight: 700;
-  color: var(--ink);
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: #241A10;
   text-align: center;
-  box-shadow: var(--shadow-md);
-  min-height: 48px;
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.25);
+  min-height: 96rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -186,7 +190,7 @@
    Loading State
    ======================================== */
 .hh-loading {
-  padding: var(--space-3xl) var(--space-lg);
+  padding: var(--space-xl) var(--space-lg);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -194,10 +198,10 @@
 }
 
 .hh-spinner {
-  width: 44px;
-  height: 44px;
+  width: 64rpx;
+  height: 64rpx;
   border-radius: 50%;
-  border: 3px solid var(--color-border);
+  border: 4rpx solid rgba(255, 255, 255, 0.08);
   border-top-color: var(--gold);
   animation: spin 0.8s linear infinite;
   margin-bottom: var(--space-lg);
@@ -209,19 +213,18 @@
 }
 
 .hh-loading-text {
-  font-size: var(--font-md);
-  font-weight: 600;
-  color: var(--color-text);
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
   margin-bottom: var(--space-sm);
 }
 
 .hh-loading-sub {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
 }
 
 /* ========================================
-   Score Card (uses score-ring component)
+   Score Card (score-ring component)
    ======================================== */
 .score-card {
   display: flex;
@@ -231,19 +234,19 @@
 }
 
 .score-ring-title {
-  font-size: var(--font-md);
-  font-weight: 600;
-  color: var(--color-text);
+  font-size: var(--text-base);
+  font-weight: 500;
+  color: var(--ink-primary);
   margin-top: var(--space-lg);
   margin-bottom: var(--space-sm);
 }
 
 .score-ring-desc {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
   text-align: center;
-  max-width: 260px;
-  line-height: 1.5;
+  max-width: 520rpx;
+  line-height: 1.6;
 }
 
 /* ========================================
@@ -252,43 +255,44 @@
 .breakdown-row {
   display: flex;
   gap: var(--space-sm);
-  padding: 0 var(--space-md);
+  padding: 0 var(--space-lg);
   margin-bottom: var(--space-md);
 }
 
 .breakdown-card {
   flex: 1;
-  background: var(--color-bg-card);
-  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  border: 1rpx solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-md);
   padding: var(--space-md) var(--space-sm);
   text-align: center;
-  box-shadow: var(--shadow-sm);
   display: flex;
   flex-direction: column;
   align-items: center;
 }
 
 .breakdown-icon {
-  font-size: 20px;
+  font-size: var(--text-sm);
   margin-bottom: var(--space-xs);
 }
 
 .breakdown-label {
-  font-size: var(--font-xs);
-  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
   margin-bottom: var(--space-sm);
 }
 
 .breakdown-score {
-  font-size: var(--font-2xl);
-  font-weight: 700;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--gold);
   line-height: 1;
   margin-bottom: var(--space-xs);
 }
 
 .breakdown-detail {
-  font-size: 10px;
-  color: var(--color-text-tertiary);
+  font-size: 20rpx;
+  color: var(--ink-muted);
   line-height: 1.3;
   max-width: 100%;
   overflow: hidden;
@@ -312,7 +316,7 @@
   align-items: flex-start;
   gap: var(--space-sm);
   padding: var(--space-sm) 0;
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.06);
 }
 
 .advice-item:last-child {
@@ -320,71 +324,37 @@
 }
 
 .advice-dot {
-  font-size: var(--font-md);
+  font-size: var(--text-sm);
   color: var(--gold);
   flex-shrink: 0;
-  margin-top: 3px;
+  margin-top: 2rpx;
 }
 
 .advice-text {
-  font-size: var(--font-sm);
-  color: var(--color-text);
+  font-size: var(--text-sm);
+  color: var(--ink-secondary);
   line-height: 1.6;
   flex: 1;
 }
 
 /* ========================================
-   Reset / Retry / Error
+   Reset
    ======================================== */
 .hh-reset-wrap {
-  padding: var(--space-lg) var(--space-md);
+  padding: var(--space-lg) var(--space-lg);
 }
 
 .hh-reset-btn {
   width: 100%;
-  padding: 12px 0;
-  border-radius: var(--radius-md);
-  background: var(--color-bg-card-alt);
-  border: 1px solid var(--color-border);
-  font-size: var(--font-md);
+  padding: var(--space-sm) 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  font-size: var(--text-sm);
   font-weight: 500;
-  color: var(--color-text-secondary);
+  color: var(--ink-secondary);
   text-align: center;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.hh-error {
-  padding: var(--space-3xl) var(--space-lg);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-}
-
-.hh-error-icon {
-  font-size: 40px;
-  margin-bottom: var(--space-md);
-}
-
-.hh-error-text {
-  font-size: var(--font-sm);
-  color: var(--danger);
-  margin-bottom: var(--space-lg);
-  line-height: 1.5;
-  max-width: 280px;
-}
-
-.hh-retry-btn {
-  padding: 10px 32px;
-  border-radius: var(--radius-md);
-  background: var(--color-bg-card-alt);
-  border: 1px solid var(--color-border);
-  font-size: var(--font-md);
-  color: var(--color-text);
-  min-height: 44px;
+  min-height: 88rpx;
   display: flex;
   align-items: center;
   justify-content: center;

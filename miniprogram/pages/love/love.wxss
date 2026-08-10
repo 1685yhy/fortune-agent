@@ -1,0 +1,132 @@
+/* 合盘 — 双星交汇 | 宣纸墨韵 */
+
+.page-love {
+  min-height: 100vh;
+  padding: 80rpx 48rpx 120rpx;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.love-title {
+  font-family: var(--font-brush);
+  font-size: var(--text-xl);
+  font-weight: 400;
+  letter-spacing: .14em;
+  text-align: center;
+  margin-bottom: var(--space-xl);
+  color: var(--ink);
+}
+
+/* 双星（墨点 + 朱砂点） */
+.love-visual {
+  width: 200rpx;
+  height: 200rpx;
+  position: relative;
+  margin: var(--space-xl) auto;
+}
+.love-light {
+  position: absolute;
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+}
+.love-light-left {
+  left: 0;
+  top: 60rpx;
+  background: radial-gradient(circle, rgba(176,138,79,.5) 0%, rgba(176,138,79,.12) 55%, transparent 75%);
+  border: 1rpx solid var(--gold-soft);
+}
+.love-light-right {
+  right: 0;
+  top: 60rpx;
+  background: radial-gradient(circle, rgba(169,58,44,.42) 0%, rgba(169,58,44,.1) 55%, transparent 75%);
+  border: 1rpx solid var(--acc-soft);
+}
+
+.love-form { width: 100%; }
+.love-form-item { margin-bottom: var(--space-md); }
+
+.love-form-label {
+  font-size: var(--text-xs);
+  letter-spacing: .2em;
+  color: var(--ink-soft);
+  margin-bottom: var(--space-xs);
+  display: block;
+}
+
+.love-form-input {
+  width: 100%;
+  background: var(--paper-card);
+  border: 1rpx solid var(--line);
+  border-radius: 8rpx;
+  padding: var(--space-md);
+  color: var(--ink);
+  font-family: var(--font-song);
+  font-size: var(--text-base);
+}
+
+.love-form-input:focus { border-color: var(--acc); }
+
+/* 接口失败提示（真实请求失败时的明确错误展示） */
+.love-error {
+  width: 100%;
+  background: var(--paper-card);
+  border: 2rpx solid rgba(169,58,44,.35);
+  border-radius: 10rpx;
+  padding: var(--space-lg);
+  margin-top: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.love-error-icon { font-size: 44rpx; }
+.love-error-title {
+  font-family: var(--font-song);
+  font-size: var(--text-base);
+  letter-spacing: .18em;
+  color: var(--acc);
+  margin-top: var(--space-sm);
+}
+.love-error-text {
+  font-size: var(--text-xs);
+  color: var(--ink-mid);
+  line-height: 1.8;
+  margin-top: var(--space-xs);
+}
+.love-error-btn {
+  margin-top: var(--space-md);
+  padding: var(--space-xs) var(--space-lg);
+  border: 1rpx solid var(--line);
+  border-radius: 8rpx;
+  font-size: var(--text-xs);
+  letter-spacing: .14em;
+  color: var(--ink-mid);
+  background: var(--paper);
+}
+.love-error-btn-active { background: var(--acc-soft); color: var(--acc); }
+
+.love-result { text-align: center; margin-top: var(--space-xl); }
+.love-score {
+  font-family: var(--font-song);
+  font-size: 120rpx;
+  font-weight: 400;
+  color: var(--acc);
+  line-height: 1;
+}
+.love-score-label {
+  font-size: var(--text-xs);
+  letter-spacing: .3em;
+  color: var(--ink-soft);
+  margin-top: var(--space-xs);
+}
+.love-summary {
+  font-family: var(--font-kai);
+  font-size: var(--text-sm);
+  color: var(--ink-mid);
+  line-height: 1.9;
+  margin-top: var(--space-lg);
+  padding: 0 16rpx;
+}

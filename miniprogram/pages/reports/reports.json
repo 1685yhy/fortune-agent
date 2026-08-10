@@ -1,1 +1,4 @@
-{"navigationBarTitleText": "报告", "usingComponents": {}}
+{
+  "usingComponents": {},
+  "navigationStyle": "custom"
+}

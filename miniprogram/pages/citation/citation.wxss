@@ -1,0 +1,116 @@
+/* ═══ 阶段 5·参考资料详情页（墨韵：宣纸为底 · 朱砂点睛 · 宋体为骨）═══ */
+
+.cite-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 40rpx 44rpx 80rpx;
+  background: var(--paper);
+}
+
+/* ── 来源卡（类型角标 + 标题） ── */
+.cite-card {
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 12rpx;
+  padding: 30rpx 32rpx;
+}
+.cite-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 9rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .1em;
+  color: var(--acc);
+  border: 1rpx solid var(--acc-line);
+  border-radius: 6rpx;
+  padding: 5rpx 16rpx;
+  background: var(--acc-soft);
+}
+.cite-type.engine { color: var(--gold); border-color: rgba(176,138,79,.4); background: var(--gold-soft); }
+.cite-type.memory { color: #5F6B4F; border-color: rgba(95,107,79,.4); }
+.cite-type.web { color: #7A6B8F; border-color: rgba(122,107,143,.4); }
+.cite-type-icon { font-size: 24rpx; }
+.cite-title {
+  margin-top: 22rpx;
+  font-family: var(--font-song);
+  font-size: 34rpx;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.cite-src {
+  margin-top: 10rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+}
+
+/* ── 原文全文 ── */
+.cite-body {
+  margin-top: 36rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-soft);
+  border-left: 6rpx solid var(--acc-soft);
+  border-radius: 12rpx;
+  padding: 28rpx 32rpx;
+}
+.cite-sec-title {
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .3em;
+  color: var(--ink-faint);
+  margin-bottom: 16rpx;
+}
+.cite-text {
+  font-family: var(--poem);
+  font-size: 28rpx;
+  line-height: 2;
+  letter-spacing: .03em;
+  color: var(--ink-mid);
+}
+
+/* ── 网络来源链接（可复制） ── */
+.cite-web {
+  margin-top: 36rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 12rpx;
+  padding: 28rpx 32rpx;
+}
+.cite-url {
+  font-family: var(--font-lat);
+  font-size: 23rpx;
+  line-height: 1.8;
+  color: var(--acc);
+  word-break: break-all;
+}
+.cite-copy {
+  display: inline-flex;
+  margin-top: 18rpx;
+  padding: 10rpx 28rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .16em;
+  color: var(--ink-soft);
+  border: 2rpx solid var(--line);
+  border-radius: 7rpx;
+}
+.cite-copy-active { color: var(--acc); border-color: var(--acc); background: var(--acc-soft); }
+
+.cite-foot {
+  margin-top: 56rpx;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .24em;
+  color: var(--ink-faint);
+}
+.cite-missing {
+  padding: 120rpx 0;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 24rpx;
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+}

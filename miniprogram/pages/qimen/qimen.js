@@ -112,7 +112,7 @@ Page({
   },
 
   _processResult(data) {
-    if (!data || !data.palaces) {
+    if (!data || !data.palaces || data.palaces.length === 0) {
       return this._useFallback();
     }
 
@@ -140,6 +140,8 @@ Page({
         dateStr: data.dateStr || this.data.date,
         timeStr: data.timeStr || this.data.time,
       },
+      loading: false,
+      submitted: true,
     });
   },
 
@@ -154,6 +156,8 @@ Page({
         timeStr: this.data.time,
       },
       error: null,
+      loading: false,
+      submitted: true,
     });
   },
 

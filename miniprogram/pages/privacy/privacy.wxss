@@ -1,159 +1,63 @@
-/* 隐私政策 — 深色道家主题 */
+/* 隐私 — 灯下契约 | 宣纸墨韵 */
 
 .page-privacy {
   min-height: 100vh;
-  background: var(--color-bg);
-}
-
-.privacy-scroll {
-  height: 100vh;
-  padding: var(--space-lg);
-}
-
-/* ========================================
-   头部
-   ======================================== */
-.privacy-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: var(--space-2xl) 0 var(--space-xl);
-}
-
-.privacy-icon {
-  font-size: 48px;
-  margin-bottom: var(--space-md);
+  padding: 80rpx var(--space-xl) 120rpx;
+  background: var(--paper);
 }
 
 .privacy-title {
-  font-size: var(--font-2xl);
-  font-weight: 700;
-  color: var(--color-text-card);
-  margin-bottom: var(--space-xs);
-}
-
-.privacy-subtitle {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
-}
-
-/* ========================================
-   内容区块
-   ======================================== */
-.privacy-section {
+  font-family: var(--font-kai);
+  font-size: var(--text-xl);
+  font-weight: 400;
+  text-align: center;
   margin-bottom: var(--space-xl);
-  background: var(--color-bg-card);
-  border-radius: var(--radius-lg);
-  padding: var(--space-lg);
-  box-shadow: var(--shadow-sm);
-  animation: fadeSlideUp 0.35s ease-out both;
+  letter-spacing: .16em;
+  color: var(--ink);
 }
 
-.privacy-section-title {
-  display: block;
-  font-size: var(--font-lg);
-  font-weight: 700;
-  color: var(--gold-light);
-  margin-bottom: var(--space-md);
-  padding-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--color-divider);
+.privacy-section {
+  margin-bottom: var(--space-lg);
+  padding: 0 8rpx;
+}
+
+.privacy-heading {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  letter-spacing: .16em;
+  color: var(--acc);
+  margin-bottom: var(--space-sm);
+  position: relative;
+  padding-left: 24rpx;
+}
+.privacy-heading::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8rpx;
+  bottom: 8rpx;
+  width: 4rpx;
+  background: var(--acc-soft);
+  border-radius: 2rpx;
 }
 
 .privacy-text {
-  display: block;
-  font-size: var(--font-md);
-  color: var(--color-text);
-  line-height: 1.8;
-  margin-bottom: var(--space-sm);
+  font-size: var(--text-sm);
+  color: var(--ink-mid);
+  line-height: 2.1;
 }
 
-.privacy-text.highlight {
-  color: var(--gold-light);
-  font-weight: 500;
-  background: var(--gold-glow);
-  padding: var(--space-md);
-  border-radius: var(--radius-md);
-  margin-top: var(--space-sm);
-  border-left: 3px solid var(--gold);
-}
-
-/* ========================================
-   列表
-   ======================================== */
-.privacy-list {
-  margin-top: var(--space-sm);
-}
-
+.privacy-list { padding-left: var(--space-lg); }
 .privacy-list-item {
-  display: flex;
-  gap: var(--space-sm);
-  padding: var(--space-sm) 0;
-  border-bottom: 1px solid var(--color-divider);
+  font-size: var(--text-sm);
+  color: var(--ink-mid);
+  line-height: 2.1;
 }
 
-.privacy-list-item:last-child {
-  border-bottom: none;
-}
-
-.privacy-list-bullet {
-  font-size: var(--font-md);
-  color: var(--gold);
-  font-weight: 600;
-  flex-shrink: 0;
-  width: 20px;
-}
-
-.privacy-list-text {
-  font-size: var(--font-md);
-  color: var(--color-text);
-  line-height: 1.7;
-  flex: 1;
-}
-
-/* ========================================
-   联系卡片
-   ======================================== */
-.contact-card {
-  background: var(--color-bg-card-alt);
-  border-radius: var(--radius-md);
-  padding: var(--space-md);
-  margin: var(--space-md) 0;
-}
-
-.contact-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: var(--space-sm) 0;
-  border-bottom: 1px solid var(--color-divider);
-}
-
-.contact-row:last-child {
-  border-bottom: none;
-}
-
-.contact-label {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
-}
-
-.contact-value {
-  font-size: var(--font-sm);
-  font-weight: 600;
-  color: var(--gold);
-}
-
-/* ========================================
-   页脚
-   ======================================== */
-.privacy-footer {
-  text-align: center;
-  padding: var(--space-xl) 0 var(--space-2xl);
-}
-
-.privacy-footer-text {
-  display: block;
-  font-size: var(--font-xs);
-  color: var(--color-text-tertiary);
-  line-height: 1.8;
+.privacy-signature { text-align: center; margin-top: var(--space-xl); }
+.privacy-signature-text {
+  font-family: var(--font-kai);
+  font-size: var(--text-lg);
+  letter-spacing: .3em;
+  color: var(--ink-mid);
 }

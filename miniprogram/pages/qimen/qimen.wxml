@@ -141,7 +141,7 @@
       </view>
 
       <!-- Re-divinate Button -->
-      <view class="form-submit" style="padding: 0 var(--space-md) var(--space-2xl);">
+      <view class="form-submit" style="padding: 0 var(--space-md) var(--space-xl);">
         <button class="btn btn-ghost btn-submit" bindtap="onReset">重新占卜</button>
       </view>
     </view>

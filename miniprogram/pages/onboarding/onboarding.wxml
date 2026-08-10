@@ -1,0 +1,187 @@
+<!-- 新用户引导 — 三步建档（原型 dir_funcs 陆：欢迎 → 为何需要 → 填写生辰 → 完成 / 跳过） -->
+<view class="screen" style="--nav-off:{{navOff}}px">
+
+  <!-- 右上角跳过（引导步骤页） -->
+  <view wx:if="{{phase === 'why' || phase === 'form'}}" class="skip-btn"
+    hover-class="skip-btn-active" hover-stay-time="0" bindtap="doSkip">跳过</view>
+
+  <!-- ═══ ① 欢迎 ═══ -->
+  <view wx:if="{{phase === 'welcome'}}" class="welcome-wrap">
+    <view class="lantern-box">
+      <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
+      <image class="lantern-glow lantern-glow-delay" src="/assets/images/lantern-glow2.png"></image>
+      <image class="lantern-body" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
+    </view>
+    <view class="ww-brand">易理<text class="ww-em">明灯</text></view>
+    <view class="ww-line"></view>
+    <view class="ww-poem">
+      <text class="ww-line-t">灯火已备 · 夜话即将开始</text>
+      <text class="ww-line-t">为你看一盏命里的灯</text>
+    </view>
+    <view class="ww-sub">
+      <text class="ww-line-t">首次使用 · 先立一卷生辰档案</text>
+      <text class="ww-line-t">约 1 分钟 · 全程可跳过</text>
+    </view>
+    <view class="ww-cta">
+      <button class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="goWhy">点亮这盏灯</button>
+      <view class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="doSkip">暂不建档 · 直接进入</view>
+    </view>
+  </view>
+
+  <!-- ═══ ② 为何需要出生信息 ═══ -->
+  <scroll-view wx:if="{{phase === 'why'}}" scroll-y class="guide-scroll">
+    <view class="steps">
+      <block wx:for="{{stepLabels}}" wx:key="*this">
+        <view wx:if="{{index > 0}}" class="st-line"></view>
+        <view class="st {{stepCur === index + 1 ? 'on' : (stepCur > index + 1 ? 'done' : '')}}">
+          <view class="st-no">{{stepCur > index + 1 ? '✓' : index + 1}}</view>
+          <text>{{item}}</text>
+        </view>
+      </block>
+    </view>
+
+    <view class="g-title">为什么需要出生信息？</view>
+    <view class="g-sub">
+      <text class="ww-line-t">八字排盘需要准确的出生年月日时——</text>
+      <text class="ww-line-t">时辰差一刻，命盘即不同。</text>
+    </view>
+
+    <view class="g-card">
+      <view class="why-row">
+        <view class="seal w-seal"><text class="seal-char">历</text></view>
+        <view class="why-txt">
+          <view class="w-title">年、月、日、时 · 缺一不可</view>
+          <view class="w-body">八字由四柱组成，每一柱都依赖完整生辰。少一时辰，盘便少一根柱，批断不再可靠。</view>
+        </view>
+      </view>
+      <view class="why-row">
+        <view class="seal w-seal"><text class="seal-char">时</text></view>
+        <view class="why-txt">
+          <view class="w-title">时辰差一刻 · 命盘即不同</view>
+          <view class="w-body">古法以两小时为一时辰。子时与丑时的命，日柱虽同，格局与行运却大相径庭。</view>
+        </view>
+      </view>
+      <view class="why-row">
+        <view class="seal w-seal"><text class="seal-char">地</text></view>
+        <view class="why-txt">
+          <view class="w-title">出生地校准真太阳时</view>
+          <view class="w-body">东西相距，日中早晚不同。以出生地校准后的时辰，才是排盘用的「真太阳时」。</view>
+        </view>
+      </view>
+    </view>
+
+    <view class="g-nav">
+      <button class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="goForm">知道了，去填写</button>
+      <view class="back-link" hover-class="back-link-active" hover-stay-time="0" bindtap="backWelcome">‹ 返回欢迎页</view>
+    </view>
+  </scroll-view>
+
+  <!-- ═══ ③ 填写出生信息 ═══ -->
+  <scroll-view wx:if="{{phase === 'form'}}" scroll-y class="guide-scroll">
+    <view class="steps">
+      <block wx:for="{{stepLabels}}" wx:key="*this">
+        <view wx:if="{{index > 0}}" class="st-line"></view>
+        <view class="st {{stepCur === index + 1 ? 'on' : (stepCur > index + 1 ? 'done' : '')}}">
+          <view class="st-no">{{stepCur > index + 1 ? '✓' : index + 1}}</view>
+          <text>{{item}}</text>
+        </view>
+      </block>
+    </view>
+
+    <view class="g-title">填写出生信息</view>
+    <view class="g-sub">仅用于排盘 · 加密存储 · 可随时修改</view>
+
+    <view class="form-block">
+      <view class="form-label">历法</view>
+      <view class="seg">
+        <view class="seg-btn {{cal === 'solar' ? 'on' : ''}}" data-cal="solar" bindtap="onCalChange">公历</view>
+        <view class="seg-btn {{cal === 'lunar' ? 'on' : ''}}" data-cal="lunar" bindtap="onCalChange">农历</view>
+      </view>
+
+      <view class="form-label">出生年月日<text class="req">*</text></view>
+      <view class="input-row3">
+        <input class="input-ink" type="number" maxlength="4" placeholder="年"
+          placeholder-class="input-placeholder" value="{{year}}" bindinput="onYearInput" />
+        <input class="input-ink" type="number" maxlength="2" placeholder="月"
+          placeholder-class="input-placeholder" value="{{month}}" bindinput="onMonthInput" />
+        <input class="input-ink" type="number" maxlength="2" placeholder="日"
+          placeholder-class="input-placeholder" value="{{day}}" bindinput="onDayInput" />
+      </view>
+
+      <view class="form-label">出生时辰<text class="req">*</text></view>
+      <view class="seg shichen-seg">
+        <view wx:for="{{hourLabels}}" wx:key="*this"
+          class="seg-btn shichen-btn {{hourIndex === index ? 'on' : ''}}"
+          data-idx="{{index}}" bindtap="onHourChange">{{item}}</view>
+      </view>
+
+      <view class="form-label">性别<text class="req">*</text></view>
+      <view class="seg">
+        <view class="seg-btn {{gender === '男' ? 'on' : ''}}" data-g="男" bindtap="onGenderChange">男</view>
+        <view class="seg-btn {{gender === '女' ? 'on' : ''}}" data-g="女" bindtap="onGenderChange">女</view>
+      </view>
+
+      <view class="form-label">出生地</view>
+      <input class="input-ink" type="text" maxlength="20" placeholder="如：北京市 · 东城区"
+        placeholder-class="input-placeholder" value="{{place}}" bindinput="onPlaceInput" />
+    </view>
+
+    <view class="form-hint">
+      <block wx:if="{{filled}}">{{summary}}</block>
+      <block wx:else>年、月、日填写后即可继续</block>
+    </view>
+
+    <view class="g-nav">
+      <button class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0"
+        disabled="{{!filled || saving}}" loading="{{saving}}" bindtap="onSubmit">
+        <text wx:if="{{filled}}">建档 · 完成</text>
+        <text wx:else>请先填写年月日</text>
+      </button>
+      <view class="back-link" hover-class="back-link-active" hover-stay-time="0" bindtap="backWhy">‹ 上一步</view>
+    </view>
+  </scroll-view>
+
+  <!-- ═══ ④ 建档完成 ═══ -->
+  <view wx:if="{{phase === 'done'}}" class="done-wrap">
+    <view class="seal d-seal"><text class="seal-char">立</text></view>
+    <view class="d-title">档案已建立</view>
+    <view class="d-sub"><text class="ww-line-t">{{doneSummary}}</text></view>
+    <view class="d-birth">
+      <view class="inktag">已入册</view>
+      <view class="inktag">加密存储</view>
+      <view class="inktag">可修改</view>
+    </view>
+    <view class="d-line"></view>
+    <view class="d-poem">命盘既定 · 灯已为你亮起</view>
+    <view class="d-cta">
+      <button class="btn btn-acc btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="startPaipan">开始排盘</button>
+      <view class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="replay">
+        <image class="replay-ic" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+        <text>重新看引导</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ═══ ⑤ 已跳过 ═══ -->
+  <view wx:if="{{phase === 'skipped'}}" class="done-wrap">
+    <view class="lantern-box skipped-lantern">
+      <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
+      <image class="lantern-glow lantern-glow-delay" src="/assets/images/lantern-glow2.png"></image>
+      <image class="lantern-body" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
+    </view>
+    <view class="d-title skipped-title">未建档案</view>
+    <view class="d-sub">
+      <text class="ww-line-t">灯还亮着，随时可以回来补全</text>
+      <text class="ww-line-t">「我的 · 档案」中也可随时填写</text>
+    </view>
+    <view class="d-line"></view>
+    <view class="d-cta">
+      <button class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="demoPaipan">演示：开始排盘</button>
+      <view class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="replay">
+        <image class="replay-ic" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+        <text>重新看引导</text>
+      </view>
+    </view>
+  </view>
+
+</view>

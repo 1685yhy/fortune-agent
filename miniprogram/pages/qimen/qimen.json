@@ -1,7 +1,10 @@
 {
   "navigationBarTitleText": "奇门遁甲",
-  "backgroundColor": "#0F172A",
-  "navigationBarBackgroundColor": "#0F172A",
-  "navigationBarTextStyle": "white",
-  "usingComponents": {}
+  "backgroundColor": "#F5EFE1",
+  "navigationBarBackgroundColor": "#F5EFE1",
+  "navigationBarTextStyle": "black",
+  "usingComponents": {
+    "skeleton": "/components/skeleton/skeleton",
+    "empty-state": "/components/empty-state/empty-state"
+  }
 }

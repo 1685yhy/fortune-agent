@@ -3,61 +3,52 @@
     "pages/today/today",
     "pages/chat/chat",
     "pages/reports/reports",
+    "pages/love/love",
     "pages/me/me",
+    "pages/privacy/privacy",
+    "pages/bazi/bazi",
     "pages/hehun/hehun",
     "pages/qimen/qimen",
     "pages/xingming/xingming",
     "pages/xuetang/xuetang",
-    "pages/privacy/privacy",
-    "pages/agreement/agreement"
+    "pages/citation/citation",
+    "pages/favorites/favorites",
+    "pages/history/history",
+    "pages/dreams/dreams",
+    "pages/onboarding/onboarding",
+    "pages/persons/persons"
   ],
-  "window": {
-    "navigationBarBackgroundColor": "#1a1a2e",
-    "navigationBarTitleText": "易理明灯",
-    "navigationBarTextStyle": "white",
-    "backgroundColor": "#fafaf9",
-    "backgroundTextStyle": "dark"
-  },
-  "tabBar": {
-    "color": "#8A8580",
-    "selectedColor": "#D4A843",
-    "backgroundColor": "#0F172A",
-    "borderStyle": "black",
-    "position": "bottom",
-    "list": [
-      {
-        "pagePath": "pages/today/today",
-        "text": "今日",
-        "iconPath": "icons/today.png",
-        "selectedIconPath": "icons/today-active.png"
-      },
-      {
-        "pagePath": "pages/chat/chat",
-        "text": "对话",
-        "iconPath": "icons/chat.png",
-        "selectedIconPath": "icons/chat-active.png"
-      },
-      {
-        "pagePath": "pages/reports/reports",
-        "text": "报告",
-        "iconPath": "icons/reports.png",
-        "selectedIconPath": "icons/reports-active.png"
-      },
-      {
-        "pagePath": "pages/me/me",
-        "text": "我的",
-        "iconPath": "icons/me.png",
-        "selectedIconPath": "icons/me-active.png"
-      }
-    ]
-  },
   "darkmode": true,
   "themeLocation": "theme.json",
-  "lazyCodeLoading": "requiredComponents",
+  "window": {
+    "navigationBarBackgroundColor": "@navBgColor",
+    "navigationBarTitleText": "易理明灯",
+    "navigationBarTextStyle": "@navTxtStyle",
+    "backgroundColor": "@bgColor",
+    "backgroundTextStyle": "@bgTxtStyle"
+  },
   "style": "v2",
   "sitemapLocation": "sitemap.json",
-  "usingComponents": {
-    "skeleton": "components/skeleton/skeleton",
-    "empty-state": "components/empty-state/empty-state"
+  "networkTimeout": {
+    "request": 60000,
+    "connectSocket": 10000,
+    "uploadFile": 30000,
+    "downloadFile": 30000
+  },
+  "permission": {
+    "scope.userLocation": {
+      "desc": "用于真太阳时校准以提升排盘精度"
+    }
+  },
+  "requiredBackgroundModes": [
+    "audio"
+  ],
+  "useExtendedLib": {},
+  "lazyCodeLoading": "requiredComponents",
+  "plugins": {
+    "WechatSI": {
+      "version": "0.3.5",
+      "provider": "wx069ba97219f66d99"
+    }
   }
 }

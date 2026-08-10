@@ -1,0 +1,39 @@
+<!-- 合盘 — 双星交汇 -->
+<view class="page-love">
+  <text class="love-title">看看你们的故事</text>
+
+  <!-- 双光点视觉 -->
+  <view class="love-visual" wx:if="{{!result}}">
+    <view class="love-light love-light-left breathe"></view>
+    <view class="love-light love-light-right breathe"></view>
+  </view>
+
+  <!-- 表单 -->
+  <view class="love-form" wx:if="{{!result}}">
+    <view class="love-form-item">
+      <text class="love-form-label">你的出生</text>
+      <input class="love-form-input" value="{{myBirth}}" placeholder="如 1990年5月20日" bindinput="onMyInput"/>
+    </view>
+    <view class="love-form-item">
+      <text class="love-form-label">TA的出生</text>
+      <input class="love-form-input" value="{{taBirth}}" placeholder="如 1992年8月15日" bindinput="onTaInput"/>
+    </view>
+    <view class="btn-primary mt-xl text-center" bindtap="onSubmit">开始合盘</view>
+  </view>
+
+  <!-- 接口失败：明确错误提示（不造假数据），可返回重试 -->
+  <view class="love-error" wx:if="{{errorMsg}}">
+    <text class="love-error-icon">❗</text>
+    <text class="love-error-title">合盘未能完成</text>
+    <text class="love-error-text">{{errorMsg}}</text>
+    <view class="love-error-btn" hover-class="love-error-btn-active" hover-stay-time="0" bindtap="reset">返回重试</view>
+  </view>
+
+  <!-- 结果 -->
+  <view class="love-result" wx:if="{{result}}">
+    <text class="love-score">{{result.score}}%</text>
+    <text class="love-score-label">默契度</text>
+    <text class="love-summary">{{result.summary}}</text>
+    <view class="btn-secondary mt-xl" bindtap="reset">重新合盘</view>
+  </view>
+</view>

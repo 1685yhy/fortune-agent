@@ -11,8 +11,7 @@ function encode(str) {
   for (let i = 0; i < str.length; i++) {
     result += String.fromCharCode(str.charCodeAt(i) ^ key.charCodeAt(i % key.length));
   }
-  // 使用内置 btoa（微信小程序环境可用）；微信不支持 Buffer
-  try { return btoa(result); } catch(e) { return result; }
+  return wx.arrayBufferToBase64 ? btoa(result) : Buffer.from(result, 'binary').toString('base64');
 }
 
 function decode(encoded) {
@@ -130,29 +129,9 @@ function clearSecure() {
   }
 }
 
-/**
- * 加密字符串（公开的 encode 包装）
- * @param {string} str - 要加密的字符串
- * @returns {string} 加密后的 Base64 字符串
- */
-function encrypt(str) {
-  return encode(str);
-}
-
-/**
- * 解密字符串（公开的 decode 包装）
- * @param {string} encrypted - 加密的 Base64 字符串
- * @returns {string} 解密后的原始字符串
- */
-function decrypt(encrypted) {
-  return decode(encrypted);
-}
-
 module.exports = {
   setSecure,
   getSecure,
   removeSecure,
   clearSecure,
-  encrypt,
-  decrypt,
 };

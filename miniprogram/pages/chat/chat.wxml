@@ -1,158 +1,385 @@
-<!-- 对话 — AI 聊天页面 -->
-<import src="disclaimer-tpl.wxml" />
-
-<view class="page-chat content-enter">
-  <!-- 顶部导航栏 -->
-  <view class="chat-header">
-    <view class="chat-header-left">
-      <text class="chat-title">AI 命运伴侣</text>
+<view class="screen" style="--nav-off:{{navOff}}px" bindtap="onListTap">
+  <view class="navrow">
+    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goToday">
+      <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
     </view>
-    <view class="chat-header-right">
-      <view class="header-btn" bindtap="toggleScenarios">
-        <text>场景</text>
-      </view>
-      <view class="header-btn" bindtap="goXuetang">
-        <text>学堂</text>
-      </view>
-      <view class="header-btn" bindtap="clearChat">
-        <text>清空</text>
-      </view>
+    <view class="nav-title">
+      <image class="nav-lantern" src="/assets/images/ic-lantern-on.png"></image>
+      <text>与明灯夜话</text>
+    </view>
+    <!-- 对话历史入口（归档夜话：搜索/预览/继续） -->
+    <view class="nav-right nav-hist" hover-class="navrow-hover" hover-stay-time="0" bindtap="goHistory">
+      <image class="nav-hist-ic" src="{{dark ? '/assets/images/ic-chat-dark.png' : '/assets/images/ic-chat.png'}}"></image>
+      <text class="nav-hist-txt">历史</text>
+    </view>
+    <!-- v1.1 新开对话（明确入口）：归档当前会话 → 重新 welcome -->
+    <view class="nav-right nav-new" hover-class="navrow-hover" hover-stay-time="0" bindtap="startNewChat">
+      <text class="nav-new-txt">新开</text>
     </view>
   </view>
 
-  <!-- 人格模式切换 -->
-  <view class="personality-bar">
-    <view class="personality-chip {{personality === 'sassy' ? 'active' : ''}}" data-mode="sassy" bindtap="onPersonalityTap">
-      <text>毒舌</text>
+  <view class="chat-head" bindlongpress="clearChat">八月初六 · 夜</view>
+
+  <!-- 对话建档提示条：AI 回复含建档 key → 顶部提示（点按确认/取消，可关闭） -->
+  <view wx:if="{{saveBanner}}" class="dlg-banner" hover-class="dlg-banner-active" hover-stay-time="0" bindtap="onSaveBannerTap">
+    <view class="seal db-seal"><text class="seal-char">对</text></view>
+    <view class="db-mid">
+      <view class="db-title">对话中识别到出生信息</view>
+      <view class="db-sub"><text class="db-sub-strong">已保存到档案</text><text> · 点击确认</text></view>
     </view>
-    <view class="personality-chip {{personality === 'analyst' ? 'active' : ''}}" data-mode="analyst" bindtap="onPersonalityTap">
-      <text>分析</text>
-    </view>
-    <view class="personality-chip {{personality === 'gentle' ? 'active' : ''}}" data-mode="gentle" bindtap="onPersonalityTap">
-      <text>温柔</text>
-    </view>
+    <view class="db-x" catchtap="dismissSaveBanner">✕</view>
   </view>
 
-  <!-- 场景选择面板 -->
-  <view class="scenario-panel" wx:if="{{showScenarios}}">
-    <view
-      class="scenario-item stagger-{{index}} {{selectedScenario === item.id ? 'active' : ''}}"
-      wx:for="{{scenarios}}"
-      wx:key="id"
-      data-id="{{item.id}}"
-      data-label="{{item.label}}"
-      bindtap="selectScenario"
-    >
-      <text class="scenario-icon">{{item.icon}}</text>
-      <text class="scenario-label">{{item.label}}</text>
-      <text class="scenario-check" wx:if="{{selectedScenario === item.id}}">√</text>
-    </view>
-  </view>
-
-  <!-- 免责声明横幅 -->
-  <template is="disclaimer-banner" />
-
-  <skeleton loading="{{skeletonLoading}}" type="text" lines="{{[80, 60, 90, 50, 75]}}">
-    <!-- 消息列表 -->
-    <scroll-view
-      class="message-list"
-      scroll-y="{{true}}"
-      scroll-with-animation="{{true}}"
-      scroll-into-view="{{scrollToView}}"
-      upper-threshold="50"
-    >
-      <view class="message-container">
-        <!-- 空状态 -->
-        <empty-state
-          wx:if="{{messages.length === 0 && !isTyping}}"
-          type="empty"
-          subtype="chat"
-          showAction="{{false}}"
-        />
-
-        <!-- 消息气泡 -->
-        <view
-          class="message-wrapper {{msg.role === 'user' ? 'user' : 'assistant'}}"
-          wx:for="{{messages}}"
-          wx:key="id"
-          wx:for-item="msg"
-        >
-          <!-- 场景切换提示 -->
-          <view class="scenario-hint" wx:if="{{msg.type === 'scenario_hint'}}">
-            <text class="scenario-hint-text">{{msg.content}}</text>
-          </view>
-
-          <!-- 普通消息 -->
-          <view wx:else class="message-bubble {{msg.role}} {{msg.type === 'structured' ? 'structured' : ''}}">
-            <view class="bubble-avatar">
-              <text wx:if="{{msg.role === 'assistant'}}">命</text>
-              <text wx:else>我</text>
+  <scroll-view scroll-y class="msg-list" scroll-into-view="{{scrollInto}}" scroll-with-animation>
+    <view class="msg-inner">
+      <block wx:for="{{messages}}" wx:key="id">
+        <view wx:if="{{item.role === 'ai'}}" class="jianzhu {{selectMsgId === item.id ? 'select-mode' : ''}}"
+          bindlongpress="onBubbleLongPress" data-id="{{item.id}}" data-role="ai">
+          <view class="jz-tag">{{item.tag}}</view>
+          <!-- v8 阶段 3：思考路径（模式二·元宝式小字，逐步点亮，可折叠） -->
+          <view wx:if="{{item.thinking && item.thinking.length}}" class="think-path {{item.thinkCollapsed ? 'fold' : ''}}" data-id="{{item.id}}" bindtap="toggleThink">
+            <view class="think-row">
+              <text class="think-label">{{item.thinkCollapsed ? '已想通 · 点开' : '我在想…'}}</text>
+              <text class="think-fold">{{item.thinkCollapsed ? '＋' : '－'}}</text>
             </view>
-            <view class="bubble-content">
-              <view class="bubble-text">
-                <rich-text nodes="{{msg.richNodes || msg.content}}"></rich-text>
+            <block wx:if="{{!item.thinkCollapsed}}">
+              <view class="think-item" wx:for="{{item.thinking}}" wx:key="index">
+                <text class="think-mark {{item.state === 'done' ? 'ok' : ''}}">{{item.state === 'done' ? '✓' : '●'}}</text>
+                <text class="think-text">{{item.text}}</text>
               </view>
-
-              <!-- 结构化报告（折叠） -->
-              <view class="structured-report" wx:if="{{msg.structured}}">
-                <view class="report-collapse" bindtap="toggleReport">
-                  <text class="report-collapse-title">查看完整分析</text>
+            </block>
+          </view>
+          <!-- v1.2 正文：Markdown 节点树渲染（md-block 模板逐节点 view/text，墨韵样式）；
+               引用 [n]/🔗 由 utils/md.js 解析为 cite 节点（代码内不解析）；流式增量重解析。
+               v1.2 图片消息预留：msg.image → 圆角墨框图片 -->
+          <view class="jz-body">
+            <image wx:if="{{item.image && item.image.url}}" class="msg-img"
+              src="{{item.image.url}}" mode="widthFix"
+              style="{{item.image.width ? 'max-width:' + item.image.width + 'rpx;' : ''}}"></image>
+            <template is="md-block" data="{{nodes: item.mdNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
+            <text wx:if="{{item.streaming && item.content}}" class="jz-cursor"></text>
+          </view>
+          <!-- v1.2 建议卡片（回复完成后显示，白卡 + 朱砂描边，点击直接发送追问） -->
+          <view wx:if="{{item.suggestions && item.suggestions.length && !item.streaming}}" class="sug-card">
+            <view class="sug-head"><text class="sug-title">还想问</text></view>
+            <view class="sug-item" hover-class="sug-item-active" hover-stay-time="0"
+              wx:for="{{item.suggestions}}" wx:for-item="sug" wx:key="index"
+              data-text="{{sug}}" bindtap="sendSuggestion">
+              <text class="sug-txt">{{sug}}</text>
+              <text class="sug-arrow">问</text>
+            </view>
+          </view>
+          <!-- v1.2 表情反应：气泡角小 emoji 列表（点已加的 → 移除） -->
+          <view wx:if="{{item.reactions && item.reactions.length}}" class="reaction-row">
+            <view class="reaction-chip" hover-class="reaction-chip-active" hover-stay-time="0"
+              wx:for="{{item.reactions}}" wx:for-item="em" wx:key="index"
+              data-id="{{item.id}}" data-em="{{em}}" bindtap="removeReaction">{{em}}</view>
+          </view>
+          <!-- v8 阶段 3：失败重试（保留输入与已输出） -->
+          <view wx:if="{{item.error}}" class="jz-retry" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" data-text="{{item.retryText}}" bindtap="retryStream">
+            <text class="jz-retry-icon">↻</text><text class="jz-retry-label">重试</text>
+          </view>
+          <view class="jz-foot">
+            <view class="jz-timewrap">
+              <text class="jz-time">明灯 · {{item.time}}</text>
+              <view class="jz-speak {{speakingId === item.id ? 'on' : ''}}" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" bindtap="speakMessage">
+                <view wx:if="{{speakingId === item.id}}" class="spk-bars">
+                  <view class="spk-bar"></view>
+                  <view class="spk-bar"></view>
+                  <view class="spk-bar"></view>
                 </view>
+                <image wx:else src="{{dark ? '/assets/images/ic-speak-dark.png' : '/assets/images/ic-speak.png'}}"></image>
               </view>
-
-              <view class="bubble-time">
-                <text>{{msg.time}}</text>
-                <text class="bubble-copy" data-content="{{msg.content}}" bindtap="copyMessage">复制</text>
+            </view>
+            <view class="jz-fb">
+              <view class="jz-fb-btn {{fb[item.id + '-up'] ? 'on' : ''}}" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" data-k="up" bindtap="toggleFb">
+                <image src="{{fb[item.id + '-up'] ? '/assets/images/ic-up-on.png' : (dark ? '/assets/images/ic-up-dark.png' : '/assets/images/ic-up.png')}}"></image>
+              </view>
+              <view class="jz-fb-btn {{fb[item.id + '-down'] ? 'on' : ''}}" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" data-k="down" bindtap="toggleFb">
+                <image src="{{fb[item.id + '-down'] ? '/assets/images/ic-down-on.png' : (dark ? '/assets/images/ic-down-dark.png' : '/assets/images/ic-down.png')}}"></image>
+              </view>
+              <view class="jz-fb-btn keep {{item.kept ? 'on' : ''}}" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" data-k="keep" bindtap="toggleFb">
+                <image src="{{item.kept ? '/assets/images/ic-keep-on.png' : (dark ? '/assets/images/ic-keep-dark.png' : '/assets/images/ic-keep.png')}}"></image>
+              </view>
+              <!-- v1.2 表情反应快捷 ＋（气泡尾部） -->
+              <view class="jz-fb-btn react-add" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" bindtap="openEmojiSheet">
+                <text class="react-add-txt">＋</text>
               </view>
             </view>
           </view>
         </view>
-
-        <!-- 打字中指示器 -->
-        <view class="message-wrapper assistant" wx:if="{{isTyping}}">
-          <view class="typing-indicator">
-            <view class="typing-avatar">命</view>
-            <view class="typing-bubble">
-              <text class="typing-text">分析中{{typingDots}}</text>
-            </view>
+        <!-- v1.1 排队消息立即上屏：pending 灰态 + 「排队中」小标 -->
+        <view wx:else class="user-note {{item.pending ? 'pending' : ''}} {{selectMsgId === item.id ? 'select-mode' : ''}}"
+          bindlongpress="onBubbleLongPress" data-id="{{item.id}}" data-role="user">
+          <!-- v1.2 图片消息预留：msg.image → 圆角墨框图片 -->
+          <image wx:if="{{item.image && item.image.url}}" class="msg-img"
+            src="{{item.image.url}}" mode="widthFix"
+            style="{{item.image.width ? 'max-width:' + item.image.width + 'rpx;' : ''}}"></image>
+          <text selectable="{{selectMsgId === item.id}}">{{item.content}}</text>
+          <view class="u-meta">
+            <text class="u-time">我 · {{item.time}}</text>
+            <text wx:if="{{item.pending}}" class="u-badge">排队中</text>
           </view>
         </view>
-
-        <!-- 滚动锚点 -->
-        <view id="scroll-bottom"></view>
+      </block>
+      <view wx:if="{{typing}}" class="typing">
+        <view class="inkdot"></view>
+        <view class="inkdot"></view>
+        <view class="inkdot"></view>
+        <text class="tlabel">研墨中 · 约三息</text>
       </view>
+      <view id="btm" class="msg-anchor"></view>
+    </view>
+  </scroll-view>
+
+  <view class="chat-inputbar">
+    <view class="chip-row">
+      <view class="quickchip" hover-class="quickchip-active" hover-stay-time="0" data-text="解梦" bindtap="quickAsk">解梦</view>
+      <view class="quickchip" hover-class="quickchip-active" hover-stay-time="0" data-text="今日运势" bindtap="quickAsk">今日运势</view>
+      <view class="quickchip" hover-class="quickchip-active" hover-stay-time="0" data-text="看看本周" bindtap="quickAsk">看看本周</view>
+    </view>
+    <!-- v1.1 语音/键盘模式切换（元宝式）：
+         文字模式 = 左侧语音图标（点一下切按住说话）+ 输入框 + 发送/停止
+         语音模式 = 按住说话条（复用录音逻辑）+ 右侧键盘图标（点一下切回文字） -->
+    <view class="input-row">
+      <block wx:if="{{inputMode === 'voice'}}">
+        <view wx:if="{{!isRecording && !converting}}" class="voice-hold" hover-class="voice-hold-active" hover-stay-time="0"
+          bindtouchstart="micTouchStart" bindtouchmove="micTouchMove" bindtouchend="micTouchEnd" bindtouchcancel="micTouchCancel">
+          <image class="vh-mic" src="{{dark ? '/assets/images/ic-mic-dark.png' : '/assets/images/ic-mic.png'}}"></image>
+          <text class="vh-txt">按住 说话</text>
+        </view>
+        <view wx:elif="{{isRecording}}" class="rec-bar {{recCanceling ? 'cancel' : ''}}"
+          bindtouchmove="micTouchMove" bindtouchend="micTouchEnd" bindtouchcancel="micTouchCancel">
+          <view class="rec-row">
+            <view class="rec-stop" hover-class="rec-stop-active" hover-stay-time="0" catchtap="recStopTap"><view class="rec-stop-in"></view></view>
+            <view class="rec-wave">
+              <view wx:for="{{waveBars}}" wx:key="i" class="rec-col"
+                style="height:{{item.h}}rpx;animation-duration:{{item.d}}s;animation-delay:{{item.l}}s"></view>
+            </view>
+            <text class="rec-time">{{recSeconds < 10 ? '0' : ''}}{{recSeconds}}</text>
+          </view>
+          <view class="rec-hint">{{recCanceling ? '松开 取消' : '松开 发送 · 上滑 取消'}}</view>
+        </view>
+        <view wx:else class="convert-bar">
+          <view class="inkdot"></view>
+          <view class="inkdot"></view>
+          <view class="inkdot"></view>
+          <text class="convert-label">语音转文字中…</text>
+        </view>
+        <view class="kb-btn" hover-class="kb-btn-active" hover-stay-time="0" data-mode="text" bindtap="switchInputMode">
+          <image src="{{dark ? '/assets/images/ic-keyboard-dark.png' : '/assets/images/ic-keyboard.png'}}"></image>
+        </view>
+      </block>
+      <block wx:else>
+        <view class="mic-btn mode-mic" hover-class="mic-btn-active" hover-stay-time="0" data-mode="voice" bindtap="switchInputMode">
+          <image src="{{dark ? '/assets/images/ic-mic-dark.png' : '/assets/images/ic-mic.png'}}"></image>
+        </view>
+        <input class="chat-input {{inputFocused ? 'input-focused' : ''}}" placeholder="写下一句心事…"
+          placeholder-class="input-ph" value="{{inputText}}" bindinput="onInput"
+          bindfocus="onFocus" bindblur="onBlur" bindconfirm="onConfirm" confirm-type="send" />
+        <!-- v8 阶段 3：生成中无输入 → 停止钮；正在打字 → 发送钮（点按=排队，豆包式） -->
+        <view wx:if="{{streaming && !inputText}}" class="stop-btn" hover-class="stop-btn-active" hover-stay-time="0" bindtap="stopStream">
+          <view class="stop-square"></view>
+        </view>
+        <view wx:else class="send-btn" hover-class="send-btn-active" hover-stay-time="0" bindtap="sendMessage">
+          <image src="/assets/images/ic-send.png"></image>
+        </view>
+      </block>
+    </view>
+  </view>
+
+  <view class="tabbar">
+    <view class="tab-item" bindtap="onTab" data-tab="today">
+      <image class="tab-ic" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+      <text class="tab-label">今日</text>
+    </view>
+    <view class="tab-item on" bindtap="onTab" data-tab="chat">
+      <image class="tab-ic" src="/assets/images/ic-chat-on.png"></image>
+      <text class="tab-label">聊天</text>
+      <view class="dot"></view>
+    </view>
+    <view class="tab-item" bindtap="onTab" data-tab="book">
+      <image class="tab-ic" src="{{dark ? '/assets/images/ic-book-dark.png' : '/assets/images/ic-book.png'}}"></image>
+      <text class="tab-label">命书</text>
+    </view>
+    <view class="tab-item" bindtap="onTab" data-tab="me">
+      <image class="tab-ic" src="{{dark ? '/assets/images/ic-seal-dark.png' : '/assets/images/ic-seal.png'}}"></image>
+      <text class="tab-label">我的</text>
+    </view>
+  </view>
+
+  <!-- 阶段 5·引用抽屉（元宝式）：半屏 ↔ 全屏，分类列表 → 详情页 -->
+  <view wx:if="{{citeDrawer.show}}" class="cite-mask" bindtap="closeCiteDrawer" catchtouchmove="noop"></view>
+  <view wx:if="{{citeDrawer.show}}" class="cite-drawer {{citeDrawer.full ? 'full' : ''}}" catchtouchmove="noop">
+    <view class="cd-handle" bindtouchstart="cdTouchStart" bindtouchmove="cdTouchMove" bindtouchend="cdTouchEnd" bindtap="toggleCiteFull">
+      <view class="cd-handle-bar"></view>
+    </view>
+    <view class="cd-head">
+      <text class="cd-title">参考资料</text>
+      <text class="cd-full" hover-class="cd-full-active" hover-stay-time="0" bindtap="toggleCiteFull">{{citeDrawer.full ? '收起' : '上滑全屏'}}</text>
+    </view>
+    <scroll-view scroll-y class="cd-list">
+      <view class="cd-item" hover-class="cd-item-active" hover-stay-time="0" wx:for="{{citeDrawer.items}}" wx:key="index" data-i="{{index}}" bindtap="onCiteItemTap">
+        <view class="cd-row">
+          <text class="cd-type {{item.type}}">{{citeTypeLabel(item.type)}}</text>
+          <text class="cd-it-title">{{item.title}}</text>
+        </view>
+        <view class="cd-it-sum">{{item.text}}</view>
+      </view>
+      <view wx:if="{{!citeDrawer.items.length}}" class="cd-empty">本条回复暂无参考资料</view>
     </scroll-view>
+  </view>
 
-    <!-- 输入区域 -->
-    <view class="input-bar">
-      <!-- 语音录制中状态 -->
-      <view class="recording-bar" wx:if="{{isRecording}}">
-        <view class="recording-wave">
-          <view class="wave-bar" wx:for="{{[1,2,3,4,5]}}" wx:key="*this" style="animation-delay: {{item * 0.1}}s;"></view>
-        </view>
-        <text class="recording-hint">正在聆听... 松开发送</text>
+  <!-- v1.1 气泡长按操作菜单（墨韵弹层）：AI 完整项 / 用户简项（复制·选取·删除） -->
+  <view wx:if="{{actionMenu.show}}" class="act-mask" bindtap="closeActionMenu" catchtouchmove="noop"></view>
+  <view wx:if="{{actionMenu.show}}" class="act-sheet" catchtouchmove="noop">
+    <view class="act-head">
+      <text class="act-title">{{actionMenu.role === 'ai' ? '明灯 · 此笺' : '我的 · 此笺'}}</text>
+    </view>
+    <view class="act-grid">
+      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="up" bindtap="actFeedback">
+        <image class="act-ic" src="{{fb[actionMenu.msgId + '-up'] ? '/assets/images/ic-up-on.png' : (dark ? '/assets/images/ic-up-dark.png' : '/assets/images/ic-up.png')}}"></image>
+        <text class="act-label">点赞</text>
       </view>
-      <view class="input-wrapper">
-        <view class="input-btn" bindtouchstart="startRecord" bindtouchend="stopRecord">
-          <text class="input-btn-icon">{{isRecording ? '🔴' : '🎤'}}</text>
-        </view>
-        <input
-          class="text-input"
-          type="text"
-          placeholder="输入你想问的..."
-          value="{{inputText}}"
-          bindinput="onInput"
-          bindconfirm="sendMessage"
-          confirm-type="send"
-          disabled="{{sending}}"
-        />
-        <view class="input-btn" bindtap="chooseImage">
-          <text class="input-btn-icon">📷</text>
-        </view>
-        <view class="send-btn {{inputText.trim() ? 'active' : ''}}" bindtap="sendMessage">
-          <text>发送</text>
-        </view>
+      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="down" bindtap="actFeedback">
+        <image class="act-ic" src="{{fb[actionMenu.msgId + '-down'] ? '/assets/images/ic-down-on.png' : (dark ? '/assets/images/ic-down-dark.png' : '/assets/images/ic-down.png')}}"></image>
+        <text class="act-label">点踩</text>
+      </view>
+      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="keep" bindtap="actFeedback">
+        <image class="act-ic" src="{{actionMenu.kept ? '/assets/images/ic-keep-on.png' : (dark ? '/assets/images/ic-keep-dark.png' : '/assets/images/ic-keep.png')}}"></image>
+        <text class="act-label">收藏</text>
+      </view>
+      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="emoji" bindtap="actItem">
+        <text class="act-glyph">😊</text>
+        <text class="act-label">表情反应</text>
+      </view>
+      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="copy" bindtap="actItem">
+        <image class="act-ic" src="{{dark ? '/assets/images/ic-copy-dark.png' : '/assets/images/ic-copy.png'}}"></image>
+        <text class="act-label">复制</text>
+      </view>
+      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="select" bindtap="actItem">
+        <text class="act-glyph">文</text>
+        <text class="act-label">选取文字</text>
+      </view>
+      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="speak" bindtap="actItem">
+        <image class="act-ic" src="{{dark ? '/assets/images/ic-speak-dark.png' : '/assets/images/ic-speak.png'}}"></image>
+        <text class="act-label">朗读</text>
+      </view>
+      <button wx:if="{{actionMenu.role === 'ai'}}" class="act-item act-share" open-type="share" bindtap="closeActionMenu">
+        <image class="act-ic" src="{{dark ? '/assets/images/ic-share-dark.png' : '/assets/images/ic-share.png'}}"></image>
+        <text class="act-label">分享</text>
+      </button>
+      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="feedback" bindtap="actItem">
+        <text class="act-glyph">议</text>
+        <text class="act-label">意见反馈</text>
       </view>
     </view>
-  </skeleton>
+    <view class="act-del" hover-class="act-del-active" hover-stay-time="0" data-k="delete" bindtap="actItem">
+      <text class="act-del-txt">删除此条</text>
+    </view>
+    <view class="act-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeActionMenu">取消</view>
+  </view>
+
+  <!-- v1.1 意见反馈原因弹层 -->
+  <view wx:if="{{fbMenu.show}}" class="act-mask" bindtap="closeFbMenu" catchtouchmove="noop"></view>
+  <view wx:if="{{fbMenu.show}}" class="act-sheet" catchtouchmove="noop">
+    <view class="act-head">
+      <text class="act-title">意见反馈 · 此回复</text>
+      <text class="act-sub">明灯会认真读每一句意见</text>
+    </view>
+    <view class="act-grid fb-grid">
+      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-reason="不准确" bindtap="submitFeedbackReason">
+        <text class="act-glyph">误</text><text class="act-label">不准确</text>
+      </view>
+      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-reason="语气差" bindtap="submitFeedbackReason">
+        <text class="act-glyph">语</text><text class="act-label">语气差</text>
+      </view>
+      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-reason="内容不适" bindtap="submitFeedbackReason">
+        <text class="act-glyph">忌</text><text class="act-label">内容不适</text>
+      </view>
+      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-reason="其他" bindtap="submitFeedbackReason">
+        <text class="act-glyph">余</text><text class="act-label">其他</text>
+      </view>
+    </view>
+    <view class="act-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeFbMenu">取消</view>
+  </view>
+
+  <!-- v1.2 表情反应选择弹层（墨韵弹层：emoji 宫格，点一下加 / 再点移除） -->
+  <view wx:if="{{emojiSheet.show}}" class="act-mask" bindtap="closeEmojiSheet" catchtouchmove="noop"></view>
+  <view wx:if="{{emojiSheet.show}}" class="act-sheet" catchtouchmove="noop">
+    <view class="act-head">
+      <text class="act-title">表情反应</text>
+      <text class="act-sub">点一下加上，再点一下移除</text>
+    </view>
+    <view class="emoji-grid">
+      <view class="emoji-cell {{emojiSheet.curMap[item] ? 'on' : ''}}" hover-class="emoji-cell-active" hover-stay-time="0"
+        wx:for="{{EMOJIS}}" wx:key="index" data-em="{{item}}" bindtap="toggleReaction">{{item}}</view>
+    </view>
+    <view class="act-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeEmojiSheet">取消</view>
+  </view>
+
+  <!-- ═══ v1.2 Markdown 渲染模板（utils/md.js 节点树 → 逐节点 view/text，墨韵样式） ═══ -->
+  <!-- 行内节点：text / strong / em / code / link / cite（引用角标可点开抽屉） -->
+  <template name="md-inline">
+    <block wx:for="{{node.children}}" wx:for-item="it" wx:key="index">
+      <text wx:if="{{it.t === 'text'}}" selectable="{{sel}}" class="md-it">{{it.s}}</text>
+      <text wx:elif="{{it.t === 'strong'}}" selectable="{{sel}}" class="md-strong">
+        <template is="md-inline" data="{{node: it, msgId: msgId, sel: sel}}" />
+      </text>
+      <text wx:elif="{{it.t === 'em'}}" selectable="{{sel}}" class="md-em">
+        <template is="md-inline" data="{{node: it, msgId: msgId, sel: sel}}" />
+      </text>
+      <text wx:elif="{{it.t === 'code'}}" selectable="{{sel}}" class="md-icode">{{it.s}}</text>
+      <text wx:elif="{{it.t === 'link'}}" selectable="{{sel}}" class="md-link">
+        <template is="md-inline" data="{{node: it, msgId: msgId, sel: sel}}" />
+      </text>
+      <text wx:elif="{{it.t === 'cite'}}" class="cite-chip" data-msgid="{{msgId}}" data-idx="{{it.idx}}" bindtap="onCiteTap">{{it.idx > 0 ? '[' + it.idx + ']' : '🔗'}}</text>
+    </block>
+  </template>
+  <!-- 块级节点：p / h / quote（递归） / ul·ol / code（深墨底可复制） / table（细线网格） -->
+  <template name="md-block">
+    <block wx:for="{{nodes}}" wx:for-item="blk" wx:key="index">
+      <view wx:if="{{blk.t === 'p'}}" class="md-p">
+        <template is="md-inline" data="{{node: blk, msgId: msgId, sel: sel}}" />
+      </view>
+      <view wx:elif="{{blk.t === 'h'}}" class="md-h md-h{{blk.level}}">
+        <template is="md-inline" data="{{node: blk, msgId: msgId, sel: sel}}" />
+      </view>
+      <view wx:elif="{{blk.t === 'quote'}}" class="md-quote">
+        <template is="md-block" data="{{nodes: blk.children, msgId: msgId, sel: sel}}" />
+      </view>
+      <view wx:elif="{{blk.t === 'ul' || blk.t === 'ol'}}" class="md-list md-list-{{blk.t}}">
+        <view wx:for="{{blk.items}}" wx:for-item="li" wx:key="index" class="md-li">
+          <text class="md-li-mark">{{blk.t === 'ol' ? li.n + '.' : '·'}}</text>
+          <view class="md-li-body">
+            <template is="md-inline" data="{{node: li, msgId: msgId, sel: sel}}" />
+          </view>
+        </view>
+      </view>
+      <view wx:elif="{{blk.t === 'code'}}" class="md-codeblock">
+        <view class="md-code-head">
+          <text class="md-code-lang">{{blk.lang || 'code'}}</text>
+          <text class="md-code-copy" hover-class="md-code-copy-active" hover-stay-time="0" data-code="{{blk.s}}" catchtap="copyCode">复制</text>
+        </view>
+        <text class="md-code-body" selectable="{{sel}}">{{blk.s}}</text>
+      </view>
+      <view wx:elif="{{blk.t === 'table'}}" class="md-table-wrap">
+        <view class="md-table">
+          <view class="md-tr md-th">
+            <text class="md-cell" wx:for="{{blk.headers}}" wx:for-item="cell" wx:key="index">
+              <template is="md-inline" data="{{node: cell, msgId: msgId, sel: sel}}" />
+            </text>
+          </view>
+          <view class="md-tr" wx:for="{{blk.rows}}" wx:for-item="row" wx:key="index">
+            <text class="md-cell" wx:for="{{row}}" wx:for-item="cell" wx:key="index">
+              <template is="md-inline" data="{{node: cell, msgId: msgId, sel: sel}}" />
+            </text>
+          </view>
+        </view>
+      </view>
+      <block wx:else>
+        <template is="md-inline" data="{{node: blk, msgId: msgId, sel: sel}}" />
+      </block>
+    </block>
+  </template>
 </view>

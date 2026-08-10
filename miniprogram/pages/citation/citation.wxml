@@ -1,0 +1,27 @@
+<view class="cite-page">
+  <block wx:if="{{item}}">
+    <view class="cite-card">
+      <view class="cite-type {{item.type}}">
+        <text class="cite-type-icon">{{icon}}</text>
+        <text class="cite-type-label">{{typeLabel}}</text>
+      </view>
+      <view class="cite-title">{{item.title}}</view>
+      <view class="cite-src" wx:if="{{item.source}}">出处 · {{item.source}}</view>
+    </view>
+
+    <view class="cite-body">
+      <view class="cite-sec-title">原文</view>
+      <view class="cite-text">{{item.text}}</view>
+    </view>
+
+    <view class="cite-web" wx:if="{{item.url}}">
+      <view class="cite-sec-title">来源链接</view>
+      <view class="cite-url" bindtap="copyUrl">{{item.url}}</view>
+      <view class="cite-copy" hover-class="cite-copy-active" hover-stay-time="0" bindtap="copyUrl">复制链接</view>
+    </view>
+
+    <view class="cite-foot">仅供参考 · 命理之说，信则有，不信则无</view>
+  </block>
+
+  <view wx:else class="cite-missing">资料已过期，请回到对话重新打开</view>
+</view>

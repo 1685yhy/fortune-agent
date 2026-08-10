@@ -1,0 +1,384 @@
+/* ═══ 对话历史 — 归档夜话（原型 dir_p · 贰：搜索 / 按日分组 / 预览 / 删除动画） ═══ */
+
+.navrow .nav-right { right: 190rpx; }   /* 与 me 页一致：避让微信胶囊 */
+.nav-t-icon { width: 27rpx; height: 27rpx; }  /* 标题旁小图标（原型 14px） */
+
+.list-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));   /* 95px */
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 19rpx 38rpx 46rpx;           /* 10px 20px 24px */
+  overflow-x: hidden;
+}
+
+/* ── 搜索框（墨韵：纸白底 + 淡墨线 + 朱砂聚焦） ── */
+.search-bar { position: relative; margin-bottom: 27rpx; }  /* 14px */
+.s-icon {
+  position: absolute;
+  left: 27rpx; top: 50%;
+  width: 25rpx; height: 25rpx;
+  transform: translateY(-50%);
+  border: 3rpx solid var(--ink-faint);
+  border-radius: 50%;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.s-icon::after {
+  content: '';
+  position: absolute;
+  right: -9rpx; bottom: -5rpx;
+  width: 13rpx; height: 3rpx;
+  background: var(--ink-faint);
+  border-radius: 2rpx;
+  transform: rotate(45deg);
+}
+.search-input {
+  width: 100%;
+  height: 81rpx;                        /* 42px */
+  padding: 0 77rpx;                     /* 40px */
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-input);
+  border-radius: 15rpx;                 /* 8px */
+  font-family: var(--font-song);
+  font-size: 27rpx;                     /* 14px */
+  letter-spacing: .04em;
+  color: var(--ink);
+}
+.search-ph { color: var(--ink-faint); letter-spacing: .14em; }
+.search-input:focus { border-color: var(--acc); box-shadow: 0 0 0 6rpx var(--acc-soft); }
+.s-clear {
+  position: absolute;
+  right: 19rpx; top: 50%;
+  width: 54rpx; height: 54rpx;
+  transform: translateY(-50%);
+  border-radius: 50%;
+  background: var(--paper-deep);
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.s-clear-x { font-size: 22rpx; line-height: 1; }
+
+/* ── 日期分组（今天/昨天/更早） ── */
+.date-group { margin-top: 31rpx; }      /* 16px */
+.date-label {
+  font-family: var(--font-song);
+  font-size: 20rpx;                     /* 10.5px */
+  letter-spacing: .3em;
+  color: var(--ink-faint);
+  display: flex;
+  align-items: center;
+  gap: 17rpx;                           /* 9px */
+  margin-bottom: 17rpx;                 /* 9px */
+}
+.dl-dot { width: 10rpx; height: 10rpx; transform: rotate(45deg); background: var(--gold); }  /* 5px */
+.dl-count { font-size: 18rpx; letter-spacing: .14em; opacity: .75; }
+
+/* ── 会话行（宣纸笺 + 朱砂印 + 摘要两行截断） ── */
+.sess-row {
+  position: relative;
+  overflow: hidden;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;                 /* 5px */
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+  margin-bottom: 19rpx;                 /* 10px */
+}
+.sess-row-active { border-color: var(--acc-line); background: var(--acc-soft); }
+.sess-row.removing {
+  animation: rowOut .32s cubic-bezier(.5,0,.8,.4) both;
+}
+@keyframes rowOut {
+  0% { opacity: 1; max-height: 230rpx; transform: translateX(0); }
+  100% { opacity: 0; max-height: 0; transform: translateX(88rpx); margin: 0; border-width: 0; }
+}
+.sess-in { padding: 27rpx 31rpx; display: flex; align-items: flex-start; gap: 23rpx; }
+.sess-seal { margin-top: 4rpx; flex-shrink: 0; }
+.seal-34 { width: 65rpx; height: 65rpx; font-size: 36rpx; transform: rotate(-2deg); }  /* 34px */
+.sess-mid { flex: 1; min-width: 0; }
+.sess-sum {
+  font-family: var(--font-song);
+  font-size: 28rpx;                     /* 14.5px */
+  letter-spacing: .03em;
+  color: var(--ink);
+  line-height: 1.75;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.sess-sum .sq { color: var(--acc); font-size: 23rpx; letter-spacing: .1em; margin-right: 12rpx; }
+.sess-meta {
+  margin-top: 13rpx;                    /* 7px */
+  display: flex;
+  align-items: center;
+  gap: 15rpx;                           /* 8px */
+  font-family: var(--font-song);
+  font-size: 19rpx;                     /* 10px */
+  letter-spacing: .14em;
+  color: var(--ink-faint);
+}
+.sess-meta .sm-dot { width: 6rpx; height: 6rpx; border-radius: 50%; background: var(--ink-faint); opacity: .6; }
+.sess-del {
+  flex-shrink: 0;
+  width: 58rpx; height: 58rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12rpx;
+}
+.sess-del-ic { width: 30rpx; height: 30rpx; opacity: .8; }
+.hist-note {
+  text-align: center;
+  margin-top: 44rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .24em;
+  color: var(--ink-faint);
+}
+
+/* ── 空态（朱砂印 + 两句文案，原型如纸） ── */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 127rpx 92rpx 0;              /* 66px 48px */
+  text-align: center;
+}
+.e-seal {
+  width: 77rpx; height: 77rpx;
+  font-size: 42rpx;
+  transform: rotate(-2deg);
+}
+.e-title {
+  margin-top: 39rpx;                    /* 20px */
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 31rpx;                     /* 16px */
+  letter-spacing: .24em;
+  color: var(--ink);
+}
+.e-sub {
+  margin-top: 19rpx;                    /* 10px */
+  font-family: var(--font-song);
+  font-size: 22rpx;                     /* 11.5px */
+  letter-spacing: .16em;
+  line-height: 2.1;
+  color: var(--ink-soft);
+}
+
+/* ═══ 会话预览（原型 preview 屏） ═══ */
+
+.preview-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));   /* 95px */
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 8rpx 35rpx 58rpx;            /* 4px 18px 30px */
+  overflow-x: hidden;
+}
+.pv-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 23rpx;                           /* 12px */
+  font-family: var(--font-song);
+  font-size: 19rpx;                     /* 10px */
+  letter-spacing: .3em;
+  color: var(--ink-faint);
+  margin: 23rpx 0 31rpx;                /* 12px 16px */
+}
+.pv-head::before, .pv-head::after {
+  content: '';
+  width: 58rpx;                         /* 30px */
+  height: 2rpx;
+  background: var(--line);
+}
+.pv-msgs { display: flex; flex-direction: column; gap: 35rpx; }  /* 18px */
+
+/* 明灯笺注卡（与聊天页同源：左朱砂细条 + 楷体正文） */
+.jianzhu {
+  position: relative;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;
+  padding: 25rpx 29rpx 21rpx;
+  box-shadow: 0 4rpx 15rpx var(--shadow-sm);
+}
+.jianzhu::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 27rpx; bottom: 27rpx;
+  width: 4rpx;
+  background: var(--acc-soft);
+  border-radius: 2rpx;
+}
+.jianzhu .jz-tag {
+  display: inline-flex;
+  margin-bottom: 15rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .16em;
+  color: var(--ink-soft);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 4rpx;
+  padding: 4rpx 13rpx;
+  background: var(--tag-bg);
+}
+.jianzhu .jz-body {
+  font-family: var(--poem);
+  font-size: 29rpx;                     /* 15px */
+  line-height: 1.95;
+  letter-spacing: .03em;
+  color: var(--ink-mid);
+}
+.jianzhu .jz-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 17rpx;                    /* 9px */
+}
+.jianzhu .jz-time {
+  font-family: var(--font-lat);
+  font-style: italic;
+  font-size: 19rpx;                     /* 10px */
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+}
+.jianzhu .jz-keep { width: 25rpx; height: 25rpx; opacity: .55; }
+
+/* 用户笺（我 · 深宣纸底） */
+.user-note {
+  align-self: flex-end;
+  max-width: 505rpx;                    /* 262px */
+  background: var(--paper-deep);
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;
+  padding: 19rpx 27rpx;
+  font-family: var(--font-song);
+  font-size: 29rpx;                     /* 15px */
+  line-height: 1.8;
+  letter-spacing: .03em;
+  color: var(--ink);
+}
+.user-note .u-time {
+  display: block;
+  text-align: right;
+  margin-top: 10rpx;                    /* 5px */
+  font-family: var(--font-lat);
+  font-style: italic;
+  font-size: 18rpx;                     /* 9.5px */
+  color: var(--ink-faint);
+}
+
+.pv-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;                            /* 4px */
+  margin: 27rpx 0 8rpx;                 /* 14px 4px */
+  font-family: var(--font-song);
+  font-size: 18rpx;                     /* 9.5px */
+  letter-spacing: .3em;
+  color: var(--ink-faint);
+}
+.pv-dots::before, .pv-dots::after {
+  content: '';
+  width: 50rpx;                         /* 26px */
+  height: 2rpx;
+  background: var(--line-soft);
+}
+
+/* ── 底部动作：继续这段夜话 / 删除链接 ── */
+.pv-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-top: 35rpx;                    /* 18px */
+  gap: 23rpx;                           /* 12px */
+}
+.btn {
+  height: 88rpx;                        /* 46px */
+  border-radius: 8rpx;                  /* 4px */
+  font-family: var(--font-song);
+  font-size: 28rpx;                     /* 14.5px */
+  letter-spacing: .22em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15rpx;                           /* 8px */
+  transition: transform .12s;
+}
+.btn-active { opacity: .82; transform: scale(.97); }
+.btn-ink { background: var(--ink); color: #F5EFE1; box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.2); }
+.btn-ghost { background: transparent; border: 2rpx solid var(--line); color: var(--ink-mid); }
+.btn-acc { background: var(--acc); color: #FBF6E8; box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 4rpx 12rpx rgba(120,40,30,.3); }
+.btn-wide { min-width: 446rpx; padding: 0 65rpx; }  /* 232px 34px */
+.btn-send-ic { width: 27rpx; height: 27rpx; }
+.pv-delete-link {
+  font-family: var(--font-song);
+  font-size: 21rpx;                     /* 11px */
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+  padding: 6rpx 20rpx;
+}
+
+/* ═══ 删除确认弹层（双线笺框 · 朱砂警示） ═══ */
+.modal-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(228, 218, 196, .66);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 65rpx;                     /* 34px */
+}
+.modal-card {
+  width: 100%;
+  max-width: 619rpx;                    /* 322px */
+  position: relative;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-strong);
+  border-radius: 8rpx;                  /* 4px */
+  box-shadow: 0 50rpx 115rpx rgba(40,28,14,.3);
+  padding: 46rpx 42rpx 38rpx;           /* 24px 22px 20px */
+}
+.modal-card::before {
+  content: '';
+  position: absolute;
+  inset: 8rpx;                          /* 4px */
+  border: 2rpx solid var(--line-soft);
+  border-radius: 4rpx;
+  pointer-events: none;
+}
+.modal-title {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 33rpx;                     /* 17px */
+  letter-spacing: .22em;
+  color: var(--ink);
+  text-align: center;
+}
+.modal-title.danger { color: var(--acc); }
+.modal-body {
+  margin-top: 23rpx;                    /* 12px */
+  font-family: var(--font-song);
+  font-size: 25rpx;                     /* 13px */
+  line-height: 2;
+  letter-spacing: .04em;
+  color: var(--ink-mid);
+  text-align: center;
+}
+.modal-body .mb-strong { color: var(--acc); font-weight: 600; }
+.modal-actions {
+  margin-top: 35rpx;                    /* 18px */
+  display: flex;
+  gap: 19rpx;                           /* 10px */
+}
+.modal-actions .btn { flex: 1; height: 85rpx; }  /* 44px */

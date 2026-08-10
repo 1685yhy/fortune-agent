@@ -1,0 +1,392 @@
+/* 新用户引导 — 墨韵版（原型 dir_funcs 陆，px×1.923→rpx；宣纸墨色朱砂） */
+button::after { border: none; }
+
+/* ── 右上角跳过 ── */
+.skip-btn {
+  position: absolute;
+  top: calc(105rpx + var(--nav-off));
+  right: 23rpx;
+  z-index: 40;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .24em;
+  color: var(--ink-soft);
+  padding: 15rpx 19rpx;
+  border-radius: 12rpx;
+}
+.skip-btn-active { color: var(--acc); background: var(--acc-soft); }
+
+/* ── 引导滚动区 ── */
+.guide-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 10rpx 46rpx 58rpx;
+  overflow-x: hidden;
+}
+
+/* ── 步骤指示 ── */
+.steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15rpx;
+  margin: 12rpx 0 42rpx;
+}
+.st {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .16em;
+  color: var(--ink-faint);
+}
+.st .st-no {
+  width: 35rpx;
+  height: 35rpx;
+  border-radius: 50%;
+  border: 2rpx solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18rpx;
+}
+.st.on { color: var(--ink); }
+.st.on .st-no { background: var(--acc); border-color: var(--acc); color: #FBF6E8; }
+.st.done .st-no { background: var(--ink); border-color: var(--ink); color: #F5EFE1; }
+.st-line { width: 42rpx; height: 2rpx; background: var(--line-soft); }
+
+/* ── 欢迎页 ── */
+.welcome-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 77rpx;
+}
+.lantern-box {
+  position: relative;
+  width: 210rpx;
+  height: 338rpx;
+  margin-bottom: 8rpx;
+}
+.lantern-body {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+}
+.lantern-glow {
+  position: absolute; left: 0; top: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+}
+.lantern-glow-delay { animation-delay: 1.2s; }
+.skipped-lantern { width: 176rpx; height: 284rpx; }
+
+.ww-brand {
+  font-family: var(--font-brush);
+  font-size: 58rpx;
+  letter-spacing: .3em;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+}
+.ww-em { font-style: normal; color: var(--acc); }
+.ww-line {
+  margin-top: 27rpx;
+  width: 288rpx;
+  height: 2rpx;
+  background: linear-gradient(90deg, transparent, var(--ink-faint), transparent);
+}
+.ww-poem {
+  margin-top: 31rpx;
+  font-family: var(--poem);
+  font-size: 31rpx;
+  letter-spacing: .16em;
+  line-height: 2.1;
+  color: var(--ink-mid);
+  text-align: center;
+}
+.ww-sub {
+  margin-top: 23rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .22em;
+  color: var(--ink-faint);
+  text-align: center;
+  line-height: 2;
+}
+.ww-line-t { display: block; }
+.ww-cta {
+  margin-top: 65rpx;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 27rpx;
+}
+
+/* ── 按钮（btn-ink 浓墨 / btn-acc 朱砂 / btn-ghost 线框） ── */
+.btn {
+  height: 88rpx;
+  border: none;
+  border-radius: 8rpx;
+  font-family: var(--font-song);
+  font-size: 28rpx;
+  letter-spacing: .22em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15rpx;
+  line-height: 1;
+}
+.btn:active { transform: scale(.97); }
+.btn-active { transform: scale(.97); }
+.btn[disabled] { opacity: .4; }
+.btn-ink { background: var(--ink); color: #F5EFE1; }
+.btn-acc { background: var(--acc); color: #FBF6E8; box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 4rpx 12rpx rgba(120,40,30,.3); }
+.btn-ghost { background: transparent; border: 2rpx solid var(--line); color: var(--ink-mid); }
+.btn-wide { width: 100%; }
+
+/* ── 步骤页标题 ── */
+.g-title {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 38rpx;
+  letter-spacing: .14em;
+  color: var(--ink);
+  text-align: center;
+}
+.g-sub {
+  margin-top: 19rpx;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .1em;
+  line-height: 2;
+  color: var(--ink-soft);
+  text-align: center;
+}
+
+/* ── 为何需要卡片 ── */
+.g-card {
+  position: relative;
+  margin-top: 38rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+  padding: 35rpx 35rpx 31rpx;
+}
+.g-card::before {
+  content: '';
+  position: absolute;
+  inset: 8rpx;
+  border: 2rpx solid rgba(58,44,30,.14);
+  border-radius: 4rpx;
+  pointer-events: none;
+}
+.why-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 23rpx;
+  padding: 21rpx 4rpx;
+}
+.why-row + .why-row { border-top: 2rpx dashed var(--line-soft); }
+.w-seal {
+  width: 50rpx;
+  height: 50rpx;
+  font-size: 31rpx;
+  margin-top: 2rpx;
+}
+.why-txt { flex: 1; min-width: 0; }
+.w-title {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 27rpx;
+  letter-spacing: .1em;
+  color: var(--ink);
+}
+.w-body {
+  margin-top: 8rpx;
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .06em;
+  line-height: 1.9;
+  color: var(--ink-soft);
+}
+
+/* ── 步骤页底部导航 ── */
+.g-nav {
+  margin-top: 50rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 23rpx;
+}
+.back-link {
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+  padding: 8rpx 19rpx;
+}
+.back-link-active { color: var(--acc); }
+
+/* ── 表单 ── */
+.form-block { margin-top: 15rpx; }
+.form-label {
+  display: flex;
+  align-items: center;
+  gap: 13rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .26em;
+  color: var(--ink-soft);
+  margin: 31rpx 4rpx 15rpx;
+}
+.form-label::after {
+  content: '';
+  flex: 1;
+  height: 2rpx;
+  background: var(--line-soft);
+}
+.req { color: var(--acc); }
+
+.input-ink {
+  width: 100%;
+  height: 81rpx;
+  padding: 0 27rpx;
+  background: var(--paper);
+  border: 2rpx solid rgba(58,44,30,.3);
+  border-radius: 8rpx;
+  font-family: var(--font-song);
+  font-size: 28rpx;
+  letter-spacing: .06em;
+  color: var(--ink);
+}
+.input-placeholder { color: var(--ink-faint); letter-spacing: .12em; font-size: 24rpx; }
+.input-row3 { display: flex; gap: 17rpx; }
+.input-row3 .input-ink { flex: 1; text-align: center; min-width: 0; }
+
+/* 分段选择（历法/性别） */
+.seg {
+  display: flex;
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;
+  overflow: hidden;
+  background: var(--paper-card);
+}
+.seg-btn {
+  flex: 1;
+  padding: 17rpx 0;
+  font-family: var(--font-song);
+  font-size: 24rpx;
+  letter-spacing: .12em;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.seg-btn.on { background: var(--ink); color: #F5EFE1; }
+
+/* 时辰 12 段：四列网格（同内容 1:1，点按更可靠） */
+.shichen-seg { flex-wrap: wrap; }
+.shichen-btn {
+  flex: none;
+  width: 25%;
+  padding: 13rpx 0;
+  font-size: 20rpx;
+  letter-spacing: .1em;
+  border-left: 2rpx solid var(--line-soft);
+  border-top: 2rpx solid var(--line-soft);
+  box-sizing: border-box;
+  margin: 0;
+}
+.shichen-seg .shichen-btn:nth-child(4n + 1) { border-left: none; }
+.shichen-seg .shichen-btn:nth-child(-n + 4) { border-top: none; }
+
+.form-hint {
+  margin-top: 19rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .14em;
+  line-height: 1.9;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+/* ── 完成页 / 跳过页 ── */
+.done-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 0 85rpx;
+  text-align: center;
+}
+.d-seal {
+  width: 104rpx;
+  height: 104rpx;
+  font-size: 64rpx;
+  transform: rotate(-2deg);
+}
+.d-title {
+  margin-top: 46rpx;
+  font-family: var(--font-brush);
+  font-weight: 400;
+  font-size: 54rpx;
+  letter-spacing: .2em;
+  color: var(--ink);
+}
+.skipped-title { margin-top: 35rpx; }
+.d-sub {
+  margin-top: 23rpx;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .1em;
+  line-height: 2;
+  color: var(--ink-soft);
+}
+.d-birth {
+  margin-top: 31rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15rpx;
+}
+.d-line {
+  margin-top: 38rpx;
+  width: 288rpx;
+  height: 2rpx;
+  background: linear-gradient(90deg, transparent, var(--ink-faint), transparent);
+}
+.d-poem {
+  margin-top: 31rpx;
+  font-family: var(--poem);
+  font-size: 29rpx;
+  letter-spacing: .14em;
+  color: var(--ink-mid);
+}
+.d-cta {
+  margin-top: 58rpx;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 25rpx;
+}
+.replay {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+  padding: 10rpx 19rpx;
+}
+.replay-active { color: var(--acc); }
+.replay-ic { width: 25rpx; height: 25rpx; }

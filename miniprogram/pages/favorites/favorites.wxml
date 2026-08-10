@@ -1,0 +1,33 @@
+<view class="screen" style="--nav-off:{{navOff}}px">
+  <view class="navrow">
+    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+      <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+    </view>
+    <view class="nav-title">
+      <text>我的收藏</text>
+    </view>
+    <view class="nav-right"></view>
+  </view>
+
+  <scroll-view scroll-y class="fav-scroll">
+    <view wx:if="{{loaded && !items.length}}" class="fav-empty">
+      <view class="fe-seal"><text class="fe-star">★</text></view>
+      <text class="fe-line1">还没有收藏</text>
+      <text class="fe-line2">点回复下的 ⭐ 收藏，好话存下来</text>
+    </view>
+
+    <view wx:else class="fav-list">
+      <view wx:for="{{items}}" wx:key="id" class="fav-card" hover-class="fav-card-active" hover-stay-time="0"
+        data-content="{{item.content}}" bindtap="onItemTap"
+        data-id="{{item.id}}" bindlongpress="onItemLongPress">
+        <view class="fc-tag">{{item.tag}}</view>
+        <view class="fc-body">{{item.content}}</view>
+        <view class="fc-foot">
+          <text class="fc-time">藏于 {{item.keptLabel}}</text>
+          <text class="fc-hint">点按复制 · 长按移除</text>
+        </view>
+      </view>
+      <view class="fav-note">收藏存于本机 · 换设备不随行</view>
+    </view>
+  </scroll-view>
+</view>

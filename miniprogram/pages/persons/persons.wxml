@@ -1,0 +1,149 @@
+<!-- 档案管理 — 多人命主（原型 dir_funcs 柒：卡片列表 / 添加编辑删除 / 默认星标 / 空态引导） -->
+<view class="screen" style="--nav-off:{{navOff}}px">
+
+  <!-- ═══ 列表 ═══ -->
+  <block wx:if="{{mode === 'list'}}">
+    <view class="navrow">
+      <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+      </view>
+      <view class="nav-title">
+        <image class="nav-lantern" src="/assets/images/ic-lantern-on.png"></image>
+        <text>档案</text>
+      </view>
+      <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0" bindtap="navHelp">
+        <image class="nav-right-icon" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+      </view>
+    </view>
+
+    <scroll-view scroll-y class="arc-scroll">
+      <view class="arc-desc">
+        <view class="ad-dot"></view>
+        <text>可以保存自己、家人、朋友的生辰信息 · 排盘时直接选用</text>
+      </view>
+
+      <!-- 命主卡片 -->
+      <block wx:if="{{persons.length}}">
+        <view wx:for="{{persons}}" wx:key="id"
+          class="prof-card {{removingId === item.id ? 'removing' : ''}}"
+          hover-class="prof-card-active" hover-stay-time="0"
+          data-id="{{item.id}}" bindtap="onOpenEdit">
+          <view wx:if="{{item.is_default}}" class="pc-def">默认</view>
+          <view class="prof-in">
+            <view class="prof-av">
+              <view class="seal prof-seal"><text class="seal-char">{{item.seal}}</text></view>
+              <view class="star-btn {{item.is_default ? 'on' : ''}}"
+                hover-class="star-btn-active" hover-stay-time="0"
+                data-id="{{item.id}}" catchtap="onStar">
+                <text class="star-char">★</text>
+              </view>
+            </view>
+            <view class="prof-mid">
+              <view class="prof-name">{{item.name}}<view wx:if="{{item.rel}}" class="inktag">{{item.rel}}</view></view>
+              <view class="prof-birth">{{item.birth}}</view>
+            </view>
+            <view class="prof-chev">
+              <image class="chev" src="{{dark ? '/assets/images/ic-chev-dark.png' : '/assets/images/ic-chev.png'}}"></image>
+            </view>
+          </view>
+        </view>
+      </block>
+
+      <!-- 空态：引导文案 + 去 onboarding -->
+      <view wx:else class="empty">
+        <view class="lantern-box">
+          <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
+          <image class="lantern-glow lantern-glow-delay" src="/assets/images/lantern-glow2.png"></image>
+          <image class="lantern-body" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
+        </view>
+        <view class="e-title">还没有命主档案</view>
+        <view class="e-sub">
+          <text class="e-line">先把第一份生辰记下</text>
+          <text class="e-line">自己、家人、朋友都可以</text>
+        </view>
+        <view class="e-poem">一灯照一人 · 一册藏众亲</view>
+        <button class="btn btn-ink btn-wide empty-btn" hover-class="btn-active" hover-stay-time="0" bindtap="goOnboarding">去建立档案</button>
+      </view>
+
+      <button class="add-btn" hover-class="add-btn-active" hover-stay-time="0" bindtap="onAdd">
+        <text class="add-plus">＋</text>添加命主
+      </button>
+    </scroll-view>
+  </block>
+
+  <!-- ═══ 表单（新增 / 编辑共用） ═══ -->
+  <block wx:else>
+    <view class="navrow">
+      <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="onCancel">
+        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+      </view>
+      <view class="nav-title">
+        <text>{{editing ? '编辑命主' : '添加命主'}}</text>
+      </view>
+      <view class="nav-right"><view class="nav-right-spacer"></view></view>
+    </view>
+
+    <scroll-view scroll-y class="form-scroll">
+      <view class="form-block">
+        <view class="form-label">姓名<text class="req">*</text></view>
+        <input class="input-ink" type="text" maxlength="8" placeholder="如：小晚"
+          placeholder-class="input-placeholder" value="{{dName}}" bindinput="onNameInput" />
+
+        <view class="form-label">关系</view>
+        <view class="seg">
+          <view wx:for="{{relations}}" wx:key="*this"
+            class="seg-btn {{dRel === item ? 'on' : ''}}"
+            data-rel="{{item}}" bindtap="onRelChange">{{item}}</view>
+        </view>
+
+        <view class="form-label">历法</view>
+        <view class="seg">
+          <view class="seg-btn {{dCal === 'solar' ? 'on' : ''}}" data-cal="solar" bindtap="onCalChange">公历</view>
+          <view class="seg-btn {{dCal === 'lunar' ? 'on' : ''}}" data-cal="lunar" bindtap="onCalChange">农历</view>
+        </view>
+
+        <view class="form-label">出生年月日<text class="req">*</text></view>
+        <view class="input-row3">
+          <input class="input-ink" type="number" maxlength="4" placeholder="年"
+            placeholder-class="input-placeholder" value="{{dYear}}" bindinput="onYearInput" />
+          <input class="input-ink" type="number" maxlength="2" placeholder="月"
+            placeholder-class="input-placeholder" value="{{dMonth}}" bindinput="onMonthInput" />
+          <input class="input-ink" type="number" maxlength="2" placeholder="日"
+            placeholder-class="input-placeholder" value="{{dDay}}" bindinput="onDayInput" />
+        </view>
+
+        <view class="form-label">出生时辰</view>
+        <view class="seg shichen-seg">
+          <view wx:for="{{hourLabels}}" wx:key="*this"
+            class="seg-btn shichen-btn {{dHourIndex === index ? 'on' : ''}}"
+            data-idx="{{index}}" bindtap="onHourChange">{{item}}</view>
+        </view>
+
+        <view class="form-label">性别</view>
+        <view class="seg">
+          <view class="seg-btn {{dGender === '男' ? 'on' : ''}}" data-g="男" bindtap="onGenderChange">男</view>
+          <view class="seg-btn {{dGender === '女' ? 'on' : ''}}" data-g="女" bindtap="onGenderChange">女</view>
+        </view>
+
+        <view class="form-label">出生地</view>
+        <input class="input-ink" type="text" maxlength="20" placeholder="如：北京市 · 东城区"
+          placeholder-class="input-placeholder" value="{{dPlace}}" bindinput="onPlaceInput" />
+      </view>
+
+      <view class="form-hint">
+        <block wx:if="{{filled}}">{{hint}}</block>
+        <block wx:else>填写姓名与出生年月日后可保存</block>
+      </view>
+
+      <view class="form-actions">
+        <button class="btn btn-ghost btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onCancel">取消</button>
+        <button class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0"
+          disabled="{{!filled || saving}}" loading="{{saving}}" bindtap="onSave">保存</button>
+      </view>
+      <view wx:if="{{editing}}" class="del-link" hover-class="del-link-active" hover-stay-time="0" bindtap="askDelete">
+        删除「{{editing.name || ''}}」的档案
+      </view>
+    </scroll-view>
+  </block>
+
+</view>

@@ -12,14 +12,39 @@
       "disablePlugins": [],
       "outputPath": ""
     },
-    "useCompilerPlugins": false
+    "useCompilerPlugins": false,
+    "compileWorklet": false,
+    "uploadWithSourceMap": true,
+    "packNpmManually": false,
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "condition": false
   },
   "compileType": "miniprogram",
   "simulatorPluginLibVersion": {},
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      {
+        "value": "screenshots",
+        "type": "folder"
+      },
+      {
+        "value": "审核材料.md",
+        "type": "file"
+      },
+      {
+        "value": "node_modules",
+        "type": "folder"
+      },
+      {
+        "value": "app.wxss.bak-base64font",
+        "type": "file"
+      }
+    ],
     "include": []
   },
-  "appid": "wxfc41c6b04fa892d1",
+  "appid": "wxa100b72566782fd0",
   "editorSetting": {}
 }

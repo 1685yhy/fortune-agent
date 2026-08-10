@@ -1,8 +1,8 @@
-/* 用户协议 — 深色道家主题 */
+/* 用户协议 — 灯下契约 | 宣纸墨韵 */
 
 .page-agreement {
   min-height: 100vh;
-  background: var(--color-bg);
+  background: var(--paper);
 }
 
 .agreement-scroll {
@@ -17,24 +17,27 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: var(--space-2xl) 0 var(--space-xl);
+  padding: 80rpx 0 var(--space-xl);
 }
 
 .agreement-icon {
-  font-size: 48px;
+  font-size: var(--text-xl);
   margin-bottom: var(--space-md);
 }
 
 .agreement-title {
-  font-size: var(--font-2xl);
-  font-weight: 700;
-  color: var(--color-text-card);
+  font-family: var(--font-kai);
+  font-size: var(--text-xl);
+  font-weight: 400;
+  color: var(--ink);
   margin-bottom: var(--space-xs);
+  letter-spacing: .16em;
 }
 
 .agreement-subtitle {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+  letter-spacing: .1em;
 }
 
 /* ========================================
@@ -42,39 +45,40 @@
    ======================================== */
 .agreement-section {
   margin-bottom: var(--space-xl);
-  background: var(--color-bg-card);
-  border-radius: var(--radius-lg);
+  background: var(--paper-card);
+  border: 1rpx solid var(--line);
+  border-radius: var(--radius-md);
   padding: var(--space-lg);
-  box-shadow: var(--shadow-sm);
-  animation: fadeSlideUp 0.35s ease-out both;
+  box-shadow: 0 3rpx 12rpx rgba(58,44,30,.05);
 }
 
 .agreement-section-title {
   display: block;
-  font-size: var(--font-lg);
-  font-weight: 700;
-  color: var(--gold-light);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--acc);
   margin-bottom: var(--space-md);
   padding-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1rpx solid var(--line-soft);
+  letter-spacing: .16em;
 }
 
 .agreement-text {
   display: block;
-  font-size: var(--font-md);
-  color: var(--color-text);
-  line-height: 1.8;
+  font-size: var(--text-sm);
+  color: var(--ink-mid);
+  line-height: 1.9;
   margin-bottom: var(--space-sm);
 }
 
 .agreement-text.highlight {
-  color: var(--gold-light);
+  color: var(--ink);
   font-weight: 500;
-  background: var(--gold-glow);
+  background: rgba(251,247,236,.7);
   padding: var(--space-md);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   margin-top: var(--space-sm);
-  border-left: 3px solid var(--gold);
+  border-left: 3rpx solid var(--acc);
 }
 
 /* ========================================
@@ -88,7 +92,7 @@
   display: flex;
   gap: var(--space-sm);
   padding: var(--space-sm) 0;
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1rpx solid var(--line-soft);
 }
 
 .agreement-list-item:last-child {
@@ -96,17 +100,17 @@
 }
 
 .agreement-list-bullet {
-  font-size: var(--font-md);
-  color: var(--gold);
+  font-size: var(--text-sm);
+  color: var(--acc);
   font-weight: 600;
   flex-shrink: 0;
-  width: 20px;
+  width: 40rpx;
 }
 
 .agreement-list-text {
-  font-size: var(--font-md);
-  color: var(--color-text);
-  line-height: 1.7;
+  font-size: var(--text-sm);
+  color: var(--ink-mid);
+  line-height: 1.8;
   flex: 1;
 }
 
@@ -114,34 +118,36 @@
    免责声明卡片
    ======================================== */
 .disclaimer-card {
-  background: var(--gold-glow);
-  border: 1px solid var(--gold);
-  border-radius: var(--radius-md);
+  background: rgba(169,58,44,.05);
+  border: 1rpx solid rgba(169,58,44,.3);
+  border-radius: var(--radius-sm);
   padding: var(--space-md);
   margin: var(--space-md) 0;
 }
 
 .disclaimer-card-title {
   display: block;
-  font-size: var(--font-sm);
-  font-weight: 700;
-  color: var(--gold);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--acc);
   margin-bottom: var(--space-xs);
+  letter-spacing: .14em;
 }
 
 .disclaimer-card-text {
   display: block;
-  font-size: var(--font-md);
-  color: var(--color-text);
-  line-height: 1.7;
+  font-size: var(--text-sm);
+  color: var(--ink-mid);
+  line-height: 1.8;
 }
 
 /* ========================================
    联系卡片
    ======================================== */
 .contact-card {
-  background: var(--color-bg-card-alt);
-  border-radius: var(--radius-md);
+  background: rgba(251,247,236,.6);
+  border: 1rpx solid var(--line-soft);
+  border-radius: var(--radius-sm);
   padding: var(--space-md);
   margin: var(--space-md) 0;
 }
@@ -151,7 +157,7 @@
   justify-content: space-between;
   align-items: center;
   padding: var(--space-sm) 0;
-  border-bottom: 1px solid var(--color-divider);
+  border-bottom: 1rpx solid var(--line-soft);
 }
 
 .contact-row:last-child {
@@ -159,14 +165,14 @@
 }
 
 .contact-label {
-  font-size: var(--font-sm);
-  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
 }
 
 .contact-value {
-  font-size: var(--font-sm);
+  font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--gold);
+  color: var(--ink);
 }
 
 /* ========================================
@@ -174,12 +180,12 @@
    ======================================== */
 .agreement-footer {
   text-align: center;
-  padding: var(--space-xl) 0 var(--space-2xl);
+  padding: var(--space-xl) 0 var(--space-xl);
 }
 
 .agreement-footer-text {
   display: block;
-  font-size: var(--font-xs);
-  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
   line-height: 1.8;
 }
