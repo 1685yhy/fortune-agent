@@ -5,6 +5,7 @@
 ```
 """
 import os, sys, tempfile, sqlite3
+import unittest.mock as mock
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from starlette.testclient import TestClient
 
@@ -68,5 +69,16 @@ check("限流内 5 次放行", True)
 r = client.put("/api/jian/bind", headers=h2, json={"mp_openid": "oRL-6th"})
 check("第 6 次绑定 429", r.status_code == 429)
 check("429 带 Retry-After", r.headers.get("Retry-After", "") != "")
+
+# 7. 今日晨笺内容
+with mock.patch("src.main._precompute_jian_for", return_value={
+    "date": "2026-08-11", "day_ganzhi": "庚申",
+    "suitable": ["出行", "洽谈"], "unsuitable": ["借贷"],
+    "quote": "申月金旺", "book": "穷通宝鉴"}):
+    r = client.get("/api/jian/today", headers=h)
+    d = r.json()
+    check("今日晨笺", r.status_code == 200 and d["day_ganzhi"] == "庚申")
+    check("含私语", "private_line" in d and len(d["private_line"]) > 0)
+    check("含小问", "question" in d)
 
 print(f"\nALL PASS ({ok})")

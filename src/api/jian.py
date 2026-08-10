@@ -75,3 +75,21 @@ def bind(body: BindBody, uid: str = Depends(require_user)):
                             headers={"Retry-After": str(retry_after)})
     _dao().upsert_pref(uid, {"bound_status": "bound", "mp_openid": body.mp_openid})
     return {"bound": True}
+
+# 今日页晨笺卡:干支+宜忌+金句(消费 Task 6 预生成缓存)+按用户私语+固定小问。
+# _precompute_jian_for 来自 src.main,模块内延迟导入避免循环 import(与预生成 worker 同函数)。
+@router.get("/today")
+def today_jian(uid: str = Depends(require_user)):
+    from datetime import datetime, timezone, timedelta
+    from src.main import _precompute_jian_for
+    date_str = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+    content = _precompute_jian_for(date_str)
+    from src.engines.jian_private import generate_private_line
+    line = generate_private_line(uid)
+    return {
+        "date": content["date"], "day_ganzhi": content["day_ganzhi"],
+        "suitable": content["suitable"], "unsuitable": content["unsuitable"],
+        "quote": content.get("quote", ""), "book": content.get("book", ""),
+        "private_line": line,
+        "question": "今天最想做成的一件事是什么?",
+    }
