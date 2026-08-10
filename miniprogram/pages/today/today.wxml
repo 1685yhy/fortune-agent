@@ -62,8 +62,8 @@
 
     <!-- 未开启晨笺：顶部入口 → 开启引导页 -->
     <view class="jian-open" wx:if="{{jian.notEnabled}}" hover-class="jian-open-active" hover-stay-time="0" bindtap="onOpenJian">
-      <text class="jian-open-text">晨笺未开启 · 每日宜忌/金句/轻私语送达</text>
-      <text class="jian-open-cta">开启晨笺</text>
+      <text class="jian-open-text">开启每日晨笺 · 宜忌/金句/轻私语</text>
+      <text class="jian-open-cta">去开启</text>
     </view>
 
     <view class="cover-col">

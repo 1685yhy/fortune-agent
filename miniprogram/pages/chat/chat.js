@@ -36,6 +36,12 @@ const STORAGE_KEY = 'ylm_chat_messages';
 const ARCHIVE_KEY = 'ylm_chat_archives';
 const REACT_KEY = 'ylm_reactions';   // v1.2 表情反应：{消息id: [emoji...]}
 
+/* 晨笺收藏条目（today.js onJianFav 写入 type:'jian'）不是夜话，聊天/历史渲染一律排除；
+   仅渲染层过滤，storage 原样保留（favorites 笺匣仍展示） */
+function isJianEntry(m) {
+  return !!(m && m.type === 'jian');
+}
+
 /* v1.2 表情反应可选集（8 个常用） */
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🙏', '✨'];
 
@@ -282,6 +288,8 @@ Page({
       }
       if (Array.isArray(saved) && saved.length) messages = saved;
     }
+    /* M1 修复：晨笺条目（type==='jian'）不渲染为聊天气泡（宿主现场与 storage 双源均过滤） */
+    if (Array.isArray(messages)) messages = messages.filter((m) => !isJianEntry(m));
     if (!messages || !messages.length) messages = SEED.slice();
     streamHost.setMessages(messages);
     this.setData({

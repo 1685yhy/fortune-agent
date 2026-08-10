@@ -10,6 +10,12 @@ const STORAGE_KEY = 'ylm_chat_messages';
 const ARCHIVE_KEY = 'ylm_chat_archives';
 const PREVIEW_MAX = 8;        // 预览最多渲染条数，超出显示「示 意 中 途」
 
+/* 晨笺收藏条目（today.js onJianFav 写入 type:'jian'）不属于夜话，
+   历史列表/预览/续聊一律排除（storage 原样保留，favorites 笺匣仍展示） */
+function isJianEntry(m) {
+  return !!(m && m.type === 'jian');
+}
+
 /* 印章字候选：从摘要里挑一个字作朱砂印（原型各会话的 桥/运/宅/婚/海/水），无命中取首字 */
 const SEAL_HINTS = ['桥', '水', '海', '蛇', '宅', '婚', '考', '梦', '运', '命', '钱', '财', '人', '家', '路', '灯', '夜', '心', '病', '雨', '雪', '山', '井', '房', '车', '门', '窗', '树', '花', '猫', '狗', '哭', '飞', '血'];
 function sealCharFor(text) {
@@ -101,14 +107,18 @@ Page({
     } catch (e) { /* ignore */ }
     (Array.isArray(arch) ? arch : []).forEach((a) => {
       if (!a || !a.messages || !a.messages.length) return;
-      items.push(this._buildEntry(a.id, a.createdAt || now, a.label, a.messages, false));
+      const msgs = (Array.isArray(a.messages) ? a.messages : []).filter((m) => !isJianEntry(m));
+      if (!msgs.length) return;
+      items.push(this._buildEntry(a.id, a.createdAt || now, a.label, msgs, false));
     });
 
     /* 当前会话：有真实用户消息（非 SEED 开场）才入列，作为「今天」最新一段 */
     const hostMsgs = (streamHost.getState() && streamHost.getState().messages) || null;
-    const curMsgs = (hostMsgs && hostMsgs.length)
+    let curMsgs = (hostMsgs && hostMsgs.length)
       ? hostMsgs
       : (() => { try { return wx.getStorageSync(STORAGE_KEY); } catch (e) { return []; } })();
+    /* M1 修复：晨笺条目（type==='jian'）不入历史列表/预览（storage 原样保留） */
+    curMsgs = (Array.isArray(curMsgs) ? curMsgs : []).filter((m) => !isJianEntry(m));
     const hasRealUser = (Array.isArray(curMsgs) ? curMsgs : []).some(
       (m) => m && m.role === 'user' && String(m.id || '').indexOf('s') !== 0
     );
