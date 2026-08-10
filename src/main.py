@@ -580,6 +580,10 @@ app.include_router(advisor_router)           # /api/advisor
 from .api.xuetang import router as xuetang_router
 app.include_router(xuetang_router)           # /api/xuetang
 
+# 晨笺订阅 API（偏好开关/时间自选 + 服务号绑定，全接口 require_user 鉴权）
+from .api.jian import router as jian_router
+app.include_router(jian_router)              # /api/jian/prefs|bind
+
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)
 # ──────────────────────────────────────────
