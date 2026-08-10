@@ -16,3 +16,20 @@ Thumbs.db
 
 # Project
 # (scripts/ removed to track build_index.py)
+
+# 依赖与备份（不提交：node_modules 曾被误跟踪 19M，已 git rm --cached）
+node_modules/
+miniprogram/node_modules/
+miniprogram/app.wxss.bak-base64font
+miniprogram_backup_*/
+miniprogram_fusion/
+miniprogram_simple/
+
+# 截图与日志
+logs/
+screenshots*/
+*.log
+
+# 运行时生成物（不提交）
+data/charts/
+data/memory/*.json
