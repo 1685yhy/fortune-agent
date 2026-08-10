@@ -109,21 +109,23 @@ Page({
       if (!a || !a.messages || !a.messages.length) return;
       const msgs = (Array.isArray(a.messages) ? a.messages : []).filter((m) => !isJianEntry(m));
       if (!msgs.length) return;
-      items.push(this._buildEntry(a.id, a.createdAt || now, a.label, msgs, false));
+      /* 第二个参数为未过滤源（含晨笺），仅「继续这段夜话」写回用（M2：写回必须原样，否则抹除收藏） */
+      items.push(this._buildEntry(a.id, a.createdAt || now, a.label, msgs, a.messages, false));
     });
 
     /* 当前会话：有真实用户消息（非 SEED 开场）才入列，作为「今天」最新一段 */
     const hostMsgs = (streamHost.getState() && streamHost.getState().messages) || null;
-    let curMsgs = (hostMsgs && hostMsgs.length)
+    const srcCur = (hostMsgs && hostMsgs.length)
       ? hostMsgs
       : (() => { try { return wx.getStorageSync(STORAGE_KEY); } catch (e) { return []; } })();
+    const rawCur = Array.isArray(srcCur) ? srcCur : [];
     /* M1 修复：晨笺条目（type==='jian'）不入历史列表/预览（storage 原样保留） */
-    curMsgs = (Array.isArray(curMsgs) ? curMsgs : []).filter((m) => !isJianEntry(m));
-    const hasRealUser = (Array.isArray(curMsgs) ? curMsgs : []).some(
+    const curMsgs = rawCur.filter((m) => !isJianEntry(m));
+    const hasRealUser = curMsgs.some(
       (m) => m && m.role === 'user' && String(m.id || '').indexOf('s') !== 0
     );
     if (hasRealUser) {
-      items.push(this._buildEntry('current', now, '', curMsgs, true));
+      items.push(this._buildEntry('current', now, '', curMsgs, rawCur, true));
     }
 
     /* 分组（今天/昨天/更早 各按时间倒序） */
@@ -135,8 +137,10 @@ Page({
     this.setData({ groups, loaded: true });
   },
 
-  /* 归档条目 → 列表行模型（摘要=首条用户问题，时间=末条消息，条数=消息数） */
-  _buildEntry(id, createdAt, label, msgs, isCurrent) {
+  /* 归档条目 → 列表行模型（摘要=首条用户问题，时间=末条消息，条数=消息数）。
+     rawMsgs = 未过滤源（含晨笺条目，仅供 onContinue 写回 ylm_chat_messages 时原样保留，
+     晨笺在列表/预览的展示过滤由 msgs 承担） */
+  _buildEntry(id, createdAt, label, msgs, rawMsgs, isCurrent) {
     const firstUser = (msgs || []).find((m) => m.role === 'user' && !m.pending);
     const summary = String((firstUser && firstUser.content) || label || '一段夜话').trim();
     const lastMsg = msgs[msgs.length - 1];
@@ -153,6 +157,7 @@ Page({
       isCurrent,
       searchText,
       _msgs: msgs,
+      _rawMsgs: (Array.isArray(rawMsgs) && rawMsgs.length) ? rawMsgs : msgs,
     };
   },
 
@@ -194,7 +199,9 @@ Page({
     });
   },
 
-  /* 「继续这段夜话」：归档消息写回 ylm_chat_messages + 流式宿主 → 回聊天页继续 */
+  /* 「继续这段夜话」：归档消息写回 ylm_chat_messages + 流式宿主 → 回聊天页继续。
+     M2：写回必须用未过滤源 _rawMsgs（含晨笺条目）——若写回展示层过滤后的 _msgs，
+     晨笺收藏会在 storage/宿主里被永久抹除 */
   onContinue() {
     const s = this.data.current;
     if (!s) return;
@@ -202,7 +209,7 @@ Page({
     const all = [];
     this.data.groups.forEach((grp) => all.push(...grp.items));
     const entry = all.find((it) => it.id === s.id);
-    if (entry) msgs = (entry._msgs || []).map((m) => {
+    if (entry) msgs = (entry._rawMsgs || entry._msgs || []).map((m) => {
       const copy = Object.assign({}, m);
       delete copy.mdNodes;
       delete copy.segments;

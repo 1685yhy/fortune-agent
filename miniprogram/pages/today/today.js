@@ -3,6 +3,7 @@ const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const shareCard = require('../../utils/shareCard');
 const lunar = require('../../utils/lunar');
+const streamHost = require('../../utils/streamHost'); // 收藏同步宿主用（见 _syncHostJian）
 
 /* 收藏复用现有收藏机制：ylm_chat_messages 中 role==='ai' && kept===true（favorites 页数据源）。
    type:'jian' 为笺匣分类标记（Task 10 收藏页「笺」分类）。 */
@@ -275,6 +276,7 @@ Page({
         .filter((m) => m && m.id !== entry.id)
         .concat([entry]);
       wx.setStorageSync(MSG_KEY, next);
+      this._syncHostJian(entry.id, entry);
       this.setData({ 'jian.saved': true });
       wx.showToast({ title: '已收藏 · 入笺匣', icon: 'none' });
     } catch (e) {
@@ -282,11 +284,26 @@ Page({
     }
   },
 
+  /* 宿主同步（M2 根因修复）：收藏/取消收藏同时更新 streamHost.messages——
+     streamHost._save() 会把 host.messages 原样写回 ylm_chat_messages，若收藏条目只写 storage
+     不进 host，聊天页下一次发送/流式/删除/重置的保存都会把它覆盖抹除。
+     渲染层（chat._mirror / history._load）已排除 type==='jian'，host 保留不影响任何展示 */
+  _syncHostJian(id, entry) {
+    try {
+      const host = streamHost.getState().messages;
+      if (!Array.isArray(host)) return;
+      const next = host.filter((m) => m && m.id !== id);
+      if (entry) next.push(entry);
+      streamHost.setMessages(next);
+    } catch (e) { /* 同步失败不阻断收藏 */ }
+  },
+
   _unfavJian() {
     const id = this.data.jian.savedId;
     try {
       const list = wx.getStorageSync(MSG_KEY);
       wx.setStorageSync(MSG_KEY, (Array.isArray(list) ? list : []).filter((m) => m && m.id !== id));
+      this._syncHostJian(id, null);
       this.setData({ 'jian.saved': false });
       wx.showToast({ title: '已取消收藏', icon: 'none' });
     } catch (e) {

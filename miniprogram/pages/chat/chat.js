@@ -248,12 +248,16 @@ Page({
   },
 
   /* 消息镜像：仅对内容变化的消息重算 Markdown 节点树（流式时缓存命中不重算）；
-     同时把本地表情反应合并进镜像（reactions） */
+     同时把本地表情反应合并进镜像（reactions）。
+     M2：晨笺收藏条目(type==='jian')在此渲染层排除（host/storage 原样保留——streamHost._save
+     会把 host.messages 原样写回 ylm_chat_messages，若在存储层过滤，任何一次保存都会
+     永久抹除收藏的晨笺；favorites 笺匣仍展示） */
   _mirror(messages) {
-    const out = new Array(messages.length);
+    const vis = (Array.isArray(messages) ? messages : []).filter((m) => !isJianEntry(m));
+    const out = new Array(vis.length);
     const reactions = this.data.reactions || {};
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i];
+    for (let i = 0; i < vis.length; i++) {
+      const m = vis[i];
       const c = String(m.content || '');
       const cached = this._segCache;
       if (cached && cached.id === m.id && cached.content === c) {
@@ -273,7 +277,10 @@ Page({
     return out;
   },
 
-  /* 历史续读：宿主现场优先（可能后台生成中/刚完成）；无则 storage；再无则 SEED 开场 */
+  /* 历史续读：宿主现场优先（可能后台生成中/刚完成）；无则 storage；再无则 SEED 开场。
+     M2：晨笺条目(type==='jian')不在此过滤——host 必须保留它，否则 streamHost._save()
+     会把过滤后的数组写回 storage，永久抹除收藏条目；渲染层(_mirror)才做排除。
+     若会话里只剩晨笺条目（首访先收藏），补 SEED 开场保证聊天页非空（晨笺仍留在 host） */
   _loadHistory() {
     const hostState = streamHost.getState();
     let messages = null;
@@ -288,8 +295,9 @@ Page({
       }
       if (Array.isArray(saved) && saved.length) messages = saved;
     }
-    /* M1 修复：晨笺条目（type==='jian'）不渲染为聊天气泡（宿主现场与 storage 双源均过滤） */
-    if (Array.isArray(messages)) messages = messages.filter((m) => !isJianEntry(m));
+    if (Array.isArray(messages) && messages.length && messages.every((m) => isJianEntry(m))) {
+      messages = SEED.slice().concat(messages);
+    }
     if (!messages || !messages.length) messages = SEED.slice();
     streamHost.setMessages(messages);
     this.setData({
