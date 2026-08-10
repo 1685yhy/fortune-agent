@@ -1,0 +1,138 @@
+<!-- 设置 — 墨韵纸笺：账号与登录 / 账号信息 / 关于与隐私 / 数据说明 / 危险区注销
+     设置入口重构：登录·退出·更换账号·注销 自 me 页收进此页（me 页不再单独摆登录按钮） -->
+<view class="screen" style="--nav-off:{{navOff}}px">
+  <view class="navrow">
+    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+      <image class="back-icon" src="/assets/images/ic-back.png"></image>
+    </view>
+    <view class="nav-title">
+      <text>设置</text>
+    </view>
+    <view class="nav-right"></view>
+  </view>
+
+  <scroll-view scroll-y class="st-scroll">
+    <!-- 账号与登录：未登录=微信登录入口；已登录=头像/昵称 + 退出登录/更换账号 -->
+    <view class="op-label"><text>账号与登录</text></view>
+    <view class="papercard me-list">
+      <view wx:if="{{loggedIn}}" class="st-acct">
+        <image wx:if="{{avatarUrl}}" class="seal-avatar" src="{{avatarUrl}}" mode="aspectFill"></image>
+        <view wx:else class="seal seal-88"><text class="seal-char">明</text></view>
+        <view class="st-acct-info">
+          <view class="hs-name-row">
+            <view class="hs-name">{{displayName}}</view>
+            <view class="hs-tag {{realLogin ? 'hs-tag-real' : 'hs-tag-local'}}" wx:if="{{loginTag}}">{{loginTag}}</view>
+          </view>
+          <view class="hs-sub">身份凭证 · 加密存储</view>
+        </view>
+      </view>
+      <view wx:if="{{loggedIn}}" class="st-acct-btns">
+        <view class="btn-ghost-row" hover-class="acct-btn-active" hover-stay-time="0" bindtap="onLogoutTap">退出登录</view>
+        <view class="btn-ink-row" hover-class="acct-btn-active" hover-stay-time="0" bindtap="onSwitchAccountTap">更换账号</view>
+      </view>
+      <view wx:else class="st-login" hover-class="st-login-active" hover-stay-time="0" bindtap="onLoginTap">
+        <view class="seal st-login-seal"><text class="seal-char">登</text></view>
+        <view class="st-login-txt">
+          <view class="st-login-title">微信登录</view>
+          <view class="st-login-sub">静默登录 · 灯油命书随身行</view>
+        </view>
+        <view class="mr-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
+    </view>
+
+    <!-- 账号信息：当前登录态三态（微信登录 / 体验用户 / 未登录） -->
+    <view class="op-label"><text>账号信息</text></view>
+    <view class="papercard me-list">
+      <view class="me-row">
+        <view class="mr-ic"><image src="/assets/images/ic-seal.png"></image></view>
+        <view class="mr-label">当前登录态</view>
+        <view class="mr-val">{{identityText}}</view>
+      </view>
+    </view>
+
+    <!-- 关于与隐私：灯下契约 / 秉烛之约 -->
+    <view class="op-label"><text>关于与隐私</text></view>
+    <view class="papercard me-list">
+      <view class="me-row row-line" hover-class="me-row-active" hover-stay-time="0" bindtap="goPrivacy">
+        <view class="mr-ic"><image src="/assets/images/ic-book2.png"></image></view>
+        <view class="mr-label">隐私政策</view>
+        <view class="mr-val">灯下契约</view>
+        <view class="mr-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
+      <view class="me-row" hover-class="me-row-active" hover-stay-time="0" bindtap="goAgreement">
+        <view class="mr-ic"><image src="/assets/images/ic-book2.png"></image></view>
+        <view class="mr-label">用户协议</view>
+        <view class="mr-val">秉烛之约</view>
+        <view class="mr-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
+    </view>
+
+    <!-- 数据说明（同 me 页原 sn-body 文案） -->
+    <view class="sec-note">
+      <text class="sn-title">安全与数据</text>
+      <text class="sn-body">对话与命书均经加密存储，仅你本人可见。退出登录不影响本地灯油与命书；注销账号后数据进入加密归档，90 天可恢复期内联系明灯即可找回，期满彻底删除。</text>
+    </view>
+
+    <!-- 危险区（朱砂注销 · 二次确认） -->
+    <view class="op-label"><text>危险区</text></view>
+    <view class="papercard me-list">
+      <view class="me-row danger-row" hover-class="me-row-active" hover-stay-time="0" bindtap="onDeregTap">
+        <view class="mr-ic"><image src="/assets/images/ic-moon.png"></image></view>
+        <view class="mr-label mr-label-danger">注销账号</view>
+        <view class="mr-val">数据不可恢复</view>
+        <view class="mr-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
+    </view>
+
+    <view class="me-foot">秉烛而谈 · 灯火长明</view>
+  </scroll-view>
+
+  <!-- 更换账号说明弹层（原型 dir_o：将退出当前账号，可登录其他微信） -->
+  <view class="acct-mask" wx:if="{{switchDialogVisible}}" catchtouchmove="noop" bindtap="closeSwitchDialog">
+    <view class="acct-card" catchtap="noop">
+      <view class="acct-card-title">更换账号</view>
+      <view class="acct-card-body">
+        <text>将退出当前账号，重新登录其他微信。</text>
+        <text>当前账号的灯油、命书与手记</text><text class="mb-strong">不会丢失</text><text>。</text>
+      </view>
+      <view class="acct-card-note">登录新账号后，本地数据按新账号重新建档</view>
+      <view class="acct-card-actions">
+        <view class="btn-ghost-row" hover-class="acct-btn-active" hover-stay-time="0" bindtap="closeSwitchDialog">取消</view>
+        <view class="btn-ink-row" hover-class="acct-btn-active" hover-stay-time="0" bindtap="confirmSwitchAccount">去换账号</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 注销账号弹层（朱砂警示 · 输入「注销」二字确认，不匹配按钮禁用） -->
+  <view class="acct-mask" wx:if="{{deregDialogVisible}}" catchtouchmove="noop" bindtap="closeDeregDialog">
+    <view class="acct-card" catchtap="noop">
+      <view class="acct-card-title danger">
+        <view class="seal title-seal"><text class="seal-char">销</text></view>
+        <text>注销账号</text>
+      </view>
+      <view class="acct-card-body">
+        <text>注销后，对话、命书、收藏与解梦手记将</text><text class="mb-strong">不可恢复</text><text>；</text>
+        <text>数据将加密归档，90 天后彻底删除。</text>
+      </view>
+      <view class="acct-card-note">此操作不可撤销 · 请慎重</view>
+      <input class="acct-input" value="{{deregInput}}" bindinput="onDeregInput"
+        placeholder="输入「注销」二字确认" placeholder-class="acct-ph" confirm-type="done" />
+      <view class="acct-card-actions">
+        <view class="btn-ghost-row" hover-class="acct-btn-active" hover-stay-time="0" bindtap="closeDeregDialog">保留账号</view>
+        <view class="btn-acc-row {{deregInput !== '注销' ? 'disabled' : ''}}" hover-class="acct-btn-active" hover-stay-time="0" bindtap="confirmDereg">确认注销</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 注销成功页（原型 GoneScreen：账号已注销 · 感谢相伴） -->
+  <view wx:if="{{deregDone}}" class="gone-screen" catchtouchmove="noop">
+    <image class="gone-lantern" src="/assets/images/lantern.jpg"></image>
+    <view class="gs-title">账号已注销</view>
+    <view class="gs-sub">你的对话、命书与手记已加密归档
+90 天内不再打扰 · 愿你前路有光</view>
+    <view class="gs-line"></view>
+    <view class="gs-poem">感谢相伴，灯火长明。</view>
+    <view class="gs-btn" hover-class="acct-btn-active" hover-stay-time="0" bindtap="onDeregGoneBack">回到首页</view>
+    <view class="gs-note">重新登录后，一切从一灯开始</view>
+  </view>
+</view>

@@ -2,7 +2,6 @@
 const api = require('../../utils/api');
 const lunar = require('../../utils/lunar');
 const payment = require('../../utils/payment');
-const security = require('../../utils/security');
 const theme = require('../../utils/theme');
 
 const HOUR_CN = ['子时', '丑时', '寅时', '卯时', '辰时', '巳时', '午时', '未时', '申时', '酉时', '戌时', '亥时'];
@@ -21,14 +20,11 @@ const BASE_ROWS = [
   { icon: '/assets/images/ic-chat.png', label: '对话历史', action: 'history' },
   { icon: '/assets/images/ic-moon.png', label: '解梦手记', action: 'dreams' },
   { icon: '/assets/images/ic-bell.png', label: '开灯提醒', action: 'sub', sub: true },
-  { icon: '/assets/images/ic-kebab.png', label: '关于明灯', action: '' },
+  { icon: '/assets/images/ic-kebab.png', label: '设置', action: 'settings' },
 ];
 
 const STORAGE_KEY = 'ylm_chat_messages';
 const ARCHIVE_KEY = 'ylm_chat_archives';
-
-/* 注销确认文案（原型 dir_o：输入框须与之一致才可确认） */
-const DEREG_CONFIRM = '注销';
 
 Page({
   data: {
@@ -50,16 +46,10 @@ Page({
     personCount: 0,             // 档案行 val：本地缓存命主数
     curTab: 'me',
     dark: false,
-    /* 登录显式展示（v5.1）：头像/状态标签/登录动作 */
+    /* 登录态展示（v5.1）：头像/状态标签（登录/退出/注销已移入设置页） */
     avatarUrl: '',              // 微信头像（无则印章「明」兜底）
     loginTag: '',               // 微信登录 / 体验用户（未登录不显示）
-    loginAction: '退出登录',     // 已登录=退出登录 / 未登录=点击登录
     realLogin: false,           // 标签配色：真实微信登录（朱砂） vs 体验用户（低调墨色）
-    /* 账号中心（原型 dir_o · 壹）：更换账号 / 注销账号 */
-    switchDialogVisible: false, // 更换账号说明弹层
-    deregDialogVisible: false,  // 注销确认弹层（输入「注销」解禁）
-    deregInput: '',             // 注销确认输入
-    deregDone: false,           // 注销成功页（账号已注销）
   },
 
   onLoad() {
@@ -168,10 +158,9 @@ Page({
   /* 行 val 动态化（图标随暗黑模式换暗色变体；按 label 匹配，避免行序变更后索引错位） */
   _buildRows(hasBazi) {
     const hb = hasBazi !== undefined ? hasBazi : !!this.data.birthdayText;
-    const suffix = this.data.dark ? '-dark.png' : '.png';
     const rows = BASE_ROWS.map((r) => ({
       ...r,
-      icon: r.icon.replace(/\.png$/, suffix),
+      icon: r.icon,   // 夜间模式已移除：恒用白天图标
     }));
     rows.forEach((r) => {
       if (r.label === '档案') r.val = this.data.personCount > 0 ? `${this.data.personCount} 位命主` : (hb ? '八字已设' : '未设置');
@@ -285,7 +274,7 @@ Page({
     }
   },
 
-  /* ═══ v5.1 登录显式展示（头像/昵称/状态标签/登录·退出） ═══
+  /* ═══ v5.1 登录态展示（头像/昵称/状态标签；登录/退出/注销已移入设置页） ═══
      身份态判定（app.js 契约）：
        - 真实微信登录：globalData.token 存在（userInfo 可能带 nickName/avatarUrl）
        - 体验用户：无 token 且 userId === 'local_user'（后端不可用时的本地兜底）
@@ -298,96 +287,20 @@ Page({
     const loggedOut = !token && !isLocal;
 
     if (loggedOut) {
-      this.setData({ displayName: '未登录', avatarUrl: '', loginTag: '', loginAction: '点击登录', realLogin: false });
+      this.setData({ displayName: '未登录', avatarUrl: '', loginTag: '', realLogin: false });
       return;
     }
     if (token) {
       this.setData({
         realLogin: true,
         loginTag: '微信登录',
-        loginAction: '退出登录',
         displayName: (u && u.nickName) || '小晚',
         avatarUrl: (u && u.avatarUrl) || '',
       });
       return;
     }
     // 体验模式（local_user）
-    this.setData({ displayName: '小晚', avatarUrl: '', loginTag: '体验用户', loginAction: '退出登录', realLogin: false });
-  },
-
-  /* 登录/退出入口（名片区小字）：未登录 → 静默微信登录；已登录 → 确认后退出 */
-  onLoginActionTap() {
-    const gd = (getApp() && getApp().globalData) || {};
-    const token = gd.token || null;
-    const isLocal = !token && gd.userId === 'local_user';
-    if (!token && !isLocal) {
-      this._loginAgain();
-      return;
-    }
-    wx.showModal({
-      title: '退出登录',
-      content: '确定退出登录吗？',
-      confirmText: '退出',
-      confirmColor: '#A93A2C',
-      success: (res) => {
-        if (res.confirm) this._logout();
-      },
-    });
-  },
-
-  /* 点击登录：重新走 app.js 静默微信登录（wx.login → code → JWT；后端不可用走 local_user 兜底，无需授权弹窗） */
-  _loginAgain() {
-    wx.showLoading({ title: '登录中…', mask: true });
-    Promise.resolve(getApp().wechatLogin())
-      .catch(() => { /* wechatLogin 内部已降级到本地模式，不阻断 */ })
-      .then(() => {
-        wx.hideLoading();
-        this._deriveIdentity();
-        this._loadMember();
-        this._buildRows();
-      });
-  },
-
-  /* 退出登录：只清身份（token/账号/本地档案），聊天记录与收藏一律保留 */
-  _logout() {
-    this._clearIdentity();
-    this._deriveIdentity();
-    this._buildRows();
-    wx.showToast({ title: '已退出登录', icon: 'none' });
-  },
-
-  /* 清身份（退出登录 / 更换账号 / 注销 共用）：token/账号/本地档案，聊天记录与收藏一律保留 */
-  _clearIdentity() {
-    const remove = (k) => { try { wx.removeStorageSync(k); } catch (e) { /* ignore */ } };
-    remove('ylm_token');              // JWT（api.js 401 重登也以它为准）
-    remove('ylm_user_id');            // 用户 id（含 local_user 兜底值）
-    security.removeSecure('auth');    // ylm_enc_auth（旧版身份：token/userId/loginTime）
-    security.removeSecure('userProfile'); // ylm_enc_userProfile（账号八字档案，随账号走）
-    api.setToken(null);               // 清内存 token（api.js getToken 的 storage 兜底已清空）
-
-    const app = getApp();
-    if (app && app.globalData) {
-      const gd = app.globalData;
-      gd.token = null;
-      gd.userId = null;
-      gd.userInfo = null;
-      gd.isLoggedIn = false;
-      gd.hasBazi = false;
-      gd.baziInfo = null;
-    }
-
-    // 界面切为未登录态（手札回原型默认；聊天记录/收藏保留）
-    this.setData({
-      birthdayText: '1998.05.12 卯时',
-      lunarBirthday: '戊寅年 · 四月十七',
-      pillars: DEFAULT_PILLARS,
-      memberIsMember: false,
-      memberStatus: '基础版',
-      memberBenefits: [],
-      memberExpireText: '',
-    });
-    this._deriveIdentity();
-    this._buildRows();
+    this.setData({ displayName: '小晚', avatarUrl: '', loginTag: '体验用户', realLogin: false });
   },
 
   /* 列表行点击（data-action 路由） */
@@ -412,79 +325,11 @@ Page({
     } else if (action === 'dreams') {
       // 解梦手记：夜话中的解梦回复收进此册
       wx.navigateTo({ url: '/pages/dreams/dreams' });
+    } else if (action === 'settings') {
+      // 设置：账号与登录/隐私政策/注销等（原登录/退出/注销均收进此页）
+      wx.navigateTo({ url: '/pages/settings/settings' });
     }
-    // 其余行（开灯提醒/关于明灯）保持原样，无跳转
-  },
-
-  /* ═══ 账号中心（原型 dir_o · 壹）：更换账号 / 注销账号 ═══ */
-
-  /* 更换账号入口（名片区小字）：说明弹层 → 确认 → 清身份 → 重新走微信登录 */
-  onSwitchAccountTap() {
-    const gd = (getApp() && getApp().globalData) || {};
-    const token = gd.token || null;
-    const isLocal = !token && gd.userId === 'local_user';
-    if (!token && !isLocal) {
-      this._loginAgain();               // 未登录 → 直接登录
-      return;
-    }
-    this.setData({ switchDialogVisible: true });
-  },
-
-  closeSwitchDialog() {
-    this.setData({ switchDialogVisible: false });
-  },
-
-  confirmSwitchAccount() {
-    this.setData({ switchDialogVisible: false });
-    // 清身份（灯油/命书/收藏保留）→ 重新走 app.js wechatLogin（wx.login → 新 token）
-    this._clearIdentity();
-    this._loginAgain();
-  },
-
-  /* 注销账号入口（危险区）：朱砂警示 → 输入「注销」确认 → POST /api/user/cancel → 成功页 */
-  onDeregTap() {
-    const gd = (getApp() && getApp().globalData) || {};
-    const token = gd.token || null;
-    const isLocal = !token && gd.userId === 'local_user';
-    if (!token && !isLocal) {
-      wx.showToast({ title: '当前未登录，无需注销', icon: 'none' });
-      return;
-    }
-    this.setData({ deregDialogVisible: true, deregInput: '' });
-  },
-
-  closeDeregDialog() {
-    this.setData({ deregDialogVisible: false, deregInput: '' });
-  },
-
-  onDeregInput(e) {
-    this.setData({ deregInput: e.detail.value });
-  },
-
-  confirmDereg() {
-    if (String(this.data.deregInput || '').trim() !== DEREG_CONFIRM) return;
-    if (this._deregSubmitting) return;
-    this._deregSubmitting = true;
-    wx.showLoading({ title: '注销中…', mask: true });
-    api.cancelAccount(DEREG_CONFIRM)
-      .then(() => {
-        wx.hideLoading();
-        this._deregSubmitting = false;
-        this.setData({ deregDialogVisible: false, deregInput: '', deregDone: true });
-        this._clearIdentity();
-        wx.showToast({ title: '账号已注销', icon: 'none' });
-      })
-      .catch(() => {
-        wx.hideLoading();
-        this._deregSubmitting = false;
-        wx.showToast({ title: '注销失败，请检查网络', icon: 'none' });
-      });
-  },
-
-  /* 注销成功页 → 回到今日首页 */
-  onDeregGoneBack() {
-    this.setData({ deregDone: false });
-    wx.reLaunch({ url: '/pages/today/today' });
+    // 其余行（开灯提醒）保持原样，无跳转
   },
 
   /* ── 会员开通（虚拟支付优先，mock 降级由 payment.js 统一处理） ── */

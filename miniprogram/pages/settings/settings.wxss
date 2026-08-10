@@ -1,0 +1,374 @@
+/* ═══ 设置页 — 墨韵纸笺（账号与登录/账号信息/关于与隐私/数据说明/危险区）
+     视觉语言同 me 页一卷手札：宣纸卡片 + 朱砂印章 + 竖排墨字 ═══ */
+
+.st-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));   /* 95px */
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 19rpx 38rpx 46rpx;            /* 10px 20px 24px */
+  overflow-x: hidden;                    /* 真机修复：内容超宽时横向裁剪，页面不可横滑 */
+}
+
+/* ── 分区小标（危险区/账号与登录 …） ── */
+.op-label {
+  margin-top: 31rpx;                     /* 16px */
+  font-family: var(--font-song);
+  font-size: 19rpx;                      /* 10px */
+  letter-spacing: .28em;
+  color: var(--ink-faint);
+  margin-bottom: 15rpx;                  /* 8px */
+  display: flex;
+  align-items: center;
+  gap: 15rpx;                            /* 8px */
+}
+.op-label::after {
+  content: '';
+  flex: 1;
+  height: 2rpx;
+  background: var(--line-soft);
+}
+
+/* ── 纸笺列表行（同 me 页 me-list/me-row） ── */
+.me-list { overflow: hidden; }
+.me-row {
+  display: flex;
+  align-items: center;
+  gap: 23rpx;                            /* 12px */
+  padding: 27rpx 31rpx;                  /* 14px 16px */
+  position: relative;
+}
+.me-row-active { background: var(--acc-soft); }
+.row-line { border-bottom: 2rpx solid var(--line-soft); }
+.mr-ic {
+  width: 58rpx;                          /* 30px */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.mr-ic image { width: 37rpx; height: 37rpx; }  /* 19px */
+.mr-label {
+  flex: 1;
+  font-family: var(--font-song);
+  font-size: 28rpx;                      /* 14.5px */
+  letter-spacing: .1em;
+  color: var(--ink);
+}
+.mr-val {
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .14em;
+  color: var(--ink-faint);
+}
+.mr-chev { display: flex; align-items: center; }
+.mr-chev .chev { width: 23rpx; height: 23rpx; }  /* 12px */
+
+/* ── 未登录：微信登录整行入口（朱砂印章「登」+ 说明） ── */
+.st-login {
+  display: flex;
+  align-items: center;
+  gap: 25rpx;                            /* 13px */
+  padding: 33rpx 31rpx;                  /* 17px 16px */
+}
+.st-login-active { background: var(--acc-soft); }
+.st-login-seal {
+  width: 76rpx;                          /* 40px */
+  height: 76rpx;
+  font-size: 44rpx;                      /* 23px */
+  transform: rotate(-3deg);
+  border-radius: 8rpx;                   /* 4px */
+}
+.st-login-txt { flex: 1; display: flex; flex-direction: column; gap: 7rpx; }
+.st-login-title {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 31rpx;                      /* 16px */
+  letter-spacing: .18em;
+  color: var(--ink);
+}
+.st-login-sub {
+  font-family: var(--font-song);
+  font-size: 19rpx;                      /* 10px */
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+}
+
+/* ── 已登录：微信头像/昵称/标签 + 退出登录/更换账号 ── */
+.st-acct {
+  display: flex;
+  align-items: center;
+  gap: 25rpx;                            /* 13px */
+  padding: 33rpx 31rpx 0;                /* 17px 16px 0 */
+}
+.seal-88 { width: 88rpx; height: 88rpx; font-size: 55rpx; transform: rotate(-2deg); }  /* 46px */
+.seal-avatar {
+  width: 88rpx;                          /* 与 seal-88 同尺寸，倾角呼应印章 */
+  height: 88rpx;
+  border-radius: 50%;
+  border: 3rpx solid var(--acc-soft);
+  box-shadow: inset 0 0 0 2rpx rgba(255, 255, 255, .22), 0 4rpx 10rpx rgba(30, 20, 10, .18);
+  transform: rotate(-2deg);
+}
+.st-acct-info { flex: 1; display: flex; flex-direction: column; gap: 6rpx; }
+.hs-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14rpx;
+}
+.hs-name {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 35rpx;                      /* 18px */
+  letter-spacing: .1em;
+  color: var(--ink);
+}
+.hs-tag {
+  font-family: var(--font-song);
+  font-size: 17rpx;                      /* 9px */
+  letter-spacing: .12em;
+  border-radius: 20rpx;
+  padding: 2rpx 12rpx;
+  transform: translateY(-5rpx);
+}
+.hs-tag-real {                           /* 微信登录：印章朱砂色 */
+  color: var(--acc-deep);
+  border: 2rpx solid var(--acc-soft);
+  background: rgba(169, 58, 44, .05);
+}
+.hs-tag-local {                          /* 体验用户：低调墨色 */
+  color: var(--ink-faint);
+  border: 2rpx solid var(--line);
+}
+.hs-sub {
+  margin-top: 8rpx;                      /* 4px */
+  font-family: var(--font-song);
+  font-size: 19rpx;                      /* 10px */
+  letter-spacing: .08em;
+  color: var(--ink-soft);
+}
+.st-acct-btns {
+  display: flex;
+  gap: 19rpx;                            /* 10px */
+  margin-top: 29rpx;                     /* 15px */
+  padding: 0 31rpx 33rpx;                /* 0 16px 17px */
+}
+
+/* ── 数据说明（对话与命书加密存储 · 仅本人可见） ── */
+.sec-note {
+  margin-top: 31rpx;                     /* 16px */
+  padding: 27rpx 35rpx;                  /* 14px 18px */
+  background: rgba(251, 247, 236, .45);
+  border: 2rpx dashed rgba(58, 44, 30, .24);
+  border-radius: 8rpx;                   /* 4px */
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .12em;
+  line-height: 2.1;
+  color: var(--ink-soft);
+}
+.sec-note .sn-title {
+  display: block;
+  color: var(--ink-mid);
+  font-weight: 600;
+  letter-spacing: .2em;
+  margin-bottom: 4rpx;
+}
+.sec-note .sn-body { display: block; }
+
+/* ── 危险区（朱砂注销） ── */
+.danger-row .mr-label { color: var(--acc); }              /* 朱砂警示 */
+.danger-row .mr-ic image { opacity: .9; }
+
+/* ── 脚注（秉烛而谈 · 灯火长明） ── */
+.me-foot {
+  text-align: center;
+  margin-top: 42rpx;                     /* 22px */
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .3em;
+  color: var(--ink-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 19rpx;                            /* 10px */
+}
+.me-foot::before, .me-foot::after {
+  content: '';
+  width: 38rpx;                          /* 20px */
+  height: 2rpx;                          /* 1px */
+  background: var(--line);
+}
+
+/* ═══ 账号弹层（更换/注销 · 双线笺框，同 me 页 acct-card） ═══ */
+.acct-mask {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(20, 14, 8, .6);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60rpx;
+}
+.acct-card {
+  width: 100%;
+  max-width: 619rpx;                     /* 322px */
+  position: relative;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-strong);
+  border-radius: 8rpx;                   /* 4px */
+  box-shadow: 0 50rpx 115rpx rgba(30,20,10,.35);
+  padding: 46rpx 42rpx 38rpx;            /* 24px 22px 20px */
+}
+.acct-card::before {
+  content: '';
+  position: absolute;
+  inset: 8rpx;                           /* 4px */
+  border: 2rpx solid var(--line-soft);
+  border-radius: 4rpx;
+  pointer-events: none;
+}
+.acct-card-title {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 33rpx;                      /* 17px */
+  letter-spacing: .22em;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15rpx;                            /* 8px */
+}
+.acct-card-title.danger { color: var(--acc); }
+.acct-card-title .title-seal {
+  width: 40rpx; height: 40rpx;
+  font-size: 24rpx;
+  transform: rotate(-3deg);
+  border-radius: 6rpx;
+}
+.acct-card-body {
+  margin-top: 23rpx;                     /* 12px */
+  font-family: var(--font-song);
+  font-size: 25rpx;                      /* 13px */
+  line-height: 2;
+  letter-spacing: .04em;
+  color: var(--ink-mid);
+  text-align: center;
+}
+.acct-card-body .mb-strong { color: var(--acc); font-weight: 600; }
+.acct-card-note {
+  margin-top: 15rpx;                     /* 8px */
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .12em;
+  color: var(--ink-faint);
+  line-height: 1.9;
+  text-align: center;
+}
+.acct-input {
+  margin-top: 27rpx;                     /* 14px */
+  width: 100%;
+  height: 81rpx;                         /* 42px */
+  padding: 0 27rpx;                      /* 14px */
+  text-align: center;
+  background: var(--paper);
+  border: 2rpx solid var(--line-input);
+  border-radius: 8rpx;                   /* 4px */
+  font-family: var(--font-song);
+  font-size: 29rpx;                      /* 15px */
+  letter-spacing: .5em;
+  color: var(--acc);
+}
+.acct-ph { color: var(--ink-faint); letter-spacing: .12em; font-size: 25rpx; }
+.acct-input:focus { border-color: var(--acc); box-shadow: 0 0 0 6rpx var(--acc-soft); }
+.acct-card-actions {
+  margin-top: 35rpx;                     /* 18px */
+  display: flex;
+  gap: 19rpx;                            /* 10px */
+}
+.btn-ghost-row, .btn-ink-row, .btn-acc-row {
+  flex: 1;
+  height: 85rpx;                         /* 44px */
+  border-radius: 8rpx;                   /* 4px */
+  font-family: var(--font-song);
+  font-size: 27rpx;                      /* 14px */
+  letter-spacing: .22em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .12s, opacity .12s;
+}
+.btn-ghost-row { background: transparent; border: 2rpx solid var(--line); color: var(--ink-mid); }
+.btn-ink-row { background: var(--ink); color: #F5EFE1; box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.2); }
+.btn-acc-row { background: var(--acc); color: #FBF6E8; box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 4rpx 12rpx rgba(120,40,30,.3); }
+.btn-acc-row.disabled { opacity: .4; }
+.acct-btn-active { opacity: .85; transform: scale(.97); }
+
+/* ═══ 注销成功页（原型 GoneScreen · 账号已注销） ═══ */
+.gone-screen {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 200;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0 85rpx;                      /* 44px */
+  text-align: center;
+}
+.gone-lantern { width: 196rpx; height: 310rpx; opacity: .94; }  /* h≈160px */
+.gs-title {
+  margin-top: 50rpx;                     /* 26px */
+  font-family: var(--font-brush);
+  font-weight: 400;
+  font-size: 58rpx;                      /* 30px */
+  letter-spacing: .2em;
+  color: var(--ink);
+}
+.gs-sub {
+  margin-top: 23rpx;                     /* 12px */
+  font-family: var(--font-song);
+  font-size: 25rpx;                      /* 13px */
+  letter-spacing: .22em;
+  color: var(--ink-soft);
+  line-height: 2;
+  white-space: pre-line;
+}
+.gs-line {
+  margin-top: 42rpx;                     /* 22px */
+  width: 288rpx;                         /* 150px */
+  height: 2rpx;
+  background: linear-gradient(90deg, transparent, var(--ink-faint), transparent);
+}
+.gs-poem {
+  margin-top: 39rpx;                     /* 20px */
+  font-family: var(--poem);
+  font-size: 31rpx;                      /* 16px */
+  letter-spacing: .16em;
+  line-height: 2;
+  color: var(--ink-mid);
+}
+.gs-btn {
+  margin-top: 65rpx;                     /* 34px */
+  width: 100%;
+  height: 88rpx;                         /* 46px */
+  border-radius: 8rpx;                   /* 4px */
+  background: var(--ink);
+  color: #F5EFE1;
+  font-family: var(--font-song);
+  font-size: 28rpx;                      /* 14.5px */
+  letter-spacing: .22em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.2);
+  transition: transform .12s;
+}
+.gs-note {
+  margin-top: 27rpx;                     /* 14px */
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+}

@@ -3,10 +3,10 @@
   <block wx:if="{{view === 'list'}}">
     <view class="navrow">
       <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
-        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+        <image class="back-icon" src="/assets/images/ic-back.png"></image>
       </view>
       <view class="nav-title">
-        <image class="nav-t-icon" src="{{dark ? '/assets/images/ic-chat-dark.png' : '/assets/images/ic-chat.png'}}"></image>
+        <image class="nav-t-icon" src="/assets/images/ic-chat.png"></image>
         <text>对话历史</text>
       </view>
       <view class="nav-right"></view>
@@ -53,7 +53,7 @@
               </view>
               <view class="sess-del" hover-class="navrow-hover" hover-stay-time="0"
                 data-id="{{s.id}}" catchtap="askDel">
-                <image class="sess-del-ic" src="{{dark ? '/assets/images/ic-kebab-dark.png' : '/assets/images/ic-kebab.png'}}"></image>
+                <image class="sess-del-ic" src="/assets/images/ic-kebab.png"></image>
               </view>
             </view>
           </view>
@@ -67,14 +67,14 @@
   <block wx:else>
     <view class="navrow">
       <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
-        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+        <image class="back-icon" src="/assets/images/ic-back.png"></image>
       </view>
       <view class="nav-title">
         <image class="nav-t-icon" src="/assets/images/ic-lantern-on.png"></image>
         <text>夜话预览</text>
       </view>
       <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0" bindtap="askDel" data-id="{{current.id}}">
-        <image class="nav-right-icon" src="{{dark ? '/assets/images/ic-kebab-dark.png' : '/assets/images/ic-kebab.png'}}"></image>
+        <image class="nav-right-icon" src="/assets/images/ic-kebab.png"></image>
       </view>
     </view>
 
@@ -87,7 +87,7 @@
             <view class="jz-body">{{item.content}}</view>
             <view class="jz-foot">
               <text class="jz-time">明灯 · {{item.time}}</text>
-              <image class="jz-keep" src="{{dark ? '/assets/images/ic-keep-dark.png' : '/assets/images/ic-keep.png'}}"></image>
+              <image class="jz-keep" src="/assets/images/ic-keep.png"></image>
             </view>
           </view>
           <view wx:else class="user-note">

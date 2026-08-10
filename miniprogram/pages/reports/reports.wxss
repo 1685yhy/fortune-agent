@@ -163,3 +163,177 @@
   color: var(--ink-soft);
   line-height: 1.9;
 }
+
+/* ═══ v1.3 卷章全文弹层（墨韵线装书：宣纸底 / 竖排卷名 / 朱印 / 内容可滚动） ═══ */
+
+/* 封面按压反馈（点封面开卷） */
+.book-cover-active { opacity: .88; }
+
+/* ── 空态（暂无命书 · 去聊一段生成） ── */
+.book-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 72rpx 0 84rpx;
+}
+.be-seal {
+  width: 68rpx;
+  height: 68rpx;
+  font-size: 42rpx;
+  margin-bottom: 26rpx;
+}
+.be-line1 {
+  font-family: var(--font-song);
+  font-size: 30rpx;
+  letter-spacing: .3em;
+  color: var(--ink);
+}
+.be-line2 {
+  margin-top: 12rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .18em;
+  color: var(--ink-faint);
+}
+.be-btn {
+  margin-top: 40rpx;
+  font-family: var(--font-song);
+  font-size: 24rpx;
+  letter-spacing: .24em;
+  color: var(--acc);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 8rpx;
+  padding: 14rpx 52rpx;
+  background: var(--paper-card);
+}
+.be-btn-active { background: var(--acc-soft); }
+
+/* ── 弹层（半屏纸笺上滑，宣纸底） ── */
+.dt-mask {
+  position: fixed;
+  left: 0; right: 0; top: 0; bottom: 0;
+  z-index: 120;
+  background: rgba(58, 44, 30, .38);     /* 墨色蒙层 */
+  animation: dt-fade .18s ease;
+}
+@keyframes dt-fade { from { opacity: 0; } to { opacity: 1; } }
+
+.dt-sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 130;
+  height: 82vh;
+  background: var(--paper);
+  border-top: 2rpx solid var(--line-strong);
+  border-radius: 22rpx 22rpx 0 0;
+  box-shadow: 0 -10rpx 40rpx var(--shadow);
+  display: flex;
+  flex-direction: column;
+  animation: dt-up .22s ease;
+}
+@keyframes dt-up { from { transform: translateY(40%); opacity: .4; } to { transform: none; opacity: 1; } }
+
+.dt-top {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  padding: 30rpx 36rpx 22rpx;
+  border-bottom: 2rpx solid var(--line-soft);
+}
+.dt-seal {
+  width: 62rpx;
+  height: 62rpx;
+  font-size: 38rpx;
+  flex-shrink: 0;
+}
+.dt-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+}
+.dt-no {
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .18em;
+  color: var(--acc);
+  flex-shrink: 0;
+}
+.dt-title {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 32rpx;
+  letter-spacing: .14em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dt-x {
+  width: 56rpx;
+  height: 56rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28rpx;
+  color: var(--ink-faint);
+  border: 2rpx solid var(--line);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.dt-x-active { color: var(--acc); border-color: var(--acc); }
+
+.dt-body {
+  flex: 1;
+  min-height: 0;
+  padding: 26rpx 40rpx calc(30rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+.dt-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-bottom: 22rpx;
+}
+.dt-meta-item {
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .1em;
+  color: var(--ink-soft);
+  border: 1rpx solid var(--line-med);
+  border-radius: 5rpx;
+  padding: 4rpx 14rpx;
+}
+.dt-content {
+  display: block;
+  font-family: var(--font-kai);
+  font-size: 28rpx;
+  line-height: 2.05;
+  letter-spacing: .03em;
+  color: var(--ink-mid);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.dt-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 14rpx;
+  margin-top: 34rpx;
+  padding-top: 20rpx;
+  border-top: 1rpx solid var(--line-soft);
+}
+.dt-foot-seal {
+  width: 44rpx;
+  height: 44rpx;
+  font-size: 26rpx;
+}
+.dt-foot-txt {
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .22em;
+  color: var(--ink-faint);
+}

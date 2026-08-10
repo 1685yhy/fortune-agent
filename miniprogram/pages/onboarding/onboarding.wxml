@@ -10,7 +10,7 @@
     <view class="lantern-box">
       <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
       <image class="lantern-glow lantern-glow-delay" src="/assets/images/lantern-glow2.png"></image>
-      <image class="lantern-body" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
+      <image class="lantern-body" src="/assets/images/lantern.jpg"></image>
     </view>
     <view class="ww-brand">易理<text class="ww-em">明灯</text></view>
     <view class="ww-line"></view>
@@ -156,7 +156,7 @@
     <view class="d-cta">
       <button class="btn btn-acc btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="startPaipan">开始排盘</button>
       <view class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="replay">
-        <image class="replay-ic" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+        <image class="replay-ic" src="/assets/images/ic-lantern.png"></image>
         <text>重新看引导</text>
       </view>
     </view>
@@ -167,7 +167,7 @@
     <view class="lantern-box skipped-lantern">
       <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
       <image class="lantern-glow lantern-glow-delay" src="/assets/images/lantern-glow2.png"></image>
-      <image class="lantern-body" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
+      <image class="lantern-body" src="/assets/images/lantern.jpg"></image>
     </view>
     <view class="d-title skipped-title">未建档案</view>
     <view class="d-sub">
@@ -178,7 +178,7 @@
     <view class="d-cta">
       <button class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="demoPaipan">演示：开始排盘</button>
       <view class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="replay">
-        <image class="replay-ic" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+        <image class="replay-ic" src="/assets/images/ic-lantern.png"></image>
         <text>重新看引导</text>
       </view>
     </view>

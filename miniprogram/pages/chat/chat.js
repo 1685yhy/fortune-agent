@@ -695,7 +695,9 @@ Page({
     wx.navigateTo({ url: '/pages/history/history' });
   },
 
-  /* 新开对话（页头「新开」按钮）：当前会话归档 ylm_chat_archives → 回到 SEED 开场 */
+  /* 新开对话（页头「新开」按钮）：当前会话归档 ylm_chat_archives → 回到 SEED 开场。
+     真机反馈修复：确认后必须清空回 SEED 并归档；任何异常不静默失败——
+     归档失败不阻断重置，并给明确提示。 */
   startNewChat() {
     wx.showModal({
       title: '新开对话',
@@ -704,8 +706,22 @@ Page({
       confirmColor: '#A93A2C',
       success: (res) => {
         if (!res.confirm) return;
-        this._archiveCurrent();
-        this._resetChatUi();
+        try {
+          this._archiveCurrent();
+        } catch (e) {
+          console.warn('[Chat] 归档失败（不阻断新开）:', e);
+        }
+        try {
+          this._resetChatUi();
+        } catch (e) {
+          console.error('[Chat] 新开对话失败:', e);
+          wx.showToast({ title: '新开失败，请重试', icon: 'none' });
+          return;
+        }
+        wx.showToast({ title: '已新开一段夜话', icon: 'none' });
+      },
+      fail: () => {
+        wx.showToast({ title: '新开失败，请重试', icon: 'none' });
       },
     });
   },

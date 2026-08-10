@@ -4,11 +4,32 @@
    msg-list 底部与其联动，滚动到底时最后一条气泡不被快捷笺条遮挡 */
 .screen { --inputbar-h: 192rpx; }
 
-/* 右侧图标预留胶囊宽度（原型 right:10px 会被微信胶囊遮挡，右移避开） */
-.navrow .nav-right { right: 190rpx; }
+/* ═══ 页头导航行：返回+标题(居中)+历史+新开 不重叠 ═══
+   真机反馈：标题「与明灯夜话」与「新开」按钮重叠。
+   根因：原 .nav-hist { right:152rpx } 被 .navrow .nav-right { right:190rpx }
+   覆盖（选择器优先级更高），历史/新开叠在同一位置；且居中标题向右延伸
+   盖住按钮区。
+   修复：chat 导航行改流式布局 —— 返回钮靠左、标题在中间区域居中、
+   右侧「历史」「新开」依次排开；新开保持距右 190rpx 避让微信胶囊。 */
+.navrow { justify-content: flex-start; }
+.navrow .back {
+  position: static;
+  flex-shrink: 0;
+  margin-left: 6rpx;
+}
+.navrow .nav-title {
+  position: static;
+  flex: 1;
+  min-width: 0;
+  justify-content: center;      /* 标题在返回钮与右侧按钮组之间居中 */
+  letter-spacing: .14em;        /* 略收紧，为右侧双按钮让位（33rpx 字重不变） */
+  white-space: nowrap;
+  overflow: hidden;             /* 极端窄屏兜底：裁剪不换行、不重叠 */
+}
+.navrow .nav-right { position: static; flex-shrink: 0; }
 
-/* v1.1 新开对话（页头右侧文字钮，墨韵小字） */
-.nav-new { width: 120rpx; }
+/* v1.1 新开对话（页头右侧文字钮，墨韵小字；距右 190rpx 避让微信胶囊） */
+.nav-new { width: 104rpx; margin-right: 190rpx; }
 .nav-new-txt {
   font-family: var(--font-song);
   font-size: 22rpx;                      /* 11.5px */
@@ -21,9 +42,11 @@
 }
 
 /* 对话历史入口（「历史」钮，位于「新开」左侧） */
-.nav-hist {
-  right: 152rpx;                         /* 新开 120rpx + 间距 */
-  width: 118rpx;
+.navrow .nav-hist {
+  right: auto;
+  margin-left: auto;            /* 紧贴标题右侧、新开左侧 */
+  margin-right: 12rpx;
+  width: 104rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -889,16 +912,13 @@
 .md-h3 { font-size: 30rpx; margin-top: 10rpx; }
 .md-h4, .md-h5, .md-h6 { font-size: 29rpx; margin-top: 8rpx; }
 
-/* 代码块：深墨底 + 浅字（暗黑模式再深一档） */
+
 .md-codeblock {
   margin: 12rpx 0;
   border-radius: 8rpx;
   background: #2B2620;
   border: 2rpx solid var(--line-med);
   overflow: hidden;
-}
-@media (prefers-color-scheme: dark) {
-  .md-codeblock { background: #16120C; }
 }
 .md-code-head {
   display: flex;

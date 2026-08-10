@@ -5,14 +5,14 @@
   <block wx:if="{{mode === 'pick'}}">
     <view class="navrow">
       <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
-        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+        <image class="back-icon" src="/assets/images/ic-back.png"></image>
       </view>
       <view class="nav-title">
         <image class="nav-lantern" src="/assets/images/ic-lantern-on.png"></image>
         <text>排盘 · 选择命主</text>
       </view>
       <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0" bindtap="navHelp">
-        <image class="nav-right-icon" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+        <image class="nav-right-icon" src="/assets/images/ic-lantern.png"></image>
       </view>
     </view>
 
@@ -115,7 +115,7 @@
   <block wx:else>
     <view class="navrow">
       <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
-        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+        <image class="back-icon" src="/assets/images/ic-back.png"></image>
       </view>
       <view class="nav-title">
         <text>{{formTitle}}</text>

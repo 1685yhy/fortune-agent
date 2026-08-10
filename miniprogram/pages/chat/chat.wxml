@@ -1,7 +1,7 @@
 <view class="screen" style="--nav-off:{{navOff}}px" bindtap="onListTap">
   <view class="navrow">
     <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goToday">
-      <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+      <image class="back-icon" src="/assets/images/ic-back.png"></image>
     </view>
     <view class="nav-title">
       <image class="nav-lantern" src="/assets/images/ic-lantern-on.png"></image>
@@ -9,7 +9,7 @@
     </view>
     <!-- 对话历史入口（归档夜话：搜索/预览/继续） -->
     <view class="nav-right nav-hist" hover-class="navrow-hover" hover-stay-time="0" bindtap="goHistory">
-      <image class="nav-hist-ic" src="{{dark ? '/assets/images/ic-chat-dark.png' : '/assets/images/ic-chat.png'}}"></image>
+      <image class="nav-hist-ic" src="/assets/images/ic-chat.png"></image>
       <text class="nav-hist-txt">历史</text>
     </view>
     <!-- v1.1 新开对话（明确入口）：归档当前会话 → 重新 welcome -->
@@ -88,18 +88,18 @@
                   <view class="spk-bar"></view>
                   <view class="spk-bar"></view>
                 </view>
-                <image wx:else src="{{dark ? '/assets/images/ic-speak-dark.png' : '/assets/images/ic-speak.png'}}"></image>
+                <image wx:else src="/assets/images/ic-speak.png"></image>
               </view>
             </view>
             <view class="jz-fb">
               <view class="jz-fb-btn {{fb[item.id + '-up'] ? 'on' : ''}}" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" data-k="up" bindtap="toggleFb">
-                <image src="{{fb[item.id + '-up'] ? '/assets/images/ic-up-on.png' : (dark ? '/assets/images/ic-up-dark.png' : '/assets/images/ic-up.png')}}"></image>
+                <image src="{{fb[item.id + '-up'] ? '/assets/images/ic-up-on.png' : '/assets/images/ic-up.png'}}"></image>
               </view>
               <view class="jz-fb-btn {{fb[item.id + '-down'] ? 'on' : ''}}" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" data-k="down" bindtap="toggleFb">
-                <image src="{{fb[item.id + '-down'] ? '/assets/images/ic-down-on.png' : (dark ? '/assets/images/ic-down-dark.png' : '/assets/images/ic-down.png')}}"></image>
+                <image src="{{fb[item.id + '-down'] ? '/assets/images/ic-down-on.png' : '/assets/images/ic-down.png'}}"></image>
               </view>
               <view class="jz-fb-btn keep {{item.kept ? 'on' : ''}}" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" data-k="keep" bindtap="toggleFb">
-                <image src="{{item.kept ? '/assets/images/ic-keep-on.png' : (dark ? '/assets/images/ic-keep-dark.png' : '/assets/images/ic-keep.png')}}"></image>
+                <image src="{{item.kept ? '/assets/images/ic-keep-on.png' : '/assets/images/ic-keep.png'}}"></image>
               </view>
               <!-- v1.2 表情反应快捷 ＋（气泡尾部） -->
               <view class="jz-fb-btn react-add" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" bindtap="openEmojiSheet">
@@ -145,7 +145,7 @@
       <block wx:if="{{inputMode === 'voice'}}">
         <view wx:if="{{!isRecording && !converting}}" class="voice-hold" hover-class="voice-hold-active" hover-stay-time="0"
           bindtouchstart="micTouchStart" bindtouchmove="micTouchMove" bindtouchend="micTouchEnd" bindtouchcancel="micTouchCancel">
-          <image class="vh-mic" src="{{dark ? '/assets/images/ic-mic-dark.png' : '/assets/images/ic-mic.png'}}"></image>
+          <image class="vh-mic" src="/assets/images/ic-mic.png"></image>
           <text class="vh-txt">按住 说话</text>
         </view>
         <view wx:elif="{{isRecording}}" class="rec-bar {{recCanceling ? 'cancel' : ''}}"
@@ -167,12 +167,12 @@
           <text class="convert-label">语音转文字中…</text>
         </view>
         <view class="kb-btn" hover-class="kb-btn-active" hover-stay-time="0" data-mode="text" bindtap="switchInputMode">
-          <image src="{{dark ? '/assets/images/ic-keyboard-dark.png' : '/assets/images/ic-keyboard.png'}}"></image>
+          <image src="/assets/images/ic-keyboard.png"></image>
         </view>
       </block>
       <block wx:else>
         <view class="mic-btn mode-mic" hover-class="mic-btn-active" hover-stay-time="0" data-mode="voice" bindtap="switchInputMode">
-          <image src="{{dark ? '/assets/images/ic-mic-dark.png' : '/assets/images/ic-mic.png'}}"></image>
+          <image src="/assets/images/ic-mic.png"></image>
         </view>
         <input class="chat-input {{inputFocused ? 'input-focused' : ''}}" placeholder="写下一句心事…"
           placeholder-class="input-ph" value="{{inputText}}" bindinput="onInput"
@@ -190,7 +190,7 @@
 
   <view class="tabbar">
     <view class="tab-item" bindtap="onTab" data-tab="today">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-lantern.png"></image>
       <text class="tab-label">今日</text>
     </view>
     <view class="tab-item on" bindtap="onTab" data-tab="chat">
@@ -199,11 +199,11 @@
       <view class="dot"></view>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="book">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-book-dark.png' : '/assets/images/ic-book.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-book.png"></image>
       <text class="tab-label">命书</text>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="me">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-seal-dark.png' : '/assets/images/ic-seal.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-seal.png"></image>
       <text class="tab-label">我的</text>
     </view>
   </view>
@@ -238,15 +238,15 @@
     </view>
     <view class="act-grid">
       <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="up" bindtap="actFeedback">
-        <image class="act-ic" src="{{fb[actionMenu.msgId + '-up'] ? '/assets/images/ic-up-on.png' : (dark ? '/assets/images/ic-up-dark.png' : '/assets/images/ic-up.png')}}"></image>
+        <image class="act-ic" src="{{fb[actionMenu.msgId + '-up'] ? '/assets/images/ic-up-on.png' : '/assets/images/ic-up.png'}}"></image>
         <text class="act-label">点赞</text>
       </view>
       <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="down" bindtap="actFeedback">
-        <image class="act-ic" src="{{fb[actionMenu.msgId + '-down'] ? '/assets/images/ic-down-on.png' : (dark ? '/assets/images/ic-down-dark.png' : '/assets/images/ic-down.png')}}"></image>
+        <image class="act-ic" src="{{fb[actionMenu.msgId + '-down'] ? '/assets/images/ic-down-on.png' : '/assets/images/ic-down.png'}}"></image>
         <text class="act-label">点踩</text>
       </view>
       <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="keep" bindtap="actFeedback">
-        <image class="act-ic" src="{{actionMenu.kept ? '/assets/images/ic-keep-on.png' : (dark ? '/assets/images/ic-keep-dark.png' : '/assets/images/ic-keep.png')}}"></image>
+        <image class="act-ic" src="{{actionMenu.kept ? '/assets/images/ic-keep-on.png' : '/assets/images/ic-keep.png'}}"></image>
         <text class="act-label">收藏</text>
       </view>
       <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="emoji" bindtap="actItem">
@@ -254,7 +254,7 @@
         <text class="act-label">表情反应</text>
       </view>
       <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="copy" bindtap="actItem">
-        <image class="act-ic" src="{{dark ? '/assets/images/ic-copy-dark.png' : '/assets/images/ic-copy.png'}}"></image>
+        <image class="act-ic" src="/assets/images/ic-copy.png"></image>
         <text class="act-label">复制</text>
       </view>
       <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="select" bindtap="actItem">
@@ -262,11 +262,11 @@
         <text class="act-label">选取文字</text>
       </view>
       <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="speak" bindtap="actItem">
-        <image class="act-ic" src="{{dark ? '/assets/images/ic-speak-dark.png' : '/assets/images/ic-speak.png'}}"></image>
+        <image class="act-ic" src="/assets/images/ic-speak.png"></image>
         <text class="act-label">朗读</text>
       </view>
       <button wx:if="{{actionMenu.role === 'ai'}}" class="act-item act-share" open-type="share" bindtap="closeActionMenu">
-        <image class="act-ic" src="{{dark ? '/assets/images/ic-share-dark.png' : '/assets/images/ic-share.png'}}"></image>
+        <image class="act-ic" src="/assets/images/ic-share.png"></image>
         <text class="act-label">分享</text>
       </button>
       <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="feedback" bindtap="actItem">

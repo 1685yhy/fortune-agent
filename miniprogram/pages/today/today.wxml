@@ -12,7 +12,7 @@
       <view class="lantern-box">
         <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
         <image class="lantern-glow lantern-glow-delay" src="/assets/images/lantern-glow2.png"></image>
-        <image class="lantern-body" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
+        <image class="lantern-body" src="/assets/images/lantern.jpg"></image>
       </view>
       <view class="poem-lines">
         <view class="poem-line">{{poemLines[0]}}<text class="jk">·</text></view>
@@ -34,7 +34,7 @@
         <image class="brush-arrow" src="/assets/images/brush-arrow.png"></image>
       </view>
       <view class="shot-hint" hover-class="shot-hint-active" hover-stay-time="0" bindtap="onShot">
-        <image class="shot-ic" src="{{dark ? '/assets/images/ic-camera-soft-dark.png' : '/assets/images/ic-camera-soft.png'}}"></image>
+        <image class="shot-ic" src="/assets/images/ic-camera-soft.png"></image>
         <text>随手截屏 · 存为今晚的笺页</text>
       </view>
     </view>
@@ -55,15 +55,15 @@
       <view class="dot"></view>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="chat">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-chat-dark.png' : '/assets/images/ic-chat.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-chat.png"></image>
       <text class="tab-label">聊天</text>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="book">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-book-dark.png' : '/assets/images/ic-book.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-book.png"></image>
       <text class="tab-label">命书</text>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="me">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-seal-dark.png' : '/assets/images/ic-seal.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-seal.png"></image>
       <text class="tab-label">我的</text>
     </view>
   </view>

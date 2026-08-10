@@ -1,18 +1,18 @@
 <view class="screen" style="--nav-off:{{navOff}}px">
   <view class="navrow">
     <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goToday">
-      <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+      <image class="back-icon" src="/assets/images/ic-back.png"></image>
     </view>
     <view class="nav-title">
       <text>命书</text>
     </view>
     <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0" bindtap="onShare">
-      <image class="nav-right-icon" src="{{dark ? '/assets/images/ic-share-dark.png' : '/assets/images/ic-share.png'}}"></image>
+      <image class="nav-right-icon" src="/assets/images/ic-share.png"></image>
     </view>
   </view>
 
   <scroll-view scroll-y class="book-scroll">
-    <view class="book-cover">
+    <view class="book-cover" hover-class="book-cover-active" hover-stay-time="0" bindtap="onCoverTap">
       <image class="book-stitch" src="/assets/images/stitch.png"></image>
       <image class="book-ribbon" src="/assets/images/ribbon.png"></image>
       <view class="bc-top">戊寅年 · 开卷</view>
@@ -24,9 +24,17 @@
       </view>
     </view>
 
-    <view class="papercard book-chapters">
+    <!-- 空态：后端无报告（有命书才显示卷目） -->
+    <view wx:if="{{loaded && !books.length}}" class="book-empty">
+      <view class="seal be-seal"><text class="seal-char">明</text></view>
+      <text class="be-line1">暂无命书</text>
+      <text class="be-line2">与明灯聊一段，命书自成</text>
+      <view class="be-btn" hover-class="be-btn-active" hover-stay-time="0" bindtap="goChat">去聊一段</view>
+    </view>
+
+    <view wx:else class="papercard book-chapters">
       <view wx:for="{{books}}" wx:key="noText" class="book-row {{index < books.length - 1 ? 'row-line' : ''}}"
-        hover-class="book-row-active" hover-stay-time="0">
+        hover-class="book-row-active" hover-stay-time="0" data-id="{{item.id}}" bindtap="onBookTap">
         <view class="br-no">
           <view wx:if="{{item.read}}" class="r-dot"></view>
           <view wx:else class="r-ring"></view>
@@ -38,7 +46,7 @@
         </view>
         <view class="br-page">
           <text>第{{item.page}}页</text>
-          <image class="chev" src="{{dark ? '/assets/images/ic-chev-dark.png' : '/assets/images/ic-chev.png'}}"></image>
+          <image class="chev" src="/assets/images/ic-chev.png"></image>
         </view>
       </view>
     </view>
@@ -48,13 +56,40 @@
     </view>
   </scroll-view>
 
+  <!-- 卷章全文弹层（墨韵线装书：宣纸底 / 竖排卷名 / 朱印 / 内容可滚动） -->
+  <view wx:if="{{detail.show}}" class="dt-mask" bindtap="closeDetail" catchtouchmove="noop"></view>
+  <view wx:if="{{detail.show}}" class="dt-sheet" catchtouchmove="noop">
+    <view class="dt-top">
+      <view class="seal dt-seal"><text class="seal-char">明</text></view>
+      <view class="dt-titles">
+        <text class="dt-no">{{detail.noText}}</text>
+        <text class="dt-title">{{detail.title}}</text>
+      </view>
+      <view class="dt-x" hover-class="dt-x-active" hover-stay-time="0" catchtap="closeDetail">✕</view>
+    </view>
+    <scroll-view scroll-y class="dt-body">
+      <view wx:if="{{detail.date || detail.score || detail.luckyColor}}" class="dt-meta">
+        <text wx:if="{{detail.date}}" class="dt-meta-item">{{detail.date}}</text>
+        <text wx:if="{{detail.score}}" class="dt-meta-item">吉 {{detail.score}} 分</text>
+        <text wx:if="{{detail.luckyColor}}" class="dt-meta-item">利色 · {{detail.luckyColor}}</text>
+        <text wx:if="{{detail.luckyDirection}}" class="dt-meta-item">利向 · {{detail.luckyDirection}}</text>
+        <text wx:if="{{detail.luckyNumber}}" class="dt-meta-item">利数 · {{detail.luckyNumber}}</text>
+      </view>
+      <text class="dt-content" selectable>{{detail.fullContent}}</text>
+      <view wx:if="{{detail.fullContent}}" class="dt-foot">
+        <view class="seal dt-foot-seal"><text class="seal-char">明</text></view>
+        <text class="dt-foot-txt">明灯谨录 · 观命不执命</text>
+      </view>
+    </scroll-view>
+  </view>
+
   <view class="tabbar">
     <view class="tab-item" bindtap="onTab" data-tab="today">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-lantern.png"></image>
       <text class="tab-label">今日</text>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="chat">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-chat-dark.png' : '/assets/images/ic-chat.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-chat.png"></image>
       <text class="tab-label">聊天</text>
     </view>
     <view class="tab-item on" bindtap="onTab" data-tab="book">
@@ -63,7 +98,7 @@
       <view class="dot"></view>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="me">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-seal-dark.png' : '/assets/images/ic-seal.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-seal.png"></image>
       <text class="tab-label">我的</text>
     </view>
   </view>

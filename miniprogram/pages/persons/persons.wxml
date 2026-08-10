@@ -5,14 +5,14 @@
   <block wx:if="{{mode === 'list'}}">
     <view class="navrow">
       <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
-        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+        <image class="back-icon" src="/assets/images/ic-back.png"></image>
       </view>
       <view class="nav-title">
         <image class="nav-lantern" src="/assets/images/ic-lantern-on.png"></image>
         <text>档案</text>
       </view>
       <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0" bindtap="navHelp">
-        <image class="nav-right-icon" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+        <image class="nav-right-icon" src="/assets/images/ic-lantern.png"></image>
       </view>
     </view>
 
@@ -43,7 +43,7 @@
               <view class="prof-birth">{{item.birth}}</view>
             </view>
             <view class="prof-chev">
-              <image class="chev" src="{{dark ? '/assets/images/ic-chev-dark.png' : '/assets/images/ic-chev.png'}}"></image>
+              <image class="chev" src="/assets/images/ic-chev.png"></image>
             </view>
           </view>
         </view>
@@ -54,7 +54,7 @@
         <view class="lantern-box">
           <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
           <image class="lantern-glow lantern-glow-delay" src="/assets/images/lantern-glow2.png"></image>
-          <image class="lantern-body" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
+          <image class="lantern-body" src="/assets/images/lantern.jpg"></image>
         </view>
         <view class="e-title">还没有命主档案</view>
         <view class="e-sub">
@@ -75,7 +75,7 @@
   <block wx:else>
     <view class="navrow">
       <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="onCancel">
-        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+        <image class="back-icon" src="/assets/images/ic-back.png"></image>
       </view>
       <view class="nav-title">
         <text>{{editing ? '编辑命主' : '添加命主'}}</text>

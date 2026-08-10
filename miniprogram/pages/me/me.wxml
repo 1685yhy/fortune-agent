@@ -1,13 +1,13 @@
 <view class="screen" style="--nav-off:{{navOff}}px">
   <view class="navrow">
     <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goToday">
-      <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+      <image class="back-icon" src="/assets/images/ic-back.png"></image>
     </view>
     <view class="nav-title">
       <text>我的</text>
     </view>
     <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0">
-      <image class="nav-right-icon" src="{{dark ? '/assets/images/ic-kebab-dark.png' : '/assets/images/ic-kebab.png'}}"></image>
+      <image class="nav-right-icon" src="/assets/images/ic-kebab.png"></image>
     </view>
   </view>
 
@@ -28,10 +28,6 @@
           </view>
           <view class="hs-sub">{{birthdayText}}</view>
           <view class="hs-sub">{{lunarBirthday}}</view>
-          <view class="hs-login-row">
-            <view class="hs-login" hover-class="hs-login-active" hover-stay-time="0" bindtap="onLoginActionTap">{{loginAction}}</view>
-            <view wx:if="{{loginTag}}" class="hs-login hs-login-switch" hover-class="hs-login-active" hover-stay-time="0" bindtap="onSwitchAccountTap">更换账号</view>
-          </view>
         </view>
         <view class="hs-spacer"></view>
         <view class="hs-pillars">
@@ -55,26 +51,11 @@
         <view class="mr-ic"><image src="{{item.icon}}"></image></view>
         <view class="mr-label">{{item.label}}</view>
         <view class="mr-val">{{item.val}}</view>
-        <view class="mr-chev" wx:if="{{!item.sub}}"><image class="chev" src="{{dark ? '/assets/images/ic-chev-dark.png' : '/assets/images/ic-chev.png'}}"></image></view>
+        <view class="mr-chev" wx:if="{{!item.sub}}"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
         <view class="mr-switch" wx:else>
           <switch checked="{{subOn}}" color="#A93A2C" bindchange="onSubChange" />
         </view>
       </view>
-    </view>
-
-    <!-- 账号中心（原型 dir_o · 壹）：危险区（朱砂注销）+ 数据安全说明 -->
-    <view class="op-label"><text>危险区</text></view>
-    <view class="papercard me-list">
-      <view class="me-row danger-row" hover-class="me-row-active" hover-stay-time="0" bindtap="onDeregTap">
-        <view class="mr-ic"><image src="{{dark ? '/assets/images/ic-moon-dark.png' : '/assets/images/ic-moon.png'}}"></image></view>
-        <view class="mr-label mr-label-danger">注销账号</view>
-        <view class="mr-val">数据不可恢复</view>
-        <view class="mr-chev"><image class="chev" src="{{dark ? '/assets/images/ic-chev-dark.png' : '/assets/images/ic-chev.png'}}"></image></view>
-      </view>
-    </view>
-    <view class="sec-note">
-      <text class="sn-title">安全与数据</text>
-      <text class="sn-body">对话与命书均经加密存储，仅你本人可见。退出登录不影响本地灯油与命书；注销账号后数据进入加密归档，90 天可恢复期内联系明灯即可找回，期满彻底删除。</text>
     </view>
 
     <view class="me-foot">秉烛而谈 · 灯火长明</view>
@@ -107,66 +88,17 @@
     </view>
   </view>
 
-  <!-- 更换账号说明弹层（原型 dir_o：将退出当前账号，可登录其他微信） -->
-  <view class="acct-mask" wx:if="{{switchDialogVisible}}" catchtouchmove="noop" bindtap="closeSwitchDialog">
-    <view class="acct-card" catchtap="noop">
-      <view class="acct-card-title">更换账号</view>
-      <view class="acct-card-body">
-        <text>将退出当前账号，重新登录其他微信。</text>
-        <text>当前账号的灯油、命书与手记</text><text class="mb-strong">不会丢失</text><text>。</text>
-      </view>
-      <view class="acct-card-note">登录新账号后，本地数据按新账号重新建档</view>
-      <view class="acct-card-actions">
-        <view class="btn-ghost-row" hover-class="acct-btn-active" hover-stay-time="0" bindtap="closeSwitchDialog">取消</view>
-        <view class="btn-ink-row" hover-class="acct-btn-active" hover-stay-time="0" bindtap="confirmSwitchAccount">去换账号</view>
-      </view>
-    </view>
-  </view>
-
-  <!-- 注销账号弹层（朱砂警示 · 输入「注销」二字确认，不匹配按钮禁用） -->
-  <view class="acct-mask" wx:if="{{deregDialogVisible}}" catchtouchmove="noop" bindtap="closeDeregDialog">
-    <view class="acct-card" catchtap="noop">
-      <view class="acct-card-title danger">
-        <view class="seal title-seal"><text class="seal-char">销</text></view>
-        <text>注销账号</text>
-      </view>
-      <view class="acct-card-body">
-        <text>注销后，对话、命书、收藏与解梦手记将</text><text class="mb-strong">不可恢复</text><text>；</text>
-        <text>数据将加密归档，90 天后彻底删除。</text>
-      </view>
-      <view class="acct-card-note">此操作不可撤销 · 请慎重</view>
-      <input class="acct-input" value="{{deregInput}}" bindinput="onDeregInput"
-        placeholder="输入「注销」二字确认" placeholder-class="acct-ph" confirm-type="done" />
-      <view class="acct-card-actions">
-        <view class="btn-ghost-row" hover-class="acct-btn-active" hover-stay-time="0" bindtap="closeDeregDialog">保留账号</view>
-        <view class="btn-acc-row {{deregInput !== '注销' ? 'disabled' : ''}}" hover-class="acct-btn-active" hover-stay-time="0" bindtap="confirmDereg">确认注销</view>
-      </view>
-    </view>
-  </view>
-
-  <!-- 注销成功页（原型 GoneScreen：账号已注销 · 感谢相伴） -->
-  <view wx:if="{{deregDone}}" class="gone-screen" catchtouchmove="noop">
-    <image class="gone-lantern" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
-    <view class="gs-title">账号已注销</view>
-    <view class="gs-sub">你的对话、命书与手记已加密归档
-90 天内不再打扰 · 愿你前路有光</view>
-    <view class="gs-line"></view>
-    <view class="gs-poem">感谢相伴，灯火长明。</view>
-    <view class="gs-btn" hover-class="acct-btn-active" hover-stay-time="0" bindtap="onDeregGoneBack">回到首页</view>
-    <view class="gs-note">重新登录后，一切从一灯开始</view>
-  </view>
-
   <view class="tabbar">
     <view class="tab-item" bindtap="onTab" data-tab="today">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-lantern-dark.png' : '/assets/images/ic-lantern.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-lantern.png"></image>
       <text class="tab-label">今日</text>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="chat">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-chat-dark.png' : '/assets/images/ic-chat.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-chat.png"></image>
       <text class="tab-label">聊天</text>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="book">
-      <image class="tab-ic" src="{{dark ? '/assets/images/ic-book-dark.png' : '/assets/images/ic-book.png'}}"></image>
+      <image class="tab-ic" src="/assets/images/ic-book.png"></image>
       <text class="tab-label">命书</text>
     </view>
     <view class="tab-item on" bindtap="onTab" data-tab="me">

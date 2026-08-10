@@ -18,14 +18,12 @@
     "pages/onboarding/onboarding",
     "pages/persons/persons"
   ],
-  "darkmode": true,
-  "themeLocation": "theme.json",
   "window": {
-    "navigationBarBackgroundColor": "@navBgColor",
+    "navigationBarBackgroundColor": "#F5EFE1",
     "navigationBarTitleText": "易理明灯",
-    "navigationBarTextStyle": "@navTxtStyle",
-    "backgroundColor": "@bgColor",
-    "backgroundTextStyle": "@bgTxtStyle"
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#F5EFE1",
+    "backgroundTextStyle": "dark"
   },
   "style": "v2",
   "sitemapLocation": "sitemap.json",

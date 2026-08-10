@@ -1,4 +1,7 @@
 // 命书 — 线装书（原型 BookScreen：封面 + 卷四章目 + 竖排落款 + TabBar）
+// v1.3：卷章目/封面可点击 → 拉取该卷报告全文（GET /api/reports/{id}）→ 墨韵弹层展示；
+//       后端报告列表项映射为卷目（scenarioLabel 作卷名、日期/标签作小注）；
+//       无报告时展示友好空态「暂无命书 · 去聊一段生成」。
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 
@@ -12,21 +15,32 @@ const DEFAULT_BOOKS = [
   { noText: '卷四', title: '解梦手札', sub: '已存 12 记 · 墨未干', page: '四', read: false },
 ];
 
+/* 后端列表项 {id,date,scenario,scenarioLabel,summary,score,tags,note?} → 卷目模型 */
 function withNoText(list) {
   return list.map((r, i) => Object.assign({}, r, {
     noText: '卷' + (CN_NUM[i] || String(i + 1)),
     page: CN_NUM[i] || String(i + 1),
     read: i === 0,
+    title: r.scenarioLabel || '命书',
+    sub: [
+      r.date || '',
+      (Array.isArray(r.tags) && r.tags[0] && r.tags[0] !== r.scenarioLabel) ? r.tags[0] : '',
+      r.score ? r.score + ' 分' : '',
+    ].filter(Boolean).join(' · '),
   }));
 }
 
 Page({
   data: {
     navOff: 0,
-    books: DEFAULT_BOOKS,
+    books: [],                 // 卷目（空 = 加载中/空态；后端不可用回退 DEFAULT_BOOKS）
+    loaded: false,
     curTab: 'book',
     dark: false,
     sharing: false,
+    /* 卷章全文弹层（墨韵线装书：宣纸底 / 竖排标题 / 印章） */
+    detail: { show: false, noText: '', title: '', date: '', score: 0, luckyColor: '', luckyDirection: '', luckyNumber: '', fullContent: '' },
+    loadingDetail: false,
   },
 
   onLoad() {
@@ -41,18 +55,78 @@ Page({
     if (off !== 0) this.setData({ navOff: off });
   },
 
-  /* 后端数据绑定（api.js 契约：getReports → 四卷章目） */
+  /* 后端数据绑定（api.js 契约：getReports → 卷目列表；getReportDetail → 全文） */
   _loadBooks() {
     api.getReports(1, 20)
       .then((res) => {
         const reports = (res && res.reports) || [];
-        if (reports.length > 0) {
-          this.setData({ books: withNoText(reports).slice(0, 4) });
-        }
+        const books = reports.length > 0 ? withNoText(reports).slice(0, 20) : [];
+        this.setData({ books, loaded: true });
       })
       .catch(() => {
         console.warn('[Reports] API 不可用，保持原型四卷');
+        this.setData({ books: DEFAULT_BOOKS, loaded: true });
       });
+  },
+
+  /* 点卷章目 → 拉取该卷全文（墨韵弹层展示） */
+  onBookTap(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id) {
+      wx.showToast({ title: '暂无命书内容，去聊一段生成吧', icon: 'none' });
+      return;
+    }
+    this._openDetail(id);
+  },
+
+  /* 点封面 → 打开第一卷 */
+  onCoverTap() {
+    const first = this.data.books.find((b) => b && b.id) || this.data.books[0];
+    if (!first || !first.id) {
+      wx.showToast({ title: '暂无命书内容，去聊一段生成吧', icon: 'none' });
+      return;
+    }
+    this._openDetail(first.id);
+  },
+
+  _openDetail(id) {
+    if (this.data.loadingDetail) return;
+    this.setData({ loadingDetail: true });
+    wx.showLoading({ title: '开卷中…', mask: true });
+    api.getReportDetail(id)
+      .then((res) => {
+        const r = (res && res.report) || {};
+        const book = this.data.books.find((b) => String(b.id) === String(id)) || {};
+        this.setData({
+          detail: {
+            show: true,
+            noText: book.noText || '',
+            title: r.scenarioLabel || book.title || '命书',
+            date: r.date || '',
+            score: r.score || 0,
+            luckyColor: r.luckyColor || '',
+            luckyDirection: r.luckyDirection || '',
+            luckyNumber: r.luckyNumber || '',
+            fullContent: String(r.fullContent || ''),
+          },
+        });
+      })
+      .catch(() => {
+        wx.showToast({ title: '开卷失败，请稍后再试', icon: 'none' });
+      })
+      .then(() => {
+        wx.hideLoading();
+        this.setData({ loadingDetail: false });
+      });
+  },
+
+  closeDetail() {
+    this.setData({ detail: { show: false, noText: '', title: '', date: '', score: 0, luckyColor: '', luckyDirection: '', luckyNumber: '', fullContent: '' } });
+  },
+
+  /* 空态：去聊一段（回聊天页生成命书） */
+  goChat() {
+    wx.reLaunch({ url: '/pages/chat/chat' });
   },
 
   /* 原型 onBack：返回今日 */
@@ -109,4 +183,6 @@ Page({
     const url = { today: '/pages/today/today', chat: '/pages/chat/chat', book: '/pages/reports/reports', me: '/pages/me/me' }[t];
     if (url && !url.includes('/reports/')) wx.reLaunch({ url });
   },
+
+  noop() { /* 弹层内吞掉背景滚动/穿透 */ },
 });

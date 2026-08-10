@@ -4,11 +4,5 @@
     "navTxtStyle": "black",
     "bgColor": "#F5EFE1",
     "bgTxtStyle": "dark"
-  },
-  "dark": {
-    "navBgColor": "#211C13",
-    "navTxtStyle": "white",
-    "bgColor": "#211C13",
-    "bgTxtStyle": "light"
   }
 }

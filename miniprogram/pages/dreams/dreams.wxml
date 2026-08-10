@@ -3,10 +3,10 @@
   <block wx:if="{{view === 'list'}}">
     <view class="navrow">
       <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
-        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+        <image class="back-icon" src="/assets/images/ic-back.png"></image>
       </view>
       <view class="nav-title">
-        <image class="nav-t-icon" src="{{dark ? '/assets/images/ic-moon-dark.png' : '/assets/images/ic-moon.png'}}"></image>
+        <image class="nav-t-icon" src="/assets/images/ic-moon.png"></image>
         <text>解梦手记</text>
       </view>
       <view class="nav-right"></view>
@@ -20,7 +20,7 @@
 
       <!-- 空态（原型：灯笼 + 两句 + 分隔线 + 诗行） -->
       <view wx:if="{{loaded && !notes.length}}" class="empty">
-        <image class="empty-lantern" src="{{dark ? '/assets/images/lantern-dark.jpg' : '/assets/images/lantern.jpg'}}"></image>
+        <image class="empty-lantern" src="/assets/images/lantern.jpg"></image>
         <view class="e-title">还没有解梦手记</view>
         <view class="e-sub">在夜话里提起一个梦，明灯替你解读
 解毕，此记便入册</view>
@@ -43,7 +43,7 @@
             <view class="note-read">{{item.read}}</view>
             <view class="note-foot">
               <view class="nf-book">
-                <image class="nf-book-ic" src="{{dark ? '/assets/images/ic-book2-dark.png' : '/assets/images/ic-book2.png'}}"></image>
+                <image class="nf-book-ic" src="/assets/images/ic-book2.png"></image>
                 <text>{{item.quote}}</text>
               </view>
               <view class="nf-open">点开细读</view>
@@ -59,13 +59,13 @@
   <block wx:else>
     <view class="navrow">
       <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
-        <image class="back-icon" src="{{dark ? '/assets/images/ic-back-dark.png' : '/assets/images/ic-back.png'}}"></image>
+        <image class="back-icon" src="/assets/images/ic-back.png"></image>
       </view>
       <view class="nav-title">
         <text>解梦 · {{current.key}}</text>
       </view>
       <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0" bindtap="askDel">
-        <image class="nav-right-icon" src="{{dark ? '/assets/images/ic-kebab-dark.png' : '/assets/images/ic-kebab.png'}}"></image>
+        <image class="nav-right-icon" src="/assets/images/ic-kebab.png"></image>
       </view>
     </view>
 
@@ -88,7 +88,7 @@
         <view class="jz-body">{{current.read}}</view>
         <view class="jz-quote">
           <view class="q-badge">
-            <image class="q-book-ic" src="{{dark ? '/assets/images/ic-book2-dark.png' : '/assets/images/ic-book2.png'}}"></image>
+            <image class="q-book-ic" src="/assets/images/ic-book2.png"></image>
             <text>{{current.quote}}</text>
           </view>
           <text class="q-note">{{current.quoteNote}}</text>

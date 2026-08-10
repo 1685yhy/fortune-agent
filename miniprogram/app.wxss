@@ -96,59 +96,6 @@ page {
   -webkit-font-smoothing: antialiased;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   暗黑模式 · 深墨夜笺（微信官方机制：app.json darkmode + theme.json
-   @window 变量；业务样式由 prefers-color-scheme 驱动 —— 系统深色时
-   宣纸底 → 深墨底 #211C13，墨字 → 米白，朱砂保留并加深）
-   ═══════════════════════════════════════════════════════════════ */
-@media (prefers-color-scheme: dark) {
-  page {
-    /* ── 墨分五色 → 夜笺五色 ── */
-    --ink: #E8DCC3;
-    --ink-mid: #C6B89B;
-    --ink-soft: #998B72;
-    --ink-faint: #716753;
-    /* ── 朱砂点睛（保留 · 加深提亮） ── */
-    --acc: #C25443;
-    --acc-deep: #9E3A2E;
-    --acc-soft: rgba(194,84,67,.16);
-    /* ── 暖金（烛光更亮） ── */
-    --gold: #C9A062;
-    --gold-soft: rgba(201,160,98,.24);
-    /* ── 深墨底 ── */
-    --paper: #211C13;
-    --paper-deep: #1B160E;
-    --paper-card: #2B251A;
-    --line: rgba(232,220,195,.18);
-    --line-soft: rgba(232,220,195,.1);
-    /* ── 派生色 · 夜版 ── */
-    --line-strong: rgba(232,220,195,.3);
-    --line-mid: rgba(232,220,195,.28);
-    --line-med: rgba(232,220,195,.18);
-    --line-hard: rgba(232,220,195,.42);
-    --line-input: rgba(232,220,195,.24);
-    --line-btn: rgba(232,220,195,.55);
-    --ink-brand: rgba(232,220,195,.5);
-    --acc-line: rgba(194,84,67,.4);
-    --shadow-sm: rgba(0,0,0,.35);
-    --shadow: rgba(0,0,0,.45);
-    --shadow-lg: rgba(0,0,0,.55);
-    --tabbar-bg: rgba(33,28,19,.97);
-    --tag-bg: rgba(43,37,26,.6);
-    --cover-grad: linear-gradient(165deg, #2B251A 0%, #262017 55%, #201B12 100%);
-    /* ── v6 旧 token 兼容 · 夜版 ── */
-    --bg-night: #211C13;
-    --bg-card: #2B251A;
-    --bg-input: #2B251A;
-    --ink-primary: #E8DCC3;
-    --ink-secondary: #C6B89B;
-    --ink-muted: #998B72;
-    --gold-light: #C25443;
-    --lavender: #998B72;
-    --success: #8A9A6E;
-    --error: #C25443;
-  }
-}
 
 /* Reset — wxss 不支持通配符，标签级 reset */
 page, view, text, input, textarea, button, image, scroll-view, rich-text, icon, navigator, switch, slider { margin:0; padding:0; box-sizing:border-box; }
