@@ -1,10 +1,12 @@
 """晨笺订阅 API:偏好读写(开关+时间自选)+服务号绑定。全挂 require_user。"""
-import logging, re
+import logging, re, threading
+from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional
 from src.storage.jian_dao import JianPrefDAO
 from src.security.auth import require_user  # 与现有 API 相同鉴权
+from src.security.ratelimit import SlidingWindowCounter
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/jian", tags=["jian"])
@@ -17,6 +19,19 @@ def _dao() -> JianPrefDAO:
         from src.storage.dao import get_conn
         _pref_dao = JianPrefDAO(get_conn())
     return _pref_dao
+
+# bind 端点按用户限流:每用户 5 次/分钟(缓解"信任调用方 openid"的滥用面)。
+# 复用 src.security.ratelimit.SlidingWindowCounter(与全局 RateLimiter 同款实现);
+# 全局 RateLimiter.check_user 是固定 100 次/小时 的整站上限,无按端点窗口参数,
+# 故此处独立维护 per-user 计数器。锁保护 dict 与计数器的并发访问。
+_BIND_LIMIT = (5, 60)  # (max_requests, window_seconds)
+_bind_limiters = defaultdict(lambda: SlidingWindowCounter(*_BIND_LIMIT))
+_bind_lock = threading.Lock()
+
+def _bind_allowed(uid: str) -> tuple:
+    """绑定限流判定。返回 (allowed, retry_after_seconds);超限返回 (False, n)。"""
+    with _bind_lock:
+        return _bind_limiters[uid].allow()
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -51,7 +66,12 @@ def put_prefs(body: PrefUpdate, uid: str = Depends(require_user)):
     _dao().upsert_pref(uid, patch)
     return {"prefs": _dao().get_pref(uid)}
 
+# TODO(上线前): 绑定应走服务号 unionid 交换校验(当前信任调用方 openid,已限流缓解)
 @router.put("/bind")
 def bind(body: BindBody, uid: str = Depends(require_user)):
+    allowed, retry_after = _bind_allowed(uid)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="绑定过于频繁,请稍后再试",
+                            headers={"Retry-After": str(retry_after)})
     _dao().upsert_pref(uid, {"bound_status": "bound", "mp_openid": body.mp_openid})
     return {"bound": True}

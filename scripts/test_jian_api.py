@@ -58,4 +58,15 @@ check("非法时间 400", r.status_code == 400)
 r = client.put("/api/jian/bind", headers=h, json={"mp_openid": "oXXXX"})
 check("绑定成功", r.status_code == 200 and r.json()["bound"] is True)
 
+# 6. 绑定限流:每用户 5 次/分钟,前 5 次放行,第 6 次 429(用独立用户隔离)
+TOKEN2 = _auth.create_user_token("dev-token-test-user-jian-rl")
+h2 = {"Authorization": f"Bearer {TOKEN2}"}
+for i in range(5):
+    r = client.put("/api/jian/bind", headers=h2, json={"mp_openid": f"oRL{i}"})
+    assert r.status_code == 200, f"第{i+1}次绑定应放行,实际 {r.status_code}"
+check("限流内 5 次放行", True)
+r = client.put("/api/jian/bind", headers=h2, json={"mp_openid": "oRL-6th"})
+check("第 6 次绑定 429", r.status_code == 429)
+check("429 带 Retry-After", r.headers.get("Retry-After", "") != "")
+
 print(f"\nALL PASS ({ok})")
