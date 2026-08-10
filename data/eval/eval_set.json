@@ -1,0 +1,205 @@
+{
+  "version": 1,
+  "description": "M9 话术引擎四层评测题库（L1 情绪回应 / L2 语言质量 / L3 专业质量 / L4 真实对话抽检）",
+  "updated": "2026-08-08 09:03:26",
+  "sample_count": 22,
+  "samples": [
+    {
+      "id": "insomnia_01",
+      "category": "失眠",
+      "domain": null,
+      "text": "最近老是失眠，凌晨两三点醒了就睡不着，脑子里全是第二天的事，翻来覆去到天亮。我是不是身体有什么毛病啊？",
+      "intensity": 0.7,
+      "expect_terms": []
+    },
+    {
+      "id": "insomnia_02",
+      "category": "失眠",
+      "domain": null,
+      "text": "又失眠了，连续第五天了。白天困得要死晚上精神得很，烦死了。",
+      "intensity": 0.6,
+      "expect_terms": []
+    },
+    {
+      "id": "insomnia_03",
+      "category": "失眠",
+      "domain": null,
+      "text": "我睡不着，越想睡越睡不着，是不是我命里带什么煞？还是卧室风水有问题？",
+      "intensity": 0.65,
+      "expect_terms": [
+        "风水",
+        "煞"
+      ]
+    },
+    {
+      "id": "breakup_01",
+      "category": "分手",
+      "domain": null,
+      "text": "他昨天跟我说分手了，谈了三年，说走就走。我现在吃不下睡不着，觉得自己什么都做不好……",
+      "intensity": 0.9,
+      "expect_terms": []
+    },
+    {
+      "id": "breakup_02",
+      "category": "分手",
+      "domain": null,
+      "text": "分手三个月了还是走不出来，看到以前的东西就哭。我是不是很没用？",
+      "intensity": 0.85,
+      "expect_terms": []
+    },
+    {
+      "id": "breakup_03",
+      "category": "分手",
+      "domain": null,
+      "text": "我把他微信删了，今天他又来加我。我到底要不要通过？好烦。",
+      "intensity": 0.6,
+      "expect_terms": []
+    },
+    {
+      "id": "setback_01",
+      "category": "受挫",
+      "domain": null,
+      "text": "面试又被拒了，这是今年第五次了。是不是我八字就不适合这份工作？要不要认命？",
+      "intensity": 0.75,
+      "expect_terms": [
+        "八字"
+      ]
+    },
+    {
+      "id": "setback_02",
+      "category": "受挫",
+      "domain": null,
+      "text": "努力了一年，业绩还是垫底，领导天天给我脸色看。我感觉自己就是个废物。",
+      "intensity": 0.8,
+      "expect_terms": []
+    },
+    {
+      "id": "setback_03",
+      "category": "受挫",
+      "domain": null,
+      "text": "考研二战又没过，差两分。爸妈嘴上不说，我知道他们失望。我该继续吗？",
+      "intensity": 0.85,
+      "expect_terms": []
+    },
+    {
+      "id": "share_01",
+      "category": "分享",
+      "domain": null,
+      "text": "今天升职了！！终于熬出头了，请允许我开心一下哈哈哈哈",
+      "intensity": 0.3,
+      "expect_terms": []
+    },
+    {
+      "id": "share_02",
+      "category": "分享",
+      "domain": null,
+      "text": "跟你说个好消息，我昨天买彩票中了500块，虽然不多但就是开心！",
+      "intensity": 0.25,
+      "expect_terms": []
+    },
+    {
+      "id": "birthday_01",
+      "category": "生日",
+      "domain": null,
+      "text": "今天是我生日，一个人在外面，没人记得。唉。",
+      "intensity": 0.7,
+      "expect_terms": []
+    },
+    {
+      "id": "birthday_02",
+      "category": "生日",
+      "domain": null,
+      "text": "明天生日，还是本命年，总觉得要倒霉一年，有什么办法避一避吗？",
+      "intensity": 0.5,
+      "expect_terms": [
+        "本命年"
+      ]
+    },
+    {
+      "id": "prof_bazi_01",
+      "category": "专业问题",
+      "domain": "八字",
+      "text": "师傅，我1993年农历二月十四出生，男，帮我看看我什么时候能遇到正缘？",
+      "intensity": 0.3,
+      "expect_terms": [
+        "正缘"
+      ]
+    },
+    {
+      "id": "prof_bazi_02",
+      "category": "专业问题",
+      "domain": "八字",
+      "text": "我日主是戊土，网上说我是财多身弱，容易破财留不住钱，真的假的？",
+      "intensity": 0.4,
+      "expect_terms": [
+        "财多身弱"
+      ]
+    },
+    {
+      "id": "prof_ziwei_01",
+      "category": "专业问题",
+      "domain": "紫微",
+      "text": "我紫微盘迁移宫有天同星，是不是代表我适合去外地发展？",
+      "intensity": 0.3,
+      "expect_terms": [
+        "天同",
+        "迁移宫"
+      ]
+    },
+    {
+      "id": "prof_ziwei_02",
+      "category": "专业问题",
+      "domain": "紫微",
+      "text": "帮我看看我的紫微命盘，子女宫好像没有主星，是不是我这辈子没孩子命？",
+      "intensity": 0.5,
+      "expect_terms": [
+        "紫微"
+      ]
+    },
+    {
+      "id": "prof_dream_01",
+      "category": "专业问题",
+      "domain": "解梦",
+      "text": "昨晚梦见自己掉牙齿，一颗一颗掉光，还流血，直接吓醒了。这梦什么意思啊？",
+      "intensity": 0.55,
+      "expect_terms": [
+        "掉牙",
+        "周公解梦"
+      ]
+    },
+    {
+      "id": "prof_dream_02",
+      "category": "专业问题",
+      "domain": "解梦",
+      "text": "梦见被蛇追，怎么跑都跑不动，是什么意思？我最近在找工作，有关系吗？",
+      "intensity": 0.45,
+      "expect_terms": [
+        "解梦"
+      ]
+    },
+    {
+      "id": "chat_01",
+      "category": "闲聊",
+      "domain": null,
+      "text": "在吗？今天天气真好，适合干点啥？",
+      "intensity": 0.1,
+      "expect_terms": []
+    },
+    {
+      "id": "chat_02",
+      "category": "闲聊",
+      "domain": null,
+      "text": "你到底是算命大师还是AI？能告诉我实话吗",
+      "intensity": 0.15,
+      "expect_terms": []
+    },
+    {
+      "id": "chat_03",
+      "category": "闲聊",
+      "domain": null,
+      "text": "最近歌荒了，给我推荐首歌呗",
+      "intensity": 0.1,
+      "expect_terms": []
+    }
+  ]
+}

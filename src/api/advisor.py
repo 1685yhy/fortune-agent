@@ -6,9 +6,10 @@
 
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from ..security.auth import require_user
 from ..services.narrative import NarrativeService
 
 router = APIRouter(tags=["advisor"])
@@ -18,7 +19,7 @@ router = APIRouter(tags=["advisor"])
 
 class AdvisorRequest(BaseModel):
     """AI 建议请求"""
-    user_id: str
+    user_id: str = ""  # 已废弃：安全修复后一律以 JWT sub 为准
     context: str = ""  # 用户当前处境描述
     domains: List[str] = []  # 关注的领域，如 ["事业", "财运"]
 
@@ -81,14 +82,18 @@ def _get_api_key() -> str:
 
 
 @router.post("/api/advisor", response_model=AdvisorResponse)
-async def get_advisor(req: AdvisorRequest):
+async def get_advisor(req: AdvisorRequest, uid: str = Depends(require_user)):
     """生成 AI 个性化建议。
 
     基于用户的八字命盘 + 当前处境，由 LLM 动态生成
     分领域行动建议，并匹配历史相似名人提供参考。
+
+    安全修复：user_id 一律取 JWT sub（body 的 user_id 被忽略，防 IDOR）。
     """
     if _dao is None:
         raise HTTPException(status_code=503, detail="Advisor service not ready")
+
+    req.user_id = uid
 
     # 1. 获取用户八字
     saved = _dao.get_user_bazi(req.user_id)
@@ -122,16 +127,9 @@ async def get_advisor(req: AdvisorRequest):
         raise HTTPException(status_code=500, detail=f"建议生成失败：{str(e)[:200]}")
 
     # 4. 构建响应
-    # 4a. 名人匹配
+    # 4a. 名人匹配已移除（2026-08-09 方案 v5 选 A：celebrity_matches 恒为空列表，
+    #     保留响应字段向后兼容前端，不再填充任何名人数据）
     celeb_matches = []
-    celeb = advice_data.get("celebrity_match", {})
-    if celeb and celeb.get("name"):
-        celeb_matches.append(CelebrityMatch(
-            name=celeb["name"],
-            similarity=celeb.get("similarity", 0),
-            bio=f"格局: {celeb.get('geju', '')}",
-            reason=celeb.get("insight", ""),
-        ))
 
     # 4b. 领域建议 — 按域过滤 & 转换
     domain_map = {

@@ -363,13 +363,19 @@ class CommunityDetector:
                 executor.submit(_summarize, comm): i
                 for i, comm in enumerate(self.communities)
             }
-            for future in concurrent.futures.as_completed(futures):
-                idx = futures[future]
-                try:
-                    self.communities[idx]["summary"] = future.result()
-                except Exception as exc:
-                    logger.warning("Summary task failed for community %s: %s", idx, exc)
-                    self.communities[idx]["summary"] = self._template_summary(self.communities[idx])
+            # 防卡死：整体等待设超时（120s），超时后跳过未完成项
+            try:
+                completed = concurrent.futures.as_completed(futures, timeout=120)
+                for future in completed:
+                    idx = futures[future]
+                    try:
+                        self.communities[idx]["summary"] = future.result(timeout=30)
+                    except Exception as exc:
+                        logger.warning("Summary task failed for community %s: %s", idx, exc)
+                        self.communities[idx]["summary"] = self._template_summary(self.communities[idx])
+            except concurrent.futures.TimeoutError:
+                logger.warning("Community summarization timed out (>120s), %d tasks incomplete",
+                               len(futures))
 
         return self.communities
 

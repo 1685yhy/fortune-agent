@@ -6,10 +6,12 @@
 
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from ..security.auth import require_user
 from ..services.narrative import NarrativeService
+from ..api.birth_contract import normalize_gender
 
 router = APIRouter(tags=["xingming"])
 
@@ -17,9 +19,15 @@ router = APIRouter(tags=["xingming"])
 
 
 class XingmingRequest(BaseModel):
-    """姓名学请求"""
+    """姓名学请求（双契约兼容）。
+
+    - 后端原生契约: surname/given_name/gender('男'|'女')
+    - 小程序契约（xingming.js）: surname/givenName/gender('male'|'female')
+      —— givenName 优先于 given_name
+    """
     surname: str
-    given_name: str
+    given_name: str = ""
+    givenName: Optional[str] = None
     gender: str = "男"
 
 
@@ -53,16 +61,24 @@ def setup(xingming_engine, narrative: NarrativeService = None) -> None:
 
 
 @router.post("/api/xingming", response_model=XingmingResponse)
-async def analyze_xingming(req: XingmingRequest):
-    """姓名分析 — 返回五格、三才、81数理及综合评判。"""
+async def analyze_xingming(req: XingmingRequest, uid: str = Depends(require_user)):
+    """姓名分析 — 返回五格、三才、81数理及综合评判。
+
+    安全修复：必须登录。
+    """
     if _xingming_engine is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=503, detail="姓名学引擎暂不可用")
 
+    given_name = (req.givenName or req.given_name).strip()
+    if not given_name:
+        raise HTTPException(status_code=400, detail="名字不能为空")
+    gender = normalize_gender(req.gender)
+
     result = _xingming_engine.analyze(
         surname=req.surname,
-        given_name=req.given_name,
-        gender=req.gender,
+        given_name=given_name,
+        gender=gender,
     )
 
     # LLM narrative
@@ -71,8 +87,8 @@ async def analyze_xingming(req: XingmingRequest):
         try:
             result_dict = {
                 "surname": req.surname,
-                "given_name": req.given_name,
-                "gender": req.gender,
+                "given_name": given_name,
+                "gender": gender,
                 "wuge": result.wuge,
                 "sancai": result.sancai,
                 "sancai_ji": result.sancai_ji,

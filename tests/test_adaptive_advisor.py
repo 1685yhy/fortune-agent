@@ -4,23 +4,22 @@
 - 同一八字 + 不同处境 → 不同建议
 - JSON 输出可解析
 - 5个生活领域全部覆盖
-- 名人匹配功能正常
 - 10组八字测试: >80% 独特建议率
 - 响应时间 < 5 秒
 - Serendipity 引擎输出
-- 名人洞察深度包含人生事件对比
 - 行动建议包含具体步骤和成功指标
+- 名人匹配已移除（2026-08-09 方案 v5 选 A）：celebrity_match 恒为空 dict
 """
 import json
 import os
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 from pathlib import Path
 
 import pytest
 
 from src.engines.bazi import BaziEngine, BaziResult
-from src.engines.advisor_v2 import AdaptiveAdvisor, CelebrityMatcher, LIFE_DOMAINS
+from src.engines.advisor_v2 import AdaptiveAdvisor, LIFE_DOMAINS
 
 
 # ============================================================
@@ -51,95 +50,9 @@ def sample_bazi_c(engine):
 
 
 # ============================================================
-# 名人匹配功能测试
+# 名人匹配功能测试（已移除 2026-08-09 方案 v5 选 A：
+# CelebrityMatcher 类整体删除，相关用例一并移除）
 # ============================================================
-
-class TestCelebrityMatcher:
-    """测试名人匹配功能。"""
-
-    def test_matcher_loads_data(self):
-        """名人库加载正常。"""
-        matcher = CelebrityMatcher()
-        assert len(matcher._celebrities) > 0, "名人库应为非空"
-        assert len(matcher._celebrities) >= 900, f"名人库应包含至少900人, 当前: {len(matcher._celebrities)}"
-
-    def test_parse_birth_with_time(self):
-        """解析带具体时间的出生字符串。"""
-        matcher = CelebrityMatcher()
-        result = matcher._parse_birth("1955年2月24日 19:15 旧金山 男")
-        assert result is not None
-        year, month, day, hour, minute, city, gender = result
-        assert year == 1955
-        assert month == 2
-        assert day == 24
-        assert hour == 19
-        assert minute == 15
-        assert city == "旧金山"
-        assert gender == "男"
-
-    def test_parse_birth_without_time(self):
-        """解析不带具体时间的出生字符串。"""
-        matcher = CelebrityMatcher()
-        result = matcher._parse_birth("1964年9月10日 时辰不详 杭州 男")
-        assert result is not None
-        year, month, day, hour, minute, city, gender = result
-        assert year == 1964
-        assert month == 9
-        assert day == 10
-        assert hour == 0  # 缺省为子时
-        assert minute == 0
-        assert city == "杭州"
-        assert gender == "男"
-
-    def test_parse_birth_female(self):
-        """解析女性出生信息。"""
-        matcher = CelebrityMatcher()
-        result = matcher._parse_birth("2000年11月4日 时辰不详 石家庄 女")
-        assert result is not None
-        assert result[6] == "女"  # gender
-
-    def test_find_top_matches(self, sample_bazi_a):
-        """不同八字应匹配不同的名人。"""
-        matcher = CelebrityMatcher()
-        matches = matcher.find_top_matches(sample_bazi_a, top_k=3)
-        assert len(matches) <= 3
-        for m in matches:
-            assert "name" in m
-            assert "similarity" in m
-            assert 0 <= m["similarity"] <= 100
-            assert "geju" in m
-
-    def test_celebrity_events_included(self, sample_bazi_a):
-        """名人匹配结果应包含人生事件。"""
-        matcher = CelebrityMatcher()
-        matches = matcher.find_top_matches(sample_bazi_a, top_k=3)
-        for m in matches:
-            assert "events" in m, "名人匹配应包含 events 字段"
-            # events 应该是列表
-            assert isinstance(m["events"], list)
-
-    def test_different_bazi_different_matches(self, sample_bazi_a, sample_bazi_b):
-        """不同八字匹配不同名人。"""
-        matcher = CelebrityMatcher()
-        matches_a = matcher.find_top_matches(sample_bazi_a)
-        matches_b = matcher.find_top_matches(sample_bazi_b)
-        # 可能为空或相同，但至少检查接口可用
-        if matches_a and matches_b:
-            names_a = [m["name"] for m in matches_a]
-            names_b = [m["name"] for m in matches_b]
-            # 不同八字极大概率匹配不同名人
-            assert names_a != names_b, "不同八字应匹配不同的名人"
-
-    def test_similarity_score_bounds(self, sample_bazi_a):
-        """相似度得分应在 0-100 范围内。"""
-        matcher = CelebrityMatcher()
-        matches = matcher.find_top_matches(sample_bazi_a)
-        for m in matches:
-            assert 0 <= m["similarity"] <= 100
-        # 如果有匹配，最高分应 > 0
-        if matches:
-            assert matches[0]["similarity"] > 0
-
 
 # ============================================================
 # LLM 调用测试 (带 mock)
@@ -210,7 +123,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解事业运势",
-                personality="sassy",
                 api_key="test_key",
             )
         assert isinstance(result, dict)
@@ -221,7 +133,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解事业运势",
-                personality="sassy",
                 api_key="test_key",
             )
         actions = result.get("actions", [])
@@ -235,7 +146,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解运势",
-                personality="sassy",
                 api_key="test_key",
             )
         for action in result.get("actions", []):
@@ -251,7 +161,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解运势",
-                personality="sassy",
                 api_key="test_key",
             )
         for action in result.get("actions", []):
@@ -264,7 +173,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解运势",
-                personality="sassy",
                 api_key="test_key",
             )
         for action in result.get("actions", []):
@@ -277,7 +185,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解运势",
-                personality="sassy",
                 api_key="test_key",
             )
         assert "daily_tip" in result
@@ -289,7 +196,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解运势",
-                personality="sassy",
                 api_key="test_key",
             )
         assert "style_notes" in result
@@ -301,7 +207,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解运势",
-                personality="sassy",
                 api_key="test_key",
             )
         assert "celebrity_match" in result
@@ -312,7 +217,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解运势",
-                personality="sassy",
                 api_key="test_key",
             )
         assert "serendipity" in result
@@ -324,7 +228,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解运势",
-                personality="sassy",
                 api_key="test_key",
             )
         assert "insight" in result
@@ -336,7 +239,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解运势",
-                personality="sassy",
                 api_key="test_key",
             )
         if result.get("celebrity_match", {}).get("insight"):
@@ -352,7 +254,6 @@ class TestAdaptiveAdvisorMocked:
             result = advisor.generate(
                 sample_bazi_a,
                 user_context="想了解运势",
-                personality="sassy",
                 api_key="test_key",
             )
         if result.get("serendipity"):
@@ -404,8 +305,8 @@ class TestAdaptiveAdvisorMocked:
         })
 
         with patch.object(advisor, '_call_llm', side_effect=[response_job, response_love]):
-            r1 = advisor.generate(sample_bazi_a, user_context="想跳槽，最近有offer", personality="sassy", api_key="key")
-            r2 = advisor.generate(sample_bazi_a, user_context="想谈恋爱，求姻缘", personality="sassy", api_key="key")
+            r1 = advisor.generate(sample_bazi_a, user_context="想跳槽，最近有offer", api_key="key")
+            r2 = advisor.generate(sample_bazi_a, user_context="想谈恋爱，求姻缘", api_key="key")
 
         # 验证输出不同
         assert r1 != r2, "同一八字 + 不同处境应生成不同建议"
@@ -440,28 +341,20 @@ class TestFallback:
     def test_fallback_has_all_fields(self, sample_bazi_a):
         """备用结果包含所有必要字段（含新字段）。"""
         advisor = AdaptiveAdvisor()
-        result = advisor._fallback_result([])
+        result = advisor._fallback_result()
         assert "actions" in result
         assert "daily_tip" in result
         assert "style_notes" in result
-        assert "celebrity_match" in result
+        assert "celebrity_match" in result  # 恒为空 dict（名人库已移除，字段向后兼容）
+        assert result["celebrity_match"] == {}
         assert "serendipity" in result, "备用结果应包含 serendipity 字段"
         assert "insight" in result, "备用结果应包含 insight 字段"
         assert len(result["actions"]) == 5
 
-    def test_fallback_with_celeb_match(self, sample_bazi_a):
-        """备用结果包含名人匹配信息（如果有）。"""
-        advisor = AdaptiveAdvisor()
-        top_matches = [{"name": "马云", "similarity": 78, "geju": "七杀格"}]
-        result = advisor._fallback_result(top_matches)
-        assert result["celebrity_match"]["name"] == "马云"
-        assert "insight" in result["celebrity_match"]
-        assert result["insight"] == result["celebrity_match"]["insight"], "顶层 insight 应一致"
-
     def test_fallback_domains_cover_all(self):
         """备用结果的5个领域覆盖完整。"""
         advisor = AdaptiveAdvisor()
-        result = advisor._fallback_result([])
+        result = advisor._fallback_result()
         categories = {a["category"] for a in result["actions"]}
         for domain in LIFE_DOMAINS:
             assert domain in categories
@@ -494,7 +387,6 @@ class TestIntegration:
         result = advisor.generate(
             sample_bazi_a,
             user_context="最近工作很忙，想了解事业运势",
-            personality="sassy",
             api_key=api_key,
         )
         elapsed = time.time() - start
@@ -522,7 +414,6 @@ class TestIntegration:
             adv = advisor.generate(
                 result,
                 user_context="想了解近期运势",
-                personality="analyst",
                 api_key=api_key,
             )
             # 提取所有建议文本用于比对
@@ -562,19 +453,16 @@ class TestIntegration:
         r_sassy = advisor.generate(
             sample_bazi_a,
             user_context="想了解最近运势",
-            personality="sassy",
             api_key=api_key,
         )
         r_analyst = advisor.generate(
             sample_bazi_a,
             user_context="想了解最近运势",
-            personality="analyst",
             api_key=api_key,
         )
         r_gentle = advisor.generate(
             sample_bazi_a,
             user_context="想了解最近运势",
-            personality="gentle",
             api_key=api_key,
         )
 
@@ -591,7 +479,6 @@ class TestIntegration:
         result = advisor.generate(
             sample_bazi_a,
             user_context="想了解事业运势",
-            personality="sassy",
             api_key=api_key,
         )
         assert "serendipity" in result
@@ -602,7 +489,6 @@ class TestIntegration:
         result = advisor.generate(
             sample_bazi_a,
             user_context="想了解事业运势",
-            personality="sassy",
             api_key=api_key,
         )
         assert "insight" in result

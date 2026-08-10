@@ -664,7 +664,7 @@ class ClassicBuilder:
     Sources:
       - data/competitor_data/*.jsonl (competitor Q&A)
       - data/wenzhen/*.jsonl (full chart text)
-      - data/celebrity_cases.json (celebrity case studies)
+      # data/celebrity_cases.json 名人案例已移除（2026-08-09 方案 v5 选 A）
     """
 
     def __init__(self) -> None:
@@ -683,10 +683,8 @@ class ClassicBuilder:
                 platform = f.stem.replace("_20260719", "").replace("_deep", "").replace("_max", "")
                 self._process_competitor_jsonl(f, platform)
 
-        # Process celebrity cases
-        celeb_file = data_path / "celebrity_cases.json"
-        if celeb_file.exists():
-            self._process_celebrity_cases(celeb_file)
+        # 名人案例处理已移除（2026-08-09 方案 v5 选 A）
+        # TODO: 图谱需重新构建一次，以剔除库中已有的 celeb_* 实体（MING_LI 类型）
 
         return self.entities, self.relations
 
@@ -728,25 +726,5 @@ class ClassicBuilder:
         except (OSError, IsADirectoryError):
             pass
 
-    def _process_celebrity_cases(self, path: Path) -> None:
-        """Process celebrity case studies JSON."""
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                for item in data:
-                    name = item.get("name", "") or item.get("title", "")
-                    if not name:
-                        continue
-                    entity_id = f"celeb_{hashlib.md5(name.encode('utf-8')).hexdigest()[:12]}"
-                    entity = Entity(
-                        id=entity_id,
-                        type=EntityType.MING_LI,
-                        name=name,
-                        properties={
-                            "source": "celebrity_cases",
-                            "data": json.dumps(item, ensure_ascii=False)[:2000],
-                        },
-                    )
-                    self.entities.append(entity)
-        except (OSError, json.JSONDecodeError):
-            pass
+    # _process_celebrity_cases 已删除（2026-08-09 方案 v5 选 A 彻底移除：
+    # 名人案例不再进入知识图谱）

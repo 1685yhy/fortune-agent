@@ -15,9 +15,29 @@ CHARTS_DIR = Path(os.environ.get("CHARTS_DIR", "/opt/fortune-data/charts"))
 # Persistent browser user dir for fast warm starts
 _BROWSER_CACHE_DIR = Path("/tmp/pw_chromium_cache")
 
+# 缓存 playwright 可用性，避免每次请求都做一次失败的模块搜索（~2-4s）
+_PLAYWRIGHT_AVAILABLE: bool = None
 
-def _render_html_to_png(html_path: str, png_path: str):
-    """Render HTML to PNG using Playwright with persistent context (fast warm start)."""
+
+def _playwright_available() -> bool:
+    global _PLAYWRIGHT_AVAILABLE
+    if _PLAYWRIGHT_AVAILABLE is None:
+        try:
+            import playwright  # noqa: F401
+            _PLAYWRIGHT_AVAILABLE = True
+        except ImportError:
+            _PLAYWRIGHT_AVAILABLE = False
+    return _PLAYWRIGHT_AVAILABLE
+
+
+def _render_html_to_png(html_path: str, png_path: str) -> bool:
+    """Render HTML to PNG using Playwright with persistent context (fast warm start).
+
+    Returns:
+        bool: 是否成功。缺少 playwright 时返回 False（调用方保留 HTML）。
+    """
+    if not _playwright_available():
+        return False
     import os as _os
     from concurrent.futures import ThreadPoolExecutor
 
@@ -38,6 +58,7 @@ def _render_html_to_png(html_path: str, png_path: str):
     with ThreadPoolExecutor(max_workers=1) as ex:
         ex.submit(_render).result(timeout=30)
     _os.remove(html_path)
+    return True
 
 # --- Refined luxury colour palette ---
 # 天干/地支 五行 colours (rich, toned — not neon)
@@ -336,5 +357,7 @@ class BaziChartHTML:
             f.write(html)
 
         # Use cached browser for speed (first call ~3s, subsequent <1s)
-        _render_html_to_png(hp, out)
-        return out
+        # Bugfix: 环境无 playwright 时直接保留 HTML 文件并返回其路径（不再抛异常丢 URL）
+        if _render_html_to_png(hp, out):
+            return out
+        return hp

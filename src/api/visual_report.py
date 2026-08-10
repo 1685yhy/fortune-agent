@@ -15,10 +15,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional, Dict, List
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 
+from src.security.auth import require_user
 from src.engines.bazi import BaziEngine, BaziResult, TIANGAN, DIZHI, WUXING_TG, WUXING_DZ
 
 logger = logging.getLogger(__name__)
@@ -945,8 +946,11 @@ def _build_report_html(report: dict, share_text: str) -> str:
     )
 
 @router.post("/api/report/generate")
-async def generate_report(req: GenerateReportRequest):
-    """Generate a new fortune report from user profile."""
+async def generate_report(req: GenerateReportRequest, uid: str = Depends(require_user)):
+    """Generate a new fortune report from user profile.
+
+    安全修复：必须登录（生辰信息为敏感数据）。
+    """
     try:
         bazi_result = _engine.calculate(
             year=req.birth.year,

@@ -6,10 +6,14 @@
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+import re
+
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from ..security.auth import require_user
 from ..services.narrative import NarrativeService
+from ..api.birth_contract import parse_birth_str
 
 router = APIRouter(tags=["qimen"])
 
@@ -17,12 +21,19 @@ router = APIRouter(tags=["qimen"])
 
 
 class QimenRequest(BaseModel):
-    """奇门遁甲请求"""
-    year: int
-    month: int
-    day: int
+    """奇门遁甲请求（双契约兼容）。
+
+    - 后端原生契约: year/month/day/hour/minute/city/question
+    - 小程序契约（qimen.js）: date('YYYY-MM-DD')/time('HH:MM')/city/question
+      —— date/time 提供时优先于 year/month/day/hour/minute
+    """
+    year: Optional[int] = None
+    month: Optional[int] = None
+    day: Optional[int] = None
     hour: int = 12
     minute: int = 0
+    date: Optional[str] = None
+    time: Optional[str] = None
     city: str = "北京"
     question: str = ""
 
@@ -72,18 +83,21 @@ def setup(qimen_engine, retriever=None, llm=None, narrative: NarrativeService = 
 
 
 @router.post("/api/qimen", response_model=QimenResponse)
-async def qimen_analysis(req: QimenRequest):
+async def qimen_analysis(req: QimenRequest, uid: str = Depends(require_user)):
     """奇门遁甲排盘分析。
 
     接收日期时间和问题，返回完整九宫排盘和 AI 用神分析。
+    安全修复：必须登录（生辰/问题为敏感数据）。
     """
     if _qimen_engine is None:
         raise HTTPException(status_code=503, detail="Qimen service not ready")
 
+    year, month, day, hour, minute = _resolve_datetime(req)
+
     # 1. 排盘
     result = _qimen_engine.calculate(
-        req.year, req.month, req.day,
-        req.hour, req.minute, req.city,
+        year, month, day,
+        hour, minute, req.city,
     )
 
     # 2. 构建宫位信息 (洛书九宫顺序)
@@ -153,3 +167,25 @@ async def qimen_analysis(req: QimenRequest):
         analysis=analysis,
         narrative=narrative_text,
     )
+
+
+# ── 契约解析辅助 ──────────────────────────────────────────────────
+
+def _resolve_datetime(req: QimenRequest):
+    """解析起局时间：小程序契约(date/time 字符串)优先，原生字段回落。"""
+    year, month, day, hour, minute = req.year, req.month, req.day, req.hour, req.minute
+    if req.date:
+        parsed = parse_birth_str(req.date)
+        if parsed is None:
+            raise HTTPException(status_code=400, detail="date 格式应为 YYYY-MM-DD")
+        year, month, day = parsed
+    if req.time:
+        m = re.match(r"^(\d{1,2}):(\d{2})$", str(req.time).strip())
+        if not m:
+            raise HTTPException(status_code=400, detail="time 格式应为 HH:MM")
+        hour, minute = int(m.group(1)), int(m.group(2))
+    if year is None or month is None or day is None:
+        raise HTTPException(status_code=400, detail="year/month/day 或 date 必填")
+    if not (1 <= month <= 12 and 1 <= day <= 31 and 0 <= hour <= 23 and 0 <= minute <= 59):
+        raise HTTPException(status_code=400, detail="日期时间数值越界")
+    return year, month, day, hour, minute

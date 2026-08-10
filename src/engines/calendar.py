@@ -170,32 +170,52 @@ class LuckyCalendar:
         )
 
         try:
+            # Bugfix（原实现每次 20s+ 且 content 为空）：
+            # - 走原生 /v1/chat/completions 时 deepseek-v4-flash 是推理模型，
+            #   max_tokens 需同时容纳 reasoning_content 与 content：1500 时推理
+            #   占满配额 → content 为空（finish_reason=length）；即使加大到 8000
+            #   也要 30s+，逼近前端 30s 超时。
+            # - 改为与主聊天一致的 Anthropic 兼容端点 + deepseek-v4-flash[1m]，
+            #   并显式 thinking: {"type": "disabled"} 关闭推理：实测约 4.5s 返回
+            #   完整 JSON（不关闭时完整 prompt 的 thinking 会占满 2000 tokens）。
             resp = httpx.post(
-                "https://api.deepseek.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "deepseek-v4-flash",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 1500,
-                    "temperature": 0.8,
+                "https://api.deepseek.com/anthropic/v1/messages",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                    "anthropic-version": "2023-06-01",
                 },
-                timeout=30.0,
+                json={
+                    "model": "deepseek-v4-flash[1m]",
+                    "max_tokens": 2000,
+                    "thinking": {"type": "disabled"},
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=60.0,
             )
             resp_data = resp.json()
             if "error" in resp_data:
                 import logging
                 logging.getLogger(__name__).warning(f"Calendar API error: {resp_data['error']}")
                 raise ValueError(str(resp_data['error']))
-            if "choices" not in resp_data or not resp_data["choices"]:
+            # Anthropic 格式：content 为 blocks 数组，取 text block
+            content = ""
+            for block in resp_data.get("content", []):
+                if block.get("type") == "text":
+                    content = block.get("text", "").strip()
+                    break
+            if not content:
+                # 无 text block / content 为空，必须降级到 fallback
                 import logging
-                logging.getLogger(__name__).warning(f"Calendar API empty choices. Full response keys: {list(resp_data.keys())}")
-                logging.getLogger(__name__).warning(f"Full response: {str(resp_data)[:500]}")
-                raise ValueError("No choices in response")
-            content = resp_data["choices"][0]["message"]["content"].strip()
+                logging.getLogger(__name__).warning(
+                    f"Calendar API returned empty content (stop_reason={resp_data.get('stop_reason')}) — using fallback"
+                )
+                raise ValueError("Empty content from LLM")
             data = self._parse_json(content)
             if not data:
                 import logging
                 logging.getLogger(__name__).warning(f"Failed to parse calendar JSON from: {content[:300]}")
+                raise ValueError("Unparseable calendar JSON")
         except Exception as e:
             import logging
             logging.getLogger(__name__).warning(f"Calendar generation failed: {e}")
@@ -277,9 +297,28 @@ class LuckyCalendar:
 
     def _fallback_calendar(self, user_bazi: dict, date_str: str,
                            day_stem: str, day_branch: str) -> dict:
-        """Minimal fallback when AI is unavailable."""
+        """Minimal fallback when AI is unavailable.
+
+        保证 yi/ji 永不为空数组，并按当日干支五行派生幸运色/数字/方向/基调，
+        使 fallback 内容也随日期变化（确定性规则，不调 LLM）。
+        """
+        wuxing = {
+            "甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
+            "己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
+        }
+        day_wx = wuxing.get(day_stem, "土")
+        wx_color = {"木": "绿色", "火": "红色", "土": "黄色", "金": "金色", "水": "蓝色"}
+        wx_number = {"木": "3", "火": "2", "土": "5", "金": "4", "水": "6"}
+        wx_dir = {"木": "东", "火": "南", "土": "西南", "金": "西", "水": "北"}
+        mood = {
+            "木": "今日木气当旺，生机勃勃，宜舒展身心、顺势而为。",
+            "火": "今日火气当旺，热情充沛，宜把握关键时机、主动进取。",
+            "土": "今日土气当旺，沉稳笃定，宜踏实推进事务、稳中求进。",
+            "金": "今日金气当旺，决断力强，宜果敢处理要事、收敛锋芒。",
+            "水": "今日水气当旺，思维通透，宜沟通交流协作、顺势而为。",
+        }
         return {
-            "overall_mood": "保持平和心态，顺势而为",
+            "overall_mood": mood.get(day_wx, "保持平和心态，顺势而为"),
             "yi": [
                 {"action": "静心思考", "time": "辰时7-9点", "reason": "晨起气清，利于决策"},
                 {"action": "与人交流", "time": "午时11-13点", "reason": "阳气最旺时沟通顺畅"},
@@ -290,9 +329,9 @@ class LuckyCalendar:
                 {"action": "过度消费", "time": "酉时17-19点", "reason": "金旺易破财"},
                 {"action": "熬夜", "time": "子时23点后", "reason": "伤肝损运势"},
             ],
-            "lucky_color": "蓝色",
-            "lucky_direction": "东",
-            "lucky_number": "6",
+            "lucky_color": wx_color.get(day_wx, "蓝色"),
+            "lucky_direction": wx_dir.get(day_wx, "东"),
+            "lucky_number": wx_number.get(day_wx, "6"),
             "is_special": False,
             "special_note": "",
         }

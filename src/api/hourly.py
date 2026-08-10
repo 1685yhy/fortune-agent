@@ -7,9 +7,10 @@
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 
 from src.engines.hourly_fortune import get_hourly_fortune
+from src.security.auth import require_user
 from src.storage.dao import UserDAO
 from src.services.narrative import NarrativeService
 
@@ -67,7 +68,7 @@ def _rating_label(rating: str) -> str:
 
 @router.get("/api/hourly-fortune")
 async def get_hourly_fortune_api(
-    user_id: str = Query(..., description="用户 ID"),
+    uid: str = Depends(require_user),
     date: str = Query(None, description="日期 YYYY-MM-DD，默认今天"),
 ):
     """获取指定日期的十二时辰运势分析.
@@ -75,8 +76,9 @@ async def get_hourly_fortune_api(
     基于用户八字和流日干支，逐时分析十二时辰的吉凶宜忌，
     并标注最佳和最差时段。
 
+    安全修复：user_id 一律取 JWT sub（query 参数被忽略）。
+
     Args:
-        user_id: 用户 ID
         date: 日期 (YYYY-MM-DD)，可选，默认今天
 
     Returns:
@@ -86,6 +88,8 @@ async def get_hourly_fortune_api(
     if _dao is None:
         from fastapi import HTTPException
         raise HTTPException(status_code=503, detail="Service not ready")
+
+    user_id = uid
 
     # 获取日期
     if date is None:

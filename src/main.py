@@ -2,16 +2,18 @@
 import asyncio
 import logging
 import os
+import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from .config import load_settings
+from .config import is_experience_mode, load_settings
 from .engines.bazi import BaziEngine
 from .engines.ziwei import ZiweiEngine
 from .engines.liuyao import LiuyaoEngine
@@ -26,7 +28,7 @@ from .rag.embedder import Embedder
 from .rag.retriever import Retriever
 from .rag.collection_manager import CollectionManager
 from .llm.client import FortuneLLM
-from .bot.handler import MessageHandler
+from .bot.handler import MessageHandler, is_question  # is_question: v1.2 建议卡片触发判定
 from .bot.formatter import split_long_message
 from .storage.dao import UserDAO
 from .storage.member_dao import MemberDAO
@@ -41,7 +43,10 @@ from .utils.cache import (
 
 # Security imports
 from .security.ratelimit import RateLimiter, RateLimitMiddleware
-from .security.auth import AuthHandler
+from .security.auth import AuthHandler, require_user, require_chat_user, ensure_owner, require_admin
+
+# 日志配置（/api/health/detail 与 lifespan 共用）
+from .logging_config import resolve_log_dir, resolve_log_level
 from .security.sanitizer import InputSanitizer
 from .security.encryption import DataEncryptor
 from .security.privacy import PrivacyManager, PIPL_DISCLAIMER
@@ -49,7 +54,13 @@ from .security.audit import AuditLogger
 from .security.router import router as security_router, init_security_router
 from .validators.response_checker import ResponseValidator
 
+# 单请求超时（秒）：超时返回 503 而不是挂死（审计 §5-P1 服务卡死事故）
+REQUEST_TIMEOUT_SECONDS = 120.0
+
 logger = logging.getLogger(__name__)
+
+# 进程启动时间（/api/health/detail 展示 uptime 用）
+_APP_START_TIME = time.time()
 
 # 全局实例
 settings = None
@@ -201,18 +212,51 @@ async def lifespan(app: FastAPI):
     global _push_task, _precompute_task, member_dao, session_dao
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
-    # 配置日志
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(message)s",
+    # 配置日志：logs/app.log 按天轮转（保留 14 天），级别取 LOG_LEVEL（默认 INFO）
+    from .logging_config import setup_app_logging
+    app_log_path = setup_app_logging()
+    logger.info(
+        "日志初始化: 级别=%s 文件=%s（按天轮转，保留 14 天）",
+        resolve_log_level(), app_log_path,
     )
 
     settings = load_settings()
+
+    # ── 启动配置健康检查（审计要求：密钥缺失必须 ERROR 而非 WARNING）──
+    jwt_secret = os.getenv("JWT_SECRET_KEY", "").strip()
+    if not jwt_secret:
+        logger.error(
+            "启动配置 FATAL: JWT_SECRET_KEY 未设置！JWT 使用本次进程随机密钥——"
+            "重启后所有已登录用户 token 全部失效，多 worker 下各进程 token 互不认可。"
+            "生产环境必须在 .env 中固定 JWT_SECRET_KEY（≥32 字节）。"
+        )
+    enc_key = os.getenv("ENCRYPTION_KEY", "").strip()
+    admin_key = os.getenv("ADMIN_KEY", "").strip()
+    logger.info(
+        "启动配置: JWT_SECRET_KEY=%s ENCRYPTION_KEY=%s ADMIN_KEY=%s LOG_LEVEL=%s db=%s",
+        "已固定" if jwt_secret else "未设置(随机密钥/ERROR)",
+        "已配置" if enc_key else "未配置(dev 派生密钥)",
+        "已配置" if admin_key else "未配置(管理员接口一律 403)",
+        resolve_log_level(),
+        settings.db_path,
+    )
 
     # ── Step 4: Init Response Cache ────────────────────────────────────
     _response_cache = ResponseCache(max_size=1000)
     set_cache(_response_cache)
     logger.info("ResponseCache initialized: max_size=1000, default_ttl=3600s")
+
+    # ── 数据库备份兜底（审计 §审计6 S1）──
+    # 启动时检查：距上次备份超过 24 小时则在后台线程执行一次在线备份。
+    def _startup_backup_check():
+        try:
+            from scripts.backup_db import ensure_recent_backup
+            ensure_recent_backup(str(settings.db_path), max_age_hours=24)
+        except Exception as e:
+            logger.error("启动备份检查失败: %s", e)
+
+    threading.Thread(target=_startup_backup_check, daemon=True).start()
+    logger.info("启动备份检查已调度（后台线程）")
 
     # ── Init Security Components ───────────────────────────────────────
     security_rate_limiter = RateLimiter()
@@ -305,6 +349,14 @@ async def lifespan(app: FastAPI):
     dao = UserDAO(str(settings.db_path))
     member_dao = MemberDAO(str(settings.db_path))
     session_dao = SessionDAO(str(settings.db_path))
+
+    # P2 账号注销（软删+90 天归档）：启动时清理已过保留期的注销账号
+    try:
+        _cancel_stats = dao.cleanup_cancelled_accounts()
+        if _cancel_stats.get("removed_users"):
+            logger.info("注销账号归档清理: %s", _cancel_stats)
+    except Exception as e:
+        logger.warning("注销账号归档清理失败: %s", e)
     llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-v4-flash", deep_model="deepseek-v4-pro", provider="deepseek")
 
     # ── Init Narrative Service ──────────────────────────────────
@@ -356,6 +408,18 @@ async def lifespan(app: FastAPI):
     # Phase 5: Setup user API
     setup_user(dao, session_dao, security_auth)
 
+    # Phase 5b: Setup share API（分享卡 owner 校验用 DAO 引用）
+    from .api.share import setup as setup_share
+    setup_share(dao)
+
+    # A 类缺口：支付 / 会员 / 订单（pay.py 需要 MemberDAO）
+    from .api.pay import setup as setup_pay
+    setup_pay(member_dao)
+
+    # 微信虚拟支付（米大师）：signData/paySig/signature + 发货回调
+    from .api.pay_midas import setup as setup_pay_midas
+    setup_pay_midas(member_dao)
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -366,6 +430,8 @@ async def lifespan(app: FastAPI):
     # Step 4: Start daily precompute background task
     _precompute_task = asyncio.create_task(_daily_precompute_worker())
     logger.info("Daily precompute worker started (runs every 3600s)")
+
+    logger.info("服务启动完成: 易理明灯 fortune-agent（端口由启动命令指定，路由全量就绪）")
 
     yield
     # cleanup
@@ -432,6 +498,30 @@ class _CacheControlMiddleware(BaseHTTPMiddleware):
 
 app.add_middleware(_CacheControlMiddleware)
 
+
+# ── 请求超时看门狗 ────────────────────────────────────────────
+# 单请求超过 REQUEST_TIMEOUT_SECONDS 直接返回 503，避免请求永久挂起拖死服务。
+# 注意：配合将同步重活（LLM 调用等）移入线程池使用，事件循环保持空闲，
+# asyncio.wait_for 才能真正生效（审计 §5-P1：8767 全端口卡死事故的修复）。
+class _TimeoutMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.url.path == "/api/chat/stream":
+            # v8 阶段 3（过程体验）：SSE 流式端点不套 120s 单请求超时（长回复），
+            # 由流内看门狗（chunk 间隔超时 → error 事件）负责兜底。
+            return await call_next(request)
+        try:
+            return await asyncio.wait_for(call_next(request), timeout=REQUEST_TIMEOUT_SECONDS)
+        except asyncio.TimeoutError:
+            logger.error("Request timeout (>=%.0fs): %s %s", REQUEST_TIMEOUT_SECONDS, request.method, request.url.path)
+            return JSONResponse(
+                status_code=503,
+                content={"detail": "请求处理超时，请稍后重试", "code": "request_timeout"},
+            )
+
+
+# 注册在最后 = 最外层，包裹所有其它中间件
+app.add_middleware(_TimeoutMiddleware)
+
 # Pricing API
 app.include_router(pricing_router)
 
@@ -446,9 +536,25 @@ app.include_router(visual_report_router)     # /api/report, /report, /api/report
 app.include_router(compatibility_router)     # /api/compatibility, /compatibility
 app.include_router(share_router)             # /api/share, /share
 
+# 分享卡 PNG 静态服务（ShareCardGenerator 产物，目录存在时挂载；
+# CHARTS_DIR 未配置或目录不存在则跳过，分享接口降级返回结构化 card 数据）
+_CHARTS_DIR = Path(os.environ.get("CHARTS_DIR", "/opt/fortune-data/charts"))
+if _CHARTS_DIR.exists():
+    from fastapi.staticfiles import StaticFiles
+    app.mount("/share-cards", StaticFiles(directory=str(_CHARTS_DIR)), name="share-cards")
+    logger.info("分享卡静态目录已挂载: %s → /share-cards", _CHARTS_DIR)
+
 # Phase 5: User API
 from .api.user import router as user_router, setup as setup_user
 app.include_router(user_router)              # /api/user/*
+
+# A 类缺口补齐（前端 api.js 调用但原 404）：
+from .api.love import router as love_router   # POST /api/love/compatibility
+from .api.pay import router as pay_router     # /api/pay/* + /api/user/member|orders|purchase
+from .api.pay_midas import router as pay_midas_router  # 微信虚拟支付（米大师）
+app.include_router(love_router)
+app.include_router(pay_router)
+app.include_router(pay_midas_router)
 
 # Task 1: Hehun matching API
 from .api.hehun import router as hehun_router
@@ -474,38 +580,246 @@ app.include_router(advisor_router)           # /api/advisor
 from .api.xuetang import router as xuetang_router
 app.include_router(xuetang_router)           # /api/xuetang
 
+# ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)
+# ──────────────────────────────────────────
+# Bugfix: 原实现只认 user_id 查询参数（前端未传时恒为空），详情为占位实现。
+# 现在从数据库 consultations 表读取真实咨询记录，按 scenario 归类生成报告，
+# 并支持 Authorization Bearer JWT / user_id 查询参数两种鉴权方式。
+
+SCENARIO_INTENTS = {
+    "bazi": ("bazi", "八字命理"),
+    "ziwei": ("ziwei", "紫微斗数"),
+    "liuyao": ("liuyao", "六爻占卜"),
+    "fengshui": ("fengshui", "风水堪舆"),
+    "mianxiang": ("mianxiang", "面相手相"),
+    "zeri": ("zeri", "择日吉时"),
+    "hehun": ("hehun", "合婚配对"),
+    "qimen": ("qimen", "奇门遁甲"),
+    "xingming": ("xingming", "姓名分析"),
+    "dream": ("dream", "梦境解读"),
+    "advisor": ("advisor", "人生建议"),
+    "calendar": ("calendar", "每日运势"),
+    "hourly": ("hourly", "时辰运势"),
+    "xuetang": ("xuetang", "命理学堂"),
+}
+# 问题关键词 → 业务场景（前端图标仅覆盖 career/love/wealth/health）
+SCENARIO_KEYWORDS = [
+    ("事业", "career", "事业"), ("工作", "career", "事业"), ("升职", "career", "事业"),
+    ("跳槽", "career", "事业"), ("创业", "career", "事业"), ("面试", "career", "事业"),
+    ("财运", "wealth", "财运"), ("投资", "wealth", "财运"), ("赚钱", "wealth", "财运"),
+    ("破财", "wealth", "财运"), ("债务", "wealth", "财运"), ("生意", "wealth", "财运"),
+    ("感情", "love", "感情"), ("婚姻", "love", "感情"), ("桃花", "love", "感情"),
+    ("恋爱", "love", "感情"), ("正缘", "love", "感情"), ("对象", "love", "感情"),
+    ("结婚", "love", "感情"), ("分手", "love", "感情"), ("复合", "love", "感情"),
+    ("健康", "health", "健康"), ("病", "health", "健康"), ("身体", "health", "健康"),
+    ("失眠", "health", "健康"), ("体检", "health", "健康"),
+]
+
+
+def _classify_scenario(question: str, intent: str) -> tuple:
+    """返回 (scenario_id, scenario_label)：关键词优先，其次按 intent 映射。"""
+    q = question or ""
+    for kw, sid, label in SCENARIO_KEYWORDS:
+        if kw in q:
+            return sid, label
+    intent_info = SCENARIO_INTENTS.get(intent or "")
+    if intent_info:
+        return intent_info
+    return "bazi", "八字命理"
+
+
+def _report_score(report_id: int) -> int:
+    """确定性伪随机评分（60-95），同一报告每次稳定。"""
+    return 60 + (report_id * 7) % 36
+
+
+def _report_tags(scenario: str, scenario_label: str, intent: str) -> list:
+    tags = [scenario_label]
+    intent_info = SCENARIO_INTENTS.get(intent or "")
+    if intent_info and intent_info[1] != scenario_label:
+        tags.append(intent_info[1])
+    return tags[:3]
+
+
+def _build_report_item(c: dict) -> dict:
+    """咨询记录 → 报告列表项 {id, date, scenario, scenarioLabel, summary, score, tags?, note?}"""
+    report_id = c["id"]
+    question = (c.get("question") or "").strip()
+    scenario, scenario_label = _classify_scenario(question, c.get("intent", ""))
+    summary = question[:60] if question else f"{scenario_label}解读"
+    if len(question) > 60:
+        summary += "…"
+    item = {
+        "id": str(report_id),
+        "date": (c.get("created_at") or "")[:10],
+        "scenario": scenario,
+        "scenarioLabel": scenario_label,
+        "summary": summary,
+        "score": _report_score(report_id),
+        "tags": _report_tags(scenario, scenario_label, c.get("intent", "")),
+    }
+    if c.get("feedback"):
+        item["note"] = "已反馈" + ("👍" if c["feedback"] == "positive" else "👎")
+    return item
+
+
+def _derive_report_content(c: dict, item: dict) -> str:
+    """分析正文为空时，由咨询记录派生出合理解读文本。"""
+    question = (c.get("question") or "").strip()
+    scenario_label = item["scenarioLabel"]
+    topic = question[:50] if question else "综合命盘走势"
+    lines = [f"【咨询问题】\n{question or '命理咨询'}"]
+    lines.append(
+        f"\n【{scenario_label}解读】\n基于您的提问与命盘信息综合推演（{topic}）。"
+        f"整体来看，{scenario_label}相关的趋势清晰可辨，宜顺势而为、稳中求进；"
+        f"重要决策前可再做一次针对性咨询，以获取更细致的推演。"
+    )
+    lines.append(
+        "\n【行动建议】\n1. 保持理性，命理仅供决策参考；\n"
+        "2. 重大事项建议结合现实情况综合判断；\n"
+        "3. 可继续追问细节，获得更深入解读。"
+    )
+    lines.append("\n—\n以上内容由 AI 生成，仅供娱乐参考。")
+    return "\n".join(lines)
+
+
+_BASE_REPORT_ID = "base"  # 基础命书（用户已设置八字但尚无任何咨询报告时生成）
+
+
+def _build_base_report_item(bazi_info: dict) -> dict:
+    """基础命书列表项：用户设置八字后无任何咨询时兜底生成首卷。
+
+    最小合理版：不落库、不生成文件，仅在列表/详情接口派生。
+    """
+    bazi = bazi_info.get("bazi", []) if isinstance(bazi_info, dict) else []
+    day_master = ""
+    if len(bazi) >= 3:
+        day_master = bazi[2][0]  # 日柱天干
+    summary = "您的个人命书（基础版）"
+    if day_master:
+        summary += f" · 日主{day_master}"
+    return {
+        "id": _BASE_REPORT_ID,
+        "date": datetime.now().strftime("%Y-%m-%d"),
+        "scenario": "bazi",
+        "scenarioLabel": "八字命理",
+        "summary": summary,
+        "score": 68,
+        "tags": ["八字命理", "基础命书"],
+        "note": "已保存八字，尚未咨询；此为基础命书，咨询后生成专属解读",
+    }
+
+
+def _derive_base_report_content(bazi_info: dict) -> str:
+    """基础命书正文：基于已保存的八字信息派生的通用解读。"""
+    year = bazi_info.get("year", "")
+    month = bazi_info.get("month", "")
+    day = bazi_info.get("day", "")
+    hour = bazi_info.get("hour", "")
+    gender = bazi_info.get("gender", "")
+    calendar = bazi_info.get("calendar", "solar")
+    bazi = bazi_info.get("bazi", []) if isinstance(bazi_info.get("bazi"), list) else []
+
+    gender_cn = {"male": "男", "female": "女"}.get(gender, gender or "未知")
+    birth_desc = f"{year}年{month}月{day}日{hour}时" if year else "未填写完整出生时间"
+    cal_cn = "农历" if calendar == "lunar" else "阳历"
+    bazi_str = " ".join(bazi) if bazi else "（尚未排盘）"
+
+    lines = [
+        "【基础命书】",
+        f"命主信息：{cal_cn} {birth_desc}，性别 {gender_cn}",
+    ]
+    if bazi:
+        lines.append(f"命盘八字：{bazi_str}")
+        dm = bazi[2][0] if len(bazi) > 2 else ""
+        if dm:
+            lines.append(f"日主为「{dm}」，为全局旺衰与喜忌判断之基准。")
+    else:
+        lines.append("完整排盘需在对话中发起一次八字咨询（或在我的页面重新提交八字），"
+                     "生成后本卷将自动升级为专属命书。")
+    lines.append(
+        "\n【命理建议】\n1. 命理提供参考视角，人生走向仍由自身选择与努力决定；\n"
+        "2. 可进入对话发起「八字 / 紫微 / 六爻」等专项咨询，获得更细致的解读；\n"
+        "3. 重大决策请结合现实情况综合判断。"
+    )
+    lines.append("\n—\n以上内容由 AI 生成，仅供娱乐参考。")
+    return "\n".join(lines)
+
+
 @app.get("/api/reports")
-async def list_reports(user_id: str = "", page: int = 1, limit: int = 20):
-    """获取用户报告列表"""
+async def list_reports(page: int = 1, limit: int = 20, uid: str = Depends(require_user)):
+    """获取用户报告列表（按咨询记录归类生成，分页）。
+
+    安全修复（审计 E13）：JWT 必填；user_id 一律取 token sub。
+    已设置八字但无任何咨询报告 → 列表兜底返回「基础命书」首卷（id=base）。
+    """
     global dao
-    if not user_id:
+    if dao is None:
         return {"reports": [], "total": 0}
-    consultations = dao.get_user_consultations(user_id, limit=1000) if dao else []
-    total = len(consultations)
+    consultations = dao.get_user_consultations(uid, limit=1000)
+    reports = [_build_report_item(c) for c in consultations]
+    if not reports:
+        bazi_info = dao.get_user_bazi(uid)
+        if bazi_info:
+            reports = [_build_base_report_item(bazi_info)]
+    total = len(reports)
     start = (page - 1) * limit
-    page_items = consultations[start:start + limit]
-    reports = []
-    for c in page_items:
-        reports.append({
-            "id": str(c["id"]),
-            "title": c.get("question", "命理咨询")[:30],
-            "preview": c.get("analysis_preview", ""),
-            "intent": c.get("intent", ""),
-            "created_at": c.get("created_at", ""),
-        })
-    return {"reports": reports, "total": total}
+    page_items = reports[start:start + limit]
+    return {"reports": page_items, "total": total}
+
 
 @app.get("/api/reports/{report_id}")
-async def get_report_detail(report_id: str):
-    """获取单份报告详情（兼容小程序）"""
-    # 委托给 /api/report/{reading_id}
-    return {"report": {"id": report_id, "note": "Report detail endpoint — integrate with visual_report"}}
+async def get_report_detail(report_id: str, uid: str = Depends(require_user)):
+    """获取单份报告详情：{report: {..., fullContent, luckyColor, luckyDirection, luckyNumber}}。
+
+    安全修复：校验报告归属当前用户（防跨用户读报告）。
+    特殊 id=base：基础命书（用户已设置八字但无咨询报告时由 /api/reports 兜底返回）。
+    """
+    global dao
+    if dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    # 基础命书：不落库，从已保存八字派生
+    if report_id == _BASE_REPORT_ID:
+        bazi_info = dao.get_user_bazi(uid)
+        if not bazi_info:
+            raise HTTPException(status_code=404, detail="报告不存在")
+        item = _build_base_report_item(bazi_info)
+        item.update({
+            "fullContent": _derive_base_report_content(bazi_info),
+            "luckyColor": "金色",
+            "luckyDirection": "东",
+            "luckyNumber": "8",
+        })
+        return {"report": item}
+
+    try:
+        rid = int(report_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=404, detail="报告不存在")
+    c = dao.get_consultation(rid)
+    if c is None:
+        raise HTTPException(status_code=404, detail="报告不存在")
+    ensure_owner(c.get("user_id", ""), uid)
+    item = _build_report_item(c)
+    full_content = (c.get("analysis") or "").strip()
+    if not full_content:
+        full_content = _derive_report_content(c, item)
+    colors = ["金色", "白色", "红色", "蓝色", "绿色"]
+    directions = ["东", "南", "西", "北", "东南", "东北", "西南", "西北"]
+    item.update({
+        "fullContent": full_content,
+        "luckyColor": colors[rid % len(colors)],
+        "luckyDirection": directions[rid % len(directions)],
+        "luckyNumber": str((rid % 9) + 1),
+    })
+    return {"report": item}
 
 # Models
 class ChatRequest(BaseModel):
     message: str = ""
-    user_id: str = "default_user"
+    user_id: str = "default_user"  # 已废弃：安全修复后一律以 JWT sub 为准，此字段被忽略
     message_type: str = "text"  # "text", "voice", "image"
     image_url: str = ""  # 图片链接（message_type=image 时）
     voice_text: str = ""  # 语音转文字结果（message_type=voice 时）
@@ -517,13 +831,68 @@ class ChatResponse(BaseModel):
     membership: Optional[dict] = None  # 用户会员信息
     consultation_id: Optional[int] = None  # Sprint 4: 反馈用咨询ID
     disclaimer: str = PIPL_DISCLAIMER  # PIPL 免责声明
+    citations: Optional[list] = None  # 阶段 5：本轮引用来源 [{index,type,title,text,url?}]
+    suggestions: Optional[list] = None  # v1.2 建议卡片：回复后的推荐追问（提问时生成，失败为空）
+
+
+class TTSRequest(BaseModel):
+    text: str
+    voice: Optional[str] = None  # 音色（可选，默认由 TTS 服务决定）
+
+
+@app.post("/api/tts")
+async def api_tts(req: TTSRequest, uid: str = Depends(require_user)):
+    """文字转语音 — 转发到 8768 TTS 服务并返回可播放的完整 audio_url。
+
+    Bugfix: 8767 原无此路由（前端 404）。8768 的 POST /tts 返回
+    {audio_url: "/audio/xxx.mp3", duration_ms}，其 /audio 为 StaticFiles 静态
+    服务；这里把相对路径改写为完整 http://127.0.0.1:8768 前缀，开发环境
+    小程序可直接播放。
+    安全修复：必须登录（防刷 TTS 成本）。
+    """
+    import httpx
+    if not (req.text or "").strip():
+        raise HTTPException(status_code=400, detail="text 不能为空")
+    try:
+        payload = {"text": req.text}
+        if req.voice:
+            payload["voice"] = req.voice
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post("http://127.0.0.1:8768/tts", json=payload)
+        if r.status_code != 200:
+            logger.warning("TTS upstream error: %s %s", r.status_code, r.text[:200])
+            raise HTTPException(status_code=502, detail=f"TTS 服务错误（{r.status_code}）")
+        data = r.json()
+        audio_url = data.get("audio_url", "")
+        if audio_url.startswith("/"):
+            # 相对路径 → 完整 URL（8768 静态挂载 /audio）
+            audio_url = f"http://127.0.0.1:8768{audio_url}"
+        return {
+            "audio_url": audio_url,
+            "duration_ms": data.get("duration_ms", 0),
+        }
+    except httpx.HTTPError as e:
+        logger.warning("TTS upstream unavailable: %s", e)
+        raise HTTPException(status_code=502, detail="TTS 服务不可用，请稍后重试")
 
 
 @app.post("/api/chat")
-async def chat(req: ChatRequest, request: Request = None) -> ChatResponse:
-    """聊天接口 - 包含会员配额检查和输入过滤"""
+async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(require_chat_user)) -> ChatResponse:
+    """聊天接口 - 包含会员配额检查和输入过滤。
+
+    安全修复（审计 E11）：
+    - 小程序用户：user_id 一律取 JWT sub，body 里的 user_id 被忽略
+      （防冒用他人身份消耗配额/写入他人名下）；
+    - 外部机器人（chatgpt-on-wechat）：FORTUNE_API_KEY 认证后可自带 user_id。
+    """
     if handler is None or member_dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
+
+    # user_id 权威来源：JWT sub；仅 API 密钥（机器人）通道允许使用 body 的 user_id
+    if auth.get("method") == "api_key":
+        req.user_id = (req.user_id or "").strip() or "api_user"
+    else:
+        req.user_id = auth.get("user_id", "")
 
     # ── 输入安全检测 ───────────────────────────────────────
     if security_sanitizer and req.message:
@@ -546,8 +915,8 @@ async def chat(req: ChatRequest, request: Request = None) -> ChatResponse:
         if not is_attack:
             req.voice_text = cleaned
 
-    # 配额检查
-    if not member_dao.check_quota(req.user_id):
+    # 配额检查（体验模式不限次）
+    if not is_experience_mode() and not member_dao.check_quota(req.user_id):
         membership = member_dao.get_membership(req.user_id)
         plan = membership.get("plan", "free")
         return ChatResponse(
@@ -561,15 +930,34 @@ async def chat(req: ChatRequest, request: Request = None) -> ChatResponse:
         )
 
     try:
+        loop = asyncio.get_event_loop()
         if req.message_type == "voice":
-            reply = handler._handle_voice(voice_text=req.voice_text)
+            reply = await loop.run_in_executor(
+                None, handler._handle_voice, req.voice_text
+            )
         elif req.message_type == "image":
-            reply = handler._handle_image(
-                image_url=req.image_url,
-                user_text=req.message,
+            reply = await loop.run_in_executor(
+                None, handler._handle_image, req.image_url, req.message
             )
         else:
-            reply = handler.process(req.message, req.user_id)
+            # 同步 LLM 调用放线程池：事件循环不阻塞，请求超时中间件才可生效
+            reply = await loop.run_in_executor(None, handler.process, req.message, req.user_id)
+        # 阶段 5：本轮引用来源（校验后），随响应返回给前端渲染角标
+        citations = handler.pop_citations(req.user_id) or None
+
+        # v1.2 建议卡片：用户提问时轻量生成 2-3 个追问（失败/超时 → 无建议，
+        # 走线程池不阻塞事件循环；6s 内返回）
+        suggestions: list = []
+        question = (req.voice_text or "").strip() or (req.message or "").strip()
+        if question and is_question(question) and reply and not reply.startswith("⚠️"):
+            try:
+                suggestions = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None, handler.gen_suggestions, req.user_id, question, reply),
+                    timeout=6.0,
+                ) or []
+            except Exception:
+                suggestions = []
 
         # ── 准确率验证 ───────────────────────────────────────────
         if reply and len(reply) > 10:
@@ -579,18 +967,24 @@ async def chat(req: ChatRequest, request: Request = None) -> ChatResponse:
             if not val_result["has_citation"] and len(reply) > 300:
                 reply += "\n\n---\n📖 以上分析仅供参考，命理之说，信则有，不信则无。"
 
-        # 成功响应后扣减配额
-        member_dao.use_quota(req.user_id)
+        # 成功响应后扣减配额（体验模式不扣）
+        if not is_experience_mode():
+            member_dao.use_quota(req.user_id)
 
         parts = split_long_message(reply)
         membership = member_dao.get_membership(req.user_id)
 
         # Sprint 4: 获取最近一次咨询ID用于反馈
-        consultation_id = dao.last_consultation_id if dao else None
+        # Bugfix: last_consultation_id 是进程内最近一次保存的 ID（未保存过时为 0，
+        # 且可能属于其他用户），改为按当前用户从数据库查询真实 ID；确实没保存过则
+        # 返回 None（前端 `res.consultation_id || null` 可正确识别为无反馈条）。
+        consultation_id = dao.get_last_consultation_id(req.user_id) if dao else None
 
         return ChatResponse(
             reply=reply, parts=parts, membership=membership,
             consultation_id=consultation_id,
+            citations=citations,
+            suggestions=suggestions,
         )
     except Exception as e:
         import traceback
@@ -602,13 +996,119 @@ async def chat(req: ChatRequest, request: Request = None) -> ChatResponse:
         )
 
 
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest, request: Request = None, auth: dict = Depends(require_chat_user)):
+    """v8 阶段 3（过程体验）：SSE 流式对话（start → thinking/tool* → chunk* → done）。
+
+    - 与 /api/chat 共用核心 handler 逻辑（安全检测/配额/意图路由/工具循环/记忆/落库），
+      仅把"一次性返回"改为"逐事件推送"（真实 LLM 流式 + 保底分句模拟）；
+    - 不受 120s 单请求超时中间件限制（长回复），由流内看门狗兜底；
+    - 客户端断开（停止生成）→ 生成器被关闭，executor 线程自然跑完（配额/历史不丢）。
+    """
+    if handler is None or member_dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    from .api.chat_stream import ChatStreamer, sse_format
+
+    async def _sse_wrap():
+        async for evt in ChatStreamer(
+            handler=handler, member_dao=member_dao, dao=dao,
+            sanitizer=security_sanitizer, auditor=security_audit,
+            validator=_validator,
+        ).events(req, request, auth):
+            yield sse_format(evt)
+
+    return StreamingResponse(
+        _sse_wrap(),
+        media_type="text/event-stream; charset=utf-8",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "users": dao.get_user_stats() if dao else {}}
+    """轻量健康检查：不触发任何重活（不查 DB、不调 LLM），看门狗专用。"""
+    return {
+        "status": "ok",
+        "service": "fortune-agent",
+        "time": datetime.now(timezone(timedelta(hours=8))).isoformat(),
+    }
+
+
+@app.get("/api/health/detail")
+async def health_detail(uid_admin: bool = Depends(require_admin)):
+    """运维健康详情（管理员）: DB 连接状态 / 今日错误日志条数 / 最近备份 / 队列深度。
+
+    鉴权：require_admin（ADMIN_KEY 未配置时返回 403，不允许空 key 放行）。
+    轻量实现：不调 LLM、不加载模型，仅做一次 SQLite 连接与日志文件扫描。
+    """
+    import sqlite3
+
+    if settings is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    # DB 连接状态 + journal_mode
+    db_status = {"ok": False, "journal_mode": None, "error": None}
+    try:
+        conn = sqlite3.connect(str(settings.db_path), timeout=5)
+        db_status["ok"] = conn.execute("SELECT 1").fetchone()[0] == 1
+        db_status["journal_mode"] = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        conn.close()
+    except Exception as e:
+        db_status["error"] = str(e)[:200]
+
+    # 今日错误/告警条数（app.log 按天轮转，行首带日期前缀）
+    errors_today = 0
+    warnings_today = 0
+    today_prefix = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+    log_file = resolve_log_dir() / "app.log"
+    try:
+        for line in log_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if not line.startswith(today_prefix):
+                continue
+            if "[ERROR]" in line:
+                errors_today += 1
+            elif "[WARNING]" in line:
+                warnings_today += 1
+    except OSError:
+        pass
+
+    # 最近备份时间（scripts/backup_db.py 的备份目录）
+    last_backup = None
+    try:
+        from scripts.backup_db import latest_backup_time
+        t = latest_backup_time()
+        if t:
+            last_backup = datetime.fromtimestamp(
+                t, tz=timezone(timedelta(hours=8))
+            ).isoformat(timespec="seconds")
+    except Exception:
+        pass
+
+    return {
+        "status": "ok",
+        "service": "fortune-agent",
+        "time": datetime.now(timezone(timedelta(hours=8))).isoformat(),
+        "uptime_seconds": int(time.time() - _APP_START_TIME),
+        "log": {
+            "level": resolve_log_level(),
+            "file": str(log_file),
+            "errors_today": errors_today,
+            "warnings_today": warnings_today,
+        },
+        "db": {"path": str(settings.db_path), **db_status},
+        "last_backup": last_backup,
+        "queue_depth": 0,
+        "note": "单 worker 无外部任务队列，queue_depth 恒为 0",
+    }
 
 
 @app.get("/api/stats")
-async def stats():
+async def stats(uid: str = Depends(require_user)):
     if dao is None:
         return {"error": "Not ready"}
     return dao.get_user_stats()
@@ -619,8 +1119,12 @@ async def stats():
 # ──────────────────────────────────────────
 
 @app.get("/api/user/export/{user_id}")
-async def user_data_export(user_id: str, request: Request):
-    """Export all user data (PIPL Art. 45 data portability)."""
+async def user_data_export(user_id: str, request: Request, uid: str = Depends(require_user)):
+    """Export all user data (PIPL Art. 45 data portability).
+
+    安全修复（审计 E5）：必须登录 + owner 校验（token sub == path user_id）。
+    """
+    ensure_owner(user_id, uid)
     from .security.router import init_security_router as _init_sec
     pm = PrivacyManager(str(load_settings().db_path), DataEncryptor())
     audit = AuditLogger()
@@ -634,8 +1138,12 @@ async def user_data_export(user_id: str, request: Request):
 
 
 @app.delete("/api/user/data/{user_id}")
-async def user_data_deletion(user_id: str, request: Request, confirm: bool = Query(True)):
-    """Delete all user data (PIPL Art. 47 right to be forgotten)."""
+async def user_data_deletion(user_id: str, request: Request, uid: str = Depends(require_user), confirm: bool = Query(True)):
+    """Delete all user data (PIPL Art. 47 right to be forgotten).
+
+    安全修复（审计 E6）：必须登录 + owner 校验（token sub == path user_id）。
+    """
+    ensure_owner(user_id, uid)
     if not confirm:
         raise HTTPException(status_code=400, detail="请确认删除操作")
     pm = PrivacyManager(str(load_settings().db_path), DataEncryptor())
@@ -653,9 +1161,11 @@ async def user_data_deletion(user_id: str, request: Request, confirm: bool = Que
 
 
 @app.post("/api/push-daily")
-async def push_daily(dry_run: bool = Query(False, description="仅测试，不写入日志")):
-    """手动触发每日运势推送"""
+async def push_daily(dry_run: bool = Query(False, description="仅测试，不写入日志"), authorization: str = Header("")):
+    """手动触发每日运势推送（管理员专用：Authorization: Bearer <ADMIN_KEY>）"""
     global settings, dao
+    if not _verify_admin(authorization):
+        raise HTTPException(status_code=403, detail="Forbidden: invalid admin key")
     if settings is None or dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
@@ -677,9 +1187,11 @@ async def push_daily(dry_run: bool = Query(False, description="仅测试，不�
 
 
 @app.post("/api/push-weekly")
-async def push_weekly(dry_run: bool = Query(False, description="仅测试，不写入日志")):
-    """手动触发每周运势总结推送"""
+async def push_weekly(dry_run: bool = Query(False, description="仅测试，不写入日志"), authorization: str = Header("")):
+    """手动触发每周运势总结推送（管理员专用）"""
     global settings, dao
+    if not _verify_admin(authorization):
+        raise HTTPException(status_code=403, detail="Forbidden: invalid admin key")
     if settings is None or dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
@@ -705,8 +1217,12 @@ async def push_weekly(dry_run: bool = Query(False, description="仅测试，不�
 # ──────────────────────────────────────────
 
 @app.get("/api/user/{user_id}/history")
-async def get_user_history(user_id: str):
-    """获取用户最近咨询历史"""
+async def get_user_history(user_id: str, uid: str = Depends(require_user)):
+    """获取用户最近咨询历史。
+
+    安全修复（审计 E7）：必须登录 + owner 校验。
+    """
+    ensure_owner(user_id, uid)
     if dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     consultations = dao.get_user_consultations(user_id, limit=20)
@@ -718,8 +1234,12 @@ async def get_user_history(user_id: str):
 
 
 @app.get("/api/user/{user_id}/accuracy")
-async def get_user_accuracy(user_id: str):
-    """获取用户准确率仪表盘 — 合并 consultations 表和 preference 学习数据"""
+async def get_user_accuracy(user_id: str, uid: str = Depends(require_user)):
+    """获取用户准确率仪表盘 — 合并 consultations 表和 preference 学习数据。
+
+    安全修复（审计 E7）：必须登录 + owner 校验。
+    """
+    ensure_owner(user_id, uid)
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
@@ -737,10 +1257,18 @@ async def get_user_accuracy(user_id: str):
 async def submit_feedback(
     consultation_id: int,
     feedback: str = Query(..., description="positive or negative"),
+    uid: str = Depends(require_user),
 ):
-    """提交预测反馈 (👍/👎)"""
+    """提交预测反馈 (👍/👎)。
+
+    安全修复（审计 E12）：校验咨询记录归属当前用户，防对他人咨询刷反馈。
+    """
     if dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
+    c = dao.get_consultation(consultation_id)
+    if c is None:
+        raise HTTPException(status_code=404, detail="咨询记录不存在")
+    ensure_owner(c.get("user_id", ""), uid)
     success = dao.save_feedback(consultation_id, feedback)
     if not success:
         raise HTTPException(status_code=400, detail="反馈值无效，请使用 positive 或 negative")
@@ -753,12 +1281,15 @@ class CalendarRequest(BaseModel):
 
 
 @app.post("/api/calendar/daily")
-async def get_daily_calendar(req: CalendarRequest):
-    """AI 每日幸运日历 — 基于用户八字个性化生成"""
+async def get_daily_calendar(req: CalendarRequest, uid: str = Depends(require_user)):
+    """AI 每日幸运日历 — 基于用户八字个性化生成。
+
+    安全修复：user_id 一律取 JWT sub（body 的 user_id 被忽略）。
+    """
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
-    user_id = req.user_id
+    user_id = uid
 
     # Get user's bazi
     saved = handler.dao.get_user_bazi(user_id) if handler.dao else None
@@ -778,7 +1309,10 @@ async def get_daily_calendar(req: CalendarRequest):
     try:
         from .engines.calendar import LuckyCalendar
         cal = LuckyCalendar(api_key)
-        day = cal.daily(saved, req.date, preferences=preferences)
+        loop = asyncio.get_event_loop()
+        day = await loop.run_in_executor(
+            None, lambda: cal.daily(saved, req.date, preferences=preferences)
+        )
         return {"status": "ok", "calendar": _calendar_day_to_dict(day)}
     except Exception as e:
         return {"status": "error", "message": str(e)[:200],
@@ -786,12 +1320,15 @@ async def get_daily_calendar(req: CalendarRequest):
 
 
 @app.post("/api/calendar/week")
-async def get_week_calendar(req: CalendarRequest):
-    """AI 7天日历预览"""
+async def get_week_calendar(req: CalendarRequest, uid: str = Depends(require_user)):
+    """AI 7天日历预览。
+
+    安全修复：user_id 一律取 JWT sub（body 的 user_id 被忽略）。
+    """
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
-    user_id = req.user_id
+    user_id = uid
     saved = handler.dao.get_user_bazi(user_id) if handler.dao else None
     if not saved:
         return {"status": "no_bazi", "message": "请先设置八字信息"}
@@ -802,7 +1339,8 @@ async def get_week_calendar(req: CalendarRequest):
     try:
         from .engines.calendar import LuckyCalendar
         cal = LuckyCalendar(api_key)
-        days = cal.week(saved, preferences=preferences)
+        loop = asyncio.get_event_loop()
+        days = await loop.run_in_executor(None, lambda: cal.week(saved, preferences=preferences))
         return {"status": "ok", "calendar": [_calendar_day_to_dict(d) for d in days]}
     except Exception as e:
         return {"status": "error", "message": str(e)[:200]}
@@ -852,9 +1390,14 @@ from fastapi import UploadFile, File, Form
 @app.post("/api/face-reading")
 async def face_reading(
     image: UploadFile = File(...),
+    uid: str = Depends(require_user),
     user_id: str = Form("anonymous"),
 ):
-    """CV 精确面相分析 — 上传自拍照片，返回精确测量 + 古籍解读"""
+    """CV 精确面相分析 — 上传自拍照片，返回精确测量 + 古籍解读。
+
+    安全修复：必须登录；user_id 一律取 JWT sub。
+    """
+    user_id = uid
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
@@ -914,9 +1457,14 @@ async def face_reading(
 @app.post("/api/palm-reading")
 async def palm_reading(
     image: UploadFile = File(...),
+    uid: str = Depends(require_user),
     user_id: str = Form("anonymous"),
 ):
-    """CV 手相分析 — 上传手掌照片，检测掌纹并分析"""
+    """CV 手相分析 — 上传手掌照片，检测掌纹并分析。
+
+    安全修复：必须登录；user_id 一律取 JWT sub。
+    """
+    user_id = uid
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     try:
@@ -954,8 +1502,12 @@ async def palm_reading(
 
 
 @app.get("/api/dashboard/{user_id}")
-async def get_dashboard(user_id: str):
-    """E1: 个人命理仪表盘 — 数据聚合视图"""
+async def get_dashboard(user_id: str, uid: str = Depends(require_user)):
+    """E1: 个人命理仪表盘 — 数据聚合视图。
+
+    安全修复（审计 E10）：必须登录 + owner 校验。
+    """
+    ensure_owner(user_id, uid)
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     try:
@@ -966,8 +1518,12 @@ async def get_dashboard(user_id: str):
 
 
 @app.get("/api/share-card/{user_id}")
-async def get_share_card(user_id: str, style: str = "dark"):
-    """E2: 生成可分享的运势卡片数据"""
+async def get_share_card(user_id: str, style: str = "dark", uid: str = Depends(require_user)):
+    """E2: 生成可分享的运势卡片数据。
+
+    安全修复（审计 E10）：必须登录 + owner 校验。
+    """
+    ensure_owner(user_id, uid)
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     try:
@@ -983,14 +1539,16 @@ async def get_share_card(user_id: str, style: str = "dark"):
         quote = ""
         if api_key:
             try:
-                import httpx
+                from src.llm.client import deepseek_anthropic_completion
                 prompt = f"用户八字{bazi_str}，日主{dm}。生成一句15字以内的命理金句，适合发朋友圈。风格：{'毒舌犀利' if style=='dark' else '温暖治愈' if style=='warm' else '简约大气'}。直接返回句子。"
-                resp = httpx.post(
-                    "https://api.deepseek.com/v1/chat/completions",
-                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                    json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}],
-                          "max_tokens": 60, "temperature": 0.9}, timeout=15.0)
-                quote = resp.json()["choices"][0]["message"]["content"].strip()
+                quote = deepseek_anthropic_completion(
+                    api_key,
+                    [{"role": "user", "content": prompt}],
+                    model="deepseek-v4-flash",
+                    max_tokens=200,
+                    temperature=0.9,
+                    timeout=20.0,
+                )
             except Exception:
                 quote = f"命里有时终须有，命里无时莫强求 ✨"
 
@@ -1007,16 +1565,20 @@ async def get_share_card(user_id: str, style: str = "dark"):
 
 
 @app.get("/api/stats/predictions")
-async def get_prediction_stats():
-    """获取全局预测统计"""
+async def get_prediction_stats(uid: str = Depends(require_user)):
+    """获取全局预测统计。"""
     if dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     return dao.get_total_predictions()
 
 
 @app.get("/api/push-settings/{user_id}")
-async def get_push_settings(user_id: str):
-    """获取用户推送设置"""
+async def get_push_settings(user_id: str, uid: str = Depends(require_user)):
+    """获取用户推送设置。
+
+    安全修复（审计 E9）：必须登录 + owner 校验。
+    """
+    ensure_owner(user_id, uid)
     if dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     return dao.get_user_push_settings(user_id)
@@ -1025,10 +1587,15 @@ async def get_push_settings(user_id: str):
 @app.post("/api/push-settings/{user_id}")
 async def update_push_settings(
     user_id: str,
+    uid: str = Depends(require_user),
     push_enabled: Optional[bool] = Query(None),
     push_time: Optional[str] = Query(None),
 ):
-    """更新用户推送设置"""
+    """更新用户推送设置。
+
+    安全修复（审计 E9）：必须登录 + owner 校验。
+    """
+    ensure_owner(user_id, uid)
     if dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
@@ -1045,24 +1612,37 @@ async def update_push_settings(
 # ──────────────────────────────────────────
 
 def _verify_admin(authorization: str = Header("")) -> bool:
-    """Verify admin key from Authorization header."""
+    """Verify admin key from Authorization header.
+
+    安全修复（审计 E16）：未配置 admin_key 时返回 False（拒绝），
+    不再"空 key 放行"。
+    """
     expected = getattr(settings, "admin_key", "") or ""
     if not expected:
-        return True  # no key configured = allow
+        logger.warning("ADMIN_KEY 未配置，拒绝管理员请求")
+        return False
     return authorization == f"Bearer {expected}"
 
 
 @app.get("/api/membership/{user_id}")
-async def get_membership(user_id: str):
-    """获取用户会员信息"""
+async def get_membership(user_id: str, uid: str = Depends(require_user)):
+    """获取用户会员信息。
+
+    安全修复（审计 E8）：必须登录 + owner 校验。
+    """
+    ensure_owner(user_id, uid)
     if member_dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     return member_dao.get_membership(user_id)
 
 
 @app.post("/api/membership/{user_id}/upgrade")
-async def upgrade_membership(user_id: str, plan: str = Query(..., description="free/basic/pro/annual")):
-    """升级会员计划 (模拟支付)"""
+async def upgrade_membership(user_id: str, plan: str = Query(..., description="free/basic/pro/annual"), uid: str = Depends(require_user)):
+    """升级会员计划 (模拟支付)。
+
+    安全修复（审计 E8）：必须登录 + owner 校验（防给别人改会员）。
+    """
+    ensure_owner(user_id, uid)
     if member_dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 

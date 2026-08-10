@@ -5,35 +5,50 @@
 
 from typing import Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from ..security.auth import require_user
 from ..services.narrative import NarrativeService
+from ..api.birth_contract import normalize_gender, normalize_hour
 
 router = APIRouter(tags=["hehun"])
 
 # ── Pydantic 模型 ─────────────────────────────────────────────────
 
 class BaziInput(BaseModel):
-    """单人生辰信息"""
-    year: int
-    month: int
-    day: int
+    """单人生辰信息（双契约兼容）。
+
+    - 后端原生契约: year/month/day/hour(时钟小时)/minute/city/gender
+    - 小程序契约（hehun.js）: birthYear/birthMonth/birthDay/birthHour(0-11
+      时辰序号)/gender('male'|'female')/city —— 两者都填时小程序字段优先
+    """
+    year: Optional[int] = None
+    month: Optional[int] = None
+    day: Optional[int] = None
     hour: int = 0
     minute: int = 0
     city: str = "北京"
     gender: str = "男"
+    # 小程序字段（别名）
+    birthYear: Optional[int] = None
+    birthMonth: Optional[int] = None
+    birthDay: Optional[int] = None
+    birthHour: Optional[int] = None
 
 
 class HehunRequest(BaseModel):
-    """合婚请求：双方生辰"""
-    person_a: BaziInput
-    person_b: BaziInput
+    """合婚请求：双方生辰（person_a/person_b 原生契约，person1/person2 小程序契约）"""
+    person_a: Optional[BaziInput] = None
+    person_b: Optional[BaziInput] = None
+    person1: Optional[BaziInput] = None
+    person2: Optional[BaziInput] = None
 
 
 class HehunResponse(BaseModel):
     """合婚匹配结果"""
     total_score: int
+    score: int = 0  # 小程序 hehun.js 读 result.score（与 total_score 相同）
     wuxing: dict
     shengxiao: dict
     rizhu: dict
@@ -60,8 +75,10 @@ def setup(hehun_engine, bazi_engine, narrative: NarrativeService = None):
 # ── API 端点 ─────────────────────────────────────────────────────
 
 @router.post("/api/hehun", response_model=HehunResponse)
-async def hehun_match(req: HehunRequest):
+async def hehun_match(req: HehunRequest, uid: str = Depends(require_user)):
     """合婚匹配计算。
+
+    安全修复：必须登录（生辰信息为敏感数据）。
 
     接收双方八字信息，引擎计算五行互补、生肖配对、日柱关系，
     返回综合评分和详细分析。
@@ -70,8 +87,7 @@ async def hehun_match(req: HehunRequest):
         from fastapi import HTTPException
         raise HTTPException(status_code=503, detail="Hehun service not ready")
 
-    a = req.person_a
-    b = req.person_b
+    a, b = _resolve_pair(req)
 
     # 排盘
     r1 = _bazi_engine.calculate(a.year, a.month, a.day, a.hour, a.minute, a.city, a.gender)
@@ -114,6 +130,7 @@ async def hehun_match(req: HehunRequest):
 
     return HehunResponse(
         total_score=result_dict["total_score"],
+        score=result_dict["total_score"],
         wuxing=result_dict["wuxing"],
         shengxiao=result_dict["shengxiao"],
         rizhu=result_dict["rizhu"],
@@ -121,3 +138,39 @@ async def hehun_match(req: HehunRequest):
         summary=f"综合评分：{result.score}/100。{result.bazi_match.get('complement_desc', '')}。{result.shengxiao}。{result.rizhu}。",
         narrative=narrative_text,
     )
+
+
+# ── 契约解析辅助 ──────────────────────────────────────────────────
+
+def _resolve_person(data: Optional[BaziInput]) -> BaziInput:
+    """把小程序字段(birthYear...)或原生字段(year...)统一为引擎入参。
+
+    - birthYear/birthMonth/birthDay 优先，缺省回落 year/month/day；
+    - birthHour 为 0-11 时辰序号 → 时钟小时（normalize_hour 处理）；
+    - gender 'male'/'female' → '男'/'女'。
+    """
+    if data is None:
+        raise HTTPException(status_code=400, detail="缺少生辰信息（person_a/person_b 或 person1/person2）")
+    year = data.birthYear if data.birthYear is not None else data.year
+    month = data.birthMonth if data.birthMonth is not None else data.month
+    day = data.birthDay if data.birthDay is not None else data.day
+    if year is None or month is None or day is None:
+        raise HTTPException(status_code=400, detail="出生年/月/日不能为空")
+    hour = data.birthHour if data.birthHour is not None else data.hour
+    return BaziInput(
+        year=int(year), month=int(month), day=int(day),
+        hour=normalize_hour(hour), minute=data.minute,
+        city=data.city, gender=normalize_gender(data.gender),
+    )
+
+
+def _resolve_pair(req: HehunRequest):
+    """解析双方生辰：小程序契约(person1/person2)与原生契约(person_a/person_b)
+    二选一，混用或缺失返回 400。"""
+    if (req.person1 is not None or req.person2 is not None):
+        if req.person1 is None or req.person2 is None:
+            raise HTTPException(status_code=400, detail="person1 与 person2 必须同时提供")
+        return _resolve_person(req.person1), _resolve_person(req.person2)
+    if req.person_a is None or req.person_b is None:
+        raise HTTPException(status_code=400, detail="person_a 与 person_b 必须同时提供")
+    return _resolve_person(req.person_a), _resolve_person(req.person_b)

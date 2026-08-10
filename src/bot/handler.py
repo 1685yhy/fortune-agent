@@ -1,7 +1,11 @@
 """消息处理 - 意图识别和信息收集."""
+import json
+import logging
 import os
 import re
-from typing import Optional, Tuple, Any
+from typing import Optional, Tuple, Any, Callable
+
+logger = logging.getLogger(__name__)
 
 from src.engines.bazi import BaziEngine, BaziResult
 from src.engines.ziwei import ZiweiEngine, ZiweiResult
@@ -22,6 +26,7 @@ except ImportError:
     HAS_ADVISOR_V2 = False
 from src.rag.retriever import Retriever, ChunkResult
 from src.llm.client import FortuneLLM, AnalysisResult
+from src.config import is_experience_mode
 
 # Task 6 (storage/dao.py) may not exist yet — make import mock-friendly
 try:
@@ -49,25 +54,216 @@ from src.storage.conversation_memory import ConversationMemory
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
 from src.memory.user_memory import UserMemory
-from src.engines.similarity import SimilarityEngine
+# 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除，见 src/engines/similarity.py 注释）
 from .formatter import split_long_message, format_error, format_loading
 from src.reading_version import get_version_footer
+# 阶段 3（方案 v5）：<tool_call>搜索: 引导按搜索可用性注入（不可用时返回空串不宣传）
+from src.llm.prompts import _web_tool_guide_line
 
-INTENT_KEYWORDS = {
-    "bazi": ["八字", "命理", "命格", "运势", "算命", "排盘", "四柱"],
-    "ziwei": ["紫微", "斗数", "十二宫"],
-    "liuyao": ["六爻", "卦", "占卜", "起卦"],
-    "fengshui": ["风水", "阳宅", "阴宅", "家居", "布局", "房间"],
-    "zeri": ["择日", "吉日", "搬家", "开业", "结婚日子", "选日子"],
-    "mianxiang": ["面相", "手相", "看相"],
-    "qimen": ["奇门", "遁甲"],
-    "xingming": ["名字", "起名", "姓名", "改名"],
-    "hehun": ["合婚", "配对", "配不配", "婚姻匹配"],
-    "dream": ["解梦", "做梦", "梦见", "梦到", "梦"],
-    "calendar": ["今日运势", "今日日历", "今日宜忌", "幸运日历", "今天运势", "今天宜忌", "今日运程", "流时运势", "时辰运势", "今日时辰"],
-    "hourly": ["几点", "什么时候", "时辰", "今天什么时候", "时运"],
-    "xuetang": ["学堂", "学习", "教程", "入门"],
+# AI 原生对话系统（Phase 1）— <tool_call> 标签解析与工具执行
+# 意图识别已完全由 LLM 承担（_analyze_message），不再有任何硬编码关键词表。
+from .tool_calls import (
+    parse_tool_calls,
+    strip_tool_calls,
+    ToolCall,
+    ToolResult,
+    TOOL_REGISTRY,
+    MAX_TOOL_ITERATIONS,
+    SEARCH_UNAVAILABLE_HINT,
+    RETRIEVAL_UNAVAILABLE_HINT,
+)
+
+# v8 阶段 3（过程体验）：工具调用事件文案（思考路径逐步点亮）
+_TOOL_EVENT_LABELS = {
+    "排盘": "正在排盘…",
+    "检索": "正在查阅古籍…",
+    "解梦": "正在翻阅梦兆典籍…",
+    "风水": "正在勘察风水…",
+    "择日": "正在择吉日…",
 }
+
+# v8 阶段 3（模式二·思考路径）：意图 → 1-3 步思考文案（无工具的简单聊天不发）
+INTENT_THINKING_STEPS = {
+    "bazi": ["我在看你的八字…", "对照古籍分析五行流年…", "结合你的情况在整理…"],
+    "ziwei": ["我在排紫微斗数盘…", "逐宫推演十二宫…"],
+    "liuyao": ["我在起卦…", "推演卦象变化…"],
+    "qimen": ["我在起奇门局…", "推演九宫格局…"],
+    "fengshui": ["我在勘察风水格局…", "结合五行方位分析…"],
+    "mianxiang": ["我在端详你的面相…", "结合五宫五行分析…"],
+    "zeri": ["我在翻黄历择吉…", "比对吉凶宜忌…"],
+    "hehun": ["我在比对两人命盘…", "推演五行互补…"],
+    "xingming": ["我在拆解姓名笔画五行…", "推演三才配置…"],
+    "dream": ["我在翻阅梦兆典籍…", "对照古籍解梦…"],
+    "calendar": ["我在查今日星象…"],
+    "hourly": ["我在推演时辰运势…"],
+    "career": ["我在看你的八字…", "对照十神五行分析行业适配…", "结合你的情况在整理…"],
+}
+# FAISS 语义检索（生产主路径）：276 万条古籍向量库（bge-m3 1024 维，
+# inner_product）。检索工具只走 FAISS；不可用/无结果时走 LLM 自然对话兜底，
+# 不降级关键词检索（见 _tool_search）。
+from src.rag.faiss_retriever import get_faiss_retriever
+
+# 阶段 5·来源体系与引用校验（方案 §3.0/§3.2 ③）：四类来源统一角标 +
+# 回答后校验（不相关引用剔除）；网络检索（智谱 Web Search，可用才宣传）
+from src.rag.citation import make_citation, verify_citations, public_citation, type_label
+from src.rag.web_search import search_web, web_search_available
+
+# 方案 B·引擎结果注入（AI 原生统一）：_handle_* 分析回复的系统尾巴
+# （反馈提示/版本页脚）——润色时先剥离、润色后原样回接，防 LLM 改写
+_FEEDBACK_PROMPT = "———\n💬 这个分析对你有帮助吗？👍 有帮助  👎 不太准"
+
+
+class _FaissChunk:
+    """FaissRetriever 返回的 dict → ChunkResult 兼容对象（解梦引擎按 r.text 取用）。
+
+    设计文档阶段 0：276 万 FAISS 为生产主路径检索器；本地 Retriever(27k)
+    与 FaissRetriever 返回结构不同，解梦等内部检索经此适配统一。
+    """
+
+    __slots__ = ("text", "source", "score", "category")
+
+    def __init__(self, d: dict):
+        self.text = d.get("text") or ""
+        self.source = d.get("source") or d.get("title") or ""
+        self.score = float(d.get("score") or 0.0)
+        self.category = d.get("category") or ""
+
+
+class _ChunkSearchAdapter:
+    """FAISS dict 结果 → ChunkResult 风格对象（.search 接口兼容）。"""
+
+    def __init__(self, faiss_retriever):
+        self._fr = faiss_retriever
+
+    def search(self, query: str, top_k: int = 5, **kw):
+        return [_FaissChunk(d) for d in self._fr.search(query, top_k=top_k)]
+
+# L2 会话增量摘要（方案 §5.4）— 触发式滚动压缩，<summary>+<memories>
+from src.bot.memory_compactor import MemoryCompactor
+
+
+# ============================================================
+# L1 滚动窗口（方案 §5.3）— 按 token 预算动态计算轮数
+# ============================================================
+
+# 检索结果注入的预留份额（token）
+RETRIEVAL_RESERVE_TOKENS = 600
+
+
+def estimate_tokens(text: str) -> int:
+    """中文为主的消息 token 估算（方案 §5.3：字数/1.5 或字符数/4×1.2）。
+
+    - CJK/全角字符：1 token ≈ 1.5 字（字数/1.5）
+    - ASCII：1 token ≈ 4 字符（字符数/4×1.2 近似）
+    - 空文本返回 0
+    """
+    if not text:
+        return 0
+    cjk = sum(1 for ch in text if ord(ch) > 0x2E80)
+    ascii_n = len(text) - cjk
+    return max(1, int(cjk / 1.5 + ascii_n / 4.0) + 1)
+
+
+def _assemble_context(
+    history: list,
+    profile: str = "",
+    summary: str = "",
+    current: str = "",
+    key_facts: tuple = (),
+    window_limit: int = 16384,
+    output_reserve: int = 4096,
+) -> list:
+    """L1 上下文组装（方案 §5.2/§5.3）——按 token 预算动态计算保留轮数。
+
+    预算 = 窗口上限 - 输出预留 - 系统指令份额(计入 profile/summary) - 检索预留；
+    从最新往回填完整轮次（预算内尽量多）；当前消息保底保留。
+
+    **关键事实保底**（§5.3）：八字/用户明确关键陈述（工作/感情状态，L3 标记
+    is_key）无论多旧都保留原文——以 system 消息注入，不进压缩。
+
+    Args:
+        history: [{role, content}, ...] 按时间正序的完整历史（含当前消息）
+        profile: 用户画像摘要（L3 → 组装时注入）
+        summary: L2 会话摘要（早期对话摘要）
+        current: 当前用户消息（保底保留）
+        key_facts: 关键事实原文列表（L3 is_key 条目 + 八字）
+        window_limit: 上下文窗口上限（token）
+        output_reserve: 输出预留（token）
+
+    Returns:
+        组装后的消息列表（system 前置 + 时间正序的历史轮次）
+    """
+    if not history:
+        return []
+    # 预算 = 窗口上限 - 输出预留 - 画像/摘要/检索份额
+    used_overhead = (estimate_tokens(profile) + estimate_tokens(summary)
+                     + RETRIEVAL_RESERVE_TOKENS)
+    budget = max(128, window_limit - output_reserve - used_overhead)
+
+    order: list = []
+    used = 0
+    for i in range(len(history) - 1, -1, -1):
+        m = history[i]
+        t = estimate_tokens(m.get("content", "") or "")
+        if used + t > budget and order:
+            break
+        if used + t > budget and not order:
+            # 预算极小：当前消息（L0）保底保留；同轮助手回复一并保留
+            order.append(m)
+            used += t
+            if i - 1 >= 0 and history[i - 1].get("role") == "assistant":
+                order.append(history[i - 1])
+                used += estimate_tokens(history[i - 1].get("content", "") or "")
+            break
+        order.append(m)
+        used += t
+
+    kept = list(reversed(order))
+    msgs: list = []
+    if key_facts:
+        msgs.append({"role": "system",
+                     "content": "[长期记忆·关键事实]\n" + "\n".join(key_facts)})
+    if profile:
+        msgs.append({"role": "system", "content": "[用户画像]\n" + profile})
+    if summary:
+        msgs.append({"role": "system", "content": "[早前对话摘要]\n" + summary})
+    msgs.extend(kept)
+    return msgs
+
+
+# L3 关键事件捕获规则（方案 §5.5：用户明确关键陈述 → event 条目，TTL 过期）
+# 格式: (正则, 类型, 内容模板, ttl_days, is_key)
+_KEY_EVENT_RULES = [
+    (r"正在找工作|找工作|求职中|准备面试|在面试", "event", "用户正在找工作/求职中", 90, True),
+    (r"换工作|跳槽|辞职|离职|被裁|裁员", "event", "用户近期换工作/跳槽", 90, True),
+    (r"分手了|分手|离婚|被甩", "event", "用户经历分手/离婚", 180, True),
+    (r"结婚了|结婚|订婚|领证", "event", "用户结婚/订婚", 180, True),
+    (r"怀孕|备孕|要生宝宝", "event", "用户备孕/怀孕", 365, True),
+    (r"住院|手术|确诊|大病", "event", "用户健康相关关键事件", 90, True),
+    (r"买房|买房子|买房了", "event", "用户买房", 180, False),
+    (r"搬家", "event", "用户搬家", 90, False),
+]
+
+# 自伤/自杀信号（合规审计留痕：self_harm_referral）
+_SELF_HARM_RE = re.compile(r"自杀|自伤|轻生|不想活|活不下去|想死|结束生命")
+
+# v1.2 建议卡片（suggestions）触发：用户最后一条消息是提问时生成 2-3 个追问。
+# 宽松启发式（仅决定"要不要生成"，不参与回复内容；误触发只多一次小 LLM 调用）。
+_QUESTION_WORDS = ("什么", "怎么", "如何", "哪", "多少", "能否", "能不能",
+                   "要不要", "会不会", "是不是", "该怎么办", "建议", "吗", "呢")
+
+
+def is_question(text: str) -> bool:
+    """用户消息是否提问（建议卡片触发条件）。"""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if "?" in t or "？" in t:
+        return True
+    if t[-1] in "吗呢么":
+        return True
+    return any(kw in t for kw in _QUESTION_WORDS)
+
 
 # 八字信息提取
 # 时辰 → 小时映射
@@ -211,19 +407,26 @@ class MessageHandler:
         # Multi-turn memory
         api_key = getattr(llm, 'api_key', '') if llm else ''
         self.memory = ConversationMemory(api_key) if api_key else None
+        # L2 会话增量摘要（方案 §5.4）— 上下文超阈值触发，分块滚动压缩
+        self.compactor = MemoryCompactor(api_key, model=getattr(llm, 'model', 'deepseek-v4-flash')) if api_key else None
+        # L1/L2/L3 运行时状态：工具调用日志（本轮 <tool_call> 记录，落库用）
+        self._tool_logs: dict = {}
+        # 阶段 5：本轮引用来源注册表（user_id → [{index,type,title,text,url}]），
+        # 工具执行时注册，_run_tool_loop 校验后由 API 层 pop_citations 取走
+        self._citations: dict = {}
         # D2: Response cache for high-frequency queries
         self.cache = ResponseCache(max_size=500)
         # E4: ML quality predictor (online learning)
         self.quality_predictor = QualityPredictor()
         # Phase 3: User Memory System — persistent cross-session memory
         self.memory_system = UserMemory()
+        # 阶段 5（方案 v5）：本轮理解出的关键事实（user_id → facts），
+        # 供 save_bazi_info 做 subject=other（帮他人排盘）保护
+        self._analysis_facts: dict = {}
 
-        # Phase 5: Similarity Engine — 命例相似度匹配
-        # DB path: data/wenzhen_charts.db relative to project root
-        import os as _os
-        _proj_root = _os.path.dirname(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
-        _sim_db = _os.path.join(_proj_root, "data", "wenzhen_charts.db")
-        self.similarity_engine = SimilarityEngine(_sim_db) if _os.path.exists(_sim_db) else None
+        # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除）：
+        # 不再初始化 SimilarityEngine（原 data/wenzhen_charts.db 44k 命例对照），
+        # 未问"像谁"不再输出命例/名人对照
 
     # ============================================================
     # Feedback Learning (F1-F3)
@@ -349,6 +552,8 @@ class MessageHandler:
         """
         if not self.member_dao:
             return -1, False  # No quota system = unlimited
+        if is_experience_mode():
+            return -1, False  # 体验模式：不限额（无限次）
         try:
             membership = self.member_dao.get_membership(user_id)
             limit = membership.get("queries_limit")
@@ -362,6 +567,8 @@ class MessageHandler:
 
     def _consume_quota(self, user_id: str) -> None:
         """Mark one query as used."""
+        if is_experience_mode():
+            return  # 体验模式：不扣配额
         if self.member_dao:
             try:
                 self.member_dao.use_quota(user_id)
@@ -443,29 +650,1123 @@ class MessageHandler:
     # AI Message Analysis — emotion + intent in ONE call (no keywords)
     # ============================================================
 
-    def _analyze_message(self, msg: str) -> MessageAnalysis:
+    def _analyze_message(self, msg: str, user_id: str = "") -> MessageAnalysis:
         """Single AI call for emotion detection + intent classification.
 
         Replaces _soothe() + _detect_intent() — zero hardcoded keywords.
         One Flash call instead of two, cutting latency from ~8s to ~4s.
+        AI 原生改造（Phase 1）：分析时注入最近 2-3 轮对话上下文（方案 2.1 短期记忆），
+        让意图/情绪判断更准。
         """
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         if api_key:
             try:
                 analyzer = MessageAnalyzer(api_key=api_key)
-                return analyzer.analyze(msg)
+                history = None
+                if user_id and self.session_dao:
+                    try:
+                        history = self.session_dao.get_context_for_llm(user_id, history_limit=6)
+                    except Exception:
+                        history = None
+                return analyzer.analyze(msg, history=history)
             except Exception:
                 pass
-        # Graceful fallback
-        if re.search(r'\d{4}\s*[年/-]\s*\d{1,2}\s*[月/-]\s*\d{1,2}', msg):
+        # Graceful fallback（与 MessageAnalyzer fast path 同规则：纯生日陈述才判 bazi，
+        # 含意图词时兜底为 free_chat 走 LLM 自然对话，避免掐死"生日+公司适配"类问题）
+        if (re.search(r'\d{4}\s*[年/-]\s*\d{1,2}\s*[月/-]\s*\d{1,2}', msg)
+                and not MessageAnalyzer.INTENT_HINT_PATTERN.search(msg)):
             return MessageAnalysis(needs_soothe=False, soothe_text="",
                                    emotion_label=None, intent="bazi")
         return MessageAnalysis(needs_soothe=False, soothe_text="",
                                emotion_label=None, intent=None)
 
-    def process(self, message: str, user_id: str) -> str:
-        """处理用户消息，返回回复"""
+    # ============================================================
+    # AI 原生（Phase 1）— <tool_call> 工具调用循环（方案 3.2/3.3）
+    # ============================================================
+
+    def _tool_loop_analysis_hint(self, analysis: Optional[MessageAnalysis]) -> str:
+        """阶段 2/3 最小实现：把理解 JSON（附加需求/联网需求）转成注入下一轮 LLM 的提示。
+
+        - secondary_needs：要求逐项覆盖（多需求不遗漏）
+        - needs_search 且搜索工具可用：引导 LLM 按需输出 <tool_call>搜索: 标签查证
+        """
+        if not analysis:
+            return ""
+        hints = []
+        sn = getattr(analysis, "secondary_needs", None) or []
+        if sn:
+            hints.append(
+                "【附加需求】用户还提到：" + "、".join(str(x) for x in sn[:5])
+                + "。回复需逐项覆盖这些需求，不要遗漏。"
+            )
+        if getattr(analysis, "needs_search", False):
+            try:
+                from src.rag.web_search import web_search_available
+                if web_search_available():
+                    hints.append(
+                        "【实时信息】此问题依赖实时信息（公司/行业/时事/最新数据）。"
+                        "请先输出一次 <tool_call>搜索: 具体关键词</tool_call> 获取实时信息，"
+                        "再基于搜索结果继续回答，不要凭记忆编造行业现状数据；"
+                        "若搜索不可用，则明确告知用户"
+                        "「实时信息暂不可用，以下按命理知识分析」。"
+                    )
+            except Exception:
+                pass
+        return "\n".join(hints)
+
+    def _run_tool_loop(self, msg: str, user_id: str, reply: str,
+                       stream_cb: Optional[Callable] = None,
+                       analysis: Optional[MessageAnalysis] = None) -> str:
+        """检测回复中的 <tool_call> 标签 → 执行工具 → 结果以 system 注入 → 再次调 LLM。
+
+        - 最多 MAX_TOOL_ITERATIONS（2）次迭代，防死循环
+        - 解析失败/LLM 调用失败：静默降级，返回原文（去标签）
+        - 工具执行失败：错误注入 system 提示，对话继续
+
+        阶段 2/3 最小实现（方案 v5）：
+        - analysis.secondary_needs → 注入"附加需求逐项覆盖"（多需求不遗漏）
+        - analysis.needs_search 且搜索可用 → 注入联网搜索引导（LLM 决定是否 <tool_call>搜索:）
+
+        stream_cb（v8 阶段 3）：工具执行前回调 ("tool", {"text": ...}) 事件
+        （前端思考路径逐步点亮），后续 LLM 调用走真实流式。
+        """
+        if not reply:
+            return reply
+        api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+        if not api_key:
+            return strip_tool_calls(reply) or reply
+
+        history = None
+        if self.session_dao:
+            try:
+                # 会话历史末尾即当前用户消息（assistant 回复尚未保存）
+                history = self.session_dao.get_context_for_llm(user_id, history_limit=20)
+            except Exception:
+                history = None
+
+        # 阶段 2（方案 §7.2）：本轮工具调用日志（落库：tool_calls / retrieval_hit）
+        executed_calls: list = []
+        retrieval_hit = "unused"
+        # 阶段 5：本轮引用来源（user_id → list）由工具/处理器注册；
+        # 不在本方法清空（处理器注册的引用要保留到本方法末尾统一校验）
+
+        for _ in range(MAX_TOOL_ITERATIONS):
+            calls = parse_tool_calls(reply)
+            if not calls:
+                break
+            logger.info("工具调用执行 user=%s calls=%s",
+                        user_id, [c.name for c in calls])
+            visible = strip_tool_calls(reply)
+            results = []
+            for c in calls:
+                # v8 阶段 3：工具调用前先发"思考路径"事件（前端点亮 ● → ✓）
+                if stream_cb is not None:
+                    try:
+                        stream_cb("tool", {"text": _TOOL_EVENT_LABELS.get(
+                            c.name, f"正在{c.name}…")})
+                    except Exception:
+                        pass
+                r = self._execute_tool_call(c.name, c.params, user_id,
+                                            user_question=msg)
+                results.append(r)
+                executed_calls.append({
+                    "type": r.name,
+                    "params": (c.params or "")[:200],
+                    "hit": bool(r.ok),
+                })
+                if r.name in ("检索", "搜索"):
+                    retrieval_hit = "hit" if r.ok else "miss"
+
+            messages = [{"role": "system", "content":
+                "你是易理明灯，请基于工具执行结果继续自然地完成你的回复。"
+                "回答纪律：直接专业作答，禁止油滑/套近乎开场白；"
+                "严格紧扣用户问题，用户没问的（名人相似、旁支话题）不得主动展开。"
+                + self._tool_loop_analysis_hint(analysis)}]
+            if history:
+                messages.extend(history)
+            else:
+                messages.append({"role": "user", "content": msg})
+            if visible:
+                messages.append({"role": "assistant", "content": visible})
+            results_text = "\n\n".join(
+                f"【工具：{r.name}】\n{r.text}" for r in results
+            )
+            messages.append({
+                "role": "system",
+                "content": (
+                    "[工具执行结果]\n" + results_text +
+                    "\n\n请基于以上结果继续完成你的回复（把结果消化成自然语言，"
+                    "不要提 <tool_call> 标签）。\n"
+                    "引用规则：资料带编号 [n] 时，**只引用与用户问题直接相关的内容**，"
+                    "凡引用资料中的内容，必须在相关陈述后标注编号"
+                    "（如「古籍《X》载：…[1]」）；"
+                    "不相关的内容忽略，不要引用、不要编造出处。\n"
+                    "如果工具提示缺少信息，就自然地向用户询问缺失的信息。"
+                    "不要再次输出 <tool_call> 标签。"
+                ),
+            })
+            # 合并相邻 system 消息（回复无可见文字时会产生连续 system，部分端点不兼容）
+            merged = []
+            for m in messages:
+                if merged and m["role"] == "system" and merged[-1]["role"] == "system":
+                    merged[-1] = {"role": "system",
+                                  "content": merged[-1]["content"] + "\n\n" + m["content"]}
+                else:
+                    merged.append(m)
+            messages = merged
+            try:
+                from src.llm.client import deepseek_anthropic_completion
+                new_reply = deepseek_anthropic_completion(
+                    api_key, messages, model=self.llm.model or "deepseek-v4-flash",
+                    max_tokens=2000, temperature=0.7, timeout=60.0,
+                    stream_cb=stream_cb,
+                )
+            except Exception:
+                break  # LLM 调用失败 → 静默降级返回原文
+            if not new_reply:
+                break
+            reply = new_reply
+
+        # 阶段 2（方案 §7.2）：本轮工具调用日志（落库：tool_calls / retrieval_hit）
+        self._tool_logs[user_id] = {
+            "calls": executed_calls,
+            "retrieval_hit": retrieval_hit,
+        }
+
+        # 兜底：去掉残留标签
+        cleaned = strip_tool_calls(reply)
+        # 阶段 5·回答后引用校验（方案 §3.2 ③）：不相关 [n] 剔除，来源收窄
+        cleaned = self._verify_and_keep(user_id, cleaned, msg)
+        return cleaned or reply
+
+    # ============================================================
+    # 阶段 5·引用来源注册（方案 §3.0/§3.2）：工具结果统一带来源类型
+    # ============================================================
+
+    def _alloc_citations(self, user_id: str, count: int) -> int:
+        """为本轮工具结果分配连续引用编号，返回起始编号（1-based）。"""
+        bucket = self._citations.setdefault(user_id, [])
+        return len(bucket) + 1
+
+    def _append_citations(self, user_id: str, items: list) -> None:
+        """注册本轮来源条目（调用方已用 _alloc_citations 分配好 index）。"""
+        bucket = self._citations.setdefault(user_id, [])
+        bucket.extend(items)
+
+    def pop_citations(self, user_id: str) -> list:
+        """API 层取走本轮校验后的引用来源列表（取走即清空，防泄漏到下轮）。"""
+        return self._citations.pop(user_id, None) or []
+
+    def _verify_and_keep(self, user_id: str, reply: str, question: str) -> str:
+        """回答后引用校验（方案 §3.2 ③）：不相关 [n] 剔除标记，来源列表收窄。"""
+        citations = self._citations.get(user_id) or []
+        if not citations:
+            return reply
+        try:
+            cleaned, kept = verify_citations(reply, question, citations)
+        except Exception:  # noqa: BLE001 — 校验失败放行
+            cleaned, kept = reply, citations
+        self._citations[user_id] = kept
+        return cleaned or reply
+
+    # ============================================================
+    # 方案 B·引擎结果注入（AI 原生统一）：有意图的问题也走
+    # LLM 自主生成 + 工具循环 + 引用注册（方案 §3.0/§3.2，修复硬路由）
+    # ============================================================
+
+    def _register_engine_citation(self, user_id: str, text: str, title: str = "",
+                                  source: str = "引擎") -> None:
+        """阶段 5·来源体系 ②：引擎计算结果注册为 engine 来源（排盘/卦象/运势…）。"""
+        if not text:
+            return
+        idx = self._alloc_citations(user_id, 1)
+        self._append_citations(user_id, [make_citation(
+            idx, "engine", text[:600],
+            title=(title or "引擎分析")[:120], source=(source or "引擎")[:120],
+        )])
+
+    def _register_book_citations(self, user_id: str, refs: list, limit: int = 5,
+                                 title: str = "古籍参考", source: str = "古籍库") -> None:
+        """阶段 5·来源体系 ①：处理器内部检索到的古籍片段注册为 book 来源。
+
+        refs: retriever.search 返回的 ChunkResult 列表（也兼容 dict）。
+        """
+        if not refs:
+            return
+        items = []
+        start = self._alloc_citations(user_id, min(limit, len(refs)))
+        for i, ref in enumerate(list(refs)[:limit], start=start):
+            src = ref.get("source") if isinstance(ref, dict) else getattr(ref, "source", "")
+            text = ref.get("text") if isinstance(ref, dict) else getattr(ref, "text", "")
+            src = src or ""
+            text = (text or "")[:400]
+            if not text:
+                continue
+            items.append(make_citation(
+                i, "book", text,
+                title=(f"《{src}》" if src and "《" not in src else src) or title,
+                source=source,
+            ))
+        if items:
+            self._append_citations(user_id, items)
+
+    def _polish_with_engine_draft(self, msg: str, user_id: str, draft: str,
+                                  stream_cb: Optional[Callable] = None,
+                                  extra_hint: str = "",
+                                  search_hint: str = "") -> str:
+        """方案 B·引擎结果注入：把 _handle_* 的引擎分析结果作为「引擎草稿」
+        注入 system → LLM 以豆包式语气生成最终回复（AI 原生架构统一）。
+
+        - 草稿的系统尾巴（反馈提示/版本页脚）先剥离、润色后原样回接
+        - 命盘图片链接（📊…http…）若被 LLM 丢弃则自动补回
+        - 本轮已注册引用（engine/book）随提示注入，LLM 需要时在陈述后标 [n]
+        - extra_hint: P2 话题提示（重复话题/演化链），注入 system 引导
+        - search_hint: P3 联网激活——needs_search 时作为「第 4 条要求」置顶，
+          让搜索成为硬性指令（旧逻辑只在不置顶的附加提示里，LLM 常忽略）
+        - LLM 仍可输出 <tool_call>（补检索古籍/网络）→ 由 _run_tool_loop 执行
+        - LLM 失败/空结果 → 原样返回草稿（静默降级，行为不劣于现状）
+        """
+        if not draft:
+            return draft
+        api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+        # Mock 兼容：Mock 对象不是 str（单元测试用 Mock llm 时不发起真实网络调用）
+        if not isinstance(api_key, str) or not api_key:
+            return draft
+        model = getattr(self.llm, 'model', '') or "deepseek-v4-flash"
+        if not isinstance(model, str):
+            model = "deepseek-v4-flash"
+
+        # 1) 剥离系统尾巴（版本页脚/反馈提示），润色后原样回接
+        body = draft
+        tail = ""
+        footer = get_version_footer()
+        footer_block = f"---\n{footer}"
+        if footer and body.endswith(footer_block):
+            body = body[: -len(footer_block)].rstrip()
+            tail = f"\n\n{footer_block}"
+        if body.endswith(_FEEDBACK_PROMPT):
+            body = body[: -len(_FEEDBACK_PROMPT)].rstrip()
+            tail = f"\n\n{_FEEDBACK_PROMPT}" + tail
+
+        # 2) 命盘图片链接保底（LLM 润色可能丢弃链接）
+        chart_url = ""
+        m = re.search(r'📊[^\n]*(?:https?://\S+)', body)
+        if m:
+            chart_url = m.group(0).strip()
+
+        # 3) 本轮已注册引用注入提示（LLM 需要时标注 [n]）
+        citations = self._citations.get(user_id) or []
+        def _cite_line(c):
+            # 附内容摘录：仅标题（如多条"解梦 · 古籍参考"）时 LLM 无法判断
+            # [n] 指向什么内容，标注引用无从下手
+            excerpt = (c.get("text") or "").replace("\n", " ").strip()
+            if excerpt:
+                excerpt = excerpt[:50] + ("…" if len(excerpt) > 50 else "")
+            base = f"[{c.get('index')}] {type_label(c.get('type'))}《{c.get('title', '')}》"
+            return base + (f"｜{excerpt}" if excerpt else "")
+
+        cite_hint = "；".join(_cite_line(c) for c in citations) or "（暂无）"
+
+        system = (
+            "你是易理明灯，一位懂命理的温暖朋友。说话像豆包：口语化、有温度、"
+            "自然不端着，把专业术语讲成大白话。"
+            "回答纪律：直接专业作答，禁止油滑/套近乎开场白（如「哈哈」「挺有意思」）；"
+            "严格紧扣用户问题，用户没问的（名人相似、旁支话题）不得主动展开。\n"
+            "下面是系统命理引擎刚算出的专业分析结果（真实数据，不是聊天内容）：\n"
+            "【引擎分析结果】\n"
+            f"{body}\n"
+            "【引擎分析结果结束】\n\n"
+            "请把以上结果润色成一段发给用户的自然回复。要求：\n"
+            + (("0. 【硬性要求·实时信息】此题依赖实时信息（行业/公司/时事/最新数据）。"
+                "你必须先输出一次 <tool_call>搜索: 具体关键词</tool_call> 让系统联网查证，"
+                "收到搜索结果后再完成最终回复；不要凭记忆编造行业现状数据；"
+                "若搜索不可用，则明确告知用户「实时信息暂不可用，以下按命理知识分析」。\n")
+               if search_hint else "")
+            + "1. 保留全部实质性数据（四柱/十神/卦象/日期/评分/宜忌条目等），"
+            "可以调整表达结构，但不要删改、不要编造数据；\n"
+            "2. 像朋友聊天一样组织语言，不要提及「引擎」「草稿」「检索」「系统」"
+            "等技术词汇；\n"
+            f"3. 引用规则：本轮可用来源：{cite_hint}。回答中用到来源里的具体数据、"
+            "古籍记载或命盘信息时，必须在对应陈述后标注编号"
+            "（如「古籍《X》载：…[1]」「你的命盘：庚午年…[1]」），"
+            "且至少标注 1 个实际使用到的编号（全部内容均与来源无关时才可不标）；"
+            "只标注与用户问题直接相关的内容，不相关不标注；\n"
+            "4. 如果还缺少依据，可以输出一次 <tool_call>检索: 关键词</tool_call>"
+            + _web_tool_guide_line() + "\n"
+            "系统会执行后把结果交回，你再继续完成回复；\n"
+            "5. 若原结果本身已是清晰的列表/卡片格式（如宜忌、时辰表、排盘卡片），"
+            "保持该结构完整，不要合并或删减条目，仅补充口语化的开头和结尾；\n"
+            "6. 直接输出给用户的回复文本，不要解释过程。"
+            + (("\n\n" + extra_hint) if extra_hint else "")
+        )
+
+        logger.info("引擎润色注入 user=%s search_hint=%s extra_hint=%s",
+                    user_id, bool(search_hint), bool(extra_hint))
+        messages = [{"role": "system", "content": system}]
+        history = None
+        if self.session_dao:
+            try:
+                # 会话历史末尾即当前用户消息（assistant 回复尚未保存）
+                history = self.session_dao.get_context_for_llm(user_id, history_limit=20)
+            except Exception:
+                history = None
+        if history:
+            messages.extend(history)
+            if search_hint:
+                messages.append({"role": "user", "content":
+                    "（请按上面的硬性要求先输出 <tool_call>搜索: 关键词</tool_call>"
+                    " 联网查证后再继续）"})
+        else:
+            messages.append({"role": "user", "content": msg})
+        try:
+            from src.llm.client import deepseek_anthropic_completion
+            polished = deepseek_anthropic_completion(
+                api_key, messages, model=model,
+                max_tokens=2000, temperature=0.7, timeout=60.0,
+                stream_cb=stream_cb,
+            )
+        except Exception:
+            return draft  # LLM 失败 → 静默降级返回草稿
+        if not polished:
+            return draft
+        polished = polished.strip()
+        if len(polished) < 10:
+            return draft
+        if chart_url and chart_url not in polished:
+            polished = polished + "\n\n" + chart_url
+        return polished + tail
+
+    def _execute_tool_call(self, name: str, params: str, user_id: str,
+                           user_question: str = "") -> ToolResult:
+        """执行单个工具调用，返回可注入对话的结果文本。"""
+        if name == "排盘":
+            return self._tool_bazi(params, user_id)
+        if name == "检索":
+            return self._tool_search(params, user_id=user_id,
+                                     user_question=user_question)
+        if name == "搜索":
+            return self._tool_web_search(params, user_id=user_id)
+        if name == "解梦":
+            return self._tool_dream(params, user_id)
+        if name == "风水":
+            return self._tool_fengshui(params)
+        if name == "择日":
+            return self._tool_zeri(params)
+        return ToolResult(name, False, f"未知工具「{name}」，请直接和用户正常聊天。")
+
+    def _tool_bazi(self, params: str, user_id: str) -> ToolResult:
+        """工具「排盘」：解析出生信息（文本描述）→ BaziEngine.calculate。"""
+        if self.engine is None:
+            return ToolResult("排盘", False, "「排盘」工具暂不可用，请直接与用户聊天。")
+        parsed = self._extract_bazi_info(params)
+        if parsed is None:
+            return ToolResult(
+                "排盘", False,
+                "缺少出生信息，无法排盘。请向用户自然询问：出生年月日时、出生地点、性别"
+                "（性别影响大运走向，尽量问到）。用户若不知道准确时辰，"
+                "可以说明会按午时（中午11-13点）排盘参考。",
+                needs_info=True,
+            )
+        year, month, day, hour, minute, city, gender = parsed
+        try:
+            result = self.engine.calculate(year, month, day, hour, minute, city, gender)
+        except Exception as e:
+            return ToolResult("排盘", False, f"排盘引擎执行失败：{str(e)[:100]}")
+        # 持久化：与 _do_bazi_analysis 保持一致的记忆/画像逻辑
+        # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人档案（数据库层同步保护）
+        try:
+            _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
+            _facts_this = self._analysis_facts.get(user_id) or {}
+            if _subject != "other":
+                self.dao.save_user_bazi(user_id, {
+                    "year": year, "month": month, "day": day,
+                    "hour": hour, "minute": minute,
+                    "city": city, "gender": gender,
+                    "bazi": result.bazi,
+                })
+            # P2 多人档案：对话建档（subject=self 年份不同→新建命主N；other 按关系/姓名）
+            self._sync_person_profile(user_id, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute,
+                "city": city, "gender": gender,
+            }, subject=_subject, facts=_facts_this)
+            self.dao.save_consultation(user_id, params, result)
+        except Exception:
+            pass
+        # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人画像；
+        # gender 冲突不覆盖，冲突提示拼入工具结果由 LLM 综合时向用户确认
+        _gender_conflict_hint = ""
+        if self.memory_system:
+            _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
+            if _subject != "other":
+                try:
+                    conflict = self.memory_system.save_bazi_info(user_id, {
+                        "year": year, "month": month, "day": day,
+                        "hour": hour, "minute": minute,
+                        "city": city, "gender": gender,
+                        "bazi": result.bazi,
+                        "day_master": getattr(result, "day_master", ""),
+                    }, subject=_subject)
+                except Exception:
+                    conflict = {}
+                if conflict:
+                    _gender_conflict_hint = (
+                        "（注意：本次提供的性别与你之前保存的不一致，"
+                        "请向用户确认以哪一次为准，确认前不要按新性别改结论）"
+                    )
+                # L3（方案 §5.5 来源②）：八字 → profile 关键事实条目
+                self._persist_l3_bazi(user_id, {
+                    "year": year, "month": month, "day": day,
+                    "hour": hour, "minute": minute,
+                    "city": city, "gender": gender,
+                    "bazi": result.bazi,
+                    "day_master": getattr(result, "day_master", ""),
+                })
+        try:
+            from src.engines.bazi_formatter import format_compact_card
+            chart = format_compact_card(result, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute, "city": city, "gender": gender,
+            })
+        except Exception:
+            chart = (
+                f"八字：{' '.join(result.bazi)}  日主：{result.day_master}  "
+                f"格局：{getattr(result, 'geju', '')}  用神：{getattr(result, 'yongshen', '')}"
+            )
+        # 阶段 5·来源体系（方案 §3.0 ②）：排盘工具结果标引擎来源"你的命盘"
+        idx = self._alloc_citations(user_id, 1)
+        self._append_citations(user_id, [make_citation(
+            idx, "engine",
+            f"你的命盘：八字 {' '.join(result.bazi)}，日主 {result.day_master}"
+            f"（{year}年{month}月{day}日{gender}）",
+            title="你的命盘", source="排盘引擎",
+        )])
+        _hint = f"\n\n{_gender_conflict_hint}" if _gender_conflict_hint else ""
+        return ToolResult(
+            "排盘", True,
+            chart + _hint
+            + f"\n\n（引用标注：以上命盘为本轮分析依据，引用时在陈述后标注 [{idx}]）"
+        )
+
+    def _tool_search(self, params: str, user_id: str = "",
+                     user_question: str = "") -> ToolResult:
+        """工具「检索」（阶段 5·检索升级）：多路召回 + Rerank 精排古籍 top5。
+
+        流程（方案 §3.2）：查询扩展（LLM+术语表）→ 多路 FAISS 召回 → 候选池
+        Top50 → 用【用户原问题】rerank 精排（bge-reranker-v2-m3，防偏题）→
+        低分丢弃 → Top5。
+
+        注入格式（防偏题②）：【用户问】→【相关资料】（带编号 [n] + 来源标注）
+        - 古籍来源 type="book"，记忆来源 type="memory"（L3 按需召回）
+        - 引用规则注入（防偏题③）：只引用直接相关的
+
+        策略：FAISS 可用 → 注入向量检索结果；FAISS 不可用/无结果 →
+        返回 needs_info 标记（带"继续自然对话"提示），_run_tool_loop 将其注入
+        system 消息，LLM 像朋友聊天一样继续对话（可追问细节/共情/换角度聊），
+        不注入空结果、不降级关键词检索。
+        """
+        # 检索不可用/未命中：明说降级（B4 回答纪律 + C6 同规则），
+        # 不再静默（原提示"不要提及搜索功能/不要生硬地说没查到"导致用户无感知）
+        _CHAT_FALLBACK = RETRIEVAL_UNAVAILABLE_HINT
+        query = (params or "").strip()
+        if not query:
+            return ToolResult(
+                "检索", False,
+                "请像朋友聊天一样自然地向用户询问想查哪方面的古籍内容。",
+                needs_info=True,
+            )
+        try:
+            faiss_retriever = get_faiss_retriever()
+            if not faiss_retriever.ensure_ready():
+                logger.warning("FAISS 检索器不可用: %s", faiss_retriever.load_error)
+                return ToolResult("检索", False, _CHAT_FALLBACK, needs_info=True)
+            # 防偏题核心：rerank 用【用户原问题】打分（扩展查询只管召回）
+            refs = faiss_retriever.search(
+                query, top_k=5,
+                original_query=(user_question or query),
+                expand=True, rerank=True,
+            )
+        except Exception as e:
+            logger.error("FAISS 检索异常: %s", e, exc_info=True)
+            return ToolResult("检索", False, _CHAT_FALLBACK, needs_info=True)
+        if not refs:
+            return ToolResult("检索", False, _CHAT_FALLBACK, needs_info=True)
+
+        # 记忆来源（方案 §3.0 ③）：L3 按需召回，与查询相关的历史记忆一并标注
+        mem_refs = []
+        if user_id and self.memory_system:
+            try:
+                mem_refs = self.memory_system.get_relevant_memories(
+                    user_id, query, top_k=2) or []
+            except Exception:
+                mem_refs = []
+
+        # 统一编号（本轮引用编号连续，供回答 [n] 标注与前端抽屉）
+        start = self._alloc_citations(user_id, len(refs) + len(mem_refs))
+        lines = [f"【用户问】{user_question or query}", "【相关资料】"]
+        items = []
+        # 精排分数域随内容类型变化（梦境类 0.9+、古籍类 0.01~0.28），
+        # 展示用相对相关度（池内最佳=1.00），原始分数保留在引用数据里
+        top1 = max((r.get("score") or 0.0) for r in refs) if refs else 1.0
+        for i, ref in enumerate(refs, start=start):
+            src = ref.get("source") or ref.get("title") or "古籍"
+            rel = (ref.get("score") or 0.0) / top1 if top1 > 0 else 1.0
+            items.append(make_citation(
+                i, "book", ref["text"][:400],
+                title=f"《{src}》" if "《" not in src else src,
+                source=str(ref.get("title") or src),
+            ))
+            lines.append(
+                f"[{i}] 【古籍】《{src}》\"{ref['text'][:200]}\""
+                f"（相关度 {rel:.2f}）"
+            )
+        for j, m in enumerate(mem_refs, start=start + len(refs)):
+            content = (m.get("content") or "")[:200]
+            items.append(make_citation(
+                j, "memory", content,
+                title="你之前说过的…", source="对话记忆",
+            ))
+            lines.append(f"[{j}] 【记忆】{content}")
+        self._append_citations(user_id, items)
+        lines.append(
+            "（引用规则：只引用与用户问题直接相关的内容；"
+            "引用时在相关陈述后标注编号，如「古籍《X》载：…[1]」；"
+            "不相关的内容忽略，不要引用。）"
+        )
+        return ToolResult("检索", True, "\n".join(lines))
+
+    def _tool_web_search(self, params: str, user_id: str = "") -> ToolResult:
+        """工具「搜索」（阶段 5·网络检索）：智谱 Web Search API → Top 3-5。
+
+        结果带来源 URL（type="web"）注入；服务不可用 → 标 unavailable
+        （prompt 不宣传，执行时自然降级，不阻断对话）。
+        """
+        if not web_search_available():
+            # C6：搜索不可用 → 明说降级（明确告知用户实时信息受限），不静默
+            return ToolResult(
+                "搜索", False, SEARCH_UNAVAILABLE_HINT,
+                needs_info=True,
+            )
+        query = (params or "").strip()
+        if not query:
+            return ToolResult(
+                "搜索", False,
+                "请像朋友聊天一样自然地向用户询问想搜索哪方面的内容。",
+                needs_info=True,
+            )
+        results = search_web(query, limit=5)
+        if not results:
+            # C6：搜索无结果 → 明说降级，不静默
+            return ToolResult(
+                "搜索", False, SEARCH_UNAVAILABLE_HINT,
+                needs_info=True,
+            )
+        start = self._alloc_citations(user_id, len(results))
+        lines = [f"【网络搜索】关键词：{query}"]
+        items = []
+        for i, r in enumerate(results, start=start):
+            items.append(make_citation(
+                i, "web", r["text"], title=r["title"],
+                source="网络", url=r["url"],
+            ))
+            lines.append(f"[{i}] {r['title']}（{r['url']}）")
+            if r.get("text"):
+                lines.append(f"    {r['text'][:120]}")
+        self._append_citations(user_id, items)
+        lines.append(
+            "（引用规则：只引用与用户问题直接相关的内容；"
+            "引用网络信息时在陈述后标注编号 [n]；不相关的内容忽略。）"
+        )
+        return ToolResult("搜索", True, "\n".join(lines))
+
+    def _get_dream_retriever(self):
+        """解梦检索器：276 万 FAISS 生产主路径优先（设计文档阶段 0），
+        FAISS 不可用时降级本地 Retriever（行为同修复前）。"""
+        try:
+            fr = get_faiss_retriever()
+            if fr.ensure_ready():
+                return _ChunkSearchAdapter(fr)
+        except Exception:
+            pass
+        return self.retriever
+
+    def _tool_dream(self, params: str, user_id: str) -> ToolResult:
+        """工具「解梦」：DreamEngine 象征分析 + 古籍匹配。"""
+        if self.dream_engine is None:
+            return ToolResult("解梦", False, "「解梦」工具暂不可用，请直接与用户聊天。")
+        api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+        try:
+            result = self.dream_engine.analyze(
+                params, self._get_dream_retriever(), api_key)
+        except Exception as e:
+            return ToolResult("解梦", False, f"解梦引擎执行失败：{str(e)[:100]}")
+        lines = [f"梦境：{params}"]
+        if getattr(result, "symbols", None):
+            lines.append(f"核心象征：{'、'.join(result.symbols)}")
+        if getattr(result, "emotions", None):
+            lines.append(f"情绪基调：{result.emotions}")
+        # 阶段 5·来源体系：解梦的古籍匹配结果标 book 来源（带编号 [n]）
+        interps = (getattr(result, "interpretations", None) or [])[:5]
+        if interps:
+            lines.append("古籍参考：")
+            start = self._alloc_citations(user_id, len(interps))
+            items = []
+            for i, interp in enumerate(interps, start=start):
+                items.append(make_citation(
+                    i, "book", interp[:400],
+                    title="解梦 · 古籍参考", source="解梦引擎",
+                ))
+                lines.append(f"  [{i}] {interp[:200]}")
+            self._append_citations(user_id, items)
+        try:
+            self.dao.save_consultation(user_id, params, result, intent="dream")
+        except Exception:
+            pass
+        return ToolResult("解梦", True, "\n".join(lines))
+
+    def _tool_fengshui(self, params: str) -> ToolResult:
+        """工具「风水」：坐向解析 → FengshuiEngine.analyze。"""
+        if self.fengshui_engine is None:
+            return ToolResult("风水", False, "「风水」工具暂不可用，请直接与用户聊天。")
+        direction = self._extract_direction(params)
+        if direction is None:
+            return ToolResult(
+                "风水", False,
+                "缺少房屋坐向信息。请向用户自然询问房子的坐向（如：坐北朝南 / 子山午向），"
+                "有户型描述或照片描述也可以。",
+                needs_info=True,
+            )
+        try:
+            result = self.fengshui_engine.analyze(
+                direction=direction, year_built=None, birth_year=None, gender=None,
+            )
+        except Exception as e:
+            return ToolResult("风水", False, f"风水引擎执行失败：{str(e)[:100]}")
+        lines = [f"坐向：{params.strip()}", f"宅卦：{result.house_gua}  当前运：{result.period}运"]
+        if getattr(result, "person_gua", None):
+            lines.append(f"命卦：{result.person_gua}")
+        auspicious = {k: v for k, v in result.eight_mansions.items()
+                      if k in {"生气", "天医", "延年", "伏位"}}
+        inauspicious = {k: v for k, v in result.eight_mansions.items()
+                        if k in {"绝命", "五鬼", "六煞", "祸害"}}
+        if auspicious:
+            lines.append(f"四吉方：{' '.join(f'{k}-{v}' for k, v in auspicious.items())}")
+        if inauspicious:
+            lines.append(f"四凶方：{' '.join(f'{k}-{v}' for k, v in inauspicious.items())}")
+        return ToolResult("风水", True, "\n".join(lines))
+
+    def _tool_zeri(self, params: str) -> ToolResult:
+        """工具「择日」：日期解析 → ZeriEngine.select。"""
+        if self.zeri_engine is None:
+            return ToolResult("择日", False, "「择日」工具暂不可用，请直接与用户聊天。")
+        date_info = self._extract_date(params)
+        if date_info is None:
+            return ToolResult(
+                "择日", False,
+                "缺少具体日期。请向用户自然询问要查询的日期和用途"
+                "（如：2026年8月15日 搬家 / 结婚），日期格式如“2026年8月15日”。",
+                needs_info=True,
+            )
+        year, month, day = date_info
+        purpose = self._extract_purpose(params)
+        try:
+            result = self.zeri_engine.select(year, month, day, purpose=purpose)
+        except Exception as e:
+            return ToolResult("择日", False, f"择日引擎执行失败：{str(e)[:100]}")
+        lines = [
+            f"日期：{year}年{month}月{day}日（用途：{purpose or '一般'}）",
+            f"建除十二神：{result.jianchu}",
+            f"二十八宿：{result.ershibaxiu}（{result.xiu_jixiong}）",
+            f"冲：{result.chong}",
+            f"宜：{'、'.join(result.yi)}",
+            f"忌：{'、'.join(result.ji)}",
+            f"综合判定：{result.overall}",
+        ]
+        return ToolResult("择日", True, "\n".join(lines))
+
+    # ============================================================
+    # AI 原生（Phase 2）— 长期记忆主动提起（方案 2.2/5.5）
+    # ============================================================
+
+    def _get_welcome_back(self, user_id: str) -> str:
+        """会话开始（非首次）时，基于用户画像生成"欢迎回来"式开场。
+
+        - 由 LLM 基于画像自然生成（不硬编码模板）
+        - 仅当：用户有持久记忆 且 本次会话还没有任何消息
+        - 进程内缓存，单次请求只生成一次；LLM 失败时兜底用记忆模板
+        """
+        if not self.session_dao or not self.memory_system:
+            return ""
+        if not self.memory_system.has_memory(user_id):
+            return ""
+        try:
+            # 当前用户消息在 process 中先于本方法保存：只有 1 条（仅当前消息）才算会话开始
+            history = self.session_dao.get_history(user_id, limit=3)
+            if len(history) > 1:
+                return ""  # 会话已有历史消息，不算会话开始
+        except Exception:
+            return ""
+        cache = getattr(self, "_welcome_cache", None)
+        if cache is None:
+            cache = {}
+            self._welcome_cache = cache
+        if user_id in cache:
+            return cache[user_id]
+        try:
+            profile = self.memory_system.get_profile_summary(user_id)
+        except Exception:
+            profile = ""
+        welcome = ""
+        if profile:
+            prompt = (
+                f"用户是「易理明灯」的回头客。用户画像：\n{profile}\n"
+                "请生成一句自然、温暖的欢迎回来开场白（30字以内，直接返回文本，"
+                "不要引号、不要JSON）。可以自然提及上次聊过的话题或最近的关心点，"
+                "像朋友打招呼一样。如果画像信息很少，就简单打个招呼。"
+            )
+            welcome = self._quick_flash(prompt, max_tokens=80, temperature=0.9)
+        if not welcome:
+            try:
+                welcome = self.memory_system.get_greeting(user_id)  # 兜底模板
+            except Exception:
+                welcome = ""
+        cache[user_id] = welcome
+        return welcome
+
+    def _compress_history(self, user_id: str, history: list, max_rounds: int = 7) -> list:
+        """上下文压缩（方案 2.3）：会话超长时保留最近 3 轮完整 + 八字 + 关键事实摘要。
+
+        丢弃中间的具体分析文本（只保留结论性记忆），避免 token 溢出。
+        """
+        if not history or len(history) <= max_rounds * 2:
+            return history
+        recent = history[-6:]  # 最近 3 轮（含当前消息）
+        facts = []
+        saved = None
+        if self.dao:
+            try:
+                saved = self.dao.get_user_bazi(user_id)
+            except Exception:
+                saved = None
+        if saved and saved.get("bazi"):
+            bazi_str = " ".join(str(p) for p in saved["bazi"][:4])
+            facts.append(f"用户八字：{bazi_str}（已保存，别再问出生信息）")
+        if self.memory_system:
+            try:
+                profile = self.memory_system.get_profile_summary(user_id)
+                if profile:
+                    facts.append(profile)
+            except Exception:
+                pass
+        if self.memory:
+            try:
+                ctx = self.memory.get_context(user_id)
+                if ctx:
+                    facts.append(ctx)
+            except Exception:
+                pass
+        if not facts:
+            return recent
+        summary = "\n".join(f"[记忆] {f}" for f in facts)
+        return [{"role": "system", "content": summary}] + recent
+
+    # ============================================================
+    # L2 会话增量摘要（方案 §5.4）— 触发式滚动压缩（<summary>+<memories>）
+    # ============================================================
+
+    def _maybe_compact(self, user_id: str) -> str:
+        """对话开始前检查触发 L2 压缩（上下文估算超阈值才压缩）。
+
+        - 触发：历史输入 token > 窗口×70% → 拆分新旧 → 分块滚动摘要
+        - 新摘要替换旧摘要（存 session_summaries 表，加密落库）
+        - `<memories>` 提取的持久事实转入 L3（add_entry）
+        - 失败降级：compactor 内部保留最近 3 轮+截断，不影响对话
+
+        Returns:
+            最新摘要文本（无触发/失败返回空字符串）
+        """
+        if not self.session_dao or not self.compactor:
+            return ""
+        # 廉价预检：按库中内容字节数估算 token 上限（密文 base64 ≈ 明文×1.33，
+        # 保守系数 1.2 保证两倍安全），不触发就不解密历史（每轮零额外开销）
+        try:
+            conn = self.session_dao._connect()
+            row = conn.execute(
+                "SELECT COUNT(*), SUM(LENGTH(content)) FROM sessions WHERE user_id=?",
+                (user_id,),
+            ).fetchone()
+            conn.close()
+            msg_count = row[0] or 0
+            byte_sum = row[1] or 0
+        except Exception as e:
+            logger.warning("L2 预检失败 user=%s: %s", user_id, e)
+            return ""
+        threshold = int(self.compactor.window_limit * self.compactor.trigger_ratio * 1.2)
+        if msg_count < 20 or byte_sum < threshold:
+            return ""
+        try:
+            history = self.session_dao.get_history(user_id, limit=2000)
+        except Exception as e:
+            logger.warning("L2 读取历史失败 user=%s: %s", user_id, e)
+            return ""
+        messages = [{"role": h["role"], "content": h["content"]} for h in history]
+        if not self.compactor.should_compact(messages):
+            return ""
+        prev = None
+        try:
+            prev = self.session_dao.get_summary(user_id)
+        except Exception:
+            prev = None
+        prev_summary = (prev or {}).get("summary", "") or ""
+        prev_memories = [(m or {}).get("content", "")
+                         for m in (prev or {}).get("memories", []) if m] or None
+        try:
+            result = self.compactor.compact(messages, prev_summary=prev_summary,
+                                            prev_memories=prev_memories)
+        except Exception as e:
+            logger.warning("L2 压缩异常 user=%s: %s", user_id, e)
+            return ""
+        if not result.summary_text:
+            return ""
+        try:
+            self.session_dao.save_summary(
+                user_id, result.summary_text, result.memories,
+                model=getattr(self.llm, 'model', '') or '',
+                message_count=len(messages), token_count=result.total_tokens,
+            )
+        except Exception as e:
+            logger.warning("L2 摘要落库失败 user=%s: %s", user_id, e)
+        # <memories> 持久事实 → L3 长期记忆
+        for m in result.memories:
+            self._apply_memory_entry(user_id, m)
+        logger.info("L2 压缩完成 user=%s 旧消息%d 压缩率%.1f%% degraded=%s",
+                    user_id, result.old_count, result.compression_pct * 100,
+                    result.degraded)
+        return result.summary_text
+
+    def _apply_memory_entry(self, user_id: str, m: dict) -> None:
+        """把 L2 <memories> 提取的持久事实写入 L3（方案 §5.5 来源①）。"""
+        if not self.memory_system:
+            return
+        etype = (m or {}).get("type")
+        content = (m or {}).get("content")
+        if etype not in UserMemory.ENTRY_TYPES or not content:
+            return
+        try:
+            self.memory_system.add_entry(
+                user_id, etype, content,
+                subject=m.get("subject", "") or content[:20],
+                confidence=float(m.get("confidence", 0.8) or 0.8),
+                ttl_days=m.get("ttl_days"),
+                is_key=(etype in ("profile",)),
+                source="l2_memories",
+            )
+        except Exception as e:
+            logger.warning("L3 记忆写入失败 user=%s: %s", user_id, e)
+
+    # ============================================================
+    # L3 长期记忆（方案 §5.5）— 来源接入 / 关键事实保底
+    # ============================================================
+
+    def _collect_key_facts(self, user_id: str) -> list:
+        """收集 L1 关键事实保底内容（方案 §5.3）：八字 + L3 is_key 条目原文。
+
+        无论多旧都保留原文，不进压缩。
+        """
+        facts = []
+        if self.dao:
+            try:
+                saved = self.dao.get_user_bazi(user_id)
+            except Exception:
+                saved = None
+            if saved and saved.get("bazi"):
+                facts.append(f"用户八字：{' '.join(str(p) for p in saved['bazi'][:4])}"
+                             "（已保存，别再问出生信息）")
+        if self.memory_system:
+            try:
+                facts.extend(self.memory_system.get_key_facts(user_id))
+            except Exception:
+                pass
+        # 去重保序
+        seen = set()
+        out = []
+        for f in facts:
+            if f not in seen:
+                seen.add(f)
+                out.append(f)
+        return out
+
+    def _persist_l3_bazi(self, user_id: str, bazi_info: dict) -> None:
+        """八字排盘成功后写入 L3 profile 条目（方案 §5.5 来源②，关键事实）。"""
+        if not self.memory_system:
+            return
+        try:
+            b = bazi_info or {}
+            bazi_str = " ".join(str(x) for x in (b.get("bazi") or [])[:4])
+            if not bazi_str:
+                return
+            content = (f"用户八字已排盘：{bazi_str}"
+                       f"（{b.get('year', '')}年{b.get('month', '')}月{b.get('day', '')}日"
+                       f"{b.get('gender', '')}，日主 {b.get('day_master', '?')}）")
+            self.memory_system.add_entry(
+                user_id, "profile", content, subject="bazi",
+                confidence=1.0, ttl_days=None, is_key=True,
+                source="bazi_analysis",
+            )
+        except Exception as e:
+            logger.warning("L3 八字记忆写入失败 user=%s: %s", user_id, e)
+
+    def _sync_person_profile(self, user_id: str, birth: dict,
+                             subject: str = "self",
+                             facts: Optional[dict] = None) -> None:
+        """P2 多人档案：排盘后同步建档（对话建档，方案 v5）。
+
+        - subject=self：默认 person 与本次排盘年份不一致（年份不同）→
+          新建 person（name="命主N"）；一致 → 更新默认 person 出生信息；
+          无档案 → 建档 name="我" relation="自己"（含旧单档案自动迁移）
+        - subject=other：按 facts 关系/姓名建 person；已存在同生日 person 则复用。
+        先有先用保护照旧（gender 冲突不覆盖逻辑仍在 save_bazi_info / users.bazi_info 层）。
+        """
+        if not self.dao:
+            return
+        try:
+            from src.storage.person_dao import PersonDAO
+            pdao = PersonDAO(self.dao.db_path)
+            birth = birth or {}
+            if not birth.get("year"):
+                return
+            b = {
+                "gender": birth.get("gender", "unknown"),
+                "birth_year": birth.get("year"),
+                "birth_month": birth.get("month"),
+                "birth_day": birth.get("day"),
+                "birth_hour": birth.get("hour"),
+                "birth_minute": birth.get("minute"),
+                "calendar": birth.get("calendar", "solar"),
+                "city": birth.get("city", ""),
+            }
+            if subject != "other":
+                default = pdao.get_default_person(user_id)
+                if default and default.get("birth_year") and \
+                        default["birth_year"] != birth.get("year"):
+                    # 默认命主与本次排盘年份不一致 → 新建"命主N"（默认不变）
+                    pdao.create_person(
+                        user_id, name=f"命主{pdao.count_persons(user_id) + 1}",
+                        relation="其他", birth=b)
+                elif default:
+                    pdao.update_person(user_id, default["id"], birth=b)
+                else:
+                    pdao.create_person(user_id, name="我", relation="自己",
+                                       is_default=True, birth=b)
+            else:
+                # subject=other：同生日 person 复用；否则按 facts 关系/姓名建档
+                f = facts or {}
+                existing = pdao.find_person_by_birth(user_id, b)
+                if existing:
+                    pdao.update_person(user_id, existing["id"], birth=b)
+                    return
+                name = str(f.get("name") or f.get("关系") or "").strip()[:32]
+                relation = str(f.get("relation") or f.get("关系") or "其他").strip()
+                from src.storage.person_dao import RELATION_VALUES
+                if relation not in RELATION_VALUES:
+                    relation = "其他"
+                pdao.create_person(
+                    user_id,
+                    name=name or f"命主{pdao.count_persons(user_id) + 1}",
+                    relation=relation, birth=b)
+        except Exception as e:
+            logger.warning("多人档案同步失败 user=%s: %s", user_id, e)
+
+    def _persist_facts_entries(self, user_id: str, msg: str, facts: dict) -> None:
+        """P2 System1 每轮提取钩子（阶段 5）：facts → L2 事实条目（去重入库）。
+
+        - 性别/关系/公司/职位/城市等条目化（type: profile / preference / fact）
+        - 出生信息走 persons 表，不入 fact_entries（避免重复）
+        - 去重：同 type+content 不重复加，updated_at 刷新（add_fact_entry 内置）
+        """
+        if not self.memory_system or not facts:
+            return
+        skip_keys = {"subject", "birth", "birthday", "birth_date", "birth_info",
+                     "birth_year", "birth_month", "birth_day", "birth_hour",
+                     "birth_minute", "生日", "出生", "生辰"}
+        type_map = {
+            "gender": "profile", "relation": "profile", "relationship": "profile",
+            "city": "profile", "hometown": "profile",
+            "employer": "preference", "company": "preference",
+            "position": "preference", "job": "preference",
+            "industry": "preference",
+            "公司": "preference", "职位": "preference", "职业": "preference",
+            "行业": "preference",
+        }
+        subject = "other" if str(facts.get("subject", "self")) == "other" else "self"
+        for k, v in facts.items():
+            ks = str(k).strip().lower()
+            if v is None or str(v).strip() == "" or ks in skip_keys:
+                continue
+            etype = type_map.get(ks, "fact")
+            try:
+                self.memory_system.add_fact_entry(
+                    user_id, etype, f"{k}：{v}", subject=subject,
+                    source_msg=(msg or "")[:200],
+                )
+            except Exception as e:
+                logger.warning("L2 事实条目写入失败 user=%s key=%s: %s",
+                               user_id, k, e)
+
+    def _record_evolution(self, user_id: str, topic: str, reply: str) -> None:
+        """P2 演化链：把本轮咨询的结论摘要 append 到 topic 时间线（cap 5 条）。"""
+        if not topic or not reply or not self.memory_system:
+            return
+        try:
+            quote = reply.replace("\n", " ").strip()
+            if len(quote) > 160:
+                quote = quote[:160] + "…"
+            self.memory_system.add_evolution(user_id, topic, stance="", quote=quote)
+        except Exception as e:
+            logger.warning("演化链记录失败 user=%s topic=%s: %s", user_id, topic, e)
+
+    def _capture_key_event(self, user_id: str, msg: str) -> None:
+        """从用户消息中捕获明确关键陈述（工作/感情状态等）→ L3 event 条目。
+
+        TTL 默认 90 天（如"正在找工作"3 个月失效）；同主题重复出现覆盖更新。
+        """
+        if not self.memory_system or not msg:
+            return
+        for pattern, etype, template, ttl_days, is_key in _KEY_EVENT_RULES:
+            if re.search(pattern, msg):
+                try:
+                    self.memory_system.add_entry(
+                        user_id, etype, template, subject=template.split("：")[0][:12],
+                        confidence=0.9, ttl_days=ttl_days, is_key=is_key,
+                        source="event_capture",
+                    )
+                except Exception as e:
+                    logger.warning("L3 事件记忆写入失败 user=%s: %s", user_id, e)
+                break  # 一条消息只记一个主要事件
+
+    def _safety_flag(self, msg: str) -> Optional[str]:
+        """安全事件标记（方案 §7.2 合规审计）：自伤/自杀信号 → 转介事件留痕。"""
+        if msg and _SELF_HARM_RE.search(msg):
+            return "self_harm_referral"
+        return None
+
+    def _pop_tool_log(self, user_id: str) -> Optional[dict]:
+        """取走并清除该用户本轮的工具调用日志（落库用）。"""
+        return self._tool_logs.pop(user_id, None)
+
+    def process(self, message: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
+        """处理用户消息，返回回复。
+
+        stream_cb（v8 流式阶段 3）：提供时把生成过程实时回调出去——
+          ("chunk", {"text": ...}) 正文增量 / ("tool", {"text": ...}) 工具调用 /
+          ("thinking", {"text": ...}) 思考步骤；
+        不提供时行为与旧版完全一致（/api/chat 兼容）。
+        """
         msg = message.strip()
+        # 清理上一轮残留的工具日志（xuetang/advisor/confidant 等早退分支不消费）
+        self._pop_tool_log(user_id)
+        # 阶段 5：清理上一轮残留的引用来源（早退分支不注册，防泄漏）
+        self._citations.pop(user_id, None)
 
         # Step -2: Cache check (D2 speed optimization)
         if is_cacheable(msg):
@@ -515,15 +1816,90 @@ class MessageHandler:
             return upgrade_msg
 
         # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)# Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
-        analysis = self._analyze_message(msg)
+        analysis = self._analyze_message(msg, user_id)
+        # 阶段 5（方案 v5）：记录本轮理解出的关键事实（subject=other 时排盘不写本人画像）
+        self._analysis_facts[user_id] = analysis.facts or {}
+        # P2 System1 每轮提取钩子（阶段 5）：facts → L2 事实条目（去重入库）
+        self._persist_facts_entries(user_id, msg, analysis.facts or {})
+        # P3 联网激活修复：needs_search 引导必须在【首次】 LLM 调用前注入。
+        # 旧逻辑只在 _run_tool_loop 的后续迭代注入（LLM 已输出 <tool_call> 才发生），
+        # 导致 LLM 从未看到搜索引导。这里预生成 hint，free_chat/润色两条路径都注入。
+        try:
+            analysis_hint = self._tool_loop_analysis_hint(analysis)
+        except Exception:
+            analysis_hint = ""
+        if analysis_hint:
+            logger.info("P3 联网引导注入 user=%s needs_search=%s hint=%s",
+                        user_id, getattr(analysis, "needs_search", False),
+                        analysis_hint[:60].replace("\n", " "))
+
+        # v8 阶段 3（模式二·思考路径）：意图 → 逐步点亮（简单聊天无意图 → 不发）
+        if stream_cb is not None and analysis.intent:
+            steps = INTENT_THINKING_STEPS.get(analysis.intent)
+            if steps:
+                for s in steps:
+                    try:
+                        stream_cb("thinking", {"text": s})
+                    except Exception:
+                        pass
 
         # Phase 3: Track mood in user memory
         if self.memory_system and analysis.emotion_label:
             self.memory_system.add_mood_record(user_id, analysis.emotion_label)
 
-        # Save user message to session history
+        # AI 原生（Phase 2）：长期记忆 — 记录本消息主题次数（画像自动积累，方案 6.1）
+        topic = ""
+        if self.preference_dao:
+            try:
+                topic = self.preference_dao.detect_topic(msg) or ""
+            except Exception:
+                topic = ""
+        if topic and self.memory_system:
+            try:
+                self.memory_system.record_topic(user_id, topic)
+            except Exception:
+                pass
+        # 多次重复话题检测（同一主题 ≥3 次 → 提示换个角度，方案 5.5）
+        topic_hint = ""
+        if topic and self.memory_system:
+            try:
+                count = self.memory_system.get_topic_count(user_id, topic)
+                _topic_cn = {"wealth": "财运", "love": "感情", "career": "事业",
+                             "health": "健康", "growth": "个人成长"}
+                if count >= 3:
+                    topic_hint = (
+                        f"【提示】用户已经是第 {count} 次聊到「{_topic_cn.get(topic, topic)}」"
+                        "这个话题了。可以自然地提一句“这个话题我们聊过几次了，"
+                        "要不要换个角度看看？”，但不要说教、不要生硬。"
+                    )
+                # P2 演化链：时间线 ≥2 条 → 注入"过往咨询演变"提示（方案 §三）
+                evo_hint = self.memory_system.format_evolution_hint(user_id, topic)
+                if evo_hint:
+                    topic_hint = (topic_hint + "\n" if topic_hint else "") + evo_hint
+            except Exception:
+                topic_hint = ""
+
+        # L3 来源②：对话中的明确关键陈述（工作/感情状态等）→ event 条目
+        self._capture_key_event(user_id, msg)
+
+        # Save user message to session history（阶段 2：emotion/model/安全标记落库）
         if self.session_dao:
-            self.session_dao.add_message(user_id, "user", msg, intent=analysis.intent)
+            self.session_dao.add_message(
+                user_id, "user", msg, intent=analysis.intent,
+                emotion=analysis.emotion_label,
+                model=getattr(self.llm, 'model', '') or '',
+                safety_flag=self._safety_flag(msg),
+            )
+
+        # 流式模式（v8 阶段 3）："欢迎回来"开场提前生成并作为首个正文块流出，
+        # 让回头客在正文生成前就有内容可读（秒回感知）；后续不再重复拼接。
+        if stream_cb is not None:
+            welcome = self._get_welcome_back(user_id)
+            if welcome:
+                try:
+                    stream_cb("chunk", {"text": welcome + "\n\n"})
+                except Exception:
+                    pass
 
         # Priority: xuetang keywords trump everything
         if any(kw in msg for kw in ["学堂", "学习教程", "命理入门"]):
@@ -554,11 +1930,36 @@ class MessageHandler:
 
         if analysis.intent is None:
             self._consume_quota(user_id)
-            reply = self._free_chat(msg, user_id, emotion_label=analysis.emotion_label)
+            reply = self._free_chat(msg, user_id, emotion_label=analysis.emotion_label,
+                                    extra_hint="\n".join(
+                                        h for h in (topic_hint, analysis_hint) if h),
+                                    stream_cb=stream_cb)
+            # AI 原生（Phase 1）：<tool_call> 工具调用循环
+            reply = self._run_tool_loop(msg, user_id, reply, stream_cb=stream_cb,
+                                        analysis=analysis)
+            # 阶段 2：本轮工具调用日志 → 落库字段
+            tool_log = self._pop_tool_log(user_id)
+            # AI 原生（Phase 2）：长期记忆 — 会话开始（非首次）注入"欢迎回来"式开场
+            # （流式模式下开场已提前流出，不再拼接，避免重复）
+            if stream_cb is None:
+                welcome = self._get_welcome_back(user_id)
+                if welcome and reply:
+                    reply = f"{welcome}\n\n{reply}"
             if self.session_dao:
-                self.session_dao.add_message(user_id, "assistant", reply)
+                self.session_dao.add_message(
+                    user_id, "assistant", reply,
+                    intent=analysis.intent,
+                    emotion=analysis.emotion_label,
+                    tool_calls=json.dumps(tool_log["calls"], ensure_ascii=False)
+                    if tool_log and tool_log["calls"] else None,
+                    retrieval_hit=tool_log["retrieval_hit"] if tool_log else "unused",
+                    model=getattr(self.llm, 'model', '') or '',
+                    safety_flag=self._safety_flag(msg),
+                )
             if analysis.needs_soothe and analysis.soothe_text:
                 reply = analysis.soothe_text + "\n\n" + reply
+            # P2 演化链：结论摘要 append 到 topic 时间线（cap 5）
+            self._record_evolution(user_id, topic, reply)
             return reply
 
         # Step 2: 路由到对应处理器
@@ -577,23 +1978,63 @@ class MessageHandler:
             "hourly": self._handle_hourly,
             "xuetang": self._handle_xuetang,
             "advisor": self._handle_advisor,
+            "career": self._handle_career,
         }
 
         handler = handler_map.get(analysis.intent)
         if handler:
             try:
                 self._consume_quota(user_id)
-                reply = handler(msg, user_id)
+                reply = handler(msg, user_id, stream_cb=stream_cb)
             except Exception as e:
                 reply = f"⚠️ 服务暂时不可用：{str(e)[:100]}\n\n请稍后再试或换一种命理方式。"
         else:
             reply = f"🔧 {analysis.intent} 模块暂未开放，试试：\n• 八字命理\n• 紫微斗数\n• 易经占卜\n• 风水分析"
 
+        # 方案 B·引擎结果注入（AI 原生统一）：有意图的问题也走 LLM 自主二次生成。
+        # _handle_* 完成真实分析（注册了 engine/book 引用）时，把引擎结果注入
+        # system → LLM 以豆包式语气生成最终回复（可再输出 <tool_call> 补检索）；
+        # 信息收集/错误回复不注册引用 → 不润色，保持原样。
+        # xuetang/advisor/confidant 为独立对话模式（早退分支），保持现状。
+        if (analysis.intent not in ("xuetang", "advisor")
+                and reply and not reply.startswith("⚠️")
+                and self._citations.get(user_id)):
+            try:
+                reply = self._polish_with_engine_draft(
+                    msg, user_id, reply, stream_cb,
+                    extra_hint="\n".join(h for h in (topic_hint, analysis_hint) if h),
+                    search_hint=analysis_hint)
+            except Exception:
+                pass  # 润色异常 → 保留引擎原稿（静默降级，行为不劣于现状）
+
+        # AI 原生（Phase 1）：<tool_call> 工具调用循环
+        reply = self._run_tool_loop(msg, user_id, reply, stream_cb=stream_cb,
+                                    analysis=analysis)
+        # 阶段 2：本轮工具调用日志 → 落库字段
+        tool_log = self._pop_tool_log(user_id)
+        # AI 原生（Phase 2）：长期记忆 — 会话开始（非首次）注入"欢迎回来"式开场
+        # （流式模式下开场已提前流出，不再拼接，避免重复）
+        if stream_cb is None:
+            welcome = self._get_welcome_back(user_id)
+            if welcome and reply:
+                reply = f"{welcome}\n\n{reply}"
+
         if self.session_dao:
-            self.session_dao.add_message(user_id, "assistant", reply, intent=analysis.intent)
+            self.session_dao.add_message(
+                user_id, "assistant", reply, intent=analysis.intent,
+                emotion=analysis.emotion_label,
+                tool_calls=json.dumps(tool_log["calls"], ensure_ascii=False)
+                if tool_log and tool_log["calls"] else None,
+                retrieval_hit=tool_log["retrieval_hit"] if tool_log else "unused",
+                model=getattr(self.llm, 'model', '') or '',
+                safety_flag=self._safety_flag(msg),
+            )
 
         if analysis.needs_soothe and analysis.soothe_text:
             reply = analysis.soothe_text + "\n\n" + reply
+
+        # P2 演化链：结论摘要 append 到 topic 时间线（cap 5）
+        self._record_evolution(user_id, topic, reply)
 
         # D2: Cache the response for high-frequency queries
         if is_cacheable(msg):
@@ -819,7 +2260,19 @@ class MessageHandler:
     # 八字 (Bazi) - existing flow preserved exactly
     # ============================================================
 
-    def _handle_bazi(self, msg: str, user_id: str) -> str:
+    def _handle_career(self, msg: str, user_id: str,
+                       stream_cb: Optional[Callable] = None) -> str:
+        """处理事业适配请求（career 意图）：排盘 + LLM 自主分析十神/五行与行业适配。
+
+        与 _handle_bazi 同一分析管线；消息命中 career 场景关键词时，
+        _route_by_scenario 自动注入【场景聚焦：事业分析】提示
+        （行业五行适配/跳槽转型节点/职场贵人运）。
+        不注入名人相似对照（名人库停用方案见 similarity 移除清单，未确认前不落笔）。
+        """
+        return self._handle_bazi(msg, user_id, stream_cb=stream_cb)
+
+    def _handle_bazi(self, msg: str, user_id: str,
+                     stream_cb: Optional[Callable] = None) -> str:
         """处理八字请求"""
         parsed = self._extract_bazi_info(msg)
 
@@ -832,7 +2285,7 @@ class MessageHandler:
                 result = self._do_bazi_analysis(
                     saved["year"], saved["month"], saved["day"],
                     saved["hour"], saved["minute"], saved["city"],
-                    saved["gender"], msg, user_id,
+                    saved["gender"], msg, user_id, stream_cb=stream_cb,
                 )
                 return ack + "\n\n" + result if ack else result
 
@@ -842,6 +2295,7 @@ class MessageHandler:
         year, month, day, hour, minute, city, gender = parsed
         return self._do_bazi_analysis(
             year, month, day, hour, minute, city, gender, msg, user_id,
+            stream_cb=stream_cb,
         )
 
     COMMON_CITIES = {"北京", "上海", "广州", "深圳", "天津", "重庆", "杭州", "南京",
@@ -958,28 +2412,60 @@ class MessageHandler:
 
         return (year, month, day, hour, minute, city, gender)
 
+    @staticmethod
+    def _emit_stream_event(stream_cb, evt_type: str, text: str) -> None:
+        """安全地发出流式进度事件（流式模式；回调异常静默忽略）。"""
+        if stream_cb is None:
+            return
+        try:
+            stream_cb(evt_type, {"text": text})
+        except Exception:
+            pass
+
     def _do_bazi_analysis(
         self, year, month, day, hour, minute, city, gender, question, user_id,
+        stream_cb: Optional[Callable] = None,
     ) -> str:
         """执行八字分析"""
-        # 1. 排盘
+        # 1. 排盘（流式模式先发进度事件，避免引擎阶段长沉默触发看门狗）
+        self._emit_stream_event(stream_cb, "thinking", "正在排盘…")
         result = self.engine.calculate(year, month, day, hour, minute, city, gender)
 
         # 2. 秒回安抚（在LLM分析前生成，最终拼接到回复开头）
         instant_reply = self._gen_instant_reply(result)
 
         # 3. 保存用户数据
-        self.dao.save_user_bazi(user_id, {
+        # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人档案（数据库层同步保护）
+        _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
+        _facts_this = self._analysis_facts.get(user_id) or {}
+        if _subject != "other":
+            self.dao.save_user_bazi(user_id, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute,
+                "city": city, "gender": gender,
+                "bazi": result.bazi,
+            })
+        # P2 多人档案：对话建档（subject=self 年份不同→新建命主N；other 按关系/姓名）
+        self._sync_person_profile(user_id, {
             "year": year, "month": month, "day": day,
             "hour": hour, "minute": minute,
             "city": city, "gender": gender,
-            "bazi": result.bazi,
-        })
+        }, subject=_subject, facts=_facts_this)
         self.dao.save_consultation(user_id, question, result)
 
         # Phase 3: Save to user memory system
-        if self.memory_system:
+        # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人画像
+        _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
+        if self.memory_system and _subject != "other":
             self.memory_system.save_bazi_info(user_id, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute,
+                "city": city, "gender": gender,
+                "bazi": result.bazi,
+                "day_master": getattr(result, "day_master", ""),
+            }, subject=_subject)
+            # L3（方案 §5.5 来源②）：八字 → profile 关键事实条目
+            self._persist_l3_bazi(user_id, {
                 "year": year, "month": month, "day": day,
                 "hour": hour, "minute": minute,
                 "city": city, "gender": gender,
@@ -1001,8 +2487,31 @@ class MessageHandler:
             question_with_gender = question
 
         # 4. 检索古籍
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         search_query = f"{result.day_master} {question}"
         refs = self.retriever.search(search_query, category="bazi", top_k=15)
+
+        # 4.5 并行启动「行动建议」生成（不依赖 analyze 输出，与深度分析并行，
+        #     大幅降低整条请求延迟；LLM 调用在 worker 线程中执行，线程安全）
+        _advice_future = None
+        _advice_pool = None
+        if HAS_ADVISOR_V2:
+            try:
+                import concurrent.futures
+                _advice_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                _adv_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+                _advice_future = _advice_pool.submit(
+                    lambda: AdaptiveAdvisor().generate(
+                        result,
+                        user_context=self._extract_user_context(question),
+                        api_key=_adv_key,
+                    )
+                )
+            except Exception:
+                _advice_future = None
+                if _advice_pool:
+                    _advice_pool.shutdown(wait=False)
+                    _advice_pool = None
 
         # 5. P3: Build personalized preference context for LLM injection
         pref_extra = self._get_personalized_context(user_id)
@@ -1023,11 +2532,13 @@ class MessageHandler:
                 + "\n\n用户的原始问题：\n"
                 + question
             )
+            self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
             analysis = self.llm.analyze(
                 result, refs, enhanced_question,
                 extra_system_prompt=extra_prompt,
             )
         else:
+            self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
             analysis = self.llm.analyze(
                 result, refs, question_with_gender,
                 extra_system_prompt=pref_extra if pref_extra else None,
@@ -1048,10 +2559,14 @@ class MessageHandler:
             import logging
             logging.getLogger(__name__).warning(f"Chart generation failed: {e}\n{traceback.format_exc()}")
 
-        # 7. 行动建议 (V2: AI自适应)
+        # 7. 行动建议 (V2: AI自适应) — 优先取并行生成结果
+        self._emit_stream_event(stream_cb, "thinking", "正在整理行动建议…")
         advice_section = ""
         try:
-            if HAS_ADVISOR_V2:
+            if _advice_future is not None:
+                advice_data = _advice_future.result(timeout=60)
+            elif HAS_ADVISOR_V2:
+                # 并行启动失败时的兜底：同步生成
                 advisor = AdaptiveAdvisor()
                 # 从用户问题中提取处境信息（去掉日期时间部分后的剩余文本）
                 user_context = self._extract_user_context(question)
@@ -1060,7 +2575,10 @@ class MessageHandler:
                     result, user_context=user_context,
                     api_key=api_key,
                 )
+            else:
+                advice_data = None
 
+            if advice_data and advice_data.get("actions"):
                 actions = advice_data.get("actions", [])
                 if actions:
                     lines = ["\n\n📌 AI 行动建议（基于命局趋势 + 当前处境生成）"]
@@ -1077,16 +2595,7 @@ class MessageHandler:
                         lines.append(f"{cf} {icon} {cat}：{advice} {timing_str}")
                     advice_section = "\n".join(lines)
 
-                    # 加名人匹配
-                    celeb = advice_data.get("celebrity_match", {})
-                    if celeb and celeb.get("name"):
-                        advice_section += (
-                            f"\n\n🔮 名人对照：你和「{celeb['name']}」格局相似度 "
-                            f"{celeb.get('similarity', 0)}%"
-                        )
-                        insight = celeb.get("insight", "")
-                        if insight:
-                            advice_section += f"\n{insight}"
+                    # 名人对照已移除（2026-08-09 方案 v5 选 A：未问"像谁"不输出）
 
                     # 加每日小贴士
                     daily_tip = advice_data.get("daily_tip", "")
@@ -1095,7 +2604,7 @@ class MessageHandler:
                         advice_section += f"\n\n💡 今日贴士：{daily_tip}"
                     if style_note:
                         advice_section += f"\n✨ {style_note}"
-            else:
+            elif not HAS_ADVISOR_V2:
                 # V1 fallback
                 advisor = AdvisorEngine()
                 advice = advisor.generate_advice(result)
@@ -1111,6 +2620,9 @@ class MessageHandler:
                     advice_section = "\n".join(lines)
         except Exception:
             pass
+        finally:
+            if _advice_pool:
+                _advice_pool.shutdown(wait=False)
 
         # 8. 详细排盘（替代旧的纯文字回复）
         try:
@@ -1121,28 +2633,26 @@ class MessageHandler:
         except Exception:
             chart = ""
 
+        # 阶段 5·来源体系（方案 §3.0 ②）：意图路径排盘也标引擎来源"你的命盘"
+        try:
+            idx = self._alloc_citations(user_id, 1)
+            self._append_citations(user_id, [make_citation(
+                idx, "engine",
+                f"你的命盘：八字 {' '.join(result.bazi)}，日主 {result.day_master}"
+                f"（{year}年{month}月{day}日{gender}）",
+                title="你的命盘", source="排盘引擎",
+            )])
+        except Exception:
+            pass
+
         reply = chart + "\n\n" + analysis.response
         if advice_section:
             reply += advice_section
         if chart_url:
             reply += f"\n\n📊 命盘图片：{chart_url}"
 
-        # Phase 5: 命例相似度分析
-        if self.similarity_engine:
-            try:
-                sim_report = self.similarity_engine.search({
-                    "day_master": result.day_master,
-                    "bazi": result.bazi,
-                    "shishen": result.shishen,
-                    "shensha": result.shensha if hasattr(result, 'shensha') else [],
-                    "dayun": result.dayun if hasattr(result, 'dayun') else [],
-                    "gender": gender,
-                }, top_k=10)
-                if sim_report and sim_report.top_matches:
-                    reply += "\n\n🔮 **命例相似度分析**（基于44,493条命例）\n"
-                    reply += sim_report.insight_text
-            except Exception:
-                pass  # 相似度分析失败不阻塞主流程
+        # 命例相似度分析已移除（2026-08-09 方案 v5 选 A：SimilarityEngine 停用，
+        # 未问"像谁"不再输出命例对照）
 
         if instant_reply:
             reply = instant_reply + "\n\n---\n\n" + reply
@@ -1200,26 +2710,76 @@ class MessageHandler:
     # ------------------------------------------------------------
 
     def _quick_flash(self, prompt: str, max_tokens: int = 150, temperature: float = 0.7) -> str:
-        """Helper: single Flash call with error handling."""
+        """Helper: single Flash call with error handling.
+
+        Bugfix: 改用 Anthropic 兼容端点 + thinking disabled（同 client.py），
+        避免推理模型占满 max_tokens 导致空回复。
+        """
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         if not api_key:
             return ""
         try:
-            import httpx
-            resp = httpx.post(
-                "https://api.deepseek.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": "deepseek-v4-flash",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                },
-                timeout=15.0,
+            from src.llm.client import deepseek_anthropic_completion
+            return deepseek_anthropic_completion(
+                api_key,
+                [{"role": "user", "content": prompt}],
+                model="deepseek-v4-flash",
+                max_tokens=max_tokens,
+                temperature=temperature,
+                timeout=20.0,
             )
-            return resp.json()["choices"][0]["message"]["content"].strip()
         except Exception:
             return ""
+
+    def gen_suggestions(self, user_id: str, question: str, reply: str) -> list:
+        """v1.2 建议卡片：为刚完成的回复生成 2-3 个用户最可能追问的问题。
+
+        - 轻量实现：单独一次 LLM 调用（max_tokens 小、timeout 8s，复用主模型）
+        - 只在用户最后一条消息是提问时生成（is_question 宽松启发式）
+        - 失败/超时/格式不合 → 返回 []（不影响主回复，前端无建议卡即降级）
+        """
+        q = (question or "").strip()
+        if not q or not is_question(q):
+            return []
+        api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+        if not isinstance(api_key, str) or not api_key:
+            return []
+        try:
+            snippet = (reply or "").replace("\n", " ").strip()
+            if len(snippet) > 240:
+                snippet = snippet[:240] + "…"
+            prompt = (
+                "你是「易理明灯」的建议生成器，一款温暖的中文命理陪伴应用。\n"
+                f"用户刚刚问了：「{q}」\n"
+                f"你对用户的回复是：「{snippet}」\n\n"
+                "请生成 2-3 个用户接下来最可能追问的问题。要求：\n"
+                "1. 像用户自己会问出口的话，口语化、简短、自然（20 字以内）；\n"
+                "2. 紧贴刚才的回复内容延伸（可以是命理话题，也可以是轻松的闲聊延伸）；\n"
+                "3. 不要编号、不要引号、不要多余解释。\n"
+                "直接输出，每行一个问题。"
+            )
+            from src.llm.client import deepseek_anthropic_completion
+            raw = deepseek_anthropic_completion(
+                api_key,
+                [{"role": "user", "content": prompt}],
+                model=getattr(self.llm, 'model', '') or "deepseek-v4-flash",
+                max_tokens=160, temperature=0.8, timeout=8.0,
+            ) or ""
+            out: list = []
+            for line in raw.splitlines():
+                s = line.strip()
+                # 去掉可能出现的编号/符号前缀
+                s = re.sub(r"^[-*\d.、\s]+", "", s).strip()
+                s = s.strip('"\'“”「」')
+                if not s or len(s) > 40:
+                    continue
+                if s not in out:
+                    out.append(s)
+                if len(out) >= 3:
+                    break
+            return out if len(out) >= 2 else []
+        except Exception:
+            return []  # 生成失败 → 无建议（前端不渲染建议卡，主回复不受影响）
 
     def _gen_reuse_acknowledgment(self, msg: str, saved: dict) -> str:
         """Generate a brief acknowledgment when reusing saved bazi info."""
@@ -1337,7 +2897,7 @@ class MessageHandler:
     # 紫微斗数 (Ziwei)
     # ============================================================
 
-    def _handle_ziwei(self, msg: str, user_id: str) -> str:
+    def _handle_ziwei(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """处理紫微斗数请求 - 与八字相同的信息收集"""
         parsed = self._extract_bazi_info(msg)
 
@@ -1375,6 +2935,18 @@ class MessageHandler:
             if not refs:
                 refs = self.retriever.search(search_query, top_k=15)  # fallback: any category
             chart_str = self._format_ziwei_chart(result)
+            # 阶段 5·来源体系（方案 §3.0）：紫微命盘 → 引擎来源；检索古籍 → book 来源
+            try:
+                self._register_engine_citation(
+                    user_id,
+                    f"紫微斗数命盘：命宫{result.ming_gong} 身宫{result.shen_gong} "
+                    f"五行局{result.wuxing_ju}，四化："
+                    f"{' '.join(f'{k}:{v}' for k, v in result.sihua.items() if v) or '无'}",
+                    title="你的紫微命盘", source="紫微排盘引擎",
+                )
+                self._register_book_citations(user_id, refs, title="紫微 · 古籍参考")
+            except Exception:
+                pass
             analysis = self.llm.analyze(chart_str, refs, question)
 
             # 生成紫微斗数命盘图片
@@ -1425,7 +2997,7 @@ class MessageHandler:
     # 六爻 (Liuyao)
     # ============================================================
 
-    def _handle_liuyao(self, msg: str, user_id: str) -> str:
+    def _handle_liuyao(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """处理六爻占卜请求"""
         # 提取所问之事
         question = self._get_question_after_keywords(msg, [
@@ -1445,6 +3017,20 @@ class MessageHandler:
             if not refs:
                 refs = self.retriever.search(f"六爻 {question}", top_k=15)
             chart_str = self._format_liuyao_chart(result)
+            # 阶段 5·来源体系（方案 §3.0）：卦象 → 引擎来源；检索古籍 → book 来源
+            try:
+                var = ""
+                if getattr(result, "changed_hexagram", "") and result.changed_hexagram != result.original_hexagram:
+                    var = f"；变卦{result.changed_hexagram}"
+                self._register_engine_citation(
+                    user_id,
+                    f"六爻卦象：所问之事「{result.question or '一般运势'}」，"
+                    f"本卦{result.original_hexagram}（{result.palace}宫/{result.palace_wuxing}）{var}",
+                    title="六爻卦象", source="六爻起卦引擎",
+                )
+                self._register_book_citations(user_id, refs, title="易经 · 古籍参考")
+            except Exception:
+                pass
             analysis = self.llm.analyze(chart_str, refs, question)
             return analysis.response
         except Exception as e:
@@ -1480,7 +3066,7 @@ class MessageHandler:
     # 风水 (Fengshui)
     # ============================================================
 
-    def _handle_fengshui(self, msg: str, user_id: str) -> str:
+    def _handle_fengshui(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """处理风水分析请求"""
         direction = self._extract_direction(msg)
         birth_year = self._extract_year_from_text(msg)
@@ -1517,6 +3103,18 @@ class MessageHandler:
         # 3. 检索古籍
         search_query = f"风水 {result.house_gua} {question}"
         refs = self.retriever.search(search_query, category="fengshui", top_k=15)
+
+        # 阶段 5·来源体系（方案 §3.0）：风水分析 → 引擎来源；检索古籍 → book 来源
+        try:
+            self._register_engine_citation(
+                user_id,
+                f"风水分析：宅卦{result.house_gua}，当前{result.period}运"
+                + (f"，命卦{result.person_gua}" if result.person_gua else ""),
+                title="风水分析结果", source="风水引擎",
+            )
+            self._register_book_citations(user_id, refs, title="风水 · 古籍参考")
+        except Exception:
+            pass
 
         # 4. LLM分析（带错误处理）
         try:
@@ -1573,7 +3171,7 @@ class MessageHandler:
     # 面相手相 (Mianxiang)
     # ============================================================
 
-    def _handle_mianxiang(self, msg: str, user_id: str) -> str:
+    def _handle_mianxiang(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """处理面相分析请求"""
         description = self._get_question_after_keywords(msg, [
             "面相", "手相", "看相", "看看", "帮我看看",
@@ -1604,6 +3202,18 @@ class MessageHandler:
             category="mianxiang", top_k=15,
         )
 
+        # 阶段 5·来源体系（方案 §3.0）：面相分析 → 引擎来源；检索古籍 → book 来源
+        try:
+            self._register_engine_citation(
+                user_id,
+                f"面相分析：{result.face_type}，三停："
+                f"{' '.join(f'{k}{v}' for k, v in result.three_zones.items())}",
+                title="面相分析结果", source="面相引擎",
+            )
+            self._register_book_citations(user_id, refs, title="相学 · 古籍参考")
+        except Exception:
+            pass
+
         # 4. LLM分析
         chart_str = self._format_mianxiang_chart(result)
         analysis = self.llm.analyze(chart_str, refs, original_msg)
@@ -1633,7 +3243,7 @@ class MessageHandler:
     # 择日 (Zeri)
     # ============================================================
 
-    def _handle_zeri(self, msg: str, user_id: str) -> str:
+    def _handle_zeri(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """处理择日请求"""
         date_info = self._extract_date(msg)
         purpose = self._extract_purpose(msg)
@@ -1663,6 +3273,19 @@ class MessageHandler:
         search_query = f"择日 {result.jianchu} {purpose or '吉日'}"
         refs = self.retriever.search(search_query, category="zeri", top_k=15)
 
+        # 阶段 5·来源体系（方案 §3.0）：择日结果 → 引擎来源；检索古籍 → book 来源
+        try:
+            self._register_engine_citation(
+                user_id,
+                f"择日分析：{year}年{month}月{day}日，建除十二神{result.jianchu}，"
+                f"二十八宿{result.ershibaxiu}（{result.xiu_jixiong}），"
+                f"宜：{'、'.join(result.yi)}；忌：{'、'.join(result.ji)}",
+                title="择日分析结果", source="择日引擎",
+            )
+            self._register_book_citations(user_id, refs, title="择日 · 古籍参考")
+        except Exception:
+            pass
+
         # 4. LLM分析
         chart_str = self._format_zeri_chart(result, year, month, day)
         analysis = self.llm.analyze(chart_str, refs, question)
@@ -1685,7 +3308,7 @@ class MessageHandler:
     # 奇门遁甲 (Qimen) - 引擎排盘 + RAG + LLM
     # ============================================================
 
-    def _handle_qimen(self, msg: str, user_id: str) -> str:
+    def _handle_qimen(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """处理奇门遁甲咨询 - 使用QimenEngine完整排盘 + LLM用神解读"""
         # 提取用户所问之事
         question = self._get_question_after_keywords(msg, [
@@ -1734,6 +3357,18 @@ class MessageHandler:
         if not refs:
             refs = self.retriever.search(f"奇门遁甲 {question}", top_k=15)  # fallback
 
+        # 阶段 5·来源体系（方案 §3.0）：奇门局 → 引擎来源；检索古籍 → book 来源
+        try:
+            self._register_engine_citation(
+                user_id,
+                f"奇门遁甲局：{year}年{month}月{day}日（{hour}时），"
+                f"所问之事「{question}」",
+                title="奇门遁甲局", source="奇门排盘引擎",
+            )
+            self._register_book_citations(user_id, refs, title="奇门 · 古籍参考")
+        except Exception:
+            pass
+
         # 5. LLM 用神分析
         analysis = self.llm.analyze(chart_str, refs, question)
 
@@ -1749,7 +3384,7 @@ class MessageHandler:
     # 姓名学 (Xingming) - RAG + LLM only, no dedicated engine
     # ============================================================
 
-    def _handle_xingming(self, msg: str, user_id: str) -> str:
+    def _handle_xingming(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """处理姓名学咨询 — 提取姓名 → XingmingEngine 计算五格 → LLM 叙事"""
         # Null guard
         if self.xingming_engine is None:
@@ -1826,6 +3461,18 @@ class MessageHandler:
         # 4. 检索古籍
         refs = self.retriever.search(f"姓名学 {name} {question}", category="xingming", top_k=15)
 
+        # 阶段 5·来源体系（方案 §3.0）：姓名五格 → 引擎来源；检索古籍 → book 来源
+        try:
+            self._register_engine_citation(
+                user_id,
+                f"姓名「{surname} {given_name}」五格：{wuge_str}；"
+                f"三才：{result.sancai}（{result.sancai_ji}）；五行：{result.wuxing}",
+                title="姓名五格分析", source="姓名学引擎",
+            )
+            self._register_book_citations(user_id, refs, title="姓名学 · 古籍参考")
+        except Exception:
+            pass
+
         # 5. LLM 生成叙事分析
         analysis = self.llm.analyze(chart_str, refs, question)
 
@@ -1835,7 +3482,7 @@ class MessageHandler:
     # 合婚配对 (Hehun) - 引擎计算五行/生肖/日柱 + LLM叙事
     # ============================================================
 
-    def _handle_hehun(self, msg: str, user_id: str) -> str:
+    def _handle_hehun(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """合婚配对 - 提取双方信息，引擎计算匹配度，LLM生成叙事分析"""
         # Extract both parties' birth info
         parts = re.split(r'[，。,\.\s]+女|女方|对方|对象|伴侣', msg)
@@ -1887,6 +3534,20 @@ class MessageHandler:
 综合评分：{hehun_result.score}/100"""
 
         refs = self.retriever.search(f"合婚 婚姻匹配 {shengxiao_a} {shengxiao_b}", category="hehun", top_k=15)
+
+        # 阶段 5·来源体系（方案 §3.0）：合婚评分 → 引擎来源；检索古籍 → book 来源
+        try:
+            self._register_engine_citation(
+                user_id,
+                f"合婚配对：{shengxiao_a}×{shengxiao_b}；五行互补"
+                f"{hehun_result.wuxing_score}/100；日柱关系{hehun_result.rizhu_score}/100；"
+                f"综合评分{hehun_result.score}/100",
+                title="合婚配对结果", source="合婚引擎",
+            )
+            self._register_book_citations(user_id, refs, title="合婚 · 古籍参考")
+        except Exception:
+            pass
+
         analysis = self.llm.analyze(chart_str, refs, f"分析这对男女的婚姻匹配度，给出3条化解建议")
 
         return analysis.response
@@ -1895,7 +3556,8 @@ class MessageHandler:
     # 解梦 (Dream) - engine + RAG + LLM
     # ============================================================
 
-    def _handle_dream(self, msg: str, user_id: str) -> str:
+    def _handle_dream(self, msg: str, user_id: str,
+                      stream_cb: Optional[Callable] = None) -> str:
         """处理解梦请求 - 提取完整梦境 + 处境
 
         P0-1 修复: 如果用户在本会话中已经分享过梦境内容，
@@ -1924,9 +3586,10 @@ class MessageHandler:
 
 💡 例如：「梦见一条大蟒蛇在追我，我很害怕，最近工作压力大，老板总刁难我」"""
 
-        return self._do_dream_analysis(dream_text, user_id)
+        return self._do_dream_analysis(dream_text, user_id, stream_cb=stream_cb)
 
-    def _do_dream_analysis(self, dream_text: str, user_id: str) -> str:
+    def _do_dream_analysis(self, dream_text: str, user_id: str,
+                           stream_cb: Optional[Callable] = None) -> str:
         """执行解梦分析 - 完整上下文"""
         # 1. 分离梦境描述 和 用户处境
         user_context = ""
@@ -1948,16 +3611,37 @@ class MessageHandler:
         except Exception:
             pass
 
-        # 3. 引擎分析 + RAG检索
+        # 3. 引擎分析 + RAG检索（276万 FAISS 生产主路径优先，降级本地 27k）
+        # 流式模式先发进度事件，避免 FAISS 检索（CPU 向量化，可长达数十秒）
+        # 的沉默期触发看门狗超时
+        self._emit_stream_event(stream_cb, "thinking", "正在分析梦境象征…")
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         if self.dream_engine:
-            result = self.dream_engine.analyze(dream_text, self.retriever, api_key, user_context, bazi_info)
+            result = self.dream_engine.analyze(
+                dream_text, self._get_dream_retriever(), api_key,
+                user_context, bazi_info)
         else:
             result = DreamResult()
+
+        # 阶段 5·来源体系（方案 §3.0 ①）：解梦引擎的古籍匹配结果 → book 来源
+        interps = (getattr(result, "interpretations", None) or [])[:5]
+        if interps:
+            try:
+                start = self._alloc_citations(user_id, len(interps))
+                items = []
+                for i, interp in enumerate(interps, start=start):
+                    items.append(make_citation(
+                        i, "book", str(interp)[:400],
+                        title="解梦 · 古籍参考", source="解梦引擎",
+                    ))
+                self._append_citations(user_id, items)
+            except Exception:
+                pass
 
         self.dao.save_consultation(user_id, dream_text, result, intent="dream")
 
         # 4. 构建完整 Prompt 并调用 LLM
+        self._emit_stream_event(stream_cb, "thinking", "正在整理解梦要点…")
         from src.engines.dream import format_dream_prompt
         prompt = format_dream_prompt(dream_text, result, user_context, bazi_info)
         analysis = self.llm.analyze(prompt, result.interpretations, dream_text)
@@ -2011,7 +3695,7 @@ class MessageHandler:
     # 八字学堂
     # ============================================================
 
-    def _handle_xuetang(self, msg: str, user_id: str) -> str:
+    def _handle_xuetang(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """Handle learning/tutorial requests with optional personalization.
 
         If the user has saved bazi data, the lesson will include
@@ -2059,7 +3743,7 @@ class MessageHandler:
 
     ADVISOR_KEYWORDS = ["建议", "怎么办", "有什么建议", "帮我分析"]
 
-    def _handle_advisor(self, msg: str, user_id: str) -> str:
+    def _handle_advisor(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """处理 AI 建议请求 — 基于八字 + 用户处境生成个性化建议."""
         # 1. 检查用户八字是否已保存
         saved = self.dao.get_user_bazi(user_id)
@@ -2097,17 +3781,7 @@ class MessageHandler:
         # 5. 格式化回复
         lines = []
 
-        # 5a. 名人匹配
-        celeb = advice_data.get("celebrity_match", {})
-        if celeb and celeb.get("name"):
-            lines.append(
-                f"🔮 **名人对照**：你和「{celeb['name']}」格局相似度 "
-                f"{celeb.get('similarity', 0)}%"
-            )
-            insight = celeb.get("insight", "")
-            if insight:
-                lines.append(f"\n{insight}")
-            lines.append("")
+        # 5a. 名人匹配已移除（2026-08-09 方案 v5 选 A：未问"像谁"不输出名人对照）
 
         # 5b. 领域建议
         actions = advice_data.get("actions", [])
@@ -2168,7 +3842,7 @@ class MessageHandler:
     # AI 幸运日历
     # ============================================================
 
-    def _handle_calendar(self, msg: str, user_id: str) -> str:
+    def _handle_calendar(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """Handle calendar/today-fortune requests."""
         saved = self.dao.get_user_bazi(user_id)
         if not saved:
@@ -2185,6 +3859,17 @@ class MessageHandler:
             cal = LuckyCalendar(api_key)
             preferences = self._get_preference_hint(user_id)
             day = cal.daily(saved, None, preferences=preferences)
+
+            # 阶段 5·来源体系（方案 §3.0 ②）：今日运势 → 引擎来源
+            try:
+                self._register_engine_citation(
+                    user_id,
+                    f"今日专属运势：{day.date}，总体"
+                    f"{getattr(day, 'overall_mood', '') or '平稳'}",
+                    title="今日运势", source="幸运日历引擎",
+                )
+            except Exception:
+                pass
 
             reply = self._format_calendar(day)
 
@@ -2218,7 +3903,7 @@ class MessageHandler:
     # 时辰运势 (Hourly Fortune)
     # ============================================================
 
-    def _handle_hourly(self, msg: str, user_id: str) -> str:
+    def _handle_hourly(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """Handle hourly fortune requests — 十二时辰逐时分析."""
         saved = self.dao.get_user_bazi(user_id)
         if not saved:
@@ -2252,6 +3937,17 @@ class MessageHandler:
             hourly = get_hourly_fortune(user_day_master, day_branch)
             reply = format_hourly_card(user_day_master, day_branch)
 
+            # 阶段 5·来源体系（方案 §3.0 ②）：时辰运势 → 引擎来源
+            try:
+                self._register_engine_citation(
+                    user_id,
+                    f"今日时辰运势：用户日主{user_day_master}，今日日支{day_branch}"
+                    f"（{day_stem}{day_branch}日），十二时辰逐时分析",
+                    title="今日时辰运势", source="时辰运势引擎",
+                )
+            except Exception:
+                pass
+
             # Optional: LLM summary for the best hours
             api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
             if api_key:
@@ -2267,20 +3963,15 @@ class MessageHandler:
                             f"今日最佳时段：{best_names}，适宜活动：{activities}。"
                             "请用一句话给出今日时辰运势的总结建议（20字以内），语气温暖实用。直接返回文本。"
                         )
-                        import httpx
-                        resp = httpx.post(
-                            "https://api.deepseek.com/v1/chat/completions",
-                            headers={"Authorization": f"Bearer {api_key}",
-                                     "Content-Type": "application/json"},
-                            json={
-                                "model": "deepseek-v4-flash",
-                                "messages": [{"role": "user", "content": prompt}],
-                                "max_tokens": 80,
-                                "temperature": 0.7,
-                            },
-                            timeout=10.0,
+                        from src.llm.client import deepseek_anthropic_completion
+                        summary = deepseek_anthropic_completion(
+                            api_key,
+                            [{"role": "user", "content": prompt}],
+                            model="deepseek-v4-flash",
+                            max_tokens=200,
+                            temperature=0.7,
+                            timeout=20.0,
                         )
-                        summary = resp.json()["choices"][0]["message"]["content"].strip()
                         if summary:
                             reply += f"\n\n💬 {summary}"
                 except Exception:
@@ -2388,18 +4079,15 @@ class MessageHandler:
                             "content": messages[-1]["content"] + transition_hint,
                         }
 
-            resp = httpx.post(
-                "https://api.deepseek.com/v1/chat/completions",
-                headers=headers,
-                json={
-                    "model": "deepseek-v4-flash",
-                    "messages": messages,
-                    "max_tokens": 800,
-                    "temperature": 0.8,
-                },
+            from src.llm.client import deepseek_anthropic_completion
+            reply = deepseek_anthropic_completion(
+                api_key,
+                messages,
+                model="deepseek-v4-flash",
+                max_tokens=2000,
+                temperature=0.8,
                 timeout=30.0,
             )
-            reply = resp.json()["choices"][0]["message"]["content"]
 
             # If soothing was detected, prepend it
             if analysis.needs_soothe and analysis.soothe_text:
@@ -2480,7 +4168,9 @@ class MessageHandler:
 
         return reply
 
-    def _free_chat(self, msg: str, user_id: str, emotion_label: str = None) -> str:
+    def _free_chat(self, msg: str, user_id: str, emotion_label: str = None,
+                   extra_hint: str = "",
+                   stream_cb: Optional[Callable] = None) -> str:
         """自由对话：没有命中任何命理意图时，直接用 LLM 自然聊天。
 
         当检测到情绪信号时，将情绪上下文注入提示词，
@@ -2488,6 +4178,12 @@ class MessageHandler:
 
         P0-1 修复: 总是加载完整会话历史传给 LLM (history_limit=20)，
         确保多轮对话上下文不丢失。不再因为只有 1 条消息就走单消息模式。
+
+        AI 原生（Phase 2）:
+        - extra_hint: 多次重复话题提示（方案 5.5）
+        - 会话超长时执行上下文压缩（方案 2.3）
+
+        stream_cb（v8 阶段 3）：提供时主 LLM 调用走真实流式，增量实时回调。
         """
         if msg.strip() in ('',' ','?','？'):
             # Phase 3: Mood-aware greeting for returning users
@@ -2510,7 +4206,7 @@ class MessageHandler:
             return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
         if saved_bazi and (has_year or has_gender):
             # 用户已有八字，但提供了新的出生信息，可能想更新或已有信息
-            intent_result = self._analyze_message(msg)
+            intent_result = self._analyze_message(msg, user_id)
             if intent_result.intent == "bazi":
                 return self._handle_bazi(msg, user_id)
 
@@ -2531,7 +4227,7 @@ class MessageHandler:
                 }
                 emotion_hint = emotion_hints.get(emotion_label, "")
 
-            # Combine all hints: memory + preferences + emotion
+            # Combine all hints: memory + preferences + emotion + repeated-topic
             memory_ctx = self.memory.get_context(user_id) if self.memory else ""
 
             combined_hint = ""
@@ -2541,17 +4237,39 @@ class MessageHandler:
                 combined_hint = combined_hint + "\n" + pref_hint if combined_hint else pref_hint
             if emotion_hint:
                 combined_hint = combined_hint + "\n" + emotion_hint if combined_hint else emotion_hint
+            if extra_hint:
+                combined_hint = combined_hint + "\n" + extra_hint if combined_hint else extra_hint
 
-            # P0-1: 总是加载完整会话历史传给LLM (最多20条)，确保多轮上下文不丢失
+            # L1 滚动窗口（方案 §5.3）+ L2 增量摘要（方案 §5.4）：
+            # 1) L2 触发检查（超阈值 → 分块滚动摘要，摘要存 session_summaries）
+            # 2) L1 按 token 预算动态保留轮数 + 关键事实保底（八字/L3 is_key）
             if self.session_dao:
-                history = self.session_dao.get_context_for_llm(user_id, history_limit=20)
-                if len(history) >= 1:
+                summary = self._maybe_compact(user_id)
+                profile = ""
+                if self.memory_system:
+                    try:
+                        profile = self.memory_system.get_profile_summary(user_id) or ""
+                        # L3 按需召回（方案 §5.2/§5.5）：只注入与当前问题相关的条目
+                        rels = self.memory_system.get_relevant_memories(
+                            user_id, msg, top_k=3)
+                        if rels:
+                            rel_lines = "\n".join(f"- {r['content']}" for r in rels)
+                            profile = (profile + "\n" if profile else "") + rel_lines
+                    except Exception:
+                        profile = ""
+                key_facts = self._collect_key_facts(user_id)
+                history = self.session_dao.get_context_for_llm(user_id, history_limit=200)
+                messages = _assemble_context(
+                    history, profile=profile, summary=summary,
+                    current=msg, key_facts=tuple(key_facts),
+                )
+                if messages:
                     if combined_hint:
-                        history[-1] = {
-                            "role": "user",
-                            "content": history[-1]["content"] + f"\n\n{combined_hint}"
+                        messages[-1] = {
+                            "role": messages[-1]["role"],
+                            "content": messages[-1]["content"] + f"\n\n{combined_hint}"
                         }
-                    return self.llm.chat_conversation(history)
+                    return self.llm.chat_conversation(messages, stream_cb=stream_cb)
             # 无会话存储时，用单消息模式
             chat_msg = msg
             if combined_hint:

@@ -12,10 +12,11 @@ import logging
 from typing import Optional
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from src.security.auth import require_user
 from src.engines.bazi import BaziEngine
 
 logger = logging.getLogger(__name__)
@@ -363,8 +364,11 @@ def run_compatibility_analysis(req: CompatibilityRequest) -> dict:
 # ─── API Endpoints ─────────────────────────────────────────────
 
 @router.post("/api/compatibility")
-async def compatibility_analysis(req: CompatibilityRequest):
-    """Run compatibility analysis between two people."""
+async def compatibility_analysis(req: CompatibilityRequest, uid: str = Depends(require_user)):
+    """Run compatibility analysis between two people.
+
+    安全修复：必须登录（双方生辰信息为敏感数据）。
+    """
     try:
         return run_compatibility_analysis(req)
     except Exception as e:

@@ -1,5 +1,5 @@
 """OpenAI-compatible API wrapper for chatgpt-on-wechat integration."""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import List, Optional
 import time
@@ -58,6 +58,31 @@ class CompletionResponse(BaseModel):
     usage: UsageInfo
 
 
+def _require_api_key(request):
+    """API 密钥校验（X-API-Key 头或 Authorization: Bearer <key>）。
+
+    安全修复：/v1/* 是 LLM 成本接口，必须配置并使用 API 密钥，
+    未配置密钥时一律拒绝（503），防止匿名刷 LLM 成本。
+    """
+    from fastapi import HTTPException
+    from src.security.auth import get_auth_handler
+
+    token = request.headers.get("X-API-Key", "")
+    auth_header = request.headers.get("Authorization", "")
+    if not token and auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+
+    if not token:
+        raise HTTPException(status_code=401, detail="缺少 API 密钥（X-API-Key）")
+
+    auth = get_auth_handler()
+    key_info = auth.validate_api_key(token)
+    if not key_info:
+        raise HTTPException(status_code=403, detail="无效的 API 密钥")
+
+    return token
+
+
 def create_openai_router(_handler=None):
     """Create OpenAI-compatible routes."""
 
@@ -65,7 +90,7 @@ def create_openai_router(_handler=None):
         import src.main as main_module
         return main_module.handler
 
-    @router.post("/chat/completions", response_model=ChatCompletionResponse)
+    @router.post("/chat/completions", response_model=ChatCompletionResponse, dependencies=[Depends(_require_api_key)])
     async def chat_completions(req: ChatCompletionRequest):
         handler = _get_handler()
         if handler is None:
@@ -105,7 +130,7 @@ def create_openai_router(_handler=None):
             usage=UsageInfo(completion_tokens=token_count, total_tokens=token_count),
         )
 
-    @router.post("/completions", response_model=CompletionResponse)
+    @router.post("/completions", response_model=CompletionResponse, dependencies=[Depends(_require_api_key)])
     async def completions(req: CompletionRequest):
         handler = _get_handler()
         if handler is None:

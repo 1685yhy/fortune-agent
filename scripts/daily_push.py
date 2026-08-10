@@ -2,7 +2,17 @@
 
 查询所有保存了八字的用户，计算今日干支与用户八字的互动关系，
 生成个性化运势推送消息并记录推送日志。
+
+送达链路（微信订阅消息）现状：
+    - 生成消息 + 写 push_log：已完成（run_push_batch）
+    - 真实下发（cgi-bin/message/subscribe/send）：依赖以下配置，未就绪时
+      仅记录推送日志不下发（接口契约保持稳定，前端可先保存开关状态）：
+        1. 小程序端用户"订阅授权"（wx.requestSubscribeMessage）——前端待加按钮
+        2. WECHAT_SUBSCRIBE_TEMPLATE_ID（公众平台申请订阅消息模板）
+        3. WECHAT_APP_ID + WECHAT_APP_SECRET（换取 access_token 下发）
+    配置见项目根 .env 注释（WECHAT_SUBSCRIBE_TEMPLATE_ID）。
 """
+import os
 import sys
 import json
 import logging
@@ -283,6 +293,93 @@ def _generate_advice(gan_relation: str, comparison: dict) -> str:
     return advice
 
 
+def _subscribe_config() -> dict:
+    """读取微信订阅消息配置（缺啥返啥，供日志与下发判定）。
+
+    Returns:
+        {"template_id": str, "app_id": str, "app_secret": str, "ready": bool}
+    """
+    template_id = os.getenv("WECHAT_SUBSCRIBE_TEMPLATE_ID", "").strip()
+    app_id = os.getenv("WECHAT_APP_ID", "").strip()
+    app_secret = os.getenv("WECHAT_APP_SECRET", "").strip()
+    return {
+        "template_id": template_id,
+        "app_id": app_id,
+        "app_secret": app_secret,
+        "ready": bool(template_id and app_id and app_secret),
+    }
+
+
+def _deliver_subscribe_message(user_id: str, message: str) -> dict:
+    """真实下发微信订阅消息（cgi-bin/message/subscribe/send）。
+
+    - 配置齐全（TEMPLATE_ID + APP_ID + APP_SECRET）：真实调用下发；
+    - 配置缺失：不下发，返回 {"delivered": False, "reason": "template_not_configured"}，
+      推送仍按现状写入 push_log（接口契约稳定，前端可先保存开关状态）。
+
+    Returns:
+        {"delivered": bool, "reason": str, "detail": str}
+    """
+    cfg = _subscribe_config()
+    if not cfg["ready"]:
+        missing = [k for k in ("template_id", "app_id", "app_secret") if not cfg[k]]
+        return {
+            "delivered": False,
+            "reason": "template_not_configured",
+            "detail": f"缺少配置: {', '.join(missing)}（见 .env WECHAT_SUBSCRIBE_TEMPLATE_ID 注释）",
+        }
+
+    # user_id 形如 "wx_<openid>"，订阅消息按 openid 下发
+    openid = user_id[3:] if user_id.startswith("wx_") else user_id
+
+    try:
+        # 1. 换取 access_token
+        import httpx
+
+        token_url = "https://api.weixin.qq.com/cgi-bin/token"
+        token_params = {
+            "grant_type": "client_credential",
+            "appid": cfg["app_id"],
+            "secret": cfg["app_secret"],
+        }
+        with httpx.Client(timeout=10.0) as client:
+            token_resp = client.get(token_url, params=token_params)
+        token_data = token_resp.json()
+        access_token = token_data.get("access_token", "")
+        if not access_token:
+            return {
+                "delivered": False,
+                "reason": "access_token_failed",
+                "detail": f"errcode={token_data.get('errcode')} errmsg={token_data.get('errmsg')}",
+            }
+
+        # 2. 发送订阅消息（模板字段以模板实际配置为准，这里用常见占位）
+        send_url = f"https://api.weixin.qq.com/cgi-bin/message/subscribe/send?access_token={access_token}"
+        payload = {
+            "touser": openid,
+            "template_id": cfg["template_id"],
+            "page": "pages/today/today",
+            "miniprogram_state": "formal",
+            "lang": "zh_CN",
+            "data": {
+                "thing1": {"value": message[:20]},   # 运势摘要（模板字段名按实际模板调整）
+                "thing2": {"value": message[20:40]},
+            },
+        }
+        with httpx.Client(timeout=10.0) as client:
+            send_resp = client.post(send_url, json=payload)
+        send_data = send_resp.json()
+        if send_data.get("errcode", 0) == 0:
+            return {"delivered": True, "reason": "sent", "detail": ""}
+        return {
+            "delivered": False,
+            "reason": "send_failed",
+            "detail": f"errcode={send_data.get('errcode')} errmsg={send_data.get('errmsg')}",
+        }
+    except Exception as e:
+        return {"delivered": False, "reason": "exception", "detail": str(e)[:200]}
+
+
 def run_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> dict:
     """执行每日运势推送"""
 
@@ -291,7 +388,15 @@ def run_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> dict:
     users = dao.get_all_users_with_bazi()
     logger.info(f"找到 {len(users)} 个有八字信息的用户")
 
-    stats = {"total": len(users), "pushed": 0, "skipped": 0, "errors": 0, "details": []}
+    cfg = _subscribe_config()
+    if not cfg["ready"]:
+        logger.warning(
+            "订阅消息未配置（WECHAT_SUBSCRIBE_TEMPLATE_ID/WECHAT_APP_ID/"
+            "WECHAT_APP_SECRET 缺一不可），本次仅生成消息并写 push_log，不下发"
+        )
+
+    stats = {"total": len(users), "pushed": 0, "skipped": 0, "errors": 0,
+             "delivered": 0, "details": []}
 
     for user in users:
         user_id = user["user_id"]
@@ -313,6 +418,10 @@ def run_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> dict:
             comparison = compare_bazi_with_today(bazi_pillars, today)
             message = generate_push_message(user_id, bazi_info, today, comparison)
 
+            # 真实下发（配置齐全时）；未配置 → 降级仅记录
+            delivery = _deliver_subscribe_message(user_id, message) if not dry_run else {
+                "delivered": True, "reason": "dry_run", "detail": ""}
+
             if dry_run:
                 logger.info(f"[DRY RUN] 用户 {user_id}: 将推送消息 ({len(message)}字符)")
                 logger.debug(f"消息内容:\n{message}")
@@ -322,12 +431,24 @@ def run_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> dict:
                     user_id=user_id,
                     push_date=today["date"],
                     message=message,
-                    success=True,
+                    success=delivery["delivered"],
+                    error=delivery.get("detail", "") if not delivery["delivered"] else "",
                 )
                 stats["pushed"] += 1
-                logger.info(f"用户 {user_id} 推送成功")
+                if delivery["delivered"]:
+                    stats["delivered"] += 1
+                    logger.info(f"用户 {user_id} 推送成功（已下发）")
+                else:
+                    logger.info(
+                        f"用户 {user_id} 推送已生成未下发: {delivery.get('reason')} "
+                        f"{delivery.get('detail')}"
+                    )
 
-            stats["details"].append({"user_id": user_id, "success": True})
+            stats["details"].append({
+                "user_id": user_id,
+                "success": True,
+                "delivery": delivery,
+            })
 
         except Exception as e:
             logger.error(f"用户 {user_id} 推送失败: {e}")
@@ -343,7 +464,7 @@ def run_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> dict:
             stats["details"].append({"user_id": user_id, "success": False, "error": str(e)})
 
     logger.info(f"推送完成: 总计{stats['total']}, 成功{stats['pushed']}, "
-                f"跳过{stats['skipped']}, 失败{stats['errors']}")
+                f"跳过{stats['skipped']}, 失败{stats['errors']}, 已下发{stats['delivered']}")
     return stats
 
 
@@ -483,7 +604,15 @@ def run_weekly_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> d
     users = dao.get_all_users_with_bazi()
     logger.info(f"找到 {len(users)} 个有八字信息的用户")
 
-    stats = {"total": len(users), "pushed": 0, "skipped": 0, "errors": 0, "details": []}
+    cfg = _subscribe_config()
+    if not cfg["ready"]:
+        logger.warning(
+            "订阅消息未配置（WECHAT_SUBSCRIBE_TEMPLATE_ID/WECHAT_APP_ID/"
+            "WECHAT_APP_SECRET 缺一不可），本次仅生成消息并写 push_log，不下发"
+        )
+
+    stats = {"total": len(users), "pushed": 0, "skipped": 0, "errors": 0,
+             "delivered": 0, "details": []}
 
     for user in users:
         user_id = user["user_id"]
@@ -505,6 +634,9 @@ def run_weekly_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> d
             comparison = compare_bazi_with_today(bazi_pillars, today)
             message = generate_weekly_summary(user_id, bazi_info, today, comparison, dao)
 
+            delivery = _deliver_subscribe_message(user_id, message) if not dry_run else {
+                "delivered": True, "reason": "dry_run", "detail": ""}
+
             if dry_run:
                 logger.info(f"[DRY RUN] 用户 {user_id}: 将推送周报 ({len(message)}字符)")
                 logger.debug(f"消息内容:\n{message}")
@@ -514,12 +646,24 @@ def run_weekly_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> d
                     user_id=user_id,
                     push_date=week["start"],
                     message=message,
-                    success=True,
+                    success=delivery["delivered"],
+                    error=delivery.get("detail", "") if not delivery["delivered"] else "",
                 )
                 stats["pushed"] += 1
-                logger.info(f"用户 {user_id} 周报推送成功")
+                if delivery["delivered"]:
+                    stats["delivered"] += 1
+                    logger.info(f"用户 {user_id} 周报推送成功（已下发）")
+                else:
+                    logger.info(
+                        f"用户 {user_id} 周报已生成未下发: {delivery.get('reason')} "
+                        f"{delivery.get('detail')}"
+                    )
 
-            stats["details"].append({"user_id": user_id, "success": True})
+            stats["details"].append({
+                "user_id": user_id,
+                "success": True,
+                "delivery": delivery,
+            })
 
         except Exception as e:
             logger.error(f"用户 {user_id} 周报推送失败: {e}")
@@ -535,7 +679,7 @@ def run_weekly_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> d
             stats["details"].append({"user_id": user_id, "success": False, "error": str(e)})
 
     logger.info(f"周报推送完成: 总计{stats['total']}, 成功{stats['pushed']}, "
-                f"跳过{stats['skipped']}, 失败{stats['errors']}")
+                f"跳过{stats['skipped']}, 失败{stats['errors']}, 已下发{stats['delivered']}")
     return stats
 
 
