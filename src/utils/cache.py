@@ -21,6 +21,7 @@ TTL_XUETANG_TOPICS = 86400     # 24 hours
 TTL_XUETANG_LESSON = 3600      # 1 hour
 TTL_DEFAULT = 300              # 5 minutes
 TTL_PRECOMPUTE_DAILY = 3600    # 1 hour (for precomputed anonymous daily content)
+TTL_CALENDAR_TODAY = 21600     # 6 hours (calendar/today LLM 结果缓存，按 user_id+date)
 
 
 # ── CacheEntry ───────────────────────────────────────────────────────────────

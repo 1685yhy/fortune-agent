@@ -127,10 +127,17 @@ class QueryEnhancer:
 
         if loop is not None and loop.is_running():
             # We're inside an already-running event loop; create a new one in a separate thread
+            # 防卡死：future.result 带超时；超时后线程不再等待（shutdown(wait=False)）
             import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(asyncio.run, self.enhance(query))
-                return future.result()
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            future = executor.submit(asyncio.run, self.enhance(query))
+            try:
+                return future.result(timeout=45)
+            except concurrent.futures.TimeoutError:
+                logger.warning("Query enhancement timed out (>45s), using fallback")
+                return self._build_fallback(query)
+            finally:
+                executor.shutdown(wait=False)
         else:
             return asyncio.run(self.enhance(query))
 
