@@ -90,6 +90,7 @@ Page({
     this._initNavOff();
     this._attachHost();
     this._loadHistory();
+    this._consumePrefill();
     theme.bindTheme(this);
     // 真机保护：语音/音频初始化失败不阻塞页面（各自再兜一层 try/catch）
     try { this._initSpeech(); } catch (e) { console.warn('[Chat] 语音初始化失败:', e); }
@@ -142,6 +143,25 @@ Page({
   },
 
   /* ═══ v1.1 全局流式宿主接线（切 tab 对话不中断） ═══ */
+
+  /* ═══ 晨笺「今日小问」预填（从今日页晨笺卡跳入，问题作为首条消息自动发出） ═══ */
+
+  _consumePrefill() {
+    const app = getApp();
+    const q = (app && app.globalData && app.globalData.jianQuestion) || '';
+    if (!q) return;
+    try {
+      delete app.globalData.jianQuestion;
+    } catch (e) {
+      app.globalData.jianQuestion = '';
+    }
+    // 等历史上屏/宿主就位后再发；只消费一次（页面实例级）
+    setTimeout(() => {
+      if (this._prefillSent) return;
+      this._prefillSent = true;
+      this._send(String(q));
+    }, 300);
+  },
 
   _attachHost() {
     this._lastTick = -1;

@@ -8,6 +8,65 @@
   </view>
 
   <view class="today-col">
+    <!-- 晨笺卡（已开启 + 数据就绪；接口失败/未开启均静默） -->
+    <view class="jian-card" wx:if="{{jian.show}}">
+      <view class="jian-head">
+        <view class="seal jian-seal"><text class="seal-char">晨</text></view>
+        <view class="jian-title">{{jian.ganzhiDate}}</view>
+        <view class="jian-fav {{jian.saved ? 'jian-fav-on' : ''}}" hover-class="jian-fav-active" hover-stay-time="0" bindtap="onJianFav">{{jian.saved ? '已收藏' : '收藏'}}</view>
+      </view>
+
+      <!-- 宜忌两行 -->
+      <view class="jian-yi">
+        <view class="jian-yi-row">
+          <text class="jian-yi-label">宜</text>
+          <view class="jian-yi-tags">
+            <view class="inktag jian-yi-chip" wx:for="{{jian.yi}}" wx:key="*this">{{item}}</view>
+            <view wx:if="{{!jian.yi.length}}" class="jian-yi-chip jian-yi-empty">无</view>
+          </view>
+        </view>
+        <view class="jian-yi-row">
+          <text class="jian-yi-label jian-yi-label-ji">忌</text>
+          <view class="jian-yi-tags">
+            <view class="inktag jian-yi-chip jian-yi-chip-ji" wx:for="{{jian.ji}}" wx:key="*this">{{item}}</view>
+            <view wx:if="{{!jian.ji.length}}" class="jian-yi-chip jian-yi-empty">无</view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 金句：收起一行 / 展开（书名 + 原文） -->
+      <view class="jian-quote" wx:if="{{jian.quote}}" bindtap="onQuoteTap">
+        <view class="jian-quote-row">
+          <text class="jian-quote-text {{jian.expanded ? 'jian-quote-text-open' : ''}}">「{{jian.quote}}」</text>
+          <text class="jian-quote-more">{{jian.expanded ? '收起' : '展开'}}</text>
+        </view>
+        <view class="jian-quote-book" wx:if="{{jian.expanded}}">
+          <text wx:if="{{jian.book}}">——《{{jian.book}}》</text>
+          <text wx:else>——明灯拟 · 古籍原句</text>
+        </view>
+      </view>
+
+      <!-- 轻私语 -->
+      <view class="jian-private" wx:if="{{jian.privateLine}}">
+        <text class="jian-private-label">轻私语</text>
+        <text>{{jian.privateLine}}</text>
+      </view>
+
+      <!-- 今日小问 → 对话页 -->
+      <view class="jian-question" hover-class="jian-question-active" hover-stay-time="0" bindtap="onQuestionTap">
+        <text class="jian-question-label">今日小问</text>
+        <text class="jian-question-text">{{jian.question}}</text>
+        <image class="brush-arrow jian-question-arrow" src="/assets/images/brush-arrow.png"></image>
+      </view>
+    </view>
+
+    <!-- 未开启晨笺：顶部入口 → 开启引导页 -->
+    <view class="jian-open" wx:if="{{jian.notEnabled}}" hover-class="jian-open-active" hover-stay-time="0" bindtap="onOpenJian">
+      <text class="jian-open-text">晨笺未开启 · 每日宜忌/金句/轻私语送达</text>
+      <text class="jian-open-cta">开启晨笺</text>
+    </view>
+
+    <view class="cover-col">
     <view class="poem-block">
       <view class="lantern-box">
         <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
@@ -43,6 +102,7 @@
       <view class="fg"></view>
       <text>三秒内，为你掌灯</text>
       <view class="fg"></view>
+    </view>
     </view>
   </view>
 

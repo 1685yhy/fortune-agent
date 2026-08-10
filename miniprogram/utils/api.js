@@ -580,6 +580,17 @@ function bindMp(mpOpenid) {
 }
 
 /**
+ * 今日晨笺（今日页晨笺卡数据）
+ * @returns {Promise<{date, day_ganzhi, suitable: string[], unsuitable: string[],
+ *                    quote, book, private_line, question}>}
+ */
+function getJianToday() {
+  return request('/api/jian/today', {
+    method: 'GET',
+  });
+}
+
+/**
  * 注销账号（账号中心）：POST /api/user/cancel
  * @param {string} confirmText - 确认文案（用户需输入「注销」二字）
  * @returns {Promise}
@@ -1015,6 +1026,7 @@ module.exports = {
   getJianPrefs,
   putJianPrefs,
   bindMp,
+  getJianToday,
 
   // Persons (多人命主档案)
   getPersons,

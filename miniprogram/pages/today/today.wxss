@@ -66,11 +66,23 @@
   border-radius: 2rpx;
 }
 
-/* ── 主列（诗签 → 按钮 → 脚注，上下分布） ── */
+/* ── 主列（晨笺卡 → 诗签/按钮/脚注，上下分布；内容超框时框内滚动） ── */
 .today-col {
   position: absolute;
   inset: 0;
   padding: calc(246rpx + var(--nav-off)) 65rpx 81rpx;  /* 128px 34px 42px */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow-y: auto;
+}
+
+/* 封面内容列：占满晨笺卡以下剩余空间，保持原「诗签→按钮→脚注」上下分布 */
+.cover-col {
+  flex: 1;
+  width: 100%;
+  min-height: 780rpx;                   /* 短屏兜底：不压缩封面，可框内滚动 */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -208,4 +220,179 @@
   height: 10rpx;
   border-radius: 50%;
   background: var(--gold);
+}
+
+/* ═══ 晨笺卡（spec 三·小程序内晨笺卡；双线笺框，同 jian_onboard 视觉语言） ═══ */
+.jian-card {
+  position: relative;
+  width: 100%;
+  flex-shrink: 0;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-strong);
+  border-radius: 10rpx;
+  padding: 23rpx 27rpx 21rpx;
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+}
+.jian-card::before {
+  content: '';
+  position: absolute;
+  inset: 8rpx;
+  border: 2rpx solid var(--line-soft);
+  border-radius: 6rpx;
+  pointer-events: none;
+}
+
+/* 头：印章「晨」+ 干支日期 + 收藏钮 */
+.jian-head { display: flex; align-items: center; gap: 15rpx; }
+.jian-seal { width: 46rpx; height: 46rpx; font-size: 27rpx; border-radius: 6rpx; }
+.jian-title {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-kai);
+  font-size: 27rpx;
+  letter-spacing: .12em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jian-fav {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .12em;
+  color: var(--ink-soft);
+  border: 2rpx solid var(--line);
+  border-radius: 6rpx;
+  padding: 6rpx 17rpx;
+  background: var(--tag-bg);
+}
+.jian-fav-on { color: var(--acc); border-color: var(--acc-line); background: var(--acc-soft); }
+.jian-fav-active { opacity: .72; }
+
+/* 宜忌两行（宜=朱砂 忌=淡墨，同签文标签语言） */
+.jian-yi { margin-top: 16rpx; display: flex; flex-direction: column; gap: 9rpx; }
+.jian-yi-row { display: flex; align-items: flex-start; gap: 13rpx; }
+.jian-yi-label {
+  flex-shrink: 0;
+  font-family: var(--font-brush);
+  font-size: 22rpx;
+  letter-spacing: .1em;
+  color: var(--acc);
+  line-height: 1.5;
+  margin-top: 2rpx;
+}
+.jian-yi-label-ji { color: var(--ink-soft); }
+.jian-yi-tags { display: flex; flex-wrap: wrap; gap: 9rpx; }
+.jian-yi-chip { font-size: 19rpx; padding: 4rpx 14rpx; }
+.jian-yi-chip-ji { border-color: var(--acc-line); }
+.jian-yi-empty { font-size: 19rpx; padding: 4rpx 14rpx; color: var(--ink-faint); }
+
+/* 金句：收起一行 / 展开（书名 + 原文） */
+.jian-quote {
+  margin-top: 16rpx;
+  border-top: 2rpx solid var(--line-soft);
+  padding-top: 13rpx;
+}
+.jian-quote-row { display: flex; align-items: center; gap: 10rpx; }
+.jian-quote-text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-kai);
+  font-size: 23rpx;
+  letter-spacing: .06em;
+  color: var(--ink);
+  line-height: 1.55;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.jian-quote-text-open { white-space: normal; }
+.jian-quote-more {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 18rpx;
+  letter-spacing: .1em;
+  color: var(--acc);
+}
+.jian-quote-book {
+  margin-top: 7rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .12em;
+  color: var(--ink-soft);
+  text-align: right;
+}
+
+/* 轻私语 */
+.jian-private {
+  margin-top: 14rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .05em;
+  color: var(--ink-mid);
+  line-height: 1.6;
+}
+.jian-private-label {
+  color: var(--ink-faint);
+  font-size: 19rpx;
+  letter-spacing: .12em;
+  margin-right: 10rpx;
+}
+
+/* 今日小问 → 对话页 */
+.jian-question {
+  margin-top: 15rpx;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 13rpx 16rpx;
+  background: var(--acc-soft);
+  border-radius: 8rpx;
+}
+.jian-question-active { opacity: .75; }
+.jian-question-label {
+  flex-shrink: 0;
+  font-family: var(--font-brush);
+  font-size: 21rpx;
+  letter-spacing: .1em;
+  color: var(--acc);
+}
+.jian-question-text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .05em;
+  color: var(--ink);
+}
+.jian-question-arrow { width: 27rpx; height: 19rpx; flex-shrink: 0; }
+
+/* 未开启晨笺：顶部引导入口 */
+.jian-open {
+  width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  border: 2rpx dashed var(--line-mid);
+  border-radius: 10rpx;
+  padding: 19rpx 24rpx;
+  background: var(--tag-bg);
+}
+.jian-open-active { background: var(--acc-soft); }
+.jian-open-text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .08em;
+  color: var(--ink-mid);
+}
+.jian-open-cta {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .14em;
+  color: var(--acc);
 }
