@@ -17,7 +17,8 @@
     "pages/dreams/dreams",
     "pages/onboarding/onboarding",
     "pages/jian_onboard/jian_onboard",
-    "pages/persons/persons"
+    "pages/persons/persons",
+    "pages/settings/settings"
   ],
   "window": {
     "navigationBarBackgroundColor": "#F5EFE1",

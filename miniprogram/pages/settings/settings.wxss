@@ -200,6 +200,97 @@
   background: var(--line);
 }
 
+/* ═══ 消息订阅（spec 三·订阅管理：开关/时间/私语/绑定态，视觉同 jian_onboard） ═══ */
+.stj-switch { transform: scale(.88); }
+.stj-pick-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3rpx;                            /* 2px */
+}
+.stj-pick-range {
+  font-family: var(--font-song);
+  font-size: 18rpx;                      /* 9.5px */
+  letter-spacing: .08em;
+  color: var(--ink-faint);
+}
+.stj-time {
+  font-family: var(--font-lat);          /* 衬线拉丁：时刻数字点睛（同 jian_onboard jo-pick-time） */
+  font-style: italic;
+  font-size: 44rpx;                      /* 23px */
+  letter-spacing: .04em;
+  color: var(--ink);
+  line-height: 1.1;
+}
+.stj-pick-dis { opacity: .45; }          /* 通道关闭时时间选择淡显（仍可预选，开启时带出） */
+.stj-whisper-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3rpx;
+}
+.stj-whisper-sub {
+  font-family: var(--font-song);
+  font-size: 18rpx;                      /* 9.5px */
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+  line-height: 1.5;
+}
+.stj-bind-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 5rpx;
+}
+.stj-bind-line {
+  display: flex;
+  align-items: center;
+  gap: 13rpx;                            /* 7px */
+}
+.stj-bind-state {
+  font-family: var(--font-song);
+  font-size: 17rpx;                      /* 9px */
+  letter-spacing: .14em;
+  color: var(--ink-soft);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 4rpx;
+  padding: 2rpx 12rpx;
+  background: var(--tag-bg);
+}
+.stj-bound {                             /* 已绑定：绿标（同 jian_onboard jo-bind-state-on） */
+  color: var(--success);
+  border-color: rgba(95, 107, 79, .35);
+}
+.stj-bind-hint {
+  font-family: var(--font-song);
+  font-size: 19rpx;                      /* 10px */
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+}
+.stj-bind-btn {
+  flex-shrink: 0;
+  height: 56rpx;                         /* 29px */
+  padding: 0 25rpx;                      /* 0 13px */
+  border-radius: 6rpx;
+  background: var(--ink);
+  color: #F5EFE1;
+  font-family: var(--font-song);
+  font-size: 21rpx;                      /* 11px */
+  letter-spacing: .18em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stj-btn-active { opacity: .85; transform: scale(.97); }
+.stj-note {
+  margin-top: 15rpx;                     /* 8px */
+  font-family: var(--font-song);
+  font-size: 18rpx;                      /* 9.5px */
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+  text-align: right;
+}
+
 /* ═══ 账号弹层（更换/注销 · 双线笺框，同 me 页 acct-card） ═══ */
 .acct-mask {
   position: fixed;
