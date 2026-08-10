@@ -16,6 +16,7 @@
     "pages/history/history",
     "pages/dreams/dreams",
     "pages/onboarding/onboarding",
+    "pages/jian_onboard/jian_onboard",
     "pages/persons/persons"
   ],
   "window": {
