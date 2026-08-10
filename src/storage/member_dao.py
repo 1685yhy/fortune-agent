@@ -3,7 +3,7 @@ import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List
 
-from .models import init_db
+from .models import init_db, connect as db_connect
 
 
 # Plan definitions
@@ -47,7 +47,7 @@ class MemberDAO:
         init_db(db_path)
 
     def _connect(self):
-        return sqlite3.connect(self.db_path, timeout=10)
+        return db_connect(self.db_path, timeout=10)
 
     def _ensure_free_membership(self, user_id: str):
         """Ensure a user always has a free membership row (default)."""
@@ -242,6 +242,67 @@ class MemberDAO:
                 conn.commit()
                 return True
             return False
+        finally:
+            conn.close()
+
+    def mark_payment_paid(self, payment_id: int, user_id: str) -> bool:
+        """把订单直接标记为已支付（mock 支付模式；不激活会员）。"""
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                "UPDATE payments SET status='paid' WHERE id=? AND user_id=?",
+                (payment_id, user_id),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def get_user_payments(self, user_id: str, limit: int = 50) -> list:
+        """获取用户的支付/订单记录（新单在前，仅供本人查询）。"""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """SELECT id, user_id, amount, plan, status, payment_method, created_at
+                   FROM payments WHERE user_id = ? ORDER BY id DESC LIMIT ?""",
+                (user_id, limit),
+            ).fetchall()
+            return [
+                {
+                    "id": r[0],
+                    "user_id": r[1],
+                    "amount": r[2],
+                    "plan": r[3],
+                    "status": r[4],
+                    "payment_method": r[5],
+                    "created_at": r[6],
+                }
+                for r in rows
+            ]
+        finally:
+            conn.close()
+
+    def get_user_purchase(self, user_id: str, product_id: str) -> Optional[dict]:
+        """查询用户对某产品的成功购买记录（status=paid，无则 None）。"""
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                """SELECT id, user_id, amount, plan, status, created_at
+                   FROM payments
+                   WHERE user_id = ? AND plan = ? AND status = 'paid'
+                   ORDER BY id DESC LIMIT 1""",
+                (user_id, product_id),
+            ).fetchone()
+            if not row:
+                return None
+            return {
+                "id": row[0],
+                "user_id": row[1],
+                "amount": row[2],
+                "plan": row[3],
+                "status": row[4],
+                "created_at": row[5],
+            }
         finally:
             conn.close()
 

@@ -44,6 +44,19 @@ class PrivacyManager:
         """Get database connection."""
         return sqlite3.connect(self.db_path)
 
+    def _decrypt_field(self, text: Optional[str]) -> Optional[str]:
+        """导出时解密敏感字段；解密失败按明文返回（兼容旧数据）。"""
+        if not text:
+            return text
+        if not text.lstrip().startswith("{") and ":" in text:
+            try:
+                decrypted = self.encryptor.decrypt(text)
+                if decrypted is not None:
+                    return decrypted
+            except Exception:
+                pass
+        return text
+
     def get_inactive_users(self, days: Optional[int] = None) -> List[Dict[str, Any]]:
         """Find users inactive for the specified number of days.
 
@@ -155,6 +168,16 @@ class PrivacyManager:
             except Exception:
                 deleted["memory"] = 0
 
+            # Delete L3 user memory files (方案 §5.5 隐私：注销时记忆一并删除)
+            try:
+                from ..memory.user_memory import UserMemory
+                um = UserMemory()
+                entries_removed = um.clear_entries(user_id)
+                file_removed = um.clear_all(user_id)
+                deleted["l3_memory"] = entries_removed + file_removed
+            except Exception:
+                deleted["l3_memory"] = 0
+
             conn.commit()
             logger.info(
                 "Deleted all data for user %s: %s",
@@ -233,7 +256,7 @@ class PrivacyManager:
                 "consultations": [
                     {
                         "id": r[0],
-                        "question": r[1],
+                        "question": self._decrypt_field(r[1]),
                         "intent": r[2],
                         "feedback": r[5],
                         "created_at": r[6],

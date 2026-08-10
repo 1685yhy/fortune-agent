@@ -88,11 +88,62 @@ CREATE TABLE IF NOT EXISTS sessions (
     role TEXT NOT NULL,           -- 'user' or 'assistant'
     content TEXT NOT NULL,
     intent TEXT,                  -- bazi/ziwei/etc, NULL for free chat
+    emotion TEXT,                 -- LLM 分析出的情绪标签（方案 §7.2）
+    tool_calls TEXT,              -- JSON: 本轮 <tool_call> 记录 [{type, params, hit}]
+    retrieval_hit TEXT DEFAULT 'unused',  -- hit / miss / unused
+    model TEXT,                   -- 生成模型/版本（训练溯源）
+    safety_flag TEXT,             -- 安全事件标记（如 self_harm_referral 自伤转介）
     created_at TEXT DEFAULT (datetime('now')),
     id INTEGER PRIMARY KEY AUTOINCREMENT
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, created_at);
+
+-- L2 会话摘要（增量摘要持久化；summary/memories 加密落库，同 sessions.content）
+CREATE TABLE IF NOT EXISTS session_summaries (
+    user_id TEXT PRIMARY KEY,
+    summary TEXT,                 -- 最新摘要（加密）
+    memories TEXT,                -- JSON 数组（加密）：持久事实 → 转 L3
+    model TEXT,
+    message_count INTEGER DEFAULT 0,
+    token_count INTEGER DEFAULT 0,
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- 多人档案（P2）：一个用户下多个命主（自己/家人/朋友）。
+-- name/relation 明文（列表展示用）；出生信息 birth_enc 整行 JSON AES 加密
+-- （沿用 users.bazi_info 的加密模式，敏感字段不落明文）。
+-- is_default 唯一性由应用层保证（set_default 事务内清旧置新）。
+CREATE TABLE IF NOT EXISTS persons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    relation TEXT DEFAULT '其他',
+    is_default INTEGER DEFAULT 0,
+    birth_enc TEXT,               -- AES 加密 JSON: {gender, birth_year, birth_month,
+                                  --   birth_day, birth_hour, birth_minute, calendar, city}
+    created_at TEXT DEFAULT (datetime('now')),
+    updated_at TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_persons_user ON persons(user_id, is_default);
 """
+
+def connect(db_path: str, timeout: float = 10.0) -> sqlite3.Connection:
+    """打开 SQLite 连接：启用 WAL 模式 + busy_timeout。
+
+    - journal_mode=WAL：单写多读并发安全，读写互不阻塞；
+      WAL 是数据库文件的持久属性，首次设置后所有连接自动生效，
+      每次连接再执行一次为无害的幂等操作。
+    - busy_timeout=10000ms：并发写冲突时等待而非立即抛 locked。
+    """
+    conn = sqlite3.connect(db_path, timeout=timeout)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=10000")
+    except sqlite3.Error:
+        pass  # 只读文件系统等极端场景不致命，保持默认行为
+    return conn
+
 
 def _get_columns(conn, table: str) -> set:
     """获取表中现有列名"""
@@ -112,6 +163,30 @@ def _migrate_db(conn):
         conn.execute("ALTER TABLE users ADD COLUMN push_time TEXT DEFAULT '08:00'")
         changes = True
 
+    # P2 账号注销（软删+90 天归档）：status active/cancelled + cancelled_at
+    if "status" not in existing_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN status TEXT DEFAULT 'active'")
+        changes = True
+    if "cancelled_at" not in existing_cols:
+        conn.execute("ALTER TABLE users ADD COLUMN cancelled_at TEXT")
+        changes = True
+
+    # 阶段 2（方案 §7.2）：sessions 表补齐数据资产字段（安全加列，幂等）
+    tables = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "sessions" in tables:
+        session_cols = _get_columns(conn, "sessions")
+        for col, ddl in (
+            ("emotion", "TEXT"),
+            ("tool_calls", "TEXT"),
+            ("retrieval_hit", "TEXT DEFAULT 'unused'"),
+            ("model", "TEXT"),
+            ("safety_flag", "TEXT"),
+        ):
+            if col not in session_cols:
+                conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {ddl}")
+                changes = True
+
     if changes:
         conn.commit()
 
@@ -119,7 +194,7 @@ def _migrate_db(conn):
 def init_db(db_path: str):
     """初始化数据库"""
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    conn = connect(db_path)
     conn.executescript(SCHEMA_SQL)
     _migrate_db(conn)
     conn.commit()

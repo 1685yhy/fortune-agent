@@ -128,9 +128,18 @@ async def get_security_info():
 
 @router.post("/token", response_model=TokenResponse)
 async def create_token(req: LoginRequest):
-    """Create a JWT token for a user (mini-program login simulation)."""
+    """Create a JWT token for a user (mini-program login simulation).
+
+    Security fix: this endpoint could mint a valid token for ANY user_id
+    (token forging). It is now gated behind DEV_TOKEN_ENDPOINT=1 (default
+    off); production login must go through POST /api/user/login which
+    verifies the WeChat code.
+    """
     if _auth_handler is None:
         raise HTTPException(status_code=503, detail="Security system not ready")
+
+    if os.getenv("DEV_TOKEN_ENDPOINT", "0") != "1":
+        raise HTTPException(status_code=403, detail="模拟登录端点已禁用，请使用 /api/user/login")
 
     # In production, this would verify WeChat code via:
     # GET https://api.weixin.qq.com/sns/jscode2session?appid=APPID&secret=SECRET&js_code=CODE&grant_type=authorization_code
@@ -201,9 +210,14 @@ async def export_user_data(
     """Export all data for a user (data portability).
 
     PIPL Art. 45: Individuals have the right to transfer their data.
+
+    Security fix: owner check — token sub must match the requested user_id.
     """
     if _privacy_manager is None:
         raise HTTPException(status_code=503, detail="Privacy system not ready")
+
+    from .auth import ensure_owner
+    ensure_owner(user_id, auth_info.get("user_id", ""))
 
     # Audit log
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
@@ -238,9 +252,14 @@ async def delete_user_data(
     """Delete all data for a user (Right to be Forgotten).
 
     PIPL Art. 47: Individuals have the right to request deletion.
+
+    Security fix: owner check — token sub must match the requested user_id.
     """
     if _privacy_manager is None:
         raise HTTPException(status_code=503, detail="Privacy system not ready")
+
+    from .auth import ensure_owner
+    ensure_owner(user_id, auth_info.get("user_id", ""))
 
     if not confirm:
         raise HTTPException(status_code=400, detail="请确认删除操作（confirm=true）")
@@ -270,9 +289,15 @@ async def anonymize_user_data(
     request: Request,
     auth_info: dict = Depends(require_auth),
 ):
-    """Anonymize user data (remove PII, keep aggregated stats)."""
+    """Anonymize user data (remove PII, keep aggregated stats).
+
+    Security fix: owner check — token sub must match the requested user_id.
+    """
     if _privacy_manager is None:
         raise HTTPException(status_code=503, detail="Privacy system not ready")
+
+    from .auth import ensure_owner
+    ensure_owner(user_id, auth_info.get("user_id", ""))
 
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
     _audit_logger.log(action="data_anonymization", user_id=user_id, ip=ip)

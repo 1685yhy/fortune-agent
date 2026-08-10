@@ -3,9 +3,11 @@
 F1-F2 of feedback calibration loop. Learns user preferences from 👍/👎 feedback
 using exponential moving average (EMA). No deep learning, no GPU, no extra deps.
 """
-import sqlite3
+import sqlite3  # _connect() 里 row_factory 用到（曾缺失导致 NameError，free chat 全挂）
 from dataclasses import dataclass, field
 from typing import Optional, Dict
+
+from .models import connect as db_connect
 
 
 @dataclass
@@ -103,8 +105,8 @@ class PreferenceDAO:
     def __init__(self, db_path: str):
         self.db_path = db_path
 
-    def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self.db_path)
+    def _connect(self):
+        conn = db_connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
 

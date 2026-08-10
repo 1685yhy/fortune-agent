@@ -9,7 +9,7 @@ Implements comprehensive security controls:
 - Audit logging (sensitive operations tracking)
 """
 from .ratelimit import RateLimiter, RateLimitMiddleware
-from .auth import AuthHandler, JWTHandler, require_auth, require_admin
+from .auth import AuthHandler, JWTHandler, require_auth, require_admin, require_user, require_chat_user, ensure_owner
 from .sanitizer import InputSanitizer
 from .encryption import DataEncryptor
 from .privacy import PrivacyManager
@@ -22,6 +22,9 @@ __all__ = [
     "JWTHandler",
     "require_auth",
     "require_admin",
+    "require_user",
+    "require_chat_user",
+    "ensure_owner",
     "InputSanitizer",
     "DataEncryptor",
     "PrivacyManager",

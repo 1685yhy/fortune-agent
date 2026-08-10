@@ -77,24 +77,28 @@ class ConversationMemory:
         return "\n".join(lines)
 
     def _summarize(self, user_msg: str, bot_reply: str, intent: str) -> str:
-        """Generate a one-line summary of the interaction via Flash."""
+        """Generate a one-line summary of the interaction via Flash.
+
+        Bugfix: 改用 Anthropic 兼容端点 + thinking disabled（同 src/llm/client.py），
+        避免推理模型占满 max_tokens 导致总结为空。
+        """
         if not self.api_key:
             return ""
 
         try:
-            import httpx
+            from src.llm.client import deepseek_anthropic_completion
             prompt = (
                 f"用户问：「{user_msg[:150]}」\n"
                 f"系统回复了关于{intent or '对话'}的内容。\n"
                 "请用15字以内的中文总结这次对话的核心内容。直接返回文本。"
             )
-            resp = httpx.post(
-                "https://api.deepseek.com/v1/chat/completions",
-                headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-                json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}],
-                      "max_tokens": 50, "temperature": 0.3},
+            return deepseek_anthropic_completion(
+                self.api_key,
+                [{"role": "user", "content": prompt}],
+                model="deepseek-v4-flash",
+                max_tokens=100,
+                temperature=0.3,
                 timeout=15.0,
             )
-            return resp.json()["choices"][0]["message"]["content"].strip()
         except Exception:
             return ""

@@ -35,9 +35,9 @@ class JWTHandler:
         if not self.secret_key:
             # Generate a random key for development; production MUST set JWT_SECRET_KEY
             self.secret_key = secrets.token_hex(32)
-            logger.warning(
-                "JWT_SECRET_KEY not set. Using auto-generated key. "
-                "Set JWT_SECRET_KEY environment variable in production."
+            logger.error(
+                "JWT_SECRET_KEY 未设置！使用本次进程随机密钥——重启后所有已登录用户 token 失效，"
+                "多 worker 部署下各进程 token 互不认可。生产环境必须在 .env 固定 JWT_SECRET_KEY（≥32 字节）。"
             )
 
     def _sign(self, payload: str) -> str:
@@ -272,28 +272,154 @@ async def require_auth(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
 ) -> Dict[str, Any]:
-    """FastAPI dependency: require valid authentication."""
+    """FastAPI dependency: require valid authentication.
+
+    Security fix: reject anonymous (unauthenticated) requests — previously
+    `authenticate_request` allowed anonymous through with user_id="anonymous",
+    which meant "protected" endpoints were open to anyone.
+    """
     auth = get_auth_handler()
     authenticated, user_info, error = auth.authenticate_request(request)
 
-    if not authenticated:
+    if not authenticated or not user_info or not user_info.get("user_id"):
+        logger.warning("鉴权拒绝 401: path=%s method=%s 原因=%s",
+                       request.url.path, request.method, error or "未认证")
         raise HTTPException(
             status_code=401,
-            detail=error or "认证失败",
+            detail="未登录或登录已过期",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return user_info or {}
+    return user_info
+
+
+async def require_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+) -> str:
+    """FastAPI dependency: strict JWT auth for business routes (红线核心).
+
+    Returns the authenticated user_id (JWT `sub` claim).
+    - Missing/invalid/expired token  → 401
+    - API key / anonymous            → 401 (业务路由只认 JWT)
+    - Client-supplied user_id params are NEVER trusted; routes must use
+      this dependency's return value as the authoritative user_id.
+    """
+    auth = get_auth_handler()
+    token = ""
+    if credentials is not None:
+        token = credentials.credentials
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+
+    if not token:
+        logger.warning("鉴权拒绝 401: path=%s 无令牌", request.url.path)
+        raise HTTPException(
+            status_code=401,
+            detail="未登录或登录已过期",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    payload = auth.jwt.verify_token(token)
+    if not payload or not payload.get("sub"):
+        logger.warning("鉴权拒绝 401: path=%s 令牌无效/过期", request.url.path)
+        raise HTTPException(
+            status_code=401,
+            detail="登录已过期，请重新登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return str(payload["sub"])
+
+
+def ensure_owner(path_user_id: str, token_user_id: str):
+    """IDOR 防护：路径/查询中的 user_id 必须与 token sub 一致，否则 403。"""
+    if not path_user_id or path_user_id != token_user_id:
+        logger.warning("鉴权拒绝 403: 越权访问 path_user=%s token_user=%s",
+                       path_user_id or "(空)", token_user_id or "(空)")
+        raise HTTPException(status_code=403, detail="无权访问该用户数据")
+
+
+async def require_chat_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+) -> Dict[str, Any]:
+    """/api/chat 专用鉴权（保持 chatgpt-on-wechat 机器人集成不回退）。
+
+    - 小程序用户：JWT 必填，user_id 取 sub（body 的 user_id 被忽略）；
+    - 外部机器人（chatgpt-on-wechat 等）：需配置 FORTUNE_API_KEY 并以
+      X-API-Key（或 Bearer <key>）认证，user_id 由机器人自行传入。
+    """
+    auth = get_auth_handler()
+
+    # 1. X-API-Key 头（机器人通道）
+    api_key = request.headers.get("X-API-Key", "")
+    if api_key:
+        key_info = auth.validate_api_key(api_key)
+        if not key_info:
+            logger.warning("鉴权拒绝 401: path=%s API密钥无效", request.url.path)
+            raise HTTPException(status_code=401, detail="无效的 API 密钥")
+        return {"user_id": "api_user", "method": "api_key"}
+
+    # 2. Bearer：先试 API key，再试 JWT
+    token = ""
+    if credentials is not None:
+        token = credentials.credentials
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+
+    if not token:
+        logger.warning("鉴权拒绝 401: path=%s 无令牌", request.url.path)
+        raise HTTPException(
+            status_code=401,
+            detail="未登录或登录已过期",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    key_info = auth.validate_api_key(token)
+    if key_info:
+        return {"user_id": "api_user", "method": "api_key"}
+
+    payload = auth.jwt.verify_token(token)
+    if not payload or not payload.get("sub"):
+        logger.warning("鉴权拒绝 401: path=%s 令牌无效/过期", request.url.path)
+        raise HTTPException(
+            status_code=401,
+            detail="登录已过期，请重新登录",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return {
+        "user_id": payload["sub"],
+        "openid": payload.get("openid", ""),
+        "method": "jwt",
+    }
 
 
 async def require_admin(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
 ) -> bool:
-    """FastAPI dependency: require admin privileges."""
+    """FastAPI dependency: require admin privileges.
+
+    Security fix: if no ADMIN_KEY is configured the endpoint is now REJECTED
+    (403) instead of allowed — no empty-key bypass (审计 §审计8 E16).
+    """
     admin_key = os.getenv("ADMIN_KEY", "")
     if not admin_key:
-        return True
+        logger.warning("鉴权拒绝 403: path=%s ADMIN_KEY 未配置", request.url.path)
+        raise HTTPException(
+            status_code=403,
+            detail="管理员密钥未配置，拒绝访问",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     auth = get_auth_handler()
-    return auth.verify_admin(request, admin_key)
+    if not auth.verify_admin(request, admin_key):
+        logger.warning("鉴权拒绝 403: path=%s 管理员密钥无效", request.url.path)
+        raise HTTPException(status_code=403, detail="无效的管理员密钥")
+    return True

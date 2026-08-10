@@ -41,6 +41,12 @@ class DataEncryptor:
         - Single key: base64-encoded 32-byte key
         - Versioned: v1:base64key,v2:base64key (current key is last)
         """
+        # Bugfix: _key_size/_nonce_size 必须在 _parse_keys 之前初始化，
+        # 否则 _parse_keys 读 self._key_size 抛 AttributeError，
+        # 被 except 吞掉后走 SHA-256 派生兜底（日志出现 "invalid base64" 误报）。
+        self._key_size = 32  # AES-256 = 32 bytes
+        self._nonce_size = 12  # GCM standard nonce size
+
         key_str = encryption_key or os.getenv("ENCRYPTION_KEY", "")
 
         if not key_str:
@@ -56,9 +62,6 @@ class DataEncryptor:
         else:
             self._dev_mode = False
             self._keys, self._current_version = self._parse_keys(key_str)
-
-        self._key_size = 32  # AES-256 = 32 bytes
-        self._nonce_size = 12  # GCM standard nonce size
 
     def _derive_dev_key(self) -> Dict[str, bytes]:
         """Derive a development encryption key from host info."""

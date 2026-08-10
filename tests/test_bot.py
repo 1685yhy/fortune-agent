@@ -1,48 +1,56 @@
 """Tests for bot message handling."""
 from unittest.mock import Mock, MagicMock, call
 
-from src.bot.handler import MessageHandler, INTENT_KEYWORDS
+from src.bot.handler import MessageHandler
+from src.bot.tool_calls import parse_tool_calls, strip_tool_calls, MAX_TOOL_ITERATIONS
 from src.bot.formatter import split_long_message, format_greeting, format_error, format_loading
 
 
-# ── Intent detection ──────────────────────────────────────────────────
+# ── AI 原生对话系统（Phase 1）— <tool_call> 标签解析 ─────────────────
 
-def test_intent_detection_bazi():
-    """测试八字意图识别"""
-    def detect(msg):
-        for intent, keywords in INTENT_KEYWORDS.items():
-            for kw in keywords:
-                if kw in msg:
-                    return intent
-        return None
-
-    assert detect("帮我看看八字") == "bazi"
-    assert detect("算算命") == "bazi"
-    assert detect("看看运势") == "bazi"
-    assert detect("你好") is None
-    assert detect("今天天气怎么样") is None
+def test_parse_tool_call_bazi():
+    """解析排盘工具调用标签"""
+    calls = parse_tool_calls("<tool_call>排盘: 1990年5月20日 午时 北京 男</tool_call>")
+    assert len(calls) == 1
+    assert calls[0].name == "排盘"
+    assert calls[0].params == "1990年5月20日 午时 北京 男"
 
 
-def test_intent_detection_other_intents():
-    """测试其他意图识别"""
-    def detect(msg):
-        for intent, keywords in INTENT_KEYWORDS.items():
-            for kw in keywords:
-                if kw in msg:
-                    return intent
-        return None
+def test_parse_tool_call_multi_and_chinese_colon():
+    """多个标签 + 中文冒号"""
+    text = (
+        "<tool_call>检索: 梦见蛇 解梦 征兆</tool_call>"
+        "我查一下古籍怎么说。"
+        "<tool_call>解梦：梦见大海 淋雨</tool_call>"
+    )
+    calls = parse_tool_calls(text)
+    assert len(calls) == 2
+    assert calls[0].name == "检索"
+    assert calls[1].name == "解梦"
+    assert calls[1].params == "梦见大海 淋雨"
 
-    assert detect("紫微斗数怎么排") == "ziwei"
-    assert detect("起一卦") == "liuyao"
-    assert detect("看看家居风水") == "fengshui"
-    assert detect("结婚选日子") == "zeri"
-    assert detect("看看手相") == "mianxiang"
-    assert detect("奇门遁甲") == "qimen"
-    assert detect("给宝宝起名") == "xingming"
-    assert detect("看婚姻配对") == "hehun"
-    assert detect("解梦") == "dream"
-    assert detect("梦见被蛇咬了") == "dream"
-    assert detect("周公解梦") == "dream"
+
+def test_parse_tool_call_none():
+    """无标签 → 空列表（静默降级）"""
+    assert parse_tool_calls("你好呀，今天天气不错") == []
+    assert parse_tool_calls("") == []
+    assert parse_tool_calls(None) == []
+
+
+def test_strip_tool_calls():
+    """剥离标签，保留用户可见文字"""
+    text = "<tool_call>排盘: 1990年5月20日</tool_call>我帮你排个盘看看~"
+    assert strip_tool_calls(text) == "我帮你排个盘看看~"
+
+
+def test_max_tool_iterations():
+    """防循环：最多 2 次工具迭代"""
+    assert MAX_TOOL_ITERATIONS == 2
+
+
+def test_intent_keywords_removed():
+    """方案 Phase 1：INTENT_KEYWORDS 硬编码关键词表已删除（意图全由 LLM 分析）"""
+    assert not hasattr(MessageHandler, "INTENT_KEYWORDS")
 
 
 # ── Formatter ─────────────────────────────────────────────────────────
@@ -952,15 +960,15 @@ def test_process_dream_rag_fallback():
 
 
 def test_dream_intent_detection():
-    """解梦意图关键词识别"""
-    def detect(msg):
-        for intent, keywords in INTENT_KEYWORDS.items():
-            for kw in keywords:
-                if kw in msg:
-                    return intent
-        return None
+    """AI 原生（Phase 1）：解梦意图由 LLM 分析，不再依赖关键词表。
 
-    assert detect("帮我解梦") == "dream"
-    assert detect("昨晚上做了一个梦") == "dream"
-    assert detect("梦见自己会飞") == "dream"
-    assert detect("梦到水灾了") == "dream"
+    MessageAnalyzer 的 COMBINED_PROMPT 明确将梦境描述归为 dream，
+    这里验证其快路径规则仍然生效（生日→bazi 不依赖网络）。
+    """
+    from src.engines.message_analyzer import MessageAnalyzer
+    analyzer = MessageAnalyzer(api_key="")
+    # 无 API key 时优雅降级（不抛异常），fast path 生日→bazi 仍然生效
+    result = analyzer.analyze("1990年5月20日 午时 北京 男")
+    assert result.intent == "bazi"
+    result = analyzer.analyze("梦见自己会飞")
+    assert result.intent is None  # 无 key 时降级为 free_chat，不崩溃
