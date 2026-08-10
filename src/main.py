@@ -82,6 +82,7 @@ member_dao = None
 session_dao = None
 _push_task = None  # 后台推送任务
 _precompute_task = None  # Step 4: 每日预计算任务
+_jian_precompute_task = None  # Task 6: 晨笺每日内容预生成任务
 
 # Security globals
 security_rate_limiter = None
@@ -176,9 +177,115 @@ async def _daily_precompute_worker():
         await asyncio.sleep(3600)  # Run every hour
 
 
+async def _daily_jian_precompute():
+    """Task 6: 每小时检查:当日晨笺内容未生成则预生成(金句+宜忌+通用私语)。"""
+    while True:
+        try:
+            now = datetime.now(timezone(timedelta(hours=8)))
+            date_str = now.strftime("%Y-%m-%d")
+            _precompute_jian_for(date_str)
+        except Exception as e:
+            logger.error("晨笺预生成异常: %s", e)
+        await asyncio.sleep(3600)
+
+
+def _precompute_jian_for(date_str: str) -> dict:
+    """晨笺每日内容预生成:干支 + 宜忌 + 古籍金句 + 通用私语。
+
+    - 缓存键 date:jian:{date_str},TTL 26 小时(覆盖跨日发送窗口);
+    - 宜忌优先复用 date:generic_daily:{date_str} 预计算缓存的当日宜忌列表
+      (与匿名黄历一致,见 _daily_precompute_worker);
+    - LuckyCalendar 无 daily_suitable/daily_unsuitable 方法,回退固定模板列表;
+    - 轻私语为发送时按用户维度生成(见 _send_jian_batch),此处只存通用兜底句。
+    """
+    cache = get_cache()
+    key = f"date:jian:{date_str}"
+    hit = cache.get(key)
+    if hit:
+        return hit
+    from src.engines.calendar import LuckyCalendar
+    cal = LuckyCalendar("")
+    day_stem, day_branch = cal._day_stem_branch(date_str)
+    day_ganzhi = f"{day_stem}{day_branch}"
+    from src.engines.jian_quote import generate_daily_quote
+    quote = generate_daily_quote(date_str, day_ganzhi) or {}
+    generic = cache.get(f"date:generic_daily:{date_str}") or {}
+    suitable = (
+        generic.get("suitable")
+        or (cal.daily_suitable(date_str) if hasattr(cal, "daily_suitable") else None)
+        or ["出行", "洽谈", "早起"]
+    )
+    unsuitable = (
+        generic.get("unsuitable")
+        or (cal.daily_unsuitable(date_str) if hasattr(cal, "daily_unsuitable") else None)
+        or ["借贷", "熬夜"]
+    )
+    content = {
+        "date": date_str, "day_ganzhi": day_ganzhi,
+        "suitable": suitable,
+        "unsuitable": unsuitable,
+        "quote": quote.get("quote", ""), "book": quote.get("book", ""),
+        "generic_line": "今日诸事,宜缓不宜急。",
+    }
+    cache.set(key, content, ttl_seconds=3600 * 26)
+    return content
+
+
+def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
+    """按偏好时间下发:晨笺(kind=jian)或晚安(kind=night)。
+
+    thing1..thing4 全部截断到 20 字(微信模板消息 thing 字段上限)。
+    """
+    from src.services.wechat_mp import send_template, mp_ready, _env
+    stats = {"total": 0, "pushed": 0, "skipped": 0, "errors": 0}
+    if not mp_ready():
+        logger.info("服务号未配置,%s 发送跳过", "晨笺" if kind == "jian" else "晚安")
+        return stats
+    uids = dao.list_enabled_at(now_hm, kind)
+    stats["total"] = len(uids)
+    tpl_key = "MP_JIAN_TEMPLATE_ID" if kind == "jian" else "MP_NIGHT_TEMPLATE_ID"
+    tpl_id = _env(tpl_key)
+    for uid in uids:
+        try:
+            pref = dao.get_pref(uid)
+            openid = (pref or {}).get("mp_openid", "")
+            if not openid:
+                stats["skipped"] += 1
+                continue
+            date_str = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
+            if kind == "jian":
+                content = _precompute_jian_for(date_str)
+                from src.engines.jian_private import generate_private_line
+                line = generate_private_line(uid)
+                data = {
+                    "thing1": {"value": f"{content.get('day_ganzhi', '')}日"[:20]},
+                    "thing2": {"value": (
+                        f"宜{','.join(content.get('suitable', [])[:3])} "
+                        f"忌{','.join(content.get('unsuitable', [])[:3])}"
+                    )[:20]},
+                    "thing3": {"value": (content.get("quote", "") or "")[:20]},
+                    "thing4": {"value": line[:20]},
+                }
+                url = "pages/today/today"
+            else:
+                data = {
+                    "thing1": {"value": "夜深了,灯还亮着"},
+                    "thing2": {"value": "明日运势:宜静不宜动,睡个好觉"},
+                }
+                url = "pages/chat/chat"
+            send_template(openid, tpl_id, data, url=f"https://yilichat.com/{url}")
+            stats["pushed"] += 1
+        except Exception as e:
+            logger.warning("晨笺发送失败 uid=%s: %s", uid, e)
+            stats["errors"] += 1
+    logger.info("晨笺批次完成(%s %s): %s", kind, now_hm, stats)
+    return stats
+
+
 async def _daily_push_worker():
     """后台定时推送任务 - 每分钟检查一次是否到推送时间"""
     global settings, dao
+    jdao = None  # Task 6: 晨笺偏好 DAO(惰性创建,复用连接)
 
     while True:
         try:
@@ -199,6 +306,15 @@ async def _daily_push_worker():
 
                 # 推送完成后等待60秒避免重复触发
                 await asyncio.sleep(60)
+
+            # Task 6: 晨笺/晚安按用户偏好时间精确匹配下发(与上方全局推送相互独立)
+            if settings and settings.push_enabled:
+                if jdao is None:
+                    from src.storage.jian_dao import JianPrefDAO
+                    from src.storage.dao import get_conn
+                    jdao = JianPrefDAO(get_conn())
+                _send_jian_batch(jdao, current_time, "jian")
+                _send_jian_batch(jdao, current_time, "night")
         except Exception as e:
             logger.error(f"定时推送任务异常: {e}")
 
@@ -210,6 +326,7 @@ async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
     global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, qimen_engine, xingming_engine, embedder, retriever, dao, llm, handler
     global _push_task, _precompute_task, member_dao, session_dao
+    global _jian_precompute_task
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
     # 配置日志：logs/app.log 按天轮转（保留 14 天），级别取 LOG_LEVEL（默认 INFO）
@@ -431,6 +548,10 @@ async def lifespan(app: FastAPI):
     _precompute_task = asyncio.create_task(_daily_precompute_worker())
     logger.info("Daily precompute worker started (runs every 3600s)")
 
+    # Task 6: Start daily jian (晨笺) precompute background task
+    _jian_precompute_task = asyncio.create_task(_daily_jian_precompute())
+    logger.info("晨笺预生成 worker 已启动 (每小时检查,缓存 date:jian:*)")
+
     logger.info("服务启动完成: 易理明灯 fortune-agent（端口由启动命令指定，路由全量就绪）")
 
     yield
@@ -439,6 +560,8 @@ async def lifespan(app: FastAPI):
         _push_task.cancel()
     if _precompute_task and not _precompute_task.done():
         _precompute_task.cancel()
+    if _jian_precompute_task and not _jian_precompute_task.done():
+        _jian_precompute_task.cancel()
 
 
 app = FastAPI(title="Fortune Agent", version="0.1.0", lifespan=lifespan)
