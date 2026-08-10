@@ -93,9 +93,10 @@
       <view class="jo-bind">
         <view class="jo-bind-head">
           <text class="jo-bind-title">服务号推送</text>
-          <text class="jo-bind-state {{bound ? 'jo-bind-state-on' : ''}}">{{bound ? '已绑定' : '未绑定'}}</text>
+          <text class="jo-bind-state {{bound ? 'jo-bind-state-on' : ''}}">{{invalid ? '订阅已失效' : (bound ? '已绑定' : '未绑定')}}</text>
         </view>
         <view wx:if="{{bound}}" class="jo-bind-txt">已绑定服务号，晨笺与晚安将通过服务号模板消息送达。</view>
+        <view wx:elif="{{invalid}}" class="jo-bind-txt">推送连续失败，订阅已失效 · 请重新绑定</view>
         <block wx:else>
           <view class="jo-bind-txt">关注服务号「易理明灯」后，晨笺与晚安才能推送送达；未绑定不影响小程序内使用，可随时在设置中关闭。</view>
           <view class="jo-qr">

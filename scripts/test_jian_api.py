@@ -59,6 +59,11 @@ check("非法时间 400", r.status_code == 400)
 r = client.put("/api/jian/bind", headers=h, json={"mp_openid": "oXXXX"})
 check("绑定成功", r.status_code == 200 and r.json()["bound"] is True)
 
+# 5b. mp_openid 不外泄(P3): prefs 出参不含 openid,库中仍保留供推送使用
+r = client.get("/api/jian/prefs", headers=h)
+check("prefs 不出参 mp_openid", "mp_openid" not in r.json()["prefs"])
+check("库中仍保留 mp_openid", _test_dao.get_pref("dev-token-test-user-jian")["mp_openid"] == "oXXXX")
+
 # 6. 绑定限流:每用户 5 次/分钟,前 5 次放行,第 6 次 429(用独立用户隔离)
 TOKEN2 = _auth.create_user_token("dev-token-test-user-jian-rl")
 h2 = {"Authorization": f"Bearer {TOKEN2}"}

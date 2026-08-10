@@ -99,11 +99,12 @@
         <view class="stj-bind-col">
           <view class="stj-bind-line">
             <view class="mr-label">服务号推送</view>
-            <view class="stj-bind-state {{bound ? 'stj-bound' : ''}}">{{bound ? '已绑定' : '未绑定'}}</view>
+            <view class="stj-bind-state {{bound ? 'stj-bound' : ''}}">{{invalid ? '订阅已失效' : (bound ? '已绑定' : '未绑定')}}</view>
           </view>
-          <view wx:if="{{!bound}}" class="stj-bind-hint">关注服务号后可开启每日推送</view>
+          <view wx:if="{{invalid}}" class="stj-bind-hint">推送连续失败，订阅已失效 · 请重新绑定</view>
+          <view wx:elif="{{!bound}}" class="stj-bind-hint">关注服务号后可开启每日推送</view>
         </view>
-        <view wx:if="{{!bound}}" class="stj-bind-btn" hover-class="stj-btn-active" hover-stay-time="0" bindtap="goJianOnboard">去绑定</view>
+        <view wx:if="{{invalid || !bound}}" class="stj-bind-btn" hover-class="stj-btn-active" hover-stay-time="0" bindtap="goJianOnboard">{{invalid ? '重新绑定' : '去绑定'}}</view>
       </view>
     </view>
     <view class="stj-note">每天早/晚一条运势推送 · 随时可改可关 · 未开启绝不推送</view>

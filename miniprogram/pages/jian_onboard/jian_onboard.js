@@ -32,6 +32,7 @@ Page({
     loading: true,            // prefs 拉取中
     enabled: false,           // 已开启态（jian_enabled=1）
     bound: false,             // 服务号绑定态
+    invalid: false,           // 订阅失效态（bound_status === 'invalid'，连续失败≥3次）
     /* 晨笺时间 */
     morningOptions: MORNING_OPTIONS,
     morningIdx: MORNING_OPTIONS.indexOf(MORNING_DEFAULT),
@@ -76,6 +77,7 @@ Page({
         loading: false,
         enabled: p.jian_enabled === 1 || p.jian_enabled === true,
         bound: p.bound_status === 'bound',
+        invalid: p.bound_status === 'invalid',
         morningTime,
         morningIdx: mIdx >= 0 ? mIdx : MORNING_OPTIONS.indexOf(MORNING_DEFAULT),
         nightTime,

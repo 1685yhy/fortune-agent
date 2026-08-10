@@ -44,11 +44,17 @@ class PrefUpdate(BaseModel):
 class BindBody(BaseModel):
     mp_openid: str
 
+def _public_prefs(prefs: dict) -> dict:
+    """出参脱敏: mp_openid 仅存库供推送使用,不下发给前端(P3 清理)。"""
+    p = dict(prefs or {})
+    p.pop("mp_openid", None)
+    return p
+
 @router.get("/prefs")
 def get_prefs(uid: str = Depends(require_user)):
     prefs = _dao().get_pref(uid) or {"user_id": uid, "jian_enabled": 0, "jian_time": "07:30",
                                      "night_enabled": 0, "night_time": "23:00", "bound_status": "unbound"}
-    return {"prefs": prefs}
+    return {"prefs": _public_prefs(prefs)}
 
 @router.put("/prefs")
 def put_prefs(body: PrefUpdate, uid: str = Depends(require_user)):
@@ -64,7 +70,7 @@ def put_prefs(body: PrefUpdate, uid: str = Depends(require_user)):
     if body.night_enabled is not None:
         patch["night_enabled"] = 1 if body.night_enabled else 0
     _dao().upsert_pref(uid, patch)
-    return {"prefs": _dao().get_pref(uid)}
+    return {"prefs": _public_prefs(_dao().get_pref(uid))}
 
 # TODO(上线前): 绑定应走服务号 unionid 交换校验(当前信任调用方 openid,已限流缓解)
 @router.put("/bind")

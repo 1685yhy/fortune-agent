@@ -235,11 +235,14 @@ def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
     """按偏好时间下发:晨笺(kind=jian)或晚安(kind=night)。
 
     thing1..thing4 全部截断到 20 字(微信模板消息 thing 字段上限)。
+    失败静默(P1): 每次发送异常 bump_fail 计数,连续≥3 次将订阅标记为
+    bound_status=invalid,list_enabled_at 只放行 'bound' 故自动停止推送;
+    成功 reset_fail 清零。跳过(无 openid)不触碰计数。
     """
     from src.services.wechat_mp import send_template, mp_ready, _env
     stats = {"total": 0, "pushed": 0, "skipped": 0, "errors": 0}
     if not mp_ready():
-        logger.info("服务号未配置,%s 发送跳过", "晨笺" if kind == "jian" else "晚安")
+        logger.debug("服务号未配置,%s 发送跳过", "晨笺" if kind == "jian" else "晚安")
         return stats
     uids = dao.list_enabled_at(now_hm, kind)
     stats["total"] = len(uids)
@@ -268,9 +271,16 @@ def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
                 }
                 url = "pages/today/today"
             else:
+                # P1: 晚安内容按日生成(复用当日预生成缓存:干支+宜忌)
+                night_content = _precompute_jian_for(date_str)
                 data = {
-                    "thing1": {"value": "夜深了,灯还亮着"},
-                    "thing2": {"value": "明日运势:宜静不宜动,睡个好觉"},
+                    "thing1": {"value": (
+                        f"{night_content.get('day_ganzhi', '')}夜深了,灯还亮着"
+                    )[:20]},
+                    "thing2": {"value": (
+                        f"明日宜{','.join(night_content.get('suitable', [])[:3])}"
+                        f" 忌{','.join(night_content.get('unsuitable', [])[:3])} · 睡个好觉"
+                    )[:20]},
                 }
                 url = "pages/chat/chat"
             send_template(openid, tpl_id, data, url=f"https://yilichat.com/{url}")
@@ -278,6 +288,13 @@ def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
         except Exception as e:
             logger.warning("晨笺发送失败 uid=%s: %s", uid, e)
             stats["errors"] += 1
+            dao.bump_fail(uid)
+            after = dao.get_pref(uid) or {}
+            if (after.get("fail_count") or 0) >= 3:
+                dao.upsert_pref(uid, {"bound_status": "invalid"})
+                logger.warning("晨笺连续失败≥3次 uid=%s: 订阅标记失效,停止推送", uid)
+        else:
+            dao.reset_fail(uid)
     logger.info("晨笺批次完成(%s %s): %s", kind, now_hm, stats)
     return stats
 

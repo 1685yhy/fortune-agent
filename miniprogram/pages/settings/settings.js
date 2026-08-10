@@ -58,6 +58,7 @@ Page({
     nightTime: NIGHT_DEFAULT,
     whisper: true,              // 个性化私语（默认开；本地偏好）
     bound: false,               // 服务号绑定态（bound_status === 'bound'）
+    invalid: false,            // 订阅失效态（bound_status === 'invalid'，连续失败≥3次）
   },
 
   onLoad() {
@@ -129,6 +130,7 @@ Page({
         jianEnabled: p.jian_enabled === 1 || p.jian_enabled === true,
         nightEnabled: p.night_enabled === 1 || p.night_enabled === true,
         bound: p.bound_status === 'bound',
+        invalid: p.bound_status === 'invalid',
         morningTime,
         morningIdx: mIdx >= 0 ? mIdx : MORNING_OPTIONS.indexOf(MORNING_DEFAULT),
         nightTime,

@@ -59,4 +59,30 @@ t1.start(); t2.start(); t1.join(); t2.join()
 p = dao_c.get_pref("u_conc")
 check("并发 upsert 合并字段", p and p["jian_time"] == "08:00" and p["night_time"] == "22:00")
 
+# 7. 连续失败计数(P1): 默认 0,bump +1,reset 归零
+dao.upsert_pref("u5", {"jian_enabled": 1, "jian_time": "07:30", "bound_status": "bound"})
+check("fail_count 默认 0", dao.get_pref("u5")["fail_count"] == 0)
+dao.bump_fail("u5"); dao.bump_fail("u5"); dao.bump_fail("u5")
+check("bump 3 次 fail_count=3", dao.get_pref("u5")["fail_count"] == 3)
+dao.reset_fail("u5")
+check("reset 归零", dao.get_pref("u5")["fail_count"] == 0)
+# bump/reset 不影响其他字段
+p5 = dao.get_pref("u5")
+check("计数不影响绑定态", p5["bound_status"] == "bound" and p5["jian_enabled"] == 1)
+
+# 8. 老库迁移: 缺 fail_count 列的既有表自动 ALTER 补齐(默认 0)
+fd2, path2 = tempfile.mkstemp(suffix='.db'); os.close(fd2)
+legacy = sqlite3.connect(path2)
+legacy.execute("""CREATE TABLE jian_prefs (
+    user_id TEXT PRIMARY KEY, jian_enabled INTEGER DEFAULT 0, jian_time TEXT DEFAULT '07:30',
+    night_enabled INTEGER DEFAULT 0, night_time TEXT DEFAULT '23:00',
+    bound_status TEXT DEFAULT 'unbound', mp_openid TEXT DEFAULT '', updated_at REAL)""")
+legacy.execute("INSERT INTO jian_prefs (user_id, jian_enabled) VALUES ('legacy1', 1)")
+legacy.commit()
+dao_legacy = JianPrefDAO(legacy)
+p_legacy = dao_legacy.get_pref("legacy1")
+check("老库迁移补 fail_count", p_legacy and p_legacy["fail_count"] == 0)
+dao_legacy.bump_fail("legacy1")
+check("迁移后 bump 可用", dao_legacy.get_pref("legacy1")["fail_count"] == 1)
+
 print(f"\nALL PASS ({ok})")
