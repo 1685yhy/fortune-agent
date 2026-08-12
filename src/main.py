@@ -519,6 +519,11 @@ async def lifespan(app: FastAPI):
     from .api.hehun import setup as setup_hehun
     setup_hehun(hehun_engine, engine, narrative_svc)
 
+    # Phase: 双人合盘聚合 API（免费钩子 + 付费深度报告）
+    from .api.union import setup as setup_union
+    setup_union(hehun_engine, engine, llm=llm, retriever=retriever,
+                member_dao=member_dao, dao=dao)
+
     # Task 3: Setup xingming API with xingming_engine
     from .api.xingming import setup as setup_xingming
     setup_xingming(xingming_engine, narrative_svc)
@@ -699,6 +704,10 @@ app.include_router(pay_midas_router)
 # Task 1: Hehun matching API
 from .api.hehun import router as hehun_router
 app.include_router(hehun_router)             # /api/hehun
+
+# 双人合盘聚合 API
+from .api.union import router as union_router
+app.include_router(union_router)             # POST /api/union
 
 # Task 3: Xingming API
 from .api.xingming import router as xingming_router
