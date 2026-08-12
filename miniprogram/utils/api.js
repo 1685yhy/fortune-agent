@@ -777,6 +777,22 @@ function hehun(payload) {
   }));
 }
 
+/**
+ * 双人合盘（POST /api/union）
+ * 入参：{ person1: {birthYear, birthMonth, birthDay, birthHour(0-11 时辰序号,可省), gender('male'|'female'), city(可省)},
+ *        person2: {…同}, relation(恋人/暧昧/夫妻/朋友/暗恋,可省), paid(付费档,可省) }
+ * 免费档响应：{score, levelLabel, levelSublabel, dimensions:{wuxing:{score,max},shengxiao:{score,max,relation},rizhu:{score,max,relation}},
+ *             features, relation, quote, quoteParts:{main,suffix,cliffhanger,full}, yuan_card, paywall, transient}
+ * 付费档(paid=true)响应追加：{report:{chapters:[{title,content}], citations}, reportId, purchased}
+ */
+function union(data) {
+  return request('/api/union', {
+    method: 'POST',
+    header: { 'Content-Type': 'application/json' },
+    data,
+  });
+}
+
 // 洛书九宫：宫名 → 宫位序号（九宫盘用 position 判断中宫）
 const LO_SHU_POSITION = { 坎: 1, 坤: 2, 震: 3, 巽: 4, 中: 5, 乾: 6, 兑: 7, 艮: 8, 离: 9 };
 const LO_SHU_WUXING = { 坎: '水', 坤: '土', 震: '木', 巽: '木', 中: '土', 乾: '金', 兑: '金', 艮: '土', 离: '火' };
@@ -1051,6 +1067,7 @@ module.exports = {
 
   // Four Arts
   hehun,
+  union,
   qimen,
   xingming,
   getXuetangTopics,

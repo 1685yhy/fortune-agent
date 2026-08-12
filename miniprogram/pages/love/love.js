@@ -86,6 +86,9 @@ Page({
   },
 
   onLoad() {
+    // 双人合盘已并入 hehun 页（旧路由保留，不失效）
+    wx.reLaunch({ url: '/pages/hehun/hehun' });
+    return;
     // 尝试恢复上次输入
     const saved = security.getSecure('love_form');
     if (saved) {
