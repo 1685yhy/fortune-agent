@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from src.security.auth import require_user
+from src.config import is_experience_mode
 from src.engines.hehun import HehunEngine
 from src.engines.bazi import BaziEngine
 from src.engines.union import run_union
@@ -67,6 +68,27 @@ def _make_polish_fn():
     return polish
 
 
+def _require_paid(uid: str):
+    """复用 deep_report 商品：已购 or 体验模式 → 放行；否则 403（防绕过）。"""
+    if is_experience_mode():
+        return
+    if _member_dao is None:
+        raise HTTPException(status_code=503, detail="支付服务未就绪")
+    if _member_dao.get_user_purchase(uid, "deep_report") is None:
+        raise HTTPException(status_code=403, detail="请先解锁深度合盘报告（¥19.9，deep_report 通道）")
+
+
+def _archive_report(uid: str, union: dict, full_text: str) -> str:
+    """归档（隐私红线：只写脱敏摘要与报告正文，绝不写双方生辰）。返回 report_id。"""
+    question = f"双人合盘：契合{union['score']}分（{union['levelLabel']}）" + (
+        f"·{union['relation']}" if union.get("relation") else "")
+    chart = {"type": "yuan_union", "score": union["score"],
+             "level": union["levelLabel"], "relation": union.get("relation", "")}
+    rid = _dao.save_consultation(uid, question, chart_result=chart,
+                                 analysis=full_text, intent="hehun")
+    return str(rid)
+
+
 @router.post("/api/union")
 async def union_match(req: UnionRequest, uid: str = Depends(require_user)):
     """合盘聚合：免费档即时返回；付费档见 Task 5（_require_paid + 报告生成 + 归档）。"""
@@ -90,6 +112,19 @@ async def union_match(req: UnionRequest, uid: str = Depends(require_user)):
                                 polish_fn=_make_polish_fn())
     union["yuan_card"]["quote"] = quote["full"]
     union["yuan_card"]["quoteParts"] = quote
+
+    # ── 付费档：深度报告四章（支付校验 → 生成 → 归档）──
+    if req.paid:
+        _require_paid(uid)
+        from src.engines.yuan_report import build_report
+        report = build_report(union, r1, r2, retriever=_retriever, llm=_llm_ref)
+        report_id = ""
+        if _dao is not None:
+            report_id = _archive_report(uid, union, report["full_text"])
+        return {
+            "score": union["score"], "levelLabel": union["levelLabel"],
+            "report": report, "reportId": report_id, "purchased": True,
+        }
 
     return {
         "score": union["score"], "levelLabel": union["levelLabel"],
