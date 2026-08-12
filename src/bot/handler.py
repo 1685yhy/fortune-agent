@@ -3501,12 +3501,9 @@ class MessageHandler:
                 info_b = self._extract_bazi_info(female_match.group())
 
         if not info_a or not info_b:
-            return """请提供双方的信息进行合婚分析：
-
-💡 **示例1**：男 1990年5月20日8时 北京，女 1992年8月15日14时 上海
-💡 **示例2**：男1990年属马，女1993年属鸡
-
-我会分析：五行互补 | 生肖配对 | 日柱关系 | 综合评分"""
+            return """想看看你们合不合？给我双方生辰即可直接测算；
+或进入「双人合盘」页，从档案一键选人，还能生成墨韵缘笺：
+/pages/hehun/hehun"""
 
         # Compute both charts
         year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a = info_a

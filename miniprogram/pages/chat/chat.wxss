@@ -1049,6 +1049,26 @@
 }
 .sug-item-active { background: var(--acc-soft); }
 
+/* ═══ Task 8 对话内引导卡跳转按钮（AI 回复含 /pages/ 路径 → 墨韵小钮） ═══ */
+.nav-btn {
+  margin-top: 17rpx;
+  display: inline-flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 11rpx 22rpx;
+  background: var(--paper);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 8rpx;
+}
+.nav-btn-active { background: var(--acc-soft); }
+.nav-btn-txt {
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .1em;
+  color: var(--acc);
+}
+.nav-btn-arrow { width: 27rpx; height: 19rpx; }
+
 /* ═══ v1.2 表情反应（气泡角小 emoji + 弹层宫格） ═══ */
 .reaction-row {
   display: flex;

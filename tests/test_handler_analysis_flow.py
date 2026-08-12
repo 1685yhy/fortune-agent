@@ -102,3 +102,21 @@ def test_save_bazi_info_subject_other(memory):
     assert r == {}
     assert memory._load("u4").get("bazi_info") == {"gender": "女", "year": 1995}
     assert memory._load("u4").get("consultation_count", 0) == 1  # 未新增计数
+
+
+def test_handle_hehun_incomplete_info_returns_guide_card(handler):
+    """Task 8：hehun 双方信息不全 → 返回引导卡片（文案 + /pages/hehun/hehun 跳转路径）。"""
+    reply = handler._handle_hehun("我和TA合不合", "u1")
+    assert isinstance(reply, str)
+    assert "/pages/hehun/hehun" in reply
+    assert "双人合盘" in reply
+    assert "生辰" in reply
+    assert "缘笺" in reply
+
+
+def test_handle_hehun_single_birth_still_guide_card(handler):
+    """Task 8：只给一方生辰（信息不全）→ 同样返回引导卡片而非旧示例文案。"""
+    reply = handler._handle_hehun("1990年5月20日 男 我和TA合不合", "u1")
+    assert isinstance(reply, str)
+    assert "/pages/hehun/hehun" in reply
+    assert "请提供双方的信息" not in reply  # 旧文案已替换
