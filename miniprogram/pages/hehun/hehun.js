@@ -472,13 +472,8 @@ Page({
     } catch (e) {
       console.warn('[hehun] 深度报告失败:', e);
       const detail = (e && e.detail) || '';
-      if (e && e.statusCode === 403) {
-        wx.showModal({
-          title: '未解锁',
-          content: '请先完成支付以解锁深度报告（¥19.9）',
-          showCancel: false,
-        });
-      } else if (typeof detail === 'string' && detail.indexOf('解锁') !== -1) {
+      // request() 对非 2xx 的 reject 是 {detail}（无 statusCode），403 分支为死代码
+      if (typeof detail === 'string' && detail.indexOf('解锁') !== -1) {
         wx.showModal({
           title: '未解锁',
           content: detail,

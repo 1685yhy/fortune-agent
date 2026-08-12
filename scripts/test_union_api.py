@@ -68,6 +68,24 @@ r = client.post("/api/union", headers=h, json={
     "person2": {"birthYear": 1992, "birthMonth": 8, "birthDay": 15, "birthHour": 6, "gender": "female"}})
 check("小程序契约兼容", r.status_code == 200 and 0 <= r.json()["score"] <= 100)
 
+# 4b. 越界生辰 → 400（不 500；与 /api/hehun 共享 _resolve_person 校验）
+VALID_A = {"person_a": {"year": 1990, "month": 5, "day": 20, "hour": 8, "city": "北京", "gender": "男"},
+           "person_b": {"year": 1992, "month": 8, "day": 15, "hour": 14, "city": "上海", "gender": "女"}}
+for bad, msg in [
+    ({"person_a": {"year": 1800, "month": 5, "day": 20}}, "越界年份 400"),
+    ({"person_a": {"year": 2101, "month": 5, "day": 20}}, "越界年份上限 400"),
+    ({"person_a": {"year": 1990, "month": 13, "day": 20}}, "越界月份 400"),
+    ({"person_a": {"year": 1990, "month": 0, "day": 20}}, "越界月份下限 400"),
+    ({"person_a": {"year": 1990, "month": 5, "day": 40}}, "越界日期 400"),
+    ({"person_a": {"year": 1990, "month": 2, "day": 30}}, "无效日历日 400"),
+]:
+    r = client.post("/api/union", headers=h, json={**VALID_A, **bad})
+    check(msg, r.status_code == 400)
+
+# 4c. relation 超长 → 422（请求模型限长）
+r = client.post("/api/union", headers=h, json={**VALID_A, "relation": "超长关系标签" * 5})
+check("relation 超长 422", r.status_code == 422)
+
 # ── Task 5: 付费档（deep_report 校验 + 归档脱敏）──
 
 class FakeMemberDAO:
@@ -88,6 +106,11 @@ PAID_BODY = {
 r = client.post("/api/union", headers=h, json=PAID_BODY)
 check("未购买 403", r.status_code == 403)
 check("付费墙文案指向 deep_report", "deep_report" in r.json()["detail"])
+
+# 5b. 支付校验前置：未购 + 生辰非法 → 403（先校验支付，不白烧排盘/LLM）
+r = client.post("/api/union", headers=h, json={
+    **PAID_BODY, "person_a": {"year": 1800, "month": 5, "day": 20}})
+check("未购+非法生辰 优先 403", r.status_code == 403)
 
 # 6. 已购买 → 四章报告 + 归档
 fake_dao.calls.clear()

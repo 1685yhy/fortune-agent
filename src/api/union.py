@@ -12,7 +12,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from src.security.auth import require_user
 from src.config import is_experience_mode
@@ -52,7 +52,7 @@ class UnionRequest(BaseModel):
     person_b: Optional[BaziInput] = None
     person1: Optional[BaziInput] = None
     person2: Optional[BaziInput] = None
-    relation: str = ""   # 恋人/暧昧/夫妻/朋友/暗恋（空=不标注）
+    relation: str = Field("", max_length=20)   # 恋人/暧昧/夫妻/朋友/暗恋（空=不标注，≤20 字）
     paid: bool = False
 
 
@@ -95,7 +95,11 @@ async def union_match(req: UnionRequest, uid: str = Depends(require_user)):
     if _hehun_engine is None or _bazi_engine is None:
         raise HTTPException(status_code=503, detail="Union service not ready")
 
-    # 双契约解析（与 /api/hehun 相同校验，缺任一方 400）
+    # 付费档先校验支付（未购直接 403，不白烧排盘 + 2s LLM 缘语润色）
+    if req.paid:
+        _require_paid(uid)
+
+    # 双契约解析（与 /api/hehun 相同校验，缺任一方/越界生辰 400）
     a, b = _resolve_pair(req)
 
     # 双方真实排盘（时辰/出生地缺失由契约层归一为默认+结果标注，不阻断）
@@ -107,15 +111,8 @@ async def union_match(req: UnionRequest, uid: str = Depends(require_user)):
     union = run_union(hehun_result, compat_match, r1, r2, a, b,
                       relation=req.relation)
 
-    quote = generate_yuan_quote(union["levelLabel"], union["features"],
-                                relation=req.relation, cliffhanger=True,
-                                polish_fn=_make_polish_fn())
-    union["yuan_card"]["quote"] = quote["full"]
-    union["yuan_card"]["quoteParts"] = quote
-
-    # ── 付费档：深度报告四章（支付校验 → 生成 → 归档）──
+    # ── 付费档：深度报告四章（支付已前置校验 → 生成 → 归档；不生成免费缘语 quote）──
     if req.paid:
-        _require_paid(uid)
         from src.engines.yuan_report import build_report
         report = build_report(union, r1, r2, retriever=_retriever, llm=_llm_ref)
         report_id = ""
@@ -125,6 +122,13 @@ async def union_match(req: UnionRequest, uid: str = Depends(require_user)):
             "score": union["score"], "levelLabel": union["levelLabel"],
             "report": report, "reportId": report_id, "purchased": True,
         }
+
+    # 免费档：缘语 quote（付费分支跳过，避免白烧 2s LLM 润色）
+    quote = generate_yuan_quote(union["levelLabel"], union["features"],
+                                relation=req.relation, cliffhanger=True,
+                                polish_fn=_make_polish_fn())
+    union["yuan_card"]["quote"] = quote["full"]
+    union["yuan_card"]["quoteParts"] = quote
 
     return {
         "score": union["score"], "levelLabel": union["levelLabel"],
