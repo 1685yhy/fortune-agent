@@ -22,6 +22,16 @@
     <text class="privacy-text">咨询记录默认存储在本地设备上。我们不会未经授权访问或使用你的数据。</text>
   </view>
 
+  <view class="privacy-section">
+    <text class="privacy-heading">双人合盘</text>
+    <text class="privacy-text">使用双人合盘时，对方（他/她）的出生信息仅保存在您的设备本地，仅用于本次合盘计算，不会上传，也不会用于任何其他用途。</text>
+    <view class="privacy-list">
+      <view class="privacy-list-item">· 免费档合盘：即时计算，不留存任何记录</view>
+      <view class="privacy-list-item">· 深度报告：归档前对关键信息脱敏处理</view>
+      <view class="privacy-list-item">· 分享图：默认脱敏，不包含时辰、出生地与姓名</view>
+    </view>
+  </view>
+
   <view class="privacy-signature">
     <text class="privacy-signature-text">易理明灯</text>
   </view>
