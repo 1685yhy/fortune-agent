@@ -59,6 +59,11 @@
             <template is="md-block" data="{{nodes: item.mdNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
             <text wx:if="{{item.streaming && item.content}}" class="jz-cursor"></text>
           </view>
+          <!-- Task 8 对话内引导卡：AI 回复行内识别 /pages/ 路径 → 气泡末尾跳转按钮 -->
+          <view wx:if="{{item.navPath && !item.streaming}}" class="nav-btn" hover-class="nav-btn-active" hover-stay-time="0" data-url="{{item.navPath}}" bindtap="onNavBtnTap">
+            <text class="nav-btn-txt">{{item.navLabel || '进入双人合盘 →'}}</text>
+            <image class="nav-btn-arrow" src="/assets/images/brush-arrow.png"></image>
+          </view>
           <!-- v1.2 建议卡片（回复完成后显示，白卡 + 朱砂描边，点击直接发送追问） -->
           <view wx:if="{{item.suggestions && item.suggestions.length && !item.streaming}}" class="sug-card">
             <view class="sug-head"><text class="sug-title">还想问</text></view>

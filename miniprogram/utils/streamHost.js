@@ -402,6 +402,7 @@ class StreamHost {
 
   /* v1.2：done 事件携带 suggestions（回复后的推荐追问，失败/超时 → 无） */
   _onDone(consultationId, citations, suggestions) {
+    this._flushAccum();   // 收尾前冲刷未 flush 的尾部增量（防最后 chunk 被 _clearFlush 丢弃）
     this._clearFlush();
     this._clearWatchdog();
     const msg = this._find(this.msgId);
@@ -432,6 +433,7 @@ class StreamHost {
   _onAbort() {
     if (this.watchdogFired) { this.watchdogFired = false; return; }  // watchdog 已收尾
     if (!this.task && !this.streaming) return;                       // watchdog/错误已收尾
+    this._flushAccum();   // 收尾前冲刷未 flush 的尾部增量（停止时同样不丢已流出的尾巴）
     this._clearFlush();
     this._clearWatchdog();
     const msg = this._find(this.msgId);
@@ -451,6 +453,7 @@ class StreamHost {
 
   /* 失败：无任何输出 → 自动回退普通 /api/chat；有部分输出 → 保留 + 重试钮 */
   async _onError(err) {
+    this._flushAccum();   // 收尾前冲刷未 flush 的尾部增量（失败时尽量保留已流出的内容）
     this._clearFlush();
     this._clearWatchdog();
     console.warn('[StreamHost] 流式失败:', err && (err.message || err.errMsg));
@@ -541,6 +544,17 @@ class StreamHost {
       this.flushTimer = null;
     }
     this.chunkAccum = '';
+  }
+
+  /* 冲刷未 flush 的正文增量（收尾路径调用：done/abort/error 可能紧跟在 chunk 后到达，
+     chunkAccum 若未到 50ms flush 窗口，_clearFlush 会把它连同消息尾部一起丢弃） */
+  _flushAccum() {
+    if (!this.chunkAccum) return;
+    const delta = this.chunkAccum;
+    this.chunkAccum = '';
+    const msg = this._find(this.msgId);
+    if (!msg) return;
+    this._patch(this.msgId, { content: msg.content + delta });
   }
 
   _patch(id, patch) {

@@ -122,5 +122,55 @@ def test_intent_hint_pattern_coverage():
     """INTENT_HINT_PATTERN 覆盖任务要求的全部意图词。"""
     p = MessageAnalyzer.INTENT_HINT_PATTERN
     for kw in ["适合", "发展", "工作", "公司", "职业", "事业", "配", "像谁",
-               "相似", "去哪", "怎么样", "好吗", "能", "会"]:
+               "相似", "去哪", "怎么样", "好吗", "能", "会", "合不合", "合盘",
+               "缘分", "契合"]:
         assert p.search(f"1990年5月20日{kw}"), f"缺少意图词: {kw}"
+
+
+# ── Task 8 双人合盘 hehun 意图扩展（触发词 + 两人语义规则） ──
+
+def test_birth_plus_hehun_words_goes_to_ai(analyzer):
+    """含生日 + 婚恋配对词（我和TA合不合）：不走 fast path 纯排盘，走 AI 分类返回 hehun。"""
+    calls = _mock_completion("hehun")
+    result = analyzer.analyze("1990年5月20日 男，我和TA合不合")
+    assert result.intent == "hehun"
+    assert calls["n"] == 1  # 确实走了 AI 分类
+
+
+def test_couple_match_question_hehun(analyzer):
+    """「我们俩配不配/合不合」类两人消息 → hehun（mock LLM 返回 hehun）。"""
+    calls = _mock_completion("hehun")
+    result = analyzer.analyze("看看我们配不配")
+    assert result.intent == "hehun"
+    assert calls["n"] == 1
+
+
+def test_hepan_word_hehun(analyzer):
+    """「合盘」触发词 → hehun。"""
+    calls = _mock_completion("hehun")
+    result = analyzer.analyze("帮我合盘，我和她")
+    assert result.intent == "hehun"
+    assert calls["n"] == 1
+
+
+def test_parse_response_hehun_valid():
+    """hehun 在 valid 意图集合中：LLM 返回 hehun 能正确解析。"""
+    a = MessageAnalyzer(api_key="", model="")
+    r = a._parse_response(
+        '{"needs_soothe": false, "soothe_text": "", "emotion": "neutral", '
+        '"intent": "hehun", "is_sharing": false}'
+    )
+    assert r.intent == "hehun"
+
+
+def test_hehun_trigger_words_in_prompts():
+    """COMBINED_PROMPT 与 INTENT_CLASSIFY_PROMPT 均覆盖 Task 8 扩展的 hehun 触发词。"""
+    from src.engines.message_analyzer import COMBINED_PROMPT
+    from src.engines.intent_classifier import INTENT_CLASSIFY_PROMPT
+    kws = ["双人合盘", "合盘", "八字合婚", "我和TA合不合", "看看我们配不配", "缘分契合"]
+    for kw in kws:
+        assert kw in COMBINED_PROMPT, f"COMBINED_PROMPT 缺 hehun 触发词: {kw}"
+        assert kw in INTENT_CLASSIFY_PROMPT, f"INTENT_CLASSIFY_PROMPT 缺 hehun 触发词: {kw}"
+    # 两人语义规则（我/我们 + 他/她/TA + 合/配/缘分 → hehun）
+    assert "他/她/TA" in COMBINED_PROMPT
+    assert "他/她/TA" in INTENT_CLASSIFY_PROMPT

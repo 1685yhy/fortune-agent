@@ -396,3 +396,38 @@
   letter-spacing: .14em;
   color: var(--acc);
 }
+
+/* ═══ 双人合盘入口卡（第二入口：朱砂「缘」印章 + 标题 + 副文案 + brush-arrow） ═══ */
+.yuan-entry {
+  width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 15rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 10rpx;
+  padding: 19rpx 24rpx;
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+  margin-top: 19rpx;
+}
+.yuan-entry-active { background: var(--acc-soft); }
+.yuan-seal { width: 52rpx; height: 52rpx; font-size: 30rpx; border-radius: 6rpx; }
+.yuan-entry-mid { flex: 1; min-width: 0; }
+.yuan-entry-title {
+  font-family: var(--font-kai);
+  font-size: 27rpx;
+  letter-spacing: .1em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.yuan-entry-sub {
+  margin-top: 6rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .08em;
+  color: var(--ink-soft);
+}
+.yuan-entry-arrow { width: 27rpx; height: 19rpx; flex-shrink: 0; }

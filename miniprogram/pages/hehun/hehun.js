@@ -1,12 +1,16 @@
-// 合婚配对 — 八字婚姻契合度分析
+// 双人合盘 · 缘分契合 — 免费钩子（契合分/等级/三维得分条/缘语+悬念半句/墨韵缘笺）+ ¥19.9 深度报告（四章）
+// 流程：输入双人生辰（可档案直选）→ 免费结果 → [生成墨韵缘笺] → [解锁深度报告]
+// 隐私红线：TA 生辰只存本机 localStorage('yuan_ta_birth')，绝不进 persons 云端接口；缘笺图片数据全为服务端脱敏。
 const api = require('../../utils/api');
-const { MESSAGES } = require('../../utils/messages');
+const payment = require('../../utils/payment');
+const shareCard = require('../../utils/shareCard');
+const personUtil = require('../../utils/persons');
 
-const HOUR_LABELS = [
-  '子时(23-01)', '丑时(01-03)', '寅时(03-05)', '卯时(05-07)',
+const TA_STORAGE_KEY = 'yuan_ta_birth';
+
+const HOUR_OPTIONS = ['未填', '子时(23-01)', '丑时(01-03)', '寅时(03-05)', '卯时(05-07)',
   '辰时(07-09)', '巳时(09-11)', '午时(11-13)', '未时(13-15)',
-  '申时(15-17)', '酉时(17-19)', '戌时(19-21)', '亥时(21-23)',
-];
+  '申时(15-17)', '酉时(17-19)', '戌时(19-21)', '亥时(21-23)'];
 
 const CITIES = [
   '请选择', '北京', '上海', '广州', '深圳', '杭州', '成都', '武汉',
@@ -18,335 +22,558 @@ const CITIES = [
   '中山', '台州', '兰州', '保定', '镇江', '扬州', '桂林', '洛阳',
 ];
 
+const RELATIONS = ['恋人', '暧昧', '夫妻', '朋友', '暗恋'];
+
 Page({
   data: {
-    // Person 1
-    p1BirthYear: '1990',
-    p1BirthMonth: '1',
-    p1BirthDay: '1',
-    p1BirthHour: '0',
+    // 我方 (p1)
+    p1BirthYear: '请选择',
+    p1BirthMonth: '请选择',
+    p1BirthDay: '请选择',
+    p1HourIdx: 0,          // 0=未填；1-12 对应时辰序号 0-11
+    p1HourSet: false,
     p1Gender: 'male',
-    p1City: '北京',
-    p1HourLabel: HOUR_LABELS[0],
+    p1City: '请选择',
+    p1CitySet: false,
 
-    // Person 2
-    p2BirthYear: '1990',
-    p2BirthMonth: '1',
-    p2BirthDay: '1',
-    p2BirthHour: '0',
+    // TA (p2)
+    p2BirthYear: '请选择',
+    p2BirthMonth: '请选择',
+    p2BirthDay: '请选择',
+    p2HourIdx: 0,
+    p2HourSet: false,
     p2Gender: 'female',
-    p2City: '北京',
-    p2HourLabel: HOUR_LABELS[0],
+    p2City: '请选择',
+    p2CitySet: false,
+    p2FromCache: false,    // 本机「上次记录」回填标注
 
-    // Picker data
-    years: [],
-    months: [],
-    days: [],
-    hours: [],
-    hourLabels: HOUR_LABELS,
+    // Picker 数据
+    yearOptions: ['请选择'],
+    monthOptions: ['请选择'],
+    dayOptions: ['请选择'],
+    hourOptions: HOUR_OPTIONS,
     cities: CITIES,
+    yearOptionIdx: 0, monthOptionIdx: 0, dayOptionIdx: 0,
+    cityOptionIdx: 0,
 
-    // Picker indices
-    p1PickerYearIdx: 0,
-    p1PickerMonthIdx: 0,
-    p1PickerDayIdx: 0,
-    p1PickerHourIdx: 0,
-    p1PickerCityIdx: 1,
-    p2PickerYearIdx: 0,
-    p2PickerMonthIdx: 0,
-    p2PickerDayIdx: 0,
-    p2PickerHourIdx: 0,
-    p2PickerCityIdx: 1,
+    // Picker 索引
+    p1YearIdx: 0, p1MonthIdx: 0, p1DayIdx: 0, p1CityIdx: 0,
+    p2YearIdx: 0, p2MonthIdx: 0, p2DayIdx: 0, p2CityIdx: 0,
 
-    // States
-    skeletonLoading: true,
-    submitted: false,
+    // 关系标签（5 chips 单选，可取消）
+    relations: RELATIONS,
+    relation: '',
+
+    // 档案直选
+    persons: [],
+    personsLoaded: false,
+
+    // 状态
     loading: false,
-    error: null,
+    submitted: false,
+    errorMsg: '',
+
+    // 免费结果
     result: null,
+    dims: [],              // [{key,label,score,max,color}]
+    yuanLine: '',          // 缘语主句+后缀
+    cliffhanger: '',       // 悬念半句
+    hourNotSetNote: '',    // 「时辰未填，仅供参考」
 
-    // Error state
-    showError: false,
-    errorType: '',
+    // 付费
+    purchasing: false,
+    report: null,
+    reportId: '',
 
-    // Computed display values
-    scorePercent: 0,
-    scoreRingColor: '#D4A843',
-    scoreDescription: '',
-    wuxingScoreColor: '#D4A843',
-    shengxiaoScoreColor: '#D4A843',
-    rizhuScoreColor: '#D4A843',
+    // 弹层
+    showPaywall: false,    // 付费墙（悬念半句展开）
+    showYuanPreview: false,
+    yuanImagePath: '',
+    generatingCard: false,
+    showReport: false,     // 四章弹层
+
+    // 分享
+    shareTitle: '双人合盘 · 缘分契合 - 测测你们合不合',
   },
 
   onLoad() {
-    this.initPickerData();
-    // Disable skeleton after initial render
-    setTimeout(() => {
-      this.setData({ skeletonLoading: false });
-    }, 300);
+    this.initPickerOptions();
+    this.restoreTaCache();
+    this.loadDefaultSelf();
   },
 
-  // ---- 初始化选择器数据 ----
-  initPickerData() {
-    const years = [];
-    const months = [];
-    const days = [];
-    const hours = [];
-
-    for (let y = 1940; y <= 2024; y++) {
-      years.push(String(y));
-    }
-    for (let m = 1; m <= 12; m++) {
-      months.push(String(m));
-    }
-    for (let d = 1; d <= 31; d++) {
-      days.push(String(d));
-    }
-    for (let h = 0; h < 12; h++) {
-      hours.push(String(h));
-    }
-
-    this.setData({ years, months, days, hours });
-    this.updatePickerIndices();
-  },
-
-  // 更新所有 picker 索引
-  updatePickerIndices() {
-    const d = this.data;
+  // ---- 选择器数据 ----
+  initPickerOptions() {
+    const yearOptions = ['请选择'];
+    const monthOptions = ['请选择'];
+    const dayOptions = ['请选择'];
+    for (let y = 2024; y >= 1940; y--) yearOptions.push(String(y));
+    for (let m = 1; m <= 12; m++) monthOptions.push(String(m));
+    for (let d = 1; d <= 31; d++) dayOptions.push(String(d));
     this.setData({
-      p1PickerYearIdx: d.years.indexOf(d.p1BirthYear),
-      p1PickerMonthIdx: d.months.indexOf(d.p1BirthMonth),
-      p1PickerDayIdx: d.days.indexOf(d.p1BirthDay),
-      p1PickerHourIdx: d.hours.indexOf(d.p1BirthHour),
-      p1PickerCityIdx: Math.max(0, d.cities.indexOf(d.p1City)),
-      p2PickerYearIdx: d.years.indexOf(d.p2BirthYear),
-      p2PickerMonthIdx: d.months.indexOf(d.p2BirthMonth),
-      p2PickerDayIdx: d.days.indexOf(d.p2BirthDay),
-      p2PickerHourIdx: d.hours.indexOf(d.p2BirthHour),
-      p2PickerCityIdx: Math.max(0, d.cities.indexOf(d.p2City)),
+      yearOptions,
+      monthOptions,
+      dayOptions,
+      yearOptionIdx: yearOptions.length - 1,  // 默认 1995
+      monthOptionIdx: 0,
+      dayOptionIdx: 0,
+      cityOptionIdx: 0,
     });
   },
 
-  // ---- Person 1 Handlers ----
-  onP1BirthYearChange(e) {
-    const p1BirthYear = this.data.years[e.detail.value];
-    this.setData({ p1BirthYear });
-    this.updatePickerIndices();
+  _indexOfOr0(arr, v) {
+    const i = arr.indexOf(v);
+    return i > 0 ? i : 0;
   },
-  onP1BirthMonthChange(e) {
-    const p1BirthMonth = this.data.months[e.detail.value];
-    this.setData({ p1BirthMonth });
-    this.updatePickerIndices();
+
+  // ---- 本机缓存：TA 生辰（隐私：仅本机，标记「他/她」，永不进 persons 云端接口） ----
+  restoreTaCache() {
+    let c = null;
+    try { c = wx.getStorageSync(TA_STORAGE_KEY); } catch (e) { c = null; }
+    if (!c || !c.year || !c.month || !c.day) return;
+    const year = String(c.year);
+    const month = String(c.month);
+    const day = String(c.day);
+    this.setData({
+      p2BirthYear: year,
+      p2BirthMonth: month,
+      p2BirthDay: day,
+      p2YearIdx: this._indexOfOr0(this.data.yearOptions, year),
+      p2MonthIdx: this._indexOfOr0(this.data.monthOptions, month),
+      p2DayIdx: this._indexOfOr0(this.data.dayOptions, day),
+      p2Gender: c.gender === 'female' ? 'female' : 'male',
+      p2FromCache: true,
+    });
+    // 时辰/出生地为选填：有则回填
+    if (c.hourSet) {
+      const hi = Math.min(12, Math.max(1, parseInt(c.hourIdx, 10) || 1));
+      this.setData({ p2HourIdx: hi, p2HourSet: true });
+    }
+    if (c.city) {
+      const ci = this.data.cities.indexOf(c.city);
+      this.setData({ p2City: c.city, p2CitySet: true, p2CityIdx: Math.max(0, ci) });
+    }
+    if (c.relation && RELATIONS.indexOf(c.relation) !== -1) {
+      this.setData({ relation: c.relation });
+    }
   },
-  onP1BirthDayChange(e) {
-    const p1BirthDay = this.data.days[e.detail.value];
-    this.setData({ p1BirthDay });
-    this.updatePickerIndices();
+
+  _saveTaCache() {
+    const d = this.data;
+    try {
+      wx.setStorageSync(TA_STORAGE_KEY, {
+        year: parseInt(d.p2BirthYear, 10) || 0,
+        month: parseInt(d.p2BirthMonth, 10) || 0,
+        day: parseInt(d.p2BirthDay, 10) || 0,
+        hourIdx: d.p2HourIdx,
+        hourSet: d.p2HourSet,
+        city: d.p2CitySet ? d.p2City : '',
+        gender: d.p2Gender,
+        relation: d.relation,
+        ts: Date.now(),
+      });
+    } catch (e) { /* storage 满等异常不阻断 */ }
   },
-  onP1BirthHourChange(e) {
+
+  // ---- onLoad 回填我方：档案默认命主（对话触发进入「带已填的我方生辰」由此实现，不在 URL 传生辰） ----
+  loadDefaultSelf() {
+    api.getPersons().then((res) => {
+      const list = (res && res.persons) || [];
+      const def = list.find((p) => p.is_default) || list[0];
+      if (def) this._fillFromPerson('p1', def);
+      this.setData({ persons: list, personsLoaded: true });
+    }).catch((err) => {
+      console.warn('[hehun] getPersons 失败（跳过档案直选）:', err && err.message);
+      this.setData({ personsLoaded: true });
+    });
+  },
+
+  // ---- 从档案选择（showActionSheet 列姓名 → 点选填充） ----
+  onPickPerson(e) {
+    const target = e.currentTarget.dataset.target;
+    const persons = this.data.persons;
+    if (!persons || !persons.length) {
+      wx.showToast({ title: '暂无档案，可手动填写', icon: 'none' });
+      return;
+    }
+    wx.showActionSheet({
+      itemList: persons.map((p) => p.name),
+      success: (res) => {
+        const p = persons[res.tapIndex];
+        if (p) this._fillFromPerson(target, p);
+      },
+    });
+  },
+
+  _fillFromPerson(target, p) {
+    if (!p || !p.birth_year || !p.birth_month || !p.birth_day) {
+      wx.showToast({ title: '该档案生辰不完整', icon: 'none' });
+      return;
+    }
+    const year = String(p.birth_year);
+    const month = String(p.birth_month);
+    const day = String(p.birth_day);
+    const base = {
+      [`${target}BirthYear`]: year,
+      [`${target}BirthMonth`]: month,
+      [`${target}BirthDay`]: day,
+      [`${target}YearIdx`]: this._indexOfOr0(this.data.yearOptions, year),
+      [`${target}MonthIdx`]: this._indexOfOr0(this.data.monthOptions, month),
+      [`${target}DayIdx`]: this._indexOfOr0(this.data.dayOptions, day),
+      [`${target}Gender`]: p.gender === 'female' ? 'female' : 'male',
+    };
+    // 时辰（选填）：档案有时辰才回填
+    if (p.birth_hour !== undefined && p.birth_hour !== null && p.birth_hour !== '') {
+      const hi = personUtil.hourToShichenIndex(p.birth_hour) + 1;
+      base[`${target}HourIdx`] = hi;
+      base[`${target}HourSet`] = true;
+    } else {
+      base[`${target}HourIdx`] = 0;
+      base[`${target}HourSet`] = false;
+    }
+    // 出生地（选填）
+    if (p.city) {
+      const ci = this.data.cities.indexOf(p.city);
+      base[`${target}City`] = p.city;
+      base[`${target}CitySet`] = true;
+      base[`${target}CityIdx`] = Math.max(0, ci);
+    } else {
+      base[`${target}City`] = '请选择';
+      base[`${target}CitySet`] = false;
+      base[`${target}CityIdx`] = 0;
+    }
+    if (target === 'p2') base.p2FromCache = false;
+    this.setData(base);
+  },
+
+  // ---- Person 1（我方）Handlers ----
+  onP1YearChange(e) {
+    const v = this.data.yearOptions[e.detail.value];
+    this.setData({ p1BirthYear: v, p1YearIdx: e.detail.value });
+  },
+  onP1MonthChange(e) {
+    const v = this.data.monthOptions[e.detail.value];
+    this.setData({ p1BirthMonth: v, p1MonthIdx: e.detail.value });
+  },
+  onP1DayChange(e) {
+    const v = this.data.dayOptions[e.detail.value];
+    this.setData({ p1BirthDay: v, p1DayIdx: e.detail.value });
+  },
+  onP1HourChange(e) {
     const idx = parseInt(e.detail.value, 10);
-    const p1BirthHour = this.data.hours[idx];
-    const p1HourLabel = HOUR_LABELS[idx];
-    this.setData({ p1BirthHour, p1HourLabel });
-    this.updatePickerIndices();
+    this.setData({ p1HourIdx: idx, p1HourSet: idx > 0 });
+  },
+  onP1CityChange(e) {
+    const v = this.data.cities[e.detail.value];
+    this.setData({ p1City: v, p1CitySet: v !== '请选择', p1CityIdx: e.detail.value });
   },
   onP1GenderChange(e) {
     this.setData({ p1Gender: e.detail.value });
   },
-  onP1CityChange(e) {
-    const p1City = this.data.cities[e.detail.value];
-    this.setData({ p1City });
-    this.updatePickerIndices();
-  },
 
-  // ---- Person 2 Handlers ----
-  onP2BirthYearChange(e) {
-    const p2BirthYear = this.data.years[e.detail.value];
-    this.setData({ p2BirthYear });
-    this.updatePickerIndices();
+  // ---- Person 2（TA）Handlers ----
+  onP2YearChange(e) {
+    const v = this.data.yearOptions[e.detail.value];
+    this.setData({ p2BirthYear: v, p2YearIdx: e.detail.value, p2FromCache: false });
   },
-  onP2BirthMonthChange(e) {
-    const p2BirthMonth = this.data.months[e.detail.value];
-    this.setData({ p2BirthMonth });
-    this.updatePickerIndices();
+  onP2MonthChange(e) {
+    const v = this.data.monthOptions[e.detail.value];
+    this.setData({ p2BirthMonth: v, p2MonthIdx: e.detail.value, p2FromCache: false });
   },
-  onP2BirthDayChange(e) {
-    const p2BirthDay = this.data.days[e.detail.value];
-    this.setData({ p2BirthDay });
-    this.updatePickerIndices();
+  onP2DayChange(e) {
+    const v = this.data.dayOptions[e.detail.value];
+    this.setData({ p2BirthDay: v, p2DayIdx: e.detail.value, p2FromCache: false });
   },
-  onP2BirthHourChange(e) {
+  onP2HourChange(e) {
     const idx = parseInt(e.detail.value, 10);
-    const p2BirthHour = this.data.hours[idx];
-    const p2HourLabel = HOUR_LABELS[idx];
-    this.setData({ p2BirthHour, p2HourLabel });
-    this.updatePickerIndices();
-  },
-  onP2GenderChange(e) {
-    this.setData({ p2Gender: e.detail.value });
+    this.setData({ p2HourIdx: idx, p2HourSet: idx > 0, p2FromCache: false });
   },
   onP2CityChange(e) {
-    const p2City = this.data.cities[e.detail.value];
-    this.setData({ p2City });
-    this.updatePickerIndices();
+    const v = this.data.cities[e.detail.value];
+    this.setData({ p2City: v, p2CitySet: v !== '请选择', p2CityIdx: e.detail.value, p2FromCache: false });
+  },
+  onP2GenderChange(e) {
+    this.setData({ p2Gender: e.detail.value, p2FromCache: false });
   },
 
-  // ---- Submit ----
+  // ---- 关系标签（5 chips 单选，再点取消） ----
+  onRelationTap(e) {
+    const r = e.currentTarget.dataset.rel;
+    this.setData({ relation: this.data.relation === r ? '' : r });
+  },
+
+  // ---- 组装提交载荷（小程序契约：birthYear/birthMonth/birthDay/birthHour(0-11)/gender/city） ----
+  _buildPerson(prefix) {
+    const d = this.data;
+    const p = {
+      birthYear: parseInt(d[`${prefix}BirthYear`], 10),
+      birthMonth: parseInt(d[`${prefix}BirthMonth`], 10),
+      birthDay: parseInt(d[`${prefix}BirthDay`], 10),
+      gender: d[`${prefix}Gender`],
+    };
+    if (d[`${prefix}HourSet`]) p.birthHour = d[`${prefix}HourIdx`] - 1;  // 时辰序号 0-11
+    if (d[`${prefix}CitySet`]) p.city = d[`${prefix}City`];
+    return p;
+  },
+
+  _buildPayload(paid) {
+    return {
+      person1: this._buildPerson('p1'),
+      person2: this._buildPerson('p2'),
+      relation: this.data.relation || '',
+      paid: !!paid,
+    };
+  },
+
+  // ---- 提交 ----
   async onSubmit() {
     const d = this.data;
-
-    // Basic validation
-    if (d.p1City === '请选择' || d.p2City === '请选择') {
-      wx.showToast({ title: '请选择出生城市', icon: 'none' });
+    const need = (v) => v && v !== '请选择';
+    if (!need(d.p1BirthYear) || !need(d.p1BirthMonth) || !need(d.p1BirthDay)) {
+      wx.showToast({ title: '请选择我方出生年月日', icon: 'none' });
+      return;
+    }
+    if (!need(d.p2BirthYear) || !need(d.p2BirthMonth) || !need(d.p2BirthDay)) {
+      wx.showToast({ title: '请选择TA的出生年月日', icon: 'none' });
       return;
     }
 
-    this.setData({ loading: true, error: null, submitted: false });
-
-    const person1 = {
-      birthYear: d.p1BirthYear,
-      birthMonth: d.p1BirthMonth,
-      birthDay: d.p1BirthDay,
-      birthHour: d.p1BirthHour,
-      gender: d.p1Gender,
-      city: d.p1City,
-    };
-
-    const person2 = {
-      birthYear: d.p2BirthYear,
-      birthMonth: d.p2BirthMonth,
-      birthDay: d.p2BirthDay,
-      birthHour: d.p2BirthHour,
-      gender: d.p2Gender,
-      city: d.p2City,
-    };
-
+    this.setData({ loading: true, errorMsg: '', submitted: false, result: null });
     try {
-      const result = await api.hehun({ person1, person2 });
+      const result = await api.union(this._buildPayload(false));
       this._setResult(result);
+      // 提交成功后 TA 生辰只存本机（隐私红线）
+      this._saveTaCache();
       this.setData({ submitted: true, loading: false });
     } catch (err) {
-      console.warn('[hehun] API call failed, using demo data:', err);
-      // Show error state — user can retry
+      console.warn('[hehun] union 免费档失败:', err);
       this.setData({
-        showError: true,
-        errorType: err.name === 'NetworkError' ? 'network' : 'server',
         loading: false,
         submitted: false,
+        errorMsg: (err && err.detail) || '推演失败，请稍后重试',
       });
     }
   },
 
-  // ---- Compute and set result display values ----
+  // ---- 免费结果展示 ----
   _setResult(result) {
-    const score = result ? result.score : 0;
-    const pct = Math.min(100, Math.max(0, score));
-
-    // Score color
-    let sColor;
-    if (score >= 80) sColor = '#D4A843';
-    else if (score >= 60) sColor = '#5B8C5A';
-    else sColor = '#C2413D';
-
-    // Score description
-    let desc;
-    if (score >= 90) desc = '天作之合，命定姻缘';
-    else if (score >= 80) desc = '上等婚配，琴瑟和鸣';
-    else if (score >= 70) desc = '中等偏上，相得益彰';
-    else if (score >= 60) desc = '中等婚配，需用心经营';
-    else if (score >= 50) desc = '基础尚可，多加磨合';
-    else desc = '缘分较浅，慎重考虑';
-
-    // Compute per-dimension colors
-    const wuxingColor = this._scoreColor(result.wuxing ? result.wuxing.score : 0);
-    const shengxiaoColor = this._scoreColor(result.shengxiao ? result.shengxiao.score : 0);
-    const rizhuColor = this._scoreColor(result.rizhu ? result.rizhu.score : 0);
-
+    const dims = (result && result.dimensions) || {};
+    const mkDim = (key, label) => {
+      const it = dims[key] || {};
+      return {
+        key,
+        label,
+        score: it.score || 0,
+        max: it.max || 0,
+        color: this._barColor(it.score, it.max),
+      };
+    };
+    const qp = (result && result.quoteParts) || {};
+    // 主句可能带句号结尾（LLM 润色），与后缀拼接前去重，避免「。，」
+    const main = String(qp.main || '').replace(/。+$/, '');
     this.setData({
       result,
-      scorePercent: pct,
-      scoreRingColor: sColor,
-      scoreDescription: desc,
-      wuxingScoreColor: wuxingColor,
-      shengxiaoScoreColor: shengxiaoColor,
-      rizhuScoreColor: rizhuColor,
+      dims: [mkDim('wuxing', '五行'), mkDim('shengxiao', '生肖'), mkDim('rizhu', '日柱')],
+      yuanLine: [main, qp.suffix].filter(Boolean).join('，') + '。',
+      cliffhanger: qp.cliffhanger || '',
+      hourNotSetNote: (!this.data.p1HourSet || !this.data.p2HourSet)
+        ? '时辰未填，仅供参考'
+        : '',
     });
   },
 
-  _scoreColor(score) {
-    if (score >= 80) return '#D4A843';
-    if (score >= 60) return '#5B8C5A';
-    return '#C2413D';
+  _barColor(score, max) {
+    const pct = max > 0 ? score / max : 0;
+    if (pct >= 0.75) return '#A93A2C';   // 朱砂
+    if (pct >= 0.5) return '#B08A4F';    // 金
+    return '#9A8B71';                    // 淡墨
   },
 
-  // ---- Fallback Demo Data ----
-  getDemoResult(person1, person2) {
-    const year1 = parseInt(person1.birthYear, 10);
-    const year2 = parseInt(person2.birthYear, 10);
-    const yearDiff = Math.abs(year1 - year2);
-
-    // Compute a pseudo-random but deterministic score based on inputs
-    const seed = (year1 * 31 + parseInt(person1.birthMonth, 10) * 7 + parseInt(person1.birthDay, 10) * 13
-                + year2 * 37 + parseInt(person2.birthMonth, 10) * 11 + parseInt(person2.birthDay, 10) * 17) % 101;
-    const baseScore = 60 + (seed % 31);
-    const wuxingScore = Math.min(100, baseScore + (yearDiff % 15) - 5);
-    const shengxiaoScore = Math.min(100, baseScore + (yearDiff % 10) + 3);
-    const rizhuScore = Math.min(100, baseScore - (yearDiff % 12) + 8);
-
-    const totalScore = Math.round((wuxingScore + shengxiaoScore + rizhuScore) / 3);
-
-    const advice = this.getAdvice(totalScore, person1.gender, person2.gender);
-
-    return {
-      score: totalScore,
-      wuxing: { score: wuxingScore, detail: wuxingScore >= 80 ? '相生' : wuxingScore >= 60 ? '中等' : '相克' },
-      shengxiao: { score: shengxiaoScore, detail: shengxiaoScore >= 80 ? '三合' : shengxiaoScore >= 60 ? '中等' : '相冲' },
-      rizhu: { score: rizhuScore, detail: rizhuScore >= 80 ? '相合' : rizhuScore >= 60 ? '平和' : '相刑' },
-      advice,
-    };
+  // ---- 三维得分条明细锁定：点击提示进深度报告 ----
+  onDimTap() {
+    wx.showToast({ title: '明细见深度报告·契合详情章', icon: 'none' });
   },
 
-  getAdvice(score, gender1, gender2) {
-    const base = [];
-    if (score >= 80) {
-      base.push('双方八字高度契合，天作之合，宜早结连理');
-      base.push('五行互补，相互成就，婚后生活和谐美满');
-      base.push('建议选择吉日举办婚礼，有助运势进一步提升');
-    } else if (score >= 60) {
-      base.push('双方有较好的缘分基础，需要用心经营');
-      base.push('注意沟通方式，相互包容理解是长久之道');
-      base.push('可通过家居风水布局改善五行平衡');
-      base.push('在重大决策上建议多听取对方意见');
-    } else {
-      base.push('双方八字存在一定冲突，需谨慎对待婚姻');
-      base.push('建议选择专业人士化解五行冲克');
-      base.push('保持适当距离和独立空间有助于关系和谐');
-      base.push('婚前多相处磨合，充分了解彼此差异');
+  // ---- 悬念半句「展开」→ 付费墙 ----
+  onExpandCliffhanger() {
+    this.setData({ showPaywall: true });
+  },
+  onClosePaywall() {
+    this.setData({ showPaywall: false });
+  },
+
+  // ---- 缘笺流程：确认弹窗（脱敏说明）→ drawYuanCard → 预览弹层 ----
+  onGenerateCard() {
+    if (this.data.generatingCard) return;
+    if (!this.data.result || !this.data.result.yuan_card) {
+      wx.showToast({ title: '暂无缘笺数据', icon: 'none' });
+      return;
     }
-    base.push('婚姻幸福与否，更多在于彼此的用心经营与相互珍惜');
-    return base;
+    wx.showModal({
+      title: '生成墨韵缘笺',
+      content: '图片将包含脱敏后的生日信息（年/月/日+生肖+日柱，不含时辰与出生地），确认生成？',
+      confirmText: '生成',
+      success: (res) => {
+        if (res.confirm) this._drawYuanCard();
+      },
+    });
   },
 
-  // ---- Retry after error ----
-  onErrorRetry() {
-    this.setData({ showError: false });
-    this.onSubmit();
+  _drawYuanCard() {
+    this.setData({ generatingCard: true });
+    const query = wx.createSelectorQuery();
+    query.select('#shareCanvas')
+      .fields({ node: true, size: true })
+      .exec((res) => {
+        if (!res || !res[0] || !res[0].node) {
+          wx.showToast({ title: '生成失败，请重试', icon: 'none' });
+          this.setData({ generatingCard: false });
+          return;
+        }
+        const canvas = res[0].node;
+        const card = this.data.result.yuan_card || {};
+        shareCard.drawYuanCard(card, canvas, (tempFilePath) => {
+          this.setData({ generatingCard: false });
+          if (tempFilePath) {
+            this.setData({ yuanImagePath: tempFilePath, showYuanPreview: true });
+          } else {
+            wx.showToast({ title: '生成图片失败', icon: 'none' });
+          }
+        });
+      });
   },
 
-  // ---- Reset ----
-  onReset() {
+  onCloseYuanPreview() {
+    this.setData({ showYuanPreview: false, yuanImagePath: '' });
+  },
+  onSaveCard() {
+    shareCard.saveCardToAlbum(this.data.yuanImagePath);
+  },
+  onShareCard() {
+    shareCard.shareCard(this.data.yuanImagePath, '双人合盘 · 缘分契合');
+  },
+
+  // ---- 付费流程：解锁深度报告（¥19.9，deep_report 通道）→ 四章弹层 ----
+  onUnlock() {
+    this._startPurchase();
+  },
+
+  async _startPurchase() {
+    if (this.data.purchasing) return;
+    this.setData({ purchasing: true, showPaywall: false });
+    try {
+      const payResult = await payment.purchase('deep_report');
+      if (!payResult || !payResult.success) return;  // 取消/失败已 toast
+      const paidRes = await api.union(this._buildPayload(true));
+      if (!paidRes || !paidRes.report) {
+        throw new Error('报告数据异常');
+      }
+      this._setPaidResult(paidRes);
+    } catch (e) {
+      console.warn('[hehun] 深度报告失败:', e);
+      const detail = (e && e.detail) || '';
+      // request() 对非 2xx 的 reject 是 {detail}（无 statusCode），403 分支为死代码
+      if (typeof detail === 'string' && detail.indexOf('解锁') !== -1) {
+        wx.showModal({
+          title: '未解锁',
+          content: detail,
+          showCancel: false,
+        });
+      } else {
+        wx.showToast({ title: '报告生成失败，请重试', icon: 'none' });
+      }
+    } finally {
+      this.setData({ purchasing: false });
+    }
+  },
+
+  _setPaidResult(paidRes) {
+    const chapters = (paidRes.report && paidRes.report.chapters) || [];
+    this.setData({
+      report: paidRes.report,
+      reportId: paidRes.reportId || '',
+      showReport: true,
+    });
+    if (chapters.length) {
+      wx.showToast({ title: '已存入报告页', icon: 'none' });
+    }
+  },
+
+  onCloseReport() {
+    this.setData({ showReport: false });
+  },
+  goReports() {
+    wx.navigateTo({ url: '/pages/reports/reports' });
+  },
+
+  // ---- 换一个人再测：保留我方，清 TA 与结果 ----
+  onSwitchPerson() {
     this.setData({
       submitted: false,
-      loading: false,
-      error: null,
       result: null,
+      dims: [],
+      yuanLine: '',
+      cliffhanger: '',
+      hourNotSetNote: '',
+      p2BirthYear: '请选择',
+      p2BirthMonth: '请选择',
+      p2BirthDay: '请选择',
+      p2HourIdx: 0,
+      p2HourSet: false,
+      p2City: '请选择',
+      p2CitySet: false,
+      p2YearIdx: 0,
+      p2MonthIdx: 0,
+      p2DayIdx: 0,
+      p2CityIdx: 0,
+      p2FromCache: false,
+      relation: '',
     });
   },
 
-  // ---- Share ----
+  // ---- 重新输入：清双方 ----
+  onReInput() {
+    this.setData({
+      submitted: false,
+      result: null,
+      dims: [],
+      yuanLine: '',
+      cliffhanger: '',
+      hourNotSetNote: '',
+      p1BirthYear: '请选择',
+      p1BirthMonth: '请选择',
+      p1BirthDay: '请选择',
+      p1HourIdx: 0,
+      p1HourSet: false,
+      p1City: '请选择',
+      p1CitySet: false,
+      p1YearIdx: 0,
+      p1MonthIdx: 0,
+      p1DayIdx: 0,
+      p1CityIdx: 0,
+      p2BirthYear: '请选择',
+      p2BirthMonth: '请选择',
+      p2BirthDay: '请选择',
+      p2HourIdx: 0,
+      p2HourSet: false,
+      p2City: '请选择',
+      p2CitySet: false,
+      p2YearIdx: 0,
+      p2MonthIdx: 0,
+      p2DayIdx: 0,
+      p2CityIdx: 0,
+      p2FromCache: false,
+      relation: '',
+    });
+  },
+
+  // ---- 弹层滚动穿透拦截 ----
+  noop() {},
+
+  // ---- 分享 ----
   onShareAppMessage() {
     return {
-      title: '合婚配对 - 看你们的八字缘分',
+      title: '双人合盘 · 缘分契合 - 测测你们合不合',
       path: '/pages/hehun/hehun',
     };
   },

@@ -1,11 +1,7 @@
 {
-  "navigationBarTitleText": "合婚配对",
+  "navigationBarTitleText": "双人合盘",
   "backgroundColor": "#F5EFE1",
   "navigationBarBackgroundColor": "#F5EFE1",
   "navigationBarTextStyle": "black",
-  "usingComponents": {
-    "score-ring": "/components/score-ring/score-ring",
-    "skeleton": "/components/skeleton/skeleton",
-    "empty-state": "/components/empty-state/empty-state"
-  }
+  "usingComponents": {}
 }

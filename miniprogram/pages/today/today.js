@@ -316,6 +316,11 @@ Page({
     wx.navigateTo({ url: '/pages/jian_onboard/jian_onboard' });
   },
 
+  /* 双人合盘入口卡 → 合盘页（onLoad 自动回填我方默认命主） */
+  onYuanEntry() {
+    wx.navigateTo({ url: '/pages/hehun/hehun' });
+  },
+
   /* 原型 onTalk：进入夜话 */
   goChat() {
     wx.reLaunch({ url: '/pages/chat/chat' });

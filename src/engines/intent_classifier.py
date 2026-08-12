@@ -24,7 +24,7 @@ Given a user message, classify it into EXACTLY ONE of these intents:
 - "mianxiang" — 面相, face reading, 手相, palm reading, 看相
 - "qimen" — 奇门遁甲, strategic divination
 - "xingming" — 姓名学, name analysis, 起名, 改名
-- "hehun" — 合婚, relationship compatibility, 配对, 婚姻匹配
+- "hehun" — 合婚, relationship compatibility, 配对, 婚姻匹配, 双人合盘, 合盘, 八字合婚, 我和TA合不合, 看看我们配不配, 缘分契合
 - "dream" — 解梦, dream interpretation, 梦见
 - "calendar" — 今日运势, daily fortune calendar, 每日运势, 今日宜忌, 今天运气, 今日运程
 - "hourly" — 时辰运势, hourly fortune, 几点最好, 什么时候, 时运, 今天什么时候
@@ -37,6 +37,7 @@ Given a user message, classify it into EXACTLY ONE of these intents:
 3. If the message is purely emotional (焦虑, 难过, 开心, 纠结) with NO fortune-telling request → "free_chat".
 4. If the message mentions specific divination terms, use that intent.
 5. "看下命", "算一下", "运气怎么样" → "bazi" (these are colloquial ways to ask for fortune reading).
+6. If the message simultaneously refers to TWO people (我/我们 + 他/她/TA) AND the semantic is matching/compatibility/fate (合/配/缘分), → "hehun" (e.g. "我和TA合不合", "看看我们配不配", "我们俩缘分如何").
 
 Return ONLY JSON:
 {"intent": "<the classified intent>", "confidence": 0.0-1.0}

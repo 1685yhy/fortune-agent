@@ -771,6 +771,104 @@ function drawInkCard(data, canvas, callback) {
   lantern.src = '/assets/images/lantern.jpg';
 }
 
+/**
+ * 绘制双人缘笺分享卡（墨韵：宣纸底 · 墨字 · 双色印章 · 双人生辰）
+ * @param {Object} data - { birthA, birthB, score, levelLabel, quoteParts, sealChar }（服务端已脱敏）
+ * @param {Object} canvas - canvas 2d 节点
+ * @param {Function} callback - (tempFilePath)
+ * 隐私：data 全部为服务端脱敏数据（无时辰/出生地/姓名）
+ */
+function drawYuanCard(data, canvas, callback) {
+  const ctx = canvas.getContext('2d');
+  const W = 750, H = 1200;
+  const INK = '#3A2C1E', PAPER = '#F5EFE1', CINNABAR = '#A93A2C', DAIQING = '#3E5C4E';
+  const MUTED = '#6C5B45', LIGHT = '#9A8B71', FAINT = '#BBAE92';
+
+  // 1. 宣纸底 + 细框 + 顶线（复用 drawInkCard 底稿）
+  ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(58,44,30,.45)'; ctx.lineWidth = 4;
+  ctx.strokeRect(28, 28, W - 56, H - 56);
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(28, 54); ctx.lineTo(W - 28, 54); ctx.stroke();
+  ctx.textAlign = 'center';
+
+  // 2. 标题
+  ctx.fillStyle = INK;
+  ctx.font = '600 34px "PingFang SC", sans-serif';
+  ctx.fillText('双人合盘 · 缘分契合', W / 2, 120);
+
+  // 3. 双人生辰（脱敏）竖排两行
+  ctx.fillStyle = MUTED;
+  ctx.font = '28px "PingFang SC", sans-serif';
+  ctx.fillText(data.birthA || '', W / 2, 185);
+  ctx.fillText(data.birthB || '', W / 2, 235);
+
+  // 4. 契合分大字 + 等级
+  ctx.fillStyle = INK;
+  ctx.font = 'bold 96px "PingFang SC", sans-serif';
+  ctx.fillText(String(data.score || 0), W / 2, 400);
+  ctx.fillStyle = CINNABAR;
+  ctx.font = '26px "PingFang SC", sans-serif';
+  ctx.fillText('分', W / 2 + 58, 392);
+  ctx.fillStyle = CINNABAR;
+  ctx.font = '600 32px "PingFang SC", sans-serif';
+  ctx.fillText(data.levelLabel || '', W / 2, 452);
+
+  // 5. 菱形分隔
+  ctx.save();
+  ctx.translate(W / 2, 502);
+  ctx.rotate(Math.PI / 4);
+  ctx.fillStyle = CINNABAR;
+  ctx.fillRect(-7, -7, 14, 14);
+  ctx.restore();
+
+  // 6. 缘语两行（楷体，可晒体；主句一行 + 后缀/悬念一行，自动换行）
+  const qp = data.quoteParts || {};
+  const line1 = qp.main || '';
+  const line2 = [qp.suffix, qp.cliffhanger].filter(Boolean).join('，');
+  ctx.fillStyle = INK;
+  ctx.font = '40px "Kaiti SC", "STKaiti", serif';
+  let wrapY = wrapText(ctx, line1, 80, 580, W - 160, 52);
+  if (line2) wrapY = wrapText(ctx, line2, 80, wrapY + 22, W - 160, 52);
+
+  // 7. 双色印章（右下）：朱砂「缘」印 + 黛青生肖印（如「午马」，视觉隐喻双人）
+  const sy = 880, ss = 96;
+  roundRect(ctx, 470, sy, ss, ss, 8);
+  ctx.fillStyle = CINNABAR; ctx.fill();
+  ctx.fillStyle = '#FBF6E8';
+  ctx.font = '56px "Kaiti SC", serif';
+  ctx.fillText('缘', 470 + ss / 2, sy + 70);
+  roundRect(ctx, 590, sy, ss, ss, 8);
+  ctx.fillStyle = DAIQING; ctx.fill();
+  ctx.fillStyle = '#FBF6E8';
+  ctx.font = '44px "Kaiti SC", serif';
+  ctx.fillText(data.sealChar || '缘', 590 + ss / 2, sy + 68);
+
+  // 8. 品牌落款（左下）+ 小程序码占位
+  ctx.textAlign = 'left';
+  ctx.fillStyle = INK;
+  ctx.font = '600 30px "PingFang SC", sans-serif';
+  ctx.fillText('易理明灯', 70, 940);
+  ctx.fillStyle = LIGHT;
+  ctx.font = '22px "PingFang SC", sans-serif';
+  ctx.fillText('三秒内，为你掌灯', 70, 985);
+  drawQRPlaceholder(ctx, 560, 1020, 100);
+
+  // 9. 底部小字
+  ctx.textAlign = 'center';
+  ctx.fillStyle = FAINT;
+  ctx.font = '20px "PingFang SC", sans-serif';
+  ctx.fillText('签文只作心意，不作断言', W / 2, H - 40);
+
+  // 10. 导出 2x PNG（同 drawInkCard）
+  wx.canvasToTempFilePath({
+    canvas, width: W, height: H, destWidth: W * 2, destHeight: H * 2,
+    fileType: 'png', quality: 1,
+    success: (res) => { if (callback) callback(res.tempFilePath); },
+    fail: (err) => { console.error('[ShareCard] yuan card error:', err); if (callback) callback(null); },
+  });
+}
+
 // ---- 辅助函数 ----
 
 function getScoreLevelText(level) {
@@ -911,6 +1009,7 @@ module.exports = {
   drawLoveCard,
   drawReportCard,
   drawInkCard,
+  drawYuanCard,
   saveCardToAlbum,
   shareCard,
 };

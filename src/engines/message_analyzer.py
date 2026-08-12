@@ -56,12 +56,14 @@ Rules:
 - Pure birth statement (year-month-day, NO question/intent words) = "bazi"
 - Birth date PLUS a real question about the person = classify by the question's topic, NOT just "bazi" (e.g. "1990年5月20日…哪个公司最配" = "career", "1990年5月20日…今年运势" = "bazi")
 - "career" 事业适配: 职业选择/公司选择/行业适配/跳槽/择业/事业发展类问题（哪个公司/行业适合我、适合什么工作、事业怎么发展、跳槽好不好、去哪个城市发展）
+- "hehun" 双人合盘/合婚: 双人合盘/合盘/八字合婚/我和TA合不合/看看我们配不配/缘分契合/婚姻匹配/合婚配对/我们俩缘分（合盘语境）→ "hehun"
 - Dream description (梦见/梦到/做梦) = "dream"
 - Daily fortune / today's luck requests (今日运势/今天运气/今日宜忌/今天宜忌/今日运程/今日日历/今天适合) = "calendar"
 - Life advice / guidance requests (建议/怎么办/有什么建议/帮我分析/我该怎么做/给我点建议) = "advisor"
 - Pure emotional expression with NO fortune-telling request = "free_chat"
 - Colloquial fortune-telling: "看下命""算一下""运气怎么样" = "bazi"
 - 区分规则：问"哪个公司/行业适合我"→career；问"我像哪个名人/明星"→按普通命理咨询（bazi/advisor）处理，不要承诺名人对照
+- 双人合盘规则：消息同时指向两人（我/我们 + 他/她/TA）且语义为「合/配/缘分」→ "hehun"（如"我和TA合不合""看看我们配不配""我们俩缘分如何"）
 
 ## 4. Career 意图判定要点
 - 只要问题指向职业/公司/行业/事业适配（哪怕附带出生日期），必须判为 "career"
@@ -104,7 +106,7 @@ class MessageAnalyzer:
     # （可能问事业/公司适配等），即使有生日也必须走 AI 分类，
     # 否则"1990年5月20日…哪个公司最配"会被掐成纯排盘 bazi
     INTENT_HINT_PATTERN = re.compile(
-        r'适合|发展|工作|公司|职业|事业|配|像谁|相似|去哪|怎么样|好吗|能|会'
+        r'适合|发展|工作|公司|职业|事业|配|像谁|相似|去哪|怎么样|好吗|能|会|合|缘'
     )
 
     def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):

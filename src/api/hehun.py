@@ -3,6 +3,7 @@
 提供 RESTful POST /api/hehun 接口，接收双方八字信息，返回合婚分析结果。
 """
 
+from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -156,6 +157,18 @@ def _resolve_person(data: Optional[BaziInput]) -> BaziInput:
     day = data.birthDay if data.birthDay is not None else data.day
     if year is None or month is None or day is None:
         raise HTTPException(status_code=400, detail="出生年/月/日不能为空")
+    year, month, day = int(year), int(month), int(day)
+    # 越界生辰 → 400（此前漏检直通引擎，非法值触发排盘异常 → 500）
+    if not (1900 <= year <= 2100):
+        raise HTTPException(status_code=400, detail="出生年份须在 1900-2100 之间")
+    if not (1 <= month <= 12):
+        raise HTTPException(status_code=400, detail="出生月份须在 1-12 之间")
+    if not (1 <= day <= 31):
+        raise HTTPException(status_code=400, detail="出生日期须在 1-31 之间")
+    try:
+        date(year, month, day)  # 兜底真实日历（如 2 月 30 日）→ 400
+    except ValueError:
+        raise HTTPException(status_code=400, detail="出生日期无效")
     hour = data.birthHour if data.birthHour is not None else data.hour
     return BaziInput(
         year=int(year), month=int(month), day=int(day),

@@ -42,6 +42,20 @@ function isJianEntry(m) {
   return !!(m && m.type === 'jian');
 }
 
+/* Task 8 对话内引导卡：识别 AI 回复行内的页面路径 → 气泡末尾渲染跳转按钮
+   （当前入口为 /pages/hehun/hehun，按钮文案随路径区分；无路径保持纯文本渲染不破坏现有气泡） */
+const NAV_PATH_RE = /\/pages\/[a-z_]+\/[a-z_]+/;
+function navFor(content) {
+  const c = String(content || '');
+  const m = NAV_PATH_RE.exec(c);
+  if (!m) return null;
+  const path = m[0];
+  return {
+    path,
+    label: path.indexOf('/hehun/') !== -1 ? '进入双人合盘 →' : '进入页面 →',
+  };
+}
+
 /* v1.2 表情反应可选集（8 个常用） */
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🙏', '✨'];
 
@@ -264,14 +278,19 @@ Page({
         out[i] = Object.assign({}, m, {
           mdNodes: cached.mdNodes,
           reactions: reactions[m.id] || [],
+          navPath: cached.navPath,
+          navLabel: cached.navLabel,
         });
         continue;
       }
       const mdNodes = md.parseMd(c);
-      this._segCache = { id: m.id, content: c, mdNodes };
+      const nav = (m.role === 'ai' && !m.error) ? navFor(c) : null;
+      this._segCache = { id: m.id, content: c, mdNodes, navPath: nav && nav.path, navLabel: nav && nav.label };
       out[i] = Object.assign({}, m, {
         mdNodes,
         reactions: reactions[m.id] || [],
+        navPath: nav && nav.path,
+        navLabel: nav && nav.label,
       });
     }
     return out;
@@ -663,6 +682,17 @@ Page({
     const text = (e.currentTarget.dataset.text || '').trim();
     if (!text) return;
     this._send(text);
+  },
+
+  /* ═══ Task 8 对话内引导卡跳转：识别到的 /pages/ 路径 → 跳转（hehun 页 onLoad 自动回填我方） ═══ */
+
+  onNavBtnTap(e) {
+    const url = (e.currentTarget.dataset.url || '').trim();
+    if (!url) {
+      wx.showToast({ title: '页面暂不可用', icon: 'none' });
+      return;
+    }
+    wx.navigateTo({ url });
   },
 
   /* ═══ v1.2 代码块一键复制（墨韵代码块头部「复制」钮） ═══ */
