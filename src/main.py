@@ -83,6 +83,7 @@ session_dao = None
 _push_task = None  # 后台推送任务
 _precompute_task = None  # Step 4: 每日预计算任务
 _jian_precompute_task = None  # Task 6: 晨笺每日内容预生成任务
+_night_lamp_task = None  # Task 4: 灯语 22:30 预生成任务
 
 # Security globals
 security_rate_limiter = None
@@ -231,6 +232,56 @@ def _precompute_jian_for(date_str: str) -> dict:
     return content
 
 
+async def _night_lamp_precompute():
+    """Task 4: 每小时检查,22:30-23:30 窗口预生成当日灯语(订阅用户,限速)。"""
+    while True:
+        try:
+            now = datetime.now(timezone(timedelta(hours=8)))
+            hm = now.strftime("%H:%M")
+            if "22:30" <= hm <= "23:30":
+                _prewarm_night_lamps(now.strftime("%Y-%m-%d"))
+        except Exception as e:
+            logger.error("灯语预生成异常: %s", e)
+        await asyncio.sleep(3600)
+
+
+def _prewarm_night_lamps(date_str: str, limit: int = 50) -> dict:
+    """为已开启晚安推送的订阅用户预生成灯语(会员才合成语音,防 TTS 成本滥用)。"""
+    from src.storage.dao import get_conn
+    from src.storage.jian_dao import JianPrefDAO
+    from src.storage.night_dao import NightPrefDAO
+    from src.storage.lamp_dao import LampDAO
+    from src.storage.session_dao import SessionDAO
+    from src.storage.member_dao import MemberDAO
+    from src.engines.night_soliloquy import build_soliloquy, synth_lamp_audio
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT user_id FROM jian_prefs WHERE night_enabled=1 AND bound_status='bound' LIMIT ?",
+        (limit,)).fetchall()
+    stats = {"total": len(rows), "ok": 0, "skipped": 0, "failed": 0}
+    ldao, pdao = LampDAO(conn), NightPrefDAO(conn)
+    sdao = SessionDAO(str(load_settings().db_path))
+    mdao = MemberDAO(str(load_settings().db_path))
+    for (uid,) in rows:
+        try:
+            if ldao.get_lamp(uid, date_str):
+                stats["skipped"] += 1
+                continue
+            prefs = pdao.get_pref(uid) or {}
+            result = build_soliloquy(uid, date_str, sdao,
+                                     whisper=bool(prefs.get("whisper_enabled", 1)))
+            audio = ""
+            if (mdao.get_membership(uid) or {}).get("plan", "free") != "free":
+                audio = synth_lamp_audio(result["text"])
+            ldao.upsert_lamp(uid, date_str, result["text"], audio)
+            stats["ok"] += 1
+        except Exception as e:
+            logger.warning("灯语预生成失败 uid=%s: %s", uid, e)
+            stats["failed"] += 1
+    logger.info("灯语预生成完成(%s): %s", date_str, stats)
+    return stats
+
+
 def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
     """按偏好时间下发:晨笺(kind=jian)或晚安(kind=night)。
 
@@ -343,7 +394,7 @@ async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
     global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, qimen_engine, xingming_engine, embedder, retriever, dao, llm, handler
     global _push_task, _precompute_task, member_dao, session_dao
-    global _jian_precompute_task
+    global _jian_precompute_task, _night_lamp_task
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
     # 配置日志：logs/app.log 按天轮转（保留 14 天），级别取 LOG_LEVEL（默认 INFO）
@@ -574,6 +625,10 @@ async def lifespan(app: FastAPI):
     _jian_precompute_task = asyncio.create_task(_daily_jian_precompute())
     logger.info("晨笺预生成 worker 已启动 (每小时检查,缓存 date:jian:*)")
 
+    # Task 4: 灯语 22:30 预生成 worker
+    _night_lamp_task = asyncio.create_task(_night_lamp_precompute())
+    logger.info("灯语预生成 worker 已启动 (22:30-23:30 预生成当日灯语)")
+
     logger.info("服务启动完成: 易理明灯 fortune-agent（端口由启动命令指定，路由全量就绪）")
 
     yield
@@ -584,6 +639,8 @@ async def lifespan(app: FastAPI):
         _precompute_task.cancel()
     if _jian_precompute_task and not _jian_precompute_task.done():
         _jian_precompute_task.cancel()
+    if _night_lamp_task and not _night_lamp_task.done():
+        _night_lamp_task.cancel()
 
 
 app = FastAPI(title="Fortune Agent", version="0.1.0", lifespan=lifespan)
