@@ -733,6 +733,10 @@ app.include_router(xuetang_router)           # /api/xuetang
 from .api.jian import router as jian_router
 app.include_router(jian_router)              # /api/jian/prefs|bind
 
+# 深夜陪伴 API（偏好读写 + 深夜状态，全接口 require_user 鉴权）
+from .api.night import router as night_router
+app.include_router(night_router)             # /api/night/prefs|status
+
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)
 # ──────────────────────────────────────────
