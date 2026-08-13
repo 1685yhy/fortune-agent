@@ -380,6 +380,8 @@
   font-size: 19rpx;                      /* 10px */
   color: var(--acc);                     /* 朱砂 ● 进行中 */
   animation: think-pulse 1.2s ease-in-out infinite;
+  /* Task 3：完成瞬间 ● → ✓ 过渡（点亮色渐变） */
+  transition: color .25s ease, opacity .25s ease;
 }
 .think-mark.ok {
   color: var(--acc-deep);
@@ -395,6 +397,15 @@
   font-size: 21rpx;                      /* 11px */
   letter-spacing: .1em;
   color: var(--ink-soft);
+}
+/* Task 3：已完成计数行（流式中折叠为一行，弱化显示 + 淡入） */
+.think-done-row {
+  opacity: .72;
+  animation: think-fade .3s ease;
+}
+@keyframes think-fade {
+  from { opacity: 0; }
+  to { opacity: .72; }
 }
 
 /* 打字机光标（流式中正文末尾墨点闪烁） */
@@ -883,8 +894,8 @@
 
 /* ═══ v1.2 气泡内容升级：Markdown 完整渲染（墨韵：代码块深墨底浅字 / 表格细线 / 引用左线） ═══ */
 
-/* 段落（正文继承 .jz-body 的字体/行高） */
-.md-p { margin: 0 0 10rpx; }
+/* 段落（正文继承 .jz-body 的字体/行高；break-all 防超长链接/连续字符穿泡） */
+.md-p { margin: 0 0 10rpx; word-break: break-all; }
 .md-p:last-child { margin-bottom: 0; }
 .md-it { display: inline; }
 .md-strong { font-weight: 700; color: var(--ink); }
@@ -896,8 +907,18 @@
   background: var(--acc-soft);
   border-radius: 4rpx;
   padding: 0 7rpx;
+  word-break: break-all;
 }
-.md-link { color: var(--acc); text-decoration: underline; }
+.md-link { color: var(--acc); text-decoration: underline; word-break: break-all; }
+/* 图片：气泡内直接显示（圆角墨框，最大宽度 ~100%，mode=widthFix 高度自适应） */
+.md-image {
+  display: block;
+  max-width: 100%;
+  border-radius: 10rpx;
+  border: 2rpx solid var(--line-med);
+  background: var(--paper-deep);
+  margin: 6rpx 0;
+}
 
 /* 标题（墨韵：不抢正文，行距收紧） */
 .md-h {

@@ -7,7 +7,7 @@ const api = require('./api');
 
 const STORAGE_KEY = 'ylm_chat_messages';
 const FLUSH_MS = 50;              // setData 合并节流：每 50ms 批量刷新一次（防卡）
-const CHUNK_GAP_TIMEOUT_S = 60;   // 60s 无 chunk → 判超时（与后端看门狗对齐）
+const CHUNK_GAP_TIMEOUT_S = 90;   // 90s 无 chunk → 判超时（Task 2：给后端排盘管线更长窗口）
 
 /* SSE 行解析：UTF-8 增量解码（小程序无 TextDecoder，用字节缓冲 + 逐行转码） */
 function _u8toString(bytes) {
@@ -425,6 +425,9 @@ class StreamHost {
       streaming: false,
       error: false,
       thinking: (msg.thinking || []).map((s) => ({ text: s.text, state: 'done' })),
+      // Task 3（思考步骤渐进展示）：全部完成后自动收起为一行
+      // （页面镜像派生 thinkLabel「思考完成 ✓ 已生成回复」，点开展开全部历史）
+      thinkCollapsed: true,
     });
     this.streaming = false;
     this.typing = false;
@@ -467,8 +470,10 @@ class StreamHost {
     if (!msg) return;
     const hasPartial = !!(msg.content && msg.content.trim());
 
-    // 真机保护：流式未产出任何内容（非 200 / 异常 / 超时 / 无 chunk）→ 自动回退普通请求
-    if (!hasPartial && !this.gotData && !this.fallbackStarted) {
+    // 真机保护：流式未产出任何可见内容（非 200 / 异常 / 超时 / 无 chunk）→ 静默回退普通请求
+    // Task 2 回退静默化：thinking/tool 事件不算可见输出——只要无正文就静默回退
+    // （不显示错误态、不打断）；仅当回退也失败时才进入下方错误态 + 重试钮
+    if (!hasPartial && !this.fallbackStarted) {
       this.fallbackStarted = true;
       try {
         const res = await api.chat(this.curText || '');
@@ -483,6 +488,8 @@ class StreamHost {
           streaming: false,
           error: false,
           thinking: (cur.thinking || []).map((s) => ({ text: s.text, state: 'done' })),
+          // 回退成功 = 完成态：同样自动收起为一行（thinkLabel 派生「思考完成」）
+          thinkCollapsed: true,
         });
         this.streaming = false;
         this.typing = false;
@@ -532,7 +539,7 @@ class StreamHost {
           try { this.task.abort(); } catch (e) { /* ignore */ }
           this.task = null;
         }
-        this._onError(new Error('回复超时（60 秒无新内容）'));
+        this._onError(new Error('回复超时（90 秒无新内容）'));
       }
     }, CHUNK_GAP_TIMEOUT_S * 1000);
   }

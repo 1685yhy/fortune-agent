@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Optional, Tuple, Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ from src.storage.member_dao import MemberDAO
 from src.storage.conversation_memory import ConversationMemory
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
-from src.memory.user_memory import UserMemory
+from src.memory.user_memory import UserMemory, format_birth_line
 # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除，见 src/engines/similarity.py 注释）
 from .formatter import split_long_message, format_error, format_loading
 from src.reading_version import get_version_footer
@@ -82,22 +83,10 @@ _TOOL_EVENT_LABELS = {
     "择日": "正在择吉日…",
 }
 
-# v8 阶段 3（模式二·思考路径）：意图 → 1-3 步思考文案（无工具的简单聊天不发）
-INTENT_THINKING_STEPS = {
-    "bazi": ["我在看你的八字…", "对照古籍分析五行流年…", "结合你的情况在整理…"],
-    "ziwei": ["我在排紫微斗数盘…", "逐宫推演十二宫…"],
-    "liuyao": ["我在起卦…", "推演卦象变化…"],
-    "qimen": ["我在起奇门局…", "推演九宫格局…"],
-    "fengshui": ["我在勘察风水格局…", "结合五行方位分析…"],
-    "mianxiang": ["我在端详你的面相…", "结合五宫五行分析…"],
-    "zeri": ["我在翻黄历择吉…", "比对吉凶宜忌…"],
-    "hehun": ["我在比对两人命盘…", "推演五行互补…"],
-    "xingming": ["我在拆解姓名笔画五行…", "推演三才配置…"],
-    "dream": ["我在翻阅梦兆典籍…", "对照古籍解梦…"],
-    "calendar": ["我在查今日星象…"],
-    "hourly": ["我在推演时辰运势…"],
-    "career": ["我在看你的八字…", "对照十神五行分析行业适配…", "结合你的情况在整理…"],
-}
+# Task 3（思考步骤渐进展示）：思考步骤文案已迁移到各 _do_*/_handle_*
+# 的真实工作里程碑处（见各处的 _emit_stream_event 调用）——首条在开工时
+# 发出（用户有"开始处理"反馈），之后每完成一步真实工作推进一步。
+# 不再有 INTENT_THINKING_STEPS 预置字典（旧实现：开工前一个事件循环全部打光）。
 # FAISS 语义检索（生产主路径）：276 万条古籍向量库（bge-m3 1024 维，
 # inner_product）。检索工具只走 FAISS；不可用/无结果时走 LLM 自然对话兜底，
 # 不降级关键词检索（见 _tool_search）。
@@ -425,6 +414,12 @@ class MessageHandler:
         self._analysis_facts: dict = {}
         # Task 5: user_id -> deepNight(倾诉临时模式：不落 L2/L3 + temp 消息 24h 硬清理)
         self._deep_night: dict = {}
+        # Task 2 等待时长优化：秒回安抚预生成线程池（与意图分析并行发出；
+        # 进程生命周期共享，不随请求销毁）；user_id -> Future 存本轮预生成任务
+        import concurrent.futures
+        self._pregen_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="pregen")
+        self._pregen_instant: dict = {}
 
         # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除）：
         # 不再初始化 SimilarityEngine（原 data/wenzhen_charts.db 44k 命例对照），
@@ -683,6 +678,86 @@ class MessageHandler:
                                emotion_label=None, intent=None)
 
     # ============================================================
+    # Task 2 等待时长优化：秒回安抚预生成（与意图分析并行发出）
+    # ============================================================
+
+    def _quick_intent(self, msg: str) -> Optional[str]:
+        """便宜的意图判定：MessageAnalyzer fast path 同规则（纯正则，无 LLM 调用）。
+
+        仅纯生日陈述（含出生日期、无意图提示词）→ "bazi"；其余 → None
+        （真实意图由主流程 _analyze_message 判定，这里不发起任何调用）。
+        用于预生成门控：hehun/ziwei/自由聊天等消息即使含完整出生日期，
+        也不提交预生成，避免产生被丢弃的 engine.calculate + flash 调用。
+        """
+        try:
+            if (MessageAnalyzer.BIRTH_DATE_PATTERN.search(msg)
+                    and not MessageAnalyzer.INTENT_HINT_PATTERN.search(msg)):
+                return "bazi"
+        except Exception:
+            pass
+        return None
+
+    def _start_pregen_instant(self, msg: str):
+        """消息含完整出生信息且意图为排盘（bazi）→ 排盘 + 秒回安抚提交后台线程。
+
+        返回 Future（_do_bazi_analysis 消费）；非排盘意图/无出生信息/启动失败 → None。
+        约束：不改变消息顺序与内容语义——秒回 LLM 调用仍先于主分析发出，
+        只是准备阶段与意图分析重叠执行（一轮省 20-30s）。
+
+        Task 2 终审修复：提交前先用 _quick_intent（MessageAnalyzer fast path，
+        无 LLM 调用）判定意图——仅排盘类（bazi）才预生成；含意图提示词的
+        hehun/ziwei/自由聊天等消息直接跳过（不再产生被丢弃的调用）。
+        """
+        try:
+            # 排盘意图门控：fast path 未判 bazi（含意图词/无出生日期）→ 跳过
+            if self._quick_intent(msg) != "bazi":
+                return None
+            parsed = self._extract_bazi_info(msg)
+            if not parsed:
+                return None
+            year, month, day, hour, minute, city, gender = parsed
+            return self._pregen_pool.submit(
+                self._pregen_instant_worker,
+                year, month, day, hour, minute, city, gender,
+            )
+        except Exception:
+            logger.warning("秒回预生成启动失败（回退同步生成）", exc_info=True)
+            return None
+
+    def _pregen_instant_worker(self, year, month, day, hour, minute,
+                               city, gender) -> str:
+        """后台线程：排盘 + 秒回安抚生成（与意图分析重叠执行）。
+
+        线程安全：engine.calculate 为确定性本地计算（无共享可变状态）；
+        _gen_instant_reply 仅做只读访问 + LLM 调用（httpx 线程安全）。
+        """
+        try:
+            result = self.engine.calculate(year, month, day, hour, minute,
+                                           city, gender)
+            return self._gen_instant_reply(result)
+        except Exception as e:
+            logger.warning("预生成失败: %s", e)
+            return ""
+
+    def _consume_pregen_instant(self, user_id: str) -> Optional[str]:
+        """取预生成的秒回安抚；未就绪/失败 → None（调用方同步兜底，行为与旧版一致）。
+
+        Task 2 终审修复：有限等待 0.5s——worker 在途且 0.5s 内就绪时优先消费
+        在途结果，避免主线程重复发 flash（一轮 2 次 LLM 调用）；超时/异常 →
+        None 走同步兜底。绝不阻塞主流程超过 0.5s。
+        """
+        import concurrent.futures
+        try:
+            future = self._pregen_instant.pop(user_id, None)
+            if future is None:
+                return None
+            return future.result(timeout=0.5)
+        except concurrent.futures.TimeoutError:
+            return None
+        except Exception:
+            return None
+
+    # ============================================================
     # AI 原生（Phase 1）— <tool_call> 工具调用循环（方案 3.2/3.3）
     # ============================================================
 
@@ -732,10 +807,17 @@ class MessageHandler:
         stream_cb（v8 阶段 3）：工具执行前回调 ("tool", {"text": ...}) 事件
         （前端思考路径逐步点亮），后续 LLM 调用走真实流式。
         """
+        # Task 2 阶段计时：整段工具循环（工具执行 + LLM 调用），统一格式便于 grep；
+        # 空回复早退也输出 timing（计时覆盖异常/早退路径，宁多勿缺）
+        _t0 = time.monotonic()
         if not reply:
+            logger.info("[timing] stage=tool_loop duration=%.1fs",
+                        time.monotonic() - _t0)
             return reply
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         if not api_key:
+            logger.info("[timing] stage=tool_loop duration=%.1fs",
+                        time.monotonic() - _t0)
             return strip_tool_calls(reply) or reply
 
         history = None
@@ -839,6 +921,8 @@ class MessageHandler:
         cleaned = strip_tool_calls(reply)
         # 阶段 5·回答后引用校验（方案 §3.2 ③）：不相关 [n] 剔除，来源收窄
         cleaned = self._verify_and_keep(user_id, cleaned, msg)
+        logger.info("[timing] stage=tool_loop duration=%.1fs",
+                    time.monotonic() - _t0)
         return cleaned or reply
 
     # ============================================================
@@ -997,6 +1081,7 @@ class MessageHandler:
             + _web_tool_guide_line() + "\n"
             "系统会执行后把结果交回，你再继续完成回复；\n"
             "5. 若原结果本身已是清晰的列表/卡片格式（如宜忌、时辰表、排盘卡片），"
+            "宜忌/时辰表等表格用 markdown 表格格式呈现、不要用代码块包裹，"
             "保持该结构完整，不要合并或删减条目，仅补充口语化的开头和结尾；\n"
             "6. 直接输出给用户的回复文本，不要解释过程。"
             + (("\n\n" + extra_hint) if extra_hint else "")
@@ -1020,6 +1105,7 @@ class MessageHandler:
                     " 联网查证后再继续）"})
         else:
             messages.append({"role": "user", "content": msg})
+        _t0 = time.monotonic()
         try:
             from src.llm.client import deepseek_anthropic_completion
             polished = deepseek_anthropic_completion(
@@ -1027,7 +1113,12 @@ class MessageHandler:
                 max_tokens=2000, temperature=0.7, timeout=60.0,
                 stream_cb=stream_cb,
             )
+            logger.info("[timing] stage=polish duration=%.1fs",
+                        time.monotonic() - _t0)
         except Exception:
+            # 计时覆盖异常路径：失败也要有 stage=polish 输出（宁多勿缺）
+            logger.info("[timing] stage=polish duration=%.1fs",
+                        time.monotonic() - _t0)
             return draft  # LLM 失败 → 静默降级返回草稿
         if not polished:
             return draft
@@ -1062,13 +1153,25 @@ class MessageHandler:
             return ToolResult("排盘", False, "「排盘」工具暂不可用，请直接与用户聊天。")
         parsed = self._extract_bazi_info(params)
         if parsed is None:
-            return ToolResult(
-                "排盘", False,
-                "缺少出生信息，无法排盘。请向用户自然询问：出生年月日时、出生地点、性别"
-                "（性别影响大运走向，尽量问到）。用户若不知道准确时辰，"
-                "可以说明会按午时（中午11-13点）排盘参考。",
-                needs_info=True,
-            )
+            # Task 1 排盘档案打通：解析失败先试档案（bazi_info + persons 兜底）填参，
+            # 年/月/日至少齐才排盘；hour/minute 缺省 0（与 _extract_bazi_info 缺时辰一致）
+            profile = self._get_user_birth_profile(user_id)
+            if profile and profile.get("year") and profile.get("month") and profile.get("day"):
+                parsed = (
+                    profile.get("year"), profile.get("month"), profile.get("day"),
+                    profile.get("hour") if profile.get("hour") is not None else 0,
+                    profile.get("minute") if profile.get("minute") is not None else 0,
+                    profile.get("city") or "",
+                    profile.get("gender") or "unknown",
+                )
+            else:
+                return ToolResult(
+                    "排盘", False,
+                    "缺少出生信息，无法排盘。请向用户自然询问：出生年月日时、出生地点、性别"
+                    "（性别影响大运走向，尽量问到）。用户若不知道准确时辰，"
+                    "可以说明会按午时（中午11-13点）排盘参考。",
+                    needs_info=True,
+                )
         year, month, day, hour, minute, city, gender = parsed
         try:
             result = self.engine.calculate(year, month, day, hour, minute, city, gender)
@@ -1447,12 +1550,16 @@ class MessageHandler:
         saved = None
         if self.dao:
             try:
-                saved = self.dao.get_user_bazi(user_id)
+                saved = self._get_user_birth_profile(user_id)
             except Exception:
                 saved = None
         if saved and saved.get("bazi"):
             bazi_str = " ".join(str(p) for p in saved["bazi"][:4])
             facts.append(f"用户八字：{bazi_str}（已保存，别再问出生信息）")
+        # Task 1 排盘档案打通：有原始出生字段 → 补出生行（LLM 工具路径可直接填参）
+        birth_line = format_birth_line(saved)
+        if birth_line:
+            facts.append(birth_line)
         if self.memory_system:
             try:
                 profile = self.memory_system.get_profile_summary(user_id)
@@ -1581,12 +1688,16 @@ class MessageHandler:
         facts = []
         if self.dao:
             try:
-                saved = self.dao.get_user_bazi(user_id)
+                saved = self._get_user_birth_profile(user_id)
             except Exception:
                 saved = None
             if saved and saved.get("bazi"):
                 facts.append(f"用户八字：{' '.join(str(p) for p in saved['bazi'][:4])}"
                              "（已保存，别再问出生信息）")
+            # Task 1 排盘档案打通：有原始出生字段 → 补出生行（LLM 工具路径可直接填参）
+            birth_line = format_birth_line(saved)
+            if birth_line:
+                facts.append(birth_line)
         if self.memory_system:
             try:
                 facts.extend(self.memory_system.get_key_facts(user_id))
@@ -1828,8 +1939,15 @@ class MessageHandler:
                 self.session_dao.add_message(user_id, "assistant", upgrade_msg, temp=deep)
             return upgrade_msg
 
-        # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)# Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
+        # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
+        # Task 2 等待时长优化：消息含完整出生信息时，把「排盘 + 秒回安抚」提交到
+        # 后台线程与意图分析并行发出（二者无依赖，可重叠）；bazi/career 路由由
+        # _do_bazi_analysis 消费，其他路由静默丢弃（flash 成本低、无墙钟代价）。
+        self._pregen_instant[user_id] = self._start_pregen_instant(msg)
+        _t0 = time.monotonic()
         analysis = self._analyze_message(msg, user_id)
+        logger.info("[timing] stage=intent duration=%.1fs",
+                    time.monotonic() - _t0)
         # 阶段 5（方案 v5）：记录本轮理解出的关键事实（subject=other 时排盘不写本人画像）
         self._analysis_facts[user_id] = analysis.facts or {}
         # P2 System1 每轮提取钩子（阶段 5）：facts → L2 事实条目（去重入库）
@@ -1848,15 +1966,9 @@ class MessageHandler:
                         user_id, getattr(analysis, "needs_search", False),
                         analysis_hint[:60].replace("\n", " "))
 
-        # v8 阶段 3（模式二·思考路径）：意图 → 逐步点亮（简单聊天无意图 → 不发）
-        if stream_cb is not None and analysis.intent:
-            steps = INTENT_THINKING_STEPS.get(analysis.intent)
-            if steps:
-                for s in steps:
-                    try:
-                        stream_cb("thinking", {"text": s})
-                    except Exception:
-                        pass
+        # Task 3（思考步骤渐进展示）：不再在此集中预发全部思考步骤——
+        # 各 _do_*/_handle_* 在真实工作里程碑处按进度发出（首条开工即发、
+        # 每完成一步真实工作推进一步）；简单聊天无意图不发（保持不变）。
 
         # Phase 3: Track mood in user memory（Task 5 deepNight：倾诉情绪不入长期记忆）
         if self.memory_system and analysis.emotion_label and not deep:
@@ -2302,21 +2414,72 @@ class MessageHandler:
         """
         return self._handle_bazi(msg, user_id, stream_cb=stream_cb)
 
+    def _get_user_birth_profile(self, user_id: str) -> Optional[dict]:
+        """获取用户出生信息档案（Task 1 排盘档案打通，单向只读）。
+
+        ① users.bazi_info 非空且有 year 键 → 原样返回；
+        ② 否则查 persons 表主档案：默认档案有出生数据 → 保持默认优先
+           （默认通常即用户本人）；默认无出生数据 → 取最近更新
+           （updated_at 降序）的有出生数据的档案（Brief 要求）。
+           把 birth_year/birth_month/birth_day/birth_hour/birth_minute/gender/city
+           映射为 {year, month, day, hour, minute, city, gender}；
+        ③ 都没有 → None。
+
+        不回写 persons、不新增写路径（单向打通）。
+        """
+        if not self.dao:
+            return None
+        try:
+            bazi = self.dao.get_user_bazi(user_id)
+        except Exception:
+            bazi = None
+        if bazi and bazi.get("year"):
+            return bazi
+        # ② persons 档案兜底（db_path 访问已置于 self.dao 守卫内）
+        try:
+            from src.storage.person_dao import PersonDAO
+            pdao = PersonDAO(self.dao.db_path)
+            persons = pdao.list_persons(user_id)
+            default = next((p for p in persons if p.get("is_default")), None)
+            if default and default.get("birth_year"):
+                pick = default
+            else:
+                candidates = [p for p in persons if p.get("birth_year")]
+                if not candidates:
+                    return None
+                # 选最近更新的有出生数据的档案（updated_at 降序取最大者）
+                pick = max(candidates, key=lambda p: p.get("updated_at") or "")
+            return {
+                "year": pick.get("birth_year"),
+                "month": pick.get("birth_month"),
+                "day": pick.get("birth_day"),
+                "hour": pick.get("birth_hour"),
+                "minute": pick.get("birth_minute"),
+                "city": pick.get("city") or "",
+                "gender": pick.get("gender") or "unknown",
+            }
+        except Exception:
+            pass
+        return None
+
     def _handle_bazi(self, msg: str, user_id: str,
                      stream_cb: Optional[Callable] = None) -> str:
         """处理八字请求"""
         parsed = self._extract_bazi_info(msg)
 
         if parsed is None:
-            # 检查是否有已保存的信息 — 自动复用
-            saved = self.dao.get_user_bazi(user_id)
-            if saved:
+            # 检查是否有已保存的信息 — 自动复用（bazi_info + persons 档案兜底）
+            saved = self._get_user_birth_profile(user_id)
+            if saved and saved.get("year") and saved.get("month") and saved.get("day"):
                 # AI generates a brief acknowledgment that we're using saved info
                 ack = self._gen_reuse_acknowledgment(msg, saved)
                 result = self._do_bazi_analysis(
-                    saved["year"], saved["month"], saved["day"],
-                    saved["hour"], saved["minute"], saved["city"],
-                    saved["gender"], msg, user_id, stream_cb=stream_cb,
+                    saved.get("year"), saved.get("month"), saved.get("day"),
+                    saved.get("hour") if saved.get("hour") is not None else 0,
+                    saved.get("minute") if saved.get("minute") is not None else 0,
+                    saved.get("city") or "",
+                    saved.get("gender") or "unknown",
+                    msg, user_id, stream_cb=stream_cb,
                 )
                 return ack + "\n\n" + result if ack else result
 
@@ -2463,7 +2626,10 @@ class MessageHandler:
         result = self.engine.calculate(year, month, day, hour, minute, city, gender)
 
         # 2. 秒回安抚（在LLM分析前生成，最终拼接到回复开头）
-        instant_reply = self._gen_instant_reply(result)
+        # Task 2：优先取并行预生成结果（意图分析期间已完成），未就绪则同步兜底
+        instant_reply = self._consume_pregen_instant(user_id)
+        if not instant_reply:
+            instant_reply = self._gen_instant_reply(result)
 
         # 3. 保存用户数据
         # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人档案（数据库层同步保护）
@@ -2549,31 +2715,38 @@ class MessageHandler:
 
         # Phase 2: Scenario-aware structured report
         scenario_info = self._route_by_scenario(question_with_gender, user_id)
-        if scenario_info:
-            from src.llm.report_prompts import STRUCTURED_REPORT_PROMPT, SCENARIO_FOCUS_PROMPTS
-            extra_prompt = STRUCTURED_REPORT_PROMPT
-            if pref_extra:
-                extra_prompt += "\n\n" + pref_extra
-            cat = scenario_info.get("category", "")
-            if cat in SCENARIO_FOCUS_PROMPTS:
-                extra_prompt += "\n\n" + SCENARIO_FOCUS_PROMPTS[cat]
-            # Inject scenario prompt template into the question
-            enhanced_question = (
-                scenario_info["prompt_template"]
-                + "\n\n用户的原始问题：\n"
-                + question
-            )
-            self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
-            analysis = self.llm.analyze(
-                result, refs, enhanced_question,
-                extra_system_prompt=extra_prompt,
-            )
-        else:
-            self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
-            analysis = self.llm.analyze(
-                result, refs, question_with_gender,
-                extra_system_prompt=pref_extra if pref_extra else None,
-            )
+        # Task 2 计时覆盖异常路径：analyze 抛异常也要有 stage=main_analysis 输出
+        # （宁多勿缺）——try/finally 保证成败都记录耗时
+        _t0 = time.monotonic()
+        try:
+            if scenario_info:
+                from src.llm.report_prompts import STRUCTURED_REPORT_PROMPT, SCENARIO_FOCUS_PROMPTS
+                extra_prompt = STRUCTURED_REPORT_PROMPT
+                if pref_extra:
+                    extra_prompt += "\n\n" + pref_extra
+                cat = scenario_info.get("category", "")
+                if cat in SCENARIO_FOCUS_PROMPTS:
+                    extra_prompt += "\n\n" + SCENARIO_FOCUS_PROMPTS[cat]
+                # Inject scenario prompt template into the question
+                enhanced_question = (
+                    scenario_info["prompt_template"]
+                    + "\n\n用户的原始问题：\n"
+                    + question
+                )
+                self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
+                analysis = self.llm.analyze(
+                    result, refs, enhanced_question,
+                    extra_system_prompt=extra_prompt,
+                )
+            else:
+                self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
+                analysis = self.llm.analyze(
+                    result, refs, question_with_gender,
+                    extra_system_prompt=pref_extra if pref_extra else None,
+                )
+        finally:
+            logger.info("[timing] stage=main_analysis duration=%.1fs",
+                        time.monotonic() - _t0)
 
         # 6. 生成命盘图片
         chart_url = ""
@@ -2873,7 +3046,10 @@ class MessageHandler:
         Uses a quick Flash call to find the most interesting aspect of the
         user's chart and craft a warm, unique opener. Runs in parallel with
         the deep Pro model analysis, so latency is hidden.
+
+        Task 2：无论同步生成还是预生成线程路径都记录本阶段实际耗时。
         """
+        _t0 = time.monotonic()
         try:
             bazi = getattr(result, "bazi", None)
             if not isinstance(bazi, (list, tuple)) or len(bazi) < 4:
@@ -2909,6 +3085,8 @@ class MessageHandler:
 
             text = self._quick_flash(prompt, max_tokens=150, temperature=0.8)
             if text:
+                logger.info("[timing] stage=instant duration=%.1fs",
+                            time.monotonic() - _t0)
                 return text
         except Exception:
             pass
@@ -2919,9 +3097,13 @@ class MessageHandler:
             dm = getattr(result, "day_master", "")
             if bazi and dm:
                 bazi_str = " ".join(str(p) for p in bazi[:4])
+                logger.info("[timing] stage=instant duration=%.1fs",
+                            time.monotonic() - _t0)
                 return f"命盘已排出【{bazi_str}】，日主{dm}。正在深度推演中~ 🌟"
         except Exception:
             pass
+        logger.info("[timing] stage=instant duration=%.1fs",
+                    time.monotonic() - _t0)
         return ""
 
     # ============================================================
@@ -2938,7 +3120,7 @@ class MessageHandler:
                 return self._do_ziwei_analysis(
                     saved["year"], saved["month"], saved["day"],
                     saved["hour"], saved["minute"], saved["city"],
-                    saved["gender"], msg, user_id,
+                    saved["gender"], msg, user_id, stream_cb=stream_cb,
                 )
 
             return """好的，请提供出生信息排紫微斗数命盘：
@@ -2952,16 +3134,21 @@ class MessageHandler:
         year, month, day, hour, minute, city, gender = parsed
         return self._do_ziwei_analysis(
             year, month, day, hour, minute, city, gender, msg, user_id,
+            stream_cb=stream_cb,
         )
 
     def _do_ziwei_analysis(
         self, year, month, day, hour, minute, city, gender, question, user_id,
+        stream_cb: Optional[Callable] = None,
     ) -> str:
         """执行紫微斗数分析"""
         try:
+            # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
+            self._emit_stream_event(stream_cb, "thinking", "我在排紫微斗数盘…")
             result = self.ziwei_engine.calculate(year, month, day, hour, minute, city, gender)
             self.dao.save_consultation(user_id, question, result, intent="ziwei")
             search_query = f"紫微斗数 {result.ming_gong} {question}"
+            self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
             refs = self.retriever.search(search_query, category="ziwei", top_k=15)
             if not refs:
                 refs = self.retriever.search(search_query, top_k=15)  # fallback: any category
@@ -2978,6 +3165,7 @@ class MessageHandler:
                 self._register_book_citations(user_id, refs, title="紫微 · 古籍参考")
             except Exception:
                 pass
+            self._emit_stream_event(stream_cb, "thinking", "逐宫推演十二宫…")
             analysis = self.llm.analyze(chart_str, refs, question)
 
             # 生成紫微斗数命盘图片
@@ -3036,13 +3224,17 @@ class MessageHandler:
         ])
         if not question:
             question = "一般运势"
-        return self._do_liuyao_analysis(question, msg, user_id)
+        return self._do_liuyao_analysis(question, msg, user_id, stream_cb=stream_cb)
 
-    def _do_liuyao_analysis(self, question: str, original_msg: str, user_id: str) -> str:
+    def _do_liuyao_analysis(self, question: str, original_msg: str, user_id: str,
+                            stream_cb: Optional[Callable] = None) -> str:
         """执行六爻占卜"""
         try:
+            # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
+            self._emit_stream_event(stream_cb, "thinking", "我在起卦…")
             result = self.liuyao_engine.cast(method="random", question=question)
             self.dao.save_consultation(user_id, original_msg, result, intent="liuyao")
+            self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
             refs = self.retriever.search(
                 f"六爻 {result.original_hexagram} {question}", category="yijing", top_k=15)
             if not refs:
@@ -3062,6 +3254,7 @@ class MessageHandler:
                 self._register_book_citations(user_id, refs, title="易经 · 古籍参考")
             except Exception:
                 pass
+            self._emit_stream_event(stream_cb, "thinking", "推演卦象变化…")
             analysis = self.llm.analyze(chart_str, refs, question)
             return analysis.response
         except Exception as e:
@@ -3114,13 +3307,17 @@ class MessageHandler:
 📅 房子建于哪一年？
 👤 您的出生年份和性别（用于命卦计算）"""
 
-        return self._do_fengshui_analysis(direction, birth_year, gender, msg, user_id)
+        return self._do_fengshui_analysis(direction, birth_year, gender, msg, user_id,
+                                          stream_cb=stream_cb)
 
     def _do_fengshui_analysis(
         self, direction, birth_year, gender, question, user_id,
+        stream_cb: Optional[Callable] = None,
     ) -> str:
         """执行风水分析"""
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
         # 1. 分析
+        self._emit_stream_event(stream_cb, "thinking", "我在勘察风水格局…")
         result = self.fengshui_engine.analyze(
             direction=direction,
             year_built=birth_year,
@@ -3133,6 +3330,7 @@ class MessageHandler:
 
         # 3. 检索古籍
         search_query = f"风水 {result.house_gua} {question}"
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(search_query, category="fengshui", top_k=15)
 
         # 阶段 5·来源体系（方案 §3.0）：风水分析 → 引擎来源；检索古籍 → book 来源
@@ -3150,6 +3348,7 @@ class MessageHandler:
         # 4. LLM分析（带错误处理）
         try:
             chart_str = self._format_fengshui_chart(result)
+            self._emit_stream_event(stream_cb, "thinking", "结合五行方位分析…")
             analysis = self.llm.analyze(chart_str, refs, question)
 
             # 生成风水九宫飞星图
@@ -3217,17 +3416,21 @@ class MessageHandler:
 👄 嘴唇：厚/薄、大小
 💡 示例：方脸，额头饱满，眼睛大而有神，鼻梁高挺，嘴唇厚实"""
 
-        return self._do_mianxiang_analysis(description, msg, user_id)
+        return self._do_mianxiang_analysis(description, msg, user_id, stream_cb=stream_cb)
 
-    def _do_mianxiang_analysis(self, description: str, original_msg: str, user_id: str) -> str:
+    def _do_mianxiang_analysis(self, description: str, original_msg: str, user_id: str,
+                               stream_cb: Optional[Callable] = None) -> str:
         """执行面相分析"""
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
         # 1. 面相分析
+        self._emit_stream_event(stream_cb, "thinking", "我在端详你的面相…")
         result = self.mianxiang_engine.analyze(description=description)
 
         # 2. 保存
         self.dao.save_consultation(user_id, original_msg, result, intent="mianxiang")
 
         # 3. 检索古籍
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(
             f"面相 {result.face_type} {description}",
             category="mianxiang", top_k=15,
@@ -3247,6 +3450,7 @@ class MessageHandler:
 
         # 4. LLM分析
         chart_str = self._format_mianxiang_chart(result)
+        self._emit_stream_event(stream_cb, "thinking", "结合五宫五行分析…")
         analysis = self.llm.analyze(chart_str, refs, original_msg)
 
         return analysis.response
@@ -3288,13 +3492,16 @@ class MessageHandler:
 💡 示例1：2026年8月15日适合结婚吗？
 💡 示例2：我要在2026年10月1日搬家，这天好吗？"""
 
-        return self._do_zeri_analysis(date_info, purpose, msg, user_id)
+        return self._do_zeri_analysis(date_info, purpose, msg, user_id, stream_cb=stream_cb)
 
-    def _do_zeri_analysis(self, date_info, purpose, question, user_id) -> str:
+    def _do_zeri_analysis(self, date_info, purpose, question, user_id,
+                          stream_cb: Optional[Callable] = None) -> str:
         """执行择日分析"""
         year, month, day = date_info
 
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
         # 1. 择日
+        self._emit_stream_event(stream_cb, "thinking", "我在翻黄历择吉…")
         result = self.zeri_engine.select(year, month, day, purpose=purpose)
 
         # 2. 保存
@@ -3302,6 +3509,7 @@ class MessageHandler:
 
         # 3. 检索古籍
         search_query = f"择日 {result.jianchu} {purpose or '吉日'}"
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(search_query, category="zeri", top_k=15)
 
         # 阶段 5·来源体系（方案 §3.0）：择日结果 → 引擎来源；检索古籍 → book 来源
@@ -3319,6 +3527,7 @@ class MessageHandler:
 
         # 4. LLM分析
         chart_str = self._format_zeri_chart(result, year, month, day)
+        self._emit_stream_event(stream_cb, "thinking", "比对吉凶宜忌…")
         analysis = self.llm.analyze(chart_str, refs, question)
 
         return analysis.response
@@ -3377,13 +3586,16 @@ class MessageHandler:
         if self.qimen_engine is None:
             return "⚠️ 奇门遁甲排盘功能暂时不可用，请稍后再试。"
 
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
         # 2. 排盘
+        self._emit_stream_event(stream_cb, "thinking", "我在起奇门局…")
         result = self.qimen_engine.calculate(year, month, day, hour)
 
         # 3. 格式化命盘
         chart_str = self.qimen_engine.print_chart(result)
 
         # 4. 检索古籍
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(f"奇门遁甲 {question}", category="qimen", top_k=15)
         if not refs:
             refs = self.retriever.search(f"奇门遁甲 {question}", top_k=15)  # fallback
@@ -3401,6 +3613,7 @@ class MessageHandler:
             pass
 
         # 5. LLM 用神分析
+        self._emit_stream_event(stream_cb, "thinking", "推演九宫格局…")
         analysis = self.llm.analyze(chart_str, refs, question)
 
         # 6. 组合回复
@@ -3460,7 +3673,9 @@ class MessageHandler:
         if any(w in msg for w in ["女", "女性", "姑娘", "女士"]):
             gender = "女"
 
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
         # 2. 引擎计算五格三才
+        self._emit_stream_event(stream_cb, "thinking", "我在拆解姓名笔画五行…")
         result = self.xingming_engine.analyze(surname, given_name, gender)
 
         # 3. 格式化为结构化字盘
@@ -3490,6 +3705,7 @@ class MessageHandler:
         chart_str = "\n".join(chart_lines)
 
         # 4. 检索古籍
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(f"姓名学 {name} {question}", category="xingming", top_k=15)
 
         # 阶段 5·来源体系（方案 §3.0）：姓名五格 → 引擎来源；检索古籍 → book 来源
@@ -3505,6 +3721,7 @@ class MessageHandler:
             pass
 
         # 5. LLM 生成叙事分析
+        self._emit_stream_event(stream_cb, "thinking", "推演三才配置…")
         analysis = self.llm.analyze(chart_str, refs, question)
 
         return analysis.response
@@ -3544,6 +3761,8 @@ class MessageHandler:
         if self.hehun_engine is None:
             return "⚠️ 合婚配对功能暂时不可用，请稍后再试。"
 
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
+        self._emit_stream_event(stream_cb, "thinking", "我在比对两人命盘…")
         result_a = self.engine.calculate(year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a or "男")
         result_b = self.engine.calculate(year_b, month_b, day_b, hour_b, minute_b, city_b, gender_b or "女")
 
@@ -3561,6 +3780,7 @@ class MessageHandler:
 日柱关系得分：{hehun_result.rizhu_score}/100 — {hehun_result.rizhu}
 综合评分：{hehun_result.score}/100"""
 
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(f"合婚 婚姻匹配 {shengxiao_a} {shengxiao_b}", category="hehun", top_k=15)
 
         # 阶段 5·来源体系（方案 §3.0）：合婚评分 → 引擎来源；检索古籍 → book 来源
@@ -3576,6 +3796,7 @@ class MessageHandler:
         except Exception:
             pass
 
+        self._emit_stream_event(stream_cb, "thinking", "推演五行互补…")
         analysis = self.llm.analyze(chart_str, refs, f"分析这对男女的婚姻匹配度，给出3条化解建议")
 
         return analysis.response
@@ -3882,7 +4103,9 @@ class MessageHandler:
             return "📅 日历服务暂时不可用，请稍后再试～"
 
         try:
+            # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
             # Daily calendar
+            self._emit_stream_event(stream_cb, "thinking", "我在查今日星象…")
             from src.engines.calendar import LuckyCalendar
             cal = LuckyCalendar(api_key)
             preferences = self._get_preference_hint(user_id)
@@ -3939,6 +4162,8 @@ class MessageHandler:
                     "告诉我你的出生日期，例如：1990年5月20日 下午3点 北京 男")
 
         try:
+            # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
+            self._emit_stream_event(stream_cb, "thinking", "我在推演时辰运势…")
             # Compute today's stem & branch
             from datetime import datetime, timezone, timedelta
             now = datetime.now(timezone(timedelta(hours=8)))

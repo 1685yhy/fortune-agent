@@ -68,23 +68,38 @@
     <view class="db-x" catchtap="dismissSaveBanner">✕</view>
   </view>
 
-  <scroll-view scroll-y class="msg-list" scroll-into-view="{{scrollInto}}" scroll-with-animation>
+  <!-- Task 5 滚动不拽回：bindscroll 记录用户滚动位置，上滑查看历史时流式自动滚不再拽回 -->
+  <scroll-view scroll-y class="msg-list" scroll-into-view="{{scrollInto}}" scroll-with-animation bindscroll="onScroll">
     <view class="msg-inner">
       <block wx:for="{{messages}}" wx:key="id">
         <view wx:if="{{item.role === 'ai'}}" class="jianzhu {{selectMsgId === item.id ? 'select-mode' : ''}}"
           bindlongpress="onBubbleLongPress" data-id="{{item.id}}" data-role="ai">
           <view class="jz-tag">{{item.tag}}</view>
-          <!-- v8 阶段 3：思考路径（模式二·元宝式小字，逐步点亮，可折叠） -->
+          <!-- Task 3 思考步骤渐进展示（模式二·元宝式小字，单步渐进点亮）：
+               流式中只渲染当前 doing 步（呼吸动画），已完成折叠为「已完成 N 步」计数行；
+               完成后自动收起为一行（thinkLabel），点开看全部历史步骤（✓ 逐个） -->
           <view wx:if="{{item.thinking && item.thinking.length}}" class="think-path {{item.thinkCollapsed ? 'fold' : ''}}" data-id="{{item.id}}" bindtap="toggleThink">
             <view class="think-row">
-              <text class="think-label">{{item.thinkCollapsed ? '已想通 · 点开' : '我在想…'}}</text>
+              <text class="think-label">{{item.thinkLabel}}</text>
               <text class="think-fold">{{item.thinkCollapsed ? '＋' : '－'}}</text>
             </view>
             <block wx:if="{{!item.thinkCollapsed}}">
-              <view class="think-item" wx:for="{{item.thinking}}" wx:key="index">
-                <text class="think-mark {{item.state === 'done' ? 'ok' : ''}}">{{item.state === 'done' ? '✓' : '●'}}</text>
-                <text class="think-text">{{item.text}}</text>
-              </view>
+              <block wx:if="{{item.streaming}}">
+                <view wx:if="{{item.thinkDone > 0}}" class="think-item think-done-row">
+                  <text class="think-mark ok">✓</text>
+                  <text class="think-text">已完成 {{item.thinkDone}} 步</text>
+                </view>
+                <view wx:if="{{item.thinkDoing}}" class="think-item">
+                  <text class="think-mark">●</text>
+                  <text class="think-text">{{item.thinkDoing}}</text>
+                </view>
+              </block>
+              <block wx:else>
+                <view class="think-item" wx:for="{{item.thinking}}" wx:key="index">
+                  <text class="think-mark {{item.state === 'done' ? 'ok' : ''}}">{{item.state === 'done' ? '✓' : '●'}}</text>
+                  <text class="think-text">{{item.text}}</text>
+                </view>
+              </block>
             </block>
           </view>
           <!-- v1.2 正文：Markdown 节点树渲染（md-block 模板逐节点 view/text，墨韵样式）；
@@ -373,9 +388,11 @@
         <template is="md-inline" data="{{node: it, msgId: msgId, sel: sel}}" />
       </text>
       <text wx:elif="{{it.t === 'code'}}" selectable="{{sel}}" class="md-icode">{{it.s}}</text>
-      <text wx:elif="{{it.t === 'link'}}" selectable="{{sel}}" class="md-link">
+      <text wx:elif="{{it.t === 'link'}}" selectable="{{sel}}" class="md-link" data-code="{{it.url}}" bindtap="copyCode">
         <template is="md-inline" data="{{node: it, msgId: msgId, sel: sel}}" />
       </text>
+      <!-- 图片：气泡内直接显示（圆角墨框、最大宽 100%、widthFix 高度自适应；长按出系统保存菜单） -->
+      <image wx:elif="{{it.t === 'image'}}" class="md-image" src="{{it.url}}" mode="widthFix" show-menu-by-longpress="{{true}}" />
       <text wx:elif="{{it.t === 'cite'}}" class="cite-chip" data-msgid="{{msgId}}" data-idx="{{it.idx}}" bindtap="onCiteTap">{{it.idx > 0 ? '[' + it.idx + ']' : '🔗'}}</text>
     </block>
   </template>
