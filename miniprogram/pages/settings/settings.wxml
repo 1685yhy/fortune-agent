@@ -109,6 +109,37 @@
     </view>
     <view class="stj-note">每天早/晚一条运势推送 · 随时可改可关 · 未开启绝不推送</view>
 
+    <!-- 深夜陪伴(方案·灯下漫谈:时段档位/动效/挽留/灯语定时/私语/倾诉说明) -->
+    <view class="op-label"><text>深夜陪伴</text></view>
+    <view class="papercard me-list">
+      <view class="me-row row-line" hover-class="me-row-active" hover-stay-time="0">
+        <text class="me-label">深夜时段</text>
+        <picker range="{{nightPresetLabels}}" value="{{nightPresetIdx}}" bindchange="onNightPresetChange">
+          <view class="me-val">{{nightPresetLabels[nightPresetIdx]}} ▾</view>
+        </picker>
+      </view>
+      <view class="me-row row-line">
+        <text class="me-label">点灯动效</text>
+        <switch class="stj-switch" checked="{{nightEffectOn}}" disabled="{{nightLoading}}" bindchange="onNightEffectSwitch" color="#A93A2C" />
+      </view>
+      <view class="me-row row-line">
+        <text class="me-label">深夜挽留</text>
+        <switch class="stj-switch" checked="{{nightKeepOn}}" disabled="{{nightLoading}}" bindchange="onNightKeepSwitch" color="#A93A2C" />
+      </view>
+      <view class="me-row row-line">
+        <text class="me-label">灯语定时关闭</text>
+        <picker range="{{lampTimerOptions}}" value="{{lampTimerIdx}}" bindchange="onLampTimerChange">
+          <view class="me-val">{{lampTimerOptions[lampTimerIdx]}} 分钟 ▾</view>
+        </picker>
+      </view>
+      <view class="me-row">
+        <text class="me-label">私语(联动晨笺)</text>
+        <switch class="stj-switch" checked="{{whisperOn}}" disabled="{{nightLoading}}" bindchange="onNightWhisperSwitch" color="#A93A2C" />
+      </view>
+    </view>
+    <view class="stj-note">今夜说的话,天亮就忘。想让我记住的,点那里。</view>
+    <view class="stj-note">关闭私语后,灯语与晨笺只出宜忌金句。</view>
+
     <!-- 关于与隐私：灯下契约 / 秉烛之约 -->
     <view class="op-label"><text>关于与隐私</text></view>
     <view class="papercard me-list">

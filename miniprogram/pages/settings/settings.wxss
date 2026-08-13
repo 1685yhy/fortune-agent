@@ -64,6 +64,22 @@
 .mr-chev { display: flex; align-items: center; }
 .mr-chev .chev { width: 23rpx; height: 23rpx; }  /* 12px */
 
+/* ── 深夜陪伴（方案·灯下漫谈：时段档位/灯语定时 picker 行，标签+值行结构同 mr-* 系） ── */
+.me-label {
+  flex: 1;
+  font-family: var(--font-song);
+  font-size: 28rpx;                      /* 14.5px */
+  letter-spacing: .1em;
+  color: var(--ink);
+}
+.me-val {
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .14em;
+  color: var(--ink-faint);
+  flex-shrink: 0;
+}
+
 /* ── 未登录：微信登录整行入口（朱砂印章「登」+ 说明） ── */
 .st-login {
   display: flex;
