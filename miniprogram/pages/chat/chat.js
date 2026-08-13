@@ -463,13 +463,37 @@ Page({
      同时把本地表情反应合并进镜像（reactions）。
      M2：晨笺收藏条目(type==='jian')在此渲染层排除（host/storage 原样保留——streamHost._save
      会把 host.messages 原样写回 ylm_chat_messages，若在存储层过滤，任何一次保存都会
-     永久抹除收藏的晨笺；favorites 笺匣仍展示） */
+     永久抹除收藏的晨笺；favorites 笺匣仍展示）
+     Task 3（思考步骤渐进展示）：派生 thinkDone（已完成计数）/thinkDoing（当前
+     进行中步）/thinkLabel（标题文案）——渲染层只显示当前 doing 步 + 计数行，
+     已完成不逐条展示；完成后自动收起（streamHost._onDone 置 thinkCollapsed）。 */
+  /* 思考区派生视图：数组语义来自 streamHost（旧步→done，新步→doing） */
+  _thinkView(m) {
+    const arr = Array.isArray(m.thinking) ? m.thinking : [];
+    let done = 0;
+    let doing = '';
+    for (let i = 0; i < arr.length; i++) {
+      const s = arr[i];
+      if (s && s.state === 'done') done++;
+      else if (s && s.state === 'doing' && !doing) doing = s.text || '';
+    }
+    let label = '我在想…';
+    if (m.thinkCollapsed) {
+      if (m.streaming) label = '正在思考…';
+      else if (m.error) label = '思考中断';
+      else if (m.consultationId) label = '思考完成 ✓ 已生成回复';
+      else label = '思考过程';   // 停止/历史消息：未完成也不误标"思考完成"
+    }
+    return { thinkDone: done, thinkDoing: doing, thinkLabel: label };
+  },
+
   _mirror(messages) {
     const vis = (Array.isArray(messages) ? messages : []).filter((m) => !isJianEntry(m));
     const out = new Array(vis.length);
     const reactions = this.data.reactions || {};
     for (let i = 0; i < vis.length; i++) {
       const m = vis[i];
+      const tv = this._thinkView(m);
       const c = String(m.content || '');
       const cached = this._segCache;
       if (cached && cached.id === m.id && cached.content === c) {
@@ -478,6 +502,9 @@ Page({
           reactions: reactions[m.id] || [],
           navPath: cached.navPath,
           navLabel: cached.navLabel,
+          thinkDone: tv.thinkDone,
+          thinkDoing: tv.thinkDoing,
+          thinkLabel: tv.thinkLabel,
         });
         continue;
       }
@@ -489,6 +516,9 @@ Page({
         reactions: reactions[m.id] || [],
         navPath: nav && nav.path,
         navLabel: nav && nav.label,
+        thinkDone: tv.thinkDone,
+        thinkDoing: tv.thinkDoing,
+        thinkLabel: tv.thinkLabel,
       });
     }
     return out;

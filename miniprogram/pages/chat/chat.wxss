@@ -380,6 +380,8 @@
   font-size: 19rpx;                      /* 10px */
   color: var(--acc);                     /* 朱砂 ● 进行中 */
   animation: think-pulse 1.2s ease-in-out infinite;
+  /* Task 3：完成瞬间 ● → ✓ 过渡（点亮色渐变） */
+  transition: color .25s ease, opacity .25s ease;
 }
 .think-mark.ok {
   color: var(--acc-deep);
@@ -395,6 +397,15 @@
   font-size: 21rpx;                      /* 11px */
   letter-spacing: .1em;
   color: var(--ink-soft);
+}
+/* Task 3：已完成计数行（流式中折叠为一行，弱化显示 + 淡入） */
+.think-done-row {
+  opacity: .72;
+  animation: think-fade .3s ease;
+}
+@keyframes think-fade {
+  from { opacity: 0; }
+  to { opacity: .72; }
 }
 
 /* 打字机光标（流式中正文末尾墨点闪烁） */

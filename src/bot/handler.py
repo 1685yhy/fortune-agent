@@ -83,22 +83,10 @@ _TOOL_EVENT_LABELS = {
     "择日": "正在择吉日…",
 }
 
-# v8 阶段 3（模式二·思考路径）：意图 → 1-3 步思考文案（无工具的简单聊天不发）
-INTENT_THINKING_STEPS = {
-    "bazi": ["我在看你的八字…", "对照古籍分析五行流年…", "结合你的情况在整理…"],
-    "ziwei": ["我在排紫微斗数盘…", "逐宫推演十二宫…"],
-    "liuyao": ["我在起卦…", "推演卦象变化…"],
-    "qimen": ["我在起奇门局…", "推演九宫格局…"],
-    "fengshui": ["我在勘察风水格局…", "结合五行方位分析…"],
-    "mianxiang": ["我在端详你的面相…", "结合五宫五行分析…"],
-    "zeri": ["我在翻黄历择吉…", "比对吉凶宜忌…"],
-    "hehun": ["我在比对两人命盘…", "推演五行互补…"],
-    "xingming": ["我在拆解姓名笔画五行…", "推演三才配置…"],
-    "dream": ["我在翻阅梦兆典籍…", "对照古籍解梦…"],
-    "calendar": ["我在查今日星象…"],
-    "hourly": ["我在推演时辰运势…"],
-    "career": ["我在看你的八字…", "对照十神五行分析行业适配…", "结合你的情况在整理…"],
-}
+# Task 3（思考步骤渐进展示）：思考步骤文案已迁移到各 _do_*/_handle_*
+# 的真实工作里程碑处（见各处的 _emit_stream_event 调用）——首条在开工时
+# 发出（用户有"开始处理"反馈），之后每完成一步真实工作推进一步。
+# 不再有 INTENT_THINKING_STEPS 预置字典（旧实现：开工前一个事件循环全部打光）。
 # FAISS 语义检索（生产主路径）：276 万条古籍向量库（bge-m3 1024 维，
 # inner_product）。检索工具只走 FAISS；不可用/无结果时走 LLM 自然对话兜底，
 # 不降级关键词检索（见 _tool_search）。
@@ -1977,15 +1965,9 @@ class MessageHandler:
                         user_id, getattr(analysis, "needs_search", False),
                         analysis_hint[:60].replace("\n", " "))
 
-        # v8 阶段 3（模式二·思考路径）：意图 → 逐步点亮（简单聊天无意图 → 不发）
-        if stream_cb is not None and analysis.intent:
-            steps = INTENT_THINKING_STEPS.get(analysis.intent)
-            if steps:
-                for s in steps:
-                    try:
-                        stream_cb("thinking", {"text": s})
-                    except Exception:
-                        pass
+        # Task 3（思考步骤渐进展示）：不再在此集中预发全部思考步骤——
+        # 各 _do_*/_handle_* 在真实工作里程碑处按进度发出（首条开工即发、
+        # 每完成一步真实工作推进一步）；简单聊天无意图不发（保持不变）。
 
         # Phase 3: Track mood in user memory（Task 5 deepNight：倾诉情绪不入长期记忆）
         if self.memory_system and analysis.emotion_label and not deep:
@@ -3137,7 +3119,7 @@ class MessageHandler:
                 return self._do_ziwei_analysis(
                     saved["year"], saved["month"], saved["day"],
                     saved["hour"], saved["minute"], saved["city"],
-                    saved["gender"], msg, user_id,
+                    saved["gender"], msg, user_id, stream_cb=stream_cb,
                 )
 
             return """好的，请提供出生信息排紫微斗数命盘：
@@ -3151,16 +3133,21 @@ class MessageHandler:
         year, month, day, hour, minute, city, gender = parsed
         return self._do_ziwei_analysis(
             year, month, day, hour, minute, city, gender, msg, user_id,
+            stream_cb=stream_cb,
         )
 
     def _do_ziwei_analysis(
         self, year, month, day, hour, minute, city, gender, question, user_id,
+        stream_cb: Optional[Callable] = None,
     ) -> str:
         """执行紫微斗数分析"""
         try:
+            # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
+            self._emit_stream_event(stream_cb, "thinking", "我在排紫微斗数盘…")
             result = self.ziwei_engine.calculate(year, month, day, hour, minute, city, gender)
             self.dao.save_consultation(user_id, question, result, intent="ziwei")
             search_query = f"紫微斗数 {result.ming_gong} {question}"
+            self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
             refs = self.retriever.search(search_query, category="ziwei", top_k=15)
             if not refs:
                 refs = self.retriever.search(search_query, top_k=15)  # fallback: any category
@@ -3177,6 +3164,7 @@ class MessageHandler:
                 self._register_book_citations(user_id, refs, title="紫微 · 古籍参考")
             except Exception:
                 pass
+            self._emit_stream_event(stream_cb, "thinking", "逐宫推演十二宫…")
             analysis = self.llm.analyze(chart_str, refs, question)
 
             # 生成紫微斗数命盘图片
@@ -3235,13 +3223,17 @@ class MessageHandler:
         ])
         if not question:
             question = "一般运势"
-        return self._do_liuyao_analysis(question, msg, user_id)
+        return self._do_liuyao_analysis(question, msg, user_id, stream_cb=stream_cb)
 
-    def _do_liuyao_analysis(self, question: str, original_msg: str, user_id: str) -> str:
+    def _do_liuyao_analysis(self, question: str, original_msg: str, user_id: str,
+                            stream_cb: Optional[Callable] = None) -> str:
         """执行六爻占卜"""
         try:
+            # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
+            self._emit_stream_event(stream_cb, "thinking", "我在起卦…")
             result = self.liuyao_engine.cast(method="random", question=question)
             self.dao.save_consultation(user_id, original_msg, result, intent="liuyao")
+            self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
             refs = self.retriever.search(
                 f"六爻 {result.original_hexagram} {question}", category="yijing", top_k=15)
             if not refs:
@@ -3261,6 +3253,7 @@ class MessageHandler:
                 self._register_book_citations(user_id, refs, title="易经 · 古籍参考")
             except Exception:
                 pass
+            self._emit_stream_event(stream_cb, "thinking", "推演卦象变化…")
             analysis = self.llm.analyze(chart_str, refs, question)
             return analysis.response
         except Exception as e:
@@ -3313,13 +3306,17 @@ class MessageHandler:
 📅 房子建于哪一年？
 👤 您的出生年份和性别（用于命卦计算）"""
 
-        return self._do_fengshui_analysis(direction, birth_year, gender, msg, user_id)
+        return self._do_fengshui_analysis(direction, birth_year, gender, msg, user_id,
+                                          stream_cb=stream_cb)
 
     def _do_fengshui_analysis(
         self, direction, birth_year, gender, question, user_id,
+        stream_cb: Optional[Callable] = None,
     ) -> str:
         """执行风水分析"""
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
         # 1. 分析
+        self._emit_stream_event(stream_cb, "thinking", "我在勘察风水格局…")
         result = self.fengshui_engine.analyze(
             direction=direction,
             year_built=birth_year,
@@ -3332,6 +3329,7 @@ class MessageHandler:
 
         # 3. 检索古籍
         search_query = f"风水 {result.house_gua} {question}"
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(search_query, category="fengshui", top_k=15)
 
         # 阶段 5·来源体系（方案 §3.0）：风水分析 → 引擎来源；检索古籍 → book 来源
@@ -3349,6 +3347,7 @@ class MessageHandler:
         # 4. LLM分析（带错误处理）
         try:
             chart_str = self._format_fengshui_chart(result)
+            self._emit_stream_event(stream_cb, "thinking", "结合五行方位分析…")
             analysis = self.llm.analyze(chart_str, refs, question)
 
             # 生成风水九宫飞星图
@@ -3416,17 +3415,21 @@ class MessageHandler:
 👄 嘴唇：厚/薄、大小
 💡 示例：方脸，额头饱满，眼睛大而有神，鼻梁高挺，嘴唇厚实"""
 
-        return self._do_mianxiang_analysis(description, msg, user_id)
+        return self._do_mianxiang_analysis(description, msg, user_id, stream_cb=stream_cb)
 
-    def _do_mianxiang_analysis(self, description: str, original_msg: str, user_id: str) -> str:
+    def _do_mianxiang_analysis(self, description: str, original_msg: str, user_id: str,
+                               stream_cb: Optional[Callable] = None) -> str:
         """执行面相分析"""
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
         # 1. 面相分析
+        self._emit_stream_event(stream_cb, "thinking", "我在端详你的面相…")
         result = self.mianxiang_engine.analyze(description=description)
 
         # 2. 保存
         self.dao.save_consultation(user_id, original_msg, result, intent="mianxiang")
 
         # 3. 检索古籍
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(
             f"面相 {result.face_type} {description}",
             category="mianxiang", top_k=15,
@@ -3446,6 +3449,7 @@ class MessageHandler:
 
         # 4. LLM分析
         chart_str = self._format_mianxiang_chart(result)
+        self._emit_stream_event(stream_cb, "thinking", "结合五宫五行分析…")
         analysis = self.llm.analyze(chart_str, refs, original_msg)
 
         return analysis.response
@@ -3487,13 +3491,16 @@ class MessageHandler:
 💡 示例1：2026年8月15日适合结婚吗？
 💡 示例2：我要在2026年10月1日搬家，这天好吗？"""
 
-        return self._do_zeri_analysis(date_info, purpose, msg, user_id)
+        return self._do_zeri_analysis(date_info, purpose, msg, user_id, stream_cb=stream_cb)
 
-    def _do_zeri_analysis(self, date_info, purpose, question, user_id) -> str:
+    def _do_zeri_analysis(self, date_info, purpose, question, user_id,
+                          stream_cb: Optional[Callable] = None) -> str:
         """执行择日分析"""
         year, month, day = date_info
 
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
         # 1. 择日
+        self._emit_stream_event(stream_cb, "thinking", "我在翻黄历择吉…")
         result = self.zeri_engine.select(year, month, day, purpose=purpose)
 
         # 2. 保存
@@ -3501,6 +3508,7 @@ class MessageHandler:
 
         # 3. 检索古籍
         search_query = f"择日 {result.jianchu} {purpose or '吉日'}"
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(search_query, category="zeri", top_k=15)
 
         # 阶段 5·来源体系（方案 §3.0）：择日结果 → 引擎来源；检索古籍 → book 来源
@@ -3518,6 +3526,7 @@ class MessageHandler:
 
         # 4. LLM分析
         chart_str = self._format_zeri_chart(result, year, month, day)
+        self._emit_stream_event(stream_cb, "thinking", "比对吉凶宜忌…")
         analysis = self.llm.analyze(chart_str, refs, question)
 
         return analysis.response
@@ -3576,13 +3585,16 @@ class MessageHandler:
         if self.qimen_engine is None:
             return "⚠️ 奇门遁甲排盘功能暂时不可用，请稍后再试。"
 
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
         # 2. 排盘
+        self._emit_stream_event(stream_cb, "thinking", "我在起奇门局…")
         result = self.qimen_engine.calculate(year, month, day, hour)
 
         # 3. 格式化命盘
         chart_str = self.qimen_engine.print_chart(result)
 
         # 4. 检索古籍
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(f"奇门遁甲 {question}", category="qimen", top_k=15)
         if not refs:
             refs = self.retriever.search(f"奇门遁甲 {question}", top_k=15)  # fallback
@@ -3600,6 +3612,7 @@ class MessageHandler:
             pass
 
         # 5. LLM 用神分析
+        self._emit_stream_event(stream_cb, "thinking", "推演九宫格局…")
         analysis = self.llm.analyze(chart_str, refs, question)
 
         # 6. 组合回复
@@ -3659,7 +3672,9 @@ class MessageHandler:
         if any(w in msg for w in ["女", "女性", "姑娘", "女士"]):
             gender = "女"
 
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
         # 2. 引擎计算五格三才
+        self._emit_stream_event(stream_cb, "thinking", "我在拆解姓名笔画五行…")
         result = self.xingming_engine.analyze(surname, given_name, gender)
 
         # 3. 格式化为结构化字盘
@@ -3689,6 +3704,7 @@ class MessageHandler:
         chart_str = "\n".join(chart_lines)
 
         # 4. 检索古籍
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(f"姓名学 {name} {question}", category="xingming", top_k=15)
 
         # 阶段 5·来源体系（方案 §3.0）：姓名五格 → 引擎来源；检索古籍 → book 来源
@@ -3704,6 +3720,7 @@ class MessageHandler:
             pass
 
         # 5. LLM 生成叙事分析
+        self._emit_stream_event(stream_cb, "thinking", "推演三才配置…")
         analysis = self.llm.analyze(chart_str, refs, question)
 
         return analysis.response
@@ -3743,6 +3760,8 @@ class MessageHandler:
         if self.hehun_engine is None:
             return "⚠️ 合婚配对功能暂时不可用，请稍后再试。"
 
+        # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
+        self._emit_stream_event(stream_cb, "thinking", "我在比对两人命盘…")
         result_a = self.engine.calculate(year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a or "男")
         result_b = self.engine.calculate(year_b, month_b, day_b, hour_b, minute_b, city_b, gender_b or "女")
 
@@ -3760,6 +3779,7 @@ class MessageHandler:
 日柱关系得分：{hehun_result.rizhu_score}/100 — {hehun_result.rizhu}
 综合评分：{hehun_result.score}/100"""
 
+        self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         refs = self.retriever.search(f"合婚 婚姻匹配 {shengxiao_a} {shengxiao_b}", category="hehun", top_k=15)
 
         # 阶段 5·来源体系（方案 §3.0）：合婚评分 → 引擎来源；检索古籍 → book 来源
@@ -3775,6 +3795,7 @@ class MessageHandler:
         except Exception:
             pass
 
+        self._emit_stream_event(stream_cb, "thinking", "推演五行互补…")
         analysis = self.llm.analyze(chart_str, refs, f"分析这对男女的婚姻匹配度，给出3条化解建议")
 
         return analysis.response
@@ -4081,7 +4102,9 @@ class MessageHandler:
             return "📅 日历服务暂时不可用，请稍后再试～"
 
         try:
+            # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
             # Daily calendar
+            self._emit_stream_event(stream_cb, "thinking", "我在查今日星象…")
             from src.engines.calendar import LuckyCalendar
             cal = LuckyCalendar(api_key)
             preferences = self._get_preference_hint(user_id)
@@ -4138,6 +4161,8 @@ class MessageHandler:
                     "告诉我你的出生日期，例如：1990年5月20日 下午3点 北京 男")
 
         try:
+            # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
+            self._emit_stream_event(stream_cb, "thinking", "我在推演时辰运势…")
             # Compute today's stem & branch
             from datetime import datetime, timezone, timedelta
             now = datetime.now(timezone(timedelta(hours=8)))

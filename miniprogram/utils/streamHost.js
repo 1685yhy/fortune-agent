@@ -425,6 +425,9 @@ class StreamHost {
       streaming: false,
       error: false,
       thinking: (msg.thinking || []).map((s) => ({ text: s.text, state: 'done' })),
+      // Task 3（思考步骤渐进展示）：全部完成后自动收起为一行
+      // （页面镜像派生 thinkLabel「思考完成 ✓ 已生成回复」，点开展开全部历史）
+      thinkCollapsed: true,
     });
     this.streaming = false;
     this.typing = false;
