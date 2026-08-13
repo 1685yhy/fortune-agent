@@ -84,6 +84,24 @@ check("会员全量", len(r.json()["lamps"]) == 4)
 check("会员今日灯语带语音",
       "audio_url" in client.get("/api/night/lamp/today", headers=h).json()["lamp"])
 
+# 5b. 会员:on-demand 今日灯语(未缓存)触发语音合成分支
+MEMBER_UID = "dev-token-test-member-night"
+MEMBER_TOKEN = _auth.create_user_token(MEMBER_UID)
+h_m = {"Authorization": f"Bearer {MEMBER_TOKEN}"}
+night_mod._member_dao = FakeMember("pro")
+with mock.patch("src.engines.night_soliloquy.build_soliloquy",
+                return_value={"date": _TODAY, "text": "灯还亮着。晚安。灯下的人",
+                              "anchors": ["事业"], "fallback": False}), \
+     mock.patch("src.engines.night_soliloquy.synth_lamp_audio",
+                return_value="http://127.0.0.1:8768/audio/member.mp3") as m_synth, \
+     mock.patch("src.storage.session_dao.SessionDAO", return_value=object()):
+    r = client.get("/api/night/lamp/today", headers=h_m)
+    d = r.json()["lamp"]
+    check("会员on-demand触发语音合成", m_synth.called is True)
+    check("会员今日灯语带audio_url",
+          d.get("audio_url") == "http://127.0.0.1:8768/audio/member.mp3")
+check("会员on-demand灯语落库", _ldao.get_lamp(MEMBER_UID, _TODAY) is not None)
+
 # 6. 预生成 worker:订阅用户生成(ok),已入库跳过(skipped)
 c = dao_mod.get_conn()
 from src.storage.jian_dao import JianPrefDAO

@@ -256,7 +256,8 @@ def _prewarm_night_lamps(date_str: str, limit: int = 50) -> dict:
     from src.engines.night_soliloquy import build_soliloquy, synth_lamp_audio
     conn = get_conn()
     rows = conn.execute(
-        "SELECT user_id FROM jian_prefs WHERE night_enabled=1 AND bound_status='bound' LIMIT ?",
+        "SELECT user_id FROM jian_prefs WHERE night_enabled=1 AND bound_status='bound' "
+        "ORDER BY user_id LIMIT ?",
         (limit,)).fetchall()
     stats = {"total": len(rows), "ok": 0, "skipped": 0, "failed": 0}
     ldao, pdao = LampDAO(conn), NightPrefDAO(conn)
@@ -609,6 +610,10 @@ async def lifespan(app: FastAPI):
     # 微信虚拟支付（米大师）：signData/paySig/signature + 发货回调
     from .api.pay_midas import setup as setup_pay_midas
     setup_pay_midas(member_dao)
+
+    # Task 4: 深夜陪伴 is_member 会员判定接线（同 union/jian 注入模式，生产用真实 MemberDAO）
+    from .api import night as night_mod
+    night_mod._member_dao = member_dao
 
     # 启动后台推送任务
     if settings.push_enabled:
