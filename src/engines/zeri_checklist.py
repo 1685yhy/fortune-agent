@@ -179,6 +179,8 @@ def _parse_items(raw: str) -> list | None:
     - 逐项校验: 非 dict / 空 text / 非法 stage 的项丢弃
     - 空数组或解析失败 → 返回 None（调用方降级为模板原样, 绝不返回空）
     """
+    if not isinstance(raw, str):
+        return None  # 错误类型（dict/list/数字等）→ 调用方降级为模板原样
     text = (raw or "").strip()
     if not text:
         return None
@@ -213,6 +215,8 @@ def _parse_items(raw: str) -> list | None:
         if not isinstance(it, dict):
             continue
         stage = _normalize_stage(it.get("stage"))
+        if not isinstance(it.get("text"), str):
+            continue  # 错误类型 text（数字/布尔等）→ 丢弃该项, 不崩溃
         item_text = (it.get("text") or "").strip()
         if stage is None or not item_text:
             continue

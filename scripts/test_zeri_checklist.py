@@ -360,6 +360,40 @@ try:
 except ValueError:
     check("未知场景抛 ValueError", True)
 
+# ---------------------------------------------------------------------------
+# 12. LLM 返回错误类型(text 非字符串/入参非字符串) → 丢弃不崩溃, 全无效则模板原样
+# ---------------------------------------------------------------------------
+print("== 12. 错误类型 LLM 输出 → 降级不崩溃 ==")
+# 混合: 一项 text 为数字(错误类型), 一项为合法字符串 → 不崩溃, 合法项保留
+fake = FakeLLM(json.dumps([
+    {"stage": "当天", "text": 123},
+    {"stage": "提前1天", "text": "真条目"},
+], ensure_ascii=False))
+crashed = False
+with _PatchLLM(fake), _patch_api_key():
+    try:
+        got = zc.customize_checklist("搬家", _tpl)
+    except Exception:
+        crashed = True
+        got = []
+check("错误类型 text 不崩溃", not crashed, f"crashed={crashed}")
+check("错误类型项被丢弃, 有效项保留", find_by_text(got, "真条目") is not None
+      and not any(isinstance(it["text"], int) for it in got),
+      f"got={template_texts(got)}")
+# 全无效: 只有错误类型项 → 解析为空 → 模板原样（绝不空）
+fake = FakeLLM(json.dumps([
+    {"stage": "当天", "text": True},
+    {"stage": "提前1天", "text": 0},
+], ensure_ascii=False))
+with _PatchLLM(fake), _patch_api_key():
+    got = zc.customize_checklist("搬家", _tpl)
+check("全错误类型 → 模板原样(绝不空)", template_texts(got) == template_texts(_tpl),
+      f"got={template_texts(got)}")
+# 原始入参非字符串（dict/list/数字/布尔）→ _parse_items 直接返回 None
+check("_parse_items 非字符串入参 → None",
+      zc._parse_items(123) is None and zc._parse_items(True) is None
+      and zc._parse_items({"a": 1}) is None and zc._parse_items(["x"]) is None)
+
 print()
 print(f"结果: {_PASS} passed, {_FAIL} failed")
 sys.exit(0 if _FAIL == 0 else 1)
