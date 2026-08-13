@@ -142,3 +142,25 @@ def lamp_history(uid: str = Depends(require_user)):
         for l in lamps:
             l.pop("audio_url", None)
     return {"lamps": lamps, "member": member}
+
+
+# ── 倾诉单轮落库(方案·灯下漫谈):"要我记得吗"分类级脱敏,一晚只记一次 ────
+
+class RememberBody(BaseModel):
+    message: str
+
+@router.post("/remember")
+def night_remember(body: RememberBody, uid: str = Depends(require_user)):
+    """"要我记得吗"单轮落库:仅分类级(不存人名/事件/原话),一晚只记一次。"""
+    from src.engines.night_classify import classify_night_topic
+    date_str = _bj_today()
+    if _pdao().get_remember(uid, date_str):
+        return {"remembered": False, "reason": "tonight_done", "category": ""}
+    category = classify_night_topic(body.message or "")
+    if category != "其他":
+        from src.memory.user_memory import UserMemory
+        UserMemory().add_entry(uid, "topic",
+                               f"深夜倾诉中提及「{category}」相关心事(分类级,不记细节)",
+                               subject=category, ttl_days=1, source="night_remember")
+        _pdao().set_remember(uid, date_str, category)
+    return {"remembered": True, "category": category}
