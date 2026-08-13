@@ -55,6 +55,8 @@ Page({
     yiChips: DEFAULT_CHIPS,
     curTab: 'today',
     dark: false,
+    /* 深夜入口横幅：mode=深夜时段内(21:00 后,白天不出现)；banner=入口开关 */
+    night: { mode: false, banner: true },
     /* 晨笺卡：show=已开启且有数据；notEnabled=未开启（显示「开启晨笺」入口） */
     jian: {
       show: false,
@@ -78,7 +80,13 @@ Page({
     this._initDate();
     this._loadFortune();
     this._loadJian();
+    this._loadNight();
     theme.bindTheme(this);
+  },
+
+  /* 每次回页面刷新深夜态（21:00 后出现横幅，白天不出现） */
+  onShow() {
+    this._loadNight();
   },
 
   /* 状态栏高度适配：原型画板固定状态栏 47px，--nav-off 为差值 */
@@ -126,6 +134,30 @@ Page({
     } catch (e) {
       console.warn('[Today] API 不可用，保持原型文案');
     }
+  },
+
+  /* ═══ 深夜入口（方案·灯下漫谈）：21:00 后横幅出现，白天不出现 ═══ */
+
+  async _loadNight() {
+    let preset = 'standard';
+    try {
+      const cached = wx.getStorageSync('ylm_night_prefs');
+      if (cached && cached.preset) preset = cached.preset;
+      const res = await api.getNightPrefs();
+      const p = (res && res.prefs) || {};
+      if (p.preset) { preset = p.preset; wx.setStorageSync('ylm_night_prefs', p); }
+    } catch (e) { /* 缓存兜底,静默 */ }
+    const mode = require('../../utils/nightMode').isNightMode(preset);
+    if (mode !== this.data.night.mode) this.setData({ 'night.mode': mode });
+  },
+
+  /* 深夜入口：进入深夜对话页(以入口为准,强制 deepNight) */
+  onNightEntry() {
+    try {
+      const app = getApp();
+      if (app && app.globalData) app.globalData.deepNight = true;
+    } catch (e) { /* ignore */ }
+    wx.reLaunch({ url: '/pages/chat/chat?entry=night' });
   },
 
   /* 随手截屏 · 存为今晚的笺页：绘制墨韵笺页卡 → 保存相册 */

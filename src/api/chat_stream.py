@@ -194,7 +194,8 @@ class ChatStreamer:
                 elif req.message_type == "image":
                     reply = self.handler._handle_image(req.image_url, req.message)
                 else:
-                    reply = self.handler.process(req.message, user_id, stream_cb=stream_cb)
+                    reply = self.handler.process(req.message, user_id, stream_cb=stream_cb,
+                                                 deep_night=bool(getattr(req, "deep_night", False)))
             except Exception:
                 logger.exception("chat stream process failed: user=%s", user_id)
                 raise

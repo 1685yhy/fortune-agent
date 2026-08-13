@@ -64,7 +64,8 @@ Page({
     let whisper = true;
     try {
       const v = wx.getStorageSync(WHISPER_KEY);
-      if (v === 0 || v === '0') whisper = false;
+      // 'off' 兼容：设置页深夜陪伴私语开关写入 'on'/'off' 格式
+      if (v === 0 || v === '0' || v === 'off') whisper = false;
     } catch (e) { /* ignore */ }
 
     api.getJianPrefs().then((res) => {

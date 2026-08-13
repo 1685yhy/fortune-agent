@@ -423,6 +423,8 @@ class MessageHandler:
         # 阶段 5（方案 v5）：本轮理解出的关键事实（user_id → facts），
         # 供 save_bazi_info 做 subject=other（帮他人排盘）保护
         self._analysis_facts: dict = {}
+        # Task 5: user_id -> deepNight(倾诉临时模式：不落 L2/L3 + temp 消息 24h 硬清理)
+        self._deep_night: dict = {}
 
         # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除）：
         # 不再初始化 SimilarityEngine（原 data/wenzhen_charts.db 44k 命例对照），
@@ -1489,10 +1491,13 @@ class MessageHandler:
             return ""
         # 廉价预检：按库中内容字节数估算 token 上限（密文 base64 ≈ 明文×1.33，
         # 保守系数 1.2 保证两倍安全），不触发就不解密历史（每轮零额外开销）
+        # 隐私红线（终审 #1）：预检与压缩都排除 temp 倾诉消息（AND temp=0），
+        # 夜间倾诉绝不进入 L2 摘要/session_summaries（24h 硬清理后应完全消失）
         try:
             conn = self.session_dao._connect()
             row = conn.execute(
-                "SELECT COUNT(*), SUM(LENGTH(content)) FROM sessions WHERE user_id=?",
+                "SELECT COUNT(*), SUM(LENGTH(content)) FROM sessions"
+                " WHERE user_id=? AND temp=0",
                 (user_id,),
             ).fetchone()
             conn.close()
@@ -1505,7 +1510,7 @@ class MessageHandler:
         if msg_count < 20 or byte_sum < threshold:
             return ""
         try:
-            history = self.session_dao.get_history(user_id, limit=2000)
+            history = self.session_dao.get_history(user_id, limit=2000, temp=False)
         except Exception as e:
             logger.warning("L2 读取历史失败 user=%s: %s", user_id, e)
             return ""
@@ -1754,22 +1759,30 @@ class MessageHandler:
         """取走并清除该用户本轮的工具调用日志（落库用）。"""
         return self._tool_logs.pop(user_id, None)
 
-    def process(self, message: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
+    def process(self, message: str, user_id: str,
+                stream_cb: Optional[Callable] = None, deep_night: bool = False) -> str:
         """处理用户消息，返回回复。
 
         stream_cb（v8 流式阶段 3）：提供时把生成过程实时回调出去——
           ("chunk", {"text": ...}) 正文增量 / ("tool", {"text": ...}) 工具调用 /
           ("thinking", {"text": ...}) 思考步骤；
         不提供时行为与旧版完全一致（/api/chat 兼容）。
+
+        deep_night（Task 5 倾诉临时通道）：跳过 L2 事实/事件捕捉/演化链等记忆管线，
+        本轮回合消息全部以 temp 标记落库（24h 硬清理兜底），并注入深夜语气层。
         """
         msg = message.strip()
+        self._deep_night[user_id] = bool(deep_night)
+        deep = self._deep_night.get(user_id, False)
         # 清理上一轮残留的工具日志（xuetang/advisor/confidant 等早退分支不消费）
         self._pop_tool_log(user_id)
         # 阶段 5：清理上一轮残留的引用来源（早退分支不注册，防泄漏）
         self._citations.pop(user_id, None)
 
         # Step -2: Cache check (D2 speed optimization)
-        if is_cacheable(msg):
+        # 终审：deepNight 请求跳过缓存读写——夜里语气/陪伴类回复不可命中白天缓存，
+        # 缓存键也隐含用户+消息，避免倾诉缓存串味（应修 #缓存命中 temp/语气）
+        if is_cacheable(msg) and not deep:
             cached = self.cache.get(msg, user_id)
             if cached:
                 return cached
@@ -1784,7 +1797,7 @@ class MessageHandler:
             if remaining <= 0:
                 msg_warning = "💡 你今天的免费额度已用完。成为会员即可无限畅聊，基础版仅需 19.9 元/月。\n\n回复「会员」了解更多升级方案。\n或回复「👍」告诉我之前的分析有用，帮助我改进～"
                 if self.session_dao:
-                    self.session_dao.add_message(user_id, "assistant", msg_warning)
+                    self.session_dao.add_message(user_id, "assistant", msg_warning, temp=deep)
                 return msg_warning
             elif remaining == 1:
                 # 倒计时提醒：仅剩1次免费机会
@@ -1812,7 +1825,7 @@ class MessageHandler:
                 "回复「开通基础版」即可升级！"
             )
             if self.session_dao:
-                self.session_dao.add_message(user_id, "assistant", upgrade_msg)
+                self.session_dao.add_message(user_id, "assistant", upgrade_msg, temp=deep)
             return upgrade_msg
 
         # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)# Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
@@ -1820,7 +1833,9 @@ class MessageHandler:
         # 阶段 5（方案 v5）：记录本轮理解出的关键事实（subject=other 时排盘不写本人画像）
         self._analysis_facts[user_id] = analysis.facts or {}
         # P2 System1 每轮提取钩子（阶段 5）：facts → L2 事实条目（去重入库）
-        self._persist_facts_entries(user_id, msg, analysis.facts or {})
+        # Task 5 deepNight：倾诉临时通道不落 L2 事实（24h 后整条会话消失）
+        if not deep:
+            self._persist_facts_entries(user_id, msg, analysis.facts or {})
         # P3 联网激活修复：needs_search 引导必须在【首次】 LLM 调用前注入。
         # 旧逻辑只在 _run_tool_loop 的后续迭代注入（LLM 已输出 <tool_call> 才发生），
         # 导致 LLM 从未看到搜索引导。这里预生成 hint，free_chat/润色两条路径都注入。
@@ -1843,8 +1858,8 @@ class MessageHandler:
                     except Exception:
                         pass
 
-        # Phase 3: Track mood in user memory
-        if self.memory_system and analysis.emotion_label:
+        # Phase 3: Track mood in user memory（Task 5 deepNight：倾诉情绪不入长期记忆）
+        if self.memory_system and analysis.emotion_label and not deep:
             self.memory_system.add_mood_record(user_id, analysis.emotion_label)
 
         # AI 原生（Phase 2）：长期记忆 — 记录本消息主题次数（画像自动积累，方案 6.1）
@@ -1854,14 +1869,14 @@ class MessageHandler:
                 topic = self.preference_dao.detect_topic(msg) or ""
             except Exception:
                 topic = ""
-        if topic and self.memory_system:
+        if topic and self.memory_system and not deep:
             try:
                 self.memory_system.record_topic(user_id, topic)
             except Exception:
                 pass
         # 多次重复话题检测（同一主题 ≥3 次 → 提示换个角度，方案 5.5）
         topic_hint = ""
-        if topic and self.memory_system:
+        if topic and self.memory_system and not deep:
             try:
                 count = self.memory_system.get_topic_count(user_id, topic)
                 _topic_cn = {"wealth": "财运", "love": "感情", "career": "事业",
@@ -1880,15 +1895,19 @@ class MessageHandler:
                 topic_hint = ""
 
         # L3 来源②：对话中的明确关键陈述（工作/感情状态等）→ event 条目
-        self._capture_key_event(user_id, msg)
+        # Task 5 deepNight：倾诉内容不入 L3 记忆（临时通道 24h 硬清理）
+        if not deep:
+            self._capture_key_event(user_id, msg)
 
-        # Save user message to session history（阶段 2：emotion/model/安全标记落库）
+        # Save user message to session history（阶段 2：emotion/model/安全标记落库；
+        # Task 5 deepNight：用户消息带 temp 标记）
         if self.session_dao:
             self.session_dao.add_message(
                 user_id, "user", msg, intent=analysis.intent,
                 emotion=analysis.emotion_label,
                 model=getattr(self.llm, 'model', '') or '',
                 safety_flag=self._safety_flag(msg),
+                temp=deep,
             )
 
         # 流式模式（v8 阶段 3）："欢迎回来"开场提前生成并作为首个正文块流出，
@@ -1906,7 +1925,8 @@ class MessageHandler:
             self._consume_quota(user_id)
             reply = self._handle_xuetang(msg, user_id)
             if self.session_dao:
-                self.session_dao.add_message(user_id, "assistant", reply, intent="xuetang")
+                self.session_dao.add_message(user_id, "assistant", reply, intent="xuetang",
+                                             temp=deep)
             return reply
 
         # Task 5: advisor keyword fallback — catch "建议"/"怎么办" even if AI misses it
@@ -1914,7 +1934,8 @@ class MessageHandler:
             self._consume_quota(user_id)
             reply = self._handle_advisor(msg, user_id)
             if self.session_dao:
-                self.session_dao.add_message(user_id, "assistant", reply, intent="advisor")
+                self.session_dao.add_message(user_id, "assistant", reply, intent="advisor",
+                                             temp=deep)
             return reply
 
         # H1: 心事树洞 — user sharing a story (overrides fortune intent when no birth info)
@@ -1925,14 +1946,17 @@ class MessageHandler:
                 self._consume_quota(user_id)
                 reply = self._handle_confidant(msg, user_id, analysis)
                 if self.session_dao:
-                    self.session_dao.add_message(user_id, "assistant", reply)
+                    self.session_dao.add_message(user_id, "assistant", reply, temp=deep)
                 return reply
 
         if analysis.intent is None:
             self._consume_quota(user_id)
+            hints = [h for h in (topic_hint, analysis_hint) if h]
+            if deep:
+                from src.bot.night_persona import NIGHT_TONE_HINT
+                hints.insert(0, NIGHT_TONE_HINT)
             reply = self._free_chat(msg, user_id, emotion_label=analysis.emotion_label,
-                                    extra_hint="\n".join(
-                                        h for h in (topic_hint, analysis_hint) if h),
+                                    extra_hint="\n".join(hints),
                                     stream_cb=stream_cb)
             # AI 原生（Phase 1）：<tool_call> 工具调用循环
             reply = self._run_tool_loop(msg, user_id, reply, stream_cb=stream_cb,
@@ -1955,11 +1979,14 @@ class MessageHandler:
                     retrieval_hit=tool_log["retrieval_hit"] if tool_log else "unused",
                     model=getattr(self.llm, 'model', '') or '',
                     safety_flag=self._safety_flag(msg),
+                    temp=deep,
                 )
             if analysis.needs_soothe and analysis.soothe_text:
                 reply = analysis.soothe_text + "\n\n" + reply
             # P2 演化链：结论摘要 append 到 topic 时间线（cap 5）
-            self._record_evolution(user_id, topic, reply)
+            # Task 5 deepNight：倾诉临时通道不记演化链
+            if not deep:
+                self._record_evolution(user_id, topic, reply)
             return reply
 
         # Step 2: 路由到对应处理器
@@ -2028,16 +2055,20 @@ class MessageHandler:
                 retrieval_hit=tool_log["retrieval_hit"] if tool_log else "unused",
                 model=getattr(self.llm, 'model', '') or '',
                 safety_flag=self._safety_flag(msg),
+                temp=deep,
             )
 
         if analysis.needs_soothe and analysis.soothe_text:
             reply = analysis.soothe_text + "\n\n" + reply
 
         # P2 演化链：结论摘要 append 到 topic 时间线（cap 5）
-        self._record_evolution(user_id, topic, reply)
+        # Task 5 deepNight：倾诉临时通道不记演化链
+        if not deep:
+            self._record_evolution(user_id, topic, reply)
 
         # D2: Cache the response for high-frequency queries
-        if is_cacheable(msg):
+        # 终审：deepNight 不写缓存（见 Step -2 注释，夜里回复只属于当晚）
+        if is_cacheable(msg) and not deep:
             self.cache.set(msg, reply, user_id)
 
         return reply
@@ -4036,6 +4067,11 @@ class MessageHandler:
         try:
             from src.llm.prompts import CONFIDANT_PROMPT
 
+            # Task 5 deepNight：倾诉临时通道注入深夜语气层（红灯规则优先级最高）
+            if self._deep_night.get(user_id, False):
+                from src.bot.night_persona import NIGHT_TONE_HINT
+                msg = msg + "\n\n" + NIGHT_TONE_HINT
+
             # Count how many turns of listening this user has had
             listening_turns = self._get_listening_turns(user_id)
             self._set_listening_turns(user_id, listening_turns + 1)
@@ -4240,7 +4276,8 @@ class MessageHandler:
             # L1 滚动窗口（方案 §5.3）+ L2 增量摘要（方案 §5.4）：
             # 1) L2 触发检查（超阈值 → 分块滚动摘要，摘要存 session_summaries）
             # 2) L1 按 token 预算动态保留轮数 + 关键事实保底（八字/L3 is_key）
-            if self.session_dao:
+            # Task 5 deepNight：深夜不压缩 → 内容不入 L2 摘要（临时通道 24h 硬清理）
+            if self.session_dao and not self._deep_night.get(user_id, False):
                 summary = self._maybe_compact(user_id)
                 profile = ""
                 if self.memory_system:
@@ -4255,7 +4292,10 @@ class MessageHandler:
                     except Exception:
                         profile = ""
                 key_facts = self._collect_key_facts(user_id)
-                history = self.session_dao.get_context_for_llm(user_id, history_limit=200)
+                # 终审：白天 LLM 上下文排除 temp 倾诉消息（天亮就忘——
+                # 24h 窗口内的夜间倾诉不流入白天对话，只删不用的兜底在 cleanup_temp）
+                history = self.session_dao.get_context_for_llm(
+                    user_id, history_limit=200, temp=False)
                 messages = _assemble_context(
                     history, profile=profile, summary=summary,
                     current=msg, key_facts=tuple(key_facts),

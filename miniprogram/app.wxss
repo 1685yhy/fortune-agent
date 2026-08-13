@@ -363,3 +363,29 @@ page, view, text, input, textarea, button, image, scroll-view, rich-text, icon, 
   .screen, .lantern-glow { animation: none; }
 }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   夜色宣纸主题(方案·灯下漫谈)：暖纸夜色派生 —— 宣纸加深一层(非深色模式)。
+   墨韵原 token 一律不动；根视图挂 .night 类时变量级联覆盖。
+   夜色=暖纸 #F4EBD6 系(禁灰/禁深墨蓝)，灯笼暖光 + 朱砂点睛不变。
+   ═══════════════════════════════════════════════════════════════ */
+.night {
+  --paper: #F4EBD6;          /* 夜色宣纸：宣纸 #F5EFE1 加深一层·更暖 */
+  --paper-deep: #EBDFC4;     /* 深一层夜色纸(便签/深底) */
+  --paper-card: #FBF4E1;     /* 夜色笺卡 */
+  --line: rgba(58,44,30,.18);
+  --line-soft: rgba(58,44,30,.10);
+  --line-strong: rgba(58,44,30,.42);
+  --tabbar-bg: rgba(244,235,214,.97);
+  --tag-bg: rgba(251,244,225,.6);
+  --shadow-sm: rgba(58,44,30,.06);
+  --shadow: rgba(58,44,30,.09);
+  --shadow-lg: rgba(58,44,30,.12);
+  --gold: #C08A4B;                   /* 灯笼暖金 */
+  --gold-soft: rgba(192,138,75,.26); /* 烛光晕 */
+  --cover-grad: linear-gradient(165deg, #F5EDD7 0%, #F0E3C6 55%, #E8D9B4 100%);
+}
+
+/* 灯笼 2 秒渐亮(每日一次,可关) */
+.lamp-fade { animation: lampFade 2s ease-out; }
+@keyframes lampFade { from { opacity: .12; } to { opacity: 1; } }

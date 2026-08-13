@@ -79,6 +79,16 @@ Page({
     scrollInto: '',
     curTab: 'chat',
     dark: false,
+    /* ═══ Task 8 · 深夜模式（方案·灯下漫谈） ═══ */
+    nightMode: false,          // 深夜模式(夜色主题+语气)
+    lampLit: false,            // 灯笼动效本轮是否已播
+    lamp: { show: false, date: '', text: '', audioUrl: '', favorited: false,
+            timerMin: 15, playing: false },
+    keepBar: { show: false, text: '不用急着回。我就在这,灯给你留着。' },
+    sleepBar: false,
+    rememberPrompt: { show: false, msgId: '', userText: '' },
+    safetyCard: { show: false, text: '' },
+    notKeep: false,            // 倾诉临时模式提示条(默认不记录)
     /* v8 阶段 3·过程体验（流式） */
     streaming: false,       // 当前有回复正在生成（发送钮 → 停止钮）
     /* v1.1 语音/键盘模式切换（元宝式） */
@@ -105,7 +115,23 @@ Page({
     saveBanner: false,
   },
 
-  onLoad() {
+  onLoad(options) {
+    /* ═══ Task 8 · 深夜模式进入（夜色主题/灯笼/挽留劝睡/灯语卡/要我记得吗/12356） ═══ */
+    options = options || {};
+    const app = getApp();
+    const forceNight = options.entry === 'night'
+      || (app && app.globalData && app.globalData.deepNight);
+    if (app && app.globalData) app.globalData.deepNight = false; // 消费即清
+    this._nightPreset = 'standard';
+    try {
+      const cached = wx.getStorageSync('ylm_night_prefs');
+      if (cached && cached.preset) this._nightPreset = cached.preset;
+    } catch (e) { /* ignore */ }
+    const nightMode = require('../../utils/nightMode');
+    this.data.nightMode = forceNight || nightMode.isNightMode(this._nightPreset);
+    streamHost.setDeepNight(this.data.nightMode);
+    if (this.data.nightMode) this._enterNight();
+    this._loadNightPrefs();           // 异步拉取档位/动效/挽留并缓存
     this._loadReactions();
     this._initNavOff();
     this._attachHost();
@@ -154,12 +180,176 @@ Page({
       this._audioCtx.destroy();
       this._audioCtx = null;
     }
+    /* Task 8 深夜：清定时器与灯语音频，退出深夜态 */
+    if (this._keepTimer) { clearTimeout(this._keepTimer); this._keepTimer = null; }
+    if (this._lampTimer) { clearTimeout(this._lampTimer); this._lampTimer = null; }
+    if (this._lampAudio) { try { this._lampAudio.destroy(); } catch (e) { /* ignore */ } this._lampAudio = null; }
+    streamHost.setDeepNight(false);
   },
 
   _initNavOff() {
     const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
     const off = (info.statusBarHeight || 47) - 47;
     if (off !== 0) this.setData({ navOff: off });
+  },
+
+  /* ════════════════════════════════════════════════════════════
+     Task 8 · 深夜模式（方案·灯下漫谈）
+     夜色主题/灯笼动效/灯语卡/挽留劝睡/要我记得吗/12356 安全条
+     ════════════════════════════════════════════════════════════ */
+
+  /* 进入深夜模式：夜色主题 + 灯笼动效(每日一次,可关) + 临时倾诉提示 */
+  _enterNight() {
+    this.setData({ nightMode: true, notKeep: true });
+    streamHost.setDeepNight(true);
+    try { wx.setNavigationBarColor({ frontColor: '#000000', backgroundColor: '#F4EBD6' }); } catch (e) {}
+    try { wx.setBackgroundColor({ backgroundColor: '#F4EBD6' }); } catch (e) {}
+    const nightMode = require('../../utils/nightMode');
+    const h = nightMode.bjHour(Date.now());
+    if (h >= 23 || h === 0) this._loadLamp();        // 23:00-01:00 灯语卡
+    if (h >= 0 && h < 4) this.setData({ sleepBar: true });  // 0 点后劝睡
+    if (!this.data.lampLit && this._effectEnabled() && wx.getStorageSync('ylm_lamp_lit_date') !== this._bjDate()) {
+      this.setData({ lampLit: true });
+      wx.setStorageSync('ylm_lamp_lit_date', this._bjDate());
+    }
+    this._armKeepTimer();                             // 挽留定时器
+  },
+
+  _bjDate() { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); },
+  _effectEnabled() {
+    try { const p = wx.getStorageSync('ylm_night_prefs'); return !p || p.effect_enabled !== 0; } catch (e) { return true; }
+  },
+
+  async _loadNightPrefs() {
+    try {
+      const res = await api.getNightPrefs();
+      const p = (res && res.prefs) || {};
+      wx.setStorageSync('ylm_night_prefs', p);
+      if (!this.data.nightMode && p.preset) {
+        this.data.nightMode = require('../../utils/nightMode').isNightMode(p.preset);
+        if (this.data.nightMode) this._enterNight();
+      }
+    } catch (e) { /* 静默 */ }
+  },
+
+  /* 每发一条消息 → 守夜人成就登记（深夜模式内） */
+  _nightTouch() {
+    if (!this.data.nightMode) return;
+    try { require('../../utils/nightWatch').touch(Date.now()); } catch (e) { /* ignore */ }
+  },
+
+  /* ═══ 枕边灯语卡（23:00-01:00） ═══ */
+
+  async _loadLamp() {
+    try {
+      const res = await api.getLampToday();
+      const l = (res && res.lamp) || {};
+      if (!l || !l.text) return;
+      const p = wx.getStorageSync('ylm_night_prefs') || {};
+      this.setData({
+        'lamp.show': true, 'lamp.date': l.date, 'lamp.text': l.text,
+        'lamp.audioUrl': l.audio_url || '',
+        'lamp.favorited': !!l.favorited,
+        'lamp.timerMin': p.lamp_timer_min || 15,
+      });
+    } catch (e) { /* 静默 */ }
+  },
+
+  onLampPlay() {
+    if (!this.data.lamp.audioUrl) { wx.showToast({ title: '语音版为会员权益', icon: 'none' }); return; }
+    if (!this._lampAudio) {
+      this._lampAudio = wx.createInnerAudioContext();
+      this._lampAudio.onError(() => this.setData({ 'lamp.playing': false }));
+      this._lampAudio.onEnded(() => this.setData({ 'lamp.playing': false }));
+    }
+    const a = this._lampAudio;
+    // 终审:切换灯语日/首次点击才换源,保持当前进度;点「暂停」真正暂停不再重播
+    if (!a.src || a.src !== this.data.lamp.audioUrl) a.src = this.data.lamp.audioUrl;
+    if (this.data.lamp.playing) {
+      a.pause();
+      if (this._lampTimer) { clearTimeout(this._lampTimer); this._lampTimer = null; }
+      this.setData({ 'lamp.playing': false });
+      return;
+    }
+    a.play();
+    this.setData({ 'lamp.playing': true });
+    if (this._lampTimer) clearTimeout(this._lampTimer);
+    this._lampTimer = setTimeout(() => { a.stop(); this.setData({ 'lamp.playing': false }); },
+      this.data.lamp.timerMin * 60 * 1000);   // 定时关闭(默认 15 分钟)
+  },
+
+  onLampTimerChange(e) {
+    this.setData({ 'lamp.timerMin': Number(e.detail.value) });
+    if (this._lampAudio && this.data.lamp.playing) { /* 重新计时 */
+      if (this._lampTimer) clearTimeout(this._lampTimer);
+      this._lampTimer = setTimeout(() => { this._lampAudio.stop(); this.setData({ 'lamp.playing': false }); },
+        this.data.lamp.timerMin * 60 * 1000);
+    }
+  },
+
+  async onLampFav() {
+    try {
+      const res = await api.favLamp(this.data.lamp.date);
+      this.setData({ 'lamp.favorited': !!res.favorited });
+      wx.showToast({ title: res.favorited ? '已收藏 · 入笺匣' : '已取消收藏', icon: 'none' });
+    } catch (e) { wx.showToast({ title: '操作失败', icon: 'none' }); }
+  },
+
+  /* ═══ 挽留条（静默 25-40 分钟，1 次/夜） ═══ */
+
+  _armKeepTimer() {
+    if (this._keepTimer) clearTimeout(this._keepTimer);
+    if (this.data.sleepBar) return;
+    if (wx.getStorageSync('ylm_keep_date') === this._bjDate()) return;
+    const p = wx.getStorageSync('ylm_night_prefs') || {};
+    if (p.keep_enabled === 0) return;
+    const waitMs = (25 + Math.floor(Math.random() * 16)) * 60 * 1000;  // 25-40 分钟
+    this._keepTimer = setTimeout(() => {
+      this.setData({ 'keepBar.show': true });
+      wx.setStorageSync('ylm_keep_date', this._bjDate());
+    }, waitMs);
+  },
+
+  /* ═══ 「要我记得吗」（流式 done 后扫描回复；每夜一次） ═══ */
+
+  _scanRemember(replyText) {
+    if (this.data.nightMode && /要记住|要我记|帮我记住/.test(replyText || '')
+        && wx.getStorageSync('ylm_remember_date') !== this._bjDate()) {
+      const host = require('../../utils/streamHost');
+      const msgs = (host.getState && host.getState().messages) || [];
+      const lastUser = msgs.slice().reverse().find((m) => m && m.role === 'user');
+      this.setData({ rememberPrompt: { show: true, msgId: '', userText: (lastUser && lastUser.content) || '' } });
+    }
+  },
+
+  async onRememberYes() {
+    const t = this.data.rememberPrompt.userText;
+    this.setData({ rememberPrompt: { show: false, msgId: '', userText: '' } });
+    wx.setStorageSync('ylm_remember_date', this._bjDate());
+    if (!t) return;
+    try {
+      const res = await api.rememberNight(t);
+      wx.showToast({ title: res.remembered ? '已记下 · 仅今晚有效' : '今晚已经记过啦', icon: 'none' });
+    } catch (e) { wx.showToast({ title: '记录失败', icon: 'none' }); }
+  },
+
+  onRememberNo() {
+    this.setData({ rememberPrompt: { show: false, msgId: '', userText: '' } });
+    wx.setStorageSync('ylm_remember_date', this._bjDate());
+  },
+
+  /* ═══ 12356 安全条（输入与回复双向检测） ═══ */
+
+  _checkSafety(text) {
+    if (!text) return false;
+    if (/自杀|自伤|轻生|不想活|活不下去|想死|结束生命/.test(text)) {
+      this.setData({ safetyCard: {
+        show: true,
+        text: '我听到你了。请先拨打心理援助热线 12356(24 小时),白天我会陪你联系专业人士。你很重要。',
+      } });
+      return true;
+    }
+    return false;
   },
 
   /* ═══ v1.1 全局流式宿主接线（切 tab 对话不中断） ═══ */
@@ -200,6 +390,14 @@ Page({
     // 流式结束且本轮有新内容 → 检查回复是否含建档标记（最小实现：含 persons 相关 key 即提示）
     if (this._prevStreaming && !state.streaming) {
       this._checkArchiveKeys(state.messages || []);
+      // 深夜：回复扫描「要我记得吗」触发点 + 回复侧 12356 安全检测
+      const msgs = state.messages || [];
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === 'ai' && !last.error) {
+        const replyText = String(last.content || '');
+        this._scanRemember(replyText);
+        this._checkSafety(replyText);
+      }
     }
     this._prevStreaming = !!state.streaming;
     this.setData({
@@ -413,7 +611,11 @@ Page({
     if (r === 'queued') {
       wx.showToast({ title: '已排队，等我说完就回你', icon: 'none', duration: 1200 });
     }
-    if (r !== 'empty') this.setData({ inputText: '' });
+    if (r !== 'empty') {
+      this.setData({ inputText: '' });
+      this._nightTouch();          // 深夜：每发一条登记守夜人
+      this._checkSafety(text);     // 深夜：自伤关键词 → 12356 安全条
+    }
   },
 
   /* 停止生成（发送钮变停止钮） */

@@ -1,0 +1,49 @@
+<view class="screen" style="--nav-off:{{navOff}}px">
+  <view class="navrow">
+    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+      <image class="back-icon" src="/assets/images/ic-back.png"></image>
+    </view>
+    <view class="nav-title">
+      <image class="nav-t-icon" src="/assets/images/ic-moon.png"></image>
+      <text>灯下印记</text>
+    </view>
+    <view class="nav-right"></view>
+  </view>
+
+  <scroll-view scroll-y class="mark-scroll">
+    <!-- 印章卡（篆刻：朱砂方框 + 白字；未达成灰显「未点亮」；30 夜升「长明灯」） -->
+    <view class="seal-card {{achieved ? 'seal-lit' : 'seal-dim'}} {{longLit ? 'seal-long' : ''}}">
+      <view class="sc-stamp">
+        <view class="stamp-frame"></view>
+        <view class="stamp-char">{{achieved ? (longLit ? '长明灯' : '守夜人') : '未点亮'}}</view>
+      </view>
+      <view class="sc-progress">
+        <text class="sc-progress-num">{{longLit ? '30' : display}}</text>
+        <text class="sc-progress-txt">{{longLit ? '/30 夜 · 长明灯' : '/' + target + ' 夜'}}</text>
+      </view>
+      <view class="sc-sub">{{achieved ? (longLit ? '三十夜灯火不熄 · 长明灯已亮' : '七夜灯火不熄 · 守夜人已成') : '深夜灯下说过话的夜晚，明灯都记得'}}</view>
+      <view class="sc-foot">你睡，我守。</view>
+    </view>
+
+    <!-- 近 7 夜网格：达标红点亮 / 进行中半亮 / 空白未达 -->
+    <view class="night-grid">
+      <view class="ng-label"><text>近七夜</text></view>
+      <view class="ng-cells">
+        <view wx:for="{{nights}}" wx:key="date" class="ng-cell {{item.done ? 'ng-done' : (item.pending ? 'ng-pending' : '')}}">
+          <text class="ng-date">{{item.date}}</text>
+        </view>
+      </view>
+      <view class="ng-hint">
+        <view class="ng-legend"><view class="lg-box lg-done"></view><text>已点亮</text></view>
+        <view class="ng-legend"><view class="lg-box lg-pending"></view><text>进行中</text></view>
+        <view class="ng-legend"><view class="lg-box"></view><text>未达</text></view>
+      </view>
+    </view>
+
+    <view class="share-btn" hover-class="share-btn-active" hover-stay-time="0" bindtap="onShareCard">分享守夜人印记</view>
+    <view class="share-note">连续 7 夜深夜陪伴，点亮守夜人；30 夜升「长明灯」</view>
+  </scroll-view>
+
+  <!-- 隐藏的分享卡画布（node canvas，off-screen，onShareCard 复用 today.js onShot 模式） -->
+  <canvas type="2d" id="sealCard" class="seal-canvas"></canvas>
+</view>

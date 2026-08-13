@@ -83,6 +83,8 @@ session_dao = None
 _push_task = None  # 后台推送任务
 _precompute_task = None  # Step 4: 每日预计算任务
 _jian_precompute_task = None  # Task 6: 晨笺每日内容预生成任务
+_night_lamp_task = None  # Task 4: 灯语 22:30 预生成任务
+_night_cleanup_task = None  # Task 5: 倾诉临时消息 24h 硬清理任务
 
 # Security globals
 security_rate_limiter = None
@@ -231,6 +233,97 @@ def _precompute_jian_for(date_str: str) -> dict:
     return content
 
 
+async def _night_temp_cleanup():
+    """Task 5: 每小时清理过期的临时倾诉消息(24h 硬清理兜底)。"""
+    while True:
+        try:
+            from src.storage.session_dao import SessionDAO
+            sdao = SessionDAO(str(load_settings().db_path))
+            removed = sdao.cleanup_temp()
+            if removed:
+                logger.info("倾诉临时消息清理: %s 条", removed)
+        except Exception as e:
+            logger.warning("临时消息清理异常: %s", e)
+        await asyncio.sleep(3600)
+
+
+async def _night_lamp_precompute():
+    """Task 4: 每小时检查,22:30-23:30 窗口预生成当日灯语(订阅用户,限速)。
+
+    终审修复:同步阻塞(L2 摘要读取+LLM 独白+TTS 合成,单用户数秒)移出事件循环,
+    经 asyncio.to_thread 委托线程池执行,避免阻塞所有请求。
+    """
+    while True:
+        try:
+            now = datetime.now(timezone(timedelta(hours=8)))
+            hm = now.strftime("%H:%M")
+            if "22:30" <= hm <= "23:30":
+                await asyncio.to_thread(
+                    _prewarm_night_lamps, now.strftime("%Y-%m-%d"))
+        except Exception as e:
+            logger.error("灯语预生成异常: %s", e)
+        await asyncio.sleep(3600)
+
+
+def _prewarm_night_lamps(date_str: str, limit: int = 50) -> dict:
+    """为已开启晚安推送的订阅用户预生成灯语(会员才合成语音,防 TTS 成本滥用)。
+
+    终审修复:不再固定取 user_id 最小的一批——按 日期序数 % 分片数 轮转
+    (OFFSET),每天覆盖不同用户批次,慢速用户(如永远排后面的大 id)也有机会被生成。
+    """
+    import math
+    from datetime import date as _date
+    from src.storage.dao import get_conn
+    from src.storage.jian_dao import JianPrefDAO
+    from src.storage.night_dao import NightPrefDAO
+    from src.storage.lamp_dao import LampDAO
+    from src.storage.session_dao import SessionDAO
+    from src.storage.member_dao import MemberDAO
+    from src.engines.night_soliloquy import build_soliloquy, synth_lamp_audio
+    conn = get_conn()
+    try:
+        total_row = conn.execute(
+            "SELECT COUNT(*) FROM jian_prefs"
+            " WHERE night_enabled=1 AND bound_status='bound'").fetchone()
+    except Exception:
+        total_row = None
+    total = (total_row[0] or 0) if total_row else 0
+    if total == 0:
+        return {"total": 0, "ok": 0, "skipped": 0, "failed": 0}
+    try:
+        doy = _date.fromisoformat(date_str).timetuple().tm_yday
+    except ValueError:
+        doy = 0
+    chunks = max(1, math.ceil(total / limit))
+    offset = (doy % chunks) * limit
+    rows = conn.execute(
+        "SELECT user_id FROM jian_prefs WHERE night_enabled=1 AND bound_status='bound' "
+        "ORDER BY user_id LIMIT ? OFFSET ?",
+        (limit, offset)).fetchall()
+    stats = {"total": len(rows), "ok": 0, "skipped": 0, "failed": 0}
+    ldao, pdao = LampDAO(conn), NightPrefDAO(conn)
+    sdao = SessionDAO(str(load_settings().db_path))
+    mdao = MemberDAO(str(load_settings().db_path))
+    for (uid,) in rows:
+        try:
+            if ldao.get_lamp(uid, date_str):
+                stats["skipped"] += 1
+                continue
+            prefs = pdao.get_pref(uid) or {}
+            result = build_soliloquy(uid, date_str, sdao,
+                                     whisper=bool(prefs.get("whisper_enabled", 1)))
+            audio = ""
+            if (mdao.get_membership(uid) or {}).get("plan", "free") != "free":
+                audio = synth_lamp_audio(result["text"])
+            ldao.upsert_lamp(uid, date_str, result["text"], audio)
+            stats["ok"] += 1
+        except Exception as e:
+            logger.warning("灯语预生成失败 uid=%s: %s", uid, e)
+            stats["failed"] += 1
+    logger.info("灯语预生成完成(%s): %s", date_str, stats)
+    return stats
+
+
 def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
     """按偏好时间下发:晨笺(kind=jian)或晚安(kind=night)。
 
@@ -271,18 +364,21 @@ def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
                 }
                 url = "pages/today/today"
             else:
-                # P1: 晚安内容按日生成(复用当日预生成缓存:干支+宜忌)
+                # 深夜版晚安(方案·灯下漫谈):深夜陪伴第一入口。
+                # 落地页带 entry=night,前端以入口为准强进深夜模式(白天点开也生效);
+                # thing 字段均 ≤20 字(微信模板消息上限);按钮文案由服务号模板配置,
+                # 当前以 thing4 承诺文案 + 落地页入口承接「点一盏灯,说说话」。
                 night_content = _precompute_jian_for(date_str)
                 data = {
-                    "thing1": {"value": (
-                        f"{night_content.get('day_ganzhi', '')}夜深了,灯还亮着"
-                    )[:20]},
-                    "thing2": {"value": (
+                    "thing1": {"value": "明灯 · 夜话"[:20]},
+                    "thing2": {"value": "夜深了,灯还亮着"[:20]},
+                    "thing3": {"value": (
                         f"明日宜{','.join(night_content.get('suitable', [])[:3])}"
-                        f" 忌{','.join(night_content.get('unsuitable', [])[:3])} · 睡个好觉"
+                        f" 忌{','.join(night_content.get('unsuitable', [])[:3])}"
                     )[:20]},
+                    "thing4": {"value": "今夜说的话,天亮就忘"[:20]},
                 }
-                url = "pages/chat/chat"
+                url = "pages/chat/chat?entry=night"
             send_template(openid, tpl_id, data, url=f"https://yilichat.com/{url}")
             stats["pushed"] += 1
         except Exception as e:
@@ -343,7 +439,7 @@ async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
     global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, qimen_engine, xingming_engine, embedder, retriever, dao, llm, handler
     global _push_task, _precompute_task, member_dao, session_dao
-    global _jian_precompute_task
+    global _jian_precompute_task, _night_lamp_task, _night_cleanup_task
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
     # 配置日志：logs/app.log 按天轮转（保留 14 天），级别取 LOG_LEVEL（默认 INFO）
@@ -559,6 +655,10 @@ async def lifespan(app: FastAPI):
     from .api.pay_midas import setup as setup_pay_midas
     setup_pay_midas(member_dao)
 
+    # Task 4: 深夜陪伴 is_member 会员判定接线（同 union/jian 注入模式，生产用真实 MemberDAO）
+    from .api import night as night_mod
+    night_mod._member_dao = member_dao
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -574,6 +674,14 @@ async def lifespan(app: FastAPI):
     _jian_precompute_task = asyncio.create_task(_daily_jian_precompute())
     logger.info("晨笺预生成 worker 已启动 (每小时检查,缓存 date:jian:*)")
 
+    # Task 4: 灯语 22:30 预生成 worker
+    _night_lamp_task = asyncio.create_task(_night_lamp_precompute())
+    logger.info("灯语预生成 worker 已启动 (22:30-23:30 预生成当日灯语)")
+
+    # Task 5: 倾诉临时消息 24h 硬清理 worker（每小时）
+    _night_cleanup_task = asyncio.create_task(_night_temp_cleanup())
+    logger.info("倾诉临时消息清理 worker 已启动 (每小时)")
+
     logger.info("服务启动完成: 易理明灯 fortune-agent（端口由启动命令指定，路由全量就绪）")
 
     yield
@@ -584,6 +692,10 @@ async def lifespan(app: FastAPI):
         _precompute_task.cancel()
     if _jian_precompute_task and not _jian_precompute_task.done():
         _jian_precompute_task.cancel()
+    if _night_lamp_task and not _night_lamp_task.done():
+        _night_lamp_task.cancel()
+    if _night_cleanup_task and not _night_cleanup_task.done():
+        _night_cleanup_task.cancel()
 
 
 app = FastAPI(title="Fortune Agent", version="0.1.0", lifespan=lifespan)
@@ -732,6 +844,10 @@ app.include_router(xuetang_router)           # /api/xuetang
 # 晨笺订阅 API（偏好开关/时间自选 + 服务号绑定，全接口 require_user 鉴权）
 from .api.jian import router as jian_router
 app.include_router(jian_router)              # /api/jian/prefs|bind
+
+# 深夜陪伴 API（偏好读写 + 深夜状态，全接口 require_user 鉴权）
+from .api.night import router as night_router
+app.include_router(night_router)             # /api/night/prefs|status
 
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)
@@ -976,6 +1092,7 @@ class ChatRequest(BaseModel):
     message_type: str = "text"  # "text", "voice", "image"
     image_url: str = ""  # 图片链接（message_type=image 时）
     voice_text: str = ""  # 语音转文字结果（message_type=voice 时）
+    deep_night: bool = False  # Task 5: 深夜倾诉模式(默认临时不记录+深夜语气层)
 
 
 class ChatResponse(BaseModel):
@@ -1094,7 +1211,8 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
             )
         else:
             # 同步 LLM 调用放线程池：事件循环不阻塞，请求超时中间件才可生效
-            reply = await loop.run_in_executor(None, handler.process, req.message, req.user_id)
+            reply = await loop.run_in_executor(
+                None, lambda: handler.process(req.message, req.user_id, deep_night=req.deep_night))
         # 阶段 5：本轮引用来源（校验后），随响应返回给前端渲染角标
         citations = handler.pop_citations(req.user_id) or None
 

@@ -431,3 +431,60 @@
   color: var(--ink-soft);
 }
 .yuan-entry-arrow { width: 27rpx; height: 19rpx; flex-shrink: 0; }
+
+/* ═══ Task 8 · 深夜入口横幅（方案·灯下漫谈）：夜色宣纸卡底 + 灯笼暖光 + 朱砂描边 ═══ */
+.night-banner {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 21rpx;
+  padding: 20rpx 24rpx;
+  background: #FBF4E1;                    /* 夜色笺卡底（暖纸 #F4EBD6 系加深一层） */
+  border: 2rpx solid var(--acc);          /* 朱砂描边 */
+  border-radius: 10rpx;
+  box-shadow: 0 4rpx 15rpx rgba(58,44,30,.08);
+  margin-bottom: 25rpx;
+  box-sizing: border-box;
+}
+.night-banner-active { background: #F7EBD0; transform: translateY(2rpx) scale(.985); }
+.nb-lantern {
+  flex-shrink: 0;
+  width: 66rpx;
+  height: 66rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 50%, #F6C98A 0%, #E8A34B 62%, #C98F3D 100%);
+  border-radius: 50%;
+  box-shadow: 0 0 16rpx rgba(232,163,75,.55), inset 0 0 0 3rpx rgba(251,240,214,.65); /* 灯笼暖光圆点 */
+}
+.nb-lantern-char {
+  font-family: var(--font-brush);
+  font-size: 34rpx;
+  color: #6B4308;
+}
+.nb-mid { flex: 1; min-width: 0; }
+.nb-title {
+  font-family: var(--font-kai);
+  font-size: 26rpx;
+  font-weight: 600;
+  letter-spacing: .1em;
+  color: var(--ink);
+}
+.nb-sub {
+  margin-top: 5rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .1em;
+  color: var(--ink-soft);
+}
+.nb-go {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .14em;
+  color: #FFF8EC;
+  background: var(--acc);
+  border-radius: 7rpx;
+  padding: 12rpx 18rpx;
+}

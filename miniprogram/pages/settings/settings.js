@@ -3,6 +3,7 @@
 const api = require('../../utils/api');
 const security = require('../../utils/security');
 const theme = require('../../utils/theme');
+const nightMode = require('../../utils/nightMode'); // 深夜时段三档预设(方案·灯下漫谈,同后端 src/engines/night_mode.py)
 
 /* 注销确认文案（原型 dir_o：输入框须与之一致才可确认） */
 const DEREG_CONFIRM = '注销';
@@ -59,6 +60,16 @@ Page({
     whisper: true,              // 个性化私语（默认开；本地偏好）
     bound: false,               // 服务号绑定态（bound_status === 'bound'）
     invalid: false,            // 订阅失效态（bound_status === 'invalid'，连续失败≥3次）
+    /* 深夜陪伴（方案·灯下漫谈：时段档位/点灯动效/深夜挽留/灯语定时/私语联动晨笺）
+       水合源 GET /api/night/prefs（Task 2）；私语与本地 ylm_jian_whisper 双向同步 */
+    nightPresetLabels: Object.keys(nightMode.PRESET_LABEL).map((k) => nightMode.PRESET_LABEL[k]), // 三档显示文案(早睡党/标准/夜猫子)
+    nightPresetIdx: 1,          // 时段档位下标（默认标准 21:00-01:00）
+    nightEffectOn: true,        // 点灯动效开关
+    nightKeepOn: true,          // 深夜挽留开关
+    lampTimerOptions: [5, 10, 15, 30], // 灯语定时关闭档位（分钟）
+    lampTimerIdx: 2,            // 默认 15 分钟（[5,10,15,30] 下标 2）
+    nightLoading: true,         // 水合中（开关禁用防闪变）
+    whisperOn: true,            // 私语开关（联动晨笺，与 ylm_jian_whisper 同源）
   },
 
   onLoad() {
@@ -69,6 +80,7 @@ Page({
   onShow() {
     this._deriveIdentity();
     this._loadJianPrefs();
+    this._loadNightPrefs(); // 深夜陪伴（与 jian prefs 并行水合）
   },
 
   _initNavOff() {
@@ -116,7 +128,8 @@ Page({
     let whisper = true;
     try {
       const v = wx.getStorageSync(WHISPER_KEY);
-      if (v === 0 || v === '0') whisper = false;
+      // 'off' 兼容：深夜陪伴私语开关（onNightWhisperSwitch）写入 'on'/'off' 格式
+      if (v === 0 || v === '0' || v === 'off') whisper = false;
     } catch (e) { /* ignore */ }
     api.getJianPrefs().then((res) => {
       this._prefsBusy = false;
@@ -189,11 +202,66 @@ Page({
     });
   },
 
-  /* 个性化私语（本地偏好，默认开；后端 private_enabled 字段待接入后迁移，同 jian_onboard） */
+  /* 个性化私语（本地偏好，默认开；后端 private_enabled 字段待接入后迁移，同 jian_onboard）
+     终审:与深夜陪伴区私语开关(whisperOn)同源互刷——改这边同步另一边的 UI 态 */
   onWhisperSwitch(e) {
     const on = !!e.detail.value;
-    this.setData({ whisper: on });
+    this.setData({ whisper: on, whisperOn: on });
     try { wx.setStorageSync(WHISPER_KEY, on ? 1 : 0); } catch (err) { /* ignore */ }
+  },
+
+  /* ═══ 深夜陪伴（方案·灯下漫谈：时段档位/点灯动效/深夜挽留/灯语定时/私语联动晨笺）
+       数据源 GET /api/night/prefs（Task 2）；变更即 PUT；私语与本地 ylm_jian_whisper 双向同步。
+       水合失败静默默认（standard/开/开/15 分钟/私语开），不打扰。 ═══ */
+  async _loadNightPrefs() {
+    try {
+      const res = await api.getNightPrefs();
+      const p = (res && res.prefs) || {};
+      const nightMode = require('../../utils/nightMode');
+      const labels = Object.keys(nightMode.PRESET_LABEL);
+      const idx = Math.max(0, labels.indexOf(p.preset || 'standard'));
+      const tIdx = Math.max(0, [5, 10, 15, 30].indexOf(p.lamp_timer_min || 15));
+      this.setData({
+        nightLoading: false,
+        nightPresetIdx: idx,
+        nightEffectOn: p.effect_enabled !== 0,
+        nightKeepOn: p.keep_enabled !== 0,
+        lampTimerIdx: tIdx,
+        whisperOn: p.whisper_enabled !== 0,
+      });
+      try { wx.setStorageSync('ylm_night_prefs', p); } catch (e) {}
+    } catch (e) { this.setData({ nightLoading: false }); }
+  },
+
+  onNightPresetChange(e) {
+    const nightMode = require('../../utils/nightMode');
+    const labels = Object.keys(nightMode.PRESET_LABEL);
+    const preset = labels[Number(e.detail.value)] || 'standard';
+    this.setData({ nightPresetIdx: Number(e.detail.value) });
+    api.putNightPrefs({ preset }).catch(() => wx.showToast({ title: '保存失败', icon: 'none' }));
+  },
+
+  onNightEffectSwitch(e) {
+    this.setData({ nightEffectOn: e.detail.value });
+    api.putNightPrefs({ effect_enabled: e.detail.value }).catch(() => {});
+  },
+
+  onNightKeepSwitch(e) {
+    this.setData({ nightKeepOn: e.detail.value });
+    api.putNightPrefs({ keep_enabled: e.detail.value }).catch(() => {});
+  },
+
+  onLampTimerChange(e) {
+    const min = [5, 10, 15, 30][Number(e.detail.value)] || 15;
+    this.setData({ lampTimerIdx: Number(e.detail.value) });
+    api.putNightPrefs({ lamp_timer_min: min }).catch(() => {});
+  },
+
+  onNightWhisperSwitch(e) {
+    // 终审:与消息订阅区私语开关(whisper)同源互刷(本地键共用 ylm_jian_whisper)
+    this.setData({ whisperOn: e.detail.value, whisper: !!e.detail.value });
+    try { wx.setStorageSync('ylm_jian_whisper', e.detail.value ? 'on' : 'off'); } catch (err) {}
+    api.putNightPrefs({ whisper_enabled: e.detail.value }).catch(() => {});
   },
 
   /* 未绑定 → 去绑定（jian_onboard 引导页：服务号二维码/绑定引导；返回后 onShow 刷新状态） */
