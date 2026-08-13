@@ -378,6 +378,23 @@ def test_select_lucky_days_chong_zodiac():
     assert with_bazi["suggest_wider"] is True
 
 
+def test_select_lucky_days_chong_scene_scoped():
+    """冲生肖按场景排除（回归）: 2026-08-12 戊午日冲鼠——
+    仅 avoid_chong=True(嫁娶/提车)排除; 开业/出行/签约(False)不受冲生肖影响"""
+    engine = ZeriEngine()
+    ub = {"shengxiao": "鼠"}
+    # avoid_chong=False 场景: 卡片正常返回, 冲鼠日不排除（08-12 戊午开日 总分74 仍入选）
+    kaiye = engine.select_lucky_days("开业", "2026-08-08", "2026-08-18", user_bazi=ub)
+    assert kaiye["cards"] and any(c.date == "2026-08-12" for c in kaiye["cards"])
+    chuxing = engine.select_lucky_days("出行", "2026-08-08", "2026-08-18", user_bazi=ub)
+    assert chuxing["cards"] and any(c.date == "2026-08-12" for c in chuxing["cards"])
+    assert engine.select_lucky_days("签约", "2026-08-08", "2026-08-18", user_bazi=ub)["cards"]
+    # avoid_chong=True 场景: 冲鼠日排除
+    for scene in ("嫁娶", "提车"):
+        res = engine.select_lucky_days(scene, "2026-08-08", "2026-08-18", user_bazi=ub)
+        assert all(c.date != "2026-08-12" for c in res["cards"])
+
+
 def test_select_lucky_days_small_window():
     """窗口 < 3 天且全被排除 → 0 卡 + suggest_wider"""
     engine = ZeriEngine()
