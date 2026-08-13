@@ -1,10 +1,21 @@
-"""枕边灯语管线测试:锚点提取(分类级) + 独白生成 + 红线校验 + 兜底 + TTS(mock)"""
+"""枕边灯语管线测试:锚点提取(分类级) + 独白生成 + 红线校验 + 兜底 + TTS(mock)
+
+封闭化(与 test_jian_scheduler 同约定):
+- _tomorrow_content 内的真实金句管线(bge-m3 + FAISS 238MB + LLM 核对)一律 mock,
+  避免未 mock 的真实管线导致挂起/网络/耗时(环境漂移根因);
+- 设 DEEPSEEK_API_KEY,否则 build_soliloquy 未到 LLM 分支即兜底(校验 4 会误失败);
+  实际 LLM 调用已由 _default_llm mock 覆盖。
+"""
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+os.environ.setdefault("DEEPSEEK_API_KEY", "test-key")  # 仅保证走 LLM 分支,调用已 mock
 import unittest.mock as mock
 from src.engines.night_soliloquy import (
     build_soliloquy, extract_anchors, _validate_soliloquy,
     _fallback_soliloquy, synth_lamp_audio)
+
+# 明日干支/宜忌/金句来自 _tomorrow_content → 真实金句管线,统一 mock(测试封闭)
+_MOCK_QUOTE = {"quote": "心火偏旺,宜静", "book": "穷通宝鉴"}
 
 ok = 0
 def check(name, cond):
@@ -47,7 +58,8 @@ def fake_llm(api_key, messages, **kw):
             "你只管睡。天大的事,等太阳升起来再说。\n晚安。灯下的人")
 
 # 4. 有摘要+锚点 → LLM 独白成功(结构完整)
-with mock.patch("src.engines.night_soliloquy._default_llm", side_effect=fake_llm):
+with mock.patch("src.engines.jian_quote.generate_daily_quote", return_value=_MOCK_QUOTE), \
+     mock.patch("src.engines.night_soliloquy._default_llm", side_effect=fake_llm):
     r = build_soliloquy("u1", "2026-08-12", FakeSDAO("用户聊了面试"), whisper=True)
     check("独白生成成功", r["fallback"] is False and r["text"].startswith("灯还亮着")
           and len(r["text"]) >= 100 and r["text"].rstrip().endswith("灯下的人"))
@@ -62,7 +74,8 @@ with mock.patch("src.engines.night_soliloquy._default_llm", side_effect=fake_llm
     check("私语关→兜底", r3["fallback"] is True)
 
 # 7. LLM 异常 → 兜底
-with mock.patch("src.engines.night_soliloquy._default_llm", side_effect=Exception("boom")):
+with mock.patch("src.engines.jian_quote.generate_daily_quote", return_value=_MOCK_QUOTE), \
+     mock.patch("src.engines.night_soliloquy._default_llm", side_effect=Exception("boom")):
     r4 = build_soliloquy("u4", "2026-08-12", FakeSDAO("用户聊了面试"), whisper=True)
     check("LLM 失败兜底", r4["fallback"] is True)
 
