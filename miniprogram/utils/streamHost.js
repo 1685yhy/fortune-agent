@@ -488,6 +488,8 @@ class StreamHost {
           streaming: false,
           error: false,
           thinking: (cur.thinking || []).map((s) => ({ text: s.text, state: 'done' })),
+          // 回退成功 = 完成态：同样自动收起为一行（thinkLabel 派生「思考完成」）
+          thinkCollapsed: true,
         });
         this.streaming = false;
         this.typing = false;

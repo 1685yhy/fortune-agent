@@ -497,6 +497,9 @@ Page({
       else if (m.error) label = '思考中断';
       else if (m.consultationId) label = '思考完成 ✓ 已生成回复';
       else label = '思考过程';   // 停止/历史消息：未完成也不误标"思考完成"
+    } else if (!m.streaming && !m.error && done > 0) {
+      // 异常/回退路径（abort/回退成功未收起）：思考已完成 → 同完成态标题，不残留「我在想…」
+      label = m.consultationId ? '思考完成 ✓ 已生成回复' : '思考过程';
     }
     return { thinkDone: done, thinkDoing: doing, thinkLabel: label };
   },
