@@ -12,11 +12,16 @@ Hermetic（无网络，dao/person_dao 全部 mock）：
 A. _get_user_birth_profile（新 helper）：
   A1  bazi_info 空 + persons 有档案 → 映射为 {year,month,day,hour,minute,city,gender}
   A2  bazi_info 有数据（含 year 键）→ 优先返回 bazi_info（persons 存在也不覆盖）
+  A2b bazi_info 仅含 year（缺其他键）→ 原样返回不崩（.get 默认生效）
   A3  persons 档案缺键（如无 minute）→ 不崩，.get 默认（None）
   A4  bazi_info 与 persons 都无 → None
+  A5  默认档案无出生数据 + 其他档案有 → 选 updated_at 最新的（而非最早创建的）
+  A6  默认档案有出生数据 → 保持默认优先（即使其他档案 updated_at 更新）
 
 B. _tool_bazi 工具路径档案回退：
-  B1  params 缺生辰 + 档案有 → 直接排盘不询问（非 needs_info，引擎收到档案参数）
+  B1  params 缺生辰 + 档案有 → 直接排盘不询问（非 needs_info，引擎收到档案参数），
+      回退填参后 save_user_bazi 收到 year/month/day/hour/minute
+  B1b 档案无时辰 → 填参 hour/minute 缺省 0，save_user_bazi 同步 0
   B2  params 缺生辰 + 档案也无 → 仍 needs_info 询问
   B3  params 自带生辰 → 原路径照旧（不查档案）
 
@@ -215,6 +220,16 @@ check("A2 bazi_info 优先（persons 不覆盖）",
       and p2.get("gender") == "女",
       f"profile={p2}")
 
+# A2b: bazi_info 仅含 year（缺其他键）→ 原样返回不崩（.get 默认生效）
+dao2b = FakeDAO()
+dao2b.bazi_info = {"year": 1988}
+FakePersonDAO.persons = [dict(_PERSONA)]
+h2b = build_handler(dao2b)
+p2b = call(h2b, "_get_user_birth_profile", "u1")
+check("A2b bazi_info 仅含 year → 原样返回不崩",
+      p2b is not None and p2b == dao2b.bazi_info,
+      f"profile={p2b}")
+
 # A3: persons 档案缺键（无 minute）→ 不崩，.get 默认 None
 person_short = dict(_PERSONA)
 person_short.pop("birth_minute", None)
@@ -231,6 +246,38 @@ dao4.bazi_info = {}  # 登录时创建的空记录
 FakePersonDAO.persons = []
 h4 = build_handler(dao4)
 check("A4 都无 → None", call(h4, "_get_user_birth_profile", "u1") is None)
+
+# A5: 默认档案无出生数据 + 其他档案有 → 选 updated_at 最新的
+#    （list_persons 按 created_at ASC 排序，旧实现会选最早创建的）
+dao5a = FakeDAO()
+dao5a.bazi_info = None
+default_no_birth = dict(_PERSONA, id=1, name="我", relation="自己", is_default=True)
+for _k in ("birth_year", "birth_month", "birth_day"):
+    default_no_birth.pop(_k, None)
+older = dict(_PERSONA, id=2, name="妈妈", relation="母亲", is_default=False,
+             birth_year=1965, updated_at="2026-02-01T00:00:00")
+newer = dict(_PERSONA, id=3, name="爸爸", relation="父亲", is_default=False,
+             birth_year=1963, updated_at="2026-03-01T00:00:00")
+FakePersonDAO.persons = [default_no_birth, older, newer]
+h5a = build_handler(dao5a)
+p5a = call(h5a, "_get_user_birth_profile", "u1")
+check("A5 默认无出生数据 → 选 updated_at 最新的档案",
+      p5a is not None and p5a.get("year") == 1963,
+      f"profile={p5a}")
+
+# A6: 默认档案有出生数据 → 保持默认优先（即使其他档案 updated_at 更新）
+dao6a = FakeDAO()
+dao6a.bazi_info = None
+default_self = dict(_PERSONA, id=1, name="我", relation="自己", is_default=True,
+                    birth_year=1990, updated_at="2026-01-02T00:00:00")
+newer_other = dict(_PERSONA, id=2, name="妈妈", relation="母亲", is_default=False,
+                   birth_year=1965, updated_at="2026-05-01T00:00:00")
+FakePersonDAO.persons = [default_self, newer_other]
+h6a = build_handler(dao6a)
+p6a = call(h6a, "_get_user_birth_profile", "u1")
+check("A6 默认有出生数据 → 仍选默认档案（优先级不变）",
+      p6a is not None and p6a.get("year") == 1990,
+      f"profile={p6a}")
 
 # ---------------------------------------------------------------------------
 # B. _tool_bazi 工具路径档案回退
@@ -249,6 +296,30 @@ check("B1 引擎收到档案参数",
       len(h5.engine.calls) == 1 and h5.engine.calls[0][:5] == (1990, 8, 20, 7, 30)
       and h5.engine.calls[0][5] == "北京" and h5.engine.calls[0][6] == "男",
       f"calls={h5.engine.calls}")
+check("B1 回退填参后 save_user_bazi 收到档案字段",
+      len(dao5.saved_bazi) == 1 and dao5.saved_bazi[0]["year"] == 1990
+      and dao5.saved_bazi[0]["month"] == 8 and dao5.saved_bazi[0]["day"] == 20
+      and dao5.saved_bazi[0]["hour"] == 7 and dao5.saved_bazi[0]["minute"] == 30,
+      f"saved_bazi={dao5.saved_bazi}")
+
+# B1b: 档案无时辰 → 填参 hour/minute 缺省 0，save_user_bazi 同步
+dao5b = FakeDAO()
+dao5b.bazi_info = None
+person_no_time = dict(_PERSONA)
+person_no_time.pop("birth_hour", None)
+person_no_time.pop("birth_minute", None)
+FakePersonDAO.persons = [person_no_time]
+h5b = build_handler(dao5b)
+r5b = call(h5b, "_tool_bazi", '{"出生信息": "帮我看看"}', "u1")
+check("B1b 档案无时辰 → 填参 hour/minute=0",
+      r5b.ok and not r5b.needs_info and h5b.engine.calls
+      and h5b.engine.calls[0][:5] == (1990, 8, 20, 0, 0),
+      f"calls={h5b.engine.calls}")
+check("B1b save_user_bazi 收到 hour/minute=0",
+      len(dao5b.saved_bazi) == 1 and dao5b.saved_bazi[0]["year"] == 1990
+      and dao5b.saved_bazi[0]["month"] == 8 and dao5b.saved_bazi[0]["day"] == 20
+      and dao5b.saved_bazi[0]["hour"] == 0 and dao5b.saved_bazi[0]["minute"] == 0,
+      f"saved_bazi={dao5b.saved_bazi}")
 
 # B2: params 缺生辰 + 档案也无 → 仍 needs_info
 dao6 = FakeDAO()

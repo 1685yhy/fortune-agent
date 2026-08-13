@@ -2326,34 +2326,46 @@ class MessageHandler:
         """获取用户出生信息档案（Task 1 排盘档案打通，单向只读）。
 
         ① users.bazi_info 非空且有 year 键 → 原样返回；
-        ② 否则查 persons 表主档案（list_persons 默认在前，取第一个有出生数据的），
+        ② 否则查 persons 表主档案：默认档案有出生数据 → 保持默认优先
+           （默认通常即用户本人）；默认无出生数据 → 取最近更新
+           （updated_at 降序）的有出生数据的档案（Brief 要求）。
            把 birth_year/birth_month/birth_day/birth_hour/birth_minute/gender/city
            映射为 {year, month, day, hour, minute, city, gender}；
         ③ 都没有 → None。
 
         不回写 persons、不新增写路径（单向打通）。
         """
-        if self.dao:
-            try:
-                bazi = self.dao.get_user_bazi(user_id)
-            except Exception:
-                bazi = None
-            if bazi and bazi.get("year"):
-                return bazi
+        if not self.dao:
+            return None
+        try:
+            bazi = self.dao.get_user_bazi(user_id)
+        except Exception:
+            bazi = None
+        if bazi and bazi.get("year"):
+            return bazi
+        # ② persons 档案兜底（db_path 访问已置于 self.dao 守卫内）
         try:
             from src.storage.person_dao import PersonDAO
             pdao = PersonDAO(self.dao.db_path)
-            for p in pdao.list_persons(user_id):
-                if p.get("birth_year"):
-                    return {
-                        "year": p.get("birth_year"),
-                        "month": p.get("birth_month"),
-                        "day": p.get("birth_day"),
-                        "hour": p.get("birth_hour"),
-                        "minute": p.get("birth_minute"),
-                        "city": p.get("city") or "",
-                        "gender": p.get("gender") or "unknown",
-                    }
+            persons = pdao.list_persons(user_id)
+            default = next((p for p in persons if p.get("is_default")), None)
+            if default and default.get("birth_year"):
+                pick = default
+            else:
+                candidates = [p for p in persons if p.get("birth_year")]
+                if not candidates:
+                    return None
+                # 选最近更新的有出生数据的档案（updated_at 降序取最大者）
+                pick = max(candidates, key=lambda p: p.get("updated_at") or "")
+            return {
+                "year": pick.get("birth_year"),
+                "month": pick.get("birth_month"),
+                "day": pick.get("birth_day"),
+                "hour": pick.get("birth_hour"),
+                "minute": pick.get("birth_minute"),
+                "city": pick.get("city") or "",
+                "gender": pick.get("gender") or "unknown",
+            }
         except Exception:
             pass
         return None
