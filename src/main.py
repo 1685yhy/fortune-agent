@@ -248,20 +248,31 @@ async def _night_temp_cleanup():
 
 
 async def _night_lamp_precompute():
-    """Task 4: 每小时检查,22:30-23:30 窗口预生成当日灯语(订阅用户,限速)。"""
+    """Task 4: 每小时检查,22:30-23:30 窗口预生成当日灯语(订阅用户,限速)。
+
+    终审修复:同步阻塞(L2 摘要读取+LLM 独白+TTS 合成,单用户数秒)移出事件循环,
+    经 asyncio.to_thread 委托线程池执行,避免阻塞所有请求。
+    """
     while True:
         try:
             now = datetime.now(timezone(timedelta(hours=8)))
             hm = now.strftime("%H:%M")
             if "22:30" <= hm <= "23:30":
-                _prewarm_night_lamps(now.strftime("%Y-%m-%d"))
+                await asyncio.to_thread(
+                    _prewarm_night_lamps, now.strftime("%Y-%m-%d"))
         except Exception as e:
             logger.error("灯语预生成异常: %s", e)
         await asyncio.sleep(3600)
 
 
 def _prewarm_night_lamps(date_str: str, limit: int = 50) -> dict:
-    """为已开启晚安推送的订阅用户预生成灯语(会员才合成语音,防 TTS 成本滥用)。"""
+    """为已开启晚安推送的订阅用户预生成灯语(会员才合成语音,防 TTS 成本滥用)。
+
+    终审修复:不再固定取 user_id 最小的一批——按 日期序数 % 分片数 轮转
+    (OFFSET),每天覆盖不同用户批次,慢速用户(如永远排后面的大 id)也有机会被生成。
+    """
+    import math
+    from datetime import date as _date
     from src.storage.dao import get_conn
     from src.storage.jian_dao import JianPrefDAO
     from src.storage.night_dao import NightPrefDAO
@@ -270,10 +281,25 @@ def _prewarm_night_lamps(date_str: str, limit: int = 50) -> dict:
     from src.storage.member_dao import MemberDAO
     from src.engines.night_soliloquy import build_soliloquy, synth_lamp_audio
     conn = get_conn()
+    try:
+        total_row = conn.execute(
+            "SELECT COUNT(*) FROM jian_prefs"
+            " WHERE night_enabled=1 AND bound_status='bound'").fetchone()
+    except Exception:
+        total_row = None
+    total = (total_row[0] or 0) if total_row else 0
+    if total == 0:
+        return {"total": 0, "ok": 0, "skipped": 0, "failed": 0}
+    try:
+        doy = _date.fromisoformat(date_str).timetuple().tm_yday
+    except ValueError:
+        doy = 0
+    chunks = max(1, math.ceil(total / limit))
+    offset = (doy % chunks) * limit
     rows = conn.execute(
         "SELECT user_id FROM jian_prefs WHERE night_enabled=1 AND bound_status='bound' "
-        "ORDER BY user_id LIMIT ?",
-        (limit,)).fetchall()
+        "ORDER BY user_id LIMIT ? OFFSET ?",
+        (limit, offset)).fetchall()
     stats = {"total": len(rows), "ok": 0, "skipped": 0, "failed": 0}
     ldao, pdao = LampDAO(conn), NightPrefDAO(conn)
     sdao = SessionDAO(str(load_settings().db_path))

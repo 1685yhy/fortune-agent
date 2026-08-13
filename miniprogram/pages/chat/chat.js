@@ -263,7 +263,14 @@ Page({
       this._lampAudio.onEnded(() => this.setData({ 'lamp.playing': false }));
     }
     const a = this._lampAudio;
-    a.src = this.data.lamp.audioUrl;
+    // 终审:切换灯语日/首次点击才换源,保持当前进度;点「暂停」真正暂停不再重播
+    if (!a.src || a.src !== this.data.lamp.audioUrl) a.src = this.data.lamp.audioUrl;
+    if (this.data.lamp.playing) {
+      a.pause();
+      if (this._lampTimer) { clearTimeout(this._lampTimer); this._lampTimer = null; }
+      this.setData({ 'lamp.playing': false });
+      return;
+    }
     a.play();
     this.setData({ 'lamp.playing': true });
     if (this._lampTimer) clearTimeout(this._lampTimer);

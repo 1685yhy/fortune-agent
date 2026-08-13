@@ -202,10 +202,11 @@ Page({
     });
   },
 
-  /* 个性化私语（本地偏好，默认开；后端 private_enabled 字段待接入后迁移，同 jian_onboard） */
+  /* 个性化私语（本地偏好，默认开；后端 private_enabled 字段待接入后迁移，同 jian_onboard）
+     终审:与深夜陪伴区私语开关(whisperOn)同源互刷——改这边同步另一边的 UI 态 */
   onWhisperSwitch(e) {
     const on = !!e.detail.value;
-    this.setData({ whisper: on });
+    this.setData({ whisper: on, whisperOn: on });
     try { wx.setStorageSync(WHISPER_KEY, on ? 1 : 0); } catch (err) { /* ignore */ }
   },
 
@@ -257,7 +258,8 @@ Page({
   },
 
   onNightWhisperSwitch(e) {
-    this.setData({ whisperOn: e.detail.value });
+    // 终审:与消息订阅区私语开关(whisper)同源互刷(本地键共用 ylm_jian_whisper)
+    this.setData({ whisperOn: e.detail.value, whisper: !!e.detail.value });
     try { wx.setStorageSync('ylm_jian_whisper', e.detail.value ? 'on' : 'off'); } catch (err) {}
     api.putNightPrefs({ whisper_enabled: e.detail.value }).catch(() => {});
   },

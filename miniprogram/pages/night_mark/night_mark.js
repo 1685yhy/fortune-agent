@@ -53,8 +53,10 @@ Page({
         ctx.textAlign = 'center';
         ctx.fillText('守 夜 人', 300, 300);
         ctx.font = '32px serif';
-        ctx.fillText(`第 ${this.data.display}/7 夜`, 300, 480);
-        ctx.fillText('七夜了。你睡,我守。', 300, 560);
+        // 终审:display 达 30 夜(长明灯)时分享卡不再写死「第 X/7 夜」
+        const nm = this.data;
+        ctx.fillText(nm.longLit ? '第 30/30 夜 · 长明灯' : `第 ${nm.display}/7 夜`, 300, 480);
+        ctx.fillText(nm.longLit ? '三十夜了。灯火不熄,长明照你。' : '七夜了。你睡,我守。', 300, 560);
         wx.canvasToTempFilePath({
           canvas, fileType: 'png',
           success: (r) => {

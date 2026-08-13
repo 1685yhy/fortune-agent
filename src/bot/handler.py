@@ -1491,10 +1491,13 @@ class MessageHandler:
             return ""
         # 廉价预检：按库中内容字节数估算 token 上限（密文 base64 ≈ 明文×1.33，
         # 保守系数 1.2 保证两倍安全），不触发就不解密历史（每轮零额外开销）
+        # 隐私红线（终审 #1）：预检与压缩都排除 temp 倾诉消息（AND temp=0），
+        # 夜间倾诉绝不进入 L2 摘要/session_summaries（24h 硬清理后应完全消失）
         try:
             conn = self.session_dao._connect()
             row = conn.execute(
-                "SELECT COUNT(*), SUM(LENGTH(content)) FROM sessions WHERE user_id=?",
+                "SELECT COUNT(*), SUM(LENGTH(content)) FROM sessions"
+                " WHERE user_id=? AND temp=0",
                 (user_id,),
             ).fetchone()
             conn.close()
@@ -1507,7 +1510,7 @@ class MessageHandler:
         if msg_count < 20 or byte_sum < threshold:
             return ""
         try:
-            history = self.session_dao.get_history(user_id, limit=2000)
+            history = self.session_dao.get_history(user_id, limit=2000, temp=False)
         except Exception as e:
             logger.warning("L2 读取历史失败 user=%s: %s", user_id, e)
             return ""
@@ -1777,7 +1780,9 @@ class MessageHandler:
         self._citations.pop(user_id, None)
 
         # Step -2: Cache check (D2 speed optimization)
-        if is_cacheable(msg):
+        # 终审：deepNight 请求跳过缓存读写——夜里语气/陪伴类回复不可命中白天缓存，
+        # 缓存键也隐含用户+消息，避免倾诉缓存串味（应修 #缓存命中 temp/语气）
+        if is_cacheable(msg) and not deep:
             cached = self.cache.get(msg, user_id)
             if cached:
                 return cached
@@ -2062,7 +2067,8 @@ class MessageHandler:
             self._record_evolution(user_id, topic, reply)
 
         # D2: Cache the response for high-frequency queries
-        if is_cacheable(msg):
+        # 终审：deepNight 不写缓存（见 Step -2 注释，夜里回复只属于当晚）
+        if is_cacheable(msg) and not deep:
             self.cache.set(msg, reply, user_id)
 
         return reply
@@ -4286,7 +4292,10 @@ class MessageHandler:
                     except Exception:
                         profile = ""
                 key_facts = self._collect_key_facts(user_id)
-                history = self.session_dao.get_context_for_llm(user_id, history_limit=200)
+                # 终审：白天 LLM 上下文排除 temp 倾诉消息（天亮就忘——
+                # 24h 窗口内的夜间倾诉不流入白天对话，只删不用的兜底在 cleanup_temp）
+                history = self.session_dao.get_context_for_llm(
+                    user_id, history_limit=200, temp=False)
                 messages = _assemble_context(
                     history, profile=profile, summary=summary,
                     current=msg, key_facts=tuple(key_facts),

@@ -84,4 +84,71 @@ with mock.patch.object(h, "_analyze_message", return_value=analysis), \
     check("白天无深夜语气层", "深夜陪伴模式" not in captured["hint"])
     check("语气层常量存在", len(NIGHT_TONE_HINT) > 50)
 
+# ═══ 终审 #1:temp 泄漏进 L2/L3(隐私红线 P0) ═══
+
+# 5. DAO 层 get_history temp 过滤参数
+sdao.add_message("u4", "user", "夜里说的悄悄话:我怕黑", temp=True)
+sdao.add_message("u4", "user", "白天的正常消息")
+h_all = sdao.get_history("u4", limit=10)
+h_clean = sdao.get_history("u4", limit=10, temp=False)
+h_temp = sdao.get_history("u4", limit=10, temp=True)
+check("get_history 默认含 temp", any(m.get("temp") == 1 for m in h_all))
+check("get_history temp=False 排除 temp 倾诉",
+      all(m.get("temp") == 0 for m in h_clean)
+      and not any("我怕黑" in m["content"] for m in h_clean))
+check("get_history temp=True 仅 temp", len(h_temp) == 1 and h_temp[0]["temp"] == 1)
+
+# 6. 压缩路径(_maybe_compact)排除 temp:前夜倾诉 + 白天消息 → 摘要只见白天
+class FakeCompactor:
+    window_limit = 1024
+    trigger_ratio = 0.5
+    compact_calls = 0
+    inputs = []
+    def should_compact(self, messages):
+        return True
+    def compact(self, messages, prev_summary="", prev_memories=None):
+        FakeCompactor.compact_calls += 1
+        FakeCompactor.inputs = [m["content"] for m in messages]
+        return mock.Mock(summary_text="L2摘要(仅白天)", memories=[],
+                         old_count=len(messages), compression_pct=50.0,
+                         degraded=False, total_tokens=100)
+
+sdao.add_message("u5", "user", "前夜倾诉:我爱上了一个不该爱的人", temp=True)
+for i in range(22):
+    sdao.add_message("u5", "user", f"白天日常消息第{i}条:今天天气不错,该吃点什么好呢")
+with mock.patch.object(h, "compactor", FakeCompactor()):
+    s = h._maybe_compact("u5")
+check("压缩触发(白天消息足量)", s == "L2摘要(仅白天)")
+check("压缩输入仅白天消息(22条,无 temp 倾诉)",
+      len(FakeCompactor.inputs) == 22
+      and not any("前夜倾诉" in c for c in FakeCompactor.inputs))
+
+# 7. 仅 temp 消息(深夜纯倾诉)不触发压缩 → 摘要不被污染
+sdao.add_message("u6", "user", "只有夜里的话,没有白天的话", temp=True)
+with mock.patch.object(h, "compactor", FakeCompactor()):
+    s2 = h._maybe_compact("u6")
+check("仅 temp 不触发压缩", s2 == "" and FakeCompactor.compact_calls == 1)
+
+# 8. deepNight 跳过缓存读/写(终审应修:夜里回复不命中/不写入白天缓存)
+cc = {"get": 0, "set": 0}
+def fake_cache_get(msg, uid):
+    cc["get"] += 1
+    return None
+def fake_cache_set(msg, reply, uid):
+    cc["set"] += 1
+with mock.patch.object(h, "cache") as fake_cache, \
+     mock.patch.object(h, "_analyze_message", return_value=analysis), \
+     mock.patch.object(h, "_free_chat", side_effect=spy_free_chat), \
+     mock.patch.object(h, "_run_tool_loop", return_value="深夜回复"), \
+     mock.patch.object(h, "_get_welcome_back", return_value=""), \
+     mock.patch.object(h, "_consume_quota"), \
+     mock.patch("src.bot.handler.is_cacheable", return_value=True):
+    fake_cache.get.side_effect = fake_cache_get
+    fake_cache.set.side_effect = fake_cache_set
+    h.process("要记得我吗", "u7", deep_night=True)
+check("deepNight 跳过缓存读/写", cc["get"] == 0 and cc["set"] == 0)
+
+# 9. 终审 #4:NIGHT_TONE_HINT 含"要帮我记住吗"话术
+check("提示词含'要帮你记住吗'", "要帮你记住吗" in NIGHT_TONE_HINT)
+
 print(f"\nALL PASS ({ok})")

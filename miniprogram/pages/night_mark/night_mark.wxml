@@ -18,8 +18,8 @@
         <view class="stamp-char">{{achieved ? (longLit ? '长明灯' : '守夜人') : '未点亮'}}</view>
       </view>
       <view class="sc-progress">
-        <text class="sc-progress-num">{{display}}</text>
-        <text class="sc-progress-txt">/{{target}} 夜</text>
+        <text class="sc-progress-num">{{longLit ? '30' : display}}</text>
+        <text class="sc-progress-txt">{{longLit ? '/30 夜 · 长明灯' : '/' + target + ' 夜'}}</text>
       </view>
       <view class="sc-sub">{{achieved ? (longLit ? '三十夜灯火不熄 · 长明灯已亮' : '七夜灯火不熄 · 守夜人已成') : '深夜灯下说过话的夜晚，明灯都记得'}}</view>
       <view class="sc-foot">你睡，我守。</view>

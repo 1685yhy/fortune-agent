@@ -120,4 +120,31 @@ with mock.patch("src.engines.night_soliloquy.build_soliloquy",
     stats2 = main_mod._prewarm_night_lamps("2099-01-01", limit=5)
     check("已入库跳过", stats2["skipped"] == 1)
 
+# 7. 终审:prewarm 按日轮转(ORDER BY user_id LIMIT n OFFSET (doy%分片)*n)
+#    总订阅 5 人(UID + z-rot-a..d),limit=2 → 分片 3 → 连续 3 天分批覆盖全部且不重复
+#    doy: 2099-01-01=1(1%3=1→offset2) / 2099-01-02=2(2%3=2→offset4) / 2099-01-03=3(0→offset0)
+ROT_DAYS = ("2099-01-01", "2099-01-02", "2099-01-03")
+ROT_USERS = ("dev-token-test-user-night", "z-rot-a", "z-rot-b", "z-rot-c", "z-rot-d")
+for ru in ROT_USERS:
+    c.execute("INSERT OR IGNORE INTO jian_prefs "
+              "(user_id, jian_enabled, night_enabled, bound_status, mp_openid) "
+              "VALUES (?, 0, 1, 'bound', 'oX')", (ru,))
+c.commit()
+with mock.patch("src.engines.night_soliloquy.build_soliloquy",
+                return_value={"text": "灯还亮着。晚安。灯下的人", "fallback": False}), \
+     mock.patch("src.engines.night_soliloquy.synth_lamp_audio", return_value="http://x/1.mp3"), \
+     mock.patch("src.storage.session_dao.SessionDAO", return_value=object()), \
+     mock.patch("src.storage.member_dao.MemberDAO", return_value=FakeMember("pro")):
+    stats = {ds: main_mod._prewarm_night_lamps(ds, limit=2) for ds in ROT_DAYS}
+check("轮转每天只生成一批评次(2/1/2)",
+      [stats[d]["total"] for d in ROT_DAYS] == [2, 1, 2])
+owners = {}
+for ru in ROT_USERS:
+    owners[ru] = sum(1 for d in ROT_DAYS if _ldao.get_lamp(ru, d) is not None)
+# UID 在 2099-01-01 已由第 6 节(limit=5 全量)生成过,轮转日再取到属跨日正常;
+# 关键不变量:三天分批(2/1/2)互不重叠 → 全部订阅用户均被覆盖、轮转新用户各恰好一次
+check("轮转三天覆盖全部订阅用户且分批不重叠",
+      all(owners[ru] >= 1 for ru in ROT_USERS)
+      and all(owners[ru] == 1 for ru in ("z-rot-a", "z-rot-b", "z-rot-c", "z-rot-d")))
+
 print(f"\nALL PASS ({ok})")

@@ -181,26 +181,32 @@ class SessionDAO:
         except Exception as e:
             logger.warning("会话消息迁移加密失败 id=%s: %s", message_id, e)
 
-    def get_history(self, user_id: str, limit: int = 20) -> List[Dict]:
+    def get_history(self, user_id: str, limit: int = 20,
+                    temp: Optional[bool] = None) -> List[Dict]:
         """获取指定用户的最近 N 条消息（content 自动解密；旧明文读取时懒迁移）。
+
+        Args:
+            temp: None=全部消息（含 temp 倾诉）；False=排除 temp 倾诉消息
+                  （压缩/L2 摘要路径，隐私红线：夜间倾诉不进 L2）；True=仅 temp。
 
         Returns:
             list of dicts: [{id, user_id, role, content, intent, emotion,
                              tool_calls, retrieval_hit, model, safety_flag,
-                             created_at}, ...]
+                             temp, temp_expire_at, created_at}, ...]
         """
         conn = self._connect()
         try:
-            rows = conn.execute(
-                """SELECT id, user_id, role, content, intent, emotion,
-                          tool_calls, retrieval_hit, model, safety_flag,
-                          temp, temp_expire_at, created_at
-                   FROM sessions
-                   WHERE user_id = ?
-                   ORDER BY created_at DESC, id DESC
-                   LIMIT ?""",
-                (user_id, limit),
-            ).fetchall()
+            sql = ("SELECT id, user_id, role, content, intent, emotion,"
+                   " tool_calls, retrieval_hit, model, safety_flag,"
+                   " temp, temp_expire_at, created_at"
+                   " FROM sessions WHERE user_id = ?")
+            params = [user_id]
+            if temp is not None:
+                sql += " AND temp = ?"
+                params.append(1 if temp else 0)
+            sql += " ORDER BY created_at DESC, id DESC LIMIT ?"
+            params.append(limit)
+            rows = conn.execute(sql, params).fetchall()
             # 按时间正序返回（旧→新）
             rows.reverse()
             items = []
@@ -298,17 +304,20 @@ class SessionDAO:
         finally:
             conn.close()
 
-    def get_context_for_llm(self, user_id: str, history_limit: int = 15) -> List[Dict]:
+    def get_context_for_llm(self, user_id: str, history_limit: int = 15,
+                            temp: Optional[bool] = None) -> List[Dict]:
         """获取可用于 LLM API 的历史消息列表（自动解密）。
 
         Args:
             user_id: 用户标识
             history_limit: 最多返回多少条消息（默认 15，控制 token 用量）
+            temp: 透传 get_history 的 temp 过滤（None=全部；False=白天不读
+                  夜间倾诉；True=仅 temp），None 保持原行为
 
         Returns:
             list of dicts: [{"role": "user"/"assistant", "content": "..."}, ...]
         """
-        history = self.get_history(user_id, limit=history_limit)
+        history = self.get_history(user_id, limit=history_limit, temp=temp)
         return [{"role": h["role"], "content": h["content"]} for h in history]
 
     def clear_history(self, user_id: str):
