@@ -19,7 +19,8 @@
     "pages/onboarding/onboarding",
     "pages/jian_onboard/jian_onboard",
     "pages/persons/persons",
-    "pages/settings/settings"
+    "pages/settings/settings",
+    "pages/night_mark/night_mark"
   ],
   "window": {
     "navigationBarBackgroundColor": "#F5EFE1",

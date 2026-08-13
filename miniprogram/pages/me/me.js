@@ -19,6 +19,7 @@ const BASE_ROWS = [
   { icon: '/assets/images/ic-keep.png', label: '我的收藏', action: 'favorites' },
   { icon: '/assets/images/ic-chat.png', label: '对话历史', action: 'history' },
   { icon: '/assets/images/ic-moon.png', label: '解梦手记', action: 'dreams' },
+  { icon: '/assets/images/ic-seal.png', label: '灯下印记 · 守夜人', action: 'nightmark' },
   { icon: '/assets/images/ic-bell.png', label: '开灯提醒', action: 'sub', sub: true },
   { icon: '/assets/images/ic-kebab.png', label: '设置', action: 'settings' },
 ];
@@ -325,6 +326,9 @@ Page({
     } else if (action === 'dreams') {
       // 解梦手记：夜话中的解梦回复收进此册
       wx.navigateTo({ url: '/pages/dreams/dreams' });
+    } else if (action === 'nightmark') {
+      // 灯下印记：守夜人成就（7 夜印章 / 30 夜长明灯）
+      wx.navigateTo({ url: '/pages/night_mark/night_mark' });
     } else if (action === 'settings') {
       // 设置：账号与登录/隐私政策/注销等（原登录/退出/注销均收进此页）
       wx.navigateTo({ url: '/pages/settings/settings' });

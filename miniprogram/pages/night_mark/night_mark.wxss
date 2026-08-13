@@ -1,0 +1,221 @@
+/* ═══ 灯下印记 — 守夜人印章（墨韵：宣纸卡 + 朱砂篆刻 + 近七夜网格） ═══ */
+
+.mark-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));   /* 95px */
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 30rpx 38rpx 60rpx;
+  overflow-x: hidden;
+}
+
+/* ── 印章卡 ── */
+.seal-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 56rpx 40rpx 48rpx;
+  background: linear-gradient(180deg, #FBF7EC 0%, #F5EFE1 100%);
+  border: 3rpx solid var(--acc-line);
+  border-radius: 16rpx;
+  box-shadow: 0 6rpx 24rpx rgba(58, 44, 30, .08);
+}
+/* 长明灯：金圈加身 */
+.seal-long {
+  border: 3rpx solid rgba(212, 175, 55, .75);
+  box-shadow: 0 0 0 6rpx rgba(212, 175, 55, .22), 0 6rpx 24rpx rgba(58, 44, 30, .08);
+}
+
+/* 篆刻印章：朱砂双线方框 + 白字 */
+.sc-stamp {
+  position: relative;
+  width: 230rpx;
+  height: 230rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 4rpx 0 34rpx;
+}
+.stamp-frame {
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  border: 6rpx solid var(--acc);
+  border-radius: 14rpx;
+  transform: rotate(-2deg);
+}
+.stamp-frame::after {
+  content: '';
+  position: absolute;
+  left: 14rpx; top: 14rpx; right: 14rpx; bottom: 14rpx;
+  border: 3rpx solid var(--acc);
+  border-radius: 10rpx;
+  opacity: .55;
+}
+.stamp-char {
+  position: relative;
+  z-index: 2;
+  font-size: 62rpx;
+  font-weight: 700;
+  letter-spacing: 10rpx;
+  text-indent: 10rpx;   /* 抵消字间距视觉偏移 */
+  color: #FFFFFF;
+  text-shadow: 0 3rpx 8rpx rgba(140, 46, 34, .5);
+}
+
+/* 未达成：灰显 */
+.seal-dim .stamp-frame {
+  border-color: #C7BBA0;
+}
+.seal-dim .stamp-frame::after {
+  border-color: #C7BBA0;
+}
+.seal-dim .stamp-char {
+  color: #FFFFFF;
+  text-shadow: 0 3rpx 8rpx rgba(122, 106, 80, .45);
+  background: #C7BBA0;
+  border-radius: 10rpx;
+  padding: 46rpx 24rpx;
+  letter-spacing: 6rpx;
+  font-size: 48rpx;
+}
+
+/* 进度「第 X/7 夜」 */
+.sc-progress {
+  display: flex;
+  align-items: baseline;
+}
+.sc-progress-num {
+  font-size: 88rpx;
+  font-weight: 700;
+  color: var(--acc);
+  line-height: 1;
+}
+.sc-progress-txt {
+  font-size: 34rpx;
+  color: var(--ink-mid);
+  margin-left: 10rpx;
+  letter-spacing: 2rpx;
+}
+.sc-sub {
+  margin-top: 22rpx;
+  font-size: 26rpx;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.sc-foot {
+  margin-top: 30rpx;
+  font-size: 24rpx;
+  color: var(--ink-faint);
+  letter-spacing: 6rpx;
+}
+
+/* ── 近 7 夜网格 ── */
+.night-grid {
+  margin-top: 30rpx;
+  padding: 30rpx 32rpx 26rpx;
+  background: var(--paper-card);
+  border: 3rpx solid var(--acc-line);
+  border-radius: 16rpx;
+}
+.ng-label {
+  font-size: 28rpx;
+  color: var(--ink-mid);
+  letter-spacing: 4rpx;
+  margin-bottom: 24rpx;
+}
+.ng-cells {
+  display: flex;
+  justify-content: space-between;
+}
+.ng-cell {
+  width: 80rpx;
+  height: 80rpx;
+  border: 3rpx solid rgba(108, 91, 69, .3);
+  border-radius: 10rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ng-date {
+  font-size: 21rpx;
+  color: var(--ink-faint);
+}
+.ng-done {
+  background: var(--acc-soft);
+  border-color: var(--acc);
+}
+.ng-done .ng-date {
+  color: var(--acc);
+  font-weight: 600;
+}
+.ng-pending {
+  background: rgba(169, 58, 44, .06);
+  border-color: rgba(169, 58, 44, .55);
+}
+.ng-pending .ng-date {
+  color: var(--ink-mid);
+}
+.ng-hint {
+  margin-top: 24rpx;
+  display: flex;
+  justify-content: center;
+}
+.ng-legend {
+  display: flex;
+  align-items: center;
+  margin: 0 18rpx;
+}
+.ng-legend text {
+  font-size: 21rpx;
+  color: var(--ink-faint);
+  margin-left: 8rpx;
+}
+.lg-box {
+  width: 20rpx;
+  height: 20rpx;
+  border: 3rpx solid rgba(108, 91, 69, .3);
+  border-radius: 5rpx;
+}
+.lg-done {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+.lg-pending {
+  background: rgba(169, 58, 44, .06);
+  border-color: rgba(169, 58, 44, .55);
+}
+
+/* ── 分享按钮 ── */
+.share-btn {
+  margin: 36rpx 0 0;
+  height: 92rpx;
+  border-radius: 46rpx;
+  background: var(--acc);
+  color: #FFFFFF;
+  font-size: 30rpx;
+  letter-spacing: 6rpx;
+  text-indent: 6rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8rpx 20rpx rgba(169, 58, 44, .3);
+}
+.share-btn-active {
+  background: var(--acc-deep);
+}
+.share-note {
+  margin-top: 22rpx;
+  text-align: center;
+  font-size: 22rpx;
+  color: var(--ink-faint);
+}
+
+/* 隐藏的分享卡画布（off-screen） */
+.seal-canvas {
+  position: fixed;
+  left: -9999rpx;
+  top: 0;
+  width: 600px;
+  height: 800px;
+}
