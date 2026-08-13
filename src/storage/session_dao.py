@@ -67,6 +67,17 @@ class SessionDAO:
     def __init__(self, db_path: str):
         self.db_path = db_path
         init_db(db_path)
+        # Task 5 迁移: temp 倾诉消息标记 + 24h 过期时间(老库 ALTER 兼容)
+        conn = self._connect()
+        try:
+            cols = [d[1] for d in conn.execute("PRAGMA table_info(sessions)")]
+            if "temp" not in cols:
+                conn.execute("ALTER TABLE sessions ADD COLUMN temp INTEGER DEFAULT 0")
+            if "temp_expire_at" not in cols:
+                conn.execute("ALTER TABLE sessions ADD COLUMN temp_expire_at TEXT DEFAULT ''")
+            conn.commit()
+        finally:
+            conn.close()
 
     def _connect(self):
         return db_connect(self.db_path, timeout=10)
@@ -82,6 +93,7 @@ class SessionDAO:
         retrieval_hit: Optional[str] = None,
         model: Optional[str] = None,
         safety_flag: Optional[str] = None,
+        temp: bool = False,
     ):
         """保存一条聊天消息（content 加密落库）。
 
@@ -98,22 +110,42 @@ class SessionDAO:
             retrieval_hit: hit / miss / unused
             model: 生成模型版本
             safety_flag: 安全事件标记（self_harm_referral 等）
+            temp: 倾诉临时消息（深夜默认模式）——带 24h 过期时间，
+                  由 cleanup_temp 硬清理兜底（方案§4:服务端 24h 硬清理）。
         """
         content_enc = _encrypt_text(content)
+        temp_expire_at = ""
+        if temp:
+            from datetime import datetime, timedelta
+            temp_expire_at = (datetime.utcnow() + timedelta(hours=24)).isoformat()
         conn = self._connect()
         try:
             conn.execute(
                 """INSERT INTO sessions
                    (user_id, role, content, intent, emotion, tool_calls,
-                    retrieval_hit, model, safety_flag)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    retrieval_hit, model, safety_flag, temp, temp_expire_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (user_id, role, content_enc, intent, emotion, tool_calls,
-                 retrieval_hit, model, safety_flag),
+                 retrieval_hit, model, safety_flag, 1 if temp else 0, temp_expire_at),
             )
             conn.commit()
         finally:
             conn.close()
         self._cleanup(user_id)
+
+    def cleanup_temp(self, now_iso: str = "") -> int:
+        """删除过期的临时倾诉消息(24h 硬清理兜底),返回删除条数。"""
+        from datetime import datetime
+        now_iso = now_iso or datetime.utcnow().isoformat()
+        conn = self._connect()
+        try:
+            cur = conn.execute(
+                "DELETE FROM sessions WHERE temp=1 AND temp_expire_at != '' AND temp_expire_at < ?",
+                (now_iso,))
+            conn.commit()
+            return cur.rowcount
+        finally:
+            conn.close()
 
     def _cleanup(self, user_id: str):
         """删除超出保留上限的旧消息，每个用户最多保留 MAX_MESSAGES_PER_USER 条。"""
@@ -161,7 +193,8 @@ class SessionDAO:
         try:
             rows = conn.execute(
                 """SELECT id, user_id, role, content, intent, emotion,
-                          tool_calls, retrieval_hit, model, safety_flag, created_at
+                          tool_calls, retrieval_hit, model, safety_flag,
+                          temp, temp_expire_at, created_at
                    FROM sessions
                    WHERE user_id = ?
                    ORDER BY created_at DESC, id DESC
@@ -187,7 +220,9 @@ class SessionDAO:
                     "retrieval_hit": r[7],
                     "model": r[8],
                     "safety_flag": r[9],
-                    "created_at": r[10],
+                    "temp": r[10],
+                    "temp_expire_at": r[11],
+                    "created_at": r[12],
                 })
             return items
         finally:

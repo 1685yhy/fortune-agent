@@ -84,6 +84,7 @@ _push_task = None  # 后台推送任务
 _precompute_task = None  # Step 4: 每日预计算任务
 _jian_precompute_task = None  # Task 6: 晨笺每日内容预生成任务
 _night_lamp_task = None  # Task 4: 灯语 22:30 预生成任务
+_night_cleanup_task = None  # Task 5: 倾诉临时消息 24h 硬清理任务
 
 # Security globals
 security_rate_limiter = None
@@ -230,6 +231,20 @@ def _precompute_jian_for(date_str: str) -> dict:
     }
     cache.set(key, content, ttl_seconds=3600 * 26)
     return content
+
+
+async def _night_temp_cleanup():
+    """Task 5: 每小时清理过期的临时倾诉消息(24h 硬清理兜底)。"""
+    while True:
+        try:
+            from src.storage.session_dao import SessionDAO
+            sdao = SessionDAO(str(load_settings().db_path))
+            removed = sdao.cleanup_temp()
+            if removed:
+                logger.info("倾诉临时消息清理: %s 条", removed)
+        except Exception as e:
+            logger.warning("临时消息清理异常: %s", e)
+        await asyncio.sleep(3600)
 
 
 async def _night_lamp_precompute():
@@ -395,7 +410,7 @@ async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
     global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, qimen_engine, xingming_engine, embedder, retriever, dao, llm, handler
     global _push_task, _precompute_task, member_dao, session_dao
-    global _jian_precompute_task, _night_lamp_task
+    global _jian_precompute_task, _night_lamp_task, _night_cleanup_task
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
     # 配置日志：logs/app.log 按天轮转（保留 14 天），级别取 LOG_LEVEL（默认 INFO）
@@ -634,6 +649,10 @@ async def lifespan(app: FastAPI):
     _night_lamp_task = asyncio.create_task(_night_lamp_precompute())
     logger.info("灯语预生成 worker 已启动 (22:30-23:30 预生成当日灯语)")
 
+    # Task 5: 倾诉临时消息 24h 硬清理 worker（每小时）
+    _night_cleanup_task = asyncio.create_task(_night_temp_cleanup())
+    logger.info("倾诉临时消息清理 worker 已启动 (每小时)")
+
     logger.info("服务启动完成: 易理明灯 fortune-agent（端口由启动命令指定，路由全量就绪）")
 
     yield
@@ -646,6 +665,8 @@ async def lifespan(app: FastAPI):
         _jian_precompute_task.cancel()
     if _night_lamp_task and not _night_lamp_task.done():
         _night_lamp_task.cancel()
+    if _night_cleanup_task and not _night_cleanup_task.done():
+        _night_cleanup_task.cancel()
 
 
 app = FastAPI(title="Fortune Agent", version="0.1.0", lifespan=lifespan)
@@ -1042,6 +1063,7 @@ class ChatRequest(BaseModel):
     message_type: str = "text"  # "text", "voice", "image"
     image_url: str = ""  # 图片链接（message_type=image 时）
     voice_text: str = ""  # 语音转文字结果（message_type=voice 时）
+    deep_night: bool = False  # Task 5: 深夜倾诉模式(默认临时不记录+深夜语气层)
 
 
 class ChatResponse(BaseModel):
@@ -1160,7 +1182,8 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
             )
         else:
             # 同步 LLM 调用放线程池：事件循环不阻塞，请求超时中间件才可生效
-            reply = await loop.run_in_executor(None, handler.process, req.message, req.user_id)
+            reply = await loop.run_in_executor(
+                None, lambda: handler.process(req.message, req.user_id, deep_night=req.deep_night))
         # 阶段 5：本轮引用来源（校验后），随响应返回给前端渲染角标
         citations = handler.pop_citations(req.user_id) or None
 
