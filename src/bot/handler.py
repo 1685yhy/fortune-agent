@@ -94,7 +94,8 @@ ZERI_SCENE_SYNONYMS = {
     "提车": ["提车", "买车", "购车"],
     "签约": ["签约", "签合同", "过户"],
 }
-ZERI_INTENT_WORDS = ["选日子", "选个日子", "择日", "哪天", "吉日", "挑个时间", "好日子"]
+ZERI_INTENT_WORDS = ["选日子", "选个日子", "择日", "哪天", "吉日", "挑个时间", "好日子",
+                     "换一批", "重新选", "还有别的日子吗"]
 ZERI_SCENE_QUESTION = "您是给哪件事选日子？搬家/嫁娶/开业/出行/提车/签约？"
 
 # v8 阶段 3（模式二·思考路径）：意图 → 1-3 步思考文案（无工具的简单聊天不发）
@@ -1372,20 +1373,27 @@ class MessageHandler:
             lines.append(f"四凶方：{' '.join(f'{k}-{v}' for k, v in inauspicious.items())}")
         return ToolResult("风水", True, "\n".join(lines))
 
-    def _tool_zeri(self, params: str, user_id: str) -> ToolResult:
+    def _tool_zeri(self, params, user_id: str) -> ToolResult:
         """工具「择日」（Task 2 增强）：场景+意图双条件判定 → 时间窗口 → 多日 Top3 吉日。
+
+        params 支持两种形式:
+        - 自然语言字符串（LLM 标签路径）, 可内嵌 "exclude_dates: 2026-09-03,2026-09-06"
+        - dict: {"text": "自然语言描述", "exclude_dates": ["2026-09-03", ...]}
 
         流程：
         ① 场景判定（6 场景同义词表）——缺场景 → 澄清 ToolResult, 不调引擎、不扣额度
-        ② 意图判定（选日子/择日/哪天/吉日/挑个时间/好日子）——场景在但无意图 →
+        ② 意图判定（选日子/择日/哪天/吉日/挑个时间/好日子/换一批…）——场景在但无意图 →
            澄清反问, 不调引擎、不扣额度
-        ③ 额度检查 + 扣减（_check_quota/_consume_quota, 澄清不扣）
+        ③ 额度检查（_check_quota, 澄清不扣）——引擎调用成功后才扣减（异常不占额度）
         ④ user_bazi（dao.get_user_bazi → shengxiao/day_gan/month_zhi 映射）
-        ⑤ select_lucky_days(scene, start, end, user_bazi) → 结构化卡片文本
+        ⑤ select_lucky_days(scene, start, end, user_bazi, exclude_dates) → 结构化卡片文本
         ⑥ 末尾选择问句 + /pages/zeri/zeri 深链（前端 navFor 渲染跳转按钮）
         """
         if self.zeri_engine is None:
             return ToolResult("择日", False, "「择日」工具暂不可用，请直接与用户聊天。")
+        exclude_dates = self._extract_zeri_exclude_dates(params)
+        if isinstance(params, dict):
+            params = params.get("text") or params.get("params") or ""
         scene = self._extract_zeri_scene(params)
         if scene is None:
             return ToolResult(
@@ -1407,7 +1415,6 @@ class MessageHandler:
                 "你今天的免费额度已用完。成为会员即可无限畅聊，"
                 "基础版仅需 19.9 元/月。回复「会员」了解更多升级方案。",
             )
-        self._consume_quota(user_id)
 
         start, end = self._extract_window(params)
         user_bazi = self._map_user_bazi_for_zeri(user_id)
@@ -1415,35 +1422,61 @@ class MessageHandler:
             res = self.zeri_engine.select_lucky_days(
                 scene=scene, start_date=start, end_date=end,
                 user_bazi=user_bazi, prefer_weekend=True,
+                exclude_dates=exclude_dates or None,
             )
+            # 仅引擎调用成功后才扣额度（引擎异常/结果异常都不占额度, 澄清路径不扣）
+            self._consume_quota(user_id)
+            cards = res.get("cards") or []
+            scanned = res.get("scanned", 0)
+            lines = [
+                f"【择日】场景：{scene}｜时间范围：{start} ~ {end}",
+                f"共扫描 {scanned} 天，为您挑出 {len(cards)} 个吉日：",
+                "",
+            ]
+            marks = "①②③"
+            for i, c in enumerate(cards[:3], start=0):
+                lines.append(f"{marks[i]} {c.date} {c.lunar_text}")
+                lines.append(f"宜：{'、'.join(c.yi)}")
+                lines.append(f"忌：{'、'.join(c.ji)}")
+                lines.append(f"吉时：{c.jishi}｜喜神：{c.xi_fangwei}｜财神：{c.cai_fangwei}")
+                lines.append(f"理由：{c.reason_source}（总分{c.total}）")
+                lines.append("")
+            if res.get("suggest_wider"):
+                reason = res.get("reason") or "窗口内合格吉日不足"
+                lines.append(f"注：本窗口内合格吉日不足3天（仅{len(cards)}天合格），{reason}。"
+                             "您可以回复「换一批」，我会避开已展示的日期重新挑选；"
+                             "或告诉我新的时间范围。")
+            if cards:
+                lines.append("您选哪一个？选好后我帮您生成办事清单。")
+            else:
+                lines.append("本窗口内没有选出合格吉日，建议扩大日期范围后再试。")
+            lines.append("/pages/zeri/zeri")
         except Exception as e:
             return ToolResult("择日", False, f"择日引擎执行失败：{str(e)[:100]}")
-
-        cards = res.get("cards") or []
-        scanned = res.get("scanned", 0)
-        lines = [
-            f"【择日】场景：{scene}｜时间范围：{start} ~ {end}",
-            f"共扫描 {scanned} 天，为您挑出 {len(cards)} 个吉日：",
-            "",
-        ]
-        marks = "①②③"
-        for i, c in enumerate(cards[:3], start=0):
-            lines.append(f"{marks[i]} {c.date} {c.lunar_text}")
-            lines.append(f"宜：{'、'.join(c.yi)}")
-            lines.append(f"忌：{'、'.join(c.ji)}")
-            lines.append(f"吉时：{c.jishi}｜喜神：{c.xi_fangwei}｜财神：{c.cai_fangwei}")
-            lines.append(f"理由：{c.reason_source}（总分{c.total}）")
-            lines.append("")
-        if res.get("suggest_wider"):
-            reason = res.get("reason") or "窗口内合格吉日不足"
-            lines.append(f"注：本窗口内合格吉日不足3天（仅{len(cards)}天合格），{reason}。"
-                         "您可以回复「换一批」扩大范围，或告诉我新的时间。")
-        if cards:
-            lines.append("您选哪一个？选好后我帮您生成办事清单。")
-        else:
-            lines.append("本窗口内没有选出合格吉日，建议扩大日期范围后再试。")
-        lines.append("/pages/zeri/zeri")
         return ToolResult("择日", True, "\n".join(lines))
+
+    def _extract_zeri_exclude_dates(self, params) -> Optional[list]:
+        """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。
+
+        - params 为 dict: 取 exclude_dates 键（list of "YYYY-MM-DD", 或逗号/空格分隔字符串）
+        - params 为字符串: 识别内嵌 "exclude_dates: 2026-09-03,2026-09-06"（: / = 均可）
+        无/非法 → None（不排除任何日期, 与调用方 exclude_dates or None 语义一致）。
+        """
+        if isinstance(params, dict):
+            raw = params.get("exclude_dates")
+        else:
+            m = re.search(r"exclude_dates\s*[:＝=]\s*([^<\n]+)", params or "")
+            raw = m.group(1) if m else None
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            raw = re.findall(r"\d{4}-\d{2}-\d{2}", raw)
+        elif not isinstance(raw, (list, tuple)):
+            return None
+        dates = list(dict.fromkeys(
+            d for d in raw if isinstance(d, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", d)
+        ))
+        return dates or None
 
     def _extract_zeri_scene(self, text: str) -> Optional[str]:
         """择日场景判定：6 场景同义词表命中 → 规范场景名（嫁娶/搬家/开业/出行/提车/签约）。"""

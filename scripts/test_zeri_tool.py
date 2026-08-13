@@ -13,6 +13,7 @@
 9. _execute_tool_call 分发路径（handler 工具链入口）
 10. _extract_window 纯函数: 下个月/下周/具体日期/无信息/8月20号
 11. 回归: _extract_purpose 词表扩充(提车/签约) + _handle_zeri 旧路径不受影响
+12. exclude_dates 换一批去重: dict/list 原样透传引擎 + 字符串形式解析 + "换一批"即意图
 
 用法:
     cd /mnt/e/fortune-agent && .venv/bin/python3 scripts/test_zeri_tool.py
@@ -324,7 +325,8 @@ eng = FakeZeriEngine()
 eng.result = make_result(n_cards=2, suggest_wider=True)
 h = build_handler(engine=eng)
 r = h._tool_zeri("8月20日开业", "u8")
-check("扩窗提示含 reason", "不足3天" in r.text and "扩大" in r.text, f"text={r.text}")
+check("扩窗提示含 reason", "不足3天" in r.text and "避开已展示的日期重新挑选" in r.text,
+      f"text={r.text}")
 
 # 0 卡 → 无合格吉日提示 + 不出现选择问句
 eng = FakeZeriEngine()
@@ -389,6 +391,58 @@ except AttributeError:
 check("_handle_zeri 有日期 → 仍走旧单日 select 引擎(未走新 select_lucky_days)",
       eng.select_calls == [(2026, 8, 15, "搬家")] and eng.calls == [],
       f"select_calls={eng.select_calls} new_calls={eng.calls}")
+
+# ---------------------------------------------------------------------------
+# 12. exclude_dates 换一批去重: dict/list 原样透传 + 字符串形式解析
+# ---------------------------------------------------------------------------
+print("== 12. exclude_dates 换一批去重 ==")
+# dict 形式: {"text": ..., "exclude_dates": [...]} → 原样透传引擎
+eng = FakeZeriEngine()
+eng.result = make_result()
+h = build_handler(engine=eng)
+r = h._tool_zeri({"text": "下个月搬家 帮我选个日子",
+                  "exclude_dates": ["2026-09-03", "2026-09-06"]}, "u12")
+check("dict 形式: 调引擎 1 次", len(eng.calls) == 1, f"calls={len(eng.calls)}")
+if eng.calls:
+    call = eng.calls[0]
+    check("dict 形式: exclude_dates 原样透传",
+          call["exclude_dates"] == ["2026-09-03", "2026-09-06"],
+          f"got {call['exclude_dates']}")
+    check("dict 形式: scene=搬家", call["scene"] == "搬家", f"got {call['scene']}")
+    check("dict 形式: 窗口=下月自然月",
+          call["start_date"] == next_month_window()[0], f"got {call['start_date']}")
+check("dict 形式: ok=True", r.ok is True, f"ok={r.ok}")
+
+# 字符串形式: 内嵌 "exclude_dates: 2026-09-03,2026-09-06" → 解析为列表
+eng = FakeZeriEngine()
+eng.result = make_result()
+h = build_handler(engine=eng)
+r = h._tool_zeri("下个月搬家 帮我重新选 exclude_dates: 2026-09-03,2026-09-06", "u13")
+check("字符串形式: 调引擎 1 次", len(eng.calls) == 1, f"calls={len(eng.calls)}")
+if eng.calls:
+    check("字符串形式: exclude_dates 解析为列表",
+          eng.calls[0]["exclude_dates"] == ["2026-09-03", "2026-09-06"],
+          f"got {eng.calls[0]['exclude_dates']}")
+check("字符串形式: ok=True", r.ok is True, f"ok={r.ok}")
+
+# dict 值为逗号/空格分隔字符串 → 拆分为列表
+eng = FakeZeriEngine()
+eng.result = make_result()
+h = build_handler(engine=eng)
+r = h._tool_zeri({"text": "下个月搬家 换一批", "exclude_dates": "2026-09-03 2026-09-06"}, "u14")
+check("dict 字符串值: 调引擎 1 次", len(eng.calls) == 1, f"calls={len(eng.calls)}")
+if eng.calls:
+    check("dict 字符串值: 拆分为列表",
+          eng.calls[0]["exclude_dates"] == ["2026-09-03", "2026-09-06"],
+          f"got {eng.calls[0]['exclude_dates']}")
+
+# "换一批" 本身即意图词（无日期锚点也进引擎）→ 换一批闭环可用
+eng = FakeZeriEngine()
+eng.result = make_result()
+h = build_handler(engine=eng)
+r = h._tool_zeri("下个月搬家 换一批 exclude_dates: 2026-09-03,2026-09-06", "u15")
+check("'换一批' 即意图: 调引擎 1 次", len(eng.calls) == 1, f"calls={len(eng.calls)}")
+check("'换一批' 即意图: ok=True", r.ok is True, f"ok={r.ok}")
 
 print()
 print(f"结果: {_PASS} passed, {_FAIL} failed")
