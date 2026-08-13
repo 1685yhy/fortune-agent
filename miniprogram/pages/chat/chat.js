@@ -68,10 +68,12 @@ const WAVE_BAR_COUNT = 26;
 /* v8 阶段 3·过程体验（流式打字机）：滚动节流（生成推进由宿主 tick 驱动） */
 const SCROLL_MS = 100;      // 自动滚动节流
 
-/* ═══ Task 5 滚动不拽回：距底阈值与可视区高度测量 ═══ */
-const NEAR_BOTTOM_PX = 50;        // 距底阈值 ≈ 100rpx（设计稿 750rpx 宽：1rpx = 屏宽/750，
-                                  // 375px 宽屏 1rpx = 0.5px → 100rpx ≈ 50px）。语义：距底部
-                                  // 还剩约 100rpx 内容未显示即视为「在底部」，屏宽不同按比例即可）
+/* ═══ Task 5 滚动不拽回：距底阈值与可视区高度测量 ═══
+   NEAR_BOTTOM_PX 为阈值兜底 50px；实际阈值 this._nearBottomPx 在 onLoad 按屏宽缩放：
+   100rpx = 屏宽/750*100 px（设计稿 750rpx 宽，1rpx = 屏宽/750；375px 宽屏 = 50px 与原值
+   一致，414px 宽屏 ≈ 55px）。语义：距底部还剩约 100rpx 内容未显示即视为「在底部」。 */
+const NEAR_BOTTOM_PX = 50;        // 兜底阈值：50px（375px 宽屏的 100rpx），旧基础库无
+                                  // getWindowInfo 时退回该值
 const CLIENTH_MEASURE_MS = 1500;  // 可视区高度周期校准间隔：键盘弹起等布局变化会让 msg-list
                                   // 高度改变，滚动中每 ~1.5s 重测一次防阈值失真
 
@@ -123,6 +125,11 @@ Page({
   },
 
   onLoad(options) {
+    /* ═══ Task 5 滚动不拽回·阈值按屏宽缩放：屏宽运行期不变，onLoad 算一次。
+       换算 100rpx = 屏宽/750*100 px（375px 屏 = 50px 与原常量一致；414px 屏 ≈ 55px）。
+       旧基础库无 wx.getWindowInfo → getSystemInfoSync 兜底 → 仍无则 50px 常量兜底。 */
+    const win = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    this._nearBottomPx = win.windowWidth ? win.windowWidth / 750 * 100 : NEAR_BOTTOM_PX;
     /* ═══ Task 8 · 深夜模式进入（夜色主题/灯笼/挽留劝睡/灯语卡/要我记得吗/12356） ═══ */
     options = options || {};
     const app = getApp();
@@ -608,15 +615,15 @@ Page({
     this._ensureClientH();   // 滚动期间周期校准可视区高度（键盘等布局变化）
   },
 
-  /* 距底判断（纯函数，便于自查）：
+  /* 距底判断（纯函数，便于自查；阈值走 this._nearBottomPx，onLoad 按屏宽缩放）：
      距离 = scrollHeight - scrollTop - clientHeight = 距底部还剩多少内容未显示。
-     距离 ≤ NEAR_BOTTOM_PX（≈100rpx）→ 在底部，允许自动跟随；
+     距离 ≤ this._nearBottomPx（≈100rpx，屏宽缩放后 50~55px 级）→ 在底部，允许自动跟随；
      距离 > 阈值 → 用户上滑查看中，跳过自动滚。
      高度未知（未测量/无滚动事件/首帧）→ 保守返回 true，维持原有跟随行为。 */
   _isNearBottom(scrollTop, scrollHeight, clientHeight) {
     if (typeof scrollTop !== 'number' || typeof scrollHeight !== 'number') return true;
     if (!clientHeight) return true;
-    return scrollHeight - scrollTop - clientHeight <= NEAR_BOTTOM_PX;
+    return scrollHeight - scrollTop - clientHeight <= (this._nearBottomPx || NEAR_BOTTOM_PX);
   },
 
   /* 自动滚前先问「是否在底部」：上滑查看历史期间，宿主每 50ms 的 autoScroll
@@ -634,7 +641,7 @@ Page({
     const now = Date.now();
     if (this._clientH && this._clientHAt && now - this._clientHAt < CLIENTH_MEASURE_MS) return;
     try {
-      wx.createSelectorQuery()
+      this.createSelectorQuery()  // 页面作用域（文档推荐；wx.* 不带 .in(this) 在自定义组件里会挂）
         .select('.msg-list')
         .boundingClientRect((rect) => {
           const h = rect && rect.height;
