@@ -68,6 +68,13 @@ const WAVE_BAR_COUNT = 26;
 /* v8 阶段 3·过程体验（流式打字机）：滚动节流（生成推进由宿主 tick 驱动） */
 const SCROLL_MS = 100;      // 自动滚动节流
 
+/* ═══ Task 5 滚动不拽回：距底阈值与可视区高度测量 ═══ */
+const NEAR_BOTTOM_PX = 50;        // 距底阈值 ≈ 100rpx（设计稿 750rpx 宽：1rpx = 屏宽/750，
+                                  // 375px 宽屏 1rpx = 0.5px → 100rpx ≈ 50px）。语义：距底部
+                                  // 还剩约 100rpx 内容未显示即视为「在底部」，屏宽不同按比例即可）
+const CLIENTH_MEASURE_MS = 1500;  // 可视区高度周期校准间隔：键盘弹起等布局变化会让 msg-list
+                                  // 高度改变，滚动中每 ~1.5s 重测一次防阈值失真
+
 Page({
   data: {
     navOff: 0,
@@ -405,7 +412,7 @@ Page({
       streaming: !!state.streaming,
       typing: !!state.typing,
     });
-    if (state.autoScroll) this._scrollBottom();
+    if (state.autoScroll) this._scrollBottomIfNear();
   },
 
   /* 对话建档提示：AI 回复含「已保存到档案/建档」类 key → 顶部提示条 + 本地标记
@@ -585,6 +592,55 @@ Page({
     }
     // 残留的排队消息（pending）→ 重新入队，依次处理
     streamHost.requeuePending((t) => curatedFor(t).tag);
+  },
+
+  /* ═══ Task 5 · 滚动不拽回（上滑查看历史时不被流式自动滚打扰） ═══
+     scroll-view（chat.wxml）bindscroll 记录用户滚动位置（_scrollTop/_scrollHeight）；
+     自动滚前先做距底判断：距底 > 阈值 → 视为上滑查看 → 跳过 _scrollBottom（不打扰）；
+     回到距底 ≤ 阈值 → 恢复自动跟随；流结束（done）同规则：本就在底部则停在底部，
+     自行上滑过则不再拽回（流结束不强制滚）。 */
+
+  /* scroll-view 滚动事件：只记录位置与内容总高（WXML bindscroll 每帧触发，不做重活） */
+  onScroll(e) {
+    const d = e.detail || {};
+    if (typeof d.scrollTop === 'number') this._scrollTop = d.scrollTop;
+    if (typeof d.scrollHeight === 'number') this._scrollHeight = d.scrollHeight;
+    this._ensureClientH();   // 滚动期间周期校准可视区高度（键盘等布局变化）
+  },
+
+  /* 距底判断（纯函数，便于自查）：
+     距离 = scrollHeight - scrollTop - clientHeight = 距底部还剩多少内容未显示。
+     距离 ≤ NEAR_BOTTOM_PX（≈100rpx）→ 在底部，允许自动跟随；
+     距离 > 阈值 → 用户上滑查看中，跳过自动滚。
+     高度未知（未测量/无滚动事件/首帧）→ 保守返回 true，维持原有跟随行为。 */
+  _isNearBottom(scrollTop, scrollHeight, clientHeight) {
+    if (typeof scrollTop !== 'number' || typeof scrollHeight !== 'number') return true;
+    if (!clientHeight) return true;
+    return scrollHeight - scrollTop - clientHeight <= NEAR_BOTTOM_PX;
+  },
+
+  /* 自动滚前先问「是否在底部」：上滑查看历史期间，宿主每 50ms 的 autoScroll
+     事件不再把用户拽回底部；回到底部后恢复自动跟随 */
+  _scrollBottomIfNear() {
+    this._ensureClientH();
+    if (this._isNearBottom(this._scrollTop, this._scrollHeight, this._clientH)) {
+      this._scrollBottom();
+    }
+  },
+
+  /* msg-list 可视区高度（px）：首次测量后缓存，滚动中按 CLIENTH_MEASURE_MS
+     周期校准；测量失败 → 保持未知（_isNearBottom 保守跟随），下次再试 */
+  _ensureClientH() {
+    const now = Date.now();
+    if (this._clientH && this._clientHAt && now - this._clientHAt < CLIENTH_MEASURE_MS) return;
+    try {
+      wx.createSelectorQuery()
+        .select('.msg-list')
+        .boundingClientRect((rect) => {
+          const h = rect && rect.height;
+          if (h) { this._clientH = h; this._clientHAt = now; }
+        }).exec();
+    } catch (e) { /* 静默：未知高度按保守跟随处理 */ }
   },
 
   _scrollBottom(force) {

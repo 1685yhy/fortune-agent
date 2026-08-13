@@ -68,7 +68,8 @@
     <view class="db-x" catchtap="dismissSaveBanner">✕</view>
   </view>
 
-  <scroll-view scroll-y class="msg-list" scroll-into-view="{{scrollInto}}" scroll-with-animation>
+  <!-- Task 5 滚动不拽回：bindscroll 记录用户滚动位置，上滑查看历史时流式自动滚不再拽回 -->
+  <scroll-view scroll-y class="msg-list" scroll-into-view="{{scrollInto}}" scroll-with-animation bindscroll="onScroll">
     <view class="msg-inner">
       <block wx:for="{{messages}}" wx:key="id">
         <view wx:if="{{item.role === 'ai'}}" class="jianzhu {{selectMsgId === item.id ? 'select-mode' : ''}}"
