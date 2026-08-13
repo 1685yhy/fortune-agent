@@ -693,14 +693,37 @@ class MessageHandler:
     # Task 2 等待时长优化：秒回安抚预生成（与意图分析并行发出）
     # ============================================================
 
-    def _start_pregen_instant(self, msg: str):
-        """消息含完整出生信息 → 排盘 + 秒回安抚提交后台线程，与意图分析并行。
+    def _quick_intent(self, msg: str) -> Optional[str]:
+        """便宜的意图判定：MessageAnalyzer fast path 同规则（纯正则，无 LLM 调用）。
 
-        返回 Future（_do_bazi_analysis 消费）；无出生信息/启动失败 → None。
-        约束：不改变消息顺序与内容语义——秒回 LLM 调用仍先于主分析发出，
-        只是准备阶段与意图分析重叠执行（一轮省 20-30s）。
+        仅纯生日陈述（含出生日期、无意图提示词）→ "bazi"；其余 → None
+        （真实意图由主流程 _analyze_message 判定，这里不发起任何调用）。
+        用于预生成门控：hehun/ziwei/自由聊天等消息即使含完整出生日期，
+        也不提交预生成，避免产生被丢弃的 engine.calculate + flash 调用。
         """
         try:
+            if (MessageAnalyzer.BIRTH_DATE_PATTERN.search(msg)
+                    and not MessageAnalyzer.INTENT_HINT_PATTERN.search(msg)):
+                return "bazi"
+        except Exception:
+            pass
+        return None
+
+    def _start_pregen_instant(self, msg: str):
+        """消息含完整出生信息且意图为排盘（bazi）→ 排盘 + 秒回安抚提交后台线程。
+
+        返回 Future（_do_bazi_analysis 消费）；非排盘意图/无出生信息/启动失败 → None。
+        约束：不改变消息顺序与内容语义——秒回 LLM 调用仍先于主分析发出，
+        只是准备阶段与意图分析重叠执行（一轮省 20-30s）。
+
+        Task 2 终审修复：提交前先用 _quick_intent（MessageAnalyzer fast path，
+        无 LLM 调用）判定意图——仅排盘类（bazi）才预生成；含意图提示词的
+        hehun/ziwei/自由聊天等消息直接跳过（不再产生被丢弃的调用）。
+        """
+        try:
+            # 排盘意图门控：fast path 未判 bazi（含意图词/无出生日期）→ 跳过
+            if self._quick_intent(msg) != "bazi":
+                return None
             parsed = self._extract_bazi_info(msg)
             if not parsed:
                 return None
@@ -724,21 +747,23 @@ class MessageHandler:
             result = self.engine.calculate(year, month, day, hour, minute,
                                            city, gender)
             return self._gen_instant_reply(result)
-        except Exception:
+        except Exception as e:
+            logger.warning("预生成失败: %s", e)
             return ""
 
     def _consume_pregen_instant(self, user_id: str) -> Optional[str]:
         """取预生成的秒回安抚；未就绪/失败 → None（调用方同步兜底，行为与旧版一致）。
 
-        只取已完成结果（timeout=0），绝不阻塞主流程——预生成因并发排队
-        未完成时走同步兜底，语义与未做并行优化前完全相同。
+        Task 2 终审修复：有限等待 0.5s——worker 在途且 0.5s 内就绪时优先消费
+        在途结果，避免主线程重复发 flash（一轮 2 次 LLM 调用）；超时/异常 →
+        None 走同步兜底。绝不阻塞主流程超过 0.5s。
         """
         import concurrent.futures
         try:
             future = self._pregen_instant.pop(user_id, None)
             if future is None:
                 return None
-            return future.result(timeout=0.0)
+            return future.result(timeout=0.5)
         except concurrent.futures.TimeoutError:
             return None
         except Exception:
@@ -794,10 +819,13 @@ class MessageHandler:
         stream_cb（v8 阶段 3）：工具执行前回调 ("tool", {"text": ...}) 事件
         （前端思考路径逐步点亮），后续 LLM 调用走真实流式。
         """
-        if not reply:
-            return reply
-        # Task 2 阶段计时：整段工具循环（工具执行 + LLM 调用），统一格式便于 grep
+        # Task 2 阶段计时：整段工具循环（工具执行 + LLM 调用），统一格式便于 grep；
+        # 空回复早退也输出 timing（计时覆盖异常/早退路径，宁多勿缺）
         _t0 = time.monotonic()
+        if not reply:
+            logger.info("[timing] stage=tool_loop duration=%.1fs",
+                        time.monotonic() - _t0)
+            return reply
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         if not api_key:
             logger.info("[timing] stage=tool_loop duration=%.1fs",
@@ -1088,9 +1116,9 @@ class MessageHandler:
                     " 联网查证后再继续）"})
         else:
             messages.append({"role": "user", "content": msg})
+        _t0 = time.monotonic()
         try:
             from src.llm.client import deepseek_anthropic_completion
-            _t0 = time.monotonic()
             polished = deepseek_anthropic_completion(
                 api_key, messages, model=model,
                 max_tokens=2000, temperature=0.7, timeout=60.0,
@@ -1099,6 +1127,9 @@ class MessageHandler:
             logger.info("[timing] stage=polish duration=%.1fs",
                         time.monotonic() - _t0)
         except Exception:
+            # 计时覆盖异常路径：失败也要有 stage=polish 输出（宁多勿缺）
+            logger.info("[timing] stage=polish duration=%.1fs",
+                        time.monotonic() - _t0)
             return draft  # LLM 失败 → 静默降级返回草稿
         if not polished:
             return draft
@@ -2701,35 +2732,36 @@ class MessageHandler:
 
         # Phase 2: Scenario-aware structured report
         scenario_info = self._route_by_scenario(question_with_gender, user_id)
-        if scenario_info:
-            from src.llm.report_prompts import STRUCTURED_REPORT_PROMPT, SCENARIO_FOCUS_PROMPTS
-            extra_prompt = STRUCTURED_REPORT_PROMPT
-            if pref_extra:
-                extra_prompt += "\n\n" + pref_extra
-            cat = scenario_info.get("category", "")
-            if cat in SCENARIO_FOCUS_PROMPTS:
-                extra_prompt += "\n\n" + SCENARIO_FOCUS_PROMPTS[cat]
-            # Inject scenario prompt template into the question
-            enhanced_question = (
-                scenario_info["prompt_template"]
-                + "\n\n用户的原始问题：\n"
-                + question
-            )
-            self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
-            _t0 = time.monotonic()
-            analysis = self.llm.analyze(
-                result, refs, enhanced_question,
-                extra_system_prompt=extra_prompt,
-            )
-            logger.info("[timing] stage=main_analysis duration=%.1fs",
-                        time.monotonic() - _t0)
-        else:
-            self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
-            _t0 = time.monotonic()
-            analysis = self.llm.analyze(
-                result, refs, question_with_gender,
-                extra_system_prompt=pref_extra if pref_extra else None,
-            )
+        # Task 2 计时覆盖异常路径：analyze 抛异常也要有 stage=main_analysis 输出
+        # （宁多勿缺）——try/finally 保证成败都记录耗时
+        _t0 = time.monotonic()
+        try:
+            if scenario_info:
+                from src.llm.report_prompts import STRUCTURED_REPORT_PROMPT, SCENARIO_FOCUS_PROMPTS
+                extra_prompt = STRUCTURED_REPORT_PROMPT
+                if pref_extra:
+                    extra_prompt += "\n\n" + pref_extra
+                cat = scenario_info.get("category", "")
+                if cat in SCENARIO_FOCUS_PROMPTS:
+                    extra_prompt += "\n\n" + SCENARIO_FOCUS_PROMPTS[cat]
+                # Inject scenario prompt template into the question
+                enhanced_question = (
+                    scenario_info["prompt_template"]
+                    + "\n\n用户的原始问题：\n"
+                    + question
+                )
+                self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
+                analysis = self.llm.analyze(
+                    result, refs, enhanced_question,
+                    extra_system_prompt=extra_prompt,
+                )
+            else:
+                self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
+                analysis = self.llm.analyze(
+                    result, refs, question_with_gender,
+                    extra_system_prompt=pref_extra if pref_extra else None,
+                )
+        finally:
             logger.info("[timing] stage=main_analysis duration=%.1fs",
                         time.monotonic() - _t0)
 

@@ -13,6 +13,15 @@
      仅回退失败才显示「网络开小差了」+ 重试钮）；重试功能保留
   T4 后端重试保留（client.py 空/过短重试一次）；无出生信息的消息
      不触发秒回预生成（不浪费 flash 调用）
+  T5（Fix1）排盘意图门控：含出生日期但意图非排盘（如职业/自由聊天）→
+     不提交预生成（不产生被丢弃的 calculate+flash 调用）
+  T6（Fix2a）慢预生成（instant 2s）：主线程 0.5s 有限等待超时 → 回退同步
+     flash（共 2 次，属预期回退路径）；内容仍前置；instant<main 时序仍成立；
+     等待被限制在 0.5s（未等完整 2s worker）
+  T7（Fix2b）慢预生成但 0.5s 内就绪（instant 0.3s）：消费在途结果，
+     不产生第二次 flash 调用（mock 计数）
+  T8（Fix2c+Fix3）worker 异常（engine.calculate 在 worker 线程抛异常）：
+     回退触发、无崩溃、异常打日志（预生成失败）
 
 用法：
   .venv/bin/python3 scripts/test_stream_pacing.py
@@ -71,12 +80,20 @@ INTENT_JSON_FREE = ('{"needs_soothe": false, "soothe_text": "", "emotion": "neut
                     '"facts": {}, "missing_info": [], "needs_search": false}')
 
 
-def make_dispatcher(barrier=None, calls=None, intent_json=INTENT_JSON_BAZI):
+def make_dispatcher(barrier=None, calls=None, intent_json=INTENT_JSON_BAZI,
+                    instant_delay=0.0):
     """deepseek_anthropic_completion 的 mock 分派器。
 
-    barrier/呼叫: T2 并行性验证——意图分析与秒回安抚两路都进入 barrier.wait，
-    串行实现会触发 BrokenBarrierError（calls["barrier_broken"]=True）。
-    calls: {"intent"/"instant"/"main": monotonic 时间戳, "barrier_broken": bool}
+    barrier/呼叫: T2 并发性验证——秒回安抚两路（worker 预生成 flash + 主线程
+    回退 flash）都进入 barrier.wait，串行实现会触发 BrokenBarrierError
+    （calls["barrier_broken"]=True）。注：纯生日陈述的意图分析走 MessageAnalyzer
+    fast path（无 LLM 调用），故意图分支不再参与 barrier。
+    instant_delay: 秒回安抚分支返回前 sleep 秒数（模拟慢 LLM；Fix2 新增用例）。
+    注：worker 异常路径（T8）不用 flash mock 抛异常——flash 异常会被
+    _quick_flash 吞掉并走模板兜底（worker 仍返回非空），无法触发同步回退；
+    真实 worker 失败面是 engine.calculate 抛异常，T8 直接 mock 该层。
+    calls: {"intent"/"main": monotonic 时间戳, "instant_count": n,
+            "instant_times": [...], "barrier_broken": bool}
     """
     def fake_completion(api_key, messages, **kw):
         first = messages[0].get("content", "") if messages else ""
@@ -86,12 +103,6 @@ def make_dispatcher(barrier=None, calls=None, intent_json=INTENT_JSON_BAZI):
         if first.startswith("You are a message analyzer"):
             if calls is not None:
                 calls["intent"] = time.monotonic()
-            if barrier is not None:
-                try:
-                    barrier.wait(timeout=8)
-                except Exception:
-                    if calls is not None:
-                        calls["barrier_broken"] = True
             return intent_json
         # 行动建议（advisor_v2，并行线程）
         if first.startswith("你是一个精通子平八字的AI命理顾问"):
@@ -105,7 +116,10 @@ def make_dispatcher(barrier=None, calls=None, intent_json=INTENT_JSON_BAZI):
         # 秒回安抚（_quick_flash，user prompt 含"命盘排出来了"）
         if "命盘排出来了" in last:
             if calls is not None:
-                calls["instant"] = time.monotonic()
+                calls["instant_count"] = calls.get("instant_count", 0) + 1
+                calls.setdefault("instant_times", []).append(time.monotonic())
+            if instant_delay:
+                time.sleep(instant_delay)
             if barrier is not None:
                 try:
                     barrier.wait(timeout=8)
@@ -184,7 +198,9 @@ def build_handler(tmp: str) -> MessageHandler:
     return handler
 
 
-BAZI_MSG = "1990年5月20日午时北京男 帮我看看事业运势"
+# Fix1 门控：预生成只对「纯生日陈述」（MessageAnalyzer fast path 判 bazi）触发，
+# 含意图词（事业/适合…）的消息不再提交预生成 → 测试消息必须是纯生日陈述
+BAZI_MSG = "1990年5月20日午时北京男"
 TIMING_RE = re.compile(r"^\[timing\] stage=(\S+) duration=(\d+\.\d+)s$")
 
 
@@ -198,6 +214,7 @@ def t1_timing_logs(handler: MessageHandler):
     orig = llm_mod.deepseek_anthropic_completion
     cap = CaptureHandler()
     hlog = logging.getLogger("src.bot.handler")
+    prev_level = hlog.level
     hlog.setLevel(logging.INFO)  # 默认 effective level 为 WARNING，INFO 计时行不会发出
     hlog.addHandler(cap)
     try:
@@ -207,6 +224,7 @@ def t1_timing_logs(handler: MessageHandler):
     finally:
         llm_mod.deepseek_anthropic_completion = orig
         hlog.removeHandler(cap)
+        hlog.setLevel(prev_level)  # 还原测试前的日志级别（Fix5）
 
     check("T1 回复非空", bool(reply and reply.strip()), reply[:80])
     timing = {}
@@ -224,10 +242,13 @@ def t1_timing_logs(handler: MessageHandler):
 
 # ---------------------------------------------------------------------------
 # T2 并行化（barrier 证明并发）
+# 注：Fix1 门控后，纯生日陈述的意图分析走 MessageAnalyzer fast path（无 LLM
+# 调用），可并行的两路变为「worker 预生成 flash」与「主线程回退 flash」——
+# barrier 证明这两路 flash 同时在途（预生成未就绪时回退不与 worker 串行）。
 # ---------------------------------------------------------------------------
 
 def t2_parallel(handler: MessageHandler):
-    print("\n— T2 意图分析 + 秒回安抚并行（barrier）")
+    print("\n— T2 预生成 worker flash 与主线程回退 flash 并发（barrier）")
     import src.llm.client as llm_mod
     orig = llm_mod.deepseek_anthropic_completion
     barrier = threading.Barrier(2)
@@ -242,21 +263,24 @@ def t2_parallel(handler: MessageHandler):
     finally:
         llm_mod.deepseek_anthropic_completion = orig
 
-    check("T2 意图分析调用发生", calls.get("intent") is not None,
+    times = calls.get("instant_times", [])
+    main = calls.get("main")
+    check("T2 秒回安抚预生成调用发生（worker flash）",
+          calls.get("instant_count", 0) >= 1,
           f"calls={ {k: v for k, v in calls.items() if k != 'barrier_broken'} }")
-    check("T2 秒回安抚调用发生", calls.get("instant") is not None,
+    check("T2 预生成未就绪 → 主线程回退 flash 也触发（共 2 次）",
+          calls.get("instant_count", 0) == 2,
           f"calls={ {k: v for k, v in calls.items() if k != 'barrier_broken'} }")
-    check("T2 两路并发（barrier 未超时）", calls.get("barrier_broken") is False,
+    check("T2 两路 flash 并发（barrier 未超时）", calls.get("barrier_broken") is False,
           "串行实现会让先到的一路 barrier.wait 超时")
     check("T2 秒回 LLM 调用先于主分析发出",
-          calls.get("instant") is not None and calls.get("main") is not None
-          and calls["instant"] < calls["main"],
-          f"instant={calls.get('instant')} main={calls.get('main')}")
+          len(times) >= 1 and main is not None and times[0] < main,
+          f"instant_times={times} main={main}")
     check("T2 预生成秒回内容进入最终回复（语义不变）",
           INSTANT_TEXT in reply, reply[:120])
-    check("T2 一轮排盘墙钟时间（信息性，并行后 intent 阶段应≈意图耗时）",
-          wall > 0, f"wall={wall:.2f}s")
-    print(f"      [info] T2 墙钟 {wall:.2f}s（含全部阶段）")
+    check("T2 意图走 fast path（纯生日陈述无意图 LLM 调用）",
+          calls.get("intent") is None, f"calls={calls}")
+    print(f"      [info] T2 墙钟 {wall:.2f}s（含 0.5s 有限等待 + 两路 flash）")
 
 
 # ---------------------------------------------------------------------------
@@ -317,7 +341,127 @@ def t4_retry_and_no_pregen(handler: MessageHandler):
         llm_mod.deepseek_anthropic_completion = orig
     check("T4 自由聊天回复非空", bool(reply and reply.strip()), reply[:80])
     check("T4 无出生信息 → 不触发秒回预生成（不浪费 flash）",
-          calls.get("instant") is None, f"calls={calls}")
+          calls.get("instant_count", 0) == 0, f"calls={calls}")
+
+
+# ---------------------------------------------------------------------------
+# T5（Fix1）排盘意图门控：含出生日期但意图非排盘 → 不提交预生成
+# ---------------------------------------------------------------------------
+
+def t5_intent_gate_pregen(handler: MessageHandler):
+    print("\n— T5（Fix1）排盘意图门控：非排盘意图不触发预生成")
+    import src.llm.client as llm_mod
+    orig = llm_mod.deepseek_anthropic_completion
+    calls = {}
+    try:
+        llm_mod.deepseek_anthropic_completion = make_dispatcher(
+            calls=calls, intent_json=INTENT_JSON_FREE)
+        # 含完整出生日期 + 意图提示词（适合/工作）→ fast path 判非 bazi，
+        # 修复前会浪费一次 worker 排盘+flash（结果被丢弃）
+        reply = handler.process("1990年5月20日出生 我适合做什么工作呢", "t5_user")
+    finally:
+        llm_mod.deepseek_anthropic_completion = orig
+    check("T5 含出生日期+意图词 → 走 LLM 意图分析（自由聊天）",
+          calls.get("intent") is not None, f"calls={calls}")
+    check("T5 自由聊天回复非空", bool(reply and reply.strip()), reply[:80])
+    check("T5 非排盘意图 → 不触发预生成（0 次秒回 flash，不再有丢弃调用）",
+          calls.get("instant_count", 0) == 0, f"calls={calls}")
+
+
+# ---------------------------------------------------------------------------
+# T6（Fix2a）慢预生成：主线程 0.5s 有限等待超时 → 回退同步 flash
+# ---------------------------------------------------------------------------
+
+def t6_slow_instant_fallback(handler: MessageHandler):
+    print("\n— T6（Fix2a）慢预生成（instant 2s）：0.5s 超时 → 回退同步 flash")
+    import src.llm.client as llm_mod
+    orig = llm_mod.deepseek_anthropic_completion
+    calls = {}
+    t0 = time.monotonic()
+    try:
+        llm_mod.deepseek_anthropic_completion = make_dispatcher(
+            calls=calls, instant_delay=2.0)
+        reply = handler.process(BAZI_MSG, "t6_user")
+    finally:
+        llm_mod.deepseek_anthropic_completion = orig
+    wall = time.monotonic() - t0
+    times = calls.get("instant_times", [])
+    main = calls.get("main")
+    check("T6 回退路径触发（同步 flash 被调，共 2 次：worker + 回退）",
+          calls.get("instant_count", 0) == 2, f"calls={calls}")
+    check("T6 回退秒回内容仍前置（语义不变）",
+          INSTANT_TEXT in reply, reply[:120])
+    check("T6 秒回 LLM 调用仍先于主分析发出",
+          len(times) >= 1 and main is not None and times[0] < main,
+          f"instant_times={times} main={main}")
+    check("T6 主线程等待被限制在 0.5s（未等完整 2s worker）",
+          len(times) >= 1 and main is not None and (main - times[0]) < 3.0,
+          f"worker_flash_start→main="
+          f"{round(main - times[0], 2) if main is not None and times else '?'}s")
+    print(f"      [info] T6 墙钟 {wall:.2f}s（两段 2s 慢 flash + 0.5s 有限等待）")
+
+
+# ---------------------------------------------------------------------------
+# T7（Fix2b）慢预生成但 0.5s 内就绪 → 消费在途结果，不产生第二次 flash
+# ---------------------------------------------------------------------------
+
+def t7_inflight_consumed(handler: MessageHandler):
+    print("\n— T7（Fix2b）慢预生成（instant 0.3s）：0.5s 内就绪 → 消费在途结果")
+    import src.llm.client as llm_mod
+    orig = llm_mod.deepseek_anthropic_completion
+    calls = {}
+    t0 = time.monotonic()
+    try:
+        llm_mod.deepseek_anthropic_completion = make_dispatcher(
+            calls=calls, instant_delay=0.3)
+        reply = handler.process(BAZI_MSG, "t7_user")
+    finally:
+        llm_mod.deepseek_anthropic_completion = orig
+    wall = time.monotonic() - t0
+    check("T7 在途结果被消费（仅 1 次 flash，不产生第二次调用）",
+          calls.get("instant_count", 0) == 1, f"calls={calls}")
+    check("T7 预生成秒回内容进入最终回复",
+          INSTANT_TEXT in reply, reply[:120])
+    print(f"      [info] T7 墙钟 {wall:.2f}s（等待被 0.3s 就绪结果截短）")
+
+
+# ---------------------------------------------------------------------------
+# T8（Fix2c+Fix3）worker 异常：回退触发、无崩溃、异常打日志
+# ---------------------------------------------------------------------------
+
+def t8_worker_exception_fallback(handler: MessageHandler):
+    print("\n— T8（Fix2c）worker 异常路径：回退触发、无崩溃（Fix3 告警日志）")
+    import src.llm.client as llm_mod
+    orig = llm_mod.deepseek_anthropic_completion
+    orig_calc = handler.engine.calculate
+
+    def flaky_calculate(*args, **kw):
+        if threading.current_thread().name.startswith("pregen"):
+            raise ValueError("worker calculate boom")
+        return orig_calc(*args, **kw)
+
+    cap = CaptureHandler()
+    hlog = logging.getLogger("src.bot.handler")
+    prev_level = hlog.level
+    hlog.setLevel(logging.INFO)
+    hlog.addHandler(cap)
+    calls = {}
+    try:
+        llm_mod.deepseek_anthropic_completion = make_dispatcher(calls=calls)
+        handler.engine.calculate = flaky_calculate
+        reply = handler.process(BAZI_MSG, "t8_user")
+    finally:
+        handler.engine.calculate = orig_calc
+        llm_mod.deepseek_anthropic_completion = orig
+        hlog.removeHandler(cap)
+        hlog.setLevel(prev_level)
+    check("T8 worker 异常 → 无崩溃（回复非空）",
+          bool(reply and reply.strip()), reply[:80])
+    check("T8 回退触发（主线程同步 flash 被调，仅 1 次）",
+          calls.get("instant_count", 0) == 1, f"calls={calls}")
+    check("T8 回退秒回内容进入最终回复", INSTANT_TEXT in reply, reply[:120])
+    check("T8 worker 异常已打日志（Fix3「预生成失败」）",
+          any("预生成失败" in l for l in cap.lines), f"logs={cap.lines[:3]}")
 
 
 def main():
@@ -329,6 +473,10 @@ def main():
     t2_parallel(handler)
     t3_streamhost()
     t4_retry_and_no_pregen(handler)
+    t5_intent_gate_pregen(handler)
+    t6_slow_instant_fallback(handler)
+    t7_inflight_consumed(handler)
+    t8_worker_exception_fallback(handler)
 
     print(f"\n===== 结果: {len(PASS)} 通过 / {len(FAIL)} 失败 =====")
     if FAIL:
