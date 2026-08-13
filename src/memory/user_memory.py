@@ -31,6 +31,49 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 
+# 时辰（地支）序列：index = (hour + 1) // 2 % 12
+_SHICHEN = ["子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥"]
+
+
+def _hour_to_shichen(hour) -> Optional[str]:
+    """24 小时制 → 时辰（如 7 → 辰；23/0 → 子）。非法值返回 None。"""
+    try:
+        h = int(hour)
+    except (TypeError, ValueError):
+        return None
+    if h < 0 or h > 23:
+        return None
+    return _SHICHEN[(h + 1) // 2 % 12]
+
+
+def format_birth_line(bazi: Optional[dict]) -> str:
+    """由原始出生字段生成画像行：「出生:1990年8月20日 辰时 北京 男(来自用户档案)」。
+
+    输入为含 year/month/day/hour/minute/city/gender 的 dict（可缺键）；
+    字段缺失部分不写；全部缺失返回空串（无档案不增加任何内容）。
+    """
+    if not bazi:
+        return ""
+    parts = []
+    y, m, d = bazi.get("year"), bazi.get("month"), bazi.get("day")
+    if y and m and d:
+        parts.append(f"{y}年{m}月{d}日")
+    hour = bazi.get("hour")
+    if hour not in (None, ""):
+        shichen = _hour_to_shichen(hour)
+        if shichen:
+            parts.append(f"{shichen}时")
+    city = bazi.get("city")
+    if city:
+        parts.append(str(city))
+    gender = bazi.get("gender")
+    if gender and str(gender) not in ("unknown", "None"):
+        parts.append(str(gender))
+    if not parts:
+        return ""
+    return "出生:" + " ".join(parts) + "(来自用户档案)"
+
+
 class UserMemory:
     """Persistent user memory across sessions.
 
@@ -838,6 +881,10 @@ class UserMemory:
         if bazi and bazi.get("bazi"):
             parts.append(f"八字已排盘: {' '.join(str(x) for x in bazi['bazi'][:4])}"
                          f"（日主 {bazi.get('day_master', '?')}）")
+        # Task 1 排盘档案打通：有原始出生字段 → 补出生行（字段缺失部分不写）
+        birth_line = format_birth_line(bazi)
+        if birth_line:
+            parts.append(birth_line)
         last_topic = data.get("last_topic", "")
         if last_topic:
             parts.append(f"上次主题: {self.TOPIC_CN.get(last_topic, last_topic)}")

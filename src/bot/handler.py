@@ -53,7 +53,7 @@ from src.storage.member_dao import MemberDAO
 from src.storage.conversation_memory import ConversationMemory
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
-from src.memory.user_memory import UserMemory
+from src.memory.user_memory import UserMemory, format_birth_line
 # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除，见 src/engines/similarity.py 注释）
 from .formatter import split_long_message, format_error, format_loading
 from src.reading_version import get_version_footer
@@ -1062,13 +1062,25 @@ class MessageHandler:
             return ToolResult("排盘", False, "「排盘」工具暂不可用，请直接与用户聊天。")
         parsed = self._extract_bazi_info(params)
         if parsed is None:
-            return ToolResult(
-                "排盘", False,
-                "缺少出生信息，无法排盘。请向用户自然询问：出生年月日时、出生地点、性别"
-                "（性别影响大运走向，尽量问到）。用户若不知道准确时辰，"
-                "可以说明会按午时（中午11-13点）排盘参考。",
-                needs_info=True,
-            )
+            # Task 1 排盘档案打通：解析失败先试档案（bazi_info + persons 兜底）填参，
+            # 年/月/日至少齐才排盘；hour/minute 缺省 0（与 _extract_bazi_info 缺时辰一致）
+            profile = self._get_user_birth_profile(user_id)
+            if profile and profile.get("year") and profile.get("month") and profile.get("day"):
+                parsed = (
+                    profile.get("year"), profile.get("month"), profile.get("day"),
+                    profile.get("hour") if profile.get("hour") is not None else 0,
+                    profile.get("minute") if profile.get("minute") is not None else 0,
+                    profile.get("city") or "",
+                    profile.get("gender") or "unknown",
+                )
+            else:
+                return ToolResult(
+                    "排盘", False,
+                    "缺少出生信息，无法排盘。请向用户自然询问：出生年月日时、出生地点、性别"
+                    "（性别影响大运走向，尽量问到）。用户若不知道准确时辰，"
+                    "可以说明会按午时（中午11-13点）排盘参考。",
+                    needs_info=True,
+                )
         year, month, day, hour, minute, city, gender = parsed
         try:
             result = self.engine.calculate(year, month, day, hour, minute, city, gender)
@@ -1447,12 +1459,16 @@ class MessageHandler:
         saved = None
         if self.dao:
             try:
-                saved = self.dao.get_user_bazi(user_id)
+                saved = self._get_user_birth_profile(user_id)
             except Exception:
                 saved = None
         if saved and saved.get("bazi"):
             bazi_str = " ".join(str(p) for p in saved["bazi"][:4])
             facts.append(f"用户八字：{bazi_str}（已保存，别再问出生信息）")
+        # Task 1 排盘档案打通：有原始出生字段 → 补出生行（LLM 工具路径可直接填参）
+        birth_line = format_birth_line(saved)
+        if birth_line:
+            facts.append(birth_line)
         if self.memory_system:
             try:
                 profile = self.memory_system.get_profile_summary(user_id)
@@ -1581,12 +1597,16 @@ class MessageHandler:
         facts = []
         if self.dao:
             try:
-                saved = self.dao.get_user_bazi(user_id)
+                saved = self._get_user_birth_profile(user_id)
             except Exception:
                 saved = None
             if saved and saved.get("bazi"):
                 facts.append(f"用户八字：{' '.join(str(p) for p in saved['bazi'][:4])}"
                              "（已保存，别再问出生信息）")
+            # Task 1 排盘档案打通：有原始出生字段 → 补出生行（LLM 工具路径可直接填参）
+            birth_line = format_birth_line(saved)
+            if birth_line:
+                facts.append(birth_line)
         if self.memory_system:
             try:
                 facts.extend(self.memory_system.get_key_facts(user_id))
@@ -2302,21 +2322,60 @@ class MessageHandler:
         """
         return self._handle_bazi(msg, user_id, stream_cb=stream_cb)
 
+    def _get_user_birth_profile(self, user_id: str) -> Optional[dict]:
+        """获取用户出生信息档案（Task 1 排盘档案打通，单向只读）。
+
+        ① users.bazi_info 非空且有 year 键 → 原样返回；
+        ② 否则查 persons 表主档案（list_persons 默认在前，取第一个有出生数据的），
+           把 birth_year/birth_month/birth_day/birth_hour/birth_minute/gender/city
+           映射为 {year, month, day, hour, minute, city, gender}；
+        ③ 都没有 → None。
+
+        不回写 persons、不新增写路径（单向打通）。
+        """
+        if self.dao:
+            try:
+                bazi = self.dao.get_user_bazi(user_id)
+            except Exception:
+                bazi = None
+            if bazi and bazi.get("year"):
+                return bazi
+        try:
+            from src.storage.person_dao import PersonDAO
+            pdao = PersonDAO(self.dao.db_path)
+            for p in pdao.list_persons(user_id):
+                if p.get("birth_year"):
+                    return {
+                        "year": p.get("birth_year"),
+                        "month": p.get("birth_month"),
+                        "day": p.get("birth_day"),
+                        "hour": p.get("birth_hour"),
+                        "minute": p.get("birth_minute"),
+                        "city": p.get("city") or "",
+                        "gender": p.get("gender") or "unknown",
+                    }
+        except Exception:
+            pass
+        return None
+
     def _handle_bazi(self, msg: str, user_id: str,
                      stream_cb: Optional[Callable] = None) -> str:
         """处理八字请求"""
         parsed = self._extract_bazi_info(msg)
 
         if parsed is None:
-            # 检查是否有已保存的信息 — 自动复用
-            saved = self.dao.get_user_bazi(user_id)
-            if saved:
+            # 检查是否有已保存的信息 — 自动复用（bazi_info + persons 档案兜底）
+            saved = self._get_user_birth_profile(user_id)
+            if saved and saved.get("year") and saved.get("month") and saved.get("day"):
                 # AI generates a brief acknowledgment that we're using saved info
                 ack = self._gen_reuse_acknowledgment(msg, saved)
                 result = self._do_bazi_analysis(
-                    saved["year"], saved["month"], saved["day"],
-                    saved["hour"], saved["minute"], saved["city"],
-                    saved["gender"], msg, user_id, stream_cb=stream_cb,
+                    saved.get("year"), saved.get("month"), saved.get("day"),
+                    saved.get("hour") if saved.get("hour") is not None else 0,
+                    saved.get("minute") if saved.get("minute") is not None else 0,
+                    saved.get("city") or "",
+                    saved.get("gender") or "unknown",
+                    msg, user_id, stream_cb=stream_cb,
                 )
                 return ack + "\n\n" + result if ack else result
 
