@@ -493,9 +493,10 @@ class ZeriEngine:
                 return None
             elif rule == "空亡" and is_kongwang(day_zhi, month_zhi, lunar):
                 return None
-        # 冲 user 生肖（个人规则; 无生肖信息则跳过, 不误伤）
+        # 冲 user 生肖（按场景开关 avoid_chong; 无生肖信息则跳过, 不误伤）
         user_zodiac = (user_bazi or {}).get("shengxiao")
-        if user_zodiac and ZODIAC_MAP[LIU_CHONG[day_zhi]] == user_zodiac:
+        if cfg.get("avoid_chong") and user_zodiac \
+                and ZODIAC_MAP[LIU_CHONG[day_zhi]] == user_zodiac:
             return None
 
         # ---- 三层评分 ----
@@ -673,7 +674,7 @@ SCENES = {
         "ji_hits": ["嫁娶", "纳采"],
         "jianchu_avoid": ["破", "闭"],
         "avoid_chong": True,
-        "shensha_avoid": ["三娘煞", "杨公忌日", "冲生肖"],
+        "shensha_avoid": ["三娘煞", "杨公忌日"],
         "weekend_bonus": True,
     },
     "搬家": {
