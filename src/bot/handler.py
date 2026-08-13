@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Optional, Tuple, Any, Callable
 
 logger = logging.getLogger(__name__)
@@ -425,6 +426,12 @@ class MessageHandler:
         self._analysis_facts: dict = {}
         # Task 5: user_id -> deepNight(倾诉临时模式：不落 L2/L3 + temp 消息 24h 硬清理)
         self._deep_night: dict = {}
+        # Task 2 等待时长优化：秒回安抚预生成线程池（与意图分析并行发出；
+        # 进程生命周期共享，不随请求销毁）；user_id -> Future 存本轮预生成任务
+        import concurrent.futures
+        self._pregen_pool = concurrent.futures.ThreadPoolExecutor(
+            max_workers=2, thread_name_prefix="pregen")
+        self._pregen_instant: dict = {}
 
         # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除）：
         # 不再初始化 SimilarityEngine（原 data/wenzhen_charts.db 44k 命例对照），
@@ -683,6 +690,61 @@ class MessageHandler:
                                emotion_label=None, intent=None)
 
     # ============================================================
+    # Task 2 等待时长优化：秒回安抚预生成（与意图分析并行发出）
+    # ============================================================
+
+    def _start_pregen_instant(self, msg: str):
+        """消息含完整出生信息 → 排盘 + 秒回安抚提交后台线程，与意图分析并行。
+
+        返回 Future（_do_bazi_analysis 消费）；无出生信息/启动失败 → None。
+        约束：不改变消息顺序与内容语义——秒回 LLM 调用仍先于主分析发出，
+        只是准备阶段与意图分析重叠执行（一轮省 20-30s）。
+        """
+        try:
+            parsed = self._extract_bazi_info(msg)
+            if not parsed:
+                return None
+            year, month, day, hour, minute, city, gender = parsed
+            return self._pregen_pool.submit(
+                self._pregen_instant_worker,
+                year, month, day, hour, minute, city, gender,
+            )
+        except Exception:
+            logger.warning("秒回预生成启动失败（回退同步生成）", exc_info=True)
+            return None
+
+    def _pregen_instant_worker(self, year, month, day, hour, minute,
+                               city, gender) -> str:
+        """后台线程：排盘 + 秒回安抚生成（与意图分析重叠执行）。
+
+        线程安全：engine.calculate 为确定性本地计算（无共享可变状态）；
+        _gen_instant_reply 仅做只读访问 + LLM 调用（httpx 线程安全）。
+        """
+        try:
+            result = self.engine.calculate(year, month, day, hour, minute,
+                                           city, gender)
+            return self._gen_instant_reply(result)
+        except Exception:
+            return ""
+
+    def _consume_pregen_instant(self, user_id: str) -> Optional[str]:
+        """取预生成的秒回安抚；未就绪/失败 → None（调用方同步兜底，行为与旧版一致）。
+
+        只取已完成结果（timeout=0），绝不阻塞主流程——预生成因并发排队
+        未完成时走同步兜底，语义与未做并行优化前完全相同。
+        """
+        import concurrent.futures
+        try:
+            future = self._pregen_instant.pop(user_id, None)
+            if future is None:
+                return None
+            return future.result(timeout=0.0)
+        except concurrent.futures.TimeoutError:
+            return None
+        except Exception:
+            return None
+
+    # ============================================================
     # AI 原生（Phase 1）— <tool_call> 工具调用循环（方案 3.2/3.3）
     # ============================================================
 
@@ -734,8 +796,12 @@ class MessageHandler:
         """
         if not reply:
             return reply
+        # Task 2 阶段计时：整段工具循环（工具执行 + LLM 调用），统一格式便于 grep
+        _t0 = time.monotonic()
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         if not api_key:
+            logger.info("[timing] stage=tool_loop duration=%.1fs",
+                        time.monotonic() - _t0)
             return strip_tool_calls(reply) or reply
 
         history = None
@@ -839,6 +905,8 @@ class MessageHandler:
         cleaned = strip_tool_calls(reply)
         # 阶段 5·回答后引用校验（方案 §3.2 ③）：不相关 [n] 剔除，来源收窄
         cleaned = self._verify_and_keep(user_id, cleaned, msg)
+        logger.info("[timing] stage=tool_loop duration=%.1fs",
+                    time.monotonic() - _t0)
         return cleaned or reply
 
     # ============================================================
@@ -1022,11 +1090,14 @@ class MessageHandler:
             messages.append({"role": "user", "content": msg})
         try:
             from src.llm.client import deepseek_anthropic_completion
+            _t0 = time.monotonic()
             polished = deepseek_anthropic_completion(
                 api_key, messages, model=model,
                 max_tokens=2000, temperature=0.7, timeout=60.0,
                 stream_cb=stream_cb,
             )
+            logger.info("[timing] stage=polish duration=%.1fs",
+                        time.monotonic() - _t0)
         except Exception:
             return draft  # LLM 失败 → 静默降级返回草稿
         if not polished:
@@ -1848,8 +1919,15 @@ class MessageHandler:
                 self.session_dao.add_message(user_id, "assistant", upgrade_msg, temp=deep)
             return upgrade_msg
 
-        # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)# Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
+        # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
+        # Task 2 等待时长优化：消息含完整出生信息时，把「排盘 + 秒回安抚」提交到
+        # 后台线程与意图分析并行发出（二者无依赖，可重叠）；bazi/career 路由由
+        # _do_bazi_analysis 消费，其他路由静默丢弃（flash 成本低、无墙钟代价）。
+        self._pregen_instant[user_id] = self._start_pregen_instant(msg)
+        _t0 = time.monotonic()
         analysis = self._analyze_message(msg, user_id)
+        logger.info("[timing] stage=intent duration=%.1fs",
+                    time.monotonic() - _t0)
         # 阶段 5（方案 v5）：记录本轮理解出的关键事实（subject=other 时排盘不写本人画像）
         self._analysis_facts[user_id] = analysis.facts or {}
         # P2 System1 每轮提取钩子（阶段 5）：facts → L2 事实条目（去重入库）
@@ -2534,7 +2612,10 @@ class MessageHandler:
         result = self.engine.calculate(year, month, day, hour, minute, city, gender)
 
         # 2. 秒回安抚（在LLM分析前生成，最终拼接到回复开头）
-        instant_reply = self._gen_instant_reply(result)
+        # Task 2：优先取并行预生成结果（意图分析期间已完成），未就绪则同步兜底
+        instant_reply = self._consume_pregen_instant(user_id)
+        if not instant_reply:
+            instant_reply = self._gen_instant_reply(result)
 
         # 3. 保存用户数据
         # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人档案（数据库层同步保护）
@@ -2635,16 +2716,22 @@ class MessageHandler:
                 + question
             )
             self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
+            _t0 = time.monotonic()
             analysis = self.llm.analyze(
                 result, refs, enhanced_question,
                 extra_system_prompt=extra_prompt,
             )
+            logger.info("[timing] stage=main_analysis duration=%.1fs",
+                        time.monotonic() - _t0)
         else:
             self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
+            _t0 = time.monotonic()
             analysis = self.llm.analyze(
                 result, refs, question_with_gender,
                 extra_system_prompt=pref_extra if pref_extra else None,
             )
+            logger.info("[timing] stage=main_analysis duration=%.1fs",
+                        time.monotonic() - _t0)
 
         # 6. 生成命盘图片
         chart_url = ""
@@ -2944,7 +3031,10 @@ class MessageHandler:
         Uses a quick Flash call to find the most interesting aspect of the
         user's chart and craft a warm, unique opener. Runs in parallel with
         the deep Pro model analysis, so latency is hidden.
+
+        Task 2：无论同步生成还是预生成线程路径都记录本阶段实际耗时。
         """
+        _t0 = time.monotonic()
         try:
             bazi = getattr(result, "bazi", None)
             if not isinstance(bazi, (list, tuple)) or len(bazi) < 4:
@@ -2980,6 +3070,8 @@ class MessageHandler:
 
             text = self._quick_flash(prompt, max_tokens=150, temperature=0.8)
             if text:
+                logger.info("[timing] stage=instant duration=%.1fs",
+                            time.monotonic() - _t0)
                 return text
         except Exception:
             pass
@@ -2990,9 +3082,13 @@ class MessageHandler:
             dm = getattr(result, "day_master", "")
             if bazi and dm:
                 bazi_str = " ".join(str(p) for p in bazi[:4])
+                logger.info("[timing] stage=instant duration=%.1fs",
+                            time.monotonic() - _t0)
                 return f"命盘已排出【{bazi_str}】，日主{dm}。正在深度推演中~ 🌟"
         except Exception:
             pass
+        logger.info("[timing] stage=instant duration=%.1fs",
+                    time.monotonic() - _t0)
         return ""
 
     # ============================================================
