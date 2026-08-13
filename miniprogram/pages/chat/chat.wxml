@@ -387,9 +387,11 @@
         <template is="md-inline" data="{{node: it, msgId: msgId, sel: sel}}" />
       </text>
       <text wx:elif="{{it.t === 'code'}}" selectable="{{sel}}" class="md-icode">{{it.s}}</text>
-      <text wx:elif="{{it.t === 'link'}}" selectable="{{sel}}" class="md-link">
+      <text wx:elif="{{it.t === 'link'}}" selectable="{{sel}}" class="md-link" data-code="{{it.url}}" bindtap="copyCode">
         <template is="md-inline" data="{{node: it, msgId: msgId, sel: sel}}" />
       </text>
+      <!-- 图片：气泡内直接显示（圆角墨框、最大宽 100%、widthFix 高度自适应；长按出系统保存菜单） -->
+      <image wx:elif="{{it.t === 'image'}}" class="md-image" src="{{it.url}}" mode="widthFix" show-menu-by-longpress="{{true}}" />
       <text wx:elif="{{it.t === 'cite'}}" class="cite-chip" data-msgid="{{msgId}}" data-idx="{{it.idx}}" bindtap="onCiteTap">{{it.idx > 0 ? '[' + it.idx + ']' : '🔗'}}</text>
     </block>
   </template>

@@ -894,8 +894,8 @@
 
 /* ═══ v1.2 气泡内容升级：Markdown 完整渲染（墨韵：代码块深墨底浅字 / 表格细线 / 引用左线） ═══ */
 
-/* 段落（正文继承 .jz-body 的字体/行高） */
-.md-p { margin: 0 0 10rpx; }
+/* 段落（正文继承 .jz-body 的字体/行高；break-all 防超长链接/连续字符穿泡） */
+.md-p { margin: 0 0 10rpx; word-break: break-all; }
 .md-p:last-child { margin-bottom: 0; }
 .md-it { display: inline; }
 .md-strong { font-weight: 700; color: var(--ink); }
@@ -907,8 +907,18 @@
   background: var(--acc-soft);
   border-radius: 4rpx;
   padding: 0 7rpx;
+  word-break: break-all;
 }
-.md-link { color: var(--acc); text-decoration: underline; }
+.md-link { color: var(--acc); text-decoration: underline; word-break: break-all; }
+/* 图片：气泡内直接显示（圆角墨框，最大宽度 ~100%，mode=widthFix 高度自适应） */
+.md-image {
+  display: block;
+  max-width: 100%;
+  border-radius: 10rpx;
+  border: 2rpx solid var(--line-med);
+  background: var(--paper-deep);
+  margin: 6rpx 0;
+}
 
 /* 标题（墨韵：不抢正文，行距收紧） */
 .md-h {
