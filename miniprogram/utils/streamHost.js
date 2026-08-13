@@ -170,6 +170,12 @@ class StreamHost {
   }
 
   /* ── 发送入口（v8 阶段 3）：生成中允许再发 → 排队（豆包式），且新消息立即上屏（pending 灰态） ── */
+  /* Task 8 深夜倾诉开关：chat 页深夜模式时置 true → 流式请求随附 deep_night
+     （后端：临时不落记忆 + 深夜语气层） */
+  setDeepNight(v) {
+    this.deepNight = !!v;
+  }
+
   send(text, tag) {
     const t = (text || '').trim();
     if (!t) return 'empty';
@@ -246,7 +252,7 @@ class StreamHost {
       onAbort: () => this._onAbort(),
       onError: (err) => this._onError(err),
     };
-    api.chatStream(this.curText, handlers)
+    api.chatStream(this.curText, handlers, { deepNight: !!this.deepNight })
       .then((handle) => {
         this.task = handle;
         if (this._stopRequested) {

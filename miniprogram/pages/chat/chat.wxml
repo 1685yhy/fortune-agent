@@ -1,4 +1,4 @@
-<view class="screen" style="--nav-off:{{navOff}}px" bindtap="onListTap">
+<view class="screen {{nightMode ? 'night' : ''}}" style="--nav-off:{{navOff}}px" bindtap="onListTap">
   <view class="navrow">
     <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goToday">
       <image class="back-icon" src="/assets/images/ic-back.png"></image>
@@ -19,6 +19,44 @@
   </view>
 
   <view class="chat-head" bindlongpress="clearChat">八月初六 · 夜</view>
+
+  <!-- ═══ Task 8 · 深夜模式卡片（方案·灯下漫谈） ═══ -->
+  <!-- 深夜标识：灯笼 + 倾诉临时提示（今夜不落记忆） -->
+  <view wx:if="{{nightMode}}" class="night-head {{lampLit ? 'lamp-fade' : ''}}">
+    <image class="night-lantern" src="/assets/images/ic-lantern-on.png"></image>
+    <text>灯下漫谈 · 今夜说的话,天亮就忘</text>
+    <text wx:if="{{notKeep}}" class="night-head-sub">倾诉不落记忆 · 要记住的要当面说</text>
+  </view>
+  <!-- 枕边灯语卡（23:00-01:00：文字免费/语音会员/收藏/定时关闭 5-30 分钟） -->
+  <view wx:if="{{lamp.show}}" class="lamp-card">
+    <view class="lamp-title">枕边灯语</view>
+    <view class="lamp-text">{{lamp.text}}</view>
+    <view class="lamp-actions">
+      <view wx:if="{{lamp.audioUrl}}" class="lamp-btn" hover-class="lamp-btn-active" hover-stay-time="0" bindtap="onLampPlay">{{lamp.playing ? '暂停' : '播放'}}</view>
+      <view wx:else class="lamp-btn lamp-btn-muted">语音会员</view>
+      <view class="lamp-btn" hover-class="lamp-btn-active" hover-stay-time="0" bindtap="onLampFav">{{lamp.favorited ? '已收藏' : '收藏'}}</view>
+      <picker class="lamp-timer" range="{{[5,10,15,30]}}" value="2" bindchange="onLampTimerChange">
+        <view class="lamp-btn lamp-btn-timer">定时关闭 {{lamp.timerMin}} 分钟 ▾</view>
+      </picker>
+    </view>
+  </view>
+  <!-- 挽留条（静默 25-40 分钟，1 次/夜） -->
+  <view wx:if="{{keepBar.show}}" class="night-keep">{{keepBar.text}}</view>
+  <!-- 0 点后劝睡 -->
+  <view wx:if="{{sleepBar}}" class="night-keep">天都快亮了。我给你留一盏小灯,明天接着陪你聊。睡吧。</view>
+  <!-- 「要我记得吗」 -->
+  <view wx:if="{{rememberPrompt.show}}" class="keep-prompt">
+    <text class="kp-q">这句,要帮你记住吗?</text>
+    <view class="kp-btns">
+      <view class="kp-btn" hover-class="kp-btn-active" hover-stay-time="0" bindtap="onRememberYes">要记住</view>
+      <view class="kp-btn kp-btn-no" hover-class="kp-btn-active" hover-stay-time="0" bindtap="onRememberNo">不用</view>
+    </view>
+  </view>
+  <!-- 12356 心理援助 -->
+  <view wx:if="{{safetyCard.show}}" class="safety-card">
+    <view class="safety-head">心理援助 · 请先联系专业人员</view>
+    <text>{{safetyCard.text}}</text>
+  </view>
 
   <!-- 对话建档提示条：AI 回复含建档 key → 顶部提示（点按确认/取消，可关闭） -->
   <view wx:if="{{saveBanner}}" class="dlg-banner" hover-class="dlg-banner-active" hover-stay-time="0" bindtap="onSaveBannerTap">
@@ -179,7 +217,7 @@
         <view class="mic-btn mode-mic" hover-class="mic-btn-active" hover-stay-time="0" data-mode="voice" bindtap="switchInputMode">
           <image src="/assets/images/ic-mic.png"></image>
         </view>
-        <input class="chat-input {{inputFocused ? 'input-focused' : ''}}" placeholder="写下一句心事…"
+        <input class="chat-input {{inputFocused ? 'input-focused' : ''}}" placeholder="{{nightMode ? '慢慢说,我听着。' : '写下一句心事…'}}"
           placeholder-class="input-ph" value="{{inputText}}" bindinput="onInput"
           bindfocus="onFocus" bindblur="onBlur" bindconfirm="onConfirm" confirm-type="send" />
         <!-- v8 阶段 3：生成中无输入 → 停止钮；正在打字 → 发送钮（点按=排队，豆包式） -->

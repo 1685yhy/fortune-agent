@@ -8,6 +8,16 @@
   </view>
 
   <view class="today-col">
+    <!-- 深夜入口横幅(21:00 后出现,白天不出现) -->
+    <view wx:if="{{night.mode}}" class="night-banner lamp-fade" hover-class="night-banner-active" hover-stay-time="0" bindtap="onNightEntry">
+      <view class="nb-lantern"><text class="nb-lantern-char">灯</text></view>
+      <view class="nb-mid">
+        <view class="nb-title">灯下漫谈 · 夜深了,灯还亮着</view>
+        <view class="nb-sub">今夜说的话,天亮就忘。进来坐坐。</view>
+      </view>
+      <view class="nb-go">进去坐坐</view>
+    </view>
+
     <!-- 晨笺卡（已开启 + 数据就绪；接口失败/未开启均静默） -->
     <view class="jian-card" wx:if="{{jian.show}}">
       <view class="jian-head">

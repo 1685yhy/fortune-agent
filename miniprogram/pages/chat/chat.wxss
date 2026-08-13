@@ -1123,3 +1123,173 @@
 }
 .user-note .msg-img { margin-bottom: 12rpx; }
 .jz-body .msg-img { margin-bottom: 10rpx; }
+
+/* ═══════════════════════════════════════════════════════════════
+   Task 8 · 深夜模式（方案·灯下漫谈）
+   夜色宣纸主题卡组：深一档暖纸 + 灯笼暖光 + 朱砂点睛（根 .night 变量级联）
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 深夜标识条（灯笼 + 灯下漫谈 + 倾诉临时提示，浮于消息区顶部） ── */
+.night-head {
+  position: absolute;
+  top: calc(215rpx + var(--nav-off));
+  left: 35rpx;
+  right: 35rpx;
+  z-index: 31;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  padding: 12rpx 22rpx;
+  background: var(--gold-soft);
+  border: 2rpx solid var(--gold-soft);
+  border-radius: 24rpx;
+  font-family: var(--font-kai);
+  font-size: 22rpx;
+  letter-spacing: .18em;
+  color: var(--gold);
+  box-shadow: 0 4rpx 14rpx var(--shadow-sm);
+}
+.night-lantern { width: 30rpx; height: 30rpx; flex-shrink: 0; }
+.night-head-sub {
+  font-family: var(--font-song);
+  font-size: 17rpx;
+  letter-spacing: .12em;
+  color: var(--ink-soft);
+}
+
+/* ── 枕边灯语卡（23:00-01:00） ── */
+.lamp-card {
+  position: absolute;
+  top: calc(302rpx + var(--nav-off));
+  left: 35rpx;
+  right: 35rpx;
+  z-index: 31;
+  padding: 24rpx 26rpx 21rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--gold);
+  border-radius: 12rpx;
+  box-shadow: 0 6rpx 18rpx var(--shadow);
+}
+.lamp-title {
+  font-family: var(--font-kai);
+  font-size: 23rpx;
+  letter-spacing: .3em;
+  color: var(--gold);
+  margin-bottom: 13rpx;
+}
+.lamp-text {
+  font-family: var(--font-kai);
+  font-size: 28rpx;
+  line-height: 1.9;
+  letter-spacing: .05em;
+  color: var(--ink);
+}
+.lamp-actions {
+  display: flex;
+  align-items: center;
+  gap: 13rpx;
+  margin-top: 19rpx;
+  flex-wrap: wrap;
+}
+.lamp-btn {
+  padding: 9rpx 19rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .12em;
+  color: var(--acc);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 6rpx;
+  background: var(--paper);
+}
+.lamp-btn-active { background: var(--acc-soft); }
+.lamp-btn-muted { color: var(--ink-faint); border-color: var(--line); }
+.lamp-btn-timer { color: var(--ink-soft); }
+
+/* ── 挽留条 / 0 点后劝睡（浮于输入条上方） ── */
+.night-keep {
+  position: absolute;
+  left: 35rpx;
+  right: 35rpx;
+  bottom: calc(173rpx + var(--inputbar-h) + 20rpx);
+  z-index: 31;
+  padding: 16rpx 24rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--gold-soft);
+  border-radius: 22rpx;
+  font-family: var(--font-kai);
+  font-size: 23rpx;
+  letter-spacing: .1em;
+  text-align: center;
+  color: var(--ink-mid);
+  box-shadow: 0 4rpx 16rpx var(--shadow);
+}
+
+/* ── 「要我记得吗」提示卡 ── */
+.keep-prompt {
+  position: absolute;
+  left: 35rpx;
+  right: 35rpx;
+  bottom: calc(173rpx + var(--inputbar-h) + 20rpx);
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  padding: 20rpx 24rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--acc);
+  border-radius: 12rpx;
+  box-shadow: 0 6rpx 18rpx var(--shadow);
+}
+.kp-q {
+  flex: 1;
+  font-family: var(--font-kai);
+  font-size: 25rpx;
+  letter-spacing: .06em;
+  color: var(--ink);
+}
+.kp-btns { display: flex; gap: 13rpx; flex-shrink: 0; }
+.kp-btn {
+  padding: 11rpx 23rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .14em;
+  color: #FFF8EC;
+  background: var(--acc);
+  border-radius: 7rpx;
+}
+.kp-btn-no {
+  color: var(--ink-soft);
+  background: var(--paper);
+  border: 2rpx solid var(--line);
+}
+.kp-btn-active { opacity: .82; }
+
+/* ── 12356 心理援助安全条 ── */
+.safety-card {
+  position: absolute;
+  left: 35rpx;
+  right: 35rpx;
+  bottom: calc(173rpx + var(--inputbar-h) + 20rpx);
+  z-index: 40;
+  padding: 21rpx 25rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--acc-deep);
+  border-radius: 12rpx;
+  box-shadow: 0 6rpx 20rpx var(--shadow-lg);
+}
+.safety-head {
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  font-weight: 700;
+  letter-spacing: .16em;
+  color: var(--acc-deep);
+  margin-bottom: 10rpx;
+}
+.safety-card text {
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  line-height: 1.8;
+  letter-spacing: .04em;
+  color: var(--ink-mid);
+}
