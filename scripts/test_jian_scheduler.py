@@ -63,21 +63,25 @@ with mock.patch("src.services.wechat_mp.send_template",
 check("恢复后只推 u3", sent2 == ["o_u3"] and stats2["pushed"] == 1)
 check("成功清零 fail_count", dao.get_pref("u3")["fail_count"] == 0)
 
-# 5. 晚安按日生成(P1): thing1 含当日干支,thing2 含"明日宜/忌"与当日宜忌内容
+# 5. 晚安深夜版(Task 9): thing1 明灯夜话 / thing2 灯还亮着 / thing3 明日宜忌 / thing4 天亮就忘 + entry=night 落地
 dao.upsert_pref("u4", {"jian_enabled": 0, "jian_time": "", "night_enabled": 1,
                        "night_time": "23:00", "bound_status": "bound", "mp_openid": "o_u4"})
 night_sent = []
 fake_night_content = {"day_ganzhi": "庚申", "suitable": ["出行"], "unsuitable": ["借贷"]}
 with mock.patch("src.services.wechat_mp.send_template",
-                side_effect=lambda oid, tpl, data, url="": night_sent.append((oid, data)) or {}), \
+                side_effect=lambda oid, tpl, data, url="": night_sent.append((oid, data, url)) or {}), \
      mock.patch("src.services.wechat_mp.mp_ready", return_value=True), \
      mock.patch("src.main._precompute_jian_for", return_value=fake_night_content):
     stats_n = main_mod._send_jian_batch(dao, "23:00", "night")
     check("23:00 晚安只推 u4", night_sent and night_sent[0][0] == "o_u4" and stats_n["pushed"] == 1)
-    night_data = night_sent[0][1]
-    check("晚安 thing1 含干支", "庚申" in night_data["thing1"]["value"] and "夜深了" in night_data["thing1"]["value"])
-    check("晚安 thing1 ≤20字", len(night_data["thing1"]["value"]) <= 20)
-    check("晚安 thing2 用当日宜忌", "明日宜出行" in night_data["thing2"]["value"] and "忌借贷" in night_data["thing2"]["value"])
-    check("晚安 thing2 ≤20字", len(night_data["thing2"]["value"]) <= 20)
+    night_data, night_url = night_sent[0][1], night_sent[0][2]
+    check("深夜版 thing1 明灯夜话", night_data["thing1"]["value"] == "明灯 · 夜话")
+    check("深夜版 thing1 ≤20字", len(night_data["thing1"]["value"]) <= 20)
+    check("深夜版 thing2 灯还亮着", night_data["thing2"]["value"] == "夜深了,灯还亮着")
+    check("深夜版 thing2 ≤20字", len(night_data["thing2"]["value"]) <= 20)
+    check("深夜版 thing3 用当日宜忌", "明日宜出行" in night_data["thing3"]["value"] and "忌借贷" in night_data["thing3"]["value"])
+    check("深夜版 thing3 ≤20字", len(night_data["thing3"]["value"]) <= 20)
+    check("深夜版 thing4 天亮就忘", night_data["thing4"]["value"] == "今夜说的话,天亮就忘")
+    check("落地页 entry=night", night_url.endswith("pages/chat/chat?entry=night"))
 
 print(f"\nALL PASS ({ok})")

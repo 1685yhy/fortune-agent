@@ -338,18 +338,21 @@ def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
                 }
                 url = "pages/today/today"
             else:
-                # P1: 晚安内容按日生成(复用当日预生成缓存:干支+宜忌)
+                # 深夜版晚安(方案·灯下漫谈):深夜陪伴第一入口。
+                # 落地页带 entry=night,前端以入口为准强进深夜模式(白天点开也生效);
+                # thing 字段均 ≤20 字(微信模板消息上限);按钮文案由服务号模板配置,
+                # 当前以 thing4 承诺文案 + 落地页入口承接「点一盏灯,说说话」。
                 night_content = _precompute_jian_for(date_str)
                 data = {
-                    "thing1": {"value": (
-                        f"{night_content.get('day_ganzhi', '')}夜深了,灯还亮着"
-                    )[:20]},
-                    "thing2": {"value": (
+                    "thing1": {"value": "明灯 · 夜话"[:20]},
+                    "thing2": {"value": "夜深了,灯还亮着"[:20]},
+                    "thing3": {"value": (
                         f"明日宜{','.join(night_content.get('suitable', [])[:3])}"
-                        f" 忌{','.join(night_content.get('unsuitable', [])[:3])} · 睡个好觉"
+                        f" 忌{','.join(night_content.get('unsuitable', [])[:3])}"
                     )[:20]},
+                    "thing4": {"value": "今夜说的话,天亮就忘"[:20]},
                 }
-                url = "pages/chat/chat"
+                url = "pages/chat/chat?entry=night"
             send_template(openid, tpl_id, data, url=f"https://yilichat.com/{url}")
             stats["pushed"] += 1
         except Exception as e:
