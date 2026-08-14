@@ -5,11 +5,15 @@
 
 import hashlib
 import os
+import re
 import secrets
+import time
 import logging
+from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from src.storage.dao import UserDAO
@@ -38,6 +42,16 @@ _dev_openid = None
 # 它在 code2session 响应里返回，登录时加密保存（AES-256-GCM，与 dao.py 同款加密），
 # 支付时由 src/api/pay_midas.py 解密读取。列在 users 表上懒迁移（幂等）。
 _SESSION_KEY_COLUMN = "session_key_enc"
+
+# ── Task1 登录增强：手机号绑定 + 头像昵称 ────────────────────────────
+# 手机号经微信 getPhoneNumber 换取后 AES 加密存 users.phone_enc（列懒迁移见 dao.py）；
+# access_token 模块级缓存（key=appid，110 分钟，官方有效期 120 分钟留缓冲）。
+_ACCESS_TOKEN_CACHE: dict = {}
+_ACCESS_TOKEN_TTL_SECONDS = 110 * 60
+
+MAX_AVATAR_BYTES = 2 * 1024 * 1024
+_ALLOWED_AVATAR_TYPES = {"image/jpeg", "image/png", "image/webp"}
+_ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
 def _ensure_session_key_column():
@@ -158,6 +172,14 @@ def get_person_dao() -> Optional[PersonDAO]:
 
 class LoginRequest(BaseModel):
     code: str  # wx.login 获取的临时 code
+
+
+class PhoneBindRequest(BaseModel):
+    code: str = ""  # button open-type="getPhoneNumber" 返回的授权 code（5 分钟单次有效）
+
+
+class ProfileUpdateRequest(BaseModel):
+    nickname: str = ""  # 1-20 字，服务端 strip
 
 
 class BaziRequest(BaseModel):
@@ -301,6 +323,181 @@ async def user_login(req: LoginRequest):
             "is_new": is_new,
         },
     }
+
+
+# ──────────────────────────────────────────────────────────────
+# Task1 登录增强：手机号绑定（getPhoneNumber）+ 头像昵称采集
+# 安全红线：手机号 AES 加密落库；日志/响应只输出脱敏号；
+# watermark.appid 必须等于本应用 AppID，否则拒绝。
+# ──────────────────────────────────────────────────────────────
+
+def _mask_phone(phone: str) -> str:
+    """手机号脱敏：保留前 3 后 4，中间打码（如 138****1234）。"""
+    phone = (phone or "").strip()
+    if not phone:
+        return ""
+    if len(phone) <= 7:
+        return phone[:1] + "*" * max(len(phone) - 1, 0)
+    return f"{phone[:3]}{'*' * (len(phone) - 7)}{phone[-4:]}"
+
+
+async def _get_wx_access_token() -> str:
+    """获取微信全局 access_token（cgi-bin/token），模块级缓存 110 分钟（key=appid）。
+
+    失败抛 HTTPException(400)；access_token 不打日志。
+    """
+    app_id = os.getenv("WECHAT_APP_ID", "").strip()
+    app_secret = os.getenv("WECHAT_APP_SECRET", "").strip()
+    if not app_id or not app_secret:
+        raise HTTPException(status_code=400, detail="微信配置缺失，无法获取手机号")
+    now = time.time()
+    cached = _ACCESS_TOKEN_CACHE.get(app_id)
+    if cached and cached.get("expires_at", 0) > now:
+        return cached["token"]
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://api.weixin.qq.com/cgi-bin/token",
+                params={"grant_type": "client_credential", "appid": app_id, "secret": app_secret},
+            )
+        data = resp.json()
+    except Exception as e:
+        logger.warning("微信 access_token 请求失败: %s", e)
+        raise HTTPException(status_code=400, detail="微信服务暂不可用，请稍后重试")
+    token = str(data.get("access_token") or "")
+    if data.get("errcode") or not token:
+        logger.warning("微信 access_token 返回错误: errcode=%s errmsg=%s",
+                       data.get("errcode"), data.get("errmsg"))
+        raise HTTPException(status_code=400, detail="微信授权失败，请稍后重试")
+    _ACCESS_TOKEN_CACHE[app_id] = {"token": token, "expires_at": now + _ACCESS_TOKEN_TTL_SECONDS}
+    return token
+
+
+async def _wechat_get_phone_number(code: str) -> dict:
+    """调用微信 wxa/business/getuserphonenumber 换取手机号信息。
+
+    成功返回 data.phone_info dict；微信返回错误 → HTTPException(400)（明确文案）。
+    """
+    token = await _get_wx_access_token()
+    import httpx
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://api.weixin.qq.com/wxa/business/getuserphonenumber",
+                params={"access_token": token},
+                json={"code": code},
+            )
+        data = resp.json()
+    except Exception as e:
+        logger.warning("微信 getuserphonenumber 请求失败: %s", e)
+        raise HTTPException(status_code=400, detail="微信服务暂不可用，请稍后重试")
+    if data.get("errcode"):
+        logger.warning("微信 getuserphonenumber 返回错误: errcode=%s errmsg=%s",
+                       data.get("errcode"), data.get("errmsg"))
+        raise HTTPException(status_code=400, detail="手机号授权失败或已过期，请重新授权")
+    return data.get("data") or {}
+
+
+@router.post("/api/user/phone-bind")
+async def user_phone_bind(req: PhoneBindRequest, uid: str = Depends(require_user)):
+    """绑定/换绑手机号：微信 getPhoneNumber 授权 code → 换手机号 → AES 加密落库。
+
+    - watermark.appid 必须 == WECHAT_APP_ID，否则 400；
+    - 重复绑定 → 覆盖（换绑）并提示；
+    - 响应/日志只输出脱敏号。
+    """
+    global _dao
+    code = (req.code or "").strip()
+    if not code:
+        raise HTTPException(status_code=400, detail="缺少微信授权 code")
+
+    info = await _wechat_get_phone_number(code)
+    phone_info = info.get("phone_info") or {}
+    phone = str(phone_info.get("phoneNumber") or "").strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="微信未返回手机号，请重新授权")
+    watermark = phone_info.get("watermark") or {}
+    if watermark.get("appid") != os.getenv("WECHAT_APP_ID", "").strip():
+        logger.warning("手机号绑定被拒绝：watermark.appid 与 WECHAT_APP_ID 不符 user=%s", uid)
+        raise HTTPException(status_code=400, detail="手机号授权校验失败，请重新授权")
+
+    replaced = False
+    if _dao:
+        replaced = bool(_dao.get_user_phone(uid))
+        _dao.save_user_phone(uid, phone)
+    logger.info("用户 %s 绑定手机号 %s", uid, _mask_phone(phone))
+    return {
+        "success": True,
+        "phone_masked": _mask_phone(phone),
+        "message": "手机号已更新" if replaced else "手机号绑定成功",
+    }
+
+
+@router.get("/api/user/phone")
+async def get_user_phone(uid: str = Depends(require_user)):
+    """查询手机号绑定状态（只返回脱敏号，不泄露明文）。"""
+    global _dao
+    phone = _dao.get_user_phone(uid) if _dao else None
+    if not phone:
+        return {"bound": False, "phone_masked": None}
+    return {"bound": True, "phone_masked": _mask_phone(phone)}
+
+
+@router.post("/api/user/profile")
+async def user_update_profile(req: ProfileUpdateRequest, uid: str = Depends(require_user)):
+    """保存用户昵称（strip 后 1-20 字，否则 400）。"""
+    global _dao
+    nickname = (req.nickname or "").strip()
+    if not nickname:
+        raise HTTPException(status_code=400, detail="昵称不能为空")
+    if len(nickname) > 20:
+        raise HTTPException(status_code=400, detail="昵称最长 20 个字符")
+    if _dao:
+        _dao.set_user_nickname(uid, nickname)
+    return {"success": True, "nickname": nickname}
+
+
+def _avatar_dir() -> Path:
+    """头像存储目录（data/avatars；AVATAR_DIR 环境变量可覆盖，测试注入临时目录用）。"""
+    base = os.getenv("AVATAR_DIR", "").strip()
+    if base:
+        return Path(base)
+    return Path(__file__).resolve().parent.parent.parent / "data" / "avatars"
+
+
+@router.post("/api/user/avatar")
+async def user_upload_avatar(file: UploadFile = File(...), uid: str = Depends(require_user)):
+    """上传头像：≤2MB、jpg/png/webp → 存 data/avatars/{user_id}.jpg（覆盖）。
+
+    返回 {avatar_url: "/api/user/avatar/{user_id}"}（公开读取）。
+    """
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if content_type not in _ALLOWED_AVATAR_TYPES or (ext and ext not in _ALLOWED_AVATAR_EXTS):
+        raise HTTPException(status_code=400, detail="仅支持 jpg/png/webp 图片")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="图片内容为空")
+    if len(data) > MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=400, detail="图片大小不能超过 2MB")
+    # 防路径穿越：user_id 只保留安全字符再拼文件名
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", uid)
+    avatar_dir = _avatar_dir()
+    avatar_dir.mkdir(parents=True, exist_ok=True)
+    (avatar_dir / f"{safe_id}.jpg").write_bytes(data)
+    logger.info("头像已保存 user=%s bytes=%d", uid, len(data))
+    return {"success": True, "avatar_url": f"/api/user/avatar/{uid}"}
+
+
+@router.get("/api/user/avatar/{user_id}")
+async def get_user_avatar(user_id: str):
+    """公开读取头像（非敏感，与微信头像公开语义一致）。文件不存在 → 404。"""
+    safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", user_id)
+    path = _avatar_dir() / f"{safe_id}.jpg"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="头像不存在")
+    return FileResponse(path, media_type="image/jpeg")
 
 
 @router.get("/api/user/profile")

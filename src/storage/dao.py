@@ -17,6 +17,9 @@ _encryptor = None
 # 未设置时回落到 load_settings().db_path（生产路径）。
 _DB_PATH: Optional[str] = None
 
+# 用户资料懒迁移列（Task1 登录增强：手机号加密 + 昵称）
+_PROFILE_COLUMNS = (("phone_enc", "TEXT"), ("nickname", "TEXT"))
+
 
 def get_conn() -> sqlite3.Connection:
     """打开 sqlite3 连接（轻量 DAO 复用）。
@@ -142,8 +145,85 @@ class UserDAO:
         conn.close()
 
     # ------------------------------------------------------------
-    # 账号注销（P2：软删 + 90 天归档，用户拍板方案）
+    # 手机号绑定 + 昵称（Task1 登录增强：phone_enc AES 加密落库 / nickname 明文）
     # ------------------------------------------------------------
+
+    def ensure_profile_columns(self):
+        """users 表懒迁移：增加 phone_enc/nickname 列（幂等，PRAGMA 检查缺列才 ALTER）。"""
+        conn = self._connect()
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(users)")}
+        for col, decl in _PROFILE_COLUMNS:
+            if col not in cols:
+                conn.execute(f"ALTER TABLE users ADD COLUMN {col} {decl}")
+        conn.commit()
+        conn.close()
+
+    def save_user_phone(self, user_id: str, phone: str) -> bool:
+        """绑定/换绑手机号（AES-256-GCM 加密落库）。返回是否覆盖了既有绑定。"""
+        self.ensure_profile_columns()
+        conn = self._connect()
+        existing = conn.execute(
+            "SELECT phone_enc FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        replaced = bool(existing and existing[0])
+        now = datetime.now().isoformat()
+        enc = _encrypt_text(phone)
+        if existing:
+            conn.execute(
+                "UPDATE users SET phone_enc=?, updated_at=? WHERE user_id=?",
+                (enc, now, user_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO users (user_id, phone_enc, created_at, updated_at) VALUES (?,?,?,?)",
+                (user_id, enc, now, now),
+            )
+        conn.commit()
+        conn.close()
+        return replaced
+
+    def get_user_phone(self, user_id: str) -> Optional[str]:
+        """读取用户手机号（自动解密）。未绑定返回 None。"""
+        self.ensure_profile_columns()
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT phone_enc FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        if not row or not row[0]:
+            return None
+        return _decrypt_or_plain(row[0])
+
+    def set_user_nickname(self, user_id: str, nickname: str):
+        """保存昵称（覆盖）。"""
+        self.ensure_profile_columns()
+        conn = self._connect()
+        now = datetime.now().isoformat()
+        existing = conn.execute(
+            "SELECT user_id FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE users SET nickname=?, updated_at=? WHERE user_id=?",
+                (nickname, now, user_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO users (user_id, nickname, created_at, updated_at) VALUES (?,?,?,?)",
+                (user_id, nickname, now, now),
+            )
+        conn.commit()
+        conn.close()
+
+    def get_user_nickname(self, user_id: str) -> str:
+        """读取昵称（未设置返回空串）。"""
+        self.ensure_profile_columns()
+        conn = self._connect()
+        row = conn.execute(
+            "SELECT nickname FROM users WHERE user_id=?", (user_id,)
+        ).fetchone()
+        conn.close()
+        return (row[0] if row and row[0] else "") or ""
 
     def get_user_status(self, user_id: str) -> str:
         """用户账号状态（active/cancelled）。无记录/无列时默认 active。"""
