@@ -1,0 +1,74 @@
+<!-- 择吉日 · 清单页 — 选定吉日 + 分阶段勾选/备注 + 订阅提醒 + 分享给家人 -->
+<view class="page-plan">
+
+  <!-- 加载失败 -->
+  <view wx:if="{{error}}" class="pl-error">
+    <view class="seal pl-error-seal"><text class="seal-char">失</text></view>
+    <text class="pl-error-text">清单加载失败，请返回重试</text>
+  </view>
+
+  <block wx:else>
+    <!-- ===== 选定吉日 ===== -->
+    <view class="pl-day">
+      <view class="pl-day-seal"><text class="pl-day-seal-char">吉</text></view>
+      <view class="pl-day-col">
+        <text class="pl-day-scene">{{scene || '大事'}} · 已选定</text>
+        <text class="pl-day-date">{{dateText}}</text>
+        <text class="pl-day-lunar">{{lunarText}}</text>
+      </view>
+      <view class="pl-day-jishi">
+        <text class="pl-day-jishi-label">吉时</text>
+        <text class="pl-day-jishi-val">{{jishi}}</text>
+      </view>
+    </view>
+
+    <!-- ===== 分阶段清单 ===== -->
+    <scroll-view scroll-y class="pl-scroll">
+      <view wx:for="{{groups}}" wx:key="stage" wx:for-item="g" class="pl-group">
+        <view class="pl-group-head">
+          <view class="seal pl-group-seal"><text class="seal-char">{{index + 1}}</text></view>
+          <text class="pl-group-title">{{g.stage}}</text>
+          <view class="pl-group-line"></view>
+        </view>
+
+        <view class="pl-group-card">
+          <view wx:for="{{g.items}}" wx:key="idx" wx:for-item="it"
+            class="pl-item {{it.done ? 'pl-item-done' : ''}}"
+            bindtap="onToggleItem" data-idx="{{it.idx}}">
+            <view class="pl-check {{it.done ? 'pl-check-on' : ''}}">
+              <text wx:if="{{it.done}}" class="pl-check-mark">✓</text>
+            </view>
+            <view class="pl-item-mid">
+              <text class="pl-item-text">{{it.text}}</text>
+              <text wx:if="{{it.note}}" class="pl-item-note">{{it.note}}</text>
+            </view>
+            <view class="pl-item-edit" hover-class="pl-item-edit-active" hover-stay-time="0"
+              catchtap="onNoteTap" data-idx="{{it.idx}}">备注</view>
+          </view>
+          <view wx:if="{{!g.items.length}}" class="pl-group-empty">本阶段暂无安排</view>
+        </view>
+      </view>
+
+      <!-- 订阅提醒 -->
+      <view class="pl-remind card-pl">
+        <view class="pl-remind-left">
+          <view class="pl-remind-title">订阅提醒</view>
+          <view class="pl-remind-sub">吉日前1天晚和当天早各提醒一次</view>
+        </view>
+        <switch class="pl-switch" checked="{{reminderOn}}" disabled="{{reminderLoading}}" bindchange="onReminderSwitch" color="#A93A2C" />
+      </view>
+      <view class="pl-remind-note">提醒经服务号推送 · 可随时关闭</view>
+
+      <!-- 分享给家人 -->
+      <view class="pl-share" hover-class="pl-btn-active" hover-stay-time="0" bindtap="onShare">
+        <text wx:if="{{sharing}}">正在绘制吉日笺…</text>
+        <text wx:else>分享给家人</text>
+      </view>
+
+      <view class="pl-foot">明灯谨录 · 诸事顺遂</view>
+    </scroll-view>
+  </block>
+
+  <!-- 分享画布（隐藏，绘制用） -->
+  <canvas type="2d" id="zeriShareCanvas" class="pl-canvas-off"></canvas>
+</view>

@@ -1013,6 +1013,17 @@ function favLamp(date) { return request('/api/night/lamp/favorite', { method: 'P
 function getLampHistory() { return request('/api/night/lamp/history', { method: 'GET' }); }
 function rememberNight(message) { return request('/api/night/remember', { method: 'POST', data: { message } }); }
 
+// ---- 择吉日(大事择吉日) ----
+
+function getZeriPlans() { return request('/api/zeri/plans', { method: 'GET' }); }
+function getZeriPlan(planId) { return request(`/api/zeri/plans/${planId}`, { method: 'GET' }); }
+function selectZeri(data) { return request('/api/zeri/select', { method: 'POST', data, showLoading: true }); }
+function updateZeriItem(planId, patch) { return request(`/api/zeri/plans/${planId}/item`, { method: 'PUT', data: patch }); }
+function setZeriReminder(planId, enabled) { return request(`/api/zeri/plans/${planId}/reminder`, { method: 'PUT', data: { enabled } }); }
+function refreshZeri(data) { return request('/api/zeri/refresh', { method: 'POST', data }); }
+function getZeriPrefs() { return request('/api/zeri/prefs', { method: 'GET' }); }
+function putZeriPrefs(patch) { return request('/api/zeri/prefs', { method: 'PUT', data: patch }); }
+
 // ---- 导出 ----
 
 module.exports = {
@@ -1104,4 +1115,14 @@ module.exports = {
   favLamp,
   getLampHistory,
   rememberNight,
+
+  // Zeri (大事择吉日)
+  getZeriPlans,
+  getZeriPlan,
+  selectZeri,
+  updateZeriItem,
+  setZeriReminder,
+  refreshZeri,
+  getZeriPrefs,
+  putZeriPrefs,
 };

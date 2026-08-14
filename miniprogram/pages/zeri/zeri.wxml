@@ -1,0 +1,121 @@
+<!-- 择吉日 · 吉日卡页 — 3 卡纵排 + 换一批 + 选它→清单页
+     无 scene 进入 → 场景引导；带 scene → 直接取卡 -->
+<view class="page-zeri">
+
+  <!-- ===== 头部 ===== -->
+  <view class="zr-header">
+    <view class="zr-header-seal"><text class="zr-header-seal-char">吉</text></view>
+    <view class="zr-header-titles">
+      <text class="zr-header-title">大事择吉日</text>
+      <text wx:if="{{scene}}" class="zr-header-scene">{{scene}} · 为您择三日</text>
+      <text wx:else class="zr-header-scene">先告诉明灯，您要办什么大事</text>
+    </view>
+  </view>
+
+  <!-- ===== 场景引导（无 scene） ===== -->
+  <scroll-view wx:if="{{!scene}}" scroll-y class="zr-guide">
+    <view class="zr-guide-note">挑一个好日子，事事顺遂。选个场景开始：</view>
+    <view class="zr-guide-grid">
+      <view wx:for="{{scenes}}" wx:key="key" class="zr-scene" hover-class="zr-scene-active" hover-stay-time="0"
+        data-key="{{item.key}}" bindtap="onPickScene">
+        <view class="seal zr-scene-seal"><text class="seal-char">{{item.seal}}</text></view>
+        <text class="zr-scene-name">{{item.key}}</text>
+        <text class="zr-scene-sub">{{item.sub}}</text>
+      </view>
+    </view>
+    <view class="zr-guide-foot">选好后，明灯按您的生辰与黄历，为您挑三个吉日</view>
+  </scroll-view>
+
+  <!-- ===== 吉日卡列表 ===== -->
+  <block wx:if="{{scene}}">
+    <scroll-view scroll-y class="zr-scroll">
+      <!-- 加载骨架 -->
+      <view wx:if="{{loading}}" class="zr-loading">
+        <view class="inkdot"></view><view class="inkdot"></view><view class="inkdot"></view>
+      </view>
+
+      <block wx:elif="{{!cards.length}}">
+        <view class="zr-empty">
+          <view class="seal zr-empty-seal"><text class="seal-char">寻</text></view>
+          <text class="zr-empty-text">本窗口内没有选出合格吉日</text>
+          <text class="zr-empty-sub">{{suggestReason || '建议扩大日期范围后再试'}}</text>
+          <view class="zr-empty-btn" hover-class="zr-btn-active" hover-stay-time="0" bindtap="onRefresh">换个窗口看看</view>
+        </view>
+      </block>
+
+      <!-- 3 吉日卡纵排 -->
+      <view wx:for="{{cards}}" wx:key="dateISO" class="zr-card" style="animation-delay: {{index * 90}}ms">
+        <view class="zr-card-top">
+          <view class="zr-date-col">
+            <text class="zr-date-big">{{item.dateText}}</text>
+            <text class="zr-date-lunar">{{item.lunarText}}</text>
+          </view>
+          <view class="zr-total" wx:if="{{item.total > 0}}">
+            <text class="zr-total-num">{{item.total}}</text>
+            <text class="zr-total-unit">分</text>
+          </view>
+        </view>
+
+        <!-- 宜忌两行 -->
+        <view class="zr-yi-row">
+          <text class="zr-yi-label">宜</text>
+          <view class="zr-yi-tags">
+            <text wx:for="{{item.yi}}" wx:for-item="tag" wx:key="*this" class="zr-chip zr-chip-yi">{{tag}}</text>
+            <text wx:if="{{!item.yi.length}}" class="zr-chip-empty">无</text>
+          </view>
+        </view>
+        <view class="zr-yi-row">
+          <text class="zr-yi-label zr-yi-label-ji">忌</text>
+          <view class="zr-yi-tags">
+            <text wx:for="{{item.ji}}" wx:for-item="tag" wx:key="*this" class="zr-chip zr-chip-ji">{{tag}}</text>
+            <text wx:if="{{!item.ji.length}}" class="zr-chip-empty">无</text>
+          </view>
+        </view>
+
+        <!-- 吉时与方位一行 -->
+        <view class="zr-line-row">
+          <text class="zr-line-item">吉时 {{item.jishi}}</text>
+          <text class="zr-line-dot">·</text>
+          <text class="zr-line-item">喜神 {{item.xi}}</text>
+          <text class="zr-line-dot">·</text>
+          <text class="zr-line-item">财神 {{item.cai}}</text>
+        </view>
+
+        <!-- 一句理由（可展开评分明细，会员） -->
+        <view class="zr-reason" hover-class="zr-reason-active" hover-stay-time="0" data-idx="{{index}}" bindtap="onReasonTap">
+          <text class="zr-reason-text">{{item.reason}}</text>
+          <text class="zr-reason-more">{{expandedIdx === index ? '收起' : '评分明细'}}</text>
+        </view>
+
+        <!-- 评分明细（会员展开） -->
+        <view wx:if="{{expandedIdx === index}}" class="zr-scores">
+          <view wx:for="{{item.scores}}" wx:for-item="s" wx:key="label" class="zr-score-row">
+            <text class="zr-score-label">{{s.label}}</text>
+            <view class="zr-score-bar">
+              <view class="zr-score-bar-fill" style="width: {{s.max > 0 ? s.score / s.max * 100 : 0}}%;"></view>
+            </view>
+            <text class="zr-score-val">{{s.score}}/{{s.max}}</text>
+          </view>
+        </view>
+
+        <!-- 选它 -->
+        <view class="zr-pick-btn {{selectingIdx === index ? 'zr-pick-btn-busy' : ''}}" hover-class="zr-btn-active" hover-stay-time="0"
+          data-idx="{{index}}" bindtap="onSelect">
+          <text wx:if="{{selectingIdx === index}}">正在为您落定…</text>
+          <text wx:else>选它</text>
+        </view>
+      </view>
+
+      <!-- 换一批 -->
+      <view class="zr-refresh-wrap">
+        <view class="zr-refresh" hover-class="zr-btn-active" hover-stay-time="0" bindtap="onRefresh">
+          <text wx:if="{{refreshing}}">正在换一批…</text>
+          <text wx:else>换一批</text>
+        </view>
+        <text wx:if="{{refreshRemaining !== null}}" class="zr-refresh-note">今日还可换 {{refreshRemaining}} 次 · 换一批会避开已展示的日期</text>
+      </view>
+
+      <view class="zr-foot">明灯谨录 · 择日不择事</view>
+    </scroll-view>
+  </block>
+</view>

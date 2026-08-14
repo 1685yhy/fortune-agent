@@ -1,0 +1,239 @@
+/* 择吉日 · 引导页 — 宣纸底 · 墨字 · 朱砂印章 · 金线分隔（hehun 同族） */
+.page-guide {
+  min-height: 100vh;
+  background: var(--paper);
+  padding-bottom: 60rpx;
+}
+
+/* ========================================
+   头部
+   ======================================== */
+.gd-header {
+  padding: 70rpx var(--space-lg) var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.gd-header-seal {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 10rpx;
+  background: var(--acc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-md);
+  transform: rotate(-3deg);
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 2rpx 6rpx rgba(60,30,20,.25);
+}
+
+.gd-header-seal-char {
+  color: #FBF6E8;
+  font-family: var(--font-brush);
+  font-size: 56rpx;
+  line-height: 1;
+}
+
+.gd-header-title {
+  font-family: var(--font-brush);
+  font-size: 44rpx;
+  font-weight: 400;
+  color: var(--ink);
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-sm);
+}
+
+.gd-header-sub {
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+  max-width: 560rpx;
+  line-height: 1.6;
+}
+
+/* ========================================
+   分区小标
+   ======================================== */
+.gd-section-label {
+  margin: var(--space-lg) var(--space-lg) var(--space-md);
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .28em;
+  color: var(--ink-faint);
+  display: flex;
+  align-items: center;
+  gap: 15rpx;
+}
+
+.gd-section-label::after {
+  content: '';
+  flex: 1;
+  height: 2rpx;
+  background: var(--line-soft);
+}
+
+.gd-section-label-mt { margin-top: var(--space-xl); }
+
+/* ========================================
+   场景网格
+   ======================================== */
+.gd-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+  padding: 0 var(--space-lg);
+}
+
+.gd-scene {
+  position: relative;
+  background: var(--paper-card);
+  border: 1rpx solid var(--line-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg) var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.gd-scene-active { background: var(--acc-soft); }
+
+.gd-scene-on {
+  border-color: var(--acc);
+  background: var(--acc-soft);
+}
+
+.gd-scene-seal {
+  width: 64rpx;
+  height: 64rpx;
+  font-size: 34rpx;
+  border-radius: 8rpx;
+}
+
+.gd-scene-seal-on {
+  background: var(--acc);
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 2rpx 6rpx rgba(60,30,20,.25);
+}
+
+.gd-scene-seal-on .seal-char { color: #FBF6E8; }
+
+.gd-scene-name {
+  font-family: var(--font-kai);
+  font-size: var(--text-base);
+  color: var(--ink);
+  letter-spacing: 0.14em;
+}
+
+.gd-scene-sub {
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+
+.gd-scene-check {
+  position: absolute;
+  top: 8rpx;
+  right: 12rpx;
+  width: 30rpx;
+  height: 30rpx;
+  border-radius: 50%;
+  background: var(--acc);
+  color: #FBF6E8;
+  font-size: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ========================================
+   输入框
+   ======================================== */
+.gd-input-wrap {
+  margin: 0 var(--space-lg);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  background: var(--paper-card);
+  border: 1rpx solid var(--line-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.gd-input {
+  flex: 1;
+  min-width: 0;
+  height: 64rpx;
+  font-family: var(--font-song);
+  font-size: var(--text-sm);
+  color: var(--ink);
+}
+
+.gd-input-ph {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
+.gd-example {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: var(--acc);
+  border: 1rpx solid var(--acc-line);
+  border-radius: 6rpx;
+  padding: 6rpx 16rpx;
+  letter-spacing: 0.1em;
+}
+
+.gd-example-active { background: var(--acc-soft); }
+
+.gd-input-tip {
+  margin: var(--space-sm) var(--space-lg) 0;
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+
+/* ========================================
+   行动
+   ======================================== */
+.gd-actions {
+  margin-top: var(--space-xl);
+  padding: 0 var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.gd-btn {
+  height: 84rpx;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-song);
+  font-size: var(--text-base);
+  letter-spacing: 0.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gd-btn-primary {
+  background: var(--acc);
+  color: #FBF6E8;
+  box-shadow: 0 4rpx 12rpx var(--shadow);
+}
+
+.gd-btn-ghost {
+  background: var(--paper-card);
+  color: var(--ink);
+  border: 1rpx solid var(--line-soft);
+}
+
+.gd-btn-active { opacity: .85; transform: scale(.98); }
+
+.gd-foot {
+  margin-top: var(--space-xl);
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  text-align: center;
+  letter-spacing: 0.1em;
+}
