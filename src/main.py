@@ -659,6 +659,12 @@ async def lifespan(app: FastAPI):
     from .api import night as night_mod
     night_mod._member_dao = member_dao
 
+    # 择吉日 API（zeri_dao + 会员判定 + handler 引擎引用; /api/zeri/*）
+    from src.storage.zeri_dao import ZeriDAO
+    from src.storage.dao import get_conn as _zeri_conn
+    from .api.zeri import setup as setup_zeri
+    setup_zeri(ZeriDAO(_zeri_conn()), member_dao, handler)
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -848,6 +854,10 @@ app.include_router(jian_router)              # /api/jian/prefs|bind
 # 深夜陪伴 API（偏好读写 + 深夜状态，全接口 require_user 鉴权）
 from .api.night import router as night_router
 app.include_router(night_router)             # /api/night/prefs|status
+
+# 择吉日 API（选日/清单/历史/换一批/订阅，全接口 require_user + 归属校验）
+from .api.zeri import router as zeri_router
+app.include_router(zeri_router)              # /api/zeri/*
 
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)
