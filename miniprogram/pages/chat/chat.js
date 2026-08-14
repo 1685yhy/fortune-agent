@@ -68,6 +68,15 @@ const WAVE_BAR_COUNT = 26;
 /* v8 阶段 3·过程体验（流式打字机）：滚动节流（生成推进由宿主 tick 驱动） */
 const SCROLL_MS = 100;      // 自动滚动节流
 
+/* ═══ Task 5 滚动不拽回：距底阈值与可视区高度测量 ═══
+   NEAR_BOTTOM_PX 为阈值兜底 50px；实际阈值 this._nearBottomPx 在 onLoad 按屏宽缩放：
+   100rpx = 屏宽/750*100 px（设计稿 750rpx 宽，1rpx = 屏宽/750；375px 宽屏 = 50px 与原值
+   一致，414px 宽屏 ≈ 55px）。语义：距底部还剩约 100rpx 内容未显示即视为「在底部」。 */
+const NEAR_BOTTOM_PX = 50;        // 兜底阈值：50px（375px 宽屏的 100rpx），旧基础库无
+                                  // getWindowInfo 时退回该值
+const CLIENTH_MEASURE_MS = 1500;  // 可视区高度周期校准间隔：键盘弹起等布局变化会让 msg-list
+                                  // 高度改变，滚动中每 ~1.5s 重测一次防阈值失真
+
 Page({
   data: {
     navOff: 0,
@@ -116,6 +125,11 @@ Page({
   },
 
   onLoad(options) {
+    /* ═══ Task 5 滚动不拽回·阈值按屏宽缩放：屏宽运行期不变，onLoad 算一次。
+       换算 100rpx = 屏宽/750*100 px（375px 屏 = 50px 与原常量一致；414px 屏 ≈ 55px）。
+       旧基础库无 wx.getWindowInfo → getSystemInfoSync 兜底 → 仍无则 50px 常量兜底。 */
+    const win = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    this._nearBottomPx = win.windowWidth ? win.windowWidth / 750 * 100 : NEAR_BOTTOM_PX;
     /* ═══ Task 8 · 深夜模式进入（夜色主题/灯笼/挽留劝睡/灯语卡/要我记得吗/12356） ═══ */
     options = options || {};
     const app = getApp();
@@ -405,7 +419,7 @@ Page({
       streaming: !!state.streaming,
       typing: !!state.typing,
     });
-    if (state.autoScroll) this._scrollBottom();
+    if (state.autoScroll) this._scrollBottomIfNear();
   },
 
   /* 对话建档提示：AI 回复含「已保存到档案/建档」类 key → 顶部提示条 + 本地标记
@@ -463,13 +477,40 @@ Page({
      同时把本地表情反应合并进镜像（reactions）。
      M2：晨笺收藏条目(type==='jian')在此渲染层排除（host/storage 原样保留——streamHost._save
      会把 host.messages 原样写回 ylm_chat_messages，若在存储层过滤，任何一次保存都会
-     永久抹除收藏的晨笺；favorites 笺匣仍展示） */
+     永久抹除收藏的晨笺；favorites 笺匣仍展示）
+     Task 3（思考步骤渐进展示）：派生 thinkDone（已完成计数）/thinkDoing（当前
+     进行中步）/thinkLabel（标题文案）——渲染层只显示当前 doing 步 + 计数行，
+     已完成不逐条展示；完成后自动收起（streamHost._onDone 置 thinkCollapsed）。 */
+  /* 思考区派生视图：数组语义来自 streamHost（旧步→done，新步→doing） */
+  _thinkView(m) {
+    const arr = Array.isArray(m.thinking) ? m.thinking : [];
+    let done = 0;
+    let doing = '';
+    for (let i = 0; i < arr.length; i++) {
+      const s = arr[i];
+      if (s && s.state === 'done') done++;
+      else if (s && s.state === 'doing' && !doing) doing = s.text || '';
+    }
+    let label = '我在想…';
+    if (m.thinkCollapsed) {
+      if (m.streaming) label = '正在思考…';
+      else if (m.error) label = '思考中断';
+      else if (m.consultationId) label = '思考完成 ✓ 已生成回复';
+      else label = '思考过程';   // 停止/历史消息：未完成也不误标"思考完成"
+    } else if (!m.streaming && !m.error && done > 0) {
+      // 异常/回退路径（abort/回退成功未收起）：思考已完成 → 同完成态标题，不残留「我在想…」
+      label = m.consultationId ? '思考完成 ✓ 已生成回复' : '思考过程';
+    }
+    return { thinkDone: done, thinkDoing: doing, thinkLabel: label };
+  },
+
   _mirror(messages) {
     const vis = (Array.isArray(messages) ? messages : []).filter((m) => !isJianEntry(m));
     const out = new Array(vis.length);
     const reactions = this.data.reactions || {};
     for (let i = 0; i < vis.length; i++) {
       const m = vis[i];
+      const tv = this._thinkView(m);
       const c = String(m.content || '');
       const cached = this._segCache;
       if (cached && cached.id === m.id && cached.content === c) {
@@ -478,6 +519,9 @@ Page({
           reactions: reactions[m.id] || [],
           navPath: cached.navPath,
           navLabel: cached.navLabel,
+          thinkDone: tv.thinkDone,
+          thinkDoing: tv.thinkDoing,
+          thinkLabel: tv.thinkLabel,
         });
         continue;
       }
@@ -489,6 +533,9 @@ Page({
         reactions: reactions[m.id] || [],
         navPath: nav && nav.path,
         navLabel: nav && nav.label,
+        thinkDone: tv.thinkDone,
+        thinkDoing: tv.thinkDoing,
+        thinkLabel: tv.thinkLabel,
       });
     }
     return out;
@@ -555,6 +602,55 @@ Page({
     }
     // 残留的排队消息（pending）→ 重新入队，依次处理
     streamHost.requeuePending((t) => curatedFor(t).tag);
+  },
+
+  /* ═══ Task 5 · 滚动不拽回（上滑查看历史时不被流式自动滚打扰） ═══
+     scroll-view（chat.wxml）bindscroll 记录用户滚动位置（_scrollTop/_scrollHeight）；
+     自动滚前先做距底判断：距底 > 阈值 → 视为上滑查看 → 跳过 _scrollBottom（不打扰）；
+     回到距底 ≤ 阈值 → 恢复自动跟随；流结束（done）同规则：本就在底部则停在底部，
+     自行上滑过则不再拽回（流结束不强制滚）。 */
+
+  /* scroll-view 滚动事件：只记录位置与内容总高（WXML bindscroll 每帧触发，不做重活） */
+  onScroll(e) {
+    const d = e.detail || {};
+    if (typeof d.scrollTop === 'number') this._scrollTop = d.scrollTop;
+    if (typeof d.scrollHeight === 'number') this._scrollHeight = d.scrollHeight;
+    this._ensureClientH();   // 滚动期间周期校准可视区高度（键盘等布局变化）
+  },
+
+  /* 距底判断（纯函数，便于自查；阈值走 this._nearBottomPx，onLoad 按屏宽缩放）：
+     距离 = scrollHeight - scrollTop - clientHeight = 距底部还剩多少内容未显示。
+     距离 ≤ this._nearBottomPx（≈100rpx，屏宽缩放后 50~55px 级）→ 在底部，允许自动跟随；
+     距离 > 阈值 → 用户上滑查看中，跳过自动滚。
+     高度未知（未测量/无滚动事件/首帧）→ 保守返回 true，维持原有跟随行为。 */
+  _isNearBottom(scrollTop, scrollHeight, clientHeight) {
+    if (typeof scrollTop !== 'number' || typeof scrollHeight !== 'number') return true;
+    if (!clientHeight) return true;
+    return scrollHeight - scrollTop - clientHeight <= (this._nearBottomPx || NEAR_BOTTOM_PX);
+  },
+
+  /* 自动滚前先问「是否在底部」：上滑查看历史期间，宿主每 50ms 的 autoScroll
+     事件不再把用户拽回底部；回到底部后恢复自动跟随 */
+  _scrollBottomIfNear() {
+    this._ensureClientH();
+    if (this._isNearBottom(this._scrollTop, this._scrollHeight, this._clientH)) {
+      this._scrollBottom();
+    }
+  },
+
+  /* msg-list 可视区高度（px）：首次测量后缓存，滚动中按 CLIENTH_MEASURE_MS
+     周期校准；测量失败 → 保持未知（_isNearBottom 保守跟随），下次再试 */
+  _ensureClientH() {
+    const now = Date.now();
+    if (this._clientH && this._clientHAt && now - this._clientHAt < CLIENTH_MEASURE_MS) return;
+    try {
+      this.createSelectorQuery()  // 页面作用域（文档推荐；wx.* 不带 .in(this) 在自定义组件里会挂）
+        .select('.msg-list')
+        .boundingClientRect((rect) => {
+          const h = rect && rect.height;
+          if (h) { this._clientH = h; this._clientHAt = now; }
+        }).exec();
+    } catch (e) { /* 静默：未知高度按保守跟随处理 */ }
   },
 
   _scrollBottom(force) {

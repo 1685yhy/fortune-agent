@@ -1,4 +1,5 @@
 """混合检索器 - 语义检索 + BM25关键词检索."""
+import os
 from dataclasses import dataclass
 from typing import List, Optional
 from pathlib import Path
@@ -18,6 +19,31 @@ class ChunkResult:
     category: str = ""
 
 
+class _AppEmbeddingFunction:
+    """chroma EmbeddingFunction 包装 — 用 app 的 embedder (bge-m3, 1024维) 编码.
+
+    集合创建时传入，让 chroma 在自动嵌入路径上使用与 add_chunks 相同的模型，
+    保证集合维度 (1024) 一致；查询路径使用显式 query_embeddings，同样出自
+    self.embedder，杜绝维度不匹配。
+    """
+
+    def __init__(self, embedder: Embedder):
+        self._embedder = embedder
+
+    def __call__(self, input):
+        if isinstance(input, str):
+            input = [input]
+        return self._embedder.encode(list(input)).tolist()
+
+    def name(self) -> str:
+        return "app_embedder_bge_m3"
+
+    def embed_query(self, input) -> list:
+        if isinstance(input, (list, tuple)):
+            return [self._embedder.encode([t])[0].tolist() for t in input]
+        return self._embedder.encode([input])[0].tolist()
+
+
 class Retriever:
     """混合检索器"""
 
@@ -26,7 +52,8 @@ class Retriever:
         self.embedder = embedder
         self._client = None
         self._collection = None
-        self._collection_name = "fortune_books"  # 默认，可被外部覆盖
+        # 集合名可通过环境变量覆盖（如指向重建后的 fortune_books_v2）
+        self._collection_name = os.environ.get("EMBEDDING_COLLECTION", "fortune_books")
 
     @property
     def client(self):
@@ -42,6 +69,7 @@ class Retriever:
         if self._collection is None:
             self._collection = self.client.get_or_create_collection(
                 name=self._collection_name,
+                embedding_function=_AppEmbeddingFunction(self.embedder),
                 metadata={"hnsw:space": "cosine"},
             )
         return self._collection
@@ -101,10 +129,12 @@ class Retriever:
             if category:
                 where_filter = {"category": category}
 
-            # Use query_texts so ChromaDB auto-embeds with built-in function
-            # This guarantees dimension consistency (no embedder mismatch)
+            # 显式 query_embeddings：与写入端 (add_chunks) 使用同一个 bge-m3
+            # embedder，保证查询/写入维度一致 (1024)，不再依赖 chroma 内置
+            # 384 维 embedder。
+            query_vec = self.embedder.encode([query])[0].tolist()
             results = self.collection.query(
-                query_texts=[query],
+                query_embeddings=[query_vec],
                 n_results=top_k,
                 where=where_filter,
                 include=["documents", "metadatas", "distances"],

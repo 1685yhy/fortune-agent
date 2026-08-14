@@ -7,7 +7,7 @@
 set -e
 
 SERVER="124.221.233.214"
-SSH_CMD="sshpass -p 'Asdfghjkl123!!' ssh -o StrictHostKeyChecking=no root@$SERVER"
+SSH_CMD="sshpass -p 'Love521922..' ssh -o StrictHostKeyChecking=no root@$SERVER"
 
 echo "=== [1/5] Opening firewall port 8765 ==="
 $SSH_CMD "iptables -I YJ-FIREWALL-INPUT 1 -p tcp --dport 8765 -j ACCEPT"

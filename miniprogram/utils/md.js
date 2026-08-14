@@ -41,6 +41,18 @@ function inlineL2(s) {
       i = j + 1;
       continue;
     }
+    if (ch === '!') {
+      const im = /^!\[([^\[\]]*)\]\(([^\s)]+)\)/.exec(s.slice(i));
+      if (im) {
+        flush();
+        out.push({ t: 'image', alt: im[1] || '', url: im[2] });
+        i += im[0].length;
+        continue;
+      }
+      buf.push('!');
+      i++;
+      continue;
+    }
     if (ch === '[') {
       const lm = /^\[([^\[\]]+)\]\(([^\s)]+)\)/.exec(s.slice(i));
       if (lm) {
@@ -73,7 +85,7 @@ function inlineL2(s) {
   return out;
 }
 
-/* ── 行内一级解析（段落/列表项/单元格）：strong / em / code / link / cite ── */
+/* ── 行内一级解析（段落/列表项/单元格）：strong / em / code / link / cite / image ── */
 function parseInline(s) {
   const out = [];
   const buf = [];
@@ -92,6 +104,18 @@ function parseInline(s) {
       if (code.length >= 2 && code[0] === ' ' && code[code.length - 1] === ' ') code = code.slice(1, -1);
       out.push({ t: 'code', s: code });
       i = j + 1;
+      continue;
+    }
+    if (ch === '!') {
+      const im = /^!\[([^\[\]]*)\]\(([^\s)]+)\)/.exec(s.slice(i));
+      if (im) {
+        flush();
+        out.push({ t: 'image', alt: im[1] || '', url: im[2] });
+        i += im[0].length;
+        continue;
+      }
+      buf.push('!');
+      i++;
       continue;
     }
     if (ch === '[') {
@@ -157,6 +181,23 @@ function isSepLine(line) {
   return t.indexOf('-') !== -1;
 }
 
+/* 围栏表格兜底：围栏内容所有非空行均以 | 开头且存在分隔行 → 按表格解析。
+   首行作表头、跳过分隔行、其余作数据行；不满足 → 返回 null（保持代码块）。
+   LLM 常用 ``` 包裹表格，前端识别后按 markdown 表格渲染，避免整表变代码块。 */
+function parseFenceTable(buf) {
+  const rows = buf.map((l) => (l || '').trim()).filter((l) => l);
+  if (!rows.length) return null;
+  if (!rows.every((l) => l.startsWith('|'))) return null;
+  if (!rows.some((l) => isSepLine(l))) return null;
+  const headers = parseRow(rows[0]);
+  const data = [];
+  for (let j = 1; j < rows.length; j++) {
+    if (isSepLine(rows[j])) continue;
+    data.push(parseRow(rows[j]));
+  }
+  return { t: 'table', headers, rows: data };
+}
+
 /* 判断一行是否列表项，返回 {ordered, content} 或 null */
 function matchList(line) {
   const t = (line || '').trim();
@@ -200,7 +241,9 @@ function parseMd(src) {
       i++;
       while (i < n && !/^\s*```/.test(lines[i])) { buf.push(lines[i]); i++; }
       if (i < n) i++; // 跳过闭合围栏（未闭合 → 剩余全部算代码，流式兼容）
-      nodes.push({ t: 'code', lang, s: buf.join('\n') });
+      // 围栏表格兜底：内容全为 | 行且含分隔行 → 按表格渲染（复用现有表格模板）
+      const fenceTable = parseFenceTable(buf);
+      nodes.push(fenceTable || { t: 'code', lang, s: buf.join('\n') });
       continue;
     }
 

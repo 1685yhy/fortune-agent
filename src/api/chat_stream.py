@@ -37,6 +37,50 @@ logger = logging.getLogger(__name__)
 # 分句模拟流式（保底）：按标点切块；长句按硬边界二次切分
 _SENT_SPLIT = re.compile(r"(?<=[。！？!?；;])")
 
+# 收尾对齐的句子结束符（。！？… 换行）
+_SENT_END_CHARS = "。！？…\n"
+
+
+def compute_stream_remaining(reply: str, streamed_text: str) -> str:
+    """流式收尾对齐：计算需要补发的剩余文本（分句模拟流式前调用）。
+
+    根因：同一轮多次 LLM 调用（草稿流/润色稿/工具续写）灌同一条流，收尾时
+    `streamed_text.endswith(reply[:k])` 求出的最长前缀重叠 covered 可能截在
+    句子中间——流出尾巴与 reply 开头对不上时，reply 开头没流出过的句子会被
+    静默丢弃（用户看到「直接、」这类残缺片段）。
+
+    规则（约束：reply 中未流出过的句子绝不丢弃；补发内容必须句子完整，
+    截断句中已流出的前缀允许重叠一次）：
+    - covered 计算保持现有（最长后缀匹配）；covered==0 → 整段重发（保留现状）；
+    - 剩余起点恰在句子边界（reply[covered-1] 是 。！？… 换行）→ 增量补发 reply[covered:]；
+    - 否则（covered 截在句子中间）→ 回溯到 reply 中 covered 之前的最后一个
+      句子结束符，从该句起点补发 reply[边界+1:]，保证句子完整；
+    - covered 之前不存在任何句子结束符（整个前缀是同一句）→ 整段补发。
+    """
+    if not reply:
+        return ""
+    if not streamed_text:
+        return reply
+    limit = min(len(streamed_text), len(reply))
+    covered = 0
+    # 从最长重叠往下找（常见：完整覆盖/前缀+welcome/无重叠）
+    for k in range(limit, 0, -1):
+        if streamed_text.endswith(reply[:k]):
+            covered = k
+            break
+    if covered >= len(reply):
+        return ""
+    start = covered
+    if covered > 0 and reply[covered - 1] not in _SENT_END_CHARS:
+        # 截断在句子中间 → 回溯到最近的完整句子边界（含换行）
+        boundary = -1
+        for idx in range(covered - 1, -1, -1):
+            if reply[idx] in _SENT_END_CHARS:
+                boundary = idx
+                break
+        start = boundary + 1  # 前缀内无边界 → boundary=-1 → start=0 → 整段补发
+    return reply[start:]
+
 
 def split_sentences(text: str) -> list:
     """把完整回复切成适合模拟打字机的文本块。"""
@@ -293,18 +337,10 @@ class ChatStreamer:
         # /页脚/图片链接是流式结束后才追加的；"欢迎回来"开场是回复之外的前置
         # 内容），取「streamed 尾部与 reply 前缀的最长重叠」即已覆盖长度，
         # 只补剩余部分，避免重复输出。
+        # 对齐策略见 compute_stream_remaining：重叠截在句子中间时回溯到最近的
+        # 完整句子边界补发，reply 中未流出过的句子绝不丢弃（防「直接、」缺头）。
         streamed_text = "".join(chunk_texts).rstrip()
-        remaining = ""
-        if reply:
-            covered = 0
-            if streamed_text:
-                limit = min(len(streamed_text), len(reply))
-                # 从最长重叠往下找（常见：完整覆盖/前缀+welcome/无重叠）
-                for k in range(limit, 0, -1):
-                    if streamed_text.endswith(reply[:k]):
-                        covered = k
-                        break
-            remaining = reply[covered:]
+        remaining = compute_stream_remaining(reply, streamed_text) if reply else ""
         if remaining and remaining.strip():
             for piece in split_sentences(remaining):
                 if self.simulation_delay > 0:
