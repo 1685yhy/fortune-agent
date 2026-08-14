@@ -50,6 +50,7 @@ _ACCESS_TOKEN_CACHE: dict = {}
 _ACCESS_TOKEN_TTL_SECONDS = 110 * 60
 
 MAX_AVATAR_BYTES = 2 * 1024 * 1024
+_AVATAR_CHUNK_BYTES = 64 * 1024  # 头像分块读取块大小（累计超限立即中止）
 _ALLOWED_AVATAR_TYPES = {"image/jpeg", "image/png", "image/webp"}
 _ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
@@ -411,21 +412,22 @@ async def user_phone_bind(req: PhoneBindRequest, uid: str = Depends(require_user
     code = (req.code or "").strip()
     if not code:
         raise HTTPException(status_code=400, detail="缺少微信授权 code")
+    # fail-closed：DAO 未 setup 时 503，绝不假 200（与 /api/user/cancel 等服务未就绪模式一致）
+    if _dao is None:
+        raise HTTPException(status_code=503, detail="服务未就绪")
 
     info = await _wechat_get_phone_number(code)
     phone_info = info.get("phone_info") or {}
     phone = str(phone_info.get("phoneNumber") or "").strip()
     if not phone:
         raise HTTPException(status_code=400, detail="微信未返回手机号，请重新授权")
+    # watermark 缺失/部分字段（缺 appid）→ 视为校验失败拒绝
     watermark = phone_info.get("watermark") or {}
     if watermark.get("appid") != os.getenv("WECHAT_APP_ID", "").strip():
         logger.warning("手机号绑定被拒绝：watermark.appid 与 WECHAT_APP_ID 不符 user=%s", uid)
         raise HTTPException(status_code=400, detail="手机号授权校验失败，请重新授权")
 
-    replaced = False
-    if _dao:
-        replaced = bool(_dao.get_user_phone(uid))
-        _dao.save_user_phone(uid, phone)
+    replaced = _dao.save_user_phone(uid, phone)
     logger.info("用户 %s 绑定手机号 %s", uid, _mask_phone(phone))
     return {
         "success": True,
@@ -471,16 +473,33 @@ async def user_upload_avatar(file: UploadFile = File(...), uid: str = Depends(re
     """上传头像：≤2MB、jpg/png/webp → 存 data/avatars/{user_id}.jpg（覆盖）。
 
     返回 {avatar_url: "/api/user/avatar/{user_id}"}（公开读取）。
+
+    大小防护双路径（防已认证攻击者用超大 body 吃内存/OOM）：
+    1. 读前预拒：file.size（Content-Length 派生，可用时）> MAX_AVATAR_BYTES → 不读 body 直接 400；
+    2. 分块读取：64KB 分块累计，超 MAX_AVATAR_BYTES 立即中止 400（无 Content-Length 的流式上传兜底）。
+    任何路径下内存占用有界（≤ MAX + 一块）。
     """
     content_type = (file.content_type or "").split(";")[0].strip().lower()
     ext = os.path.splitext(file.filename or "")[1].lower()
     if content_type not in _ALLOWED_AVATAR_TYPES or (ext and ext not in _ALLOWED_AVATAR_EXTS):
         raise HTTPException(status_code=400, detail="仅支持 jpg/png/webp 图片")
-    data = await file.read()
+    # 读前预拒：Content-Length 已知且超限 → 不读 body
+    if file.size is not None and file.size > MAX_AVATAR_BYTES:
+        raise HTTPException(status_code=400, detail="图片大小不能超过 2MB")
+    # 分块读取：累计超限立即中止（读不到全部 body，内存有界）
+    chunks = []
+    total = 0
+    while True:
+        chunk = await file.read(_AVATAR_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > MAX_AVATAR_BYTES:
+            raise HTTPException(status_code=400, detail="图片大小不能超过 2MB")
+        chunks.append(chunk)
+    data = b"".join(chunks)
     if not data:
         raise HTTPException(status_code=400, detail="图片内容为空")
-    if len(data) > MAX_AVATAR_BYTES:
-        raise HTTPException(status_code=400, detail="图片大小不能超过 2MB")
     # 防路径穿越：user_id 只保留安全字符再拼文件名
     safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", uid)
     avatar_dir = _avatar_dir()
@@ -497,7 +516,9 @@ async def get_user_avatar(user_id: str):
     path = _avatar_dir() / f"{safe_id}.jpg"
     if not path.is_file():
         raise HTTPException(status_code=404, detail="头像不存在")
-    return FileResponse(path, media_type="image/jpeg")
+    resp = FileResponse(path, media_type="image/jpeg")
+    resp.headers["X-Content-Type-Options"] = "nosniff"  # 防 MIME 嗅探（公开读取头）
+    return resp
 
 
 @router.get("/api/user/profile")

@@ -1,26 +1,38 @@
 #!/usr/bin/env python3
 """登录增强测试 — scripts/test_login_enhance.py（离线：temp DB + mock 微信 API + 假 JWT）
 
-覆盖（对应 Task1 验收清单）：
-1. 手机号绑定成功：AES 密文落库（断言 != 明文且可解回原文）+ 响应脱敏 138****1234
+覆盖（对应 Task1 验收清单 + T1 评审修复）：
+1. 手机号绑定成功：AES 密文落库（断言 != 明文且可解回原文）+ 响应脱敏 138****1234；
+   日志红线：绑定过程完整手机号不出现在任何日志（只允许脱敏号）
 2. watermark.appid 不匹配 → 400
+2b. watermark 缺失（缺 appid / 完全缺失）→ 400
 3. 微信 API 返回错误 → 400
 4. 未登录（无 token）→ 401
 5. 重复绑定 → 覆盖成功（换绑新号）
 6. profile：保存成功 / 空昵称 400 / 超长 400 / 20 字边界通过
-7. avatar：伪造小图上传 → 200 + 文件存在 + GET 200 内容一致；
+7. avatar：伪造小图上传 → 200 + 文件存在 + GET 200 内容一致 + nosniff 头；
    超 2MB → 400；非法类型 → 400；不存在用户 → 404（公开 GET 无 token 可读）
+7b. 头像大小防护双路径：file.size 已知超限 → 读前预拒（未读 body）；
+   size 未知超大 → 分块读取中途中止（未读完整文件，内存有界）
 8. 迁移幂等：ensure_profile_columns 调两次不报错
+9. DAO 未 setup → phone-bind 503（fail-closed 守卫，非假 200）
 
 运行：cd /mnt/e/fortune-agent && .venv/bin/python scripts/test_login_enhance.py
 退出码：0=全部通过；1=有失败
 """
+import asyncio
+import logging
 import os
 import sqlite3
 import sys
 import tempfile
 import unittest.mock as mock
+from io import BytesIO
 from pathlib import Path
+from typing import Optional
+
+from fastapi import HTTPException
+from starlette.datastructures import UploadFile
 
 # ── 环境（必须先于任何 src 导入设置；.env 加载不会覆盖已存在的变量）──
 os.environ["WECHAT_APP_ID"] = "wx_test_appid_login_enhance"
@@ -54,6 +66,35 @@ def check(name, cond, extra=""):
     else:
         FAIL += 1
         print(f"  [FAIL] {name} {extra}")
+
+
+class CaptureHandler(logging.Handler):
+    """捕获日志记录（红线断言：完整手机号不得出现在任何日志，hlog 模式同 test_stream_pacing）。"""
+
+    def __init__(self):
+        super().__init__(level=logging.INFO)
+        self.lines = []
+
+    def emit(self, record):
+        try:
+            self.lines.append(record.getMessage())
+        except Exception:
+            pass
+
+
+async def _avatar_direct(payload: bytes, size: Optional[int] = None) -> tuple:
+    """直接调 user_upload_avatar（绕过框架表单解析），构造可控 file.size 的 UploadFile。
+
+    返回 (status_code | None, 文件已读位置, 文件总长)：
+    - 成功：status_code=None；异常：HTTPException 的 status_code。
+    """
+    uf = UploadFile(file=BytesIO(payload), size=size, filename="big.jpg",
+                    headers={"content-type": "image/jpeg"})
+    try:
+        await user_api.user_upload_avatar(file=uf, uid=USER_ID)
+        return None, uf.file.tell(), len(payload)
+    except HTTPException as e:
+        return e.status_code, uf.file.tell(), len(payload)
 
 
 # ── 微信 API mock（httpx.AsyncClient：cgi-bin/token + getuserphonenumber）──
@@ -153,10 +194,19 @@ def main():
     check("未登录 avatar 上传 → 401", r.status_code == 401, str(r.status_code))
 
     print("=" * 62)
-    print("测试 2：手机号绑定成功（密文落库 + 脱敏响应）")
+    print("测试 2：手机号绑定成功（密文落库 + 脱敏响应 + 日志不打全号）")
     print("=" * 62)
-    with mock.patch("httpx.AsyncClient", FakeAsyncClient):
-        r = client.post("/api/user/phone-bind", json={"code": "wx_phone_code_1"}, headers=h)
+    cap = CaptureHandler()
+    hlog = logging.getLogger()
+    prev_level = hlog.level
+    hlog.setLevel(logging.INFO)
+    hlog.addHandler(cap)
+    try:
+        with mock.patch("httpx.AsyncClient", FakeAsyncClient):
+            r = client.post("/api/user/phone-bind", json={"code": "wx_phone_code_1"}, headers=h)
+    finally:
+        hlog.removeHandler(cap)
+        hlog.setLevel(prev_level)
     check("绑定成功 200", r.status_code == 200, f"{r.status_code} {r.text[:200]}")
     d = r.json()
     check("响应 phone_masked == 138****1234", d.get("phone_masked") == MASKED, str(d))
@@ -165,6 +215,10 @@ def main():
     check("phone_enc 已落库", bool(enc), str(enc))
     check("落库为密文（非明文、含版本前缀）", enc != PHONE and ":" in enc, str(enc))
     check("密文可解密回原文", DataEncryptor().decrypt(enc) == PHONE, str(DataEncryptor().decrypt(enc)))
+    # 日志红线：绑定过程日志只允许脱敏号，完整手机号不得出现（捕获生效用脱敏号正断言兜底）
+    log_text = "\n".join(cap.lines)
+    check("绑定日志含脱敏号（捕获生效）", MASKED in log_text, log_text[:300])
+    check("完整手机号不出现在任何日志", PHONE not in log_text, log_text[:300])
 
     print("=" * 62)
     print("测试 3：GET /api/user/phone 绑定状态")
@@ -183,6 +237,24 @@ def main():
     check("watermark 不符 → 400", r.status_code == 400, f"{r.status_code} {r.text[:150]}")
     check("400 文案明确", "校验失败" in r.text or "重新授权" in r.text, r.text[:150])
     PHONE_API_RESPONSE["data"]["phone_info"]["watermark"]["appid"] = APPID
+
+    print("=" * 62)
+    print("测试 4b：watermark 缺失（只传部分字段）→ 400")
+    print("=" * 62)
+    PHONE_API_RESPONSE = {"errcode": 0, "errmsg": "ok", "data": {"phone_info": {
+        "phoneNumber": PHONE, "purePhoneNumber": PHONE, "countryCode": "86",
+        "watermark": {"timestamp": 1755000000}}}}  # 缺 appid
+    with mock.patch("httpx.AsyncClient", FakeAsyncClient):
+        r = client.post("/api/user/phone-bind", json={"code": "wx_phone_code_nw1"}, headers=h)
+    check("watermark 缺 appid → 400", r.status_code == 400, f"{r.status_code} {r.text[:150]}")
+    PHONE_API_RESPONSE = {"errcode": 0, "errmsg": "ok", "data": {"phone_info": {
+        "phoneNumber": PHONE, "purePhoneNumber": PHONE, "countryCode": "86"}}}  # 完全无 watermark
+    with mock.patch("httpx.AsyncClient", FakeAsyncClient):
+        r = client.post("/api/user/phone-bind", json={"code": "wx_phone_code_nw2"}, headers=h)
+    check("watermark 完全缺失 → 400", r.status_code == 400, f"{r.status_code} {r.text[:150]}")
+    PHONE_API_RESPONSE = {"errcode": 0, "errmsg": "ok", "data": {"phone_info": {
+        "phoneNumber": PHONE, "purePhoneNumber": PHONE, "countryCode": "86",
+        "watermark": {"appid": APPID, "timestamp": 1755000000}}}}
 
     print("=" * 62)
     print("测试 5：微信 API 返回错误 → 400")
@@ -240,6 +312,9 @@ def main():
     r = client.get(avatar_url)  # 公开 GET：无 token
     check("GET 头像 200 且内容一致", r.status_code == 200 and r.content == fake_img,
           f"{r.status_code} len={len(r.content)}")
+    check("GET 头像带 X-Content-Type-Options: nosniff",
+          r.headers.get("x-content-type-options") == "nosniff",
+          str(r.headers.get("x-content-type-options")))
     # 覆盖上传
     fake_img2 = b"\xff\xd8\xff\xe0" + b"\x01" * 200 + b"\xff\xd9"
     r = client.post("/api/user/avatar",
@@ -262,6 +337,33 @@ def main():
 
     r = client.get("/api/user/avatar/no_such_user")
     check("不存在用户头像 → 404", r.status_code == 404, f"{r.status_code}")
+
+    # 大小防护双路径（评审修复）：
+    # A. file.size（Content-Length 派生）已知超限 → 读前预拒，body 一个字都不读
+    status, pos, total = asyncio.run(_avatar_direct(b"\xff\xd8" * (3 * 1024 * 1024),
+                                                    size=3 * 1024 * 1024 + 1))
+    check("size 已知超限 → 读前预拒 400", status == 400, str(status))
+    check("预拒路径未读 body（位置=0）", pos == 0, f"pos={pos}")
+    # B. size 未知（无 Content-Length）超大文件 → 分块读取累计超限中途中止
+    status, pos, total = asyncio.run(_avatar_direct(b"\xff\xd8" * (3 * 1024 * 1024)))
+    check("size 未知超大 → 分块中止 400", status == 400, str(status))
+    check("分块路径中途中止（未读完整文件）", pos < total, f"pos={pos} < total={total}")
+    # C. starlette 表单解析下 file.size==0：小图不得被误拒
+    status, pos, total = asyncio.run(_avatar_direct(
+        b"\xff\xd8\xff\xe0" + b"\x00" * 100 + b"\xff\xd9", size=0))
+    check("size=0（starlette 默认）小图不误拒", status is None, str(status))
+
+    print("=" * 62)
+    print("测试 9：DAO 未 setup → phone-bind 503（fail-closed 守卫，非假 200）")
+    print("=" * 62)
+    saved_dao = user_api._dao
+    user_api._dao = None
+    try:
+        with mock.patch("httpx.AsyncClient", FakeAsyncClient):
+            r = client.post("/api/user/phone-bind", json={"code": "wx_phone_code_503"}, headers=h)
+    finally:
+        user_api._dao = saved_dao
+    check("DAO 未 setup → 503", r.status_code == 503, f"{r.status_code} {r.text[:150]}")
 
     print("=" * 62)
     print(f"\n=== 结果: {PASS} PASS / {FAIL} FAIL ===")
