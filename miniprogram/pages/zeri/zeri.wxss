@@ -407,6 +407,9 @@
 
 .zr-pick-btn-busy { opacity: .7; }
 
+/* 会员判定加载中：禁用的选它（onSelect 内同样拦截） */
+.zr-pick-btn-dis { opacity: .5; }
+
 /* ── 换一批 ── */
 .zr-refresh-wrap {
   margin-top: var(--space-lg);

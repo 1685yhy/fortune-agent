@@ -75,9 +75,10 @@ Page({
     const g = this.data.groups;
     const target = findItem(g, idx);
     if (!target) return;
-    const next = !target.done;
+    const prev = target.done;        // 乐观更新前先记旧值（失败回滚基准）
+    const next = !prev;
     this.setData({ itemBusy: idx });
-    // 本地先行（体验优先），失败回滚
+    // 本地先行（体验优先），失败回滚到 prev
     applyItem(g, idx, { done: next });
     api.updateZeriItem(this.data.planId, { idx, done: next })
       .then((res) => {
@@ -88,8 +89,8 @@ Page({
         }
       })
       .catch(() => {
-        applyItem(this.data.groups, idx, { done: target.done });
-        this.setData({ itemBusy: -1 });
+        applyItem(this.data.groups, idx, { done: prev });
+        this.setData({ itemBusy: -1, groups: this.data.groups });
         wx.showToast({ title: '保存失败，请重试', icon: 'none' });
       });
   },
@@ -114,8 +115,10 @@ Page({
     const idx = this.data.noteIdx;
     if (idx < 0) return;
     const note = String(this.data.noteDraft || '').trim();
+    const target = findItem(this.data.groups, idx);
+    const prevNote = target ? target.note : '';   // 保存前记旧备注（失败回滚基准）
     applyItem(this.data.groups, idx, { note });
-    this.setData({ noteIdx: -1, noteDraft: '', itemBusy: idx });
+    this.setData({ noteIdx: -1, noteDraft: '', itemBusy: idx, groups: this.data.groups });
     api.updateZeriItem(this.data.planId, { idx, note })
       .then((res) => {
         this.setData({ itemBusy: -1 });
@@ -123,7 +126,8 @@ Page({
         wx.showToast({ title: '备注已存', icon: 'none' });
       })
       .catch(() => {
-        this.setData({ itemBusy: -1 });
+        applyItem(this.data.groups, idx, { note: prevNote });
+        this.setData({ itemBusy: -1, groups: this.data.groups });
         wx.showToast({ title: '保存失败，请重试', icon: 'none' });
       });
   },

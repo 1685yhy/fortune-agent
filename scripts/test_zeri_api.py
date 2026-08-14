@@ -84,16 +84,19 @@ UID2 = "zeri-test-user-b"
 UIDM = "zeri-test-member"
 UID3 = "zeri-test-reset"     # 跨日额度重置用例(免费)
 UID4 = "zeri-test-race"      # 竞态 bump 拒绝用例(免费)
+UID5 = "zeri-test-options"   # options 不扣额度用例(免费)
 TOKEN = _auth.create_user_token(UID)
 TOKEN2 = _auth.create_user_token(UID2)
 TOKENM = _auth.create_user_token(UIDM)
 TOKEN3 = _auth.create_user_token(UID3)
 TOKEN4 = _auth.create_user_token(UID4)
+TOKEN5 = _auth.create_user_token(UID5)
 h = {"Authorization": f"Bearer {TOKEN}"}
 h2 = {"Authorization": f"Bearer {TOKEN2}"}
 hm = {"Authorization": f"Bearer {TOKENM}"}
 h3 = {"Authorization": f"Bearer {TOKEN3}"}
 h4 = {"Authorization": f"Bearer {TOKEN4}"}
+h5 = {"Authorization": f"Bearer {TOKEN5}"}
 _member_dao.set_member(UIDM, "basic")
 
 
@@ -253,6 +256,37 @@ check("昨日用满不影响今日: 今日首次 refresh 200", r.status_code == 
 check("今日首次 refresh 剩余额度为 2", r.json()["refresh_remaining"] == 2)
 check("今日计数为 1", _test_dao.get_refresh_count(UID3, today) == 1)
 check("昨日计数保持 3 不变", _test_dao.get_refresh_count(UID3, yesterday) == 3)
+
+# 10d. options 端点（初始加载取卡）：200/字段结构与 refresh 同构/不扣额度（连调 3 次 quota 不变）/
+#      refresh 额度独立保留/未登录 401/空场景 400/exclude_dates 可选传
+r = client.get("/api/zeri/options")
+check("未登录 options 401", r.status_code == 401)
+r = client.get("/api/zeri/options", headers=h5,
+               params={"scene": "嫁娶", "start": "2026-09-01", "end": "2026-09-30"})
+assert r.status_code == 200, r.text
+body = r.json()
+check("options 返回 3 卡", len(body["cards"]) == 3)
+check("options 字段结构同构 refresh", "scanned" in body and "suggest_wider" in body
+      and "reason" in body and "refresh_remaining" in body)
+check("options 卡字段完整", body["cards"][0]["date"] == "2026-08-20"
+      and body["cards"][0]["total"] == 76)
+_count_before = _test_dao.get_refresh_count(UID5, today)
+for _ in range(3):
+    r = client.get("/api/zeri/options", headers=h5,
+                   params={"scene": "嫁娶", "start": "2026-09-01", "end": "2026-09-30"})
+    assert r.status_code == 200, r.text
+check("options 连续调 3 次不扣额度", _test_dao.get_refresh_count(UID5, today) == _count_before)
+r = client.post("/api/zeri/refresh", headers=h5, json={"scene": "嫁娶", "start": "2026-09-01",
+                                                       "end": "2026-09-30"})
+check("options 后首次 refresh 仍可用(剩余 2)", r.status_code == 200
+      and r.json()["refresh_remaining"] == 2)
+r = client.get("/api/zeri/options", headers=h5,
+               params={"scene": "嫁娶", "start": "2026-09-01", "end": "2026-09-30",
+                       "exclude_dates": "2026-08-20,2026-08-22"})
+check("options exclude_dates 可选传 200", r.status_code == 200)
+r = client.get("/api/zeri/options", headers=h5,
+               params={"scene": "   ", "start": "2026-09-01", "end": "2026-09-30"})
+check("空场景 options 400", r.status_code == 400)
 
 # 11. prefs 读写；绑定态复用 jian_prefs（同一服务号，不重复存 openid）
 r = client.get("/api/zeri/prefs", headers=h)

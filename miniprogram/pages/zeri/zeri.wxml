@@ -98,10 +98,11 @@
           </view>
         </view>
 
-        <!-- 选它 -->
-        <view class="zr-pick-btn {{selectingIdx === index ? 'zr-pick-btn-busy' : ''}}" hover-class="zr-btn-active" hover-stay-time="0"
+        <!-- 选它（会员判定完成前禁用：真实会员不得拿到免费档清单） -->
+        <view class="zr-pick-btn {{selectingIdx === index ? 'zr-pick-btn-busy' : ''}} {{!memberReady ? 'zr-pick-btn-dis' : ''}}" hover-class="zr-btn-active" hover-stay-time="0"
           data-idx="{{index}}" bindtap="onSelect">
           <text wx:if="{{selectingIdx === index}}">正在为您落定…</text>
+          <text wx:elif="{{!memberReady}}">会员识别中…</text>
           <text wx:else>选它</text>
         </view>
       </view>

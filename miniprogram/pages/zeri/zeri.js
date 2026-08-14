@@ -123,9 +123,9 @@ Page({
     refreshing: false,    // 换一批中
     cards: [],            // 吉日卡（含展示派生字段）
     suggestReason: '',
-    scanned: 0,
     refreshRemaining: null, // 今日剩余换一批次数（免费档）
     isMember: false,
+    memberReady: false,   // 会员判定加载完成（未完成前禁用「选它」，避免真实会员拿到免费档清单）
     expandedIdx: -1,      // 展开评分明细的卡下标（会员）
     selectingIdx: -1,     // 正在落库的卡下标
   },
@@ -137,7 +137,7 @@ Page({
     const scene = decodeURIComponent((options.scene || '').trim());
     if (scene) {
       this.setData({ scene });
-      this._loadCards(scene, []);
+      this._loadCards(scene, [], true);
     }
     // 无 scene → 显示场景引导（第 6 项：从对话深链进入时无场景参数）
   },
@@ -146,29 +146,26 @@ Page({
   _loadMember() {
     api.getMemberInfo()
       .then((info) => {
-        if (info && info.isMember) this.setData({ isMember: true });
+        this.setData({ isMember: !!(info && info.isMember), memberReady: true });
       })
-      .catch(() => { /* 静默按非会员 */ });
+      .catch(() => { this.setData({ memberReady: true }); /* 静默按非会员 */ });
   },
 
-  /* 取卡（首次/换一批共用）：exclude 已展示日期去重 */
-  _loadCards(scene, excludeDates) {
+  /* 取卡：initial=true 走 GET options（初始加载，不扣换一批额度）；
+     否则走 POST refresh（换一批，扣额度）。exclude 已展示日期去重（仅换一批传）。 */
+  _loadCards(scene, excludeDates, initial) {
     if (this.data.loading || this.data.refreshing) return;
     this.setData(scene === this.data.scene && this.data.cards.length ? { refreshing: true } : { loading: true });
     const w = windowDates(DEFAULT_WINDOW_DAYS);
-    api.refreshZeri({
-      scene,
-      start: w.start,
-      end: w.end,
-      exclude_dates: excludeDates || [],
-    }).then((res) => {
+    const params = { scene, start: w.start, end: w.end, exclude_dates: excludeDates || [] };
+    const req = initial ? api.getZeriOptions(params) : api.refreshZeri(params);
+    req.then((res) => {
       const cards = (res && res.cards) || [];
       this.setData({
         loading: false,
         refreshing: false,
         scene,
         cards: cards.map((c) => this._renderCard(c)),
-        scanned: (res && res.scanned) || 0,
         suggestReason: (res && res.reason) || '',
         refreshRemaining: typeof res.refresh_remaining === 'number' ? res.refresh_remaining : null,
         expandedIdx: -1,
@@ -213,7 +210,7 @@ Page({
     const key = e.currentTarget.dataset.key;
     if (!key) return;
     this.setData({ scene: key });
-    this._loadCards(key, []);
+    this._loadCards(key, [], true);
   },
 
   /* ═══ 换一批（免费档每日 3 次；429 → toast 后端文案） ═══ */
@@ -225,7 +222,7 @@ Page({
     }
     if (this.data.refreshing || this.data.loading) return;
     const exclude = cards.map((c) => c.dateISO).filter(Boolean);
-    this._loadCards(scene, exclude);
+    this._loadCards(scene, exclude, false);
   },
 
   /* ═══ 理由一行 → 展开评分明细（会员）；非会员提示 ═══ */
@@ -243,6 +240,10 @@ Page({
     const idx = Number(e.currentTarget.dataset.idx);
     const card = this.data.cards[idx];
     if (!card || this.data.selectingIdx >= 0) return;
+    if (!this.data.memberReady) {
+      wx.showToast({ title: '会员识别中，请稍候', icon: 'none' });
+      return;
+    }
     const scene = this.data.scene;
     const items = buildItems(scene, this.data.isMember);
     this.setData({ selectingIdx: idx });

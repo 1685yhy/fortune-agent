@@ -228,6 +228,48 @@ def refresh_cards(body: RefreshBody, uid: str = Depends(require_user)):
             "refresh_remaining": remaining}
 
 
+@router.get("/options")
+def get_options(scene: str = "", start: str = "", end: str = "",
+                exclude_dates: Optional[str] = None, uid: str = Depends(require_user)):
+    """初始加载取卡: 调引擎选日，不扣换一批额度、不去重（exclude_dates 可选传，逗号分隔）。
+
+    与 refresh 同构返回 {cards, scanned, suggest_wider, reason, refresh_remaining(只读)}。
+    仅页面初始加载/切场景用；「换一批」仍走 POST /refresh 扣额度。
+    """
+    scene = scene.strip()
+    if not scene:
+        raise HTTPException(status_code=400, detail="场景不能为空")
+    if _handler is None or getattr(_handler, "zeri_engine", None) is None:
+        raise HTTPException(status_code=503, detail="择日服务未就绪")
+    user_bazi = None
+    try:
+        user_bazi = _handler._map_user_bazi_for_zeri(uid)
+    except Exception:
+        user_bazi = None
+    ex_dates = [d.strip() for d in exclude_dates.split(",") if d and d.strip()] if exclude_dates else None
+    try:
+        res = _handler.zeri_engine.select_lucky_days(
+            scene=scene, start_date=start, end_date=end,
+            user_bazi=user_bazi, exclude_dates=ex_dates or None,
+            prefer_weekend=True)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("初始取卡引擎执行失败 uid=%s scene=%s", uid, scene)
+        raise HTTPException(status_code=500, detail=f"择日引擎执行失败: {str(e)[:100]}")
+    cards = [asdict(c) if hasattr(c, "__dataclass_fields__") else c
+             for c in (res.get("cards") or [])]
+    unlimited = is_member(uid) or is_experience_mode()
+    today = _bj_today()
+    remaining = None if unlimited else max(
+        0, FREE_REFRESH_LIMIT - _zdao().get_refresh_count(uid, today))
+    return {"cards": cards,
+            "scanned": res.get("scanned", 0),
+            "suggest_wider": bool(res.get("suggest_wider")),
+            "reason": res.get("reason"),
+            "refresh_remaining": remaining}
+
+
 # ─────────────────────────── 偏好 ───────────────────────────
 
 @router.get("/prefs")

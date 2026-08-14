@@ -72,7 +72,8 @@
         </view>
         <switch class="stj-switch" checked="{{zeriReminder}}" disabled="{{zeriLoading}}" bindchange="onZeriReminderSwitch" color="#A93A2C" />
       </view>
-      <view wx:if="{{zeriInvalid || !zeriBound}}" class="me-row row-line stj-bind-row">
+      <!-- zeriLoading 期间不渲染绑定行，避免 prefs 未加载时绑定的用户闪现"未绑定" -->
+      <view wx:if="{{!zeriLoading && (zeriInvalid || !zeriBound)}}" class="me-row row-line stj-bind-row">
         <view class="mr-ic"><image src="/assets/images/ic-bell.png"></image></view>
         <view class="stj-bind-col">
           <view class="stj-bind-line">
