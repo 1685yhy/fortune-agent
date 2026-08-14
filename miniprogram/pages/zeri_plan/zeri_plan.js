@@ -111,6 +111,8 @@ Page({
     this.setData({ noteIdx: -1, noteDraft: '' });
   },
 
+  noop() { /* 阻止遮罩点击/滚动穿透 */ },
+
   onNoteSave() {
     const idx = this.data.noteIdx;
     if (idx < 0) return;

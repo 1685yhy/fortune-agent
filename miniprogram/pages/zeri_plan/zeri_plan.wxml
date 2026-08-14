@@ -71,4 +71,17 @@
 
   <!-- 分享画布（隐藏，绘制用） -->
   <canvas type="2d" id="zeriShareCanvas" class="pl-canvas-off"></canvas>
+
+  <!-- 备注输入弹层（noteIdx >= 0 时显示） -->
+  <view class="pl-mask" wx:if="{{noteIdx >= 0}}" catchtouchmove="noop" bindtap="onNoteCancel">
+    <view class="pl-modal" catchtap="noop">
+      <view class="pl-modal-title">填写备注</view>
+      <textarea class="pl-modal-textarea" value="{{noteDraft}}" placeholder="可写要点、人物、物品…"
+        placeholder-class="pl-modal-placeholder" bindinput="onNoteInput" maxlength="100" auto-height />
+      <view class="pl-modal-actions">
+        <view class="pl-btn-ghost" hover-class="pl-btn-active" hover-stay-time="0" catchtap="onNoteCancel">取消</view>
+        <view class="pl-btn-save" hover-class="pl-btn-active" hover-stay-time="0" catchtap="onNoteSave">保存</view>
+      </view>
+    </view>
+  </view>
 </view>
