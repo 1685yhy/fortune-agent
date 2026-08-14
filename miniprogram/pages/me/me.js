@@ -366,27 +366,32 @@ Page({
     const hasAvatar = !!this.data.draftAvatar;
     const tasks = [api.saveProfile({ nickname })];
     if (hasAvatar) tasks.push(api.uploadAvatar(this.data.draftAvatar));
-    Promise.all(tasks)
+    /* allSettled：半成功也写成功的半边缓存（如昵称已存服务端但头像上传失败），幂等 */
+    Promise.allSettled(tasks)
       .then((results) => {
         wx.hideLoading();
         this._profileSaving = false;
         this.setData({ profileDialogVisible: false });
-        if (hasAvatar) {
-          const up = results[1] || {};
+        const nicknameOk = results[0].status === 'fulfilled';
+        if (hasAvatar && results[1].status === 'fulfilled') {
+          const up = results[1].value || {};
           const gd = (getApp() && getApp().globalData) || {};
           const rel = up.avatar_url || (gd.userId ? `/api/user/avatar/${gd.userId}` : '');
           if (rel) {
             try { wx.setStorageSync('ylm_avatar_url', rel); } catch (e) { /* ignore */ }
           }
         }
-        try { wx.setStorageSync('ylm_nickname', nickname); } catch (e) { /* ignore */ }
+        if (nicknameOk) {
+          try { wx.setStorageSync('ylm_nickname', nickname); } catch (e) { /* ignore */ }
+        }
         this._deriveIdentity();
-        wx.showToast({ title: '已保存', icon: 'none' });
-      })
-      .catch(() => {
-        wx.hideLoading();
-        this._profileSaving = false;
-        wx.showToast({ title: '保存失败，请重试', icon: 'none' });
+        if (nicknameOk && (!hasAvatar || results[1].status === 'fulfilled')) {
+          wx.showToast({ title: '已保存', icon: 'none' });
+        } else if (nicknameOk) {
+          wx.showToast({ title: '昵称已保存，头像上传失败', icon: 'none' });
+        } else {
+          wx.showToast({ title: '保存失败，请重试', icon: 'none' });
+        }
       });
   },
 

@@ -394,11 +394,13 @@ Page({
   },
 
   /* 清身份（退出登录 / 更换账号 / 注销 共用，复用 me.js _clearIdentity）：
-     只清 4 键 + 内存 token + globalData，聊天记录/收藏/灯油一律保留 */
+     只清 6 键 + 内存 token + globalData，聊天记录/收藏/灯油一律保留 */
   _clearIdentity() {
     const remove = (k) => { try { wx.removeStorageSync(k); } catch (e) { /* ignore */ } };
     remove('ylm_token');              // JWT（api.js 401 重登也以它为准）
     remove('ylm_user_id');            // 用户 id（含 local_user 兜底值）
+    remove('ylm_nickname');           // 头像昵称缓存（账号相关：换账号/退出必须清，防串号）
+    remove('ylm_avatar_url');         // 头像 URL 缓存（账号相关：换账号/退出必须清，防串号）
     security.removeSecure('auth');    // ylm_enc_auth（旧版身份：token/userId/loginTime）
     security.removeSecure('userProfile'); // ylm_enc_userProfile（账号八字档案，随账号走）
     api.setToken(null);               // 清内存 token（api.js getToken 的 storage 兜底已清空）
