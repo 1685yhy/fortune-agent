@@ -170,6 +170,27 @@
   padding: 0 31rpx 33rpx;                /* 0 16px 17px */
 }
 
+/* ── 手机号绑定按钮（Task 2：getPhoneNumber 入口，墨线小钮） ── */
+.st-phone-bind-btn {
+  margin: 0;
+  padding: 0 23rpx;                      /* 0 12px */
+  height: 56rpx;                         /* 29px */
+  line-height: 52rpx;
+  background: transparent;
+  border: 2rpx solid var(--acc-soft);
+  border-radius: 8rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;                      /* 10.5px */
+  letter-spacing: .1em;
+  color: var(--acc-deep);
+}
+.st-phone-bind-btn::after { border: none; }
+.st-phone-bind-btn[disabled] {
+  opacity: .6;
+  color: var(--ink-faint);
+  border-color: var(--line);
+}
+
 /* ── 数据说明（对话与命书加密存储 · 仅本人可见） ── */
 .sec-note {
   margin-top: 31rpx;                     /* 16px */

@@ -51,6 +51,11 @@ Page({
     avatarUrl: '',              // 微信头像（无则印章「明」兜底）
     loginTag: '',               // 微信登录 / 体验用户（未登录不显示）
     realLogin: false,           // 标签配色：真实微信登录（朱砂） vs 体验用户（低调墨色）
+    /* 头像昵称采集（Task 2：chooseAvatar + nickname → 弹层保存，服务端落库） */
+    nicknameSet: false,         // 已采集昵称（决定引导文案 / 编辑按钮）
+    profileDialogVisible: false, // 头像昵称采集弹层开关
+    draftNickname: '',          // 弹层昵称草稿（默认当前昵称）
+    draftAvatar: '',            // 弹层头像临时路径预览（未保存前仅本地显示）
   },
 
   onLoad() {
@@ -288,20 +293,101 @@ Page({
     const loggedOut = !token && !isLocal;
 
     if (loggedOut) {
-      this.setData({ displayName: '未登录', avatarUrl: '', loginTag: '', realLogin: false });
+      this.setData({ displayName: '未登录', avatarUrl: '', loginTag: '', realLogin: false, nicknameSet: false });
       return;
     }
     if (token) {
+      // 真实昵称/头像优先取已保存值（本地缓存；头像存相对路径，渲染时拼 baseURL）
+      const cache = this._readProfileCache();
       this.setData({
         realLogin: true,
         loginTag: '微信登录',
-        displayName: (u && u.nickName) || '小晚',
-        avatarUrl: (u && u.avatarUrl) || '',
+        nicknameSet: !!cache.nickname,
+        displayName: cache.nickname || (u && u.nickName) || '小晚',
+        avatarUrl: cache.avatarUrl ? api.getBaseURL() + cache.avatarUrl : ((u && u.avatarUrl) || ''),
       });
       return;
     }
     // 体验模式（local_user）
-    this.setData({ displayName: '小晚', avatarUrl: '', loginTag: '体验用户', realLogin: false });
+    this.setData({ displayName: '小晚', avatarUrl: '', loginTag: '体验用户', realLogin: false, nicknameSet: false });
+  },
+
+  /* ═══ 头像昵称缓存（Task 2：保存成功后本地缓存；GET /api/user/profile 暂无昵称字段，缓存即会话持久） ═══ */
+  _readProfileCache() {
+    let nickname = '';
+    let avatarUrl = '';
+    try { nickname = wx.getStorageSync('ylm_nickname') || ''; } catch (e) { /* ignore */ }
+    try { avatarUrl = wx.getStorageSync('ylm_avatar_url') || ''; } catch (e) { /* ignore */ }
+    return { nickname, avatarUrl };
+  },
+
+  /* ═══ 头像昵称采集弹层（Task 2：chooseAvatar + nickname 输入 → 上传头像 + 存昵称） ═══ */
+  openProfileDialog() {
+    if (!this.data.realLogin) {
+      wx.showToast({ title: '请先微信登录', icon: 'none' });
+      return;
+    }
+    this.setData({
+      profileDialogVisible: true,
+      draftNickname: this.data.nicknameSet ? this.data.displayName : '',
+      draftAvatar: '',
+    });
+  },
+
+  closeProfileDialog() {
+    this.setData({ profileDialogVisible: false });
+  },
+
+  /* chooseAvatar 回调：临时路径仅本地预览（保存时才上传） */
+  onChooseAvatar(e) {
+    const path = e.detail && e.detail.avatarUrl;
+    if (!path) return;
+    this.setData({ draftAvatar: path });
+  },
+
+  onNicknameInput(e) {
+    this.setData({ draftNickname: e.detail.value });
+  },
+
+  /* 保存：昵称非空 → saveProfile；头像已选 → uploadAvatar；成功 setData 刷新显示，失败 toast */
+  onProfileSave() {
+    if (this._profileSaving) return;
+    const nickname = String(this.data.draftNickname || '').trim();
+    if (!nickname) {
+      wx.showToast({ title: '请填写昵称', icon: 'none' });
+      return;
+    }
+    if (nickname.length > 20) {
+      wx.showToast({ title: '昵称最长 20 个字符', icon: 'none' });
+      return;
+    }
+    this._profileSaving = true;
+    wx.showLoading({ title: '保存中…', mask: true });
+    const hasAvatar = !!this.data.draftAvatar;
+    const tasks = [api.saveProfile({ nickname })];
+    if (hasAvatar) tasks.push(api.uploadAvatar(this.data.draftAvatar));
+    Promise.all(tasks)
+      .then((results) => {
+        wx.hideLoading();
+        this._profileSaving = false;
+        this.setData({ profileDialogVisible: false });
+        if (hasAvatar) {
+          const up = results[1] || {};
+          const gd = (getApp() && getApp().globalData) || {};
+          const rel = up.avatar_url || (gd.userId ? `/api/user/avatar/${gd.userId}` : '');
+          if (rel) {
+            try { wx.setStorageSync('ylm_avatar_url', rel); } catch (e) { /* ignore */ }
+          }
+        }
+        try { wx.setStorageSync('ylm_nickname', nickname); } catch (e) { /* ignore */ }
+        this._deriveIdentity();
+        wx.showToast({ title: '已保存', icon: 'none' });
+      })
+      .catch(() => {
+        wx.hideLoading();
+        this._profileSaving = false;
+        wx.showToast({ title: '保存失败，请重试', icon: 'none' });
+      });
   },
 
   /* 列表行点击（data-action 路由） */

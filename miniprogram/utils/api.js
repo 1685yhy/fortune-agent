@@ -1039,6 +1039,50 @@ function getZeriOptions(params = {}) {
 function getZeriPrefs() { return request('/api/zeri/prefs', { method: 'GET' }); }
 function putZeriPrefs(patch) { return request('/api/zeri/prefs', { method: 'PUT', data: patch }); }
 
+// ---- 登录增强（Task 2：手机号绑定 + 头像昵称采集） ----
+
+/** 绑定/换绑手机号：微信 getPhoneNumber 授权 code → 后端 AES 落库，响应 {phone_masked} */
+function bindPhone(code) {
+  return request('/api/user/phone-bind', { method: 'POST', data: { code } });
+}
+
+/** 查询手机号绑定状态：{bound, phone_masked}（只回脱敏号） */
+function getPhone() {
+  return request('/api/user/phone', { method: 'GET' });
+}
+
+/** 保存昵称：{nickname} 1-20 字，服务端 strip */
+function saveProfile(patch) {
+  return request('/api/user/profile', { method: 'POST', data: patch });
+}
+
+/** 上传头像（multipart，后端 form 字段名 file，≤2MB）→ {avatar_url:"/api/user/avatar/{user_id}"}。
+    必须用 wx.uploadFile（request 不支持 multipart）；响应 data 是 JSON 字符串，需手动 parse。 */
+function uploadAvatar(filePath) {
+  return ensureBaseURL().then((baseURL) => new Promise((resolve, reject) => {
+    wx.uploadFile({
+      url: `${baseURL}/api/user/avatar`,
+      filePath,
+      name: 'file',
+      header: { Authorization: `Bearer ${getToken()}` },
+      success: (res) => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          let data = res.data;
+          try { data = JSON.parse(res.data); } catch (e) { /* ignore */ }
+          resolve(data);
+        } else {
+          reject(res.data || { error: '头像上传失败' });
+        }
+      },
+      fail: (err) => {
+        console.error('[API] uploadAvatar error:', err);
+        scheduleReprobe();
+        reject(new Error('网络连接失败，请检查网络设置'));
+      },
+    });
+  }));
+}
+
 // ---- 导出 ----
 
 module.exports = {
@@ -1075,6 +1119,12 @@ module.exports = {
   updateSubscription,
   getSubscription,
   cancelAccount,
+
+  // Login enhancement (Task 2: 手机号绑定 + 头像昵称)
+  bindPhone,
+  getPhone,
+  saveProfile,
+  uploadAvatar,
 
   // Jian (明灯晨笺：早晚双笺订阅)
   getJianPrefs,

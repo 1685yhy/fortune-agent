@@ -40,13 +40,21 @@
       </view>
     </view>
 
-    <!-- 账号信息：当前登录态三态（微信登录 / 体验用户 / 未登录） -->
+    <!-- 账号信息：当前登录态三态（微信登录 / 体验用户 / 未登录）+ 手机号绑定（Task 2） -->
     <view class="op-label"><text>账号信息</text></view>
     <view class="papercard me-list">
-      <view class="me-row">
+      <view class="me-row row-line">
         <view class="mr-ic"><image src="/assets/images/ic-seal.png"></image></view>
         <view class="mr-label">当前登录态</view>
         <view class="mr-val">{{identityText}}</view>
+      </view>
+      <view class="me-row">
+        <view class="mr-ic"><image src="/assets/images/ic-moon.png"></image></view>
+        <view class="mr-label">手机号</view>
+        <view wx:if="{{phoneBound}}" class="mr-val">{{phoneMasked}}</view>
+        <button wx:elif="{{realLogin}}" class="st-phone-bind-btn" disabled="{{phoneLoading}}"
+          open-type="getPhoneNumber" bindgetphonenumber="onGetPhoneNumber">{{phoneLoading ? '绑定中…' : '未绑定 · 点击绑定'}}</button>
+        <view wx:else class="mr-val">未绑定</view>
       </view>
     </view>
 

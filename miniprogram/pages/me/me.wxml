@@ -26,6 +26,7 @@
             <view class="hs-name">{{displayName}}</view>
             <view class="hs-tag {{realLogin ? 'hs-tag-real' : 'hs-tag-local'}}" wx:if="{{loginTag}}">{{loginTag}}</view>
           </view>
+          <view class="hs-profile-edit" hover-class="hs-profile-edit-active" hover-stay-time="0" bindtap="openProfileDialog">{{nicknameSet ? '编辑' : '点击设置头像昵称'}}</view>
           <view class="hs-sub">{{birthdayText}}</view>
           <view class="hs-sub">{{lunarBirthday}}</view>
         </view>
@@ -60,6 +61,25 @@
 
     <view class="me-foot">秉烛而谈 · 灯火长明</view>
   </scroll-view>
+
+  <!-- 头像昵称采集弹层（Task 2：chooseAvatar + nickname，墨韵 paper 风格） -->
+  <view class="pp-mask" wx:if="{{profileDialogVisible}}" catchtouchmove="noop" bindtap="closeProfileDialog">
+    <view class="pp-card" catchtap="noop">
+      <view class="md-title">头像昵称</view>
+      <view class="md-sub">一盏灯下 · 以何为名</view>
+      <button class="pp-avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar">
+        <image wx:if="{{draftAvatar}}" class="pp-avatar" src="{{draftAvatar}}" mode="aspectFill"></image>
+        <view wx:else class="seal pp-avatar-seal"><text class="seal-char">明</text></view>
+        <view class="pp-avatar-tip">点击选择头像</view>
+      </button>
+      <input class="pp-input" type="nickname" value="{{draftNickname}}" bindinput="onNicknameInput"
+        placeholder="起个名号 · 微信昵称或自拟" placeholder-class="pp-ph" maxlength="20" confirm-type="done" />
+      <view class="pp-actions">
+        <view class="pp-btn-ghost" hover-class="pp-btn-active" hover-stay-time="0" bindtap="closeProfileDialog">取消</view>
+        <view class="pp-btn-ink" hover-class="pp-btn-active" hover-stay-time="0" bindtap="onProfileSave">保存</view>
+      </view>
+    </view>
+  </view>
 
   <!-- 会员开通（虚拟支付优先，mock 降级由 payment.js 统一处理） -->
   <view class="member-mask" wx:if="{{memberDialogVisible}}" bindtap="closeMemberDialog">

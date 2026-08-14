@@ -42,6 +42,10 @@ Page({
     loginTag: '',               // 微信登录 / 体验用户（未登录不显示）
     realLogin: false,           // 标签配色：真实微信登录（朱砂） vs 体验用户（低调墨色）
     identityText: '未登录',     // 账号信息：当前登录态（三态）
+    /* 手机号绑定（Task 2：getPhoneNumber 授权 code → 后端 AES 落库，只显示脱敏号） */
+    phoneBound: false,          // 已绑定
+    phoneMasked: '',            // 脱敏号 138****1234
+    phoneLoading: false,        // 绑定请求中（按钮防重复）
     /* 账号弹层（原型 dir_o · 壹）：更换账号 / 注销账号 */
     switchDialogVisible: false, // 更换账号说明弹层
     deregDialogVisible: false,  // 注销确认弹层（输入「注销」解禁）
@@ -84,9 +88,56 @@ Page({
 
   onShow() {
     this._deriveIdentity();
+    this._loadPhone(); // 手机号绑定态（Task 2：GET /api/user/phone 只回脱敏号）
     this._loadJianPrefs();
     this._loadZeriPrefs(); // 择日提醒（与 jian prefs 并行水合）
     this._loadNightPrefs(); // 深夜陪伴（与 jian prefs 并行水合）
+  },
+
+  /* ═══ 手机号绑定（Task 2：GET /api/user/phone → {bound, phone_masked}） ═══
+       未登录不发请求（绑定按钮仅真实登录可用）；失败静默默认未绑定，不打扰。 */
+  _loadPhone() {
+    const gd = (getApp() && getApp().globalData) || {};
+    if (!gd.token) {
+      this.setData({ phoneBound: false, phoneMasked: '' });
+      return;
+    }
+    api.getPhone().then((res) => {
+      this.setData({
+        phoneBound: !!res.bound,
+        phoneMasked: (res && res.phone_masked) || '',
+      });
+    }).catch(() => {
+      this.setData({ phoneBound: false, phoneMasked: '' });
+    });
+  },
+
+  /* getPhoneNumber 授权回调：e.detail.code → bindPhone(code) → 脱敏号显示 + toast */
+  onGetPhoneNumber(e) {
+    if (this.data.phoneLoading) return;
+    const detail = e.detail || {};
+    if (detail.errMsg && detail.errMsg.indexOf('ok') === -1) {
+      wx.showToast({ title: '已取消绑定', icon: 'none' });
+      return;
+    }
+    const code = detail.code;
+    if (!code) {
+      wx.showToast({ title: '未获取到授权，请重试', icon: 'none' });
+      return;
+    }
+    this.setData({ phoneLoading: true });
+    wx.showLoading({ title: '绑定中…', mask: true });
+    api.bindPhone(code).then((res) => {
+      wx.hideLoading();
+      this.setData({ phoneLoading: false, phoneBound: true, phoneMasked: (res && res.phone_masked) || '' });
+      wx.showToast({ title: '手机号绑定成功', icon: 'none' });
+    }).catch((err) => {
+      wx.hideLoading();
+      this.setData({ phoneLoading: false });
+      // 后端 400 detail 文案直接透出（如"手机号授权失败或已过期，请重新授权"）
+      const msg = (err && (err.detail || err.message)) || '绑定失败，请重试';
+      wx.showToast({ title: typeof msg === 'string' ? msg : '绑定失败，请重试', icon: 'none', duration: 2500 });
+    });
   },
 
   _initNavOff() {
