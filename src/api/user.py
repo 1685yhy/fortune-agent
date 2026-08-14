@@ -440,7 +440,10 @@ async def user_phone_bind(req: PhoneBindRequest, uid: str = Depends(require_user
 async def get_user_phone(uid: str = Depends(require_user)):
     """查询手机号绑定状态（只返回脱敏号，不泄露明文）。"""
     global _dao
-    phone = _dao.get_user_phone(uid) if _dao else None
+    # fail-closed：DAO 未 setup 时 503，绝不假 200（与 phone-bind 守卫一致）
+    if _dao is None:
+        raise HTTPException(status_code=503, detail="服务未就绪")
+    phone = _dao.get_user_phone(uid)
     if not phone:
         return {"bound": False, "phone_masked": None}
     return {"bound": True, "phone_masked": _mask_phone(phone)}
@@ -455,8 +458,10 @@ async def user_update_profile(req: ProfileUpdateRequest, uid: str = Depends(requ
         raise HTTPException(status_code=400, detail="昵称不能为空")
     if len(nickname) > 20:
         raise HTTPException(status_code=400, detail="昵称最长 20 个字符")
-    if _dao:
-        _dao.set_user_nickname(uid, nickname)
+    # fail-closed：DAO 未 setup 时 503，绝不假 200（与 phone-bind 守卫一致）
+    if _dao is None:
+        raise HTTPException(status_code=503, detail="服务未就绪")
+    _dao.set_user_nickname(uid, nickname)
     return {"success": True, "nickname": nickname}
 
 

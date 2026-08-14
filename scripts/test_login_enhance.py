@@ -361,9 +361,15 @@ def main():
     try:
         with mock.patch("httpx.AsyncClient", FakeAsyncClient):
             r = client.post("/api/user/phone-bind", json={"code": "wx_phone_code_503"}, headers=h)
+        r2 = client.get("/api/user/phone", headers=h)
+        r3 = client.post("/api/user/profile", json={"nickname": "测试"}, headers=h)
     finally:
         user_api._dao = saved_dao
-    check("DAO 未 setup → 503", r.status_code == 503, f"{r.status_code} {r.text[:150]}")
+    check("DAO 未 setup → phone-bind 503", r.status_code == 503, f"{r.status_code} {r.text[:150]}")
+    check("DAO 未 setup → GET phone 503（fail-closed，非假 200）",
+          r2.status_code == 503, f"{r2.status_code} {r2.text[:150]}")
+    check("DAO 未 setup → profile 503（fail-closed，非假 200）",
+          r3.status_code == 503, f"{r3.status_code} {r3.text[:150]}")
 
     print("=" * 62)
     print(f"\n=== 结果: {PASS} PASS / {FAIL} FAIL ===")
