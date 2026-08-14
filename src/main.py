@@ -461,7 +461,11 @@ def _zeri_reminder_batch(zdao, now, member_dao=None) -> dict:
     - openid 复用 jian_prefs.mp_openid(同一服务号,不重复存),无 openid/未绑定 → 跳过(静默);
     - 失败链(仿 _send_jian_batch): 每次异常 bump zeri_prefs.fail_count,连续≥3 次
       将 bound_status 置 invalid 停推;成功清零;
-    - 每条计划最多 2 条消息,由 remind_sent_d1/d0 两个标记天然封顶,绝不多发。
+    - 每条计划最多 2 条消息,由 remind_sent_d1/d0 两个标记天然封顶,绝不多发;
+    - 终审 Fix1: 设置页开关(zeri_prefs.reminder_enabled=0)整批跳过 —— 发送路径不再零读取;
+      未建 prefs 行的用户不受影响(默认开启语义保持)。本批次自身的失败/成功计数 upsert
+      显式带 reminder_enabled=1,避免把"从未碰过开关"的用户误打成关闭态(否则收过一条
+      提醒后即被排除)。
     """
     from src.services.wechat_mp import send_template, mp_ready, _env
     stats = {"total": 0, "pushed": 0, "skipped": 0, "errors": 0}
@@ -484,7 +488,10 @@ def _zeri_reminder_batch(zdao, now, member_dao=None) -> dict:
     for d1_or_d0, sent_col, lucky_date in candidates:
         rows = zdao.conn.execute(
             f"SELECT id FROM zeri_plans WHERE reminder_enabled=1 AND status='active'"
-            f" AND {sent_col}=0 AND lucky_date=?",
+            f" AND {sent_col}=0 AND lucky_date=?"
+            # Fix1: 设置页开关显式关闭(zeri_prefs.reminder_enabled=0)的用户整批跳过;
+            #       NOT IN 保证未建 prefs 行的用户不受影响(默认开启语义保持)
+            f" AND user_id NOT IN (SELECT user_id FROM zeri_prefs WHERE reminder_enabled=0)",
             (lucky_date,)).fetchall()
         stats["total"] += len(rows)
         for (pid,) in rows:
@@ -534,12 +541,14 @@ def _zeri_reminder_batch(zdao, now, member_dao=None) -> dict:
                 stats["errors"] += 1
                 zpref2 = zdao.get_pref(uid) or {}
                 fail = (zpref2.get("fail_count") or 0) + 1
-                zdao.upsert_pref(uid, {"fail_count": fail})
+                # Fix1: 显式保留 reminder_enabled=1 —— 本条 upsert 可能新建 prefs 行,
+                # 默认值 reminder_enabled=0 会被批次查询当作"显式关闭"整批跳过
+                zdao.upsert_pref(uid, {"fail_count": fail, "reminder_enabled": 1})
                 if fail >= 3:
-                    zdao.upsert_pref(uid, {"bound_status": "invalid"})
+                    zdao.upsert_pref(uid, {"bound_status": "invalid", "reminder_enabled": 1})
                     logger.warning("择吉日提醒连续失败≥3次 uid=%s: 订阅标记失效,停止推送", uid)
             else:
-                zdao.upsert_pref(uid, {"fail_count": 0})
+                zdao.upsert_pref(uid, {"fail_count": 0, "reminder_enabled": 1})
     if stats["total"]:
         logger.info("择吉日提醒批次完成(%s %02d:%02d): %s",
                     today, now.hour, now.minute, stats)

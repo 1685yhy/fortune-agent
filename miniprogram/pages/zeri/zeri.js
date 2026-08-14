@@ -88,6 +88,7 @@ const CHECKLIST_TEMPLATES = {
 };
 
 const DEFAULT_WINDOW_DAYS = 30; // 默认窗口：今天起 30 天（与对话侧一致）
+const MAX_EXCLUDE_ROUNDS = 5;  // 换一批跨轮去重上限：最多累积最近 5 轮已展示日期（终审 M2）
 
 /* 日期工具 */
 function pad(n) { return String(n).padStart(2, '0'); }
@@ -128,6 +129,7 @@ Page({
     memberReady: false,   // 会员判定加载完成（未完成前禁用「选它」，避免真实会员拿到免费档清单）
     expandedIdx: -1,      // 展开评分明细的卡下标（会员）
     selectingIdx: -1,     // 正在落库的卡下标
+    excludeRounds: [],    // 换一批跨轮去重（终审 M2）：每轮已展示日期数组，上限最近 5 轮
   },
 
   onLoad(options) {
@@ -152,7 +154,8 @@ Page({
   },
 
   /* 取卡：initial=true 走 GET options（初始加载，不扣换一批额度）；
-     否则走 POST refresh（换一批，扣额度）。exclude 已展示日期去重（仅换一批传）。 */
+     否则走 POST refresh（换一批，扣额度）。exclude 已展示日期跨轮去重（终审 M2：
+     每轮把已展示日期累积进 excludeRounds，隔轮日期不再重复；上限最近 5 轮）。 */
   _loadCards(scene, excludeDates, initial) {
     if (this.data.loading || this.data.refreshing) return;
     this.setData(scene === this.data.scene && this.data.cards.length ? { refreshing: true } : { loading: true });
@@ -161,6 +164,7 @@ Page({
     const req = initial ? api.getZeriOptions(params) : api.refreshZeri(params);
     req.then((res) => {
       const cards = (res && res.cards) || [];
+      this._recordRound(cards.map((c) => c.dateISO).filter(Boolean));
       this.setData({
         loading: false,
         refreshing: false,
@@ -179,6 +183,13 @@ Page({
         wx.showToast({ title: detail || '取卡失败，请重试', icon: 'none', duration: 2500 });
       }
     });
+  },
+
+  /* 换一批跨轮去重（终审 M2）：每轮成功展示的日期追加进 excludeRounds，
+     只保留最近 MAX_EXCLUDE_ROUNDS 轮；refresh 请求时扁平化为累积 exclude 列表。 */
+  _recordRound(dates) {
+    const rounds = (this.data.excludeRounds || []).concat([dates || []]);
+    this.setData({ excludeRounds: rounds.slice(-MAX_EXCLUDE_ROUNDS) });
   },
 
   /* 原始卡 → 展示字段 */
@@ -209,19 +220,23 @@ Page({
   onPickScene(e) {
     const key = e.currentTarget.dataset.key;
     if (!key) return;
-    this.setData({ scene: key });
+    this.setData({ scene: key, excludeRounds: [] });   // 切场景重置跨轮去重（M2）
     this._loadCards(key, [], true);
   },
 
   /* ═══ 换一批（免费档每日 3 次；429 → toast 后端文案） ═══ */
   onRefresh() {
-    const { scene, cards } = this.data;
+    const { scene } = this.data;
     if (!scene) {
       wx.showToast({ title: '请先选择场景', icon: 'none' });
       return;
     }
     if (this.data.refreshing || this.data.loading) return;
-    const exclude = cards.map((c) => c.dateISO).filter(Boolean);
+    // 累积最近 N 轮已展示日期（含当前屏），隔轮不再重复（终审 M2）
+    const exclude = [];
+    (this.data.excludeRounds || []).forEach((round) => {
+      (round || []).forEach((d) => { if (exclude.indexOf(d) === -1) exclude.push(d); });
+    });
     this._loadCards(scene, exclude, false);
   },
 

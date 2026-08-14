@@ -444,6 +444,39 @@ r = h._tool_zeri("下个月搬家 换一批 exclude_dates: 2026-09-03,2026-09-06
 check("'换一批' 即意图: 调引擎 1 次", len(eng.calls) == 1, f"calls={len(eng.calls)}")
 check("'换一批' 即意图: ok=True", r.ok is True, f"ok={r.ok}")
 
+# ---------------------------------------------------------------------------
+# 13. Fix4(终审): 喜用神个人适配 —— 四柱推导 wuxing → personal_score 不再恒 24
+# ---------------------------------------------------------------------------
+print("== 13. 喜用神个人适配 ==")
+from src.engines.zeri import ZeriEngine
+_real = ZeriEngine()
+# 四柱 庚午/辛巳/乙酉/甲申 → wuxing: 金4(庚辛酉申) 木2(乙甲) 火2(午巳) 水0 土0
+h = build_handler(engine=FakeZeriEngine(), bazi={"year": 1990, "bazi": ["庚午", "辛巳", "乙酉", "甲申"]})
+ub = h._map_user_bazi_for_zeri("u20")
+check("Fix4: 四柱 → wuxing 推导",
+      ub and ub.get("wuxing") == {"金": 4, "木": 2, "水": 0, "火": 2, "土": 0}, f"got {ub}")
+check("Fix4: 既有派生键保留",
+      ub and ub.get("shengxiao") == "马" and ub.get("day_gan") == "乙"
+      and ub.get("month_zhi") == "巳", f"got {ub}")
+# 用神=水(巳月调候) → 金日生水 +10(25) / 水日比和(20) / 他日 15 —— 不再恒 24
+check("Fix4: 喜用神日(庚/辛金生水) → 25", _real._personal_score("庚", ub)[0] == 25)
+check("Fix4: 比和日(壬/癸水) → 20", _real._personal_score("壬", ub)[0] == 20)
+check("Fix4: 无关日(乙木) → 15", _real._personal_score("乙", ub)[0] == 15)
+check("Fix4: 无 wuxing 等价旧形态仍兜底 24",
+      _real._personal_score("庚", {"shengxiao": "马", "day_gan": "乙", "month_zhi": "巳"})[0] == 24)
+# 端到端: select_lucky_days 个人分随日变化(喜用神日有加分), 不再全 24
+r = _real.select_lucky_days("搬家", "2026-08-01", "2026-08-31", user_bazi=ub, prefer_weekend=True)
+check("Fix4: 端到端取到吉日卡", len(r["cards"]) >= 1, f"cards={len(r['cards'])}")
+check("Fix4: 卡个人分随喜用神变化(非恒 24)",
+      r["cards"] and all(c.personal_score in (15, 20, 25) for c in r["cards"])
+      and any(c.personal_score != 24 for c in r["cards"]),
+      f"scores={[c.personal_score for c in r['cards']]}")
+# 字符串形式四柱兼容
+h2 = build_handler(engine=FakeZeriEngine(), bazi={"bazi": "庚午 辛巳 乙酉 甲申"})
+ub2 = h2._map_user_bazi_for_zeri("u21")
+check("Fix4: 字符串四柱同样推导 wuxing",
+      ub2 and ub2.get("wuxing") == {"金": 4, "木": 2, "水": 0, "火": 2, "土": 0}, f"got {ub2}")
+
 print()
 print(f"结果: {_PASS} passed, {_FAIL} failed")
 sys.exit(0 if _FAIL == 0 else 1)

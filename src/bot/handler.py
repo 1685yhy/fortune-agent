@@ -1668,8 +1668,11 @@ class MessageHandler:
 
         映射（zeri.py _build_lucky_card/_personal_score 实际消费的键）:
         - shengxiao: 年支 → 生肖（冲生肖排除）; 取不到则跳过（引擎不误伤）
-        - day_gan/month_zhi: 日柱天干/月柱地支（喜用神计算, wuxing 未存 → 引擎回退）
-        无八字 → None, 引擎走无八字兜底。
+        - day_gan/month_zhi: 日柱天干/月柱地支（喜用神计算）
+        - wuxing/yongshen: 四柱齐备时用天干/地支五行表推导五行计数(或已存则透传),
+          供引擎 _personal_score 计算喜用神 —— 修复前只传 shengxiao/day_gan/month_zhi,
+          引擎无 wuxing 恒返 24 分(喜用神个人适配恒失效, 终审 Fix4)
+        无八字 → None, 引擎走无八字兜底; 推导失败保持现状(引擎兜底 24)。
         """
         try:
             saved = self.dao.get_user_bazi(user_id)
@@ -1678,7 +1681,14 @@ class MessageHandler:
         if not saved:
             return None
         bazi = saved.get("bazi") or []
+        if isinstance(bazi, str):
+            bazi = bazi.split()   # 兼容 "甲子 乙丑 丙寅 丁卯" 字符串形式
         user_bazi = {}
+        # 已显式保存的 wuxing/yongshen 优先透传(旧数据兼容)
+        for k in ("wuxing", "yongshen"):
+            v = saved.get(k)
+            if v:
+                user_bazi[k] = v
         if bazi and len(bazi[0]) > 1 and bazi[0][1] in ZODIAC_MAP:
             user_bazi["shengxiao"] = ZODIAC_MAP[bazi[0][1]]  # 年支 → 生肖
         if len(bazi) > 2:
@@ -1686,6 +1696,23 @@ class MessageHandler:
                 user_bazi["day_gan"] = bazi[2][0]     # 日柱天干
             if len(bazi[1]) > 1:
                 user_bazi["month_zhi"] = bazi[1][1]   # 月柱地支
+        # Fix4: 四柱齐备 → 天干/地支五行表推导 wuxing 计数(与 bazi.py BaziEngine.calculate
+        # 同口径: 天干按 WUXING_TG、地支按 WUXING_DZ 各计一次), 引擎据此算喜用神
+        if "wuxing" not in user_bazi and len(bazi) >= 4 \
+                and all(isinstance(p, str) and len(p) == 2 for p in bazi[:4]):
+            try:
+                from src.engines.bazi import WUXING_TG, WUXING_DZ
+                wx = {"金": 0, "木": 0, "水": 0, "火": 0, "土": 0}
+                for pillar in bazi[:4]:
+                    gan, zhi = pillar[0], pillar[1]
+                    if gan in WUXING_TG:
+                        wx[WUXING_TG[gan]] += 1
+                    if zhi in WUXING_DZ:
+                        wx[WUXING_DZ[zhi]] += 1
+                if any(wx.values()):
+                    user_bazi["wuxing"] = wx
+            except Exception:
+                pass  # 推导失败 → 保持现状(引擎兜底 24, 不误伤)
         return user_bazi or None
 
     # ============================================================

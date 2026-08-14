@@ -191,4 +191,49 @@ with env8[0], env8[1]:
 n_entry = next(e for e in sent8 if e[0] == "o_u_n")  # 按 openid 定位(与其它用户同档共发)
 check("N 仅计未完成(done=1 不计)", "2" in n_entry[2]["thing2"]["value"])
 
+# ── 7. Fix1(终审): 设置页开关生效 —— prefs reminder_enabled=0 整批跳过 ─────────
+#      未建 prefs 行的用户不受影响(默认开启语义保持)
+member_dao.set_member("u_off", "basic")
+make_plan("u_off", TODAY_STR, scene="提车")      # 计划级 reminder_enabled=1(已订阅)
+bind("u_off")
+zdao.upsert_pref("u_off", {"reminder_enabled": 0})   # 设置页 PUT /api/zeri/prefs 写 0
+sent_off = []
+with mock.patch("src.services.wechat_mp.send_template",
+                side_effect=lambda oid, tpl, data, url="": sent_off.append(oid) or {}), \
+     mock.patch("src.services.wechat_mp.mp_ready", return_value=True):
+    run_batch(bj(TODAY.year, TODAY.month, TODAY.day, 7, 30))
+check("Fix1: prefs 显式关闭 → 整批跳过(计划级订阅不生效)", "o_u_off" not in sent_off)
+
+member_dao.set_member("u_nopref", "basic")
+make_plan("u_nopref", TODAY_STR, scene="出行")   # 无 zeri_prefs 行(未碰过设置页)
+bind("u_nopref")
+member_dao.set_member("u_on", "basic")
+make_plan("u_on", TODAY_STR, scene="签约")
+bind("u_on")
+zdao.upsert_pref("u_on", {"reminder_enabled": 1})    # 设置页显式开启
+sent_np = []
+with mock.patch("src.services.wechat_mp.send_template",
+                side_effect=lambda oid, tpl, data, url="": sent_np.append(oid) or {}), \
+     mock.patch("src.services.wechat_mp.mp_ready", return_value=True):
+    run_batch(bj(TODAY.year, TODAY.month, TODAY.day, 7, 30))
+check("Fix1: 无 prefs 行 → 默认开启仍发送", "o_u_nopref" in sent_np)
+check("Fix1: prefs 显式开启 → 正常发送", "o_u_on" in sent_np)
+check("Fix1: 同批仍不发已关闭用户", "o_u_off" not in sent_np)
+
+# 7b. 回归: 批次自身的成功计数 upsert 不得把用户误打为关闭态 —— 否则收到过一条
+#      提醒后 prefs 行(默认 reminder_enabled=0)会被批次查询当"显式关闭"整批跳过
+member_dao.set_member("u_keep", "basic")
+pid_k = make_plan("u_keep", TODAY_STR, scene="开业")
+bind("u_keep")
+sent_k, env_k = ok_env()
+with env_k[0], env_k[1]:
+    run_batch(bj(TODAY.year, TODAY.month, TODAY.day, 7, 30))
+check("Fix1: 成功发送后 prefs 行 reminder_enabled=1(不误打关闭)",
+      (zdao.get_pref("u_keep") or {}).get("reminder_enabled") == 1)
+make_plan("u_keep", TOMORROW_STR, scene="搬家")   # 同用户新计划(档1 候选)
+sent_k2, env_k2 = ok_env()
+with env_k2[0], env_k2[1]:
+    run_batch(bj(TODAY.year, TODAY.month, TODAY.day, 21, 0))
+check("Fix1: 收过提醒的用户新计划仍发送(未被 NOT IN 排除)", any(e[0] == "o_u_keep" for e in sent_k2))
+
 print(f"\nALL PASS ({ok})")

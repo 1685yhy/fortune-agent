@@ -7,7 +7,7 @@
 """
 import logging
 from dataclasses import asdict
-from datetime import datetime, timezone, timedelta
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -73,6 +73,23 @@ def _bound_status(uid: str) -> str:
     return _zdao().get_jian_bound_status(uid) or "unbound"
 
 
+def _validate_window(start: str, end: str) -> None:
+    """日期窗口钳制(终审 Fix5, refresh/options 共用): ISO 格式解析, 0 ≤ span ≤ 92 天。
+
+    防资源滥用: 20-30 年窗口 = 上万日逐日计算。非法格式/超窗一律 400。
+    """
+    try:
+        s = date.fromisoformat(start)
+        e = date.fromisoformat(end)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="日期格式须为 YYYY-MM-DD")
+    span = (e - s).days
+    if span < 0:
+        raise HTTPException(status_code=400, detail="结束日期不能早于开始日期")
+    if span > 92:
+        raise HTTPException(status_code=400, detail="日期窗口不能超过 92 天")
+
+
 # ─────────────────────────── 请求模型 ───────────────────────────
 
 class SelectBody(BaseModel):
@@ -106,9 +123,30 @@ class RefreshBody(BaseModel):
 
 # ─────────────────────────── 选日/清单/历史 ───────────────────────────
 
+def _build_server_items(scene: str, member: bool) -> list:
+    """服务端重建办事清单(终审 Fix3)——忽略客户端 items, 免费/会员边界由服务端 enforce。
+
+    确定性方案: 直接取 src/engines/zeri_checklist.py 模板, 不走 LLM 定制(避免请求
+    路径 LLM 延迟): 会员 → 全量模板(按阶段排序); 免费 → free_items 核心 5 项。
+    注: LLM 定制管线(customize_checklist 对话上下文增强)待对话落点后续激活。
+    """
+    from src.engines.zeri_checklist import CHECKLIST_TEMPLATES, STAGES, free_items
+    template = CHECKLIST_TEMPLATES.get(scene)
+    if not template:
+        return []
+    if member:
+        stage_order = {s: i for i, s in enumerate(STAGES)}
+        return sorted((dict(it) for it in template),
+                      key=lambda it: stage_order.get(it.get("stage"), len(STAGES)))
+    return free_items(template)
+
+
 @router.post("/select")
 def select_plan(body: SelectBody, uid: str = Depends(require_user)):
-    """对话/前端选定吉日后落库。服务端按会员档重算 plan_type 兜底,返回 plan_id。"""
+    """对话/前端选定吉日后落库。服务端按会员档重算 plan_type 兜底,返回 plan_id。
+
+    清单 items 由服务端按会员档从模板重建(忽略客户端传值, 防免费用户 POST 会员全量清单)。
+    """
     scene = body.scene.strip()
     if not scene:
         raise HTTPException(status_code=400, detail="场景不能为空")
@@ -117,9 +155,10 @@ def select_plan(body: SelectBody, uid: str = Depends(require_user)):
     except ValueError:
         raise HTTPException(status_code=400, detail=f"非法日期格式: {body.lucky_date}")
     plan_type = "member" if is_member(uid) else "free"
+    items = _build_server_items(scene, plan_type == "member")
     pid = _zdao().upsert_plan(uid, scene, body.lucky_date,
-                              body.card, body.items, plan_type)
-    return {"plan_id": pid, "plan_type": plan_type}
+                              body.card, items, plan_type)
+    return {"plan_id": pid, "plan_type": plan_type, "items": items}
 
 
 @router.get("/plans")
@@ -184,6 +223,7 @@ def refresh_cards(body: RefreshBody, uid: str = Depends(require_user)):
     (与对话 handler 扣额度语义一致)。计数后再次校验 bump 返回的 allowed:并发
     下两个请求同时过预检时,串行 bump 的第二个以 429 拒绝(权威结果为准)。
     """
+    _validate_window(body.start, body.end)   # Fix5: 窗口钳制先于额度判定(超窗一律 400)
     dao = _zdao()
     unlimited = is_member(uid) or is_experience_mode()
     today = _bj_today()
@@ -231,14 +271,16 @@ def refresh_cards(body: RefreshBody, uid: str = Depends(require_user)):
 @router.get("/options")
 def get_options(scene: str = "", start: str = "", end: str = "",
                 exclude_dates: Optional[str] = None, uid: str = Depends(require_user)):
-    """初始加载取卡: 调引擎选日，不扣换一批额度、不去重（exclude_dates 可选传，逗号分隔）。
+    """初始加载取卡: 调引擎选日，不扣换一批额度。exclude_dates 可选传(逗号分隔)但被忽略。
 
     与 refresh 同构返回 {cards, scanned, suggest_wider, reason, refresh_remaining(只读)}。
-    仅页面初始加载/切场景用；「换一批」仍走 POST /refresh 扣额度。
+    仅页面初始加载/切场景用；「换一批」仍走 POST /refresh 扣额度。exclude_dates 仅为
+    兼容保留(静默忽略, 见 Fix2 注释): 仅 refresh 支持去重换批。
     """
     scene = scene.strip()
     if not scene:
         raise HTTPException(status_code=400, detail="场景不能为空")
+    _validate_window(start, end)             # Fix5: 窗口钳制
     if _handler is None or getattr(_handler, "zeri_engine", None) is None:
         raise HTTPException(status_code=503, detail="择日服务未就绪")
     user_bazi = None
@@ -246,11 +288,13 @@ def get_options(scene: str = "", start: str = "", end: str = "",
         user_bazi = _handler._map_user_bazi_for_zeri(uid)
     except Exception:
         user_bazi = None
+    # Fix2(终审): options 静默忽略 exclude_dates —— 免费用户可借此绕过换一批 3 次/日
+    # 上限(改 exclude 无限"换一批")。解析但丢弃, 不传给引擎: 仅 POST /refresh 支持去重换批。
     ex_dates = [d.strip() for d in exclude_dates.split(",") if d and d.strip()] if exclude_dates else None
     try:
         res = _handler.zeri_engine.select_lucky_days(
             scene=scene, start_date=start, end_date=end,
-            user_bazi=user_bazi, exclude_dates=ex_dates or None,
+            user_bazi=user_bazi, exclude_dates=None,   # exclude_dates 已丢弃(见上)
             prefer_weekend=True)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

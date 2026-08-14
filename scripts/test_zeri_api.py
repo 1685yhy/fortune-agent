@@ -49,8 +49,11 @@ class _FakeMemberDAO:
 from src.engines.zeri import LuckyDayCard
 class _FakeZeriEngine:
     _SCENES = {"嫁娶", "搬家", "开业", "出行", "提车", "签约"}
+    def __init__(self):
+        self.last_exclude = None   # Fix2: 记录引擎实际收到的 exclude_dates
     def select_lucky_days(self, scene="", start_date="", end_date="", user_bazi=None,
                           exclude_dates=None, prefer_weekend=False):
+        self.last_exclude = exclude_dates
         if not (scene and start_date and end_date):
             raise ValueError("参数缺失")
         if scene not in self._SCENES:
@@ -211,6 +214,33 @@ r = client.get("/api/zeri/plans", headers=hm)
 check("会员全量历史 5 条", len(r.json()["plans"]) == 5)
 check("会员 more_requires_member=false", r.json()["more_requires_member"] is False)
 
+# 9b. Fix3(终审): 服务端清单重建 —— 忽略客户端 items, 免费/会员边界由服务端 enforce
+from src.engines.zeri_checklist import CHECKLIST_TEMPLATES
+_full_marry = [dict(it) for it in CHECKLIST_TEMPLATES["嫁娶"]]   # 10 项(会员全量式)
+r = client.post("/api/zeri/select", headers=h2, json={"scene": "嫁娶", "lucky_date": "2026-10-01",
+                                                      "card": {**CARD, "date": "2026-10-01"},
+                                                      "items": _full_marry, "plan_type": "member"})
+assert r.status_code == 200, r.text
+free_pid = r.json()["plan_id"]
+check("Fix3: 免费用户 POST 会员式 items → plan_type 仍 free", r.json()["plan_type"] == "free")
+_free_items = client.get(f"/api/zeri/plans/{free_pid}", headers=h2).json()["plan"]["items"]
+check("Fix3: 免费 POST 全量 items → 落库仅 core 5 项", len(_free_items) == 5)
+check("Fix3: 重建 items 全为 core 且按阶段排序",
+      all(it.get("core") for it in _free_items)
+      and [it["stage"] for it in _free_items] == ["提前3天", "提前3天", "提前1天", "当天", "当天"])
+check("Fix3: 重建 items 文案来自模板(非客户端)",
+      _free_items[0]["text"] == "发请柬并统计宾客名单"
+      and all(it["text"] not in {"黑客注入项"} for it in _free_items))
+r = client.post("/api/zeri/select", headers=hm, json={"scene": "嫁娶", "lucky_date": "2026-10-05",
+                                                      "card": {**CARD, "date": "2026-10-05"},
+                                                      "items": [{"stage": "当天", "text": "黑客注入项"}],
+                                                      "plan_type": "free"})
+assert r.status_code == 200, r.text
+_m_pid = r.json()["plan_id"]
+_m_items = client.get(f"/api/zeri/plans/{_m_pid}", headers=hm).json()["plan"]["items"]
+check("Fix3: 会员 POST 任意 → 落库全量模板 10 项", len(_m_items) == 10)
+check("Fix3: 会员重建 items 不含客户端项", all(it["text"] != "黑客注入项" for it in _m_items))
+
 # 10. 换一批：免费每日 3 次，第 4 次 429；会员不限
 for i in range(3):
     r = client.post("/api/zeri/refresh", headers=h, json={"scene": "搬家", "start": "2026-09-01",
@@ -288,6 +318,20 @@ r = client.get("/api/zeri/options", headers=h5,
                params={"scene": "   ", "start": "2026-09-01", "end": "2026-09-30"})
 check("空场景 options 400", r.status_code == 400)
 
+# 10e. Fix2(终审): options 静默忽略 exclude_dates(不传引擎) —— 防免费用户改 exclude 无限换一批
+r = client.get("/api/zeri/options", headers=h5,
+               params={"scene": "嫁娶", "start": "2026-09-01", "end": "2026-09-30",
+                       "exclude_dates": "2026-08-20,2026-08-22"})
+assert r.status_code == 200, r.text
+check("Fix2: options 丢弃 exclude_dates, 引擎收到 None",
+      zeri_mod._handler.zeri_engine.last_exclude is None)
+r = client.post("/api/zeri/refresh", headers=h5, json={"scene": "嫁娶", "start": "2026-09-01",
+                                                       "end": "2026-09-30",
+                                                       "exclude_dates": ["2026-08-20"]})
+assert r.status_code == 200, r.text
+check("Fix2: refresh 的 exclude_dates 正常传引擎",
+      zeri_mod._handler.zeri_engine.last_exclude == ["2026-08-20"])
+
 # 11. prefs 读写；绑定态复用 jian_prefs（同一服务号，不重复存 openid）
 r = client.get("/api/zeri/prefs", headers=h)
 p = r.json()["prefs"]
@@ -315,6 +359,27 @@ check("remind_sent_d0 落库", plan["remind_sent_d0"] == 1)
 check("非法值 set_remind_sent 返回 False", _test_dao.set_remind_sent(UID, pid, "garbage") is False)
 plan = _test_dao.get_plan(UID, pid)
 check("非法值未改动 remind_sent 列", plan["remind_sent_d1"] == 1 and plan["remind_sent_d0"] == 1)
+
+# 12c. Fix5(终审): 日期窗口钳制(两端点共用校验) —— 93 天 400 / 92 天 200 / 非法格式 400 / end<start 400
+#      (2026 非闰年: 01-01→04-03 = 92 天, 01-01→04-04 = 93 天)
+r = client.post("/api/zeri/refresh", headers=h, json={"scene": "搬家", "start": "2026-01-01",
+                                                      "end": "2026-04-04"})
+check("Fix5: refresh 93 天窗口 400", r.status_code == 400 and "92 天" in r.json()["detail"])
+r = client.get("/api/zeri/options", headers=h5, params={"scene": "嫁娶", "start": "2026-01-01",
+                                                        "end": "2026-04-04"})
+check("Fix5: options 93 天窗口 400", r.status_code == 400)
+r = client.post("/api/zeri/refresh", headers=h3, json={"scene": "搬家", "start": "2026-01-01",
+                                                       "end": "2026-04-03"})
+check("Fix5: refresh 92 天窗口 200", r.status_code == 200)
+r = client.get("/api/zeri/options", headers=h5, params={"scene": "嫁娶", "start": "2026-01-01",
+                                                        "end": "2026-04-03"})
+check("Fix5: options 92 天窗口 200", r.status_code == 200)
+r = client.get("/api/zeri/options", headers=h5, params={"scene": "嫁娶", "start": "2026-02-30",
+                                                        "end": "2026-04-03"})
+check("Fix5: 非法日期格式 400", r.status_code == 400)
+r = client.post("/api/zeri/refresh", headers=h, json={"scene": "搬家", "start": "2026-09-30",
+                                                      "end": "2026-09-01"})
+check("Fix5: end 早于 start 400", r.status_code == 400)
 
 # 13. 体验模式换一批不限（临时开启体验模式）
 os.environ["EXPERIENCE_MODE"] = "true"
