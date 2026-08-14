@@ -128,7 +128,7 @@ def rebuild_from_collection(settings, source_name: str, target_name: str) -> int
         batch_metas = got["metadatas"]
 
         for start in range(0, len(batch_ids), BATCH_SIZE):
-            end = start + BATCH_SIZE
+            end = min(start + BATCH_SIZE, len(batch_ids))
             embeddings = embedder.encode(batch_docs[start:end]).tolist()
             target.upsert(
                 ids=batch_ids[start:end],
