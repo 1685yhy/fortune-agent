@@ -106,20 +106,24 @@ class ZeriDAO:
         return self._row_to_plan(row) if row else None
 
     def list_plans(self, user_id: str, limit: Optional[int] = None) -> list:
-        """历史列表(最新在前)。limit=None 全量(会员档);limit=N 免费档近 N 条。"""
+        """历史列表(最新在前,仅 active;未来 cancel 端点引入后历史不再混入)。
+        limit=None 全量(会员档);limit=N 免费档近 N 条。"""
         if limit is not None:
             rows = self.conn.execute(
-                "SELECT * FROM zeri_plans WHERE user_id=? ORDER BY id DESC LIMIT ?",
+                "SELECT * FROM zeri_plans WHERE user_id=? AND status='active'"
+                " ORDER BY id DESC LIMIT ?",
                 (user_id, limit)).fetchall()
         else:
             rows = self.conn.execute(
-                "SELECT * FROM zeri_plans WHERE user_id=? ORDER BY id DESC",
+                "SELECT * FROM zeri_plans WHERE user_id=? AND status='active'"
+                " ORDER BY id DESC",
                 (user_id,)).fetchall()
         return [self._row_to_plan(r) for r in rows]
 
     def count_plans(self, user_id: str) -> int:
-        row = self.conn.execute("SELECT COUNT(*) FROM zeri_plans WHERE user_id=?",
-                                (user_id,)).fetchone()
+        row = self.conn.execute(
+            "SELECT COUNT(*) FROM zeri_plans WHERE user_id=? AND status='active'",
+            (user_id,)).fetchone()
         return row[0]
 
     def update_item(self, plan_id: int, item_idx: int, patch: dict) -> Optional[list]:
@@ -152,7 +156,9 @@ class ZeriDAO:
         return cur.rowcount > 0
 
     def set_remind_sent(self, user_id: str, plan_id: int, d1_or_d0: str) -> bool:
-        """标记提醒已发送(d1=提前1天 / d0=当天),供排期去重。"""
+        """标记提醒已发送(d1=提前1天 / d0=当天),供排期去重。非法值直接拒绝,不落库。"""
+        if d1_or_d0 not in ("d1", "d0"):
+            return False
         col = "remind_sent_d1" if d1_or_d0 == "d1" else "remind_sent_d0"
         cur = self.conn.execute(
             f"UPDATE zeri_plans SET {col}=1 WHERE id=? AND user_id=?", (plan_id, user_id))

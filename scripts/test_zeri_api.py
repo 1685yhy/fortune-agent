@@ -4,9 +4,11 @@
 退出码：0=全部通过；1=有失败
 ```
 覆盖：选日落库(免费档 plan_type 兜底)/详情/非本人 403/清单勾选备注/reminder 开关/
-免费历史仅 3 条 vs 会员全量/换一批免费每日 3 次第 4 次 429 vs 会员不限/prefs 读写(绑定态来自 jian_prefs)。
+免费历史仅 3 条 vs 会员全量/换一批免费每日 3 次第 4 次 429 vs 会员不限/prefs 读写(绑定态来自 jian_prefs)/
+空场景 select 400/status 过滤/竞态 bump 拒绝 429/次日额度重置/set_remind_sent 非法值拒绝。
 """
 import os, sys, tempfile
+from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from starlette.testclient import TestClient
 
@@ -80,13 +82,25 @@ set_auth_handler(_auth)
 UID = "zeri-test-user"
 UID2 = "zeri-test-user-b"
 UIDM = "zeri-test-member"
+UID3 = "zeri-test-reset"     # 跨日额度重置用例(免费)
+UID4 = "zeri-test-race"      # 竞态 bump 拒绝用例(免费)
 TOKEN = _auth.create_user_token(UID)
 TOKEN2 = _auth.create_user_token(UID2)
 TOKENM = _auth.create_user_token(UIDM)
+TOKEN3 = _auth.create_user_token(UID3)
+TOKEN4 = _auth.create_user_token(UID4)
 h = {"Authorization": f"Bearer {TOKEN}"}
 h2 = {"Authorization": f"Bearer {TOKEN2}"}
 hm = {"Authorization": f"Bearer {TOKENM}"}
+h3 = {"Authorization": f"Bearer {TOKEN3}"}
+h4 = {"Authorization": f"Bearer {TOKEN4}"}
 _member_dao.set_member(UIDM, "basic")
+
+
+def _bj_day(offset_days=0):
+    """北京时区 N 天前的日期串(与 API 层 _bj_today 同口径)。"""
+    return (datetime.now(timezone(timedelta(hours=8)))
+            + timedelta(days=offset_days)).strftime("%Y-%m-%d")
 
 CARD = {"date": "2026-08-20", "lunar_text": "农历七月初八 丁卯日 星期四", "yi": ["嫁娶"],
         "ji": ["开市"], "jishi": "巳时(9-11点)", "xi_fangwei": "正南", "cai_fangwei": "西南",
@@ -116,6 +130,11 @@ assert r.status_code == 200, r.text
 pid = r.json()["plan_id"]
 check("select 返回 plan_id", isinstance(pid, int))
 check("免费档 plan_type 兜底为 free", r.json()["plan_type"] == "free")
+
+# 2b. 空场景(含纯空白)select 400,不落库
+r = client.post("/api/zeri/select", headers=h, json={"scene": "   ", "lucky_date": "2026-08-20",
+                                                     "card": CARD, "items": []})
+check("空场景 select 400", r.status_code == 400)
 
 # 3. 详情（完整 card/items/plan_type）
 r = client.get(f"/api/zeri/plans/{pid}", headers=h)
@@ -169,6 +188,17 @@ check("免费历史最多 3 条", len(plans) == 3)
 check("免费 more_requires_member=true", r.json()["more_requires_member"] is True)
 check("历史按最新在前", plans[0]["lucky_date"] == "2026-09-13")
 
+# 8b. status 过滤: cancelled 计划不出现在历史/计数(未来 cancel 端点引入后历史不混入)
+_active_before = _test_dao.count_plans(UID)   # 5: pid(嫁娶) + 4 条搬家
+_test_dao.conn.execute(
+    "UPDATE zeri_plans SET status='cancelled' WHERE user_id=? AND lucky_date='2026-09-13'", (UID,))
+_test_dao.conn.commit()
+r = client.get("/api/zeri/plans", headers=h)
+check("cancelled 计划不出现在历史", all(p["lucky_date"] != "2026-09-13" for p in r.json()["plans"]))
+check("count_plans 剔除 cancelled(-1)", _test_dao.count_plans(UID) == _active_before - 1)
+check("DAO list_plans 全量同样剔除 cancelled",
+      all(p["lucky_date"] != "2026-09-13" for p in _test_dao.list_plans(UID, limit=None)))
+
 # 9. 会员全量历史（mock 会员）
 for dt in ["2026-08-01", "2026-08-05", "2026-08-09", "2026-08-13", "2026-08-17"]:
     rr = client.post("/api/zeri/select", headers=hm, json={"scene": "开业", "lucky_date": dt,
@@ -197,6 +227,33 @@ r = client.post("/api/zeri/refresh", headers=hm, json={"scene": "不存在的场
                                                        "end": "2026-08-31"})
 check("非法场景 400", r.status_code == 400)
 
+# 10b. 竞态路径: 预检通过(count=2)但 bump 被拒(count 已到 3)→ 权威 allowed 结果 429,
+#      不因预检侥幸通过而放行(修复前此处错误返回 200)
+today = _bj_day()
+for _ in range(3):
+    assert _test_dao.bump_refresh(UID4, today, limit=3)[0]  # 今日额度实际已用满 3 次
+_orig_count = _test_dao.get_refresh_count          # 模拟并发预检读到旧值 2
+_test_dao.get_refresh_count = lambda uid, day: 2
+try:
+    r = client.post("/api/zeri/refresh", headers=h4, json={"scene": "搬家", "start": "2026-09-01",
+                                                           "end": "2026-09-30"})
+finally:
+    _test_dao.get_refresh_count = _orig_count
+check("竞态下 bump 拒绝 → 429", r.status_code == 429)
+check("竞态 429 后额度未再增加", _test_dao.get_refresh_count(UID4, today) == 3)
+
+# 10c. 次日额度重置: 昨日已用满 3 次,今日 refresh 应允许并从 0 重新计数
+yesterday = _bj_day(-1)
+for _ in range(3):
+    assert _test_dao.bump_refresh(UID3, yesterday, limit=3)[0]
+check("昨日额度已用满 3", _test_dao.get_refresh_count(UID3, yesterday) == 3)
+r = client.post("/api/zeri/refresh", headers=h3, json={"scene": "搬家", "start": "2026-09-01",
+                                                       "end": "2026-09-30"})
+check("昨日用满不影响今日: 今日首次 refresh 200", r.status_code == 200)
+check("今日首次 refresh 剩余额度为 2", r.json()["refresh_remaining"] == 2)
+check("今日计数为 1", _test_dao.get_refresh_count(UID3, today) == 1)
+check("昨日计数保持 3 不变", _test_dao.get_refresh_count(UID3, yesterday) == 3)
+
 # 11. prefs 读写；绑定态复用 jian_prefs（同一服务号，不重复存 openid）
 r = client.get("/api/zeri/prefs", headers=h)
 p = r.json()["prefs"]
@@ -219,6 +276,11 @@ check("remind_sent_d1 落库", plan["remind_sent_d1"] == 1)
 _test_dao.set_remind_sent(UID, pid, "d0")
 plan = _test_dao.get_plan(UID, pid)
 check("remind_sent_d0 落库", plan["remind_sent_d0"] == 1)
+
+# 12b. 非法 d1_or_d0 值拒绝,不落任何列(修复前任意非 d1 值都误写 d0)
+check("非法值 set_remind_sent 返回 False", _test_dao.set_remind_sent(UID, pid, "garbage") is False)
+plan = _test_dao.get_plan(UID, pid)
+check("非法值未改动 remind_sent 列", plan["remind_sent_d1"] == 1 and plan["remind_sent_d0"] == 1)
 
 # 13. 体验模式换一批不限（临时开启体验模式）
 os.environ["EXPERIENCE_MODE"] = "true"

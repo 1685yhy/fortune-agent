@@ -109,12 +109,15 @@ class RefreshBody(BaseModel):
 @router.post("/select")
 def select_plan(body: SelectBody, uid: str = Depends(require_user)):
     """对话/前端选定吉日后落库。服务端按会员档重算 plan_type 兜底,返回 plan_id。"""
+    scene = body.scene.strip()
+    if not scene:
+        raise HTTPException(status_code=400, detail="场景不能为空")
     try:
         datetime.strptime(body.lucky_date, "%Y-%m-%d")
     except ValueError:
         raise HTTPException(status_code=400, detail=f"非法日期格式: {body.lucky_date}")
     plan_type = "member" if is_member(uid) else "free"
-    pid = _zdao().upsert_plan(uid, body.scene.strip(), body.lucky_date,
+    pid = _zdao().upsert_plan(uid, scene, body.lucky_date,
                               body.card, body.items, plan_type)
     return {"plan_id": pid, "plan_type": plan_type}
 
@@ -178,7 +181,8 @@ def refresh_cards(body: RefreshBody, uid: str = Depends(require_user)):
     """换一批: 重新选 3 卡(zeri_quota 每日 3 次,会员/体验模式不限;超限 429)。
 
     额度判定先于引擎调用(超限不调引擎),引擎成功后才计数——引擎异常不占额度
-    (与对话 handler 扣额度语义一致)。
+    (与对话 handler 扣额度语义一致)。计数后再次校验 bump 返回的 allowed:并发
+    下两个请求同时过预检时,串行 bump 的第二个以 429 拒绝(权威结果为准)。
     """
     dao = _zdao()
     unlimited = is_member(uid) or is_experience_mode()
@@ -209,7 +213,11 @@ def refresh_cards(body: RefreshBody, uid: str = Depends(require_user)):
              for c in (res.get("cards") or [])]
     if not unlimited:
         allowed, count = dao.bump_refresh(uid, today, limit=FREE_REFRESH_LIMIT)
-        remaining = max(0, FREE_REFRESH_LIMIT - count) if allowed else 0
+        if not allowed:
+            raise HTTPException(
+                status_code=429,
+                detail=f"今天的换一批次数已用完({FREE_REFRESH_LIMIT} 次),明日再来或升级会员")
+        remaining = max(0, FREE_REFRESH_LIMIT - count)
     else:
         dao.bump_refresh(uid, today)  # 会员/体验模式: 计数仅作统计,不限
         remaining = None
