@@ -1,48 +1,75 @@
-<!-- 择吉日 · 引导页 — 6 场景图标 + 一句话示例输入框 → 跳对话页携带场景词 -->
+<!-- 择吉日 · 表单式三步入口（dir_b v7 原型）— 选大事 · 定时段 · 可加八字 → 吉日卡页 -->
 <view class="page-guide">
 
   <!-- ===== 头部 ===== -->
   <view class="gd-header">
     <view class="gd-header-seal"><text class="gd-header-seal-char">吉</text></view>
     <text class="gd-header-title">大事择吉日</text>
-    <text class="gd-header-sub">先选大事，再挑日子 · 明灯按黄历与您的生辰为您择三日</text>
+    <text class="gd-header-sub">三步定吉日 · 选大事 · 定时段 · 可加八字</text>
   </view>
 
-  <!-- ===== 场景选择 ===== -->
-  <view class="gd-section-label"><text>要办什么大事？</text></view>
-  <view class="gd-grid">
-    <view wx:for="{{scenes}}" wx:key="key"
-      class="gd-scene {{picked === item.key ? 'gd-scene-on' : ''}}"
-      hover-class="gd-scene-active" hover-stay-time="0"
-      data-key="{{item.key}}" bindtap="onPickScene">
-      <view class="seal gd-scene-seal {{picked === item.key ? 'gd-scene-seal-on' : ''}}">
-        <text class="seal-char">{{item.seal}}</text>
+  <!-- ===== 第 1 步 · 事 ===== -->
+  <view class="gd-step">
+    <view class="gd-step-head">
+      <view class="gd-step-no"><text>壹</text></view>
+      <view class="gd-step-titles">
+        <text class="gd-step-title">要办什么大事</text>
+        <text class="gd-step-sub">选一件</text>
       </view>
-      <text class="gd-scene-name">{{item.key}}</text>
-      <text class="gd-scene-sub">{{item.sub}}</text>
-      <view wx:if="{{picked === item.key}}" class="gd-scene-check">✓</view>
+    </view>
+    <view class="gd-grid">
+      <view wx:for="{{scenes}}" wx:key="key"
+        class="gd-scene {{picked === item.key ? 'gd-scene-on' : ''}}"
+        hover-class="gd-scene-active" hover-stay-time="0"
+        data-key="{{item.key}}" bindtap="onPickScene">
+        <view class="seal gd-scene-seal {{picked === item.key ? 'gd-scene-seal-on' : ''}}">
+          <text class="seal-char">{{item.seal}}</text>
+        </view>
+        <text class="gd-scene-name">{{item.key}}</text>
+        <text class="gd-scene-sub">{{item.sub}}</text>
+        <view wx:if="{{picked === item.key}}" class="gd-scene-check">✓</view>
+      </view>
     </view>
   </view>
 
-  <!-- ===== 一句话示例输入框 ===== -->
-  <view class="gd-section-label gd-section-label-mt"><text>说句话，挑得更准（选填）</text></view>
-  <view class="gd-input-wrap">
-    <input class="gd-input" value="{{input}}" bindinput="onInput"
-      placeholder="比如：下个月搬家，帮我挑个好日子"
-      placeholder-class="gd-input-ph" maxlength="60" confirm-type="done" />
-    <view class="gd-example" hover-class="gd-example-active" hover-stay-time="0" bindtap="onExampleTap">
-      <text>示例</text>
+  <!-- ===== 第 2 步 · 时 ===== -->
+  <view class="gd-step">
+    <view class="gd-step-head">
+      <view class="gd-step-no"><text>贰</text></view>
+      <view class="gd-step-titles">
+        <text class="gd-step-title">什么时候办</text>
+        <text class="gd-step-sub">选一个</text>
+      </view>
+    </view>
+    <view class="gd-chips">
+      <view wx:for="{{periods}}" wx:key="*this"
+        class="gd-chip {{period === item ? 'gd-chip-on' : ''}}"
+        hover-class="gd-chip-active" hover-stay-time="0"
+        data-key="{{item}}" bindtap="onPickPeriod">
+        <text>{{item}}</text>
+      </view>
     </view>
   </view>
-  <view wx:if="{{input}}" class="gd-input-tip">将带着这句话去与明灯对话</view>
+
+  <!-- ===== 第 3 步 · 命 ===== -->
+  <view class="gd-step">
+    <view class="gd-step-head">
+      <view class="gd-step-no"><text>叁</text></view>
+      <view class="gd-step-titles">
+        <text class="gd-step-title">八字</text>
+        <text class="gd-step-sub">选填</text>
+      </view>
+    </view>
+    <input class="gd-input" value="{{bazi}}" bindinput="onBaziInput"
+      placeholder="例：1995-08-12 14:30 · 填了契合度更准"
+      placeholder-class="gd-input-ph" maxlength="60" confirm-type="done" />
+    <text class="gd-hint">不填也行——明灯按事择日，填入后按命择日。</text>
+  </view>
 
   <!-- ===== 行动 ===== -->
   <view class="gd-actions">
-    <view class="gd-btn gd-btn-primary" hover-class="gd-btn-active" hover-stay-time="0" bindtap="goChat">
-      <text>去挑吉日</text>
-    </view>
-    <view class="gd-btn gd-btn-ghost" hover-class="gd-btn-active" hover-stay-time="0" bindtap="goZeri">
-      <text>直接看吉日</text>
+    <view class="gd-btn gd-btn-primary" hover-class="gd-btn-active" hover-stay-time="0" bindtap="goZeri">
+      <text>开始择吉 · {{period}}</text>
     </view>
   </view>
 

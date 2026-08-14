@@ -51,9 +51,15 @@ class _FakeZeriEngine:
     _SCENES = {"嫁娶", "搬家", "开业", "出行", "提车", "签约"}
     def __init__(self):
         self.last_exclude = None   # Fix2: 记录引擎实际收到的 exclude_dates
+        self.last_start = None     # period 表单入口: 记录实际收到的窗口
+        self.last_end = None
+        self.last_user_bazi = None # bazi 选填: 记录实际收到的 user_bazi
     def select_lucky_days(self, scene="", start_date="", end_date="", user_bazi=None,
                           exclude_dates=None, prefer_weekend=False):
         self.last_exclude = exclude_dates
+        self.last_start = start_date
+        self.last_end = end_date
+        self.last_user_bazi = user_bazi
         if not (scene and start_date and end_date):
             raise ValueError("参数缺失")
         if scene not in self._SCENES:
@@ -392,5 +398,122 @@ try:
     check("体验模式换一批不限(4次全过)", True)
 finally:
     os.environ["EXPERIENCE_MODE"] = ""
+
+# ───────────────────────────
+# 14. period 窗口换算(helper 注入 now 直测) + options/refresh 端到端(引擎收到换算后窗口)
+# ───────────────────────────
+from datetime import date as _date
+_win = zeri_mod._period_window("下个月", _date(2026, 8, 13))
+check("period 下个月=下一自然月(含首尾)", _win == ("2026-09-01", "2026-09-30"))
+_win = zeri_mod._period_window("本月", _date(2026, 8, 13))
+check("period 本月=自然月", _win == ("2026-08-01", "2026-08-31"))
+_win = zeri_mod._period_window("本周", _date(2026, 8, 13))
+check("period 本周=周一起 7 天", _win == ("2026-08-10", "2026-08-16"))
+_win = zeri_mod._period_window("三个月内", _date(2026, 8, 13))
+check("period 三个月内=90 天", _win == ("2026-08-13", "2026-11-11"))
+check("period 非法 → None", zeri_mod._period_window("明年", _date(2026, 8, 13)) is None)
+check("period 空 → None", zeri_mod._period_window("", _date(2026, 8, 13)) is None)
+
+# 端到端: 注入 _bj_date 固定基准日, options/refresh 带 period → 引擎收到换算后的窗口
+_orig_bj_date = zeri_mod._bj_date
+zeri_mod._bj_date = lambda: _date(2026, 8, 13)
+try:
+    r = client.get("/api/zeri/options", headers=h5,
+                   params={"scene": "嫁娶", "period": "下个月"})
+    assert r.status_code == 200, r.text
+    check("options period=下个月 → 引擎收到 9 月窗口",
+          zeri_mod._handler.zeri_engine.last_start == "2026-09-01"
+          and zeri_mod._handler.zeri_engine.last_end == "2026-09-30")
+    r = client.post("/api/zeri/refresh", headers=h5,
+                    json={"scene": "搬家", "period": "本周"})
+    assert r.status_code == 200, r.text
+    check("refresh period=本周 → 引擎收到周一起 7 天",
+          zeri_mod._handler.zeri_engine.last_start == "2026-08-10"
+          and zeri_mod._handler.zeri_engine.last_end == "2026-08-16")
+    # period 与 start/end 互斥: 给了 period 就忽略 start/end
+    r = client.get("/api/zeri/options", headers=h5,
+                   params={"scene": "嫁娶", "start": "2026-01-01", "end": "2026-01-02",
+                           "period": "下个月"})
+    assert r.status_code == 200, r.text
+    check("period 优先于 start/end",
+          zeri_mod._handler.zeri_engine.last_start == "2026-09-01"
+          and zeri_mod._handler.zeri_engine.last_end == "2026-09-30")
+finally:
+    zeri_mod._bj_date = _orig_bj_date
+r = client.get("/api/zeri/options", headers=h5, params={"scene": "嫁娶", "period": "明年"})
+check("options 非法 period 400", r.status_code == 400)
+r = client.get("/api/zeri/options", headers=h5, params={"scene": "嫁娶"})
+_today_real = datetime.now(timezone(timedelta(hours=8))).date()
+check("options 都不给 → 默认未来 30 天",
+      r.status_code == 200
+      and zeri_mod._handler.zeri_engine.last_start == _today_real.isoformat()
+      and zeri_mod._handler.zeri_engine.last_end
+      == (_today_real + timedelta(days=30)).isoformat())
+
+# ───────────────────────────
+# 15. 表单选填八字(period/bazi 参数): 解析 → Fix4 映射 → 引擎收到 user_bazi
+# ───────────────────────────
+from src.bot.handler import MessageHandler as _RealHandler
+from src.engines.bazi import BaziEngine as _RealBaziEngine
+from src.engines.zeri import ZeriEngine as _RealZeriEngine
+
+class _BaziHandler(_RealHandler):
+    """真实 _extract_bazi_info/_map_user_bazi_for_zeri + 真实排盘引擎(仅初始化所需 attrs)。"""
+    def __init__(self, dao):
+        self.dao = dao
+        self.engine = _RealBaziEngine()
+        self.zeri_engine = _FakeZeriEngine()
+
+_bazi_handler = _BaziHandler(dao_mod.get_conn())
+_orig_handler = zeri_mod._handler
+zeri_mod._handler = _bazi_handler
+try:
+    UIDB = "zeri-test-bazi"
+    TOKENB = _auth.create_user_token(UIDB)
+    hb = {"Authorization": f"Bearer {TOKENB}"}
+    r = client.get("/api/zeri/options", headers=hb,
+                   params={"scene": "嫁娶", "period": "下个月", "bazi": "1995-08-12 14:30"})
+    assert r.status_code == 200, r.text
+    ub = _bazi_handler.zeri_engine.last_user_bazi
+    check("bazi 解析映射 → 引擎 user_bazi 含生肖(1995 乙亥=猪)",
+          ub and ub.get("shengxiao") == "猪")
+    check("bazi 映射 → 含日主天干/月支", bool(ub and ub.get("day_gan") and ub.get("month_zhi")))
+    check("bazi 映射 → 含五行计数(Fix4 口径)", bool(ub and ub.get("wuxing")))
+    check("bazi 端到端: 引擎收到 period 换算窗口",
+          _bazi_handler.zeri_engine.last_start == "2026-09-01"
+          and _bazi_handler.zeri_engine.last_end == "2026-09-30")
+    # refresh 同样支持 period+bazi(免费档额度未用满)
+    r = client.post("/api/zeri/refresh", headers=hb,
+                    json={"scene": "搬家", "period": "三个月内", "bazi": "1995-08-12 14:30"})
+    assert r.status_code == 200, r.text
+    check("refresh period+bazi 200 且引擎收到 bazi",
+          bool(_bazi_handler.zeri_engine.last_user_bazi))
+    # 中文式八字走对话侧同款解析
+    r = client.get("/api/zeri/options", headers=hb,
+                   params={"scene": "嫁娶", "start": "2026-09-01", "end": "2026-09-30",
+                           "bazi": "1995年8月12日14:30"})
+    assert r.status_code == 200, r.text
+    check("中文式八字同款解析 → user_bazi 生肖一致",
+          (_bazi_handler.zeri_engine.last_user_bazi or {}).get("shengxiao") == "猪")
+    # 解析失败 → 不 400, 引擎走无八字兜底(user_bazi=None)
+    r = client.get("/api/zeri/options", headers=hb,
+                   params={"scene": "嫁娶", "start": "2026-09-01", "end": "2026-09-30",
+                           "bazi": "随便写的"})
+    assert r.status_code == 200, r.text
+    check("bazi 解析失败 → 不 400 且引擎兜底 None",
+          _bazi_handler.zeri_engine.last_user_bazi is None)
+
+    # 16. 端到端一次: 真实择日引擎 + bazi → 个人分非恒 24(喜用神个人适配生效)
+    _bazi_handler.zeri_engine = _RealZeriEngine()
+    r = client.get("/api/zeri/options", headers=hb,
+                   params={"scene": "嫁娶", "start": "2026-08-15", "end": "2026-08-24",
+                           "bazi": "1995-08-12 14:30"})
+    assert r.status_code == 200, r.text
+    cards = r.json()["cards"]
+    check("真实引擎 bazi 端到端返回卡", len(cards) >= 1)
+    check("bazi 端到端个人分非恒 24(喜用神生效)",
+          all(c["personal_score"] != 24 for c in cards))
+finally:
+    zeri_mod._handler = _orig_handler
 
 print(f"\nALL PASS ({ok})")

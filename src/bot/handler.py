@@ -1663,8 +1663,12 @@ class MessageHandler:
             end = start
         return start.isoformat(), end.isoformat()
 
-    def _map_user_bazi_for_zeri(self, user_id: str) -> Optional[dict]:
-        """已保存八字 → select_lucky_days 的 user_bazi 字典。
+    def _map_user_bazi_for_zeri(self, user_id: str, saved: Optional[dict] = None) -> Optional[dict]:
+        """已保存/表单选填八字 → select_lucky_days 的 user_bazi 字典。
+
+        saved 缺省 → 读存储档案(现状); 传入解析字段 dict(表单选填八字路径, 形如
+        {year,month,day,hour,minute,city,gender}, 无四柱) → 先经本机排盘引擎
+        calculate 补全四柱与五行(同 Fix4 口径), 再走同一映射, 替代存储档案。
 
         映射（zeri.py _build_lucky_card/_personal_score 实际消费的键）:
         - shengxiao: 年支 → 生肖（冲生肖排除）; 取不到则跳过（引擎不误伤）
@@ -1674,13 +1678,27 @@ class MessageHandler:
           引擎无 wuxing 恒返 24 分(喜用神个人适配恒失效, 终审 Fix4)
         无八字 → None, 引擎走无八字兜底; 推导失败保持现状(引擎兜底 24)。
         """
-        try:
-            saved = self.dao.get_user_bazi(user_id)
-        except Exception:
-            saved = None
+        if saved is None:
+            try:
+                saved = self.dao.get_user_bazi(user_id)
+            except Exception:
+                saved = None
         if not saved:
             return None
         bazi = saved.get("bazi") or []
+        # 表单选填八字: 解析字段 dict 无四柱 → 排盘补全(引擎异常 → 放弃, None 兜底不误伤)
+        if not bazi and saved.get("year"):
+            try:
+                result = self.engine.calculate(
+                    int(saved["year"]), int(saved["month"]), int(saved["day"]),
+                    int(saved.get("hour") or 0), int(saved.get("minute") or 0),
+                    str(saved.get("city") or "北京"), str(saved.get("gender") or "unknown"))
+                saved = dict(saved)
+                saved["bazi"] = result.bazi
+                saved["wuxing"] = result.wuxing   # 引擎五行表口径, 与 Fix4 推导一致
+                bazi = result.bazi
+            except Exception:
+                return None
         if isinstance(bazi, str):
             bazi = bazi.split()   # 兼容 "甲子 乙丑 丙寅 丁卯" 字符串形式
         user_bazi = {}

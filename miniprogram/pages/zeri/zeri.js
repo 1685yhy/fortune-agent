@@ -90,6 +90,9 @@ const CHECKLIST_TEMPLATES = {
 const DEFAULT_WINDOW_DAYS = 30; // 默认窗口：今天起 30 天（与对话侧一致）
 const MAX_EXCLUDE_ROUNDS = 5;  // 换一批跨轮去重上限：最多累积最近 5 轮已展示日期（终审 M2）
 
+/* 时间段（表单式三步入口 dir_b v7；与后端 zeri.py PERIODS 一致）——onLoad 校验用 */
+const PERIODS = ['本周', '本月', '下个月', '三个月内'];
+
 /* 日期工具 */
 function pad(n) { return String(n).padStart(2, '0'); }
 function iso(d) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
@@ -119,6 +122,8 @@ Page({
   data: {
     dark: false,
     scene: '',            // 当前场景（空 = 未选，显示场景引导）
+    period: '',           // 时间段（表单三步入口：本周/本月/下个月/三个月内，空=默认30天）
+    bazi: '',             // 选填八字（表单三步入口）
     scenes: SCENES,
     loading: false,       // 首次取卡中
     refreshing: false,    // 换一批中
@@ -137,11 +142,23 @@ Page({
     theme.bindTheme(this);
     this._loadMember();
     const scene = decodeURIComponent((options.scene || '').trim());
+    // 表单式三步入口（dir_b v7）：scene+period(+bazi) 进入；period 非法则忽略走默认窗口
+    const periodRaw = decodeURIComponent((options.period || '').trim());
+    const period = PERIODS.indexOf(periodRaw) !== -1 ? periodRaw : '';
+    const bazi = decodeURIComponent((options.bazi || '').trim());
     if (scene) {
-      this.setData({ scene });
+      this.setData({ scene, period, bazi });
+      if (period) this._updateTitle(scene, period);
       this._loadCards(scene, [], true);
     }
     // 无 scene → 显示场景引导（第 6 项：从对话深链进入时无场景参数）
+  },
+
+  /* 标题：{scene} · {period}（三步表单入口）；无 period 保持默认 */
+  _updateTitle(scene, period) {
+    try {
+      wx.setNavigationBarTitle({ title: `${scene} · ${period}` });
+    } catch (e) { /* ignore */ }
   },
 
   /* 会员判定（评分明细展开门槛；失败按非会员处理） */
@@ -159,8 +176,16 @@ Page({
   _loadCards(scene, excludeDates, initial) {
     if (this.data.loading || this.data.refreshing) return;
     this.setData(scene === this.data.scene && this.data.cards.length ? { refreshing: true } : { loading: true });
-    const w = windowDates(DEFAULT_WINDOW_DAYS);
-    const params = { scene, start: w.start, end: w.end, exclude_dates: excludeDates || [] };
+    const params = { scene, exclude_dates: excludeDates || [] };
+    if (this.data.period) {
+      // 表单三步入口：时间段由服务端按 period 换算窗口（本周/本月/下个月/三个月内）
+      params.period = this.data.period;
+      if (this.data.bazi) params.bazi = this.data.bazi;
+    } else {
+      const w = windowDates(DEFAULT_WINDOW_DAYS);
+      params.start = w.start;
+      params.end = w.end;
+    }
     const req = initial ? api.getZeriOptions(params) : api.refreshZeri(params);
     req.then((res) => {
       const cards = (res && res.cards) || [];

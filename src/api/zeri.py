@@ -6,6 +6,7 @@
 - 绑定态复用 jian_prefs(同一服务号 openid 不重复存);提醒为主动同意制
 """
 import logging
+import re
 from dataclasses import asdict
 from datetime import date, datetime, timezone, timedelta
 from typing import Optional
@@ -69,6 +70,126 @@ def _bj_today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
 
 
+def _bj_date() -> date:
+    return datetime.now(timezone(timedelta(hours=8))).date()
+
+
+# 时间段(表单式三步入口 Step 2 的取值; period 参数与 start/end 互斥)
+PERIODS = ("本周", "本月", "下个月", "三个月内")
+
+
+def _period_window(period: str, today: Optional[date] = None) -> Optional[tuple]:
+    """时间段 → (start, end) ISO 日期串(含首尾)。非法 period → None;today 可注入(测试)。
+
+    - 本周: 周一起 7 天(周一..周日)
+    - 本月: 自然月(1 号..月末)
+    - 下个月: 下一自然月(1 号..月末)
+    - 三个月内: today..today+90 天
+    """
+    if not period:
+        return None
+    today = today or _bj_date()
+    if period == "本周":
+        start = today - timedelta(days=today.weekday())
+        end = start + timedelta(days=6)
+    elif period == "本月":
+        start = today.replace(day=1)
+        end = (start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    elif period == "下个月":
+        start = (today.replace(day=1) + timedelta(days=32)).replace(day=1)
+        end = (start + timedelta(days=32)).replace(day=1) - timedelta(days=1)
+    elif period == "三个月内":
+        start = today
+        end = today + timedelta(days=90)
+    else:
+        return None
+    return start.isoformat(), end.isoformat()
+
+
+def _resolve_window(start: Optional[str], end: Optional[str],
+                    period: Optional[str] = None, today: Optional[date] = None) -> tuple:
+    """日期窗口解析(refresh/options 共用): period 优先 —— 给了 period 就用 period 算窗口,
+    start/end 忽略; 非法 period → 400。否则 start/end 须同时给出; 都不给 → 默认未来 30 天。
+    返回 (start, end), 已过 _validate_window ≤92 天钳制。
+    """
+    if period:
+        win = _period_window(period, today)
+        if win is None:
+            raise HTTPException(status_code=400,
+                                detail=f"未知时间段: {period!r}, 可选: {'/'.join(PERIODS)}")
+        start, end = win
+    else:
+        start = (start or "").strip()
+        end = (end or "").strip()
+        if start and end:
+            pass
+        elif not start and not end:
+            today = today or _bj_date()
+            start, end = today.isoformat(), (today + timedelta(days=30)).isoformat()
+        else:
+            raise HTTPException(status_code=400, detail="start 与 end 须同时提供")
+    _validate_window(start, end)
+    return start, end
+
+
+# 表单选填八字: 兜底 ISO 式直解(对话侧 _extract_bazi_info 只认 "YYYY年" 开头, 纯横杠式会漏)
+_BAZI_ISO_RE = re.compile(r'(\d{4})\s*[-/.年]\s*(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*日?')
+_BAZI_TIME_RE = re.compile(r'(?:^|\s)(\d{1,2})\s*[:：点时]\s*(\d{0,2})')
+
+
+def _parse_bazi_form(bazi_str: str) -> Optional[tuple]:
+    """表单选填八字解析: 先走对话侧同款语义解析(中文/农历/时段描述), 未识别
+    (如 "1995-08-12 14:30" 纯 ISO 式) 再兜底直解。
+    返回 (year, month, day, hour, minute, city, gender) 或 None。"""
+    extract = getattr(_handler, "_extract_bazi_info", None)
+    if extract is not None:
+        try:
+            parsed = extract(bazi_str)
+        except Exception:
+            parsed = None
+        if parsed:
+            return parsed
+    m = _BAZI_ISO_RE.search(bazi_str)
+    if not m:
+        return None
+    year, month, day = (int(m.group(i)) for i in (1, 2, 3))
+    if year < 1900 or year > 2100 or not (1 <= month <= 12) or not (1 <= day <= 31):
+        return None
+    hour = minute = 0
+    tm = _BAZI_TIME_RE.search(bazi_str)
+    if tm:
+        hour = int(tm.group(1))
+        minute = int(tm.group(2) or 0)
+        if hour > 23 or minute > 59:
+            return None
+    gender = "未知"
+    if "女" in bazi_str:
+        gender = "女"
+    elif "男" in bazi_str:
+        gender = "男"
+    return (year, month, day, hour, minute, "北京", gender)
+
+
+def _resolve_user_bazi(uid: str, bazi: Optional[str]) -> Optional[dict]:
+    """选填八字 → 引擎 user_bazi; 空 → 存储档案(现状); 解析/映射失败 → None(引擎无八字兜底)。"""
+    if bazi and bazi.strip():
+        parsed = _parse_bazi_form(bazi.strip())
+        if not parsed:
+            return None
+        year, month, day, hour, minute, city, gender = parsed
+        try:
+            return _handler._map_user_bazi_for_zeri(uid, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute, "city": city, "gender": gender,
+            })
+        except Exception:
+            return None
+    try:
+        return _handler._map_user_bazi_for_zeri(uid)
+    except Exception:
+        return None
+
+
 def _bound_status(uid: str) -> str:
     return _zdao().get_jian_bound_status(uid) or "unbound"
 
@@ -116,8 +237,10 @@ class PrefUpdate(BaseModel):
 
 class RefreshBody(BaseModel):
     scene: str
-    start: str                           # ISO YYYY-MM-DD
-    end: str                             # ISO YYYY-MM-DD
+    start: Optional[str] = None          # ISO YYYY-MM-DD(与 period 互斥: 给 period 则忽略)
+    end: Optional[str] = None            # ISO YYYY-MM-DD(与 period 互斥)
+    period: Optional[str] = None         # 时间段: 本周/本月/下个月/三个月内(表单三步入口)
+    bazi: Optional[str] = None           # 选填八字: 非空则按此择日, 替代存储档案
     exclude_dates: Optional[list] = None # 换一批去重: 已展示过的日期
 
 
@@ -223,7 +346,7 @@ def refresh_cards(body: RefreshBody, uid: str = Depends(require_user)):
     (与对话 handler 扣额度语义一致)。计数后再次校验 bump 返回的 allowed:并发
     下两个请求同时过预检时,串行 bump 的第二个以 429 拒绝(权威结果为准)。
     """
-    _validate_window(body.start, body.end)   # Fix5: 窗口钳制先于额度判定(超窗一律 400)
+    start, end = _resolve_window(body.start, body.end, body.period)  # Fix5: 窗口钳制先于额度判定(超窗一律 400)
     dao = _zdao()
     unlimited = is_member(uid) or is_experience_mode()
     today = _bj_today()
@@ -234,14 +357,10 @@ def refresh_cards(body: RefreshBody, uid: str = Depends(require_user)):
                 detail=f"今天的换一批次数已用完({FREE_REFRESH_LIMIT} 次),明日再来或升级会员")
     if _handler is None or getattr(_handler, "zeri_engine", None) is None:
         raise HTTPException(status_code=503, detail="择日服务未就绪")
-    user_bazi = None
-    try:
-        user_bazi = _handler._map_user_bazi_for_zeri(uid)
-    except Exception:
-        user_bazi = None
+    user_bazi = _resolve_user_bazi(uid, body.bazi)
     try:
         res = _handler.zeri_engine.select_lucky_days(
-            scene=body.scene.strip(), start_date=body.start, end_date=body.end,
+            scene=body.scene.strip(), start_date=start, end_date=end,
             user_bazi=user_bazi, exclude_dates=body.exclude_dates or None,
             prefer_weekend=True)
     except ValueError as e:
@@ -270,8 +389,12 @@ def refresh_cards(body: RefreshBody, uid: str = Depends(require_user)):
 
 @router.get("/options")
 def get_options(scene: str = "", start: str = "", end: str = "",
+                period: str = "", bazi: str = "",
                 exclude_dates: Optional[str] = None, uid: str = Depends(require_user)):
     """初始加载取卡: 调引擎选日，不扣换一批额度。exclude_dates 可选传(逗号分隔)但被忽略。
+
+    表单式三步入口: period(本周/本月/下个月/三个月内)与 bazi(选填八字) 可选,
+    与 start/end 互斥(给 period 则 start/end 忽略); 都不给 → 默认未来 30 天。
 
     与 refresh 同构返回 {cards, scanned, suggest_wider, reason, refresh_remaining(只读)}。
     仅页面初始加载/切场景用；「换一批」仍走 POST /refresh 扣额度。exclude_dates 仅为
@@ -280,14 +403,10 @@ def get_options(scene: str = "", start: str = "", end: str = "",
     scene = scene.strip()
     if not scene:
         raise HTTPException(status_code=400, detail="场景不能为空")
-    _validate_window(start, end)             # Fix5: 窗口钳制
+    start, end = _resolve_window(start, end, period or None)   # Fix5: 窗口钳制
     if _handler is None or getattr(_handler, "zeri_engine", None) is None:
         raise HTTPException(status_code=503, detail="择日服务未就绪")
-    user_bazi = None
-    try:
-        user_bazi = _handler._map_user_bazi_for_zeri(uid)
-    except Exception:
-        user_bazi = None
+    user_bazi = _resolve_user_bazi(uid, bazi or None)
     # Fix2(终审): options 静默忽略 exclude_dates —— 免费用户可借此绕过换一批 3 次/日
     # 上限(改 exclude 无限"换一批")。解析但丢弃, 不传给引擎: 仅 POST /refresh 支持去重换批。
     ex_dates = [d.strip() for d in exclude_dates.split(",") if d and d.strip()] if exclude_dates else None

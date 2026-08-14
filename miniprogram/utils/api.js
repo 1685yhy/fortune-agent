@@ -1020,13 +1020,17 @@ function getZeriPlan(planId) { return request(`/api/zeri/plans/${planId}`, { met
 function selectZeri(data) { return request('/api/zeri/select', { method: 'POST', data, showLoading: true }); }
 function updateZeriItem(planId, patch) { return request(`/api/zeri/plans/${planId}/item`, { method: 'PUT', data: patch }); }
 function setZeriReminder(planId, enabled) { return request(`/api/zeri/plans/${planId}/reminder`, { method: 'PUT', data: { enabled } }); }
+// data: {scene, start, end, exclude_dates} 或表单三步入口 {scene, period, bazi, exclude_dates}
 function refreshZeri(data) { return request('/api/zeri/refresh', { method: 'POST', data }); }
 function getZeriOptions(params = {}) {
   // 初始加载取卡：GET /api/zeri/options，不扣换一批额度；exclude_dates 逗号分隔可选传
+  // period/bazi 可选（表单三步入口：period=时间段，bazi=选填八字）
   const q = [];
   if (params.scene) q.push('scene=' + encodeURIComponent(params.scene));
   if (params.start) q.push('start=' + encodeURIComponent(params.start));
   if (params.end) q.push('end=' + encodeURIComponent(params.end));
+  if (params.period) q.push('period=' + encodeURIComponent(params.period));
+  if (params.bazi) q.push('bazi=' + encodeURIComponent(params.bazi));
   if (params.exclude_dates && params.exclude_dates.length) {
     q.push('exclude_dates=' + params.exclude_dates.map(encodeURIComponent).join(','));
   }
