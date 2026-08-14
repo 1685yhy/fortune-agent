@@ -60,6 +60,11 @@ Page({
     whisper: true,              // 个性化私语（默认开；本地偏好）
     bound: false,               // 服务号绑定态（bound_status === 'bound'）
     invalid: false,            // 订阅失效态（bound_status === 'invalid'，连续失败≥3次）
+    /* 择日提醒（大事择吉日：GET/PUT /api/zeri/prefs；绑定态同服务号通道） */
+    zeriLoading: true,          // 择日 prefs 拉取中
+    zeriReminder: false,        // 择日提醒开关（全局偏好）
+    zeriBound: false,           // 择日推送绑定态（同 jian_prefs bound_status）
+    zeriInvalid: false,         // 择日推送失效态
     /* 深夜陪伴（方案·灯下漫谈：时段档位/点灯动效/深夜挽留/灯语定时/私语联动晨笺）
        水合源 GET /api/night/prefs（Task 2）；私语与本地 ylm_jian_whisper 双向同步 */
     nightPresetLabels: Object.keys(nightMode.PRESET_LABEL).map((k) => nightMode.PRESET_LABEL[k]), // 三档显示文案(早睡党/标准/夜猫子)
@@ -80,6 +85,7 @@ Page({
   onShow() {
     this._deriveIdentity();
     this._loadJianPrefs();
+    this._loadZeriPrefs(); // 择日提醒（与 jian prefs 并行水合）
     this._loadNightPrefs(); // 深夜陪伴（与 jian prefs 并行水合）
   },
 
@@ -262,6 +268,39 @@ Page({
     this.setData({ whisperOn: e.detail.value, whisper: !!e.detail.value });
     try { wx.setStorageSync('ylm_jian_whisper', e.detail.value ? 'on' : 'off'); } catch (err) {}
     api.putNightPrefs({ whisper_enabled: e.detail.value }).catch(() => {});
+  },
+
+  /* ═══ 择日提醒（大事择吉日：GET/PUT /api/zeri/prefs）
+       红线同晨笺：关闭 → PUT reminder_enabled:false，绝不默认推送；
+       关闭时提示"已排期的提醒将停止"；未绑定 → 复用 jian_onboard 绑定引导。 ═══ */
+  _loadZeriPrefs() {
+    api.getZeriPrefs().then((res) => {
+      const p = (res && res.prefs) || {};
+      this.setData({
+        zeriLoading: false,
+        zeriReminder: p.reminder_enabled === 1 || p.reminder_enabled === true,
+        zeriBound: p.bound_status === 'bound',
+        zeriInvalid: p.bound_status === 'invalid',
+      });
+    }).catch(() => {
+      this.setData({ zeriLoading: false }); // 静默降级：保持默认关态
+    });
+  },
+
+  onZeriReminderSwitch(e) {
+    if (this.data.zeriLoading) return;
+    const on = !!e.detail.value;
+    const prev = this.data.zeriReminder;
+    this.setData({ zeriReminder: on });
+    if (!on) {
+      wx.showToast({ title: '已排期的提醒将停止', icon: 'none', duration: 2200 });
+    }
+    api.putZeriPrefs({ reminder_enabled: on }).then(() => {
+      if (on) wx.showToast({ title: '已开启择日提醒', icon: 'none' });
+    }).catch(() => {
+      this.setData({ zeriReminder: prev });
+      wx.showToast({ title: '保存失败，请重试', icon: 'none' });
+    });
   },
 
   /* 未绑定 → 去绑定（jian_onboard 引导页：服务号二维码/绑定引导；返回后 onShow 刷新状态） */

@@ -432,6 +432,41 @@
 }
 .yuan-entry-arrow { width: 27rpx; height: 19rpx; flex-shrink: 0; }
 
+/* ═══ 大事择吉日入口卡（第三入口：朱砂「吉」印章 + 标题 + 副文案 + brush-arrow，同 yuan-entry 族） ═══ */
+.zeri-entry {
+  width: 100%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 15rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 10rpx;
+  padding: 19rpx 24rpx;
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+  margin-top: 19rpx;
+}
+.zeri-entry-active { background: var(--acc-soft); }
+.zeri-seal { width: 52rpx; height: 52rpx; font-size: 30rpx; border-radius: 6rpx; }
+.zeri-entry-mid { flex: 1; min-width: 0; }
+.zeri-entry-title {
+  font-family: var(--font-kai);
+  font-size: 27rpx;
+  letter-spacing: .1em;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zeri-entry-sub {
+  margin-top: 6rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .08em;
+  color: var(--ink-soft);
+}
+.zeri-entry-arrow { width: 27rpx; height: 19rpx; flex-shrink: 0; }
+
 /* ═══ Task 8 · 深夜入口横幅（方案·灯下漫谈）：夜色宣纸卡底 + 灯笼暖光 + 朱砂描边 ═══ */
 .night-banner {
   width: 100%;

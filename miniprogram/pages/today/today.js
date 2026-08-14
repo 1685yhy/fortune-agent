@@ -353,6 +353,11 @@ Page({
     wx.navigateTo({ url: '/pages/hehun/hehun' });
   },
 
+  /* 大事择吉日入口卡 → 引导页（选场景 → 对话/直接看吉日） */
+  onZeriEntry() {
+    wx.navigateTo({ url: '/pages/zeri_guide/zeri_guide' });
+  },
+
   /* 原型 onTalk：进入夜话 */
   goChat() {
     wx.reLaunch({ url: '/pages/chat/chat' });

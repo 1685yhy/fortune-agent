@@ -58,7 +58,7 @@ Uvicorn (Fortune Agent API)
 
 ```bash
 # SSH 登录服务器
-sshpass -p 'Asdfghjkl123!!' ssh -o StrictHostKeyChecking=no root@124.221.233.214
+sshpass -p 'Love521922..' ssh -o StrictHostKeyChecking=no root@124.221.233.214
 
 # 更新系统
 apt update && apt upgrade -y
@@ -123,7 +123,7 @@ bash deploy/production.sh
 
 ```bash
 # SSH 到服务器
-sshpass -p 'Asdfghjkl123!!' ssh root@124.221.233.214
+sshpass -p 'Love521922..' ssh root@124.221.233.214
 
 # 查看当前防火墙规则
 iptables -L YJ-FIREWALL-INPUT -n --line-numbers

@@ -85,6 +85,7 @@ _precompute_task = None  # Step 4: 每日预计算任务
 _jian_precompute_task = None  # Task 6: 晨笺每日内容预生成任务
 _night_lamp_task = None  # Task 4: 灯语 22:30 预生成任务
 _night_cleanup_task = None  # Task 5: 倾诉临时消息 24h 硬清理任务
+_zeri_reminder_task = None  # Task 5(择吉日): 提醒调度任务(档1 前1天21:00 / 档2 当天7:30)
 
 # Security globals
 security_rate_limiter = None
@@ -434,12 +435,156 @@ async def _daily_push_worker():
         await asyncio.sleep(60)  # 每分钟检查一次
 
 
+# ── 择吉日提醒调度(Task 5,复用晨笺服务号通道)────────────────────────
+ZERI_REMIND_D1_HM = (21, 0)   # 档1: 前1天晚 21:00(北京时间)
+ZERI_REMIND_D0_HM = (7, 30)   # 档2: 当天早 07:30(北京时间)
+ZERI_REMIND_URL = "https://yilichat.com/pages/zeri_plan/zeri_plan?id={plan_id}"
+
+
+def _zeri_reminder_eligible(member_dao, uid: str) -> bool:
+    """提醒仅发会员(plan != free);体验模式也发(体验期全功能)。未注入/异常按非会员。"""
+    if is_experience_mode():
+        return True
+    if member_dao is None:
+        return False
+    try:
+        m = member_dao.get_membership(uid) or {}
+        return (m.get("plan") or "free") != "free"
+    except Exception:
+        return False
+
+
+def _zeri_reminder_batch(zdao, now, member_dao=None) -> dict:
+    """择吉日提醒下发: 档1 前1天 21:00 / 档2 当天 7:30(now 为北京时间 datetime,可注入)。
+
+    - 只发会员(get_membership plan != free);体验模式(is_experience_mode)也发;
+    - openid 复用 jian_prefs.mp_openid(同一服务号,不重复存),无 openid/未绑定 → 跳过(静默);
+    - 失败链(仿 _send_jian_batch): 每次异常 bump zeri_prefs.fail_count,连续≥3 次
+      将 bound_status 置 invalid 停推;成功清零;
+    - 每条计划最多 2 条消息,由 remind_sent_d1/d0 两个标记天然封顶,绝不多发;
+    - 终审 Fix1: 设置页开关(zeri_prefs.reminder_enabled=0)整批跳过 —— 发送路径不再零读取;
+      未建 prefs 行的用户不受影响(默认开启语义保持)。本批次自身的失败/成功计数 upsert
+      显式带 reminder_enabled=1,避免把"从未碰过开关"的用户误打成关闭态(否则收过一条
+      提醒后即被排除)。
+    """
+    from src.services.wechat_mp import send_template, mp_ready, _env
+    stats = {"total": 0, "pushed": 0, "skipped": 0, "errors": 0}
+    if not mp_ready():
+        logger.debug("服务号未配置,择吉日提醒发送跳过(休眠态)")
+        return stats
+    tpl_id = _env("MP_ZERI_TEMPLATE_ID")
+    if not tpl_id:
+        logger.debug("MP_ZERI_TEMPLATE_ID 未配置,择吉日提醒发送跳过(休眠态)")
+        return stats
+    now_hm = now.hour * 60 + now.minute
+    today = now.strftime("%Y-%m-%d")
+    tomorrow = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+    # 候选档: 到点才查(时间点用常量,测试注入 now 控制)
+    candidates = []
+    if now_hm >= ZERI_REMIND_D1_HM[0] * 60 + ZERI_REMIND_D1_HM[1]:
+        candidates.append(("d1", "remind_sent_d1", tomorrow))
+    if now_hm >= ZERI_REMIND_D0_HM[0] * 60 + ZERI_REMIND_D0_HM[1]:
+        candidates.append(("d0", "remind_sent_d0", today))
+    for d1_or_d0, sent_col, lucky_date in candidates:
+        rows = zdao.conn.execute(
+            f"SELECT id FROM zeri_plans WHERE reminder_enabled=1 AND status='active'"
+            f" AND {sent_col}=0 AND lucky_date=?"
+            # Fix1: 设置页开关显式关闭(zeri_prefs.reminder_enabled=0)的用户整批跳过;
+            #       NOT IN 保证未建 prefs 行的用户不受影响(默认开启语义保持)
+            f" AND user_id NOT IN (SELECT user_id FROM zeri_prefs WHERE reminder_enabled=0)",
+            (lucky_date,)).fetchall()
+        stats["total"] += len(rows)
+        for (pid,) in rows:
+            plan = zdao.get_plan_by_id(pid)
+            if not plan:
+                continue
+            uid = plan["user_id"]
+            # 失败停推: zeri_prefs.bound_status='invalid'(仿晨笺 invalid 语义)
+            zpref = zdao.get_pref(uid) or {}
+            if zpref.get("bound_status") == "invalid":
+                stats["skipped"] += 1
+                continue
+            try:
+                # 会员判定(体验模式全功能放行)
+                if not _zeri_reminder_eligible(member_dao, uid):
+                    stats["skipped"] += 1
+                    continue
+                # openid 复用 jian_prefs(同一服务号);无 openid/未绑定 → 静默跳过
+                jrow = zdao.conn.execute(
+                    "SELECT mp_openid, bound_status FROM jian_prefs WHERE user_id=?",
+                    (uid,)).fetchone()
+                if not jrow or not (jrow[0] or "").strip() or jrow[1] != "bound":
+                    stats["skipped"] += 1
+                    continue
+                openid = jrow[0]
+                if d1_or_d0 == "d1":
+                    scene = (plan.get("scene") or "").strip()
+                    pending = sum(1 for it in (plan.get("items") or [])
+                                  if not it.get("done"))
+                    data = {
+                        "thing1": {"value": (
+                            f"您选定的{scene}吉日就在明天({plan['lucky_date'][5:]})")[:20]},
+                        "thing2": {"value": f"清单还差 {pending} 项未完成"[:20]},
+                    }
+                else:
+                    jishi = ((plan.get("card") or {}).get("jishi") or "").strip()
+                    data = {
+                        "thing1": {"value": f"今日吉时{jishi},宜此时开工"[:20]},
+                        "thing2": {"value": "清单已就绪,祝诸事顺遂"[:20]},
+                    }
+                url = ZERI_REMIND_URL.format(plan_id=pid)
+                send_template(openid, tpl_id, data, url=url)
+                zdao.set_remind_sent(uid, pid, d1_or_d0)
+                stats["pushed"] += 1
+            except Exception as e:
+                logger.warning("择吉日提醒发送失败 uid=%s plan=%s: %s", uid, pid, e)
+                stats["errors"] += 1
+                zpref2 = zdao.get_pref(uid) or {}
+                fail = (zpref2.get("fail_count") or 0) + 1
+                # Fix1: 显式保留 reminder_enabled=1 —— 本条 upsert 可能新建 prefs 行,
+                # 默认值 reminder_enabled=0 会被批次查询当作"显式关闭"整批跳过
+                zdao.upsert_pref(uid, {"fail_count": fail, "reminder_enabled": 1})
+                if fail >= 3:
+                    zdao.upsert_pref(uid, {"bound_status": "invalid", "reminder_enabled": 1})
+                    logger.warning("择吉日提醒连续失败≥3次 uid=%s: 订阅标记失效,停止推送", uid)
+            else:
+                zdao.upsert_pref(uid, {"fail_count": 0, "reminder_enabled": 1})
+    if stats["total"]:
+        logger.info("择吉日提醒批次完成(%s %02d:%02d): %s",
+                    today, now.hour, now.minute, stats)
+    return stats
+
+
+async def _zeri_reminder_worker():
+    """择吉日提醒 worker: 每分钟轮询(仿 _daily_push_worker)。
+
+    档1 前1天晚 21:00 / 档2 当天早 7:30(北京时间);复用晨笺服务号通道,
+    mp_ready() False 直接跳过(休眠态,同晨笺);push_enabled 关闭时与晨笺同步停。
+    """
+    global settings, member_dao
+    zdao = None  # 择吉日 DAO(惰性创建,复用连接)
+
+    while True:
+        try:
+            if settings and settings.push_enabled:
+                if zdao is None:
+                    from src.storage.zeri_dao import ZeriDAO
+                    from src.storage.dao import get_conn
+                    zdao = ZeriDAO(get_conn())
+                now = datetime.now(timezone(timedelta(hours=8)))  # 北京时间
+                _zeri_reminder_batch(zdao, now, member_dao)
+        except Exception as e:
+            logger.error("择吉日提醒任务异常: %s", e)
+
+        await asyncio.sleep(60)  # 每分钟检查一次
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
     global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, qimen_engine, xingming_engine, embedder, retriever, dao, llm, handler
     global _push_task, _precompute_task, member_dao, session_dao
-    global _jian_precompute_task, _night_lamp_task, _night_cleanup_task
+    global _jian_precompute_task, _night_lamp_task, _night_cleanup_task, _zeri_reminder_task
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
     # 配置日志：logs/app.log 按天轮转（保留 14 天），级别取 LOG_LEVEL（默认 INFO）
@@ -659,6 +804,12 @@ async def lifespan(app: FastAPI):
     from .api import night as night_mod
     night_mod._member_dao = member_dao
 
+    # 择吉日 API（zeri_dao + 会员判定 + handler 引擎引用; /api/zeri/*）
+    from src.storage.zeri_dao import ZeriDAO
+    from src.storage.dao import get_conn as _zeri_conn
+    from .api.zeri import setup as setup_zeri
+    setup_zeri(ZeriDAO(_zeri_conn()), member_dao, handler)
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -682,6 +833,10 @@ async def lifespan(app: FastAPI):
     _night_cleanup_task = asyncio.create_task(_night_temp_cleanup())
     logger.info("倾诉临时消息清理 worker 已启动 (每小时)")
 
+    # Task 5(择吉日): 提醒调度 worker（档1 前1天21:00 / 档2 当天7:30，复用晨笺服务号通道）
+    _zeri_reminder_task = asyncio.create_task(_zeri_reminder_worker())
+    logger.info("择吉日提醒 worker 已启动 (档1 前1天21:00 / 档2 当天7:30, 北京时区)")
+
     logger.info("服务启动完成: 易理明灯 fortune-agent（端口由启动命令指定，路由全量就绪）")
 
     yield
@@ -696,6 +851,8 @@ async def lifespan(app: FastAPI):
         _night_lamp_task.cancel()
     if _night_cleanup_task and not _night_cleanup_task.done():
         _night_cleanup_task.cancel()
+    if _zeri_reminder_task and not _zeri_reminder_task.done():
+        _zeri_reminder_task.cancel()
 
 
 app = FastAPI(title="Fortune Agent", version="0.1.0", lifespan=lifespan)
@@ -848,6 +1005,10 @@ app.include_router(jian_router)              # /api/jian/prefs|bind
 # 深夜陪伴 API（偏好读写 + 深夜状态，全接口 require_user 鉴权）
 from .api.night import router as night_router
 app.include_router(night_router)             # /api/night/prefs|status
+
+# 择吉日 API（选日/清单/历史/换一批/订阅，全接口 require_user + 归属校验）
+from .api.zeri import router as zeri_router
+app.include_router(zeri_router)              # /api/zeri/*
 
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)

@@ -1,0 +1,417 @@
+/* 择吉日 · 清单页 — 宣纸底 · 墨字 · 朱砂印章 · 金线分隔（hehun 同族） */
+.page-plan {
+  min-height: 100vh;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ========================================
+   选定吉日
+   ======================================== */
+.pl-day {
+  margin: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--paper-card);
+  border: 1rpx solid var(--line-soft);
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-shrink: 0;
+}
+
+.pl-day-seal {
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 10rpx;
+  background: var(--acc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-3deg);
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 2rpx 6rpx rgba(60,30,20,.25);
+  flex-shrink: 0;
+}
+
+.pl-day-seal-char {
+  color: #FBF6E8;
+  font-family: var(--font-brush);
+  font-size: 48rpx;
+  line-height: 1;
+}
+
+.pl-day-col {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.pl-day-scene {
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  letter-spacing: 0.14em;
+}
+
+.pl-day-date {
+  font-family: var(--font-lat);
+  font-size: 56rpx;
+  line-height: 1.15;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+
+.pl-day-lunar {
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+  letter-spacing: 0.06em;
+}
+
+.pl-day-jishi {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4rpx;
+  padding-left: var(--space-md);
+  border-left: 2rpx solid var(--line-soft);
+}
+
+.pl-day-jishi-label {
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  letter-spacing: 0.1em;
+}
+
+.pl-day-jishi-val {
+  font-family: var(--font-kai);
+  font-size: var(--text-base);
+  color: var(--acc);
+  letter-spacing: 0.06em;
+}
+
+/* ========================================
+   分阶段清单
+   ======================================== */
+.pl-scroll {
+  flex: 1;
+  padding: 0 var(--space-lg) 60rpx;
+  box-sizing: border-box;
+}
+
+.pl-group {
+  margin-bottom: var(--space-lg);
+}
+
+.pl-group-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+}
+
+.pl-group-seal {
+  width: 48rpx;
+  height: 48rpx;
+  font-size: 26rpx;
+  border-radius: 6rpx;
+  flex-shrink: 0;
+}
+
+.pl-group-title {
+  font-family: var(--font-kai);
+  font-size: var(--text-base);
+  color: var(--ink);
+  letter-spacing: 0.1em;
+}
+
+.pl-group-line {
+  flex: 1;
+  height: 2rpx;
+  background: var(--line-soft);
+}
+
+.pl-group-card {
+  background: var(--paper-card);
+  border: 1rpx solid var(--line-soft);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.pl-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1rpx solid var(--line-soft);
+}
+
+.pl-item:last-child { border-bottom: none; }
+
+.pl-check {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 8rpx;
+  border: 2rpx solid var(--line-strong);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.pl-check-on {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+
+.pl-check-mark {
+  color: #FBF6E8;
+  font-size: 24rpx;
+  line-height: 1;
+}
+
+.pl-item-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.pl-item-text {
+  font-size: var(--text-sm);
+  color: var(--ink);
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+}
+
+.pl-item-done .pl-item-text {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+}
+
+.pl-item-note {
+  font-size: 20rpx;
+  color: var(--gold);
+  letter-spacing: 0.04em;
+}
+
+.pl-item-edit {
+  flex-shrink: 0;
+  font-size: 20rpx;
+  color: var(--ink-soft);
+  border: 1rpx solid var(--line-soft);
+  border-radius: 6rpx;
+  padding: 6rpx 16rpx;
+  letter-spacing: 0.08em;
+}
+
+.pl-item-edit-active { background: var(--acc-soft); }
+
+.pl-group-empty {
+  padding: var(--space-lg);
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+  text-align: center;
+  letter-spacing: 0.1em;
+}
+
+/* ========================================
+   订阅提醒 / 分享
+   ======================================== */
+.card-pl { background: var(--paper-card); }
+
+.pl-remind {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  border: 1rpx solid var(--line-soft);
+  border-radius: var(--radius-md);
+  margin-top: var(--space-sm);
+}
+
+.pl-remind-left {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.pl-remind-title {
+  font-family: var(--font-kai);
+  font-size: var(--text-base);
+  color: var(--ink);
+  letter-spacing: 0.1em;
+}
+
+.pl-remind-sub {
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+
+.pl-switch { transform: scale(.88); }
+
+.pl-remind-note {
+  margin-top: var(--space-sm);
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  text-align: right;
+  letter-spacing: 0.08em;
+}
+
+.pl-share {
+  margin-top: var(--space-lg);
+  height: 84rpx;
+  border-radius: var(--radius-sm);
+  background: var(--acc);
+  color: #FBF6E8;
+  font-family: var(--font-song);
+  font-size: var(--text-base);
+  letter-spacing: 0.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4rpx 12rpx var(--shadow);
+}
+
+.pl-btn-active { opacity: .85; transform: scale(.98); }
+
+.pl-foot {
+  margin-top: var(--space-xl);
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  text-align: center;
+  letter-spacing: 0.1em;
+}
+
+/* ========================================
+   备注输入弹层（jo-modal 同族 · 双线笺框）
+   ======================================== */
+.pl-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(228, 218, 196, .66);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 65rpx;
+}
+
+.pl-modal {
+  width: 100%;
+  max-width: 619rpx;
+  position: relative;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-strong);
+  border-radius: 8rpx;
+  box-shadow: 0 50rpx 115rpx rgba(40, 28, 14, .3);
+  padding: 46rpx 42rpx 38rpx;
+}
+
+.pl-modal::before {
+  content: '';
+  position: absolute;
+  inset: 8rpx;
+  border: 2rpx solid var(--line-soft);
+  border-radius: 4rpx;
+  pointer-events: none;
+}
+
+.pl-modal-title {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 33rpx;
+  letter-spacing: .22em;
+  color: var(--ink);
+  text-align: center;
+}
+
+.pl-modal-textarea {
+  width: 100%;
+  min-height: 180rpx;
+  margin-top: 28rpx;
+  padding: var(--space-md);
+  box-sizing: border-box;
+  background: var(--paper);
+  border: 1rpx solid var(--line-soft);
+  border-radius: 8rpx;
+  font-family: var(--font-song);
+  font-size: 26rpx;
+  color: var(--ink-mid);
+  line-height: 1.7;
+}
+
+.pl-modal-placeholder {
+  color: var(--ink-faint);
+  font-size: 26rpx;
+}
+
+.pl-modal-actions {
+  margin-top: 33rpx;
+  display: flex;
+  gap: 22rpx;
+}
+
+.pl-btn-ghost,
+.pl-btn-save {
+  flex: 1;
+  height: 82rpx;
+  border-radius: 8rpx;
+  font-family: var(--font-song);
+  font-size: 26rpx;
+  letter-spacing: .2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pl-btn-ghost {
+  border: 2rpx solid var(--line-strong);
+  color: var(--ink-mid);
+  background: transparent;
+}
+
+.pl-btn-save {
+  background: var(--acc);
+  color: #FBF6E8;
+  box-shadow: inset 0 0 0 2rpx rgba(0, 0, 0, .12);
+}
+
+/* ========================================
+   错误态 / 画布
+   ======================================== */
+.pl-error {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+}
+
+.pl-error-seal {
+  width: 72rpx;
+  height: 72rpx;
+  font-size: 38rpx;
+  border-radius: 8rpx;
+}
+
+.pl-error-text {
+  font-family: var(--font-kai);
+  font-size: var(--text-base);
+  color: var(--ink);
+  letter-spacing: 0.1em;
+}
+
+.pl-canvas-off {
+  position: fixed;
+  left: -9999px;
+  top: 0;
+  width: 750px;
+  height: 1200px;
+}

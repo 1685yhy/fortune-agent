@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import re
+from datetime import date, timedelta
 import time
 from typing import Optional, Tuple, Any, Callable
 
@@ -13,7 +14,7 @@ from src.engines.ziwei import ZiweiEngine, ZiweiResult
 from src.engines.liuyao import LiuyaoEngine, LiuyaoResult
 from src.engines.fengshui import FengshuiEngine, FengshuiResult
 from src.engines.mianxiang import MianxiangEngine, MianxiangResult
-from src.engines.zeri import ZeriEngine, ZeriResult
+from src.engines.zeri import ZeriEngine, ZeriResult, ZODIAC_MAP
 from src.engines.dream import DreamEngine, DreamResult
 from src.engines.hehun import HehunEngine
 from src.engines.qimen import QimenEngine
@@ -82,6 +83,21 @@ _TOOL_EVENT_LABELS = {
     "风水": "正在勘察风水…",
     "择日": "正在择吉日…",
 }
+
+# ============================================================
+# 择吉日（Task 2）: 6 场景同义词表 + 意图词表（双条件判定）
+# ============================================================
+ZERI_SCENE_SYNONYMS = {
+    "嫁娶": ["嫁娶", "结婚", "婚礼", "订婚"],
+    "搬家": ["搬家", "入宅", "乔迁"],
+    "开业": ["开业", "开张", "开店"],
+    "出行": ["出行", "旅游", "出差"],
+    "提车": ["提车", "买车", "购车"],
+    "签约": ["签约", "签合同", "过户"],
+}
+ZERI_INTENT_WORDS = ["选日子", "选个日子", "择日", "哪天", "吉日", "挑个时间", "好日子",
+                     "换一批", "重新选", "还有别的日子吗"]
+ZERI_SCENE_QUESTION = "您是给哪件事选日子？搬家/嫁娶/开业/出行/提车/签约？"
 
 # Task 3（思考步骤渐进展示）：思考步骤文案已迁移到各 _do_*/_handle_*
 # 的真实工作里程碑处（见各处的 _emit_stream_event 调用）——首条在开工时
@@ -1144,7 +1160,7 @@ class MessageHandler:
         if name == "风水":
             return self._tool_fengshui(params)
         if name == "择日":
-            return self._tool_zeri(params)
+            return self._tool_zeri(params, user_id)
         return ToolResult(name, False, f"未知工具「{name}」，请直接和用户正常聊天。")
 
     def _tool_bazi(self, params: str, user_id: str) -> ToolResult:
@@ -1460,34 +1476,244 @@ class MessageHandler:
             lines.append(f"四凶方：{' '.join(f'{k}-{v}' for k, v in inauspicious.items())}")
         return ToolResult("风水", True, "\n".join(lines))
 
-    def _tool_zeri(self, params: str) -> ToolResult:
-        """工具「择日」：日期解析 → ZeriEngine.select。"""
+    def _tool_zeri(self, params, user_id: str) -> ToolResult:
+        """工具「择日」（Task 2 增强）：场景+意图双条件判定 → 时间窗口 → 多日 Top3 吉日。
+
+        params 支持两种形式:
+        - 自然语言字符串（LLM 标签路径）, 可内嵌 "exclude_dates: 2026-09-03,2026-09-06"
+        - dict: {"text": "自然语言描述", "exclude_dates": ["2026-09-03", ...]}
+
+        流程：
+        ① 场景判定（6 场景同义词表）——缺场景 → 澄清 ToolResult, 不调引擎、不扣额度
+        ② 意图判定（选日子/择日/哪天/吉日/挑个时间/好日子/换一批…）——场景在但无意图 →
+           澄清反问, 不调引擎、不扣额度
+        ③ 额度检查（_check_quota, 澄清不扣）——引擎调用成功后才扣减（异常不占额度）
+        ④ user_bazi（dao.get_user_bazi → shengxiao/day_gan/month_zhi 映射）
+        ⑤ select_lucky_days(scene, start, end, user_bazi, exclude_dates) → 结构化卡片文本
+        ⑥ 末尾选择问句 + /pages/zeri/zeri 深链（前端 navFor 渲染跳转按钮）
+        """
         if self.zeri_engine is None:
             return ToolResult("择日", False, "「择日」工具暂不可用，请直接与用户聊天。")
-        date_info = self._extract_date(params)
-        if date_info is None:
+        exclude_dates = self._extract_zeri_exclude_dates(params)
+        if isinstance(params, dict):
+            params = params.get("text") or params.get("params") or ""
+        scene = self._extract_zeri_scene(params)
+        if scene is None:
             return ToolResult(
-                "择日", False,
-                "缺少具体日期。请向用户自然询问要查询的日期和用途"
-                "（如：2026年8月15日 搬家 / 结婚），日期格式如“2026年8月15日”。",
+                "择日", False, ZERI_SCENE_QUESTION,
                 needs_info=True,
             )
-        year, month, day = date_info
-        purpose = self._extract_purpose(params)
+        if not (self._has_zeri_intent(params) or self._has_zeri_date_anchor(params)):
+            return ToolResult(
+                "择日", False,
+                f"您是想给「{scene}」选日子吗？告诉我大概时间（如“下个月”“下周”“8月20日”），"
+                f"我帮您挑几个好日子。",
+                needs_info=True,
+            )
+        # 真实调用：额度门（免费额度用完 → 引导会员, 不调引擎）
+        remaining, is_limited = self._check_quota(user_id)
+        if is_limited and remaining <= 0:
+            return ToolResult(
+                "择日", False,
+                "你今天的免费额度已用完。成为会员即可无限畅聊，"
+                "基础版仅需 19.9 元/月。回复「会员」了解更多升级方案。",
+            )
+
+        start, end = self._extract_window(params)
+        user_bazi = self._map_user_bazi_for_zeri(user_id)
         try:
-            result = self.zeri_engine.select(year, month, day, purpose=purpose)
+            res = self.zeri_engine.select_lucky_days(
+                scene=scene, start_date=start, end_date=end,
+                user_bazi=user_bazi, prefer_weekend=True,
+                exclude_dates=exclude_dates or None,
+            )
+            # 仅引擎调用成功后才扣额度（引擎异常/结果异常都不占额度, 澄清路径不扣）
+            self._consume_quota(user_id)
+            cards = res.get("cards") or []
+            scanned = res.get("scanned", 0)
+            lines = [
+                f"【择日】场景：{scene}｜时间范围：{start} ~ {end}",
+                f"共扫描 {scanned} 天，为您挑出 {len(cards)} 个吉日：",
+                "",
+            ]
+            marks = "①②③"
+            for i, c in enumerate(cards[:3], start=0):
+                lines.append(f"{marks[i]} {c.date} {c.lunar_text}")
+                lines.append(f"宜：{'、'.join(c.yi)}")
+                lines.append(f"忌：{'、'.join(c.ji)}")
+                lines.append(f"吉时：{c.jishi}｜喜神：{c.xi_fangwei}｜财神：{c.cai_fangwei}")
+                lines.append(f"理由：{c.reason_source}（总分{c.total}）")
+                lines.append("")
+            if res.get("suggest_wider"):
+                reason = res.get("reason") or "窗口内合格吉日不足"
+                lines.append(f"注：本窗口内合格吉日不足3天（仅{len(cards)}天合格），{reason}。"
+                             "您可以回复「换一批」，我会避开已展示的日期重新挑选；"
+                             "或告诉我新的时间范围。")
+            if cards:
+                lines.append("您选哪一个？选好后我帮您生成办事清单。")
+            else:
+                lines.append("本窗口内没有选出合格吉日，建议扩大日期范围后再试。")
+            lines.append("/pages/zeri/zeri")
         except Exception as e:
             return ToolResult("择日", False, f"择日引擎执行失败：{str(e)[:100]}")
-        lines = [
-            f"日期：{year}年{month}月{day}日（用途：{purpose or '一般'}）",
-            f"建除十二神：{result.jianchu}",
-            f"二十八宿：{result.ershibaxiu}（{result.xiu_jixiong}）",
-            f"冲：{result.chong}",
-            f"宜：{'、'.join(result.yi)}",
-            f"忌：{'、'.join(result.ji)}",
-            f"综合判定：{result.overall}",
-        ]
         return ToolResult("择日", True, "\n".join(lines))
+
+    def _extract_zeri_exclude_dates(self, params) -> Optional[list]:
+        """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。
+
+        - params 为 dict: 取 exclude_dates 键（list of "YYYY-MM-DD", 或逗号/空格分隔字符串）
+        - params 为字符串: 识别内嵌 "exclude_dates: 2026-09-03,2026-09-06"（: / = 均可）
+        无/非法 → None（不排除任何日期, 与调用方 exclude_dates or None 语义一致）。
+        """
+        if isinstance(params, dict):
+            raw = params.get("exclude_dates")
+        else:
+            m = re.search(r"exclude_dates\s*[:＝=]\s*([^<\n]+)", params or "")
+            raw = m.group(1) if m else None
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            raw = re.findall(r"\d{4}-\d{2}-\d{2}", raw)
+        elif not isinstance(raw, (list, tuple)):
+            return None
+        dates = list(dict.fromkeys(
+            d for d in raw if isinstance(d, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", d)
+        ))
+        return dates or None
+
+    def _extract_zeri_scene(self, text: str) -> Optional[str]:
+        """择日场景判定：6 场景同义词表命中 → 规范场景名（嫁娶/搬家/开业/出行/提车/签约）。"""
+        if not text:
+            return None
+        for scene, words in ZERI_SCENE_SYNONYMS.items():
+            if any(w in text for w in words):
+                return scene
+        return None
+
+    def _has_zeri_intent(self, text: str) -> bool:
+        """择日意图判定：是否含 选日子/选个日子/择日/哪天/吉日/挑个时间/好日子。"""
+        return any(w in text for w in ZERI_INTENT_WORDS)
+
+    def _has_zeri_date_anchor(self, text: str) -> bool:
+        """择日意图判定（日期锚点）：是否含具体日期（"8月20日"/"8月20号"/
+        "2026-08-20"/"2026年8月20日"）。
+
+        按任务简报测试用例「8月20日开业 → 窗口=8/20±7天」: 场景词+具体日期
+        视为明确的选日请求（直接进引擎）; 仅场景词无日期无意图词（如"我想搬家"）
+        仍走澄清反问。
+        """
+        if not text:
+            return False
+        if self._extract_date(text):
+            return True
+        return re.search(r'\d{1,2}\s*月\s*\d{1,2}\s*[日号]', text) is not None
+
+    def _extract_window(self, text: str) -> Tuple[str, str]:
+        """解析择日时间窗口, 返回 (start, end) ISO YYYY-MM-DD。
+
+        - "下个月"/"下月" → 下个自然月
+        - "下周"/"下星期" → 下个完整周（周一~周日）
+        - 具体日期（"8月20日"/"8月20号"/"2026-08-20"/"2026年8月20日"）→ 该日 ±7 天
+          （无年份且今年已过 → 顺延下一年）
+        - 无任何信息 → 今天..未来30天
+        防御: end 不超过 start+60 天
+        """
+        today = date.today()
+        text = text or ""
+        # 默认: 今天..未来30天
+        start, end = today, today + timedelta(days=30)
+
+        # 下个月 → 下个自然月
+        if "下个月" in text or "下月" in text:
+            y, m = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+            start = date(y, m, 1)
+            end = date(y + 1, 1, 1) - timedelta(days=1) if m == 12 \
+                else date(y, m + 1, 1) - timedelta(days=1)
+        # 下周 → 下个完整周（周一~周日）
+        elif "下周" in text or "下星期" in text:
+            start = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
+            end = start + timedelta(days=6)
+        else:
+            # 具体日期: 完整年份形式复用 _extract_date
+            target = None
+            date_info = self._extract_date(text)
+            if date_info:
+                target = date(date_info[0], date_info[1], date_info[2])
+            else:
+                # 无年份: "8月20日"/"8月20号", 今年已过 → 顺延下一年
+                m = re.search(r'(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]', text)
+                if m:
+                    try:
+                        t = date(today.year, int(m.group(1)), int(m.group(2)))
+                    except ValueError:
+                        t = None
+                    if t is not None and t < today:
+                        try:
+                            t = date(today.year + 1, int(m.group(1)), int(m.group(2)))
+                        except ValueError:
+                            t = None
+                    target = t
+            if target is not None:
+                start, end = target - timedelta(days=7), target + timedelta(days=7)
+
+        # 防御钳制: end 不超过 start+60 天（且不小于 start）
+        if end > start + timedelta(days=60):
+            end = start + timedelta(days=60)
+        if end < start:
+            end = start
+        return start.isoformat(), end.isoformat()
+
+    def _map_user_bazi_for_zeri(self, user_id: str) -> Optional[dict]:
+        """已保存八字 → select_lucky_days 的 user_bazi 字典。
+
+        映射（zeri.py _build_lucky_card/_personal_score 实际消费的键）:
+        - shengxiao: 年支 → 生肖（冲生肖排除）; 取不到则跳过（引擎不误伤）
+        - day_gan/month_zhi: 日柱天干/月柱地支（喜用神计算）
+        - wuxing/yongshen: 四柱齐备时用天干/地支五行表推导五行计数(或已存则透传),
+          供引擎 _personal_score 计算喜用神 —— 修复前只传 shengxiao/day_gan/month_zhi,
+          引擎无 wuxing 恒返 24 分(喜用神个人适配恒失效, 终审 Fix4)
+        无八字 → None, 引擎走无八字兜底; 推导失败保持现状(引擎兜底 24)。
+        """
+        try:
+            saved = self.dao.get_user_bazi(user_id)
+        except Exception:
+            saved = None
+        if not saved:
+            return None
+        bazi = saved.get("bazi") or []
+        if isinstance(bazi, str):
+            bazi = bazi.split()   # 兼容 "甲子 乙丑 丙寅 丁卯" 字符串形式
+        user_bazi = {}
+        # 已显式保存的 wuxing/yongshen 优先透传(旧数据兼容)
+        for k in ("wuxing", "yongshen"):
+            v = saved.get(k)
+            if v:
+                user_bazi[k] = v
+        if bazi and len(bazi[0]) > 1 and bazi[0][1] in ZODIAC_MAP:
+            user_bazi["shengxiao"] = ZODIAC_MAP[bazi[0][1]]  # 年支 → 生肖
+        if len(bazi) > 2:
+            if bazi[2]:
+                user_bazi["day_gan"] = bazi[2][0]     # 日柱天干
+            if len(bazi[1]) > 1:
+                user_bazi["month_zhi"] = bazi[1][1]   # 月柱地支
+        # Fix4: 四柱齐备 → 天干/地支五行表推导 wuxing 计数(与 bazi.py BaziEngine.calculate
+        # 同口径: 天干按 WUXING_TG、地支按 WUXING_DZ 各计一次), 引擎据此算喜用神
+        if "wuxing" not in user_bazi and len(bazi) >= 4 \
+                and all(isinstance(p, str) and len(p) == 2 for p in bazi[:4]):
+            try:
+                from src.engines.bazi import WUXING_TG, WUXING_DZ
+                wx = {"金": 0, "木": 0, "水": 0, "火": 0, "土": 0}
+                for pillar in bazi[:4]:
+                    gan, zhi = pillar[0], pillar[1]
+                    if gan in WUXING_TG:
+                        wx[WUXING_TG[gan]] += 1
+                    if zhi in WUXING_DZ:
+                        wx[WUXING_DZ[zhi]] += 1
+                if any(wx.values()):
+                    user_bazi["wuxing"] = wx
+            except Exception:
+                pass  # 推导失败 → 保持现状(引擎兜底 24, 不误伤)
+        return user_bazi or None
 
     # ============================================================
     # AI 原生（Phase 2）— 长期记忆主动提起（方案 2.2/5.5）
@@ -2380,10 +2606,12 @@ class MessageHandler:
     def _extract_purpose(self, text: str) -> str:
         """提取择日用途"""
         purpose_keywords = [
-            ("嫁娶", ["结婚", "嫁娶", "订婚", "婚"]),
+            ("嫁娶", ["结婚", "婚礼", "嫁娶", "订婚", "婚"]),
             ("开业", ["开业", "开张", "开市", "开工"]),
             ("搬家", ["搬家", "入宅", "乔迁", "迁居"]),
             ("出行", ["出行", "旅游", "旅行", "出差"]),
+            ("提车", ["提车", "买车", "购车"]),
+            ("签约", ["签约", "签合同", "过户"]),
             ("动土", ["动土", "建房", "破土", "奠基"]),
         ]
         for purpose, keywords in purpose_keywords:

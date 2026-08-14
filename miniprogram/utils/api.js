@@ -1013,6 +1013,28 @@ function favLamp(date) { return request('/api/night/lamp/favorite', { method: 'P
 function getLampHistory() { return request('/api/night/lamp/history', { method: 'GET' }); }
 function rememberNight(message) { return request('/api/night/remember', { method: 'POST', data: { message } }); }
 
+// ---- 择吉日(大事择吉日) ----
+
+function getZeriPlans() { return request('/api/zeri/plans', { method: 'GET' }); }
+function getZeriPlan(planId) { return request(`/api/zeri/plans/${planId}`, { method: 'GET' }); }
+function selectZeri(data) { return request('/api/zeri/select', { method: 'POST', data, showLoading: true }); }
+function updateZeriItem(planId, patch) { return request(`/api/zeri/plans/${planId}/item`, { method: 'PUT', data: patch }); }
+function setZeriReminder(planId, enabled) { return request(`/api/zeri/plans/${planId}/reminder`, { method: 'PUT', data: { enabled } }); }
+function refreshZeri(data) { return request('/api/zeri/refresh', { method: 'POST', data }); }
+function getZeriOptions(params = {}) {
+  // 初始加载取卡：GET /api/zeri/options，不扣换一批额度；exclude_dates 逗号分隔可选传
+  const q = [];
+  if (params.scene) q.push('scene=' + encodeURIComponent(params.scene));
+  if (params.start) q.push('start=' + encodeURIComponent(params.start));
+  if (params.end) q.push('end=' + encodeURIComponent(params.end));
+  if (params.exclude_dates && params.exclude_dates.length) {
+    q.push('exclude_dates=' + params.exclude_dates.map(encodeURIComponent).join(','));
+  }
+  return request('/api/zeri/options' + (q.length ? '?' + q.join('&') : ''), { method: 'GET' });
+}
+function getZeriPrefs() { return request('/api/zeri/prefs', { method: 'GET' }); }
+function putZeriPrefs(patch) { return request('/api/zeri/prefs', { method: 'PUT', data: patch }); }
+
 // ---- 导出 ----
 
 module.exports = {
@@ -1104,4 +1126,15 @@ module.exports = {
   favLamp,
   getLampHistory,
   rememberNight,
+
+  // Zeri (大事择吉日)
+  getZeriPlans,
+  getZeriPlan,
+  selectZeri,
+  updateZeriItem,
+  setZeriReminder,
+  refreshZeri,
+  getZeriOptions,
+  getZeriPrefs,
+  putZeriPrefs,
 };

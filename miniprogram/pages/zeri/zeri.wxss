@@ -1,0 +1,451 @@
+/* 择吉日 · 吉日卡页 — 宣纸底 · 墨字 · 朱砂印章 · 金线分隔（hehun 同族） */
+.page-zeri {
+  min-height: 100vh;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+}
+
+/* ========================================
+   头部
+   ======================================== */
+.zr-header {
+  padding: 70rpx var(--space-lg) var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+}
+
+.zr-header-seal {
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 10rpx;
+  background: var(--acc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-3deg);
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 2rpx 6rpx rgba(60,30,20,.25);
+  flex-shrink: 0;
+}
+
+.zr-header-seal-char {
+  color: #FBF6E8;
+  font-family: var(--font-brush);
+  font-size: 48rpx;
+  line-height: 1;
+}
+
+.zr-header-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.zr-header-title {
+  font-family: var(--font-brush);
+  font-size: 42rpx;
+  color: var(--ink);
+  letter-spacing: 0.06em;
+}
+
+.zr-header-scene {
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+  letter-spacing: 0.08em;
+}
+
+/* ========================================
+   场景引导（无 scene 进入）
+   ======================================== */
+.zr-guide {
+  flex: 1;
+  padding: 0 var(--space-lg);
+  box-sizing: border-box;
+}
+
+.zr-guide-note {
+  font-family: var(--font-song);
+  font-size: var(--text-sm);
+  color: var(--ink-mid);
+  letter-spacing: 0.1em;
+  margin: var(--space-sm) 0 var(--space-lg);
+  text-align: center;
+}
+
+.zr-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-md);
+}
+
+.zr-scene {
+  background: var(--paper-card);
+  border: 1rpx solid var(--line-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg) var(--space-sm);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10rpx;
+}
+
+.zr-scene-active { background: var(--acc-soft); }
+
+.zr-scene-seal {
+  width: 64rpx;
+  height: 64rpx;
+  font-size: 34rpx;
+  border-radius: 8rpx;
+}
+
+.zr-scene-name {
+  font-family: var(--font-kai);
+  font-size: var(--text-base);
+  color: var(--ink);
+  letter-spacing: 0.14em;
+}
+
+.zr-scene-sub {
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+
+.zr-guide-foot {
+  margin-top: var(--space-xl);
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+
+/* ========================================
+   吉日卡列表
+   ======================================== */
+.zr-scroll {
+  flex: 1;
+  padding: 0 var(--space-lg) 60rpx;
+  box-sizing: border-box;
+}
+
+.zr-loading {
+  display: flex;
+  justify-content: center;
+  gap: 16rpx;
+  padding: 120rpx 0;
+}
+
+.zr-empty {
+  margin-top: 100rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.zr-empty-seal {
+  width: 72rpx;
+  height: 72rpx;
+  font-size: 38rpx;
+  border-radius: 8rpx;
+}
+
+.zr-empty-text {
+  font-family: var(--font-kai);
+  font-size: var(--text-base);
+  color: var(--ink);
+  letter-spacing: 0.1em;
+}
+
+.zr-empty-sub {
+  font-size: var(--text-xs);
+  color: var(--ink-faint);
+  text-align: center;
+  line-height: 1.6;
+  padding: 0 var(--space-lg);
+}
+
+.zr-empty-btn {
+  margin-top: var(--space-md);
+  height: 72rpx;
+  padding: 0 var(--space-xl);
+  border-radius: var(--radius-sm);
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--font-song);
+  font-size: var(--text-sm);
+  letter-spacing: 0.14em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── 单卡 ── */
+.zr-card {
+  background: var(--paper-card);
+  border: 1rpx solid var(--line-soft);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-md);
+  animation: zr-rise .4s ease-out both;
+}
+
+@keyframes zr-rise {
+  from { opacity: 0; transform: translateY(16rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.zr-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-sm);
+  border-bottom: 1rpx solid var(--line-soft);
+}
+
+.zr-date-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.zr-date-big {
+  font-family: var(--font-lat);
+  font-size: 64rpx;
+  line-height: 1.1;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+
+.zr-date-lunar {
+  font-size: var(--text-xs);
+  color: var(--ink-soft);
+  letter-spacing: 0.08em;
+}
+
+.zr-total {
+  display: flex;
+  align-items: baseline;
+  gap: 4rpx;
+  flex-shrink: 0;
+}
+
+.zr-total-num {
+  font-family: var(--font-lat);
+  font-size: 44rpx;
+  color: var(--acc);
+  line-height: 1.1;
+}
+
+.zr-total-unit {
+  font-size: 18rpx;
+  color: var(--ink-faint);
+}
+
+/* ── 宜忌两行 ── */
+.zr-yi-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.zr-yi-label {
+  flex-shrink: 0;
+  width: 34rpx;
+  height: 34rpx;
+  margin-top: 4rpx;
+  border-radius: 6rpx;
+  background: var(--acc);
+  color: #FBF6E8;
+  font-size: 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0.02em;
+}
+
+.zr-yi-label-ji {
+  background: var(--ink);
+}
+
+.zr-yi-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  flex: 1;
+}
+
+.zr-chip {
+  font-size: 20rpx;
+  padding: 4rpx 14rpx;
+  border-radius: 6rpx;
+  border: 1rpx solid var(--line-soft);
+  color: var(--ink-mid);
+  background: var(--paper);
+  letter-spacing: 0.04em;
+}
+
+.zr-chip-yi { border-color: var(--acc-line); color: var(--acc); }
+.zr-chip-empty {
+  font-size: 20rpx;
+  color: var(--ink-faint);
+  padding: 4rpx 0;
+}
+
+/* ── 吉时与方位一行 ── */
+.zr-line-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8rpx;
+  margin: var(--space-sm) 0;
+  padding: var(--space-sm) 0;
+  border-top: 1rpx dashed var(--line-soft);
+  border-bottom: 1rpx dashed var(--line-soft);
+}
+
+.zr-line-item {
+  font-size: 20rpx;
+  color: var(--ink-mid);
+  letter-spacing: 0.06em;
+}
+
+.zr-line-dot {
+  font-size: 20rpx;
+  color: var(--gold);
+}
+
+/* ── 一句理由 ── */
+.zr-reason {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: 4rpx 0;
+}
+
+.zr-reason-active { opacity: .7; }
+
+.zr-reason-text {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-kai);
+  font-size: var(--text-sm);
+  color: var(--ink);
+  letter-spacing: 0.04em;
+}
+
+.zr-reason-more {
+  flex-shrink: 0;
+  font-size: 18rpx;
+  color: var(--gold);
+  letter-spacing: 0.06em;
+}
+
+/* ── 评分明细（会员展开） ── */
+.zr-scores {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--paper);
+  border-radius: var(--radius-sm);
+  border: 1rpx solid var(--line-soft);
+}
+
+.zr-score-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 6rpx 0;
+}
+
+.zr-score-label {
+  flex-shrink: 0;
+  width: 96rpx;
+  font-size: 20rpx;
+  color: var(--ink-soft);
+}
+
+.zr-score-bar {
+  flex: 1;
+  height: 12rpx;
+  border-radius: 6rpx;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.zr-score-bar-fill {
+  height: 100%;
+  border-radius: 6rpx;
+  background: var(--acc);
+}
+
+.zr-score-val {
+  flex-shrink: 0;
+  font-family: var(--font-lat);
+  font-size: 20rpx;
+  color: var(--ink-mid);
+}
+
+/* ── 选它按钮 ── */
+.zr-pick-btn {
+  margin-top: var(--space-md);
+  height: 76rpx;
+  border-radius: var(--radius-sm);
+  background: var(--acc);
+  color: #FBF6E8;
+  font-family: var(--font-song);
+  font-size: var(--text-base);
+  letter-spacing: 0.24em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4rpx 12rpx var(--shadow);
+}
+
+.zr-pick-btn-busy { opacity: .7; }
+
+/* 会员判定加载中：禁用的选它（onSelect 内同样拦截） */
+.zr-pick-btn-dis { opacity: .5; }
+
+/* ── 换一批 ── */
+.zr-refresh-wrap {
+  margin-top: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.zr-refresh {
+  height: 76rpx;
+  padding: 0 var(--space-xl);
+  border-radius: var(--radius-sm);
+  border: 2rpx solid var(--acc-line);
+  color: var(--acc);
+  font-family: var(--font-song);
+  font-size: var(--text-sm);
+  letter-spacing: 0.24em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-card);
+}
+
+.zr-refresh-note {
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  letter-spacing: 0.06em;
+}
+
+.zr-btn-active { opacity: .8; transform: scale(.98); }
+
+.zr-foot {
+  margin-top: var(--space-xl);
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  text-align: center;
+  letter-spacing: 0.1em;
+}

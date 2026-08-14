@@ -1,5 +1,6 @@
-"""择日引擎 - 建除十二神 + 二十八宿 (Date Selection)."""
+"""择日引擎 - 建除十二神 + 二十八宿 + 择吉日场景评分 (Date Selection)."""
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import Dict, List, Optional
 from lunar_python import Solar
 
@@ -157,6 +158,22 @@ ER_SH_BA_XIU_REFERENCE = {
     (2000, 1, 1): 13,  # 虚宿
 }
 
+
+@dataclass
+class LuckyDayCard:
+    """吉日卡片（三层评分 + Top3 返回）"""
+    date: str                 # 公历 YYYY-MM-DD
+    lunar_text: str           # 农历+干支+星期, 如 "农历六月廿七 乙卯日 星期日"
+    yi: List[str]             # 宜（建除宜 + 当日黄历宜, 引擎在前）
+    ji: List[str]             # 忌（建除忌 + 当日黄历忌）
+    jishi: str                # 吉时段, 如 "巳时(9-11点)"; 取不到 → "吉时以当日黄历为准"
+    xi_fangwei: str           # 喜神方位, 如 "正南"
+    cai_fangwei: str          # 财神方位, 如 "西南"
+    scene_score: int          # 场景匹配分 0-50
+    personal_score: int       # 个人适配分 0-30（无八字默认 24）
+    practical_score: int      # 实用加分 0-20（周末 +10, 节假日不判定）
+    total: int                # 总分 0-100
+    reason_source: str        # 实际最高分项, 如 "成日值日"/"喜用神相合"/"周末宜搬家"
 
 @dataclass
 class ZeriResult:
@@ -372,3 +389,392 @@ class ZeriEngine:
             return "凶"
         else:
             return "平"
+
+    # ---- 择吉日: 多日扫描 + 三层评分 + Top3 ----
+
+    def select_lucky_days(
+        self,
+        scene: str,
+        start_date: str,
+        end_date: str,
+        user_bazi: Optional[dict] = None,
+        exclude_dates: Optional[list] = None,
+        prefer_weekend: bool = False,
+    ) -> dict:
+        """择吉日: 窗口逐日扫描 + 场景规则命中 + 冲煞排除 + 三层评分, 返回 Top3 吉日
+
+        Args:
+            scene: 场景名, 取 SCENES 的 key（嫁娶/搬家/开业/出行/提车/签约）
+            start_date/end_date: 公历日期窗口 "YYYY-MM-DD"（含首尾, 可跨月/跨年）
+            user_bazi: 用户八字信息（可选, 全缺则跳过个人分与冲生肖判定）:
+                - shengxiao: 生肖, 如 "鼠" —— 冲生肖排除（搬家冲宅主/提车冲车主等）
+                - yongshen:  用神五行, 如 "水"（直接给定, 优先）
+                - wuxing/day_gan/month_zhi: 齐备时自动调 bazi 引擎 _calc_yongshen 计算用神
+            exclude_dates: 排除日期列表 ["YYYY-MM-DD", ...]
+            prefer_weekend: True 时周六/周日实用分 +10（节假日不判定）
+
+        Returns:
+            {"cards": [LuckyDayCard × ≤3], "scanned": N,
+             "suggest_wider": bool, "reason": str|None}
+            合格吉日不足 3 天 → suggest_wider=True, cards 如实返回 0-2 个,
+            reason 为扩窗建议文本; 合格 ≥3 天 → reason=None。
+        """
+        if scene not in SCENES:
+            raise ValueError(f"未知场景: {scene!r}, 可选: {list(SCENES.keys())}")
+        cfg = SCENES[scene]
+        try:
+            start = date.fromisoformat(start_date)
+            end = date.fromisoformat(end_date)
+        except ValueError as e:
+            raise ValueError(f"日期格式须为 YYYY-MM-DD: {e}") from e
+        if end < start:
+            raise ValueError(f"end_date 早于 start_date: {start_date} > {end_date}")
+        excluded = set(exclude_dates or [])
+
+        cards: List[LuckyDayCard] = []
+        scanned = 0
+        d = start
+        while d <= end:
+            scanned += 1
+            if d.isoformat() not in excluded:
+                card = self._build_lucky_card(d, cfg, user_bazi, prefer_weekend)
+                if card is not None:
+                    cards.append(card)
+            d += timedelta(days=1)
+
+        cards.sort(key=lambda c: (-c.total, c.date))
+        cards = cards[:3]
+        suggest_wider = len(cards) < 3
+        return {
+            "cards": cards,
+            "scanned": scanned,
+            "suggest_wider": suggest_wider,
+            "reason": None if not suggest_wider else (
+                f"合格吉日不足3天（本窗口{scanned}天），建议扩大日期范围或调整偏好"
+            ),
+        }
+
+    def _build_lucky_card(
+        self,
+        d,                          # datetime.date
+        cfg: dict,
+        user_bazi: Optional[dict],
+        prefer_weekend: bool,
+    ) -> Optional[LuckyDayCard]:
+        """构建单日吉日卡片; 被排除或未达场景门槛 → None"""
+        solar = Solar.fromYmd(d.year, d.month, d.day)
+        lunar = solar.getLunar()
+        ec = lunar.getEightChar()
+        day_ganzhi = ec.getDay()
+        day_gan, day_zhi = day_ganzhi[0], day_ganzhi[1]
+        month_zhi = ec.getMonth()[1]
+        lunar_month, lunar_day = lunar.getMonth(), lunar.getDay()
+
+        # 复用已有引擎单日分析（不传 purpose, 保持自然宜忌）
+        r = self.select(d.year, d.month, d.day)
+        # 宜忌 = 建除宜忌(引擎在前) + lunar-python 当日黄历宜忌（去重）
+        yi = list(dict.fromkeys(r.yi + lunar.getDayYi()))
+        ji = list(dict.fromkeys(r.ji + lunar.getDayJi()))
+
+        # ---- 排除规则 ----
+        if r.jianchu in cfg["jianchu_avoid"]:
+            return None
+        if any(kw in j for j in ji for kw in cfg["ji_hits"]):
+            return None
+        lm = abs(lunar_month)  # 闰月按同月数查表
+        for rule in cfg["shensha_avoid"]:
+            if rule == "三娘煞" and is_sanniang_sha(lm, lunar_day):
+                return None
+            elif rule == "杨公忌日" and is_yanggong_ji(lm, lunar_day):
+                return None
+            elif rule == "月破" and is_yuepo(day_zhi, month_zhi):
+                return None
+            elif rule == "月刑" and is_yuexing(day_zhi, month_zhi):
+                return None
+            elif rule == "空亡" and is_kongwang(day_zhi, month_zhi, lunar):
+                return None
+        # 冲 user 生肖（按场景开关 avoid_chong; 无生肖信息则跳过, 不误伤）
+        user_zodiac = (user_bazi or {}).get("shengxiao")
+        if cfg.get("avoid_chong") and user_zodiac \
+                and ZODIAC_MAP[LIU_CHONG[day_zhi]] == user_zodiac:
+            return None
+
+        # ---- 三层评分 ----
+        scene_score, scene_reason = self._scene_score(cfg, r.jianchu, yi)
+        if scene_score < 20:
+            # 未命中任何场景宜关键词 → 不构成合格吉日
+            return None
+        personal_score, personal_reason = self._personal_score(day_gan, user_bazi)
+        practical_score, practical_reason = self._practical_score(d, cfg, prefer_weekend)
+
+        parts = [
+            (scene_score, scene_reason),
+            (personal_score, personal_reason),
+            (practical_score, practical_reason),
+        ]
+        # 最高分项; 平分时按 场景 > 个人 > 实用
+        reason_source = max(parts, key=lambda p: (p[0], -parts.index(p)))[1]
+
+        return LuckyDayCard(
+            date=d.isoformat(),
+            lunar_text=self._lunar_text(solar, lunar_month, lunar_day, day_ganzhi),
+            yi=yi,
+            ji=ji,
+            jishi=self._jishi(lunar),
+            xi_fangwei=lunar.getDayPositionXiDesc(),
+            cai_fangwei=lunar.getDayPositionCaiDesc(),
+            scene_score=scene_score,
+            personal_score=personal_score,
+            practical_score=practical_score,
+            total=scene_score + personal_score + practical_score,
+            reason_source=reason_source,
+        )
+
+    def _scene_score(self, cfg: dict, jianchu: str, yi: List[str]) -> tuple:
+        """场景匹配分(0-50): 宜关键词每命中 +20, 成/开/定值日 +10, 封顶 50"""
+        hits = [kw for kw in cfg["yi_hits"] if any(kw in y for y in yi)]
+        bonus = 10 if jianchu in ("成", "开", "定") else 0
+        score = min(50, len(hits) * 20 + bonus)
+        if jianchu in ("成", "开", "定"):
+            reason = f"{jianchu}日值日"
+        elif hits:
+            reason = f"宜{'、'.join(hits)}"
+        else:
+            reason = cfg["label"]
+        return score, reason
+
+    def _personal_score(self, day_gan: str, user_bazi: Optional[dict]) -> tuple:
+        """个人适配分(0-30):
+        - 无八字 → 24（默认满分折算 80%）
+        - 有八字: 用神五行 = user_bazi["yongshen"] 直接给定, 或 wuxing/day_gan/month_zhi
+          齐备时调 bazi 引擎 _calc_yongshen 计算（可选依赖, 失败回退 24）
+          当日天干五行生用神 +10(25) / 比和 +5(20) / 无关 15
+        - 冲生肖排除在 _build_lucky_card 统一处理
+        """
+        if not user_bazi:
+            return 24, "基础适配分"
+        yongshen = user_bazi.get("yongshen")
+        if not yongshen:
+            wx = user_bazi.get("wuxing")
+            dg = user_bazi.get("day_gan")
+            mz = user_bazi.get("month_zhi")
+            if wx and dg and mz:
+                try:
+                    from src.engines.bazi import BaziEngine
+                    out = BaziEngine()._calc_yongshen(wx, dg, mz)
+                    cand = out[0] if out else ""
+                    yongshen = cand if cand in "金木水火土" else None
+                except Exception:
+                    yongshen = None
+        if not yongshen:
+            return 24, "基础适配分"
+        day_wx = TIAN_GAN_WUXING.get(day_gan, "")
+        if day_wx and SHENG_CYCLE.get(day_wx) == yongshen:
+            return 25, "喜用神相合"
+        if day_wx == yongshen:
+            return 20, "喜用神比和"
+        return 15, "八字适配"
+
+    def _practical_score(self, d, cfg: dict, prefer_weekend: bool) -> tuple:
+        """实用加分(0-20): prefer_weekend 且周六/周日 +10; 节假日不判定（不做人为拔高）"""
+        if not prefer_weekend:
+            return 0, "平日无加分"
+        if d.weekday() in (5, 6):   # 周六=5 周日=6
+            return 10, f"周末宜{cfg['label']}"
+        return 0, "平日无加分"
+
+    @staticmethod
+    def _jishi(lunar) -> str:
+        """吉时段: 12 时辰黄道（lunar-python LunarTime 黄道黑道）取前 3 个吉时,
+        时辰时段用标准十二时辰表（如 巳时 9-11点）;
+        无黄道吉时 → '吉时以当日黄历为准'（宁缺毋滥, 不自行编造时段）"""
+        SHICHEN_HOURS = {
+            0: "23-1点", 1: "1-3点", 2: "3-5点", 3: "5-7点", 4: "7-9点",
+            5: "9-11点", 6: "11-13点", 7: "13-15点", 8: "15-17点",
+            9: "17-19点", 10: "19-21点", 11: "21-23点",
+        }
+        seen = set()
+        good = []
+        for t in lunar.getTimes():
+            if t.getTianShenType() == "黄道":
+                idx = t.getZhiIndex()
+                if idx in seen:
+                    continue
+                seen.add(idx)
+                good.append(f"{DIZHI[idx]}时 {SHICHEN_HOURS[idx]}")
+            if len(good) >= 3:
+                break
+        return "、".join(good) if good else "吉时以当日黄历为准"
+
+    @staticmethod
+    def _lunar_text(solar, lunar_month: int, lunar_day: int, day_ganzhi: str) -> str:
+        """农历文本: 农历[闰]X月X日 干支 星期X"""
+        lm = abs(lunar_month)
+        prefix = "闰" if lunar_month < 0 else ""
+        month_cn = _LUNAR_MONTH_CN.get(lm, str(lm))
+        return f"农历{prefix}{month_cn}月{_lunar_day_cn(lunar_day)}日 " \
+               f"{day_ganzhi} 星期{solar.getWeekInChinese()}"
+
+
+# ============================================================
+# 择吉日（Task 1）: 场景规则库 + 三层评分 + 多日 Top3 扫描
+#
+# 神煞依据（宁缺毋滥: 能确定性计算的才排除, 其余不排除并注明）:
+#   - 三娘煞: 农历每月初三、初七、十三、十八、廿二、廿七（标准公历表）
+#   - 杨公忌日: 正月十三、二月十一、三月初九、四月初七、五月初五、六月初三、
+#               七月初一与廿九、八月廿七、九月廿五、十月廿三、十一月廿一、十二月十九
+#   - 月破: 日支与月支六冲（LIU_CHONG, 与建除"破"同日, 传统一致）
+#   - 月刑: 支三刑表（无恩/恃势/无礼/自刑）: 月支刑日支
+#   - 空亡: 当日日柱旬空（lunar-python getDayXunKong）含当月月支 → 月建逢空为空亡日。
+#           注: 日柱地支不可能落入自身旬空（旬空是旬内未出现的两支）, 故取"月建逢空"
+#           这一可确定性计算的黄历视角; 其余空亡流派规则不纳入。
+#   - 冲生肖: 日支冲 user_bazi 生肖时排除（无生肖信息则跳过该判定, 不误伤）
+# 宜忌数据: 复用建除十二神宜忌 + lunar-python 黄历 getDayYi/getDayJi 合并（引擎在前）,
+#           保证与当日黄历一致且可离线确定性计算。
+# 吉时/方位: 均取 lunar-python 内建数据（LunarTime 黄道黑道 / getDayPositionXi|CaiDesc）。
+# ============================================================
+
+# 三娘煞: 农历每月初三、初七、十三、十八、廿二、廿七
+SANNIANG_SHA_DAYS = {3, 7, 13, 18, 22, 27}
+
+# 杨公忌日（农历月: 日; 七月有初一与廿九两天）
+YANGGONG_JI_DAYS = {
+    1: {13}, 2: {11}, 3: {9}, 4: {7}, 5: {5}, 6: {3},
+    7: {1, 29}, 8: {27}, 9: {25}, 10: {23}, 11: {21}, 12: {19},
+}
+
+# 支三刑（无恩之刑/恃势之刑/无礼之刑/自刑）
+XING_MAP = {
+    "寅": "巳", "巳": "申", "申": "寅",
+    "丑": "戌", "戌": "未", "未": "丑",
+    "子": "卯", "卯": "子",
+    "辰": "辰", "午": "午", "酉": "酉", "亥": "亥",
+}
+
+# 十天干五行
+TIAN_GAN_WUXING = {
+    "甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
+    "己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
+}
+
+# 五行相生: 木→火→土→金→水→木
+SHENG_CYCLE = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
+
+# 场景规则库
+#   yi_hits:      宜关键词（当日宜列表命中 → 加场景分）
+#   ji_hits:      忌关键词（当日忌列表命中 → 直接排除）
+#   jianchu_avoid: 建除神当日排除（如"破""闭"）
+#   avoid_chong:  冲 user_bazi 生肖排除（搬家冲宅主/提车冲车主; 无生肖信息时跳过）
+#   shensha_avoid: 神煞排除（三娘煞/杨公忌日/月破/月刑/空亡/冲生肖）
+#   weekend_bonus: 周末加分开关（实际加分仅当用户 prefer_weekend=True）
+SCENES = {
+    "嫁娶": {
+        "label": "嫁娶",
+        "yi_hits": ["嫁娶", "订盟", "纳采"],
+        "ji_hits": ["嫁娶", "纳采"],
+        "jianchu_avoid": ["破", "闭"],
+        "avoid_chong": True,
+        "shensha_avoid": ["三娘煞", "杨公忌日"],
+        "weekend_bonus": True,
+    },
+    "搬家": {
+        "label": "搬家",
+        "yi_hits": ["入宅", "移徙", "安床"],
+        "ji_hits": ["入宅", "移徙"],
+        "jianchu_avoid": ["破", "闭"],
+        "avoid_chong": True,      # 冲宅主生肖（用 user_bazi 生肖）
+        "shensha_avoid": [],
+        "weekend_bonus": True,
+    },
+    "开业": {
+        "label": "开业",
+        "yi_hits": ["开市", "交易", "纳财"],
+        "ji_hits": ["开市", "纳财"],
+        "jianchu_avoid": ["破", "闭"],
+        "avoid_chong": False,
+        "shensha_avoid": ["月破", "月刑"],
+        "weekend_bonus": True,
+    },
+    "出行": {
+        "label": "出行",
+        "yi_hits": ["出行", "会亲友", "祈福"],
+        "ji_hits": ["出行"],
+        "jianchu_avoid": ["破", "闭"],
+        "avoid_chong": False,
+        "shensha_avoid": ["空亡"],
+        "weekend_bonus": True,
+    },
+    "提车": {
+        "label": "提车",
+        "yi_hits": ["祈福", "出行", "安机械"],
+        "ji_hits": ["出行"],
+        "jianchu_avoid": ["破", "闭"],
+        "avoid_chong": True,      # 冲车主生肖
+        "shensha_avoid": [],
+        "weekend_bonus": True,
+    },
+    "签约": {
+        "label": "签约",
+        "yi_hits": ["交易", "订盟", "纳财"],
+        "ji_hits": ["交易", "纳财"],
+        "jianchu_avoid": [],
+        "avoid_chong": False,
+        "shensha_avoid": ["月破", "月刑"],   # 忌日月刑冲
+        "weekend_bonus": True,
+    },
+}
+
+# 农历数字/月名（用于 lunar_text）
+_LUNAR_MONTH_CN = {1: "正", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六",
+                   7: "七", 8: "八", 9: "九", 10: "十", 11: "冬", 12: "腊"}
+_CN_NUM = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "七", 8: "八", 9: "九"}
+
+
+def _lunar_day_cn(day: int) -> str:
+    """农历日中文: 初一..初十 / 十一..十九 / 二十 / 廿一..廿九 / 三十"""
+    if day == 10:
+        return "初十"
+    if day == 20:
+        return "二十"
+    if day == 30:
+        return "三十"
+    if day < 10:
+        return "初" + _CN_NUM[day]
+    if day < 20:
+        return "十" + _CN_NUM[day % 10]
+    if day < 30:
+        return "廿" + _CN_NUM[day % 10]
+    return str(day)
+
+
+def is_sanniang_sha(lunar_month: int, lunar_day: int) -> bool:
+    """三娘煞: 农历每月初三、初七、十三、十八、廿二、廿七（闰月按同月数）"""
+    return lunar_day in SANNIANG_SHA_DAYS
+
+
+def is_yanggong_ji(lunar_month: int, lunar_day: int) -> bool:
+    """杨公忌日: 正月十三、二月十一、三月初九、四月初七、五月初五、六月初三、
+    七月初一与廿九、八月廿七、九月廿五、十月廿三、十一月廿一、十二月十九"""
+    return lunar_day in YANGGONG_JI_DAYS.get(lunar_month, set())
+
+
+def is_yuepo(day_zhi: str, month_zhi: str) -> bool:
+    """月破: 日支与月支六冲"""
+    return day_zhi == LIU_CHONG.get(month_zhi)
+
+
+def is_yuexing(day_zhi: str, month_zhi: str) -> bool:
+    """月刑: 月支刑日支（支三刑: 无恩/恃势/无礼/自刑）"""
+    return XING_MAP.get(month_zhi) == day_zhi
+
+
+def is_kongwang(day_zhi: str, month_zhi: str, lunar) -> bool:
+    """空亡: 当日日柱旬空（lunar-python getDayXunKong）含当月月支 → 月建逢空
+
+    说明: 日柱地支不可能落入自身旬空（旬空为旬内未出现的两支）, 故采用
+    "月建逢空"这一可确定性计算的黄历视角; 其他空亡流派规则不纳入（宁缺毋滥）。
+    """
+    return month_zhi in lunar.getEightChar().getDayXunKong()
+
+
+

@@ -64,6 +64,27 @@
         <view class="mr-label">晚安 · 灯下陪伴</view>
         <switch class="stj-switch" checked="{{nightEnabled}}" disabled="{{jianLoading}}" bindchange="onNightSwitch" color="#A93A2C" />
       </view>
+      <view class="me-row row-line">
+        <view class="mr-ic"><image src="/assets/images/ic-bell.png"></image></view>
+        <view class="stj-whisper-col">
+          <view class="mr-label">择日提醒</view>
+          <view class="stj-whisper-sub">选定吉日前1天晚与当天早各提醒一次</view>
+        </view>
+        <switch class="stj-switch" checked="{{zeriReminder}}" disabled="{{zeriLoading}}" bindchange="onZeriReminderSwitch" color="#A93A2C" />
+      </view>
+      <!-- zeriLoading 期间不渲染绑定行，避免 prefs 未加载时绑定的用户闪现"未绑定" -->
+      <view wx:if="{{!zeriLoading && (zeriInvalid || !zeriBound)}}" class="me-row row-line stj-bind-row">
+        <view class="mr-ic"><image src="/assets/images/ic-bell.png"></image></view>
+        <view class="stj-bind-col">
+          <view class="stj-bind-line">
+            <view class="mr-label">择日推送</view>
+            <view class="stj-bind-state {{zeriBound ? 'stj-bound' : ''}}">{{zeriInvalid ? '订阅已失效' : (zeriBound ? '已绑定' : '未绑定')}}</view>
+          </view>
+          <view wx:if="{{zeriInvalid}}" class="stj-bind-hint">推送连续失败，订阅已失效 · 请重新绑定</view>
+          <view wx:elif="{{!zeriBound}}" class="stj-bind-hint">关注服务号后可接收择日提醒</view>
+        </view>
+        <view class="stj-bind-btn" hover-class="stj-btn-active" hover-stay-time="0" bindtap="goJianOnboard">{{zeriInvalid ? '重新绑定' : '去绑定'}}</view>
+      </view>
       <picker mode="selector" range="{{morningOptions}}" value="{{morningIdx}}" bindchange="onMorningPick">
         <view class="me-row row-line {{jianEnabled ? '' : 'stj-pick-dis'}}" hover-class="me-row-active" hover-stay-time="0">
           <view class="mr-ic"><image src="/assets/images/ic-seal.png"></image></view>

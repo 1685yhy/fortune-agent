@@ -1,0 +1,50 @@
+<!-- 择吉日 · 引导页 — 6 场景图标 + 一句话示例输入框 → 跳对话页携带场景词 -->
+<view class="page-guide">
+
+  <!-- ===== 头部 ===== -->
+  <view class="gd-header">
+    <view class="gd-header-seal"><text class="gd-header-seal-char">吉</text></view>
+    <text class="gd-header-title">大事择吉日</text>
+    <text class="gd-header-sub">先选大事，再挑日子 · 明灯按黄历与您的生辰为您择三日</text>
+  </view>
+
+  <!-- ===== 场景选择 ===== -->
+  <view class="gd-section-label"><text>要办什么大事？</text></view>
+  <view class="gd-grid">
+    <view wx:for="{{scenes}}" wx:key="key"
+      class="gd-scene {{picked === item.key ? 'gd-scene-on' : ''}}"
+      hover-class="gd-scene-active" hover-stay-time="0"
+      data-key="{{item.key}}" bindtap="onPickScene">
+      <view class="seal gd-scene-seal {{picked === item.key ? 'gd-scene-seal-on' : ''}}">
+        <text class="seal-char">{{item.seal}}</text>
+      </view>
+      <text class="gd-scene-name">{{item.key}}</text>
+      <text class="gd-scene-sub">{{item.sub}}</text>
+      <view wx:if="{{picked === item.key}}" class="gd-scene-check">✓</view>
+    </view>
+  </view>
+
+  <!-- ===== 一句话示例输入框 ===== -->
+  <view class="gd-section-label gd-section-label-mt"><text>说句话，挑得更准（选填）</text></view>
+  <view class="gd-input-wrap">
+    <input class="gd-input" value="{{input}}" bindinput="onInput"
+      placeholder="比如：下个月搬家，帮我挑个好日子"
+      placeholder-class="gd-input-ph" maxlength="60" confirm-type="done" />
+    <view class="gd-example" hover-class="gd-example-active" hover-stay-time="0" bindtap="onExampleTap">
+      <text>示例</text>
+    </view>
+  </view>
+  <view wx:if="{{input}}" class="gd-input-tip">将带着这句话去与明灯对话</view>
+
+  <!-- ===== 行动 ===== -->
+  <view class="gd-actions">
+    <view class="gd-btn gd-btn-primary" hover-class="gd-btn-active" hover-stay-time="0" bindtap="goChat">
+      <text>去挑吉日</text>
+    </view>
+    <view class="gd-btn gd-btn-ghost" hover-class="gd-btn-active" hover-stay-time="0" bindtap="goZeri">
+      <text>直接看吉日</text>
+    </view>
+  </view>
+
+  <view class="gd-foot">明灯谨录 · 择日不择事</view>
+</view>
