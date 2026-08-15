@@ -7,7 +7,7 @@
   position: absolute;
   top: calc(183rpx + var(--nav-off));   /* 95px */
   left: 0; right: 0;
-  bottom: 173rpx;                        /* 90px */
+  bottom: 0;                             /* 已非 tab 页：滚动区直抵底部（原 173rpx 为 tabbar 预留） */
   z-index: 25;
   padding: 23rpx 38rpx 50rpx;            /* 12px 20px 26px */
   overflow-x: hidden;                    /* 真机修复：内容超宽时横向裁剪，页面不可横滑 */

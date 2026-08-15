@@ -247,18 +247,18 @@
   </view>
 
   <view class="tabbar">
+    <view class="tab-item on" bindtap="onTab" data-tab="chat">
+      <image class="tab-ic" src="/assets/images/ic-chat-on.png"></image>
+      <text class="tab-label">对话</text>
+      <view class="dot"></view>
+    </view>
     <view class="tab-item" bindtap="onTab" data-tab="today">
       <image class="tab-ic" src="/assets/images/ic-lantern.png"></image>
       <text class="tab-label">今日</text>
     </view>
-    <view class="tab-item on" bindtap="onTab" data-tab="chat">
-      <image class="tab-ic" src="/assets/images/ic-chat-on.png"></image>
-      <text class="tab-label">聊天</text>
-      <view class="dot"></view>
-    </view>
-    <view class="tab-item" bindtap="onTab" data-tab="book">
-      <image class="tab-ic" src="/assets/images/ic-book.png"></image>
-      <text class="tab-label">命书</text>
+    <view class="tab-item" bindtap="onTab" data-tab="suance">
+      <image class="tab-ic" src="/assets/images/ic-book2.png"></image>
+      <text class="tab-label">测算</text>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="me">
       <image class="tab-ic" src="/assets/images/ic-seal.png"></image>

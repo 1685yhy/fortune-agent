@@ -1,0 +1,135 @@
+<view class="screen suance-wrap" style="--nav-off:{{navOff}}px">
+  <view class="navrow">
+    <view class="nav-title">
+      <text>测算</text>
+    </view>
+  </view>
+
+  <scroll-view scroll-y class="suance-scroll">
+    <view class="suance-date">
+      <text>问事入口台</text>
+      <view class="zd"></view>
+      <text>以命为据 · 以事为问</text>
+    </view>
+
+    <!-- 姻缘 · 命名 · 择日：三件人生大事 -->
+    <view class="eg-head">
+      <text>姻缘 · 命名 · 择日</text>
+      <text class="eg-tag">三件人生大事</text>
+    </view>
+    <view class="papercard eg-card">
+      <!-- 实入口：双人合盘 → 合盘页（onLoad 自动回填我方默认命主） -->
+      <view class="book-row" hover-class="book-row-active" hover-stay-time="0"
+        data-url="/pages/hehun/hehun" bindtap="onEntryTap">
+        <view class="seal cl-seal"><text class="seal-char">缘</text></view>
+        <view class="br-mid">
+          <view class="br-title">双人合盘</view>
+          <view class="br-sub">缘分契合 · 免费 · 输入 → 缘笺 → 深度报告</view>
+        </view>
+        <view class="br-page"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
+      <!-- 占位灰态：AI 取名（即将上线，不可点） -->
+      <view class="book-row cl-off">
+        <view class="seal cl-seal cl-seal-off"><text class="seal-char">名</text></view>
+        <view class="br-mid">
+          <view class="br-title">AI 取名</view>
+          <view class="br-sub">五维评分 · 免费 5 名 · 5 名 → 雷达 → 名笺</view>
+        </view>
+        <view class="cl-tag">即将上线</view>
+      </view>
+      <!-- 实入口：大事择吉日 → 引导页（选场景 → 对话/直接看吉日） -->
+      <view class="book-row" hover-class="book-row-active" hover-stay-time="0"
+        data-url="/pages/zeri_guide/zeri_guide" bindtap="onEntryTap">
+        <view class="seal cl-seal"><text class="seal-char">吉</text></view>
+        <view class="br-mid">
+          <view class="br-title">大事择吉日</view>
+          <view class="br-sub">嫁娶 / 搬家 / 开业 / 出行 · 表单式 → 3 吉日 → 清单</view>
+        </view>
+        <view class="br-page"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
+    </view>
+
+    <!-- 问事：把心绪说出口 -->
+    <view class="eg-head">
+      <text>问事</text>
+      <text class="eg-tag">把心绪说出口</text>
+    </view>
+    <view class="entry-grid g2">
+      <!-- 占位灰态：解梦（对话内功能，即将上线，不可点） -->
+      <view class="entry-card cl-off">
+        <view class="seal ec-seal cl-seal-off"><text class="seal-char">梦</text></view>
+        <view class="ec-t">解梦</view>
+        <view class="ec-s">记一段梦 · 我来解</view>
+        <view class="ec-tag">即将上线</view>
+      </view>
+      <!-- 占位灰态：塔罗（即将上线，不可点） -->
+      <view class="entry-card cl-off">
+        <view class="seal ec-seal cl-seal-off"><text class="seal-char">塔</text></view>
+        <view class="ec-t">塔罗</view>
+        <view class="ec-s">抽牌 · 解读 · 免费</view>
+        <view class="ec-tag">即将上线</view>
+      </view>
+    </view>
+
+    <!-- 运势：把一生画给你看 -->
+    <view class="eg-head">
+      <text>运势</text>
+      <text class="eg-tag">把一生画给你看</text>
+    </view>
+    <view class="papercard eg-card">
+      <!-- 占位灰态：人生时轴（即将上线，不可点） -->
+      <view class="book-row cl-off">
+        <view class="seal cl-seal cl-seal-off"><text class="seal-char">轴</text></view>
+        <view class="br-mid">
+          <view class="br-title">人生时轴</view>
+          <view class="br-sub">月卷 → 年卷 → 十年 K 线 · 可返</view>
+        </view>
+        <view class="cl-tag">即将上线</view>
+      </view>
+      <!-- 占位灰态：运势曲线（即将上线，不可点） -->
+      <view class="book-row cl-off">
+        <view class="seal cl-seal cl-seal-off"><text class="seal-char">势</text></view>
+        <view class="br-mid">
+          <view class="br-title">人生运势曲线</view>
+          <view class="br-sub">1-100 岁 · 一张 K 线图，存下来就能传家</view>
+        </view>
+        <view class="cl-tag">即将上线</view>
+      </view>
+      <!-- 占位灰态：水逆提醒（即将上线，不可点） -->
+      <view class="book-row cl-off">
+        <view class="seal cl-seal cl-seal-off"><text class="seal-char">逆</text></view>
+        <view class="br-mid">
+          <view class="br-title">水逆提醒</view>
+          <view class="br-sub">旧事易回头 · 恰是了结旧账的好时机</view>
+        </view>
+        <view class="cl-tag">即将上线</view>
+      </view>
+    </view>
+
+    <view class="suance-foot">
+      <view class="fg"></view>
+      <text>明灯谨录 · 观命不执命</text>
+      <view class="fg"></view>
+    </view>
+  </scroll-view>
+
+  <view class="tabbar">
+    <view class="tab-item" bindtap="onTab" data-tab="chat">
+      <image class="tab-ic" src="/assets/images/ic-chat.png"></image>
+      <text class="tab-label">对话</text>
+    </view>
+    <view class="tab-item" bindtap="onTab" data-tab="today">
+      <image class="tab-ic" src="/assets/images/ic-lantern.png"></image>
+      <text class="tab-label">今日</text>
+    </view>
+    <view class="tab-item on" bindtap="onTab" data-tab="suance">
+      <image class="tab-ic" src="/assets/images/ic-book2-on.png"></image>
+      <text class="tab-label">测算</text>
+      <view class="dot"></view>
+    </view>
+    <view class="tab-item" bindtap="onTab" data-tab="me">
+      <image class="tab-ic" src="/assets/images/ic-seal.png"></image>
+      <text class="tab-label">我的</text>
+    </view>
+  </view>
+</view>

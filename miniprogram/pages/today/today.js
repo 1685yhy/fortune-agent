@@ -353,11 +353,6 @@ Page({
     wx.navigateTo({ url: '/pages/hehun/hehun' });
   },
 
-  /* 大事择吉日入口卡 → 引导页（选场景 → 对话/直接看吉日） */
-  onZeriEntry() {
-    wx.navigateTo({ url: '/pages/zeri_guide/zeri_guide' });
-  },
-
   /* 原型 onTalk：进入夜话 */
   goChat() {
     wx.reLaunch({ url: '/pages/chat/chat' });
@@ -366,7 +361,7 @@ Page({
   /* 原型 TabBar onTab */
   onTab(e) {
     const t = e.currentTarget.dataset.tab;
-    const url = { today: '/pages/today/today', chat: '/pages/chat/chat', book: '/pages/reports/reports', me: '/pages/me/me' }[t];
+    const url = { chat: '/pages/chat/chat', today: '/pages/today/today', suance: '/pages/celiang/celiang', me: '/pages/me/me' }[t];
     if (url && !url.includes('/today/')) wx.reLaunch({ url });
   },
 });

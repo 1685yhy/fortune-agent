@@ -15,7 +15,7 @@ const BASE_ROWS = [
   { icon: '/assets/images/ic-edit.png', label: '档案', action: 'persons' },
   { icon: '/assets/images/ic-lantern.png', label: '重新看引导', action: 'onboarding' },
   { icon: '/assets/images/ic-seal.png', label: '会员', action: 'member' },
-  { icon: '/assets/images/ic-book2.png', label: '我的命书', action: 'reports' },
+  { icon: '/assets/images/ic-book2.png', label: '命书', action: 'reports' },
   { icon: '/assets/images/ic-keep.png', label: '我的收藏', action: 'favorites' },
   { icon: '/assets/images/ic-chat.png', label: '对话历史', action: 'history' },
   { icon: '/assets/images/ic-moon.png', label: '解梦手记', action: 'dreams' },
@@ -464,7 +464,7 @@ Page({
   /* 原型 onTab：底部栏切换 */
   onTab(e) {
     const t = e.currentTarget.dataset.tab;
-    const url = { today: '/pages/today/today', chat: '/pages/chat/chat', book: '/pages/reports/reports', me: '/pages/me/me' }[t];
+    const url = { chat: '/pages/chat/chat', today: '/pages/today/today', suance: '/pages/celiang/celiang', me: '/pages/me/me' }[t];
     if (url && !url.includes('/me/')) wx.reLaunch({ url });
   },
 });

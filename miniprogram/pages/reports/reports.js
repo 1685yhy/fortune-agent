@@ -1,4 +1,4 @@
-// 命书 — 线装书（原型 BookScreen：封面 + 卷四章目 + 竖排落款 + TabBar）
+// 命书 — 线装书（原型 BookScreen：封面 + 卷四章目 + 竖排落款；已非 tab 页，入口在我的页「命书」行）
 // v1.3：卷章目/封面可点击 → 拉取该卷报告全文（GET /api/reports/{id}）→ 墨韵弹层展示；
 //       后端报告列表项映射为卷目（scenarioLabel 作卷名、日期/标签作小注）；
 //       无报告时展示友好空态「暂无命书 · 去聊一段生成」。
@@ -175,13 +175,6 @@ Page({
     } finally {
       this.setData({ sharing: false });
     }
-  },
-
-  /* 原型 onTab：底部栏切换 */
-  onTab(e) {
-    const t = e.currentTarget.dataset.tab;
-    const url = { today: '/pages/today/today', chat: '/pages/chat/chat', book: '/pages/reports/reports', me: '/pages/me/me' }[t];
-    if (url && !url.includes('/reports/')) wx.reLaunch({ url });
   },
 
   noop() { /* 弹层内吞掉背景滚动/穿透 */ },

@@ -2,6 +2,7 @@
   "pages": [
     "pages/today/today",
     "pages/chat/chat",
+    "pages/celiang/celiang",
     "pages/reports/reports",
     "pages/love/love",
     "pages/me/me",

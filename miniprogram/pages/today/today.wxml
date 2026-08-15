@@ -76,7 +76,7 @@
       <text class="jian-open-cta">去开启</text>
     </view>
 
-    <!-- 双人合盘入口卡（第二入口：朱砂「缘」印章 + 标题 + 副文案 + brush-arrow） -->
+    <!-- 双人合盘入口卡（朱砂「缘」印章 + 标题 + 副文案 + brush-arrow） -->
     <view class="yuan-entry" hover-class="yuan-entry-active" hover-stay-time="0" bindtap="onYuanEntry">
       <view class="seal yuan-seal"><text class="seal-char">缘</text></view>
       <view class="yuan-entry-mid">
@@ -84,16 +84,6 @@
         <view class="yuan-entry-sub">输入两人生辰，看看你们合不合</view>
       </view>
       <image class="brush-arrow yuan-entry-arrow" src="/assets/images/brush-arrow.png"></image>
-    </view>
-
-    <!-- 大事择吉日入口卡（第三入口：朱砂「吉」印章 + 标题 + 副文案 + brush-arrow） -->
-    <view class="zeri-entry" hover-class="zeri-entry-active" hover-stay-time="0" bindtap="onZeriEntry">
-      <view class="seal zeri-seal"><text class="seal-char">吉</text></view>
-      <view class="zeri-entry-mid">
-        <view class="zeri-entry-title">大事择吉日</view>
-        <view class="zeri-entry-sub">嫁娶搬家开业，挑个好日子</view>
-      </view>
-      <image class="brush-arrow zeri-entry-arrow" src="/assets/images/brush-arrow.png"></image>
     </view>
 
     <view class="cover-col">
@@ -139,18 +129,18 @@
   <canvas type="2d" id="inkCard" class="ink-card-canvas"></canvas>
 
   <view class="tabbar">
+    <view class="tab-item" bindtap="onTab" data-tab="chat">
+      <image class="tab-ic" src="/assets/images/ic-chat.png"></image>
+      <text class="tab-label">对话</text>
+    </view>
     <view class="tab-item on" bindtap="onTab" data-tab="today">
       <image class="tab-ic" src="/assets/images/ic-lantern-on.png"></image>
       <text class="tab-label">今日</text>
       <view class="dot"></view>
     </view>
-    <view class="tab-item" bindtap="onTab" data-tab="chat">
-      <image class="tab-ic" src="/assets/images/ic-chat.png"></image>
-      <text class="tab-label">聊天</text>
-    </view>
-    <view class="tab-item" bindtap="onTab" data-tab="book">
-      <image class="tab-ic" src="/assets/images/ic-book.png"></image>
-      <text class="tab-label">命书</text>
+    <view class="tab-item" bindtap="onTab" data-tab="suance">
+      <image class="tab-ic" src="/assets/images/ic-book2.png"></image>
+      <text class="tab-label">测算</text>
     </view>
     <view class="tab-item" bindtap="onTab" data-tab="me">
       <image class="tab-ic" src="/assets/images/ic-seal.png"></image>

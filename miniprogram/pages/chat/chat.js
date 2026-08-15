@@ -678,7 +678,7 @@ Page({
   /* 原型 onTab：底部栏切换 */
   onTab(e) {
     const t = e.currentTarget.dataset.tab;
-    const url = { today: '/pages/today/today', chat: '/pages/chat/chat', book: '/pages/reports/reports', me: '/pages/me/me' }[t];
+    const url = { chat: '/pages/chat/chat', today: '/pages/today/today', suance: '/pages/celiang/celiang', me: '/pages/me/me' }[t];
     if (url && !url.includes('/chat/')) wx.reLaunch({ url });
   },
 
