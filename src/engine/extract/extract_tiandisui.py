@@ -5,13 +5,16 @@
 
 排版适配说明（2026-08-15 对照原文实测确认）：
 1. 四柱竖排为 2 字一行（年/月/日/时各一行），但"时柱+次例年柱"常合并成
-   4 字一行（如 "丙子丙申"），且每段末尾会跟 6~8 个干支（六十甲子顺排补足）。
-   故以"连续干支 token 流"为单位切段，每 4 个 token 为一组四柱，
-   取段首第一组为命例四柱（段内其余为补足干支）。
+   4 字一行（如 "丙子丙申"），偶有 6 字残行（如 L6375 "壬辰乙未丙申"，
+   藏真实时柱 + 补足开头），且每段末尾会跟 6~8 个干支（六十甲子顺排/逆排补足）。
+   故凡纯干支字符行一律按 2 字 token 切分（2/4/6/8 字 = 1~4 个 token），
+   合法干支对并入当前 token 流；chunk 非法者（如 L6586 "午辰"）跳过而不切断
+   token 流（切断会让其后补足干支冒充新命例）。以"连续干支 token 流"为单位切段，
+   每 4 个 token 为一组四柱，取段首第一组为命例四柱（段内其余为补足干支）。
 2. 断语紧跟整段之后，收集至下一段开始，或章名 / 原注 / 任氏曰 为止；
-   章诀短行与残缺行（如 "戊圾"、"午辰庚戌"）剔除。
+   章诀短行与残缺行（如 "戊圾"）剔除。
 3. 四柱行序校验（五虎遁定月柱 + 五鼠遁定时柱）写入 audit：
-   校验失败者视为誊录误，quality=rejected。
+   校验失败者视为誊录误，quality=rejected；audit 注明具体不合之柱与应为值。
 """
 from __future__ import annotations
 
@@ -21,10 +24,7 @@ import sys
 from pathlib import Path
 
 PILL_LINE = re.compile(r"^[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]$")
-PILL_PAIR = re.compile(
-    r"^([甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥])"
-    r"([甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥])$"
-)
+PILL_TEXT = re.compile(r"^[甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥]{2,}$")
 CHAPTER_RE = re.compile(r"^[一二三四五六七八九十]+、")
 
 STEMS = "甲乙丙丁戊己庚辛壬癸"
@@ -68,6 +68,21 @@ def _pills_valid(pills: list[str]) -> bool:
             and pills[3][0] == _hour_pillar(pills[2][0], pills[3][1]))
 
 
+def _chunk_pills(s: str) -> tuple[list[str], list[str]]:
+    """纯干支字符行按 2 字切块，返回 (合法干支对, 非法chunk)。
+
+    行可为 2/4/6/8 字（1~4 个 token，8 字行=两个柱）。非法 chunk
+    （如 L6586 "午辰庚戌" 中的 "午辰"）由调用方跳过且不切断 token 流：
+    切断会让其后补足干支冒充新命例（曾致 tds_0429/tds_0444 假条目）。
+    """
+    valid: list[str] = []
+    invalid: list[str] = []
+    for i in range(0, len(s), 2):
+        c = s[i:i + 2]
+        (valid if PILL_LINE.match(c) else invalid).append(c)
+    return valid, invalid
+
+
 def _is_stop(s: str) -> bool:
     """断语收集终止行：章名 / 大节 / 原注 / 任氏曰（其后为理论，非本命例断语）。"""
     if CHAPTER_RE.match(s):
@@ -80,7 +95,7 @@ def _is_stop(s: str) -> bool:
 
 
 def _is_garbage(s: str) -> bool:
-    """非断语行：章诀短行 / 残缺干支串（如"戊圾"、"午辰庚戌"）。"""
+    """非断语行：章诀短行 / 残缺干支串（如"戊圾"；整行无合法干支对的纯干支残行）。"""
     if re.fullmatch(r"[甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥]{4,}", s):
         return True
     if len(s) <= 24 and not any(k in s for k in ("造", "日元", "日干", "日主", "生于")):
@@ -136,6 +151,7 @@ def extract(path: str) -> list[dict]:
     pills: list[str] = []             # 当前段的连续干支 token
     run_start = 0                     # 段首行号
     run_end = 0                       # 段末行号（最后一个干支行）
+    run_dropped: tuple[int, list[str]] | None = None  # 本段被跳过的残行 (行号, chunks)
     pending: dict | None = None       # 断语收集中的 case（尚未 finalize）
     pending_prose: list[tuple[int, str]] = []  # (行号, 断语行)
     collecting = False
@@ -155,9 +171,19 @@ def extract(path: str) -> list[dict]:
         last = pending_prose[-1][0] if pending_prose else pending["_run_end"]
         audit = AUDIT_BASE
         if not valid:
-            audit += "；四柱校验失败(五虎遁/五鼠遁不合,见原文,疑似誊录误)"
+            fails = []
+            mstem = _month_pillar(pills4[0][0], pills4[1][1])
+            if pills4[1][0] != mstem:
+                fails.append(f"月柱{pills4[1]}不合五虎遁(应为{mstem}{pills4[1][1]})")
+            hstem = _hour_pillar(pills4[2][0], pills4[3][1])
+            if pills4[3][0] != hstem:
+                fails.append(f"时柱{pills4[3]}不合五鼠遁(应为{hstem}{pills4[3][1]})")
+            audit += "；四柱校验失败(" + "、".join(fails) + ",疑似誊录误)"
         else:
             audit += "；四柱合法(五虎遁+五鼠遁)"
+        if pending.get("_dropped"):
+            dline, dchunks = pending["_dropped"]
+            audit += f"；原文本段L{dline}有残行干支({''.join(dchunks)})已跳过"
         if day_bad:
             audit += f"；断语日干与日柱不符(日柱{pills4[2]})"
         if month_bad:
@@ -177,6 +203,7 @@ def extract(path: str) -> list[dict]:
         })
         pending.pop("_run_start")
         pending.pop("_run_end")
+        pending.pop("_dropped", None)
         cases.append(pending)
         pending = None
         pending_prose = []
@@ -184,7 +211,7 @@ def extract(path: str) -> list[dict]:
 
     def close_run() -> None:
         """段结束：满四柱则开新 case；不足则其后断语并入上一 case。"""
-        nonlocal pills, collecting, pending
+        nonlocal pills, collecting, pending, run_dropped
         if not pills:
             return
         if len(pills) >= 4:
@@ -192,6 +219,7 @@ def extract(path: str) -> list[dict]:
             pending = {
                 "_run_start": run_start,
                 "_run_end": run_end,
+                "_dropped": run_dropped,
                 "id": "",
                 "source": "滴天髓阐微.txt",
                 "source_lines": "",
@@ -206,24 +234,23 @@ def extract(path: str) -> list[dict]:
         else:
             collecting = True
         pills = []
+        run_dropped = None
 
     for i, line in enumerate(lines, 1):
         s = line.strip()
         if not s:
             continue
-        if PILL_LINE.match(s):
-            if not pills:
-                run_start = i
-            pills.append(s)
-            run_end = i
-            continue
-        m = PILL_PAIR.match(s)
-        if m:
-            if not pills:
-                run_start = i
-            pills.extend([m.group(1), m.group(2)])
-            run_end = i
-            continue
+        if PILL_TEXT.match(s) and len(s) % 2 == 0:
+            valid, invalid = _chunk_pills(s)
+            if valid:
+                if not pills:
+                    run_start = i
+                pills.extend(valid)
+                run_end = i
+                if invalid and run_dropped is None:
+                    run_dropped = (i, invalid)
+                continue
+            # 纯干支行但无合法 chunk：落入 OTHER 分支（close_run + 垃圾剔除）
         # OTHER 行：先收段，再尝试收集断语
         if pills:
             close_run()
