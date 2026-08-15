@@ -80,6 +80,8 @@ const CLIENTH_MEASURE_MS = 1500;  // 可视区高度周期校准间隔：键盘�
 Page({
   data: {
     navOff: 0,
+    showBack: false,          // 导航栈进入（历史/解梦 navigateTo）→ 显示返回箭头；tab 主屏隐藏
+    tempChat: false,          // 临时对话模式（⊕ 符号钮进入，复用倾诉临时通道：后端不落记忆）
     messages: SEED,
     typing: false,
     inputText: '',
@@ -148,6 +150,7 @@ Page({
     this._loadNightPrefs();           // 异步拉取档位/动效/挽留并缓存
     this._loadReactions();
     this._initNavOff();
+    this._initNavDepth();     // 返回箭头仅导航栈进入（历史/解梦 navigateTo）时显示
     this._attachHost();
     this._loadHistory();
     this._consumePrefill();
@@ -670,9 +673,23 @@ Page({
     }
   },
 
-  /* 原型 onBack：返回今日 */
-  goToday() {
-    wx.reLaunch({ url: '/pages/today/today' });
+  /* 返回箭头：仅导航栈进入（历史/解梦 navigateTo）时显示；tab 主屏隐藏（原型 4-tab 常驻无返回） */
+  _initNavDepth() {
+    const pages = getCurrentPages();
+    this.setData({ showBack: !!(pages && pages.length > 1) });
+  },
+  goBack() {
+    const pages = getCurrentPages();
+    if (pages && pages.length > 1) wx.navigateBack();
+  },
+
+  /* 临时对话（页头 ⊕ 符号钮，原型 v7 反馈#7）：直达动作 + toast；
+     复用现有倾诉临时通道（deepNight → 后端临时不落记忆），
+     进入后同位置切换为新开对话图标（方框加号） */
+  toggleTempChat() {
+    this.setData({ tempChat: true, notKeep: true });
+    streamHost.setDeepNight(true);
+    wx.showToast({ title: '临时对话 · 离开即不留记录', icon: 'none' });
   },
 
   /* 原型 onTab：底部栏切换 */
@@ -1059,10 +1076,19 @@ Page({
     wx.navigateTo({ url: '/pages/history/history' });
   },
 
-  /* 新开对话（页头「新开」按钮）：当前会话归档 ylm_chat_archives → 回到 SEED 开场。
+  /* 新开对话（页头符号钮）：临时模式中 = 离开即不留记录，直接开新普通对话
+     （临时内容不入历史、不弹确认——原型直达动作）；
+     普通模式 = 当前会话归档 ylm_chat_archives → 回到 SEED 开场。
      真机反馈修复：确认后必须清空回 SEED 并归档；任何异常不静默失败——
      归档失败不阻断重置，并给明确提示。 */
   startNewChat() {
+    if (this.data.tempChat) {
+      streamHost.setDeepNight(false);
+      this.setData({ tempChat: false, notKeep: false });
+      try { this._resetChatUi(); } catch (e) { console.error('[Chat] 新开对话失败:', e); }
+      wx.showToast({ title: '一段新对话 · 灯已点亮', icon: 'none' });
+      return;
+    }
     wx.showModal({
       title: '新开对话',
       content: '当前对话将保存到历史，重新开始一段新的夜话？',

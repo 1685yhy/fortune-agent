@@ -1,24 +1,48 @@
 <view class="screen {{nightMode ? 'night' : ''}}" style="--nav-off:{{navOff}}px" bindtap="onListTap">
-  <view class="navrow">
-    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goToday">
+  <view class="navrow {{showBack ? 'show-back' : ''}}">
+    <!-- 返回箭头：仅导航栈进入（历史/解梦 navigateTo）时显示；tab 主屏隐藏（原型 4-tab 常驻无返回） -->
+    <view wx:if="{{showBack}}" class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
       <image class="back-icon" src="/assets/images/ic-back.png"></image>
     </view>
+    <!-- 页头左侧纯符号钮（零文字，原型 v7 反馈#7）：
+         默认 ⊕ 临时对话（直达动作+toast）；临时模式中同位置切换为新开对话（方框加号）；
+         历史为固定列表图标钮；标题「对话」居中 -->
+    <view class="nav-actions">
+      <view wx:if="{{tempChat}}" class="nav-sym na-strong" hover-class="navrow-hover" hover-stay-time="0" bindtap="startNewChat" aria-label="新开对话">
+        <view class="sym-new">
+          <view class="sym-new-frame"></view>
+          <view class="sym-plus-h"></view>
+          <view class="sym-plus-v"></view>
+        </view>
+      </view>
+      <view wx:else class="nav-sym na-strong" hover-class="navrow-hover" hover-stay-time="0" bindtap="toggleTempChat" aria-label="临时对话">
+        <view class="sym-temp">
+          <view class="sym-temp-frame"></view>
+          <view class="sym-temp-tail"></view>
+          <view class="sym-plus-h"></view>
+          <view class="sym-plus-v"></view>
+        </view>
+      </view>
+      <view class="nav-sym" hover-class="navrow-hover" hover-stay-time="0" bindtap="goHistory" aria-label="历史记录">
+        <view class="sym-list">
+          <view class="sym-list-line"></view>
+          <view class="sym-list-line"></view>
+          <view class="sym-list-line"></view>
+        </view>
+      </view>
+    </view>
     <view class="nav-title">
-      <image class="nav-lantern" src="/assets/images/ic-lantern-on.png"></image>
-      <text>与明灯夜话</text>
-    </view>
-    <!-- 对话历史入口（归档夜话：搜索/预览/继续） -->
-    <view class="nav-right nav-hist" hover-class="navrow-hover" hover-stay-time="0" bindtap="goHistory">
-      <image class="nav-hist-ic" src="/assets/images/ic-chat.png"></image>
-      <text class="nav-hist-txt">历史</text>
-    </view>
-    <!-- v1.1 新开对话（明确入口）：归档当前会话 → 重新 welcome -->
-    <view class="nav-right nav-new" hover-class="navrow-hover" hover-stay-time="0" bindtap="startNewChat">
-      <text class="nav-new-txt">新开</text>
+      <text>对话</text>
     </view>
   </view>
 
   <view class="chat-head" bindlongpress="clearChat">八月初六 · 夜</view>
+
+  <!-- 临时对话条（⊕ 进入：临 时 印章 + 离开即不留记录，原型 .temp-strip） -->
+  <view wx:if="{{tempChat && !nightMode}}" class="temp-strip">
+    <view class="ts-seal"><text>临 时</text></view>
+    <text class="ts-txt">离开即不留记录</text>
+  </view>
 
   <!-- ═══ Task 8 · 深夜模式卡片（方案·灯下漫谈） ═══ -->
   <!-- 深夜标识：灯笼 + 倾诉临时提示（今夜不落记忆） -->

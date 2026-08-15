@@ -4,60 +4,131 @@
    msg-list 底部与其联动，滚动到底时最后一条气泡不被快捷笺条遮挡 */
 .screen { --inputbar-h: 192rpx; }
 
-/* ═══ 页头导航行：返回+标题(居中)+历史+新开 不重叠 ═══
-   真机反馈：标题「与明灯夜话」与「新开」按钮重叠。
-   根因：原 .nav-hist { right:152rpx } 被 .navrow .nav-right { right:190rpx }
-   覆盖（选择器优先级更高），历史/新开叠在同一位置；且居中标题向右延伸
-   盖住按钮区。
-   修复：chat 导航行改流式布局 —— 返回钮靠左、标题在中间区域居中、
-   右侧「历史」「新开」依次排开；新开保持距右 190rpx 避让微信胶囊。 */
-.navrow { justify-content: flex-start; }
-.navrow .back {
-  position: static;
-  flex-shrink: 0;
-  margin-left: 6rpx;
-}
+/* ═══ 页头导航行（原型 v7 反馈#7 符号钮改造）═══
+   标题「对话」居中；左侧纯符号钮（零文字）：
+   - 默认 ⊕ 临时对话（虚线气泡加号）→ 点击直达发起（toast）；
+   - 临时模式中同位置切换为 新开对话（方框加号）→ 点击直接开新普通对话；
+   - 历史 = 固定列表图标钮（三横线）。
+   返回箭头：tab 主屏（4-tab 常驻）隐藏；导航栈进入（历史/解梦 navigateTo）时
+   显示（navrow 挂 show-back 类 → 符号钮组右移避让）。 */
+.navrow { justify-content: center; }
 .navrow .nav-title {
-  position: static;
-  flex: 1;
-  min-width: 0;
-  justify-content: center;      /* 标题在返回钮与右侧按钮组之间居中 */
-  letter-spacing: .14em;        /* 略收紧，为右侧双按钮让位（33rpx 字重不变） */
+  letter-spacing: .14em;        /* 略收紧（33rpx 字重不变） */
   white-space: nowrap;
-  overflow: hidden;             /* 极端窄屏兜底：裁剪不换行、不重叠 */
 }
-.navrow .nav-right { position: static; flex-shrink: 0; }
+/* 返回箭头沿用 app.wxss 绝对定位（left 19rpx）；符号钮组挂 show-back 时右移避让 */
+.navrow .back { z-index: 36; }
 
-/* v1.1 新开对话（页头右侧文字钮，墨韵小字；距右 190rpx 避让微信胶囊） */
-.nav-new { width: 104rpx; margin-right: 190rpx; }
-.nav-new-txt {
-  font-family: var(--font-song);
-  font-size: 22rpx;                      /* 11.5px */
-  letter-spacing: .24em;
-  color: var(--ink-soft);
-  border: 2rpx solid var(--line);
-  border-radius: 7rpx;
-  padding: 8rpx 15rpx;
-  background: var(--paper-card);
+/* 左侧符号钮组（零文字，热区 84rpx，参照原型 .nav-actions 44px） */
+.nav-actions {
+  position: absolute;
+  top: 4rpx;
+  left: 16rpx;
+  height: 84rpx;
+  z-index: 36;
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
 }
-
-/* 对话历史入口（「历史」钮，位于「新开」左侧） */
-.navrow .nav-hist {
-  right: auto;
-  margin-left: auto;            /* 紧贴标题右侧、新开左侧 */
-  margin-right: 12rpx;
-  width: 104rpx;
+/* 导航栈进入（有返回箭头）时符号钮组右移避让 */
+.navrow.show-back .nav-actions { left: 104rpx; }
+.nav-sym {
+  width: 84rpx;
+  height: 84rpx;
+  border-radius: 20rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 6rpx;
+  color: var(--ink-mid);
+  position: relative;
 }
-.nav-hist-ic { width: 25rpx; height: 25rpx; opacity: .85; }
-.nav-hist-txt {
-  font-family: var(--font-song);
-  font-size: 20rpx;                      /* 10.5px */
+.nav-sym.na-strong { color: var(--acc); }
+
+/* ⊕ 临时对话（原型 Ic.plusc：虚线气泡 + 加号） */
+.sym-temp { width: 40rpx; height: 40rpx; position: relative; }
+.sym-temp-frame {
+  position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+  border: 2.5rpx dashed var(--acc);
+  border-radius: 10rpx;
+  opacity: .9;
+}
+.sym-temp-tail {
+  position: absolute; left: 8rpx; bottom: -5rpx;
+  width: 12rpx; height: 12rpx;
+  border-right: 2.5rpx solid var(--acc);
+  border-bottom: 2.5rpx solid var(--acc);
+  border-bottom-right-radius: 4rpx;
+  transform: rotate(45deg);
+  opacity: .9;
+}
+
+/* 新开对话（原型 Ic.newchat：方框 + 加号） */
+.sym-new { width: 40rpx; height: 40rpx; position: relative; }
+.sym-new-frame {
+  position: absolute; left: 0; top: 0; right: 0; bottom: 0;
+  border: 2.5rpx solid var(--acc);
+  border-radius: 8rpx;
+  opacity: .85;
+}
+.sym-plus-h {
+  position: absolute; left: 50%; top: 50%;
+  width: 18rpx; height: 2.5rpx;
+  background: var(--acc);
+  transform: translate(-50%, -50%);
+  border-radius: 2rpx;
+}
+.sym-plus-v {
+  position: absolute; left: 50%; top: 50%;
+  width: 2.5rpx; height: 18rpx;
+  background: var(--acc);
+  transform: translate(-50%, -50%);
+  border-radius: 2rpx;
+}
+
+/* 历史列表（原型 Ic.lhist：三横线，末行略短） */
+.sym-list {
+  width: 34rpx; height: 40rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6rpx 0;
+}
+.sym-list-line {
+  width: 34rpx; height: 2.5rpx;
+  background: var(--ink-mid);
+  border-radius: 2rpx;
+  opacity: .8;
+}
+.sym-list-line:last-child { width: 23rpx; align-self: flex-end; margin-right: 1rpx; }
+
+/* ── 临时对话条（⊕ 进入：临 时 印章 + 离开即不留记录，原型 .temp-strip） ── */
+.temp-strip {
+  position: absolute;
+  top: calc(215rpx + var(--nav-off));
+  left: 0; right: 0;
+  z-index: 34;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18rpx;
+}
+.ts-seal {
+  display: flex;
+  align-items: center;
+  font-family: var(--font-brush);
+  font-size: 21rpx;
   letter-spacing: .16em;
-  color: var(--ink-soft);
+  color: #FBF6E8;
+  background: var(--acc);
+  border-radius: 6rpx;
+  padding: 5rpx 15rpx;
+}
+.ts-txt {
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .14em;
+  color: var(--ink-faint);
 }
 
 /* ── 头部细行（八月初六 · 夜） ── */
