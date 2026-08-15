@@ -1,0 +1,2 @@
+{"id": "ss_0001", "source": "合成样例", "source_lines": "-", "pills": ["庚午", "辛巳", "丙午", "丁卯"], "gender": "", "expected": {"shensha": ["桃花", "羊刃", "禄神"]}, "prose": "", "quality": "unit", "audit": "2026-08-15 合成：丙日羊刃在午"}
+{"id": "ss_0002", "source": "合成样例", "source_lines": "-", "pills": ["甲申", "丙子", "戊辰", "庚午"], "gender": "", "expected": {"shensha": ["华盖", "文昌", "羊刃"]}, "prose": "", "quality": "unit", "audit": "2026-08-15 合成：申子辰见辰为华盖"}
