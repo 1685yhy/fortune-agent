@@ -1,5 +1,5 @@
 {
- "phase": "阶段0+1",
+ "phase": "阶段0+1+2",
  "rules": {
   "shishen": 3,
   "geju": 4,
@@ -11,5 +11,12 @@
   "shensha": 2,
   "qiongtong_cells": 120
  },
- "audit": "2026-08-15 全量跑分"
+ "audit": "2026-08-15 全量跑分",
+ "phase2": {
+  "deduction_steps": 7,
+  "evidence": "in",
+  "report": "in",
+  "e2e_cases": 25,
+  "gate": "9/9 + e2e 25/25"
+ }
 }
