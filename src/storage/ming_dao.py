@@ -60,6 +60,14 @@ class MingDAO:
             for r in rows
         ]
 
+    def delete_saved(self, user_id: str, surname: str, given: str) -> bool:
+        """取消收藏一张名笺(幂等)。返回是否实际删除了记录。"""
+        cur = self.conn.execute(
+            "DELETE FROM ming_saves WHERE user_id=? AND surname=? AND given=?",
+            (user_id, surname, given))
+        self.conn.commit()
+        return cur.rowcount > 0
+
     # ── 免费生成日额度 ──
 
     def consume_quota(self, user_id: str, day: str, limit: int) -> int:

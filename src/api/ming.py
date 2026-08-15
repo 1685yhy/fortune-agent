@@ -204,6 +204,11 @@ class MingSaveRequest(BaseModel):
     style_note: str = Field("", max_length=30)
 
 
+class MingDeleteRequest(BaseModel):
+    surname: str = Field(min_length=1, max_length=4)
+    given: str = Field(min_length=1, max_length=2)
+
+
 def _validate_surname(surname: str) -> str:
     surname = surname.strip()
     if not surname or not _CJK.match(surname):
@@ -401,3 +406,14 @@ async def ming_save(req: MingSaveRequest, uid: str = Depends(require_user)):
 async def ming_saved(uid: str = Depends(require_user)):
     """已收藏名笺列表(最新在前)。"""
     return {"items": _mdao().list_saved(uid)}
+
+
+@router.delete("/api/ming/delete")
+async def ming_delete(req: MingDeleteRequest, uid: str = Depends(require_user)):
+    """取消收藏名笺(幂等: 不存在返回 deleted=False, 不报错)。"""
+    surname = _validate_surname(req.surname)
+    given = req.given.strip()
+    if not given or not _CJK.match(given) or len(given) > 2:
+        raise HTTPException(status_code=400, detail="名字需为 1-2 个汉字")
+    deleted = _mdao().delete_saved(uid, surname, given)
+    return {"deleted": deleted}
