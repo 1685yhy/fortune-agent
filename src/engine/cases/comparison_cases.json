@@ -1,0 +1,80 @@
+[
+ {
+  "id": "e2e_0001",
+  "source": "mingli_bench",
+  "source_lines": "ftb_0001",
+  "birth": {
+   "year": 1974,
+   "month": 4,
+   "day": 28,
+   "hour": 16,
+   "minute": 40,
+   "city": "usa",
+   "gender": "男"
+  },
+  "question": "此命1996年发生何事？",
+  "audit": "2026-08-15 对比案例（类别代表）"
+ },
+ {
+  "id": "e2e_0002",
+  "source": "mingli_bench",
+  "source_lines": "ftb_0002",
+  "birth": {
+   "year": 1974,
+   "month": 4,
+   "day": 28,
+   "hour": 16,
+   "minute": 40,
+   "city": "usa",
+   "gender": "男"
+  },
+  "question": "此命何年结婚？",
+  "audit": "2026-08-15 对比案例（类别代表）"
+ },
+ {
+  "id": "e2e_0005",
+  "source": "mingli_bench",
+  "source_lines": "ftb_0005",
+  "birth": {
+   "year": 1974,
+   "month": 4,
+   "day": 28,
+   "hour": 16,
+   "minute": 40,
+   "city": "usa",
+   "gender": "男"
+  },
+  "question": "此命2020年发生何事？",
+  "audit": "2026-08-15 对比案例（类别代表）"
+ },
+ {
+  "id": "e2e_0010",
+  "source": "mingli_bench",
+  "source_lines": "ftb_0010",
+  "birth": {
+   "year": 1981,
+   "month": 5,
+   "day": 26,
+   "hour": 2,
+   "minute": 17,
+   "city": "香港",
+   "gender": "女"
+  },
+  "question": "父母情况？",
+  "audit": "2026-08-15 对比案例（类别代表）"
+ },
+ {
+  "id": "tds_0001",
+  "source": "滴天髓阐微.txt",
+  "source_lines": "87-98",
+  "pills": [
+   "辛卯",
+   "丁酉",
+   "庚午",
+   "丙子"
+  ],
+  "prose": "天干庚辛丙丁，正配火炼秋金；地支子午卯酉，又配坎离震兑。支全四正，气贯八方，然五行无土，虽诞秋令，不作旺论。最喜子午逢冲，水克火，使午火不破酉金，足以辅主；更妙卯酉逢冲，金克木，则卯木不助午火，制伏得宜。卯酉为震兑，主仁义之真极；子午为坎离",
+  "question": "请分析此命（古籍命例）",
+  "audit": "2026-08-15 对比案例（pills-only）"
+ }
+]
