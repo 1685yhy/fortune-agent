@@ -39,6 +39,11 @@ def _run_one(case: Case, llm, use_real_retriever: bool) -> str | None:
         return "缺十神步骤"
     if not any(r.startswith("qiongtong_table") for r in rules):
         return "缺调候用神步骤"
+    duanyu_steps = [s for s in chain.steps if s.rule.startswith("断语要点")]
+    if not duanyu_steps:
+        return "缺断语要点步骤"
+    if not duanyu_steps[-1].output:
+        return "断语要点为空"
 
     try:
         report = compose_report(chain, case.prose or case.id, llm=llm,
