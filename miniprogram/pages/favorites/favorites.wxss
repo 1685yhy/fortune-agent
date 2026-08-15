@@ -117,7 +117,50 @@
   color: var(--ink-faint);
 }
 
-/* ── 分类 tab（笺匣：全部 / 笺 / 对话 · 印章式小签） ── */
+/* ── 名笺卡（AI 取名收藏 · 墨色「名」印 + 大字名 + 朱砂评分章 + 性别/风格小签） ── */
+.fm-head {
+  display: flex;
+  align-items: center;
+  gap: 15rpx;                          /* 8px */
+}
+.fm-seal {
+  width: 46rpx;                        /* 24px */
+  height: 46rpx;
+  font-size: 27rpx;                    /* 14px */
+  border-radius: 6rpx;
+  transform: rotate(-3deg);
+  background: var(--ink);              /* 墨色印，与晨笺朱砂印成对 */
+  color: #F5EFE1;
+}
+.fm-name {
+  font-family: var(--font-brush);
+  font-size: 48rpx;                    /* 25px */
+  letter-spacing: .1em;
+  color: var(--ink);
+  line-height: 1.2;
+}
+.fm-score {
+  margin-left: auto;                   /* 右顶：朱砂评分章 */
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 18rpx;                    /* 9.5px */
+  letter-spacing: .08em;
+  color: var(--acc);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 4rpx;
+  padding: 4rpx 12rpx;
+  background: var(--acc-soft);
+  transform: translateY(1rpx);
+}
+.fm-tags {
+  margin-top: 16rpx;                   /* 8px */
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9rpx;
+}
+.fm-chip { font-size: 19rpx; padding: 4rpx 14rpx; }
+
+/* ── 分类 tab（笺匣：全部 / 笺 / 对话 / 名 · 印章式小签） ── */
 .fav-tabs {
   display: flex;
   gap: 14rpx;                          /* 7px */

@@ -10,7 +10,7 @@
   </view>
 
   <scroll-view scroll-y class="fav-scroll">
-    <!-- 分类（Task 10 笺匣：全部 / 笺 / 对话） -->
+    <!-- 分类（Task 10 笺匣 + 名笺：全部 / 笺 / 对话 / 名） -->
     <view class="fav-tabs">
       <view class="fav-tab {{cat === 'all' ? 'fav-tab-on' : ''}}" hover-class="fav-tab-active" hover-stay-time="0"
         data-cat="all" bindtap="onCatTap">全部</view>
@@ -18,6 +18,8 @@
         data-cat="jian" bindtap="onCatTap">笺</view>
       <view class="fav-tab {{cat === 'chat' ? 'fav-tab-on' : ''}}" hover-class="fav-tab-active" hover-stay-time="0"
         data-cat="chat" bindtap="onCatTap">对话</view>
+      <view class="fav-tab {{cat === 'ming' ? 'fav-tab-on' : ''}}" hover-class="fav-tab-active" hover-stay-time="0"
+        data-cat="ming" bindtap="onCatTap">名</view>
     </view>
 
     <view wx:if="{{loaded && !shown.length}}" class="fav-empty">
@@ -32,8 +34,21 @@
         data-content="{{item.content}}" bindtap="onItemTap"
         data-id="{{item.id}}" bindlongpress="onItemLongPress">
 
+        <!-- 名分类：AI 取名名笺卡（墨色「名」印 + 大名 + 五维评分章 + 性别/风格小签） -->
+        <block wx:if="{{item.isMing}}">
+          <view class="fm-head">
+            <view class="seal fm-seal"><text class="seal-char">名</text></view>
+            <view class="fm-name">{{item.ming.full}}</view>
+            <view class="fm-score">五维评分 {{item.ming.score}} 分</view>
+          </view>
+          <view class="fm-tags">
+            <text class="inktag fm-chip">{{item.ming.gender}}</text>
+            <text class="inktag fm-chip" wx:if="{{item.ming.style_note}}">{{item.ming.style_note}}</text>
+          </view>
+        </block>
+
         <!-- 笺分类：晨笺卡片（日期干支 + 宜忌 + 金句 + 轻私语 + 小问，非原文气泡） -->
-        <block wx:if="{{item.isJian && !item.jian.fallback}}">
+        <block wx:elif="{{item.isJian && !item.jian.fallback}}">
           <view class="fj-head">
             <view class="seal fj-seal"><text class="seal-char">晨</text></view>
             <view class="fj-title">{{item.jian.date}}</view>
@@ -79,7 +94,7 @@
           <text class="fc-hint">点按复制 · 长按移除</text>
         </view>
       </view>
-      <view class="fav-note">收藏存于本机 · 换设备不随行</view>
+      <view class="fav-note">{{cat === 'ming' ? '名笺收藏随账号云端保存' : '收藏存于本机 · 换设备不随行'}}</view>
     </view>
   </scroll-view>
 </view>

@@ -1,8 +1,11 @@
-// 我的收藏 — 收藏星笺（v1.1）+ 笺匣「笺」分类（Task 10）
-// 数据源：本机会话 ylm_chat_messages + 新开对话归档 ylm_chat_archives 中
+// 我的收藏 — 收藏星笺（v1.1）+ 笺匣「笺」分类（Task 10）+ 名笺「名」分类
+// 数据源①（本地）：本机会话 ylm_chat_messages + 新开对话归档 ylm_chat_archives 中
 //         role==='ai' && kept===true 的回复（后端未持久化收藏，feedback 仅 positive/negative）
-// 分类：全部 / 笺（type==='jian' 晨笺卡）/ 对话（普通回复）；笺条目以卡片渲染（非气泡）
-// 交互：点按复制；长按取消收藏
+// 数据源②（后端）：GET /api/ming/saved 名笺收藏（ming_saves 表，isMing 标记，
+//         取消收藏走 DELETE /api/ming/delete）
+// 分类：全部 / 笺（type==='jian' 晨笺卡）/ 对话（普通回复）/ 名（AI 取名名笺）
+// 交互：点按复制；长按取消收藏（名笺走后端删除，本地收藏同步移除 kept 标记）
+const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 
 const STORAGE_KEY = 'ylm_chat_messages';
@@ -61,14 +64,45 @@ const EMPTY_TEXT = {
   all: { title: '还没有收藏', sub: '点回复下的 ⭐ 收藏，好话存下来' },
   jian: { title: '笺匣还空着', sub: '今日页晨笺卡点收藏，笺入此匣' },
   chat: { title: '还没有收藏的对话', sub: '点回复下的 ⭐ 收藏，好话存下来' },
+  ming: { title: '还没有收藏的名笺', sub: '在 AI 取名页收藏一张吧' },
 };
+
+/* 名笺复制文本：`名笺 · 张XX（男）` / `五维评分 92 分` / `风格：温润如玉` */
+function mingCopy(m) {
+  const lines = [`名笺 · ${m.full}（${m.gender || '男'}）`];
+  if (typeof m.score === 'number') lines.push(`五维评分 ${m.score} 分`);
+  if (m.style_note) lines.push(`风格：${m.style_note}`);
+  return lines.join('\n');
+}
+
+/* 后端 GET /api/ming/saved 条目 → 收藏页条目（isMing 标记；id 含 saved_at 保证稳定且唯一） */
+function mingItem(m, now) {
+  if (!m || !m.full) return null;
+  const savedAt = m.saved_at ? m.saved_at * 1000 : now;
+  return {
+    id: `ming_${m.surname}_${m.given}_${Math.round(savedAt)}`,
+    content: mingCopy(m),
+    tag: '名笺',
+    time: '',
+    keptAt: savedAt,
+    isMing: true,
+    ming: {
+      full: m.full,
+      surname: m.surname,
+      given: m.given,
+      gender: m.gender || '男',
+      score: m.score || 0,
+      style_note: m.style_note || '',
+    },
+  };
+}
 
 Page({
   data: {
     navOff: 0,
-    items: [],        // 全量（含 jian 解析）
+    items: [],        // 全量（含 jian 解析 / isMing 名笺）
     shown: [],        // 当前分类过滤
-    cat: 'all',       // all | jian | chat
+    cat: 'all',       // all | jian | chat | ming
     loaded: false,
     dark: false,
     emptyTitle: EMPTY_TEXT.all.title,
@@ -90,7 +124,8 @@ Page({
     if (off !== 0) this.setData({ navOff: off });
   },
 
-  /* 扫描本机会话 + 归档 → kept 的 AI 回复（按收藏时间倒序），标注晨笺并解析卡片字段 */
+  /* 扫描本机会话 + 归档 → kept 的 AI 回复（按收藏时间倒序），标注晨笺并解析卡片字段；
+     名笺收藏走后端（GET /api/ming/saved），并行拉取后合并且按收藏时间倒序 */
   _load() {
     const items = [];
     const now = Date.now();
@@ -120,13 +155,30 @@ Page({
     });
     this.setData({ items, loaded: true });
     this._applyCat(this.data.cat);
+
+    // 名笺（后端）：失败静默，不影响本地收藏展示；合并时先剔除旧名笺防重复
+    api.getMingSaved().then((data) => {
+      const mingItems = [];
+      ((data && data.items) || []).forEach((m) => {
+        const it = mingItem(m, now);
+        if (it) mingItems.push(it);
+      });
+      const merged = this.data.items.filter((it) => !it.isMing).concat(mingItems);
+      merged.sort((a, b) => (b.keptAt || 0) - (a.keptAt || 0));
+      merged.forEach((it) => {
+        it.keptLabel = formatTime(it.keptAt);
+      });
+      this.setData({ items: merged });
+      this._applyCat(this.data.cat);
+    }).catch(() => { /* ignore */ });
   },
 
-  /* 分类过滤（笺=isJian；对话=非笺；全部=两者） */
+  /* 分类过滤（笺=isJian；对话=非笺非名笺；名=isMing；全部=所有） */
   _applyCat(cat) {
     const items = this.data.items;
     const shown = cat === 'jian' ? items.filter((it) => it.isJian)
-      : cat === 'chat' ? items.filter((it) => !it.isJian)
+      : cat === 'chat' ? items.filter((it) => !it.isJian && !it.isMing)
+      : cat === 'ming' ? items.filter((it) => it.isMing)
       : items;
     const t = EMPTY_TEXT[cat] || EMPTY_TEXT.all;
     this.setData({ shown, cat, emptyTitle: t.title, emptySub: t.sub });
@@ -146,9 +198,36 @@ Page({
     });
   },
 
-  /* 长按 → 取消收藏（同步移除消息上的 kept 标记） */
+  /* 长按 → 取消收藏（名笺走后端 DELETE /api/ming/delete；本地收藏同步移除 kept 标记） */
   onItemLongPress(e) {
     const { id } = e.currentTarget.dataset;
+    const item = (this.data.items || []).find((it) => it.id === id);
+    if (!item) return;
+
+    if (item.isMing) {
+      wx.showModal({
+        title: '取消收藏',
+        content: '从收藏中移除这张名笺？',
+        confirmText: '移除',
+        confirmColor: '#A93A2C',
+        success: (res) => {
+          if (!res.confirm) return;
+          api.deleteMing({
+            surname: item.ming.surname,
+            given: item.ming.given,
+          }).then(() => {
+            // 后端已删（deleted=false 视为本就不存在，同样本地移除）
+            this.setData({ items: this.data.items.filter((it) => it.id !== id) });
+            this._applyCat(this.data.cat);
+            wx.showToast({ title: '已移除', icon: 'none' });
+          }).catch(() => {
+            wx.showToast({ title: '移除失败，请重试', icon: 'none' });
+          });
+        },
+      });
+      return;
+    }
+
     wx.showModal({
       title: '取消收藏',
       content: '从收藏中移除这条回复？',

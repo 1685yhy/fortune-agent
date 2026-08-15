@@ -1049,6 +1049,7 @@ function genMing(data) { return request('/api/ming/generate', { method: 'POST', 
 function reportMing(data) { return request('/api/ming/report', { method: 'POST', data }); }
 function saveMing(data) { return request('/api/ming/save', { method: 'POST', data }); }
 function getMingSaved() { return request('/api/ming/saved', { method: 'GET' }); }
+function deleteMing(data) { return request('/api/ming/delete', { method: 'DELETE', data }); }
 
 // ---- 登录增强（Task 2：手机号绑定 + 头像昵称采集） ----
 
@@ -1213,4 +1214,5 @@ module.exports = {
   reportMing,
   saveMing,
   getMingSaved,
+  deleteMing,
 };
