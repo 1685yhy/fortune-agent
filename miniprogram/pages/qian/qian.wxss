@@ -1,0 +1,296 @@
+/* ═══ 抽灵签（原型 S12 · dir_b v7: 13-qian-idle / 14-qian-card / 14b-save / 14c-again）
+   签筒=CSS 样式绘制(竹筒+5 签枝朱砂顶,非图片资产),摇签动效=CSS keyframes 1.6s
+   视觉基准: 宣纸/墨/朱砂/金(禁灰) ═══ */
+
+.qian-wrap { position: fixed; inset: 0; }
+
+/* 主列滚动区(navrow 之下,子页无 tabbar,通到屏幕底) */
+.qian-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));   /* 95px */
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 24rpx 38rpx 60rpx;           /* 12px 20px 31px */
+  overflow-x: hidden;
+}
+
+/* ── 引语(原型: 朱砂小字居中,签不欺人 · 诚则灵) ── */
+.qian-quote {
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 24rpx;                     /* 12.5px */
+  letter-spacing: .14em;
+  color: var(--acc);
+  margin: 30rpx 0 8rpx;
+}
+
+/* ── 签筒区 ── */
+.qian-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 26rpx 0 6rpx;
+  border-radius: 20rpx;
+}
+.qian-stage-active { background: var(--acc-soft); }
+
+/* 签筒: 竹筒(纸色竹纹) + 5 签枝(朱砂顶) */
+.tube {
+  position: relative;
+  width: 340rpx;
+  height: 430rpx;
+}
+
+/* 签枝: 竹签样式,底部插入筒口(transform-origin 底端,绕筒口摆动) */
+.stick {
+  position: absolute;
+  bottom: 160rpx;
+  left: 50%;
+  width: 38rpx;
+  height: 300rpx;
+  margin-left: -19rpx;
+  background: linear-gradient(180deg, var(--paper-card) 0%, var(--paper-deep) 100%);
+  border: 2rpx solid var(--line);
+  border-radius: 7rpx;
+  transform-origin: 50% 100%;
+  transition: transform .45s ease;
+  z-index: 1;
+}
+.stick::after {           /* 朱砂顶 */
+  content: '';
+  position: absolute;
+  top: -5rpx;
+  left: -2rpx;
+  right: -2rpx;
+  height: 32rpx;
+  background: var(--acc);
+  border-radius: 7rpx 7rpx 2rpx 2rpx;
+}
+/* 静态扇形排布(竹签各偏一角,朱砂顶向外散开) */
+.s1 { transform: rotate(-24deg); }
+.s2 { transform: rotate(-12deg); }
+.s3 { transform: rotate(0deg); }
+.s4 { transform: rotate(12deg); }
+.s5 { transform: rotate(24deg); }
+
+/* 摇出的签枝: 竖直弹出(带小回弹),签面竖写签号 */
+.stick.raised {
+  transform: translateY(-150rpx);
+  transition: transform .6s cubic-bezier(.2, .9, .3, 1.15);
+  z-index: 5;
+}
+.stick-no {
+  position: absolute;
+  top: 52rpx;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rpx;
+}
+.stick-no-ch {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 17rpx;
+  line-height: 25rpx;
+  letter-spacing: 1rpx;
+  color: var(--ink);
+}
+
+/* 筒身: 竹节纸色 + 竹纹细线 */
+.tube-body {
+  position: absolute;
+  bottom: 0;
+  left: 20rpx;
+  right: 20rpx;
+  height: 300rpx;
+  background-color: var(--paper-deep);
+  background-image: repeating-linear-gradient(
+    180deg, transparent 0, transparent 43rpx, rgba(58,44,30,.07) 43rpx, rgba(58,44,30,.07) 45rpx);
+  border: 2rpx solid var(--line);
+  border-radius: 26rpx;
+  z-index: 2;
+}
+/* 筒口(纸色亮沿,签枝从口内插出) */
+.tube-rim {
+  position: absolute;
+  top: -26rpx;
+  left: -16rpx;
+  right: -16rpx;
+  height: 66rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line);
+  border-radius: 42rpx 42rpx 22rpx 22rpx;
+}
+/* 筒身朱砂印章「明」(签名元素) */
+.tube-stamp {
+  position: absolute;
+  bottom: 26rpx;
+  left: 50%;
+  margin-left: -29rpx;
+  width: 58rpx;
+  height: 58rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--acc);
+  color: #FBF6E8;
+  border-radius: 8rpx;
+  font-family: var(--font-brush);
+  font-size: 32rpx;
+  transform: rotate(-3deg);
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 2rpx 6rpx rgba(60,30,20,.25);
+}
+
+/* ── 摇签动效: 筒身摆 + 五枝各向摇(animation 覆盖静态 transform,结束时过渡回位) ── */
+.qian-stage.shaking .tube { animation: tube-shake .4s ease-in-out infinite alternate; }
+.qian-stage.shaking .s1 { animation: stick-shake-1 .3s ease-in-out infinite alternate; }
+.qian-stage.shaking .s2 { animation: stick-shake-2 .27s ease-in-out infinite alternate; }
+.qian-stage.shaking .s3 { animation: stick-shake-3 .33s ease-in-out infinite alternate; }
+.qian-stage.shaking .s4 { animation: stick-shake-4 .29s ease-in-out infinite alternate; }
+.qian-stage.shaking .s5 { animation: stick-shake-5 .31s ease-in-out infinite alternate; }
+
+@keyframes tube-shake {
+  from { transform: rotate(-2.5deg); }
+  to   { transform: rotate(2.5deg); }
+}
+@keyframes stick-shake-1 {
+  from { transform: rotate(-32deg); }
+  to   { transform: rotate(-16deg); }
+}
+@keyframes stick-shake-2 {
+  from { transform: rotate(-20deg); }
+  to   { transform: rotate(-4deg); }
+}
+@keyframes stick-shake-3 {
+  from { transform: rotate(-9deg); }
+  to   { transform: rotate(9deg); }
+}
+@keyframes stick-shake-4 {
+  from { transform: rotate(4deg); }
+  to   { transform: rotate(20deg); }
+}
+@keyframes stick-shake-5 {
+  from { transform: rotate(16deg); }
+  to   { transform: rotate(32deg); }
+}
+
+/* 提示(点一下签筒,摇一支 / 摇签中) */
+.qian-hint {
+  margin-top: 26rpx;
+  font-family: var(--font-song);
+  font-size: 22rpx;                     /* 11.5px */
+  letter-spacing: .22em;
+  color: var(--ink-soft);
+}
+
+/* ── 签卡(第X签+吉凶徽标+四行诗+解曰+所求) ── */
+.qian-card {
+  margin: 34rpx 6rpx 0;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line);
+  border-radius: 16rpx;
+  padding: 34rpx 42rpx 38rpx;
+  box-shadow: 0 6rpx 24rpx rgba(58,44,30,.06);
+  animation: qian-card-in .55s ease both;
+}
+@keyframes qian-card-in {
+  from { opacity: 0; transform: translateY(42rpx); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.qc-head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20rpx;
+  margin-bottom: 28rpx;
+}
+.qc-no {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 34rpx;                     /* 17.5px */
+  letter-spacing: .1em;
+  color: var(--ink);
+}
+/* 吉凶徽标分级色: 上上签朱砂实底 → 上吉朱砂线 → 中吉暖金 → 中平中墨 → 下签淡墨 */
+.qc-badge {
+  font-family: var(--font-song);
+  font-size: 22rpx;                     /* 11.5px */
+  letter-spacing: .16em;
+  padding: 6rpx 18rpx;
+  border-radius: 8rpx;
+  flex-shrink: 0;
+}
+.qc-badge.lv1 { background: var(--acc); color: #FBF6E8; }
+.qc-badge.lv2 { border: 2rpx solid var(--acc); color: var(--acc); }
+.qc-badge.lv3 { border: 2rpx solid var(--gold); color: var(--gold); }
+.qc-badge.lv4 { border: 2rpx solid var(--ink-mid); color: var(--ink-mid); }
+.qc-badge.lv5 { border: 2rpx solid var(--ink-soft); color: var(--ink-soft); }
+
+/* 四行签诗(文楷载笺,居中四列) */
+.qc-poem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 13rpx;
+  margin-bottom: 30rpx;
+}
+.qc-poem-line {
+  font-family: var(--poem);
+  font-size: 32rpx;                     /* 16.5px */
+  letter-spacing: .26em;
+  line-height: 1.5;
+  color: var(--ink);
+  text-align: center;
+}
+
+/* 解曰 / 所求 */
+.qc-section {
+  border-top: 2rpx solid var(--line-soft);
+  padding-top: 24rpx;
+  margin-top: 24rpx;
+}
+.qc-label {
+  font-family: var(--font-brush);
+  font-size: 24rpx;                     /* 12.5px */
+  letter-spacing: .24em;
+  color: var(--acc);
+  margin-bottom: 12rpx;
+}
+.qc-text {
+  display: block;
+  font-family: var(--font-song);
+  font-size: 26rpx;                     /* 13.5px */
+  line-height: 1.9;
+  letter-spacing: .05em;
+  color: var(--ink-mid);
+}
+.qc-suo-text {
+  display: block;
+  font-family: var(--font-song);
+  font-size: 26rpx;
+  letter-spacing: .1em;
+  color: var(--acc);
+}
+
+/* ── 操作: 保存签卡(朱砂主) / 再摇一支(副) ── */
+.qian-actions {
+  display: flex;
+  gap: 22rpx;
+  margin: 36rpx 6rpx 0;
+}
+.qian-save { flex: 1.25; }
+.qian-again { flex: 1; }
+
+/* 娱乐声明(原型固定小字) */
+.qian-foot {
+  margin-top: 46rpx;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 20rpx;                     /* 10.5px */
+  letter-spacing: .14em;
+  color: var(--ink-faint);
+}

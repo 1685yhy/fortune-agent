@@ -1,0 +1,65 @@
+<!-- 抽灵签 — 签筒摇签(三态 idle/shaking/done) + 签卡(第X签+吉凶徽标+四行诗+解曰+所求) + 保存/再摇
+     视觉基准: 原型 S12(13-qian-idle / 14-qian-card / 14b / 14c)
+     签筒=CSS 样式绘制(5 签枝朱砂顶,非图片资产);摇签动效=CSS keyframes 1.6s -->
+<view class="screen qian-wrap" style="--nav-off:{{navOff}}px">
+  <view class="navrow">
+    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+      <image class="back-icon" src="/assets/images/ic-back.png"></image>
+    </view>
+    <view class="nav-title">
+      <text>抽灵签</text>
+    </view>
+    <view class="nav-right"></view>
+  </view>
+
+  <scroll-view scroll-y class="qian-scroll">
+    <!-- 引语(原型: 朱砂小字居中) -->
+    <view class="qian-quote">心中默念一事，摇一支签。签不欺人，诚则灵。</view>
+
+    <!-- 签筒区: 点签筒/摇一支 → 摇签动效 1.6s → 单支弹出(签号竖写) -->
+    <view class="qian-stage {{stage === 'shaking' ? 'shaking' : ''}}"
+      hover-class="{{stage === 'idle' ? 'qian-stage-active' : 'none'}}" hover-stay-time="0"
+      bindtap="onShake">
+      <view class="tube">
+        <view wx:for="{{sticks}}" wx:key="index" class="stick s{{index + 1}} {{raisedIdx === index && stage === 'done' ? 'raised' : ''}}">
+          <view wx:if="{{raisedIdx === index && stage === 'done'}}" class="stick-no">
+            <text wx:for="{{card.noChars}}" wx:for-item="ch" wx:key="*this" class="stick-no-ch">{{ch}}</text>
+          </view>
+        </view>
+        <view class="tube-body">
+          <view class="tube-rim"></view>
+          <view class="tube-stamp"><text>明</text></view>
+        </view>
+      </view>
+      <view class="qian-hint">{{stage === 'shaking' ? '摇签中 · 心诚则灵' : '点一下签筒，摇一支'}}</view>
+    </view>
+
+    <!-- 签卡(摇出后) -->
+    <view wx:if="{{stage === 'done' && card}}" class="qian-card">
+      <view class="qc-head">
+        <text class="qc-no">第{{card.no}}签 · 已摇出</text>
+        <view class="qc-badge lv{{card.level}}">{{card.jx}}</view>
+      </view>
+      <view class="qc-poem">
+        <text wx:for="{{card.poem}}" wx:key="*this" class="qc-poem-line">{{item}}</text>
+      </view>
+      <view class="qc-section">
+        <view class="qc-label">解曰</view>
+        <text class="qc-text">{{card.jie}}</text>
+      </view>
+      <view class="qc-section">
+        <view class="qc-label">所求</view>
+        <text class="qc-suo-text">{{card.suo}}</text>
+      </view>
+    </view>
+
+    <!-- 操作: 保存签卡 / 再摇一支 -->
+    <view wx:if="{{stage === 'done'}}" class="qian-actions">
+      <button class="btn-primary qian-save" bindtap="onSave" disabled="{{saving}}">保存签卡</button>
+      <button class="btn-secondary qian-again" bindtap="onShake">再摇一支</button>
+    </view>
+
+    <!-- 娱乐声明(原型固定小字) -->
+    <view class="qian-foot">签文为传统民俗文化 · 内容仅供娱乐参考</view>
+  </scroll-view>
+</view>

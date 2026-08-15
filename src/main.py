@@ -839,6 +839,11 @@ async def lifespan(app: FastAPI):
     from .api.zeri import setup as setup_zeri
     setup_zeri(ZeriDAO(_zeri_conn()), member_dao, handler)
 
+    # 抽灵签 API（签文库/摇签/收藏/历史; qian_saves 轻量表, 全接口 require_user）
+    from src.storage.qian_dao import QianDAO
+    from .api.qian import setup as setup_qian
+    setup_qian(QianDAO(_zeri_conn()))
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -1038,6 +1043,10 @@ app.include_router(night_router)             # /api/night/prefs|status
 # 择吉日 API（选日/清单/历史/换一批/订阅，全接口 require_user + 归属校验）
 from .api.zeri import router as zeri_router
 app.include_router(zeri_router)              # /api/zeri/*
+
+# 抽灵签 API（签文库/摇签/收藏/历史，全接口 require_user）
+from .api.qian import router as qian_router
+app.include_router(qian_router)              # /api/qian/*
 
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)

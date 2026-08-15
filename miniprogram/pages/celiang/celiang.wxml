@@ -62,12 +62,12 @@
         <view class="ec-s">记一段梦 · 我来解</view>
         <view class="ec-tag">即将上线</view>
       </view>
-      <!-- 占位灰态：塔罗（即将上线，不可点） -->
-      <view class="entry-card cl-off">
-        <view class="seal ec-seal cl-seal-off"><text class="seal-char">塔</text></view>
-        <view class="ec-t">塔罗</view>
-        <view class="ec-s">抽牌 · 解读 · 免费</view>
-        <view class="ec-tag">即将上线</view>
+      <!-- 实入口：抽灵签 → 灵签页（签筒摇签 → 签卡 → 保存/再摇） -->
+      <view class="entry-card ec-on" hover-class="ec-on-active" hover-stay-time="0"
+        data-url="/pages/qian/qian" bindtap="onEntryTap">
+        <view class="seal ec-seal"><text class="seal-char">签</text></view>
+        <view class="ec-t">抽灵签</view>
+        <view class="ec-s">默念一事 · 摇一支 · 免费</view>
       </view>
     </view>
 

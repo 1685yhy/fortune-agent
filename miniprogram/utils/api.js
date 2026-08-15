@@ -1039,6 +1039,11 @@ function getZeriOptions(params = {}) {
 function getZeriPrefs() { return request('/api/zeri/prefs', { method: 'GET' }); }
 function putZeriPrefs(patch) { return request('/api/zeri/prefs', { method: 'PUT', data: patch }); }
 
+// Qian (抽灵签)
+function drawQian() { return request('/api/qian/draw', { method: 'POST' }); }
+function saveQian(data) { return request('/api/qian/save', { method: 'POST', data }); }
+function getQianHistory() { return request('/api/qian/history', { method: 'GET' }); }
+
 // ---- 登录增强（Task 2：手机号绑定 + 头像昵称采集） ----
 
 /** 绑定/换绑手机号：微信 getPhoneNumber 授权 code → 后端 AES 落库，响应 {phone_masked} */
@@ -1191,4 +1196,9 @@ module.exports = {
   getZeriOptions,
   getZeriPrefs,
   putZeriPrefs,
+
+  // Qian (抽灵签)
+  drawQian,
+  saveQian,
+  getQianHistory,
 };

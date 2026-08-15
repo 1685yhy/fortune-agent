@@ -169,6 +169,11 @@
   margin-top: 3rpx;
 }
 
+/* 实入口问事卡（抽灵签：朱砂印章 + 浓墨标题，与灰态占位区分） */
+.entry-card.ec-on .ec-t { color: var(--ink); }
+.entry-card.ec-on .ec-s { color: var(--ink-soft); }
+.ec-on-active { background: var(--acc-soft); }
+
 /* ── 落款 ── */
 .suance-foot {
   display: flex;
