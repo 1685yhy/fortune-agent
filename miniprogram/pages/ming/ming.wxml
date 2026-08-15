@@ -253,13 +253,13 @@
     </view>
   </view>
 
-  <!-- 付费弹层(¥19.9, 会员免费) -->
+  <!-- 付费弹层(宝宝 ¥19.9 / 成人 ¥29.9 含改名对比, 会员免费) -->
   <view wx:if="{{paywall}}" class="paywall-mask" bindtap="onPaywallClose">
     <view class="pw-card" catchtap="noop">
       <view class="pw-seal">名</view>
       <view class="pw-t">名笺深度报告</view>
-      <view class="pw-s">八字用神 → 五行补益矩阵 · 5 名逐名契合推理 · 备选 15 名 · 墨韵名笺</view>
-      <view class="pw-price">¥19.9<text class="pw-price-u"> 单买</text></view>
+      <view class="pw-s">{{mode === 'adult' ? '含改名对比 · ' : ''}}八字用神 → 五行补益矩阵 · 5 名逐名契合推理 · 备选 15 名 · 墨韵名笺</view>
+      <view class="pw-price">{{mode === 'adult' ? '¥29.9' : '¥19.9'}}<text class="pw-price-u"> 单买</text></view>
       <view class="pw-btns">
         <button class="btn-primary pw-buy" bindtap="onBuyNow" disabled="{{purchasing}}">
           {{purchasing ? '生成中…' : '立即解锁'}}

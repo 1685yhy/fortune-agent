@@ -399,7 +399,7 @@ Page({
     })
       .then((res) => {
         wx.showToast({
-          title: res && res.already ? '这张名笺已在您的收藏中' : '名笺已收藏 · 收入笺匣「名」分类',
+          title: res && res.already ? '这张名笺已在您的收藏中' : '名笺已收藏',
           icon: 'none',
         });
       })
