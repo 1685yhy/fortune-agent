@@ -1,7 +1,8 @@
 <view class="screen today-wrap" style="--nav-off:{{navOff}}px">
   <view class="today-frame"></view>
   <view class="today-brand">易理明灯</view>
-  <view class="today-date">
+  <!-- 流日行（原型可点 → 今日详解页） -->
+  <view class="today-date" hover-class="today-date-active" hover-stay-time="0" bindtap="goTodayDetail">
     <text>{{dateText}}</text>
     <view class="zd"></view>
     <text>{{solarHint}}</text>
@@ -76,14 +77,34 @@
       <text class="jian-open-cta">去开启</text>
     </view>
 
-    <!-- 双人合盘入口卡（朱砂「缘」印章 + 标题 + 副文案 + brush-arrow） -->
-    <view class="yuan-entry" hover-class="yuan-entry-active" hover-stay-time="0" bindtap="onYuanEntry">
-      <view class="seal yuan-seal"><text class="seal-char">缘</text></view>
-      <view class="yuan-entry-mid">
-        <view class="yuan-entry-title">双人合盘 · 缘分契合</view>
-        <view class="yuan-entry-sub">输入两人生辰，看看你们合不合</view>
+    <!-- 流日四运卡（原型：事业/财运/感情/健康 4 行 + 分数；点开 → 今日详解页） -->
+    <view class="four-card" wx:if="{{fortune4.length}}" hover-class="four-card-active" hover-stay-time="0" bindtap="goTodayDetail">
+      <view class="four-head">
+        <text class="four-title">流日四运</text>
+        <view class="four-go">
+          <text class="four-go-text">详解</text>
+          <image class="brush-arrow four-arrow" src="/assets/images/brush-arrow.png"></image>
+        </view>
       </view>
-      <image class="brush-arrow yuan-entry-arrow" src="/assets/images/brush-arrow.png"></image>
+      <view class="four-row" wx:for="{{fortune4}}" wx:key="key">
+        <text class="four-label">{{item.label}}</text>
+        <view class="four-bar"><view class="four-bar-fill" style="width:{{item.percent}}%"></view></view>
+        <text class="four-score">{{item.scoreText}}</text>
+      </view>
+    </view>
+
+    <!-- 时辰择时行（原型：巳时/午时/申时 chips；点开 → 今日详解页） -->
+    <view class="shichen-row" wx:if="{{shichen.length}}" hover-class="shichen-row-active" hover-stay-time="0" bindtap="goTodayDetail">
+      <view class="shichen-head">
+        <text class="shichen-title">时辰择时</text>
+        <text class="shichen-go">详解</text>
+      </view>
+      <view class="shichen-chips">
+        <view class="shichen-chip {{item.cur ? 'shichen-chip-cur' : ''}}" wx:for="{{shichen}}" wx:key="time">
+          <text class="sc-time">{{item.time}}</text>
+          <text class="sc-tag">{{item.tag}}</text>
+        </view>
+      </view>
     </view>
 
     <view class="cover-col">
@@ -100,9 +121,11 @@
       <view class="seal-attach">
         <view class="seal seal-52"><text class="seal-char">明</text></view>
       </view>
-      <view class="yi-chips">
+      <!-- 宜忌区（原型可点 → 今日详解页） -->
+      <view class="yi-chips" hover-class="yi-chips-active" hover-stay-time="0" bindtap="goTodayDetail">
         <view class="inktag yi-chip">{{yiChips[0]}}</view>
         <view class="inktag yi-chip">{{yiChips[1]}}</view>
+        <text class="yi-chips-go">宜忌详解</text>
       </view>
       <view class="poem-note">签文只作心意，不作断言 · 明灯拟</view>
     </view>

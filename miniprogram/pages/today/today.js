@@ -13,6 +13,17 @@ const MSG_KEY = 'ylm_chat_messages';
 const DEFAULT_POEM = ['雾散灯明处', '恰是归程时。'];
 const DEFAULT_CHIPS = ['宜 · 安顿心事', '宜 · 早眠'];
 
+/* 详情页数据透传 key（今日详解页读取；缺省时详情页自拉 API） */
+const DETAIL_KEY = 'ylm_today_detail';
+
+/* 流日四运四维元数据（key ↔ 展示名，顺序固定） */
+const F4_META = [
+  { key: 'career', label: '事业' },
+  { key: 'wealth', label: '财运' },
+  { key: 'love', label: '感情' },
+  { key: 'health', label: '健康' },
+];
+
 /* 阳历日期 → 中文数字（原型「八月六日」格式） */
 const CN_MONTH = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];
 const CN_DAY = ['一', '二', '三', '四', '五', '六', '七', '八', '九'];
@@ -27,6 +38,13 @@ function cnDate(now) {
   else if (d === 30) day = '三十';
   else day = '三十一';
   return `${CN_MONTH[now.getMonth()]}月${day}日`;
+}
+
+/* 当前时辰序号：子时=0 .. 亥时=11（子时跨 23-01，取 23 点后归子时） */
+function shichenNowIdx() {
+  const h = new Date().getHours();
+  if (h === 23) return 0;
+  return Math.floor((h + 1) / 2);
 }
 
 /* 签文拆两行：按句读拆分，成对仗两行（无数据时用原型原句） */
@@ -73,6 +91,20 @@ Page({
       privateLine: '',
       question: '',
     },
+    /* 流日四运卡：fortune4=[{key,label,scoreText,percent,desc}]（点开今日详解） */
+    fortune4: [],
+    /* 时辰择时行：当前时辰起 3 个时辰 chip [{time,tag,desc,cur}]（点开今日详解） */
+    shichen: [],
+    /* 今日详解页透传数据（宜忌/四运/时辰） */
+    yiDetail: [],
+    jiDetail: [],
+    suitable: [],
+    unsuitable: [],
+    detailDate: '',
+    detailGanzhi: '',
+    detailScore: '',
+    detailFortune4: null,
+    hourlyRaw: [],
   },
 
   onLoad() {
@@ -96,7 +128,8 @@ Page({
     if (off !== 0) this.setData({ navOff: off });
   },
 
-  /* 日期：左阳历中文数字（八月六日），右节气提示（明日立秋 · 今夜宜早眠） */
+  /* 日期：左阳历中文数字（八月六日），右节气提示（明日立秋 · 今夜宜早眠）；
+     整行可点 → 今日详解页（原型「流日行」入口） */
   _initDate() {
     const now = new Date();
     let hint = '明日立秋 · 今夜宜早眠';
@@ -108,7 +141,8 @@ Page({
     this.setData({ dateText: cnDate(now), solarHint: hint });
   },
 
-  /* 后端数据绑定（api.js 契约）：suitable → 两宜标签；personal_advice → 诗签两行 */
+  /* 后端数据绑定（api.js 契约）：suitable → 两宜标签；personal_advice → 诗签两行；
+     fortune4/hourly/yi_detail → 流日四运卡 + 时辰择时行 + 今日详解页透传数据 */
   async _loadFortune() {
     try {
       const app = getApp();
@@ -130,6 +164,49 @@ Page({
       this.setData({
         yiChips: chips.length >= 2 ? chips : DEFAULT_CHIPS,
         poemLines: splitPoem(res.personal_advice || res.advice || ''),
+      });
+
+      /* ── 流日四运（0-10 分，进度条 = score×10%） ── */
+      const f4 = (res && res.fortune4) || null;
+      const fortune4 = F4_META
+        .filter((m) => f4 && f4[m.key])
+        .map((m) => {
+          const it = f4[m.key];
+          const sc = Number(it.score) || 0;
+          return {
+            key: m.key,
+            label: m.label,
+            scoreText: sc.toFixed(1),
+            percent: Math.max(0, Math.min(100, sc * 10)),
+            desc: it.desc || '',
+          };
+        });
+
+      /* ── 时辰择时：当前时辰起 3 个 chip（原型 巳时/午时/申时 式样） ── */
+      const hourlyRaw = Array.isArray(res.hourly) ? res.hourly : [];
+      const cur = shichenNowIdx();
+      const shichen = [];
+      for (let i = 0; i < 3 && hourlyRaw.length; i++) {
+        const it = hourlyRaw[(cur + i) % hourlyRaw.length];
+        if (it) shichen.push({ time: it.time || '', tag: it.tag || '', desc: it.desc || '', cur: i === 0 });
+      }
+
+      /* ── 宜忌详解（三宜二忌逐条 action/time/reason） ── */
+      const yiDetail = Array.isArray(res.yi_detail) ? res.yi_detail.filter((d) => d && d.action) : [];
+      const jiDetail = Array.isArray(res.ji_detail) ? res.ji_detail.filter((d) => d && d.action) : [];
+
+      this.setData({
+        fortune4,
+        shichen,
+        yiDetail,
+        jiDetail,
+        suitable,
+        unsuitable: Array.isArray(res.unsuitable) ? res.unsuitable.filter(Boolean) : [],
+        detailDate: res.date || '',
+        detailGanzhi: res.day_ganzhi || '',
+        detailScore: res.score || '',
+        detailFortune4: f4,
+        hourlyRaw,
       });
     } catch (e) {
       console.warn('[Today] API 不可用，保持原型文案');
@@ -348,9 +425,23 @@ Page({
     wx.navigateTo({ url: '/pages/jian_onboard/jian_onboard' });
   },
 
-  /* 双人合盘入口卡 → 合盘页（onLoad 自动回填我方默认命主） */
-  onYuanEntry() {
-    wx.navigateTo({ url: '/pages/hehun/hehun' });
+  /* ═══ 今日详解（原型 v7 反馈#2）：4 路入口（四运卡/时辰行/宜忌区/流日行） ═══
+     已加载数据经 storage 透传；详情页缺省时自拉 /api/calendar/today */
+  goTodayDetail() {
+    try {
+      wx.setStorageSync(DETAIL_KEY, {
+        date: this.data.detailDate,
+        dayGanzhi: this.data.detailGanzhi,
+        score: this.data.detailScore,
+        suitable: this.data.suitable,
+        unsuitable: this.data.unsuitable,
+        yiDetail: this.data.yiDetail,
+        jiDetail: this.data.jiDetail,
+        fortune4: this.data.detailFortune4,
+        hourly: this.data.hourlyRaw,
+      });
+    } catch (e) { /* 存储失败不阻断跳转（详情页自拉 API） */ }
+    wx.navigateTo({ url: '/pages/today_detail/today_detail' });
   },
 
   /* 原型 onTalk：进入夜话 */

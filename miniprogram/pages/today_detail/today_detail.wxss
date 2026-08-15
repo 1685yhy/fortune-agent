@@ -1,0 +1,243 @@
+/* ═══ 今日详解页（原型 S13：四运逐条 + 宜忌详解 + 时辰高亮，宣纸/墨/朱砂 token） ═══ */
+.detail-screen {
+  min-height: 100vh;
+  background: var(--paper);
+  padding: 34rpx 38rpx 60rpx;
+  box-sizing: border-box;
+}
+
+/* ── 头部：农历 · 干支 · 综合分 · 宜忌摘要 ── */
+.detail-head {
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-strong);
+  border-radius: 12rpx;
+  padding: 28rpx 30rpx 24rpx;
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+}
+.detail-date {
+  display: flex;
+  align-items: baseline;
+  gap: 17rpx;
+}
+.detail-date-main {
+  font-family: var(--font-kai);
+  font-size: 34rpx;
+  letter-spacing: .1em;
+  color: var(--ink);
+}
+.detail-score {
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .08em;
+  color: var(--ink-soft);
+}
+.detail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 13rpx;
+  margin-top: 19rpx;
+}
+.detail-chip { font-size: 19rpx; padding: 6rpx 18rpx; }
+.detail-chip-ji { border-color: var(--acc-line); }
+
+/* ── 区块通用 ── */
+.detail-sec {
+  margin-top: 25rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-strong);
+  border-radius: 12rpx;
+  padding: 25rpx 28rpx 27rpx;
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+}
+.detail-sec-title {
+  font-family: var(--font-kai);
+  font-size: 28rpx;
+  letter-spacing: .16em;
+  color: var(--ink);
+  padding-bottom: 17rpx;
+  margin-bottom: 13rpx;
+  border-bottom: 2rpx solid var(--line-soft);
+  position: relative;
+}
+.detail-sec-title::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: -2rpx;
+  width: 52rpx;
+  height: 4rpx;
+  background: var(--acc);
+  border-radius: 2rpx;
+}
+
+/* ── 四运逐条 ── */
+.d4-item {
+  padding: 13rpx 0 14rpx;
+  border-bottom: 2rpx solid var(--line-soft);
+}
+.d4-item:last-child { border-bottom: none; }
+.d4-row {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+}
+.d4-label {
+  flex-shrink: 0;
+  width: 52rpx;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .14em;
+  color: var(--ink);
+}
+.four-bar {
+  flex: 1;
+  height: 13rpx;
+  background: var(--tag-bg);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 7rpx;
+  overflow: hidden;
+}
+.four-bar-fill {
+  height: 100%;
+  border-radius: 7rpx;
+  background: linear-gradient(90deg, var(--acc-deep), var(--acc));
+}
+.d4-score {
+  flex-shrink: 0;
+  width: 64rpx;
+  text-align: right;
+  font-family: var(--font-kai);
+  font-size: 27rpx;
+  color: var(--ink);
+}
+.d4-desc {
+  display: block;
+  margin-top: 9rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .04em;
+  line-height: 1.65;
+  color: var(--ink-mid);
+}
+
+/* ── 宜忌详解 ── */
+.yj-item {
+  padding: 12rpx 0 13rpx;
+  border-bottom: 2rpx solid var(--line-soft);
+}
+.yj-item:last-child { border-bottom: none; }
+.yj-head {
+  display: flex;
+  align-items: center;
+  gap: 13rpx;
+}
+.yj-tag {
+  flex-shrink: 0;
+  width: 34rpx;
+  height: 34rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6rpx;
+  border: 2rpx solid var(--acc-line);
+}
+.yj-tag-yi { background: var(--acc-soft); }
+.yj-tag-ji { background: var(--tag-bg); border-color: var(--line-mid); }
+.yj-char {
+  font-family: var(--font-brush);
+  font-size: 21rpx;
+  color: var(--acc);
+}
+.yj-tag-ji .yj-char { color: var(--ink-mid); }
+.yj-action {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-kai);
+  font-size: 25rpx;
+  letter-spacing: .08em;
+  color: var(--ink);
+}
+.yj-time {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 18rpx;
+  letter-spacing: .06em;
+  color: var(--ink-soft);
+}
+.yj-reason {
+  display: block;
+  margin: 7rpx 0 0 47rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .04em;
+  line-height: 1.6;
+  color: var(--ink-mid);
+}
+
+/* ── 时辰高亮 ── */
+.hour-scroll {
+  width: 100%;
+  white-space: nowrap;
+}
+.hour-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5rpx;
+  padding: 13rpx 21rpx;
+  margin-right: 13rpx;
+  background: var(--tag-bg);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 9rpx;
+}
+.hour-chip-cur { border-color: var(--acc-line); background: var(--acc-soft); }
+.hour-chip-sel {
+  border-color: var(--acc);
+  background: var(--acc-soft);
+  box-shadow: 0 0 0 2rpx var(--acc-line) inset;
+}
+.hour-name {
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .05em;
+  color: var(--ink-mid);
+}
+.hour-tag {
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .1em;
+  color: var(--acc);
+}
+.hour-desc {
+  margin-top: 19rpx;
+  background: var(--tag-bg);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 9rpx;
+  padding: 17rpx 20rpx;
+}
+.hour-desc-label {
+  display: block;
+  font-family: var(--font-kai);
+  font-size: 21rpx;
+  letter-spacing: .1em;
+  color: var(--acc);
+  margin-bottom: 7rpx;
+}
+.hour-desc-text {
+  display: block;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .04em;
+  line-height: 1.65;
+  color: var(--ink-mid);
+}
+
+/* ── 脚注 ── */
+.detail-foot {
+  margin-top: 34rpx;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+}

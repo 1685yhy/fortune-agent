@@ -10,7 +10,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
-from src.engines.calendar import LuckyCalendar
+from src.engines.calendar import LuckyCalendar, derive_fortune4
 from src.security.auth import require_user
 from src.storage.dao import UserDAO
 from src.utils.cache import get_cache, TTL_CALENDAR_TODAY
@@ -46,11 +46,14 @@ def _score_to_stars(score: int) -> int:
 
 
 def _generate_hourly(day_stem: str) -> list:
-    """按日干五行与时辰地支五行的生克关系生成 12 条时辰运势（纯规则，不调 LLM）。"""
+    """按日干五行与时辰地支五行的生克关系生成 12 条时辰运势（纯规则，不调 LLM）。
+
+    每条含 time（时辰名+时段）、desc（详述，详解页用）、tag（短标签，今日页择时 chips 用）。
+    """
     day_wx = STEM_WUXING.get(day_stem, "")
     if not day_wx:
         return [
-            {"time": f"{name} {hours}", "desc": "时辰平稳，按部就班，宜处理常规事务。"}
+            {"time": f"{name} {hours}", "desc": "时辰平稳，按部就班，宜处理常规事务。", "tag": "时宜平稳"}
             for name, hours in SHICHEN
         ]
     generates = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
@@ -61,17 +64,23 @@ def _generate_hourly(day_stem: str) -> list:
         bw = BRANCH_WX.get(name[0], "")
         if bw == day_wx:
             desc = f"{day_wx}气同频，能量最旺，适合推进核心事务、做重要决定。"
+            tag = "宜要事"
         elif generates.get(bw) == day_wx:
             desc = f"{bw}生{day_wx}，外界滋养，适合学习充电、听取建议、接受帮助。"
+            tag = "宜学习"
         elif generates.get(day_wx) == bw:
             desc = f"{day_wx}生{bw}，属付出时段，适合分享、协作、创意表达。"
+            tag = "宜分享"
         elif controls.get(bw) == day_wx:
             desc = f"{bw}克{day_wx}，压力稍大，宜守不宜攻，注意劳逸结合。"
+            tag = "宜守静"
         elif controls.get(day_wx) == bw:
             desc = f"{day_wx}制{bw}，掌控力强，适合谈判、决策、解决棘手问题。"
+            tag = "宜决断"
         else:
             desc = "时辰平稳，按部就班，宜处理常规事务。"
-        result.append({"time": f"{name} {hours}", "desc": desc})
+            tag = "时宜平稳"
+        result.append({"time": f"{name} {hours}", "desc": desc, "tag": tag})
     return result
 
 # 全局引用，由 main.py 在 lifespan 中设置
@@ -169,6 +178,28 @@ async def get_today_calendar(
     if not unsuitable:
         unsuitable = ["冲动决策", "过度消费", "熬夜"]
 
+    # 宜忌详解（今日详解页逐条：action + time + reason）
+    yi_detail = [
+        {"action": item.get("action", ""), "time": item.get("time", ""), "reason": item.get("reason", "")}
+        for item in day.yi if item.get("action")
+    ]
+    ji_detail = [
+        {"action": item.get("action", ""), "time": item.get("time", ""), "reason": item.get("reason", "")}
+        for item in day.ji if item.get("action")
+    ]
+    if not yi_detail:
+        yi_detail = [
+            {"action": "静心思考", "time": "辰时7-9点", "reason": "晨起气清，利于决策"},
+            {"action": "与人交流", "time": "午时11-13点", "reason": "阳气最旺时沟通顺畅"},
+            {"action": "整理规划", "time": "申时15-17点", "reason": "金气收敛，适合归纳"},
+        ]
+    if not ji_detail:
+        ji_detail = [
+            {"action": "冲动决策", "time": "全天", "reason": "心浮气躁易失误"},
+            {"action": "过度消费", "time": "酉时17-19点", "reason": "金旺易破财"},
+            {"action": "熬夜", "time": "子时23点后", "reason": "伤肝损运势"},
+        ]
+
     # Generate personal_advice and mood_reminder
     user_day_stem = ""
     bazi_list = saved.get("bazi", [])
@@ -188,6 +219,13 @@ async def get_today_calendar(
     day_wx = day_wuxing or "土"
     score = min(95, max(55, wx_scores.get(day_wx, 70) + ((now.day % 11) - 5)))
 
+    # 流日四运：LLM 已带（day.fortune4）直接用；缺失则规则兜底
+    fortune4 = getattr(day, "fortune4", None)
+    if not fortune4:
+        fortune4 = derive_fortune4(
+            day_wuxing, user_day_stem, score, getattr(day, "overall_mood", "")
+        )
+
     result = {
         "date": day.date,
         "lunar_date": getattr(day, 'lunar_date', ''),
@@ -197,6 +235,9 @@ async def get_today_calendar(
         "stars": _score_to_stars(score),
         "suitable": suitable[:5],  # Max 5 items
         "unsuitable": unsuitable[:5],
+        "yi_detail": yi_detail[:5],
+        "ji_detail": ji_detail[:5],
+        "fortune4": fortune4,
         "personal_advice": personal_advice,
         "mood_reminder": mood_reminder,
         "overall_mood": day.overall_mood,
@@ -295,6 +336,17 @@ def _generate_generic_calendar(date_str: str = None) -> dict:
         "stars": _score_to_stars(score),
         "suitable": ["保持好心情", "与朋友交流", "适度运动"],
         "unsuitable": ["冲动决策", "过度消费", "熬夜"],
+        "yi_detail": [
+            {"action": "保持好心情", "time": "辰时7-9点", "reason": "晨起气清，心情舒展"},
+            {"action": "与朋友交流", "time": "午时11-13点", "reason": "阳气最旺时沟通顺畅"},
+            {"action": "适度运动", "time": "申时15-17点", "reason": "金气收敛，筋骨舒展"},
+        ],
+        "ji_detail": [
+            {"action": "冲动决策", "time": "全天", "reason": "心浮气躁易失误"},
+            {"action": "过度消费", "time": "酉时17-19点", "reason": "金旺易破财"},
+            {"action": "熬夜", "time": "子时23点后", "reason": "伤肝损运势"},
+        ],
+        "fortune4": derive_fortune4(day_wuxing, "", score),
         "personal_advice": "请先设置八字信息，获取个性化日历。当前为通用运势参考。",
         "mood_reminder": "保持好心情是最好的开运方式。",
         "overall_mood": "保持平和心态，顺势而为",
