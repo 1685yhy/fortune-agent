@@ -11,6 +11,14 @@ def test_load_cases_valid():
         assert len(c.pills) == 4 and all(len(p) == 2 for p in c.pills)
         assert c.quality in ("unit", "reference", "rejected")
 
+def test_load_cases_accepts_e2e(tmp_path):
+    from src.engine.case_loader import load_cases
+    p = tmp_path / "e.jsonl"
+    p.write_text('{"id":"e1","source":"s","source_lines":"1","pills":[],"quality":"e2e"}\n',
+                 encoding="utf-8")
+    assert load_cases(str(p))[0].quality == "e2e"
+
+
 def test_load_cases_rejects_malformed(tmp_path):
     bad = tmp_path / "bad.jsonl"
     bad.write_text('{"id": 1}\n', encoding="utf-8")

@@ -18,7 +18,7 @@ class Case:
     audit: str = ""
 
     REQUIRED = ("id", "source", "source_lines")
-    QUALITIES = ("unit", "reference", "rejected")
+    QUALITIES = ("unit", "reference", "rejected", "e2e")
     STEMS = "甲乙丙丁戊己庚辛壬癸"
     BRANCHES = "子丑寅卯辰巳午未申酉戌亥"
 

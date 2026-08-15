@@ -17,8 +17,9 @@ class EvidenceProvider:
         from src.rag.embedder import Embedder
         embedder = Embedder(model_name="BAAI/bge-m3")
         embedder.load()
-        from src.config import settings
-        self._retriever = Retriever(str(settings.vectordb_dir), embedder)
+        from src.config import load_settings  # 无模块级单例，按 main.py:627 先例
+        _settings = load_settings()
+        self._retriever = Retriever(str(_settings.vectordb_dir), embedder)
         return self._retriever
 
     def _build_queries(self, chain: DeductionChain, question: str) -> list[str]:
