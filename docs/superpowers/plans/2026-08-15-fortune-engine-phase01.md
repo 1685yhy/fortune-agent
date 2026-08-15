@@ -188,7 +188,6 @@ import sys
 from pathlib import Path
 
 PILL_LINE = re.compile(r"^[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]$")
-CHAPTER = re.compile(r"^(?:论|甲|乙|丙|丁|戊|己|庚|辛|壬|癸)")  # 章节边界启发式，见下方说明
 
 
 def extract(path: str) -> list[dict]:
@@ -212,17 +211,17 @@ def extract(path: str) -> list[dict]:
         s = line.strip()
         if not s:
             continue
-        if PILL_LINE.match(s) and len(pills) < 4:
+        if PILL_LINE.match(s):
+            if len(pills) == 4:      # 新块开始：先收尾上一块（否则块会合并）
+                flush()
             if len(pills) == 0:
                 start_line = i
                 current = []
             pills.append(s)
-        else:
-            if len(pills) == 4:
-                current.append(s)
-            elif len(pills) > 0 and len(pills) < 4:
-                # 四柱不完整，放弃本块
-                pills = []
+        elif len(pills) == 4:
+            current.append(s)
+        elif len(pills) > 0:
+            pills = []               # 四柱不完整，放弃本块
     flush()
 
     # 后处理：人工/规则标注 expected.geju（断语中出现"X格"字样时取之，否则留空）
@@ -757,7 +756,7 @@ def evaluate(pills: list[str]) -> dict:
 - [ ] **Step 4: 跑测试确认通过**
 
 Run: `python -m pytest tests/test_engine_shensha.py -v`
-Expected: 2 passed
+Expected: 1 passed
 
 - [ ] **Step 5: 写考卷 shensha_cases.json**
 
