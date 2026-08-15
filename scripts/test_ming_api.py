@@ -5,7 +5,9 @@
 ```
 覆盖：401/生成 5 名字段完整/第 4、5 名截断(只给分数)/五维权重正确性/
 评分器确定性/LLM mock/LLM 降级(规则库兜底)/出处 RAG mock(命中有、未命中无)/
-付费边界(未购 403/已购 200/会员 200/体验模式全免费)/名笺收藏幂等/日额度 429。
+付费边界(未购 403/已购 200/会员 200/体验模式全免费)/名笺收藏幂等/日额度 429/
+T4 跟进：降级种子去重(同日两次生成名不同)/成人两档定价(ming_report 19.9
++ming_report_pro 29.9, 未购 403, pro 覆盖宝宝档, 低档不覆盖成人)/成人免费现名诊断。
 """
 import os
 import random
@@ -206,6 +208,17 @@ check("LLM 降级仍返回 5 名", r.status_code == 200 and len(r.json()["names"
 check("降级名全为 2 字汉字", all(len(it["given"]) == 2 and all(
     "一" <= ch <= "龥" for ch in it["given"]) for it in r.json()["names"]))
 
+# ── T4 跟进 1: 降级模式同日两次生成(含重新生成)结果不同(种子混入当日已用次数) ──
+s1 = ming_mod._daily_seed(UID)
+s2 = ming_mod._daily_seed(UID)
+check("种子同日递增(当日已用次数混入)", s1 != s2 and s1.startswith(f"{UID}:") and s2.startswith(f"{UID}:"))
+r = client.post("/api/ming/generate", json={"surname": "林", "gender": "男", "style_chips": ["大气"]}, headers=h)
+r_regen = client.post("/api/ming/generate", json={"surname": "林", "gender": "男", "style_chips": ["大气"]}, headers=h)
+names_a = [it["given"] for it in r.json()["names"]]
+names_b = [it["given"] for it in r_regen.json()["names"]]
+check("降级同日两次生成名不同", r.status_code == 200 and r_regen.status_code == 200
+      and names_a != names_b and len(set(names_a) & set(names_b)) < 5)
+
 # ── 性别过滤(规则生成: 男名不出现女向字) ──
 for it in r.json()["names"]:
     for ch in it["given"]:
@@ -218,6 +231,19 @@ check("男名无女向字", True)
 del os.environ["DEEPSEEK_API_KEY"]
 r = client.post("/api/ming/generate", json={"surname": "林", "gender": "女", "style_chips": ["诗意"]}, headers=h)
 check("无密钥规则兜底 5 名", r.status_code == 200 and len(r.json()["names"]) == 5)
+
+# ── T4 跟进 3: 成人免费现名诊断(免费档) ──
+r = client.post("/api/ming/generate", json={
+    "surname": "林", "gender": "女", "mode": "adult", "current_name": "晚晴",
+    "style_chips": ["诗意"]}, headers=h)
+check("成人免费生成 200", r.status_code == 200)
+diag = r.json().get("current_name_issues")
+check("成人免费响应含 current_name_issues", isinstance(diag, list) and len(diag) >= 1)
+check("现名诊断 ≤5 条", len(diag) <= 5)
+check("现名诊断为中文简评", all(isinstance(x, str) and x.strip() for x in diag))
+r = client.post("/api/ming/generate", json={
+    "surname": "林", "gender": "女", "style_chips": ["诗意"]}, headers=h)
+check("宝宝响应不含现名诊断", "current_name_issues" not in r.json())
 
 # ── 付费边界 ──
 stub = _MemberStub()
@@ -260,15 +286,75 @@ check("八字五行分布", rep["bazi"]["wuxing"]["counts"] == {
     "土": rep["bazi"]["wuxing"]["counts"]["土"]})
 check("用神结论", bool(rep["bazi"]["yongshen"]))
 
-# 成人改名: 现名诊断 + 改名对比
+# 成人改名: 现名诊断 + 改名对比(成人档 ming_report_pro)
+# 仅购宝宝档(ming_report) → 成人档 403, 需升级专属档
 r = client.post("/api/ming/report", json={
     "surname": "林", "given": "云舒", "gender": "女", "mode": "adult",
     "current_name": "晚晴", "style_chips": ["诗意"]}, headers=h)
-check("成人改名报告 200", r.status_code == 200)
+check("仅购宝宝档→成人档 403(需升级)", r.status_code == 403)
+stub.purchases[UID] = {"ming_report_pro"}
+r = client.post("/api/ming/report", json={
+    "surname": "林", "given": "云舒", "gender": "女", "mode": "adult",
+    "current_name": "晚晴", "style_chips": ["诗意"]}, headers=h)
+check("已购 ming_report_pro → 成人报告 200", r.status_code == 200)
 rc = r.json()["report"]["rename_compare"]
 check("改名对比含现名诊断", "current" in rc and "issues" in rc["current"])
 check("改名对比含推荐名", rc["recommended"]["full"] == "林云舒")
 check("改名提示证件变更", "notice" in rc)
+
+# ── T4 跟进 2: 成人改名两档定价(ming_report 19.9 / ming_report_pro 29.9) ──
+from src.api.pay import PRODUCTS as PAY_PRODUCTS
+check("两档商品注册(19.9/29.9)", PAY_PRODUCTS["ming_report"]["amount"] == 19.9
+      and PAY_PRODUCTS["ming_report_pro"]["amount"] == 29.9
+      and PAY_PRODUCTS["ming_report"]["type"] == "single"
+      and PAY_PRODUCTS["ming_report_pro"]["type"] == "single")
+
+# 未购成人档 → 403
+set_member(_MemberStub())
+r = client.post("/api/ming/report", json={
+    "surname": "林", "given": "云舒", "gender": "女", "mode": "adult",
+    "current_name": "晚晴"}, headers=h)
+check("成人档未购 403", r.status_code == 403)
+
+# 仅购宝宝档: 宝宝报告 200(无 rename_compare), 成人报告 403
+stub = _MemberStub()
+stub.purchases[UID] = {"ming_report"}
+set_member(stub)
+r = client.post("/api/ming/report", json={"surname": "林", "given": "云舒", "gender": "女"}, headers=h)
+check("宝宝档已购→宝宝报告 200", r.status_code == 200)
+check("宝宝报告无 rename_compare", "rename_compare" not in r.json()["report"])
+r = client.post("/api/ming/report", json={
+    "surname": "林", "given": "云舒", "gender": "女", "mode": "adult",
+    "current_name": "晚晴"}, headers=h)
+check("宝宝档不覆盖成人档→403", r.status_code == 403)
+
+# 已购 pro: 成人报告 200(含改名对比), 宝宝报告也放行(高档覆盖低档)
+stub.purchases[UID] = {"ming_report_pro"}
+r = client.post("/api/ming/report", json={
+    "surname": "林", "given": "云舒", "gender": "女", "mode": "adult",
+    "current_name": "晚晴"}, headers=h)
+check("已购 pro→成人报告 200", r.status_code == 200)
+check("成人报告含 rename_compare", "rename_compare" in r.json()["report"])
+r = client.post("/api/ming/report", json={"surname": "林", "given": "云舒", "gender": "女"}, headers=h)
+check("pro 覆盖宝宝档→宝宝报告 200", r.status_code == 200)
+
+# 会员 → 成人档免费
+stub3 = _MemberStub()
+stub3.members[UID] = "pro"
+set_member(stub3)
+r = client.post("/api/ming/report", json={
+    "surname": "林", "given": "云舒", "gender": "女", "mode": "adult",
+    "current_name": "晚晴"}, headers=h)
+check("会员成人档免费 → 200", r.status_code == 200)
+
+# 体验模式 → 成人档免费
+set_member(_MemberStub())
+os.environ["EXPERIENCE_MODE"] = "1"
+r = client.post("/api/ming/report", json={
+    "surname": "林", "given": "云舒", "gender": "女", "mode": "adult",
+    "current_name": "晚晴"}, headers=h)
+check("体验模式成人档免费 → 200", r.status_code == 200)
+os.environ["EXPERIENCE_MODE"] = ""
 
 # 已购 deep_report(同通道商品) → 放行
 stub2 = _MemberStub()

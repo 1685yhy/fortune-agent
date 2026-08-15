@@ -47,7 +47,8 @@ def setup(member_dao):
 PRODUCTS = {
     "love_compatibility": {"name": "感情合盘分析", "amount": 9.9, "type": "single"},
     "deep_report": {"name": "深度解读报告", "amount": 19.9, "type": "single"},
-    "ming_report": {"name": "AI取名名笺深度报告", "amount": 19.9, "type": "single"},
+    "ming_report": {"name": "AI取名名笺深度报告（宝宝版）", "amount": 19.9, "type": "single"},
+    "ming_report_pro": {"name": "成人改名深度报告（含现名诊断与改名对比）", "amount": 29.9, "type": "single"},
     "full_analysis": {"name": "全盘分析", "amount": 29.9, "type": "single"},
     "detailed_fortune": {"name": "详细每日运势", "amount": 0.0, "type": "single"},
 }

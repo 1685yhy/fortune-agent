@@ -26,10 +26,18 @@ const PRODUCTS = {
   },
   ming_report: {
     id: 'ming_report',
-    name: 'AI取名名笺深度报告',
+    name: 'AI取名名笺深度报告（宝宝版）',
     price: 19.9,
     priceLabel: '¥19.9',
     description: '八字契合度矩阵 · 备选 15 名 · 墨韵名笺',
+    icon: '名',
+  },
+  ming_report_pro: {
+    id: 'ming_report_pro',
+    name: '成人改名深度报告',
+    price: 29.9,
+    priceLabel: '¥29.9',
+    description: '现名诊断 · 改名对比 · 备选 15 名 · 墨韵名笺',
     icon: '名',
   },
   full_analysis: {

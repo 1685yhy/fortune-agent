@@ -48,6 +48,7 @@ Page({
     loading: false,
     names: [],               // 5 名卡
     styleNote: '',
+    issues: [],              // 成人免费现名诊断(current_name_issues, ≤5 条)
     genError: '',
     // 单名详情弹层
     detail: null,
@@ -162,6 +163,7 @@ Page({
           stage: 'result',
           names: res.names || [],
           styleNote: res.style_note || '随心',
+          issues: res.current_name_issues || [],
         });
         this._drawRadars();
       })
@@ -291,7 +293,9 @@ Page({
     if (this.data.purchasing) return;
     this.setData({ purchasing: true, paywall: false });
     try {
-      const payResult = await payment.purchase('ming_report');
+      // 两档定价: 宝宝版 ming_report ¥19.9 / 成人版 ming_report_pro ¥29.9
+      const payResult = await payment.purchase(
+        this.data.mode === 'adult' ? 'ming_report_pro' : 'ming_report');
       if (!payResult || !payResult.success) return;  // 取消/失败已 toast
       await this._fetchReport();
     } catch (e) {

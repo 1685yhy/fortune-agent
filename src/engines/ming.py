@@ -708,6 +708,59 @@ def build_buyi_matrix(given: str, yongshen: str, wuxing_counts: Optional[dict]) 
     return {"rows": rows, "comment": comment}
 
 
+def diagnose_current_name(surname: str, current_name: str, gender: str = "男",
+                          yongshen: str = "", wuxing_counts: Optional[dict] = None) -> List[str]:
+    """成人免费现名诊断(方案免费档): 现名问题清单,规则生成,≤5 条。
+
+    覆盖 五格/三才 凶格、五行冲突(与八字过剩五行同气/未补用神)、
+    读音字形简评(叠字/负面联想); 数据缺失如实跳过,不装懂。
+    只给问题清单,不做改运承诺; 完整改名对比在付费报告 rename_compare 中。
+    """
+    issues: List[str] = []
+
+    # ① 五格/三才(笔画数据可用时)
+    try:
+        from .xingming import get_stroke_count, XingmingEngine
+        if all(get_stroke_count(c) > 0 for c in surname + current_name):
+            r = XingmingEngine().analyze(surname, current_name)
+            if r.sancai_ji in ("凶", "半吉"):
+                issues.append(f"三才配置{r.sancai_ji}：天格{r.wuge.get('天格')}、"
+                              f"人格{r.wuge.get('人格')}、地格{r.wuge.get('地格')}的五行组合欠佳")
+            for k in ("天格", "人格", "地格", "外格", "总格"):
+                jx = r.analysis.get(k, {}).get("吉凶", "")
+                if jx == "凶":
+                    issues.append(f"{k}{r.wuge.get(k)}画为凶数，建议谨慎")
+    except Exception:
+        pass
+
+    # ② 五行: 与八字过剩五行同气 / 未补用神
+    if yongshen and wuxing_counts:
+        _use, helpful = parse_yongshen(yongshen)
+        for ch in current_name:
+            wx = char_wuxing(ch)
+            if not wx:
+                continue
+            if helpful and wx not in helpful and wuxing_counts.get(wx, 0) >= 3:
+                issues.append(f"「{ch}」字属{wx}，与八字偏旺的{wx}同气，未助全局")
+        if helpful:
+            got = {char_wuxing(c) for c in current_name}
+            if not got & set(helpful):
+                issues.append(f"现名未用八字喜用神（喜{'、'.join(helpful)}），五行补益有限")
+
+    # ③ 读音/字形简评(结构启发,不装懂)
+    if len(current_name) == 2 and current_name[0] == current_name[1]:
+        issues.append(f"「{current_name[0]}」叠字，读感单一")
+    for ch in current_name:
+        if ch in NEG_CHARS:
+            issues.append(f"「{ch}」字有负面联想，谐音观感欠佳")
+
+    # 一条问题都没有 → 如实总评(不编造硬伤)
+    if not issues:
+        s = score_name(surname, current_name, gender, [], yongshen, wuxing_counts)
+        issues.append(f"现名未见明显硬伤，综合{s['total']}分（{s['level'] or '中等'}）")
+    return issues[:5]
+
+
 def build_report(surname: str, given: str, gender: str, mode: str,
                  current_name: str, styles: List[str], custom: str,
                  bazi_result=None, retriever=None, rng: Optional[random.Random] = None,

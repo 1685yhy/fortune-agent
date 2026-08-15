@@ -5,8 +5,11 @@
   → 免费 5 名: 前 3 名完整(综合分+五维+点评+出处(RAG 有则示)+五行补益标签),
     第 4、5 名只给分数(locked,不露推理——解锁线)
 - POST /api/ming/report {surname, gender, given, mode, current_name, 生辰}
-  → 付费深度报告(契合度矩阵/改名对比/备选 15/名笺落款); 边界服务端强制
-    (_require_paid, EXPERIENCE_MODE 全免费, 会员免费, 复用现有支付通道)
+  → 付费深度报告(契合度矩阵/改名对比/备选 15/名笺落款); 两档定价(方案权威):
+    宝宝版 ming_report ¥19.9(契合度+备选 15), 成人版 ming_report_pro ¥29.9(含改名对比);
+    边界服务端强制(_require_paid, EXPERIENCE_MODE 全免费, 会员免费, pro 档覆盖宝宝档)
+- 成人免费现名诊断: 免费生成(成人场景)响应带 current_name_issues(五格/五行/读音 简评,≤5 条);
+  完整改名对比只在付费报告 rename_compare
 - POST /api/ming/save + GET /api/ming/saved: 名笺收藏(轻量表,生辰零落库)
 - 免费生成日额度 3 次(ming_quota; 会员/体验模式不限; 防爬防刷)
 
@@ -85,29 +88,60 @@ def _bj_day() -> str:
     return datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
 
 
-def _require_paid(uid: str):
+# 降级模式 rng 种子去重: 同日多次生成(含重新生成)必须结果不同。
+# 种子 = uid:day:当日已用次数(配额计数,持久) : 进程内递增序号(覆盖体验/会员等不耗配额的路径)。
+_gen_seq: dict = {}
+
+
+def _daily_seed(uid: str, salt: str = "") -> str:
+    """构造当日生成种子: 混入当日已用次数与递增序号, 同日同名请求结果不同。"""
+    day = _bj_day()
+    key = f"{uid}:{day}"
+    n = _gen_seq.get(key, 0) + 1
+    _gen_seq[key] = n
+    used = ""
+    try:
+        row = _mdao().conn.execute(
+            "SELECT cnt FROM ming_quota WHERE user_id=? AND day=?", (uid, day)).fetchone()
+        if row:
+            used = f":q{row[0]}"
+    except Exception:
+        pass
+    return f"{key}:{n}{used}" + (f":{salt}" if salt else "")
+
+
+def _require_paid(uid: str, tier: str = "ming_report"):
     """付费边界(服务端强制,不信任客户端):
     - 体验模式(EXPERIENCE_MODE) → 全免费
-    - 已购 ming_report / deep_report(同通道商品) → 放行
+    - 两档定价: 宝宝档 ming_report(¥19.9, 契合度+备选 15) /
+      成人档 ming_report_pro(¥29.9, 含改名对比); pro 档覆盖宝宝档, 反之不覆盖
+      (宝宝档兼容 deep_report 旧通道)
     - 会员(plan != free) → 深度报告免费
-    - 其余 → 403
+    - 其余 → 403(提示购买对应档位)
     """
     if is_experience_mode():
         return
     if _member_dao is None:
         raise HTTPException(status_code=503, detail="支付服务未就绪")
+    allowed = (["ming_report_pro"] if tier == "ming_report_pro"
+               else ["ming_report", "ming_report_pro", "deep_report"])
     try:
-        if _member_dao.get_user_purchase(uid, "ming_report") is not None:
-            return
-        if _member_dao.get_user_purchase(uid, "deep_report") is not None:
-            return
+        for pid in allowed:
+            if _member_dao.get_user_purchase(uid, pid) is not None:
+                return
         m = _member_dao.get_membership(uid) or {}
         if (m.get("plan") or "free") != "free":
             return
     except Exception as exc:
         logger.warning("ming 付费校验异常: %s", exc)
         raise HTTPException(status_code=503, detail="支付校验失败,请稍后再试")
-    raise HTTPException(status_code=403, detail="请先解锁名笺深度报告（¥19.9，ming_report 通道），会员深度报告免费")
+    if tier == "ming_report_pro":
+        raise HTTPException(
+            status_code=403,
+            detail="成人改名报告需解锁专属档（¥29.9，ming_report_pro 通道，含改名对比），会员深度报告免费")
+    raise HTTPException(
+        status_code=403,
+        detail="请先解锁名笺深度报告（¥19.9，ming_report 通道），会员深度报告免费")
 
 
 def _check_quota(uid: str):
@@ -116,8 +150,9 @@ def _check_quota(uid: str):
         return
     if _member_dao is not None:
         try:
-            if _member_dao.get_user_purchase(uid, "ming_report") is not None:
-                return
+            for pid in ("ming_report", "ming_report_pro"):
+                if _member_dao.get_user_purchase(uid, pid) is not None:
+                    return
             m = _member_dao.get_membership(uid) or {}
             if (m.get("plan") or "free") != "free":
                 return
@@ -270,7 +305,7 @@ async def ming_generate(req: MingRequest, uid: str = Depends(require_user)):
     names = generate_names(
         surname, gender_abbr, styles, req.custom_expectation.strip(),
         wuxing_text, api_key=_api_key(),
-        rng=random.Random(f"{uid}:{_bj_day()}"),
+        rng=random.Random(_daily_seed(uid)),
         gender=gender, yongshen=yongshen, wuxing_counts=counts)
 
     if len(names) < 5:
@@ -289,13 +324,20 @@ async def ming_generate(req: MingRequest, uid: str = Depends(require_user)):
             it.pop("buyi", None)
             it.pop("src", None)
 
-    return {
+    resp = {
         "names": items,
         "style_note": _style_note(req),
         "mode": mode,
         "gender": gender,
         "quota_remaining": None,  # 前端不需要
     }
+    # 成人免费现名诊断(方案免费档): 现名问题清单,规则生成,≤5 条;
+    # 完整改名对比只在付费报告 rename_compare 中
+    if mode == "adult":
+        from src.engines.ming import diagnose_current_name
+        resp["current_name_issues"] = diagnose_current_name(
+            surname, req.current_name.strip(), gender, yongshen, counts)
+    return resp
 
 
 @router.post("/api/ming/report")
@@ -312,7 +354,8 @@ async def ming_report(req: MingReportRequest, uid: str = Depends(require_user)):
     current_name = req.current_name.strip() if mode == "adult" else ""
     if current_name and not _CJK.match(current_name):
         raise HTTPException(status_code=400, detail="现名需为汉字")
-    _require_paid(uid)
+    # 两档定价: 宝宝→ming_report(¥19.9); 成人→ming_report_pro(¥29.9, 含改名对比)
+    _require_paid(uid, "ming_report_pro" if mode == "adult" else "ming_report")
 
     from src.engines.ming import STYLE_CHIPS, build_report
     bazi_result = _resolve_birth(req)
@@ -321,7 +364,7 @@ async def ming_report(req: MingReportRequest, uid: str = Depends(require_user)):
         [s for s in req.style_chips if s in STYLE_CHIPS],
         req.custom_expectation.strip(), bazi_result=bazi_result,
         retriever=_retriever,
-        rng=random.Random(f"report:{uid}:{given}"),
+        rng=random.Random(_daily_seed(uid, salt=f"report:{given}")),
         api_key=_api_key())
 
     # 归档(隐私红线: 只写脱敏摘要,不含生辰)

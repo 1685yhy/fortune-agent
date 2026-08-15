@@ -83,6 +83,13 @@
         <text class="zf-period-tag">本次期望</text>
       </view>
 
+      <!-- 成人免费现名诊断(免费档; 完整改名对比在付费报告) -->
+      <view wx:if="{{mode === 'adult' && issues.length}}" class="diag-box">
+        <view class="diag-title">现名诊断 · 免费</view>
+        <view wx:for="{{issues}}" wx:key="*this" class="diag-item">{{item}}</view>
+        <view class="diag-more">完整改名对比见付费报告（¥29.9）</view>
+      </view>
+
       <view wx:for="{{names}}" wx:key="given" wx:for-index="idx"
         class="name-card {{item.locked ? 'locked' : ''}}" hover-class="{{item.locked ? 'none' : 'name-card-active'}}"
         hover-stay-time="0" data-i="{{idx}}" bindtap="onNameTap">
@@ -110,7 +117,7 @@
       </view>
 
       <view class="hp-btns">
-        <button class="btn-primary ming-unlock" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告 ¥19.9</button>
+        <button class="btn-primary ming-unlock" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告 {{mode === 'adult' ? '¥29.9' : '¥19.9'}}</button>
         <button class="btn-secondary ming-sample" bindtap="onShowReport">查看名笺</button>
       </view>
       <view class="footnote">五格 / 81 数理 / 三才引擎 · 古籍出处可溯源</view>

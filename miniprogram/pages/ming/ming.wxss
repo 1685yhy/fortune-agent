@@ -129,6 +129,41 @@
   gap: 16rpx;
   margin: 8rpx 0 22rpx;
 }
+/* 成人免费现名诊断 */
+.diag-box {
+  background: rgba(169, 58, 44, .06);
+  border: 1rpx solid rgba(169, 58, 44, .18);
+  border-radius: 16rpx;
+  padding: 20rpx 24rpx;
+  margin: 0 0 24rpx;
+}
+.diag-title {
+  font-family: var(--font-song);
+  font-size: 24rpx;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: .06em;
+  margin-bottom: 10rpx;
+}
+.diag-item {
+  font-size: 23rpx;
+  color: var(--ink-mid);
+  line-height: 1.7;
+  padding-left: 22rpx;
+  position: relative;
+}
+.diag-item::before {
+  content: '·';
+  position: absolute;
+  left: 4rpx;
+  color: #A93A2C;
+}
+.diag-more {
+  font-size: 20rpx;
+  color: var(--ink-faint);
+  margin-top: 10rpx;
+  letter-spacing: .03em;
+}
 .zf-scene-name {
   font-family: var(--font-song);
   font-weight: 600;
