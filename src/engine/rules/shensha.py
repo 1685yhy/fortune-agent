@@ -36,10 +36,15 @@ def shensha_of(pills: list[str]) -> list[str]:
     day_branch = pills[2][1]
     hits: list[str] = []
 
-    g = _group_of(day_branch, SANHE) or _group_of(year_branch, SANHE)
-    if g and SANHE[g][0] in branches:
+    # 桃花/华盖：口诀"日支/年支"两局分别判定后合并命中（12 支被 4 组三合局全覆盖，
+    # 若用 or 短路则年支锚定永不生效）
+    g_day = _group_of(day_branch, SANHE)
+    g_year = _group_of(year_branch, SANHE)
+    peach_pos = {SANHE[g][0] for g in (g_day, g_year) if g}
+    canopy_pos = {SANHE[g][1] for g in (g_day, g_year) if g}
+    if peach_pos & branches:
         hits.append("桃花")
-    if g and SANHE[g][1] in branches:
+    if canopy_pos & branches:
         hits.append("华盖")
     g2 = _group_of(year_branch, SANHUI) or _group_of(day_branch, SANHUI)
     if g2:
