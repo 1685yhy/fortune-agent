@@ -312,3 +312,23 @@
   line-height: 1.8;
   display: block;
 }
+
+/* ═══ 互打入口: 去 AI 取名(原型 S4 与姓名学页互打) ═══ */
+.ming-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 6rpx 0 22rpx;
+  padding: 18rpx 26rpx;
+  background: var(--paper-card);
+  border: 1rpx solid var(--line);
+  border-radius: 16rpx;
+}
+.ming-entry-active { background: var(--acc-soft); }
+.ming-entry-t { font-size: var(--text-xs); color: var(--ink-muted); }
+.ming-entry-btn {
+  font-size: var(--text-xs);
+  color: var(--acc);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}

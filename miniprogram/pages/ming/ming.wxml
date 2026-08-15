@@ -1,0 +1,265 @@
+<!-- AI 取名 · 名笺 — 输入(姓氏+性别+期望+风格chips+自定义) → 免费 5 名(五维评分+雷达+出处+补益标签)
+     视觉基准: 原型 S4/S15 ming-input → ming-result → ming-report(墨韵名笺)
+     第 4、5 名只给分数不露推理(解锁线); 深度报告付费(服务端强制, 体验模式全免费) -->
+<view class="screen ming-wrap" style="--nav-off:{{navOff}}px">
+  <view class="navrow">
+    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+      <image class="back-icon" src="/assets/images/ic-back.png"></image>
+    </view>
+    <view class="nav-title">
+      <text>{{stage === 'report' ? '墨韵名笺' : (stage === 'result' ? '五个候选名' : 'AI 取名 · 名笺')}}</text>
+    </view>
+    <view class="nav-right">
+      <view wx:if="{{stage === 'result'}}" class="regen-btn" hover-class="regen-btn-active" hover-stay-time="0"
+        bindtap="onRegen">重新生成</view>
+      <view wx:elif="{{stage === 'report'}}" class="nav-share" hover-class="navrow-hover" hover-stay-time="0"
+        bindtap="onShareJian">分享</view>
+    </view>
+  </view>
+
+  <scroll-view scroll-y class="ming-scroll">
+    <!-- ═══ 输入区(宝宝取名默认 / 成人改名次级) ═══ -->
+    <block wx:if="{{stage === 'input'}}">
+      <view class="seg-tabs">
+        <view class="seg-tab {{mode === 'baby' ? 'on' : ''}}" data-mode="baby" bindtap="onModeChange">
+          <text>宝宝取名</text>
+          <view class="und"></view>
+        </view>
+        <view class="seg-tab {{mode === 'adult' ? 'on' : ''}}" data-mode="adult" bindtap="onModeChange">
+          <text>成人改名</text>
+          <view class="und"></view>
+        </view>
+      </view>
+
+      <view class="papercard ming-form">
+        <view class="mf-row">
+          <view class="mf-label">姓氏</view>
+          <input class="mf-input" type="text" placeholder="请输入姓氏" placeholder-class="mf-ph"
+            value="{{surname}}" bindinput="onSurnameInput" maxlength="4" />
+        </view>
+        <view class="mf-row">
+          <view class="mf-label">性别</view>
+          <view class="mf-sex">
+            <view class="sex-btn {{gender === '女' ? 'on' : ''}}" data-g="女" bindtap="onGenderTap">女</view>
+            <view class="sex-btn {{gender === '男' ? 'on' : ''}}" data-g="男" bindtap="onGenderTap">男</view>
+          </view>
+        </view>
+        <view class="mf-row" wx:if="{{mode === 'adult'}}">
+          <view class="mf-label">现名</view>
+          <input class="mf-input" type="text" placeholder="成人改名需填写现名" placeholder-class="mf-ph"
+            value="{{currentName}}" bindinput="onCurrentNameInput" maxlength="4" />
+        </view>
+        <view class="mf-row">
+          <view class="mf-label">出生日期</view>
+          <input class="mf-input" type="text" placeholder="选填 · 填了八字契合更准（如 2026.05.20）"
+            placeholder-class="mf-ph" value="{{birth}}" bindinput="onBirthInput" maxlength="10" />
+        </view>
+        <view class="mf-row">
+          <view class="mf-label">期望风格</view>
+          <view class="mf-chips">
+            <view wx:for="{{chipsView}}" wx:key="name"
+              class="chip {{item.on ? 'on' : ''}}" data-s="{{item.name}}" bindtap="onChipTap">
+              {{item.name}}
+            </view>
+          </view>
+          <input class="mf-custom" type="text"
+            placeholder="或写下你的期望：例「名字里带水，清雅不俗气」"
+            placeholder-class="mf-ph" value="{{custom}}" bindinput="onCustomInput" maxlength="60" />
+        </view>
+      </view>
+
+      <view class="mf-note">五维评分：音形义 / 五行 / 数理 / 笔画 / 性别匹配 · 免费 5 名含完整解析，第 4、5 名推理待解锁。</view>
+
+      <button class="btn-primary ming-gen" bindtap="onGenerate" disabled="{{loading}}">
+        {{loading ? '取名中 · 请稍候…' : '取五个名字 · 免费'}}
+      </button>
+      <view class="footnote">姓名学为传统文化参考，不构成任何科学或命运承诺</view>
+    </block>
+
+    <!-- ═══ 结果区: 免费 5 名 ═══ -->
+    <block wx:elif="{{stage === 'result'}}">
+      <view class="zf-result-head">
+        <text class="zf-scene-name">{{styleNote}}</text>
+        <text class="zf-period-tag">本次期望</text>
+      </view>
+
+      <view wx:for="{{names}}" wx:key="given" wx:for-index="idx"
+        class="name-card {{item.locked ? 'locked' : ''}}" hover-class="{{item.locked ? 'none' : 'name-card-active'}}"
+        hover-stay-time="0" data-i="{{idx}}" bindtap="onNameTap">
+        <view class="nc-head">
+          <text class="nc-name">{{item.given}}</text>
+          <text class="nc-full">{{item.full}}</text>
+          <block wx:if="{{item.locked}}">
+            <text class="nc-lock">契合推理已隐藏</text>
+          </block>
+          <text wx:else class="nc-score">{{item.score}}<text class="nc-score-u"> 分</text></text>
+        </view>
+        <view class="nc-body">
+          <canvas type="2d" id="radar-{{idx}}" class="nc-radar"></canvas>
+          <view class="nc-info">
+            <view wx:if="{{item.src}}" class="nc-src">出处 <text class="nc-src-b">《{{item.src.book}}》</text></view>
+            <view wx:if="{{item.buyi && item.buyi.length}}" class="nc-buyi">
+              <text wx:for="{{item.buyi}}" wx:for-item="b" wx:for-index="bi" wx:key="bi" class="chip-yi {{b.type === 'add' ? '' : 'chip-xie'}}">
+                {{b.type === 'add' ? '补' : '泄'}} {{b.k}} {{b.v}}
+              </text>
+            </view>
+            <text wx:if="{{item.ping}}" class="nc-ping">「{{item.ping}}」</text>
+            <view wx:if="{{item.locked}}" class="nc-locked-note">点下方解锁：八字契合推理 · 补益矩阵 · 备选扩展 15 名</view>
+          </view>
+        </view>
+      </view>
+
+      <view class="hp-btns">
+        <button class="btn-primary ming-unlock" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告 ¥19.9</button>
+        <button class="btn-secondary ming-sample" bindtap="onShowReport">查看名笺</button>
+      </view>
+      <view class="footnote">五格 / 81 数理 / 三才引擎 · 古籍出处可溯源</view>
+    </block>
+
+    <!-- ═══ 名笺区: 深度报告(墨韵名笺) ═══ -->
+    <block wx:elif="{{stage === 'report' && report}}">
+      <view class="ming-report-head">
+        <view class="mr-name">{{report.given}}</view>
+        <view class="mr-full">{{report.full}} · {{report.gender || '—'}}</view>
+        <view class="mr-score">综合 {{report.name_analysis.total}} 分 · {{report.name_analysis.level || ''}}</view>
+      </view>
+
+      <!-- 八字五行分布(有生辰才示) -->
+      <view wx:if="{{report.bazi}}" class="wuxing-bar">
+        <view class="wx-t">八字五行分布
+          <text wx:if="{{report.bazi.wuxing.strongText}}" class="wx-tag wx-tag-strong">{{report.bazi.wuxing.strongText}}偏旺</text>
+          <text wx:if="{{report.bazi.wuxing.weakText}}" class="wx-tag wx-tag-weak">缺{{report.bazi.wuxing.weakText}}</text>
+        </view>
+        <view wx:for="{{report._wxRows}}" wx:key="k" class="wx-row">
+          <text class="wx-k">{{item.k}}</text>
+          <view class="wx-bar"><view class="wx-bar-in" style="width:{{item.pct}}%;background:{{item.color}};"></view></view>
+          <text class="wx-n">{{item.n}}</text>
+          <text wx:if="{{item.jian}}" class="wx-jian {{item.jianClass}}">{{item.jian}}</text>
+        </view>
+        <view class="wx-note">{{report.bazi.note || '未填时辰按子时计 · 仅供五行参考'}}</view>
+      </view>
+
+      <!-- 五行补益矩阵(付费核心) -->
+      <view class="buyi-matrix">
+        <view class="bm-t">「{{report.given}}」五行补益矩阵</view>
+        <view wx:if="{{report.bazi}}" class="bm-ys">用神：{{report.bazi.yongshen}}</view>
+        <view wx:if="{{report.name_analysis.buyi_matrix.rows.length}}">
+          <view wx:for="{{report.name_analysis.buyi_matrix.rows}}" wx:key="index" class="bm-row">
+            <text class="bm-plus {{item.type === 'add' ? '' : 'bm-xie'}}">{{item.type === 'add' ? '+' : ''}}{{item.v}}</text>
+            <text>{{item.type === 'add' ? '补' : '泄'}}{{item.k}} · {{item.why}}</text>
+          </view>
+        </view>
+        <view wx:else class="bm-empty">未填出生日期，补益矩阵需八字用神推算——可回填生辰后重新生成。</view>
+        <view wx:if="{{report.name_analysis.buyi_matrix.comment}}" class="bm-explain">{{report.name_analysis.buyi_matrix.comment}}</view>
+      </view>
+
+      <!-- 五格/三才(复用姓名学引擎) -->
+      <view wx:if="{{report.name_analysis.wuge}}" class="wuge-card">
+        <view class="wu-t">五格 · 三才</view>
+        <view class="wu-cells">
+          <text wx:for="{{report.name_analysis.wugeCells}}" wx:key="k"
+            class="wu-cell {{item.jx === '凶' ? 'bad' : ''}}">{{item.k}} {{item.num}}画 · {{item.jx}}</text>
+        </view>
+      </view>
+
+      <!-- 成人改名: 现名诊断 + 前后对比 -->
+      <view wx:if="{{report.rename_compare}}" class="rename-card">
+        <view class="rn-t">改名分析</view>
+        <view class="rn-row">
+          <view class="rn-side">
+            <view class="rn-side-t">现名 {{report.rename_compare.current.full}}</view>
+            <view class="rn-side-score">{{report.rename_compare.current.total}} 分</view>
+            <view wx:if="{{report.rename_compare.current.issues.length}}" class="rn-issues">
+              <text wx:for="{{report.rename_compare.current.issues}}" wx:key="*this" class="rn-issue">· {{item}}</text>
+            </view>
+            <view wx:else class="rn-ok">现名无显著凶数/三才问题</view>
+          </view>
+          <view class="rn-arrow">→</view>
+          <view class="rn-side">
+            <view class="rn-side-t">推荐 {{report.rename_compare.recommended.full}}</view>
+            <view class="rn-side-score">{{report.rename_compare.recommended.total}} 分</view>
+          </view>
+        </view>
+        <view class="rn-verdict">{{report.rename_compare.verdict}}</view>
+        <view class="rn-notice">{{report.rename_compare.notice}}</view>
+      </view>
+
+      <!-- 备选扩展 15 名 -->
+      <view wx:if="{{report.extras && report.extras.length}}" class="extras-card">
+        <view class="ex-t">备选扩展 · 按契合度排序</view>
+        <view wx:for="{{report.extras}}" wx:key="given" class="ex-row">
+          <text class="ex-name">{{item.full}}</text>
+          <text class="ex-score">{{item.score}} 分</text>
+          <text class="ex-ping">{{item.ping}}</text>
+          <text wx:if="{{item.src}}" class="ex-src">《{{item.src.book}}》</text>
+        </view>
+      </view>
+
+      <!-- 名笺落款 -->
+      <view class="name-card" style="margin-top: 14rpx;">
+        <view class="nc-head"><text class="nc-name">名笺落款</text></view>
+        <view class="nc-body">
+          <view class="nc-info">
+            <view class="nc-src">推荐名 <text class="nc-src-b">{{report.seal.recommended}}</text> · {{report.name_analysis.level || ''}}</view>
+            <view class="nc-ping">「{{report.seal.summary}}」</view>
+            <view class="nc-buyi">
+              <text wx:if="{{report.name_analysis.sancai_ji}}" class="chip-yi">三才{{report.name_analysis.sancai_ji}}</text>
+              <text class="chip-yi">五格评分</text>
+            </view>
+          </view>
+        </view>
+      </view>
+
+      <view class="hp-btns">
+        <button class="btn-primary ming-save" bindtap="onSaveJian" disabled="{{saving}}">收藏名笺</button>
+        <button class="btn-secondary ming-share" bindtap="onShareJian" disabled="{{sharing}}">生成分享图</button>
+      </view>
+      <view class="footnote">{{report.footnote || '未填时辰按子时计 · 仅供参考 · 非科学承诺'}}</view>
+    </block>
+  </scroll-view>
+
+  <!-- 分享图隐藏画布(名笺分享,复用 shareCard 墨韵卡) -->
+  <canvas type="2d" id="ming-share-canvas" class="ming-share-canvas"></canvas>
+
+  <!-- 单名详情弹层(大雷达 + 五维 + 评测此名) -->
+  <view wx:if="{{detail}}" class="detail-mask" bindtap="onDetailClose">
+    <view class="detail-card" catchtap="noop">
+      <view class="dc-head">
+        <text class="dc-name">{{detail.full}}</text>
+        <text class="dc-score">{{detail.score}} 分</text>
+        <text class="dc-level">{{detail.level}}</text>
+      </view>
+      <canvas type="2d" id="detail-radar" class="dc-radar"></canvas>
+      <view class="dc-dims">
+        <view wx:for="{{detail.dimsArr}}" wx:key="k" class="dc-dim">
+          <text class="dc-dim-k">{{item.k}}</text>
+          <view class="dc-dim-bar"><view class="dc-dim-in" style="width:{{item.v}}%;"></view></view>
+          <text class="dc-dim-v">{{item.v}}</text>
+        </view>
+      </view>
+      <view wx:if="{{detail.src}}" class="dc-src">出处《{{detail.src.book}}》</view>
+      <view wx:if="{{detail.ping}}" class="dc-ping">「{{detail.ping}}」</view>
+      <view class="dc-actions">
+        <button class="btn-primary dc-eval" bindtap="onEvaluate">评测此名 · 姓名学</button>
+        <button class="btn-secondary dc-close" bindtap="onDetailClose">收起</button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 付费弹层(¥19.9, 会员免费) -->
+  <view wx:if="{{paywall}}" class="paywall-mask" bindtap="onPaywallClose">
+    <view class="pw-card" catchtap="noop">
+      <view class="pw-seal">名</view>
+      <view class="pw-t">名笺深度报告</view>
+      <view class="pw-s">八字用神 → 五行补益矩阵 · 5 名逐名契合推理 · 备选 15 名 · 墨韵名笺</view>
+      <view class="pw-price">¥19.9<text class="pw-price-u"> 单买</text></view>
+      <view class="pw-btns">
+        <button class="btn-primary pw-buy" bindtap="onBuyNow" disabled="{{purchasing}}">
+          {{purchasing ? '生成中…' : '立即解锁'}}
+        </button>
+        <button class="btn-secondary pw-member" bindtap="onMemberFree">会员免费</button>
+      </view>
+      <view class="pw-close" bindtap="onPaywallClose">再想想</view>
+    </view>
+  </view>
+</view>

@@ -24,6 +24,14 @@ const PRODUCTS = {
     description: '获取详尽命理分析',
     icon: '📜',
   },
+  ming_report: {
+    id: 'ming_report',
+    name: 'AI取名名笺深度报告',
+    price: 19.9,
+    priceLabel: '¥19.9',
+    description: '八字契合度矩阵 · 备选 15 名 · 墨韵名笺',
+    icon: '名',
+  },
   full_analysis: {
     id: 'full_analysis',
     name: '全盘分析',

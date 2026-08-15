@@ -28,14 +28,15 @@
         </view>
         <view class="br-page"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
       </view>
-      <!-- 占位灰态：AI 取名（即将上线，不可点） -->
-      <view class="book-row cl-off">
-        <view class="seal cl-seal cl-seal-off"><text class="seal-char">名</text></view>
+      <!-- 实入口：AI 取名 → 取名页（姓氏+期望+风格chips → 免费 5 名 → 雷达 → 名笺） -->
+      <view class="book-row" hover-class="book-row-active" hover-stay-time="0"
+        data-url="/pages/ming/ming" bindtap="onEntryTap">
+        <view class="seal cl-seal"><text class="seal-char">名</text></view>
         <view class="br-mid">
           <view class="br-title">AI 取名</view>
           <view class="br-sub">五维评分 · 免费 5 名 · 5 名 → 雷达 → 名笺</view>
         </view>
-        <view class="cl-tag">即将上线</view>
+        <view class="br-page"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
       </view>
       <!-- 实入口：大事择吉日 → 引导页（选场景 → 对话/直接看吉日） -->
       <view class="book-row" hover-class="book-row-active" hover-stay-time="0"

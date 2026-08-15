@@ -18,10 +18,48 @@ Page({
     errorType: '',
   },
 
-  onLoad() {
+  onLoad(opts) {
+    // 从 AI取名页「评测此名」跳入: ?surname=林&givenName=云舒&gender=female&auto=1 → 预填并自动分析
+    if (opts && opts.surname) {
+      const surname = decodeURIComponent(opts.surname || '');
+      const givenName = decodeURIComponent(opts.givenName || '');
+      const gender = opts.gender === 'female' ? 'female' : 'male';
+      this.setData({ surname, givenName, gender, submitted: true, loading: true });
+      setTimeout(() => {
+        this.setData({ skeletonLoading: false });
+        if (opts.auto === '1' && surname && givenName) {
+          this._doAnalyze(surname, givenName, gender);
+        }
+      }, 350);
+      return;
+    }
     setTimeout(() => {
       this.setData({ skeletonLoading: false });
     }, 300);
+  },
+
+  /* 评测此名自动分析(与 onSubmit 同一管线) */
+  _doAnalyze(surname, givenName, gender) {
+    this.setData({ loading: true, error: null, result: null });
+    api.xingming({ surname, givenName, gender })
+      .then((res) => {
+        this.setData({ loading: false, result: res });
+      })
+      .catch((e) => {
+        console.warn('[xingming] 评测分析失败:', e);
+        this.setData({
+          showError: true,
+          errorType: e.name === 'NetworkError' ? 'network' : 'server',
+          loading: false,
+          submitted: false,
+        });
+      });
+  },
+
+  /* 互打: 去 AI 取名(带姓氏/性别, 成人改名由取名页分段切换) */
+  onGoMing(e) {
+    const url = e.currentTarget.dataset.url;
+    if (url) wx.navigateTo({ url });
   },
 
   // ---- 输入处理 ----

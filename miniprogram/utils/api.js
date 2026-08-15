@@ -1044,6 +1044,12 @@ function drawQian() { return request('/api/qian/draw', { method: 'POST' }); }
 function saveQian(data) { return request('/api/qian/save', { method: 'POST', data }); }
 function getQianHistory() { return request('/api/qian/history', { method: 'GET' }); }
 
+// Ming (AI取名 · 名笺)
+function genMing(data) { return request('/api/ming/generate', { method: 'POST', data }); }
+function reportMing(data) { return request('/api/ming/report', { method: 'POST', data }); }
+function saveMing(data) { return request('/api/ming/save', { method: 'POST', data }); }
+function getMingSaved() { return request('/api/ming/saved', { method: 'GET' }); }
+
 // ---- 登录增强（Task 2：手机号绑定 + 头像昵称采集） ----
 
 /** 绑定/换绑手机号：微信 getPhoneNumber 授权 code → 后端 AES 落库，响应 {phone_masked} */
@@ -1201,4 +1207,10 @@ module.exports = {
   drawQian,
   saveQian,
   getQianHistory,
+
+  // Ming (AI取名 · 名笺)
+  genMing,
+  reportMing,
+  saveMing,
+  getMingSaved,
 };

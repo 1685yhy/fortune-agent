@@ -844,6 +844,13 @@ async def lifespan(app: FastAPI):
     from .api.qian import setup as setup_qian
     setup_qian(QianDAO(_zeri_conn()))
 
+    # AI 取名 API（生成/深度报告/名笺收藏; ming_saves+ming_quota 轻量表, 全接口 require_user）
+    # 免费 5 名(第4/5名只给分数) + 五维评分; 深度报告付费边界服务端强制(EXPERIENCE_MODE 全免费)
+    from src.storage.ming_dao import MingDAO
+    from .api.ming import setup as setup_ming
+    setup_ming(llm=llm, retriever=retriever, member_dao=member_dao, dao=dao,
+               bazi_engine=engine, ming_dao=MingDAO(_zeri_conn()))
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -1047,6 +1054,10 @@ app.include_router(zeri_router)              # /api/zeri/*
 # 抽灵签 API（签文库/摇签/收藏/历史，全接口 require_user）
 from .api.qian import router as qian_router
 app.include_router(qian_router)              # /api/qian/*
+
+# AI 取名 API（生成/深度报告/名笺收藏/额度，全接口 require_user）
+from .api.ming import router as ming_router
+app.include_router(ming_router)              # /api/ming/*
 
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)

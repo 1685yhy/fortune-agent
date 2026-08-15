@@ -7,6 +7,14 @@
     <text class="page-desc">输入姓名，分析五格数理与三才配置</text>
   </view>
 
+  <!-- 互打入口: 觉得名字不满意 → 去 AI 取名 -->
+  <view class="ming-entry stagger-0" hover-class="ming-entry-active" hover-stay-time="0"
+    data-url="/pages/ming/ming?surname={{surname}}&gender={{gender === 'male' ? '男' : '女'}}&mode=baby"
+    bindtap="onGoMing">
+    <text class="ming-entry-t">觉得名字不满意？</text>
+    <text class="ming-entry-btn">去 AI 取名 · 免费 5 名 ›</text>
+  </view>
+
   <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[60, 80, 50]}}">
     <!-- ===== Empty State (before submission) ===== -->
     <view wx:if="{{!submitted && !loading && !result}}">
