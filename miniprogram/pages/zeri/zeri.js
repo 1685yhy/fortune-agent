@@ -1,21 +1,13 @@
 // 择吉日 — 吉日卡页（大事择吉日）：3 卡纵排 + 换一批 + 选它→清单页
-// 数据流：带 scene 进入 → POST /api/zeri/refresh 取 3 卡 → 选它 → POST /api/zeri/select 落库 → 跳 zeri_plan
+// 数据流：带 scene 进入 → GET /api/zeri/options 取 3 卡（初始加载不扣额度）
+//         → 换一批 POST /api/zeri/refresh（扣额度）→ 选它 → POST /api/zeri/select 落库 → 跳 zeri_plan
 // 免费档每日换一批 3 次（429 时 toast 后端文案）；会员/体验模式不限
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
+const { SCENES } = require('../../utils/zeriMeta'); // 6 场景元数据唯一来源（fix-later 去重）
 
-/* 6 场景（与后端 src/engines/zeri.py SCENES 的 key 一致） */
-const SCENES = [
-  { key: '嫁娶', seal: '嫁', sub: '婚礼领证 · 设宴' },
-  { key: '搬家', seal: '迁', sub: '入宅安顿 · 乔迁' },
-  { key: '开业', seal: '开', sub: '开张揭牌 · 纳客' },
-  { key: '出行', seal: '行', sub: '远行出发 · 启程' },
-  { key: '提车', seal: '车', sub: '新车到家 · 上路' },
-  { key: '签约', seal: '签', sub: '合同落定 · 用印' },
-];
-
-/* 办事清单模板（与后端 src/engines/zeri_checklist.py CHECKLIST_TEMPLATES 一致；
-   core=true 为免费档精简项；会员全量。选日落库时随 select 一并提交） */
+/* 办事清单模板前端展示副本（服务端权威：选日落库由后端按 Fix3 服务端重建清单，
+   忽略客户端 items；此副本仅供选它前预览/兜底展示，改动以后端 zeri_checklist.py 为准） */
 const CHECKLIST_TEMPLATES = {
   '嫁娶': [
     { stage: '提前3天', text: '发请柬并统计宾客名单', core: true },
@@ -201,6 +193,8 @@ Page({
       });
     }).catch((err) => {
       this.setData({ loading: false, refreshing: false });
+      // 请求层（utils/api.js doRequest）非 2xx 只 reject 响应体、不暴露 statusCode，
+      // 429 无法按状态码判定 → 保留 detail 子串判据（fix-later；后端 429 detail 均为额度文案）
       const detail = (err && err.detail) || (err && err.message) || '';
       if (detail.indexOf('429') !== -1 || detail.indexOf('次数') !== -1) {
         wx.showToast({ title: detail || '今天的换一批次数已用完', icon: 'none', duration: 2500 });

@@ -70,7 +70,11 @@ class _FakeZeriEngine:
                               personal_score=24, practical_score=10, total=76,
                               reason_source="成日值日")
                  for d in ("2026-08-20", "2026-08-22", "2026-08-24")]
-        return {"cards": cards, "scanned": 30, "suggest_wider": False, "reason": None}
+        if exclude_dates:   # fix-later: stub 生效 exclude(供 15b-2 验证透传+过滤)
+            ex = set(exclude_dates)
+            cards = [c for c in cards if c.date not in ex]
+        return {"cards": cards, "scanned": 30, "suggest_wider": not cards,
+                "reason": None if cards else "窗口内合格吉日不足"}
 class _FakeHandler:
     zeri_engine = _FakeZeriEngine()
     def _map_user_bazi_for_zeri(self, uid):
@@ -515,5 +519,51 @@ try:
           all(c["personal_score"] != 24 for c in cards))
 finally:
     zeri_mod._handler = _orig_handler
+
+# ───────────────────────────
+# 17. fix-later 批次: upsert_plan 去重 / exclude_dates 透传 refresh / cancelled 404
+# ───────────────────────────
+# 17-1. upsert_plan 去重: 同 user+scene+lucky_date 的 active 计划 → 更新不插新行
+_dedup_uid = "zeri-test-dedup"
+_id1 = _test_dao.upsert_plan(_dedup_uid, "嫁娶", "2026-11-11",
+                             {**CARD, "date": "2026-11-11"},
+                             [{"stage": "当天", "text": "第一版事项"}], "free")
+_id2 = _test_dao.upsert_plan(_dedup_uid, "嫁娶", "2026-11-11",
+                             {**CARD, "date": "2026-11-11"},
+                             [{"stage": "当天", "text": "第二版事项"}], "free")
+check("fix-later: upsert 同键返回同一 plan_id", _id1 == _id2)
+check("fix-later: upsert 去重不插新行", _test_dao.count_plans(_dedup_uid) == 1)
+check("fix-later: upsert 内容更新为新版",
+      _test_dao.get_plan(_dedup_uid, _id1)["items"][0]["text"] == "第二版事项")
+
+# 17-2. exclude_dates 透传 refresh: 引擎收到排除列表, 且返回卡已过滤(新用户额度未用)
+UID6 = "zeri-test-fixlater"
+TOKEN6 = _auth.create_user_token(UID6)
+h6 = {"Authorization": f"Bearer {TOKEN6}"}
+r = client.post("/api/zeri/refresh", headers=h6, json={"scene": "嫁娶",
+                                                       "start": "2026-09-01", "end": "2026-09-30",
+                                                       "exclude_dates": ["2026-08-20"]})
+assert r.status_code == 200, r.text
+check("fix-later: refresh exclude_dates 透传引擎",
+      zeri_mod._handler.zeri_engine.last_exclude == ["2026-08-20"])
+check("fix-later: refresh 返回卡已排除该日期",
+      all(c["date"] != "2026-08-20" for c in r.json()["cards"]))
+check("fix-later: refresh 排除后其余卡保留", len(r.json()["cards"]) == 2)
+
+# 17-3. get_plan_by_id / 详情路径对 cancelled 计划 404(与 list 的 status 过滤一致)
+_canc = _test_dao.conn.execute(
+    "SELECT id FROM zeri_plans WHERE user_id=? AND lucky_date='2026-09-13'"
+    " AND status='cancelled'", (UID,)).fetchone()
+assert _canc, "前置: 8b 已把 2026-09-13 计划置为 cancelled"
+_canc_id = _canc[0]
+check("fix-later: DAO get_plan_by_id 对 cancelled 返回 None",
+      _test_dao.get_plan_by_id(_canc_id) is None)
+r = client.get(f"/api/zeri/plans/{_canc_id}", headers=h)
+check("fix-later: 详情路径 cancelled 404", r.status_code == 404)
+r = client.put(f"/api/zeri/plans/{_canc_id}/item", headers=h,
+               json={"idx": 0, "done": True})
+check("fix-later: 勾选路径 cancelled 404", r.status_code == 404)
+r = client.put(f"/api/zeri/plans/{_canc_id}/reminder", headers=h, json={"enabled": True})
+check("fix-later: 提醒路径 cancelled 404", r.status_code == 404)
 
 print(f"\nALL PASS ({ok})")

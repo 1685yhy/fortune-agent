@@ -94,8 +94,12 @@ class ZeriDAO:
         return p
 
     def get_plan_by_id(self, plan_id: int) -> Optional[dict]:
-        """按 id 取计划(不校验归属,归属判定由 API 层做 403/404 区分)。"""
-        row = self.conn.execute("SELECT * FROM zeri_plans WHERE id=?",
+        """按 id 取计划(不校验归属,归属判定由 API 层做 403/404 区分)。
+
+        fix-later: 与 list_plans 的 status 过滤一致 —— 仅取 active,
+        cancelled 计划对详情/勾选/提醒路径统一 404(不再被取到)。
+        """
+        row = self.conn.execute("SELECT * FROM zeri_plans WHERE id=? AND status='active'",
                                 (plan_id,)).fetchone()
         return self._row_to_plan(row) if row else None
 

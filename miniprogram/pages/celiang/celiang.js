@@ -6,7 +6,6 @@ const theme = require('../../utils/theme');
 Page({
   data: {
     navOff: 0,
-    curTab: 'suance',
     dark: false,
   },
 

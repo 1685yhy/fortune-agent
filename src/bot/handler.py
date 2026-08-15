@@ -1527,7 +1527,10 @@ class MessageHandler:
                 user_bazi=user_bazi, prefer_weekend=True,
                 exclude_dates=exclude_dates or None,
             )
-            # 仅引擎调用成功后才扣额度（引擎异常/结果异常都不占额度, 澄清路径不扣）
+            # 结果形状校验先于扣额度（fix-later）: 引擎返回非 dict → 不扣额度, 走异常兜底。
+            # 仅引擎调用成功且结果形状合法后才扣额度（引擎异常/结果异常都不占额度, 澄清路径不扣）
+            if not isinstance(res, dict):
+                raise ValueError("引擎返回结果形状异常")
             self._consume_quota(user_id)
             cards = res.get("cards") or []
             scanned = res.get("scanned", 0)
@@ -1562,13 +1565,14 @@ class MessageHandler:
         """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。
 
         - params 为 dict: 取 exclude_dates 键（list of "YYYY-MM-DD", 或逗号/空格分隔字符串）
-        - params 为字符串: 识别内嵌 "exclude_dates: 2026-09-03,2026-09-06"（: / = 均可）
+        - params 为字符串: 识别内嵌 "exclude_dates: 2026-09-03,2026-09-06"
+          （: / ＝ / = / ： 均可, fix-later 补全角冒号）
         无/非法 → None（不排除任何日期, 与调用方 exclude_dates or None 语义一致）。
         """
         if isinstance(params, dict):
             raw = params.get("exclude_dates")
         else:
-            m = re.search(r"exclude_dates\s*[:＝=]\s*([^<\n]+)", params or "")
+            m = re.search(r"exclude_dates\s*[:＝=：]\s*([^<\n]+)", params or "")
             raw = m.group(1) if m else None
         if raw is None:
             return None

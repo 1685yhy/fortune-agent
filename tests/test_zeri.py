@@ -216,13 +216,14 @@ def test_shensha_helper_functions():
     assert is_yuexing("卯", "子") is True
     assert is_yuexing("辰", "辰") is True
     # 空亡 = 当日日柱旬空含月支（月建逢空）: 2026-08-28 甲戌旬空申酉
+    # (fix-later: 签名移除死参数 day_zhi)
     from lunar_python import Solar
     lunar = Solar.fromYmd(2026, 8, 28).getLunar()
-    assert is_kongwang("戌", "申", lunar) is True
-    assert is_kongwang("戌", "亥", lunar) is False
+    assert is_kongwang("申", lunar) is True
+    assert is_kongwang("亥", lunar) is False
     # 2026-08-01 丁未日 甲辰旬空寅卯
     lunar1 = Solar.fromYmd(2026, 8, 1).getLunar()
-    assert is_kongwang("未", "未", lunar1) is False
+    assert is_kongwang("未", lunar1) is False
 
 
 def test_select_lucky_days_basic():

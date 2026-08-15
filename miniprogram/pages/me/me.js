@@ -15,7 +15,7 @@ const BASE_ROWS = [
   { icon: '/assets/images/ic-edit.png', label: '档案', action: 'persons' },
   { icon: '/assets/images/ic-lantern.png', label: '重新看引导', action: 'onboarding' },
   { icon: '/assets/images/ic-seal.png', label: '会员', action: 'member' },
-  { icon: '/assets/images/ic-book2.png', label: '命书', action: 'reports' },
+  { icon: '/assets/images/ic-book.png', label: '命书', action: 'reports' }, // fix-later: 命书行换旧 ic-book(与 tabbar 测算的 ic-book2 去双职)
   { icon: '/assets/images/ic-keep.png', label: '我的收藏', action: 'favorites' },
   { icon: '/assets/images/ic-chat.png', label: '对话历史', action: 'history' },
   { icon: '/assets/images/ic-moon.png', label: '解梦手记', action: 'dreams' },
@@ -349,7 +349,9 @@ Page({
     this.setData({ draftNickname: e.detail.value });
   },
 
-  /* 保存：昵称非空 → saveProfile；头像已选 → uploadAvatar；成功 setData 刷新显示，失败 toast */
+  /* 保存：昵称非空 → saveProfile；头像已选 → uploadAvatar；成功 setData 刷新显示，失败 toast。
+     fix-later: ①第四场景（头像成功昵称失败）补 toast「头像已上传,昵称保存失败」；
+     ②彻底失败（两样都挂）保留弹层不关闭 —— 昵称输入不丢，可直接改后重试。 */
   onProfileSave() {
     if (this._profileSaving) return;
     const nickname = String(this.data.draftNickname || '').trim();
@@ -371,8 +373,8 @@ Page({
       .then((results) => {
         wx.hideLoading();
         this._profileSaving = false;
-        this.setData({ profileDialogVisible: false });
         const nicknameOk = results[0].status === 'fulfilled';
+        const avatarOk = !hasAvatar || results[1].status === 'fulfilled';
         if (hasAvatar && results[1].status === 'fulfilled') {
           const up = results[1].value || {};
           const gd = (getApp() && getApp().globalData) || {};
@@ -385,11 +387,17 @@ Page({
           try { wx.setStorageSync('ylm_nickname', nickname); } catch (e) { /* ignore */ }
         }
         this._deriveIdentity();
-        if (nicknameOk && (!hasAvatar || results[1].status === 'fulfilled')) {
+        if (nicknameOk && avatarOk) {
+          this.setData({ profileDialogVisible: false });
           wx.showToast({ title: '已保存', icon: 'none' });
         } else if (nicknameOk) {
+          this.setData({ profileDialogVisible: false });
           wx.showToast({ title: '昵称已保存，头像上传失败', icon: 'none' });
+        } else if (hasAvatar && avatarOk) {
+          // 第四场景：头像成功、昵称失败 —— 头像已生效，保留弹层让昵称可改后重试
+          wx.showToast({ title: '头像已上传，昵称保存失败', icon: 'none' });
         } else {
+          // 彻底失败：保留弹层不关闭（昵称输入不丢），静默未动弹层
           wx.showToast({ title: '保存失败，请重试', icon: 'none' });
         }
       });

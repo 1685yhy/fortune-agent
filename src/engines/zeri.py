@@ -491,7 +491,7 @@ class ZeriEngine:
                 return None
             elif rule == "月刑" and is_yuexing(day_zhi, month_zhi):
                 return None
-            elif rule == "空亡" and is_kongwang(day_zhi, month_zhi, lunar):
+            elif rule == "空亡" and is_kongwang(month_zhi, lunar):
                 return None
         # 冲 user 生肖（按场景开关 avoid_chong; 无生肖信息则跳过, 不误伤）
         user_zodiac = (user_bazi or {}).get("shengxiao")
@@ -576,8 +576,13 @@ class ZeriEngine:
         return 15, "八字适配"
 
     def _practical_score(self, d, cfg: dict, prefer_weekend: bool) -> tuple:
-        """实用加分(0-20): prefer_weekend 且周六/周日 +10; 节假日不判定（不做人为拔高）"""
-        if not prefer_weekend:
+        """实用加分(0-20): prefer_weekend 且 cfg['weekend_bonus'] 且周六/周日 +10;
+        节假日不判定（不做人为拔高）。
+
+        fix-later: 接入 weekend_bonus 配置键 —— 场景级开关关闭时周末不加分。
+        当前 6 场景 weekend_bonus 全为 True, 行为不变, 消除死配置。
+        """
+        if not prefer_weekend or not cfg.get("weekend_bonus"):
             return 0, "平日无加分"
         if d.weekday() in (5, 6):   # 周六=5 周日=6
             return 10, f"周末宜{cfg['label']}"
@@ -662,16 +667,17 @@ SHENG_CYCLE = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "�
 
 # 场景规则库
 #   yi_hits:      宜关键词（当日宜列表命中 → 加场景分）
-#   ji_hits:      忌关键词（当日忌列表命中 → 直接排除）
+#   ji_hits:      忌关键词（当日忌列表命中 → 直接排除; 与 yi_hits 同词即自相矛盾, 不出现）
 #   jianchu_avoid: 建除神当日排除（如"破""闭"）
-#   avoid_chong:  冲 user_bazi 生肖排除（搬家冲宅主/提车冲车主; 无生肖信息时跳过）
-#   shensha_avoid: 神煞排除（三娘煞/杨公忌日/月破/月刑/空亡/冲生肖）
-#   weekend_bonus: 周末加分开关（实际加分仅当用户 prefer_weekend=True）
+#   avoid_chong:  冲 user_bazi 生肖排除（独立条目, 按场景开关: 搬家冲宅主/提车冲车主;
+#                 无生肖信息时跳过; 不混入 shensha_avoid）
+#   shensha_avoid: 神煞排除（三娘煞/杨公忌日/月破/月刑/空亡; 冲生肖已独立为 avoid_chong 条目）
+#   weekend_bonus: 周末加分开关（prefer_weekend 且 weekend_bonus 才加分; 当前 6 场景全开）
 SCENES = {
     "嫁娶": {
         "label": "嫁娶",
         "yi_hits": ["嫁娶", "订盟", "纳采"],
-        "ji_hits": ["嫁娶", "纳采"],
+        "ji_hits": ["嫁娶", "纳采", "订盟"],   # fix-later: 补"订盟"与 yi 对称(订盟日不宜嫁娶, 黄历有据)
         "jianchu_avoid": ["破", "闭"],
         "avoid_chong": True,
         "shensha_avoid": ["三娘煞", "杨公忌日"],
@@ -698,7 +704,7 @@ SCENES = {
     "出行": {
         "label": "出行",
         "yi_hits": ["出行", "会亲友", "祈福"],
-        "ji_hits": ["出行"],
+        "ji_hits": [],   # fix-later: 去掉"出行" —— 与 yi_hits 同词自相矛盾; 实际忌词为空
         "jianchu_avoid": ["破", "闭"],
         "avoid_chong": False,
         "shensha_avoid": ["空亡"],
@@ -707,7 +713,7 @@ SCENES = {
     "提车": {
         "label": "提车",
         "yi_hits": ["祈福", "出行", "安机械"],
-        "ji_hits": ["出行"],
+        "ji_hits": [],   # fix-later: 去掉"出行" —— 与 yi_hits 同词自相矛盾; 实际忌词为空
         "jianchu_avoid": ["破", "闭"],
         "avoid_chong": True,      # 冲车主生肖
         "shensha_avoid": [],
@@ -768,11 +774,12 @@ def is_yuexing(day_zhi: str, month_zhi: str) -> bool:
     return XING_MAP.get(month_zhi) == day_zhi
 
 
-def is_kongwang(day_zhi: str, month_zhi: str, lunar) -> bool:
+def is_kongwang(month_zhi: str, lunar) -> bool:
     """空亡: 当日日柱旬空（lunar-python getDayXunKong）含当月月支 → 月建逢空
 
     说明: 日柱地支不可能落入自身旬空（旬空为旬内未出现的两支）, 故采用
     "月建逢空"这一可确定性计算的黄历视角; 其他空亡流派规则不纳入（宁缺毋滥）。
+    注(fix-later): 原签名带 day_zhi 死参数(函数体从未使用), 已移除。
     """
     return month_zhi in lunar.getEightChar().getDayXunKong()
 

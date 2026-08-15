@@ -236,4 +236,32 @@ with env_k2[0], env_k2[1]:
     run_batch(bj(TODAY.year, TODAY.month, TODAY.day, 21, 0))
 check("Fix1: 收过提醒的用户新计划仍发送(未被 NOT IN 排除)", any(e[0] == "o_u_keep" for e in sent_k2))
 
+# ── 8. fix-later: 计划级 reminder_enabled=0 不选; 成功 reset fail_count ───────────
+member_dao.set_member("u_offplan", "basic")
+pid_offp = make_plan("u_offplan", TODAY_STR, scene="提车", reminder_enabled=0)   # 计划未订阅提醒
+bind("u_offplan")
+sent_offp = []
+with mock.patch("src.services.wechat_mp.send_template",
+                side_effect=lambda oid, tpl, data, url="": sent_offp.append(oid) or {}), \
+     mock.patch("src.services.wechat_mp.mp_ready", return_value=True):
+    run_batch(bj(TODAY.year, TODAY.month, TODAY.day, 7, 30))
+check("fix-later: 计划级 reminder_enabled=0 不发送", "o_u_offplan" not in sent_offp)
+check("fix-later: 未订阅计划 sent 标记未被改写",
+      zdao.get_plan("u_offplan", pid_offp)["remind_sent_d0"] == 0)
+
+# 成功 reset fail_count: 先前连败 2 次, 通道恢复后发送成功 → fail_count 清零
+member_dao.set_member("u_reset", "basic")
+pid_rs = make_plan("u_reset", TODAY_STR, scene="签约")
+bind("u_reset")
+zdao.upsert_pref("u_reset", {"fail_count": 2, "reminder_enabled": 1})
+sent_rs, env_rs = ok_env()
+with env_rs[0], env_rs[1]:
+    run_batch(bj(TODAY.year, TODAY.month, TODAY.day, 7, 30))
+check("fix-later: 成功发送后 fail_count 清零",
+      (zdao.get_pref("u_reset") or {}).get("fail_count") == 0)
+check("fix-later: 成功发送后 bound_status 不被误标 invalid",
+      (zdao.get_pref("u_reset") or {}).get("bound_status") != "invalid")
+check("fix-later: 成功发送后 sent 标记落库",
+      zdao.get_plan("u_reset", pid_rs)["remind_sent_d0"] == 1)
+
 print(f"\nALL PASS ({ok})")

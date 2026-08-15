@@ -438,6 +438,9 @@ async def _daily_push_worker():
 # ── 择吉日提醒调度(Task 5,复用晨笺服务号通道)────────────────────────
 ZERI_REMIND_D1_HM = (21, 0)   # 档1: 前1天晚 21:00(北京时间)
 ZERI_REMIND_D0_HM = (7, 30)   # 档2: 当天早 07:30(北京时间)
+# 择吉日提醒落地 URL —— 与晨笺 _send_jian_batch 同格式(https://yilichat.com/pages/<page>[?...]):
+# 小程序页面在服务号模板消息里走 h5 兜底, 晨笺写 pages/today/today、晚安写
+# pages/chat/chat?entry=night, 择吉日对应指向 zeri_plan 页(id 定位到具体计划)。
 ZERI_REMIND_URL = "https://yilichat.com/pages/zeri_plan/zeri_plan?id={plan_id}"
 
 
@@ -495,16 +498,19 @@ def _zeri_reminder_batch(zdao, now, member_dao=None) -> dict:
             (lucky_date,)).fetchall()
         stats["total"] += len(rows)
         for (pid,) in rows:
-            plan = zdao.get_plan_by_id(pid)
-            if not plan:
-                continue
-            uid = plan["user_id"]
-            # 失败停推: zeri_prefs.bound_status='invalid'(仿晨笺 invalid 语义)
-            zpref = zdao.get_pref(uid) or {}
-            if zpref.get("bound_status") == "invalid":
-                stats["skipped"] += 1
-                continue
+            # fix-later: 全部预读(get_plan_by_id/get_pref/jian_prefs SELECT)移入 per-plan try 内,
+            # DB 读失败只记 errors 不中断整批, 且不误计 fail_count(瞬时读失败下轮重试即可)
+            uid = None
             try:
+                plan = zdao.get_plan_by_id(pid)
+                if not plan:
+                    continue
+                uid = plan["user_id"]
+                # 失败停推: zeri_prefs.bound_status='invalid'(仿晨笺 invalid 语义)
+                zpref = zdao.get_pref(uid) or {}
+                if zpref.get("bound_status") == "invalid":
+                    stats["skipped"] += 1
+                    continue
                 # 会员判定(体验模式全功能放行)
                 if not _zeri_reminder_eligible(member_dao, uid):
                     stats["skipped"] += 1
@@ -534,21 +540,44 @@ def _zeri_reminder_batch(zdao, now, member_dao=None) -> dict:
                     }
                 url = ZERI_REMIND_URL.format(plan_id=pid)
                 send_template(openid, tpl_id, data, url=url)
-                zdao.set_remind_sent(uid, pid, d1_or_d0)
+                # fix-later: sent 标记写入用嵌套 try —— send 已成功, 标记写入失败仅日志,
+                # 不 bump fail_count、不判发送失败(消息不重发, 标记失败仅日志提请人工核查);
+                # 顺带紧邻重试一次, 覆盖瞬时写失败
+                try:
+                    zdao.set_remind_sent(uid, pid, d1_or_d0)
+                except Exception:
+                    try:
+                        zdao.set_remind_sent(uid, pid, d1_or_d0)
+                    except Exception as e:
+                        logger.warning(
+                            "择吉日提醒已发送但 sent 标记写入失败(仅日志,不计数;"
+                            "请人工核查防重发) uid=%s plan=%s: %s", uid, pid, e)
+                # 成功 reset fail_count(写失败仅日志, 不再落入外层 except 误计)
+                try:
+                    zdao.upsert_pref(uid, {"fail_count": 0, "reminder_enabled": 1})
+                except Exception as e:
+                    logger.warning(
+                        "择吉日提醒已发送但 fail_count 清零失败(仅日志) uid=%s plan=%s: %s",
+                        uid, pid, e)
                 stats["pushed"] += 1
             except Exception as e:
                 logger.warning("择吉日提醒发送失败 uid=%s plan=%s: %s", uid, pid, e)
                 stats["errors"] += 1
-                zpref2 = zdao.get_pref(uid) or {}
-                fail = (zpref2.get("fail_count") or 0) + 1
-                # Fix1: 显式保留 reminder_enabled=1 —— 本条 upsert 可能新建 prefs 行,
-                # 默认值 reminder_enabled=0 会被批次查询当作"显式关闭"整批跳过
-                zdao.upsert_pref(uid, {"fail_count": fail, "reminder_enabled": 1})
-                if fail >= 3:
-                    zdao.upsert_pref(uid, {"bound_status": "invalid", "reminder_enabled": 1})
-                    logger.warning("择吉日提醒连续失败≥3次 uid=%s: 订阅标记失效,停止推送", uid)
-            else:
-                zdao.upsert_pref(uid, {"fail_count": 0, "reminder_enabled": 1})
+                if uid is None:
+                    # DB 预读失败: 无法计数也不应计数(瞬时读失败, 下轮重试), 仅日志
+                    continue
+                try:
+                    zpref2 = zdao.get_pref(uid) or {}
+                    fail = (zpref2.get("fail_count") or 0) + 1
+                    # Fix1: 显式保留 reminder_enabled=1 —— 本条 upsert 可能新建 prefs 行,
+                    # 默认值 reminder_enabled=0 会被批次查询当作"显式关闭"整批跳过
+                    zdao.upsert_pref(uid, {"fail_count": fail, "reminder_enabled": 1})
+                    if fail >= 3:
+                        zdao.upsert_pref(uid, {"bound_status": "invalid", "reminder_enabled": 1})
+                        logger.warning("择吉日提醒连续失败≥3次 uid=%s: 订阅标记失效,停止推送", uid)
+                except Exception as e2:
+                    logger.warning(
+                        "择吉日提醒失败计数写入异常(仅日志,不阻断本批) plan=%s: %s", pid, e2)
     if stats["total"]:
         logger.info("择吉日提醒批次完成(%s %02d:%02d): %s",
                     today, now.hour, now.minute, stats)

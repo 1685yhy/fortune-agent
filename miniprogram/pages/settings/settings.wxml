@@ -80,8 +80,11 @@
         </view>
         <switch class="stj-switch" checked="{{zeriReminder}}" disabled="{{zeriLoading}}" bindchange="onZeriReminderSwitch" color="#A93A2C" />
       </view>
-      <!-- zeriLoading 期间不渲染绑定行，避免 prefs 未加载时绑定的用户闪现"未绑定" -->
-      <view wx:if="{{!zeriLoading && (zeriInvalid || !zeriBound)}}" class="me-row row-line stj-bind-row">
+      <!-- zeriLoading 期间不渲染绑定行，避免 prefs 未加载时绑定的用户闪现"未绑定"；
+           fix-later: 原条件 (zeriInvalid || !zeriBound) 下"已绑定"不可达——已绑定即整行隐藏。
+           简化为可达两态：未绑定+点击绑定 / 已绑定+脱敏号（复用手机号绑定 phoneMasked），
+           订阅失效态保留。开关逻辑在上一行 switch，不受影响。 -->
+      <view wx:if="{{!zeriLoading}}" class="me-row row-line stj-bind-row">
         <view class="mr-ic"><image src="/assets/images/ic-bell.png"></image></view>
         <view class="stj-bind-col">
           <view class="stj-bind-line">
@@ -89,9 +92,10 @@
             <view class="stj-bind-state {{zeriBound ? 'stj-bound' : ''}}">{{zeriInvalid ? '订阅已失效' : (zeriBound ? '已绑定' : '未绑定')}}</view>
           </view>
           <view wx:if="{{zeriInvalid}}" class="stj-bind-hint">推送连续失败，订阅已失效 · 请重新绑定</view>
-          <view wx:elif="{{!zeriBound}}" class="stj-bind-hint">关注服务号后可接收择日提醒</view>
+          <view wx:elif="{{zeriBound}}" class="stj-bind-hint">服务号已绑定{{phoneMasked ? ' · ' + phoneMasked : ''}}</view>
+          <view wx:else class="stj-bind-hint">关注服务号后可接收择日提醒</view>
         </view>
-        <view class="stj-bind-btn" hover-class="stj-btn-active" hover-stay-time="0" bindtap="goJianOnboard">{{zeriInvalid ? '重新绑定' : '去绑定'}}</view>
+        <view wx:if="{{zeriInvalid || !zeriBound}}" class="stj-bind-btn" hover-class="stj-btn-active" hover-stay-time="0" bindtap="goJianOnboard">{{zeriInvalid ? '重新绑定' : '去绑定'}}</view>
       </view>
       <picker mode="selector" range="{{morningOptions}}" value="{{morningIdx}}" bindchange="onMorningPick">
         <view class="me-row row-line {{jianEnabled ? '' : 'stj-pick-dis'}}" hover-class="me-row-active" hover-stay-time="0">

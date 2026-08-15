@@ -129,9 +129,9 @@ Page({
     wx.reLaunch({ url: '/pages/chat/chat' });
   },
 
-  /* 原型 onBack：返回今日 */
+  /* fix-later: 命书自「我的」进入 → 返回我的页（原「返回今日」与入口不符） */
   goToday() {
-    wx.reLaunch({ url: '/pages/today/today' });
+    wx.reLaunch({ url: '/pages/me/me' });
   },
 
   /* 分享当前命书（navrow 分享按钮）：api.generateShareCard(reportId)
