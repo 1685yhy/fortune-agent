@@ -1,0 +1,70 @@
+<!-- 今日详解（原型 S13：流日四运逐条 + 三宜二忌详解 + 时辰高亮） -->
+<view class="detail-screen">
+  <!-- 头部：农历 · 干支 · 综合分 · 宜忌摘要 -->
+  <view class="detail-head">
+    <view class="detail-date">
+      <text class="detail-date-main">{{dateLine}}</text>
+      <text class="detail-score" wx:if="{{scoreText}}">{{scoreText}}</text>
+    </view>
+    <view class="detail-chips" wx:if="{{yiChips.length || jiChips.length}}">
+      <view class="inktag detail-chip" wx:for="{{yiChips}}" wx:key="*this">宜 · {{item}}</view>
+      <view class="inktag detail-chip detail-chip-ji" wx:for="{{jiChips}}" wx:key="*this">忌 · {{item}}</view>
+    </view>
+  </view>
+
+  <!-- 四运逐条解读 -->
+  <view class="detail-sec" wx:if="{{fortune4.length}}">
+    <view class="detail-sec-title">流日四运</view>
+    <view class="d4-item" wx:for="{{fortune4}}" wx:key="key">
+      <view class="d4-row">
+        <text class="d4-label">{{item.label}}</text>
+        <view class="four-bar"><view class="four-bar-fill" style="width:{{item.percent}}%"></view></view>
+        <text class="d4-score">{{item.scoreText}}</text>
+      </view>
+      <text class="d4-desc">{{item.desc}}</text>
+    </view>
+  </view>
+
+  <!-- 宜忌详解（三宜二忌逐条） -->
+  <view class="detail-sec" wx:if="{{yiDetail.length || jiDetail.length}}">
+    <view class="detail-sec-title">宜忌详解</view>
+    <view class="yj-item" wx:for="{{yiDetail}}" wx:key="action">
+      <view class="yj-head">
+        <view class="yj-tag yj-tag-yi"><text class="yj-char">宜</text></view>
+        <text class="yj-action">{{item.action}}</text>
+        <text class="yj-time" wx:if="{{item.time}}">{{item.time}}</text>
+      </view>
+      <text class="yj-reason" wx:if="{{item.reason}}">{{item.reason}}</text>
+    </view>
+    <view class="yj-item" wx:for="{{jiDetail}}" wx:key="action">
+      <view class="yj-head">
+        <view class="yj-tag yj-tag-ji"><text class="yj-char">忌</text></view>
+        <text class="yj-action">{{item.action}}</text>
+        <text class="yj-time" wx:if="{{item.time}}">{{item.time}}</text>
+      </view>
+      <text class="yj-reason" wx:if="{{item.reason}}">{{item.reason}}</text>
+    </view>
+  </view>
+
+  <!-- 时辰高亮：当前时辰高亮，其余可点看吉凶 -->
+  <view class="detail-sec" wx:if="{{hourly.length}}">
+    <view class="detail-sec-title">时辰择时</view>
+    <scroll-view class="hour-scroll" scroll-x enable-flex>
+      <view
+        class="hour-chip {{selHourIdx === index ? 'hour-chip-sel' : ''}} {{curHourIdx === index ? 'hour-chip-cur' : ''}}"
+        wx:for="{{hourly}}"
+        wx:key="time"
+        data-idx="{{index}}"
+        bindtap="onHourTap">
+        <text class="hour-name">{{item.time}}</text>
+        <text class="hour-tag">{{item.tag}}</text>
+      </view>
+    </scroll-view>
+    <view class="hour-desc" wx:if="{{selHourDesc}}">
+      <text class="hour-desc-label">{{hourly[selHourIdx].time}} · 吉凶</text>
+      <text class="hour-desc-text">{{selHourDesc}}</text>
+    </view>
+  </view>
+
+  <view class="detail-foot">签文只作心意，不作断言 · 明灯拟</view>
+</view>

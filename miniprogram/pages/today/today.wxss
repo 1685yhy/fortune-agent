@@ -65,6 +65,8 @@
   background: var(--acc);
   border-radius: 2rpx;
 }
+/* 流日行可点 → 今日详解页 */
+.today-date-active { opacity: .72; }
 
 /* ── 主列（晨笺卡 → 诗签/按钮/脚注，上下分布；内容超框时框内滚动） ── */
 .today-col {
@@ -131,9 +133,16 @@
 }
 .seal-52 { width: 52rpx; height: 52rpx; font-size: 32rpx; }
 
-/* 两宜标签 */
-.yi-chips { display: flex; gap: 19rpx; margin-top: 12rpx; }  /* 10px 6px */
+/* 两宜标签（原型宜忌区可点 → 今日详解页） */
+.yi-chips { display: flex; align-items: center; gap: 19rpx; margin-top: 12rpx; }  /* 10px 6px */
 .yi-chip { font-size: 21rpx; padding: 8rpx 23rpx; letter-spacing: .18em; }  /* 11px 4px 12px */
+.yi-chips-active { opacity: .72; }
+.yi-chips-go {
+  font-family: var(--font-song);
+  font-size: 18rpx;
+  letter-spacing: .14em;
+  color: var(--acc);
+}
 
 /* 签文注 */
 .poem-note {
@@ -397,40 +406,132 @@
   color: var(--acc);
 }
 
-/* ═══ 双人合盘入口卡（第二入口：朱砂「缘」印章 + 标题 + 副文案 + brush-arrow） ═══ */
-.yuan-entry {
+/* ═══ 流日四运卡（原型：事业/财运/感情/健康 4 行 + 分数条；点开 → 今日详解页） ═══ */
+.four-card {
   width: 100%;
   flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 15rpx;
   background: var(--paper-card);
-  border: 2rpx solid var(--acc-line);
+  border: 2rpx solid var(--line-strong);
   border-radius: 10rpx;
-  padding: 19rpx 24rpx;
+  padding: 21rpx 24rpx 19rpx;
   box-shadow: 0 6rpx 19rpx var(--shadow-sm);
   margin-top: 19rpx;
+  box-sizing: border-box;
 }
-.yuan-entry-active { background: var(--acc-soft); }
-.yuan-seal { width: 52rpx; height: 52rpx; font-size: 30rpx; border-radius: 6rpx; }
-.yuan-entry-mid { flex: 1; min-width: 0; }
-.yuan-entry-title {
+.four-card-active { background: var(--acc-soft); }
+.four-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 13rpx;
+}
+.four-title {
   font-family: var(--font-kai);
-  font-size: 27rpx;
-  letter-spacing: .1em;
+  font-size: 26rpx;
+  letter-spacing: .14em;
   color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
-.yuan-entry-sub {
-  margin-top: 6rpx;
+.four-go { display: flex; align-items: center; gap: 7rpx; }
+.four-go-text {
   font-family: var(--font-song);
-  font-size: 19rpx;
-  letter-spacing: .08em;
-  color: var(--ink-soft);
+  font-size: 18rpx;
+  letter-spacing: .12em;
+  color: var(--acc);
 }
-.yuan-entry-arrow { width: 27rpx; height: 19rpx; flex-shrink: 0; }
+.four-arrow { width: 25rpx; height: 17rpx; }
+.four-row {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  padding: 7rpx 0;
+}
+.four-label {
+  flex-shrink: 0;
+  width: 52rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .14em;
+  color: var(--ink-mid);
+}
+.four-bar {
+  flex: 1;
+  height: 12rpx;
+  background: var(--tag-bg);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 6rpx;
+  overflow: hidden;
+}
+.four-bar-fill {
+  height: 100%;
+  border-radius: 6rpx;
+  background: linear-gradient(90deg, var(--acc-deep), var(--acc));
+}
+.four-score {
+  flex-shrink: 0;
+  width: 64rpx;
+  text-align: right;
+  font-family: var(--font-kai);
+  font-size: 25rpx;
+  color: var(--ink);
+}
+
+/* ═══ 时辰择时行（原型：巳时/午时/申时 chips；点开 → 今日详解页） ═══ */
+.shichen-row {
+  width: 100%;
+  flex-shrink: 0;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-strong);
+  border-radius: 10rpx;
+  padding: 19rpx 24rpx 21rpx;
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+  margin-top: 19rpx;
+  box-sizing: border-box;
+}
+.shichen-row-active { background: var(--acc-soft); }
+.shichen-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 13rpx;
+}
+.shichen-title {
+  font-family: var(--font-kai);
+  font-size: 26rpx;
+  letter-spacing: .14em;
+  color: var(--ink);
+}
+.shichen-go {
+  font-family: var(--font-song);
+  font-size: 18rpx;
+  letter-spacing: .12em;
+  color: var(--acc);
+}
+.shichen-chips { display: flex; gap: 13rpx; }
+.shichen-chip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5rpx;
+  padding: 11rpx 0 10rpx;
+  background: var(--tag-bg);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 8rpx;
+}
+.shichen-chip-cur { border-color: var(--acc-line); background: var(--acc-soft); }
+.sc-time {
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .06em;
+  color: var(--ink-mid);
+}
+.sc-tag {
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .1em;
+  color: var(--acc);
+}
 
 /* ═══ Task 8 · 深夜入口横幅（方案·灯下漫谈）：夜色宣纸卡底 + 灯笼暖光 + 朱砂描边 ═══ */
 .night-banner {

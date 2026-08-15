@@ -32,6 +32,9 @@ class CalendarDay:
     overall_mood: str = ""             # 整体运势基调（一句话）
     is_special: bool = False           # 是否特殊日（冲煞/三合等）
     special_note: str = ""             # 特殊日说明
+    fortune4: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # 流日四运（今日详解页）：{"career": {"score": 7.2, "desc": "…"}, "wealth": …,
+    #   "love": …, "health": …}；score 0-10 一位小数，desc 2-3 句解读
 
 
 CALENDAR_PROMPT = """你是一位精通八字命理的 AI 日历顾问。基于用户的命盘和今日流日，生成一份个性化的「今日宜忌」。
@@ -62,7 +65,13 @@ CALENDAR_PROMPT = """你是一位精通八字命理的 AI 日历顾问。基于�
   "lucky_direction": "一个方位（东/南/西/北/东南/东北/西南/西北）",
   "lucky_number": "一个数字（1-9）",
   "is_special": true/false,
-  "special_note": "如果是冲煞日/三合日/六合日，说明特殊之处；否则为空字符串"
+  "special_note": "如果是冲煞日/三合日/六合日，说明特殊之处；否则为空字符串",
+  "fortune4": {{
+    "career": {{"score": 7.2, "desc": "2-3句解读"}},
+    "wealth": {{"score": 6.8, "desc": "2-3句解读"}},
+    "love": {{"score": 5.5, "desc": "2-3句解读"}},
+    "health": {{"score": 7.0, "desc": "2-3句解读"}}
+  }}
 }}
 
 ## 规则
@@ -70,7 +79,106 @@ CALENDAR_PROMPT = """你是一位精通八字命理的 AI 日历顾问。基于�
 2. 每条必须包含 action + time + reason
 3. 基于流日干支与用户日柱的生克关系来推理
 4. 五行平衡：用户缺什么五行，宜对应补什么
-5. personality 影响语气但不要出现在 JSON 中"""
+5. personality 影响语气但不要出现在 JSON 中
+6. fortune4 为「流日四运」：事业/财运/感情/健康四维，score 为 0-10 一位小数；
+   desc 用现代中文、自然亲切，2-3 句，结合今日流日与命主五行关系给出具体建议"""
+
+
+# 天干五行（流日四运规则兜底用）
+wuxing_map = {
+    "甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
+    "己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
+}
+
+
+def derive_fortune4(
+    day_wuxing: str,
+    user_day_stem: str = "",
+    score: float = 70.0,
+    overall_mood: str = "",
+) -> Dict[str, Dict[str, Any]]:
+    """流日四运规则兜底（确定性，不调 LLM）。
+
+    基于当日分数（55-95 换算 5.5-9.5）与日干五行做维度偏移，并结合
+    命主日干与流日的生克关系微调；desc 用模板句（按分数档与五行）。
+
+    Returns:
+        {"career": {"score": 7.2, "desc": "…"}, "wealth": …, "love": …, "health": …}
+    """
+
+    day_wx = day_wuxing or "土"
+    base = max(2.0, min(9.9, (score or 70) / 10.0))
+
+    # 五行 → 四维偏移（当日五行气质对四运的影响）
+    wx_offset = {
+        "木": {"career": 0.3, "wealth": 0.1, "love": 0.2, "health": 0.2},
+        "火": {"career": 0.4, "wealth": 0.2, "love": 0.3, "health": -0.1},
+        "土": {"career": 0.1, "wealth": 0.4, "love": -0.2, "health": 0.3},
+        "金": {"career": 0.2, "wealth": 0.5, "love": -0.1, "health": -0.2},
+        "水": {"career": -0.1, "wealth": 0.1, "love": 0.4, "health": 0.1},
+    }.get(day_wx, {"career": 0.0, "wealth": 0.0, "love": 0.0, "health": 0.0})
+
+    # 命主与流日关系微调（同 _stem_branch_relation 的五组）
+    rel_offset = {"career": 0.0, "wealth": 0.0, "love": 0.0, "health": 0.0}
+    user_wx = wuxing_map.get(user_day_stem, "")
+    if day_wx and user_wx:
+        generates = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
+        controls = {"木": "土", "土": "水", "水": "火", "火": "金", "金": "木"}
+        if day_wx == user_wx:
+            rel_offset = {"career": 0.1, "wealth": 0.1, "love": 0.1, "health": 0.1}
+        elif generates.get(day_wx) == user_wx:   # 时生日：外界滋养你
+            rel_offset = {"career": 0.1, "wealth": 0.1, "love": 0.2, "health": 0.3}
+        elif generates.get(user_wx) == day_wx:   # 日生时：付出时段
+            rel_offset = {"career": -0.2, "wealth": -0.2, "love": 0.0, "health": -0.2}
+        elif controls.get(day_wx) == user_wx:    # 时克日：外界压力
+            rel_offset = {"career": -0.2, "wealth": -0.1, "love": -0.4, "health": -0.2}
+        elif controls.get(user_wx) == day_wx:    # 日克时：掌控强
+            rel_offset = {"career": 0.3, "wealth": 0.2, "love": 0.0, "health": 0.1}
+
+    def clamp(v: float) -> float:
+        return round(max(2.0, min(9.9, v)), 1)
+
+    career = clamp(base + wx_offset["career"] + rel_offset["career"])
+    wealth = clamp(base + wx_offset["wealth"] + rel_offset["wealth"])
+    love = clamp(base + wx_offset["love"] + rel_offset["love"])
+    health = clamp(base + wx_offset["health"] + rel_offset["health"])
+
+    def band(v: float) -> str:
+        return "high" if v >= 7.5 else ("mid" if v >= 6.0 else "low")
+
+    # 四维解读模板（按分数档 × 当日五行），现代中文 2-3 句
+    career_desc = {
+        "high": f"今日{day_wx}气助力事业，方案与合作最易敲定点头。宜主动开口、果断出手，不宜观望等待。",
+        "mid": f"今日{day_wx}气平稳，事业按部就班即可推进。有想法先成文，重要决定放到状态最好的时段再做。",
+        "low": f"今日{day_wx}气偏弱，事业上宜守不宜攻。把手头的事做扎实，别急着开新战线。",
+    }
+    wealth_desc = {
+        "high": "财星得位，正财可进，偏财勿贪。收入稳稳落袋，大额支出缓一缓再定。",
+        "mid": "财气平平，守好正财即可。消费量入为出，投资多看少动，钱包才稳。",
+        "low": "财气偏弱，今日不宜投资与借贷。守住钱包，大额开支改日再议。",
+    }
+    love_desc = {
+        "high": "感情运温暖，适合约会与谈心。主动一点，关系更进一步。",
+        "mid": "感情运平稳，寻常相处即是福。有话好好说，别急着下结论。",
+        "low": "今日情绪偏低沉，说话容易急。重要的话留到傍晚再说，那时语气也软了。",
+    }
+    health_desc = {
+        "high": "精神头足，宜早起活动筋骨。午间小憩充电，全天状态在线。",
+        "mid": "精力尚可，注意劳逸结合。夜间早睡，明日精神更旺。",
+        "low": "今日易感疲惫，宜多休息、少熬夜。子时前入睡，养足精神。",
+    }
+
+    def with_mood(desc: str) -> str:
+        if overall_mood and overall_mood not in desc:
+            return f"{desc}{overall_mood}"
+        return desc
+
+    return {
+        "career": {"score": career, "desc": with_mood(career_desc[band(career)])},
+        "wealth": {"score": wealth, "desc": with_mood(wealth_desc[band(wealth)])},
+        "love": {"score": love, "desc": with_mood(love_desc[band(love)])},
+        "health": {"score": health, "desc": with_mood(health_desc[band(health)])},
+    }
 
 
 class LuckyCalendar:
@@ -221,6 +329,12 @@ class LuckyCalendar:
             logging.getLogger(__name__).warning(f"Calendar generation failed: {e}")
             data = self._fallback_calendar(user_bazi, date_str, day_stem, day_branch)
 
+        # 流日四运：LLM 返回缺失/格式不合法时用规则兜底（确定性，不调 LLM）
+        fortune4 = self._sanitize_fortune4(data.get("fortune4"))
+        if fortune4 is None:
+            day_wx = wuxing_map.get(day_stem, "")
+            fortune4 = derive_fortune4(day_wx, user_day_stem, 70, "")
+
         return CalendarDay(
             date=date_str,
             day_stem=day_stem,
@@ -233,7 +347,30 @@ class LuckyCalendar:
             overall_mood=data.get("overall_mood", ""),
             is_special=data.get("is_special", False),
             special_note=data.get("special_note", ""),
+            fortune4=fortune4,
         )
+
+    def _sanitize_fortune4(self, raw) -> Optional[Dict[str, Dict[str, Any]]]:
+        """校验 LLM 返回的 fortune4：四维齐全、score 合法、desc 非空；不合法返回 None。"""
+        if not isinstance(raw, dict):
+            return None
+        keys = ("career", "wealth", "love", "health")
+        out = {}
+        for k in keys:
+            item = raw.get(k)
+            if not isinstance(item, dict):
+                return None
+            try:
+                score = float(item.get("score"))
+            except (TypeError, ValueError):
+                return None
+            if not (0 <= score <= 10):
+                return None
+            desc = str(item.get("desc", "")).strip()
+            if not desc:
+                return None
+            out[k] = {"score": round(score, 1), "desc": desc}
+        return out
 
     def week(self, user_bazi: dict, preferences: str = "") -> List[CalendarDay]:
         """Generate 7-day calendar preview (today + 6 days)."""
@@ -307,6 +444,8 @@ class LuckyCalendar:
             "己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水",
         }
         day_wx = wuxing.get(day_stem, "土")
+        user_bazi_list = user_bazi.get("bazi", ["?"])
+        user_day_stem = user_bazi_list[2] if len(user_bazi_list) >= 3 else ""
         wx_color = {"木": "绿色", "火": "红色", "土": "黄色", "金": "金色", "水": "蓝色"}
         wx_number = {"木": "3", "火": "2", "土": "5", "金": "4", "水": "6"}
         wx_dir = {"木": "东", "火": "南", "土": "西南", "金": "西", "水": "北"}
@@ -334,4 +473,5 @@ class LuckyCalendar:
             "lucky_number": wx_number.get(day_wx, "6"),
             "is_special": False,
             "special_note": "",
+            "fortune4": derive_fortune4(day_wx, user_day_stem, 70),
         }

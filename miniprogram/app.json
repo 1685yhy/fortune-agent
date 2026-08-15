@@ -1,6 +1,7 @@
 {
   "pages": [
     "pages/today/today",
+    "pages/today_detail/today_detail",
     "pages/chat/chat",
     "pages/celiang/celiang",
     "pages/reports/reports",
