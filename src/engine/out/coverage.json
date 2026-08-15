@@ -13,7 +13,8 @@
  },
  "audit": "2026-08-15 全量跑分",
  "phase2": {
-  "deduction_steps": 7,
+  "deduction_steps": 6,
+  "deduction_steps_note": "pills-only 链实际 6 步；第 7 步'大运流年.engine'仅 engine_result 非空时条件追加",
   "evidence": "in",
   "report": "in",
   "e2e_cases": 25,

@@ -1,7 +1,17 @@
 """举证层：把推演链要点转化为检索查询，古籍检索降级为证据引用。"""
 from __future__ import annotations
 
+import os
+
 from src.engine.deduction import DeductionChain
+
+# 库内命例实际分类：fortune_books_v2 全量实测 bazi_case=4934 条、bazi=0 条
+# （2026-08-15 chroma 精确计数），chroma where 精确匹配必须用 bazi_case。
+DEFAULT_CATEGORY = "bazi_case"
+# Retriever 未设 EMBEDDING_COLLECTION 时的默认集合，实测 count=0 空库；
+# 真实数据 27115 条全在 fortune_books_v2。
+EMPTY_DEFAULT_COLLECTION = "fortune_books"
+REAL_BOOKS_COLLECTION = "fortune_books_v2"
 
 
 class EvidenceProvider:
@@ -12,6 +22,15 @@ class EvidenceProvider:
     def _get_retriever(self):
         if self._retriever is not None:
             return self._retriever
+        # 空库守卫：EMBEDDING_COLLECTION 未显式设置时，Retriever 默认指向
+        # fortune_books（chroma 实测 count=0），生产必然 0 命中——在构造真实
+        # Retriever 之前直接抛可操作错误；compose_report 的 try/except 会降级
+        # []，直接调用方则看到明确指引。
+        if os.environ.get("EMBEDDING_COLLECTION", EMPTY_DEFAULT_COLLECTION) == EMPTY_DEFAULT_COLLECTION:
+            raise RuntimeError(
+                f"EMBEDDING_COLLECTION 未设置或指向空库 {EMPTY_DEFAULT_COLLECTION}；"
+                f"请设为 {REAL_BOOKS_COLLECTION}（27115条古籍库）"
+            )
         # 生产懒加载（注入优先，避免测试加载重模型）
         from src.rag.retriever import Retriever  # 只读复用
         from src.rag.embedder import Embedder
@@ -41,7 +60,7 @@ class EvidenceProvider:
         return queries
 
     def gather(self, chain: DeductionChain, question: str = "",
-               category: str = "bazi") -> list:
+               category: str = DEFAULT_CATEGORY) -> list:
         retriever = self._get_retriever()
         seen: set[str] = set()
         results = []

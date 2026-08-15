@@ -31,3 +31,15 @@ def test_gather_dedupe_and_limit():
     ids = [r.chunk_id for r in results]
     assert len(ids) == len(set(ids)), "按 chunk_id 去重"
     assert len(results) <= 3
+
+
+def test_gather_default_collection_guard_raises(monkeypatch):
+    """未显式设置 EMBEDDING_COLLECTION 时，默认指向空库 fortune_books（chroma count=0），
+    守卫必须在构造真实 Retriever 前抛 RuntimeError 给出可操作指引（指向 fortune_books_v2）。"""
+    import pytest
+    monkeypatch.delenv("EMBEDDING_COLLECTION", raising=False)
+    chain = deduce(["庚午", "乙酉", "甲午", "丁卯"])
+    provider = EvidenceProvider()  # 不注入 fake，走真实懒加载路径触发守卫
+    with pytest.raises(RuntimeError) as excinfo:
+        provider.gather(chain)
+    assert "fortune_books_v2" in str(excinfo.value)
