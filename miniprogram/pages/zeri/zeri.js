@@ -102,6 +102,26 @@ function cnDate(isoStr) {
   return `${Number(p[1])}月${Number(p[2])}日`;
 }
 
+/* ── 理由一句（dir_b v7 原型吉日卡字段）──
+   引擎给的是 reason_source 片段（如「成日值日」「宜嫁娶、安床」），
+   这里扩写为完整句；宁缺毋滥：无来源返回空串 → 前端不显示该行，不编造。 */
+const REASON_SENTENCES = {
+  '成日值日': '今日为成日，诸事可为，成事可期',
+  '开日值日': '今日为开日，宜开张纳吉，万事顺遂',
+  '定日值日': '今日为定日，定事安稳，可放心操办',
+  '喜用神相合': '当日天干生助您的用神，与您八字相合',
+  '喜用神比和': '当日天干与您的用神比和，五行相宜',
+  '八字适配': '此日与您的八字适配，契合度高',
+  '基础适配分': '未填八字，明灯按大事本身择日',
+};
+function expandReason(src) {
+  if (!src) return '';
+  if (REASON_SENTENCES[src]) return REASON_SENTENCES[src];
+  if (src.indexOf('周末宜') === 0) return `正值周末，宜${src.slice(3)}，亲友方便到场`;
+  if (src.indexOf('宜') === 0) return `今日宜${src.slice(1)}，正合此大事`;
+  return src; // 未知片段保留原文，不编造
+}
+
 /* 选它落库的清单项（免费档 core 精简；会员全量） */
 function buildItems(scene, isMember) {
   const tpl = CHECKLIST_TEMPLATES[scene] || [];
@@ -225,7 +245,7 @@ Page({
       jishi: c.jishi || '吉时以当日黄历为准',
       xi: c.xi_fangwei || '—',
       cai: c.cai_fangwei || '—',
-      reason: c.reason_source || '明灯拟',
+      reason: expandReason(c.reason_source || ''),
       total: c.total || 0,
       scores: [
         { label: '场景匹配', score: c.scene_score || 0, max: 50 },

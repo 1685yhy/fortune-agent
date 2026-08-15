@@ -278,6 +278,29 @@
   box-shadow: 0 4rpx 12rpx var(--shadow);
 }
 
+.pl-cal {
+  margin-top: var(--space-md);
+  height: 84rpx;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  border: 2rpx solid var(--acc);
+  color: var(--acc);
+  font-family: var(--font-song);
+  font-size: var(--text-base);
+  letter-spacing: 0.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pl-cal-note {
+  margin-top: var(--space-sm);
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  text-align: center;
+  letter-spacing: 0.08em;
+}
+
 .pl-btn-active { opacity: .85; transform: scale(.98); }
 
 .pl-foot {

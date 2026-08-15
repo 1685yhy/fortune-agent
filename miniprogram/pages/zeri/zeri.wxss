@@ -232,6 +232,12 @@
   flex-shrink: 0;
 }
 
+.zr-total-label {
+  font-size: 18rpx;
+  color: var(--ink-faint);
+  letter-spacing: 0.04em;
+}
+
 .zr-total-num {
   font-family: var(--font-lat);
   font-size: 44rpx;
@@ -328,6 +334,14 @@
 }
 
 .zr-reason-active { opacity: .7; }
+
+.zr-reason-label {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: var(--text-sm);
+  color: var(--acc);
+  letter-spacing: 0.06em;
+}
 
 .zr-reason-text {
   flex: 1;

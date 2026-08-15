@@ -65,6 +65,12 @@
         <text wx:else>分享给家人</text>
       </view>
 
+      <!-- 加入日历：微信无系统日历 API → 复制日期信息到剪贴板，粘贴到系统日历 -->
+      <view class="pl-cal" hover-class="pl-btn-active" hover-stay-time="0" bindtap="onAddCalendar">
+        <text>加入日历</text>
+      </view>
+      <view class="pl-cal-note">复制吉日信息 · 可粘贴到系统日历</view>
+
       <view class="pl-foot">明灯谨录 · 诸事顺遂</view>
     </scroll-view>
   </block>

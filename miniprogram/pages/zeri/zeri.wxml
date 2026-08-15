@@ -51,8 +51,9 @@
             <text class="zr-date-lunar">{{item.lunarText}}</text>
           </view>
           <view class="zr-total" wx:if="{{item.total > 0}}">
+            <text class="zr-total-label">适配度</text>
             <text class="zr-total-num">{{item.total}}</text>
-            <text class="zr-total-unit">分</text>
+            <text class="zr-total-unit">%</text>
           </view>
         </view>
 
@@ -81,8 +82,9 @@
           <text class="zr-line-item">财神 {{item.cai}}</text>
         </view>
 
-        <!-- 一句理由（可展开评分明细，会员） -->
-        <view class="zr-reason" hover-class="zr-reason-active" hover-stay-time="0" data-idx="{{index}}" bindtap="onReasonTap">
+        <!-- 一句理由（宁缺毋滥：无依据不显示该行；可展开评分明细，会员） -->
+        <view wx:if="{{item.reason}}" class="zr-reason" hover-class="zr-reason-active" hover-stay-time="0" data-idx="{{index}}" bindtap="onReasonTap">
+          <text class="zr-reason-label">理由：</text>
           <text class="zr-reason-text">{{item.reason}}</text>
           <text class="zr-reason-more">{{expandedIdx === index ? '收起' : '评分明细'}}</text>
         </view>

@@ -178,6 +178,22 @@ Page({
       });
   },
 
+  /* ═══ 加入日历（微信无系统日历 API → 复制日期信息到剪贴板，如实说明） ═══ */
+  onAddCalendar() {
+    const d = this.data;
+    let lunar = String(d.lunarText || '').split(/\s+/)[0]; // 农历七月十七日
+    if (lunar) lunar = lunar.replace(/日$/, '');            // → 农历七月十七
+    let copyText = d.dateText || d.luckyDate || '';
+    if (lunar) copyText += `（${lunar}）`;
+    copyText += `${d.scene || '大事'}吉日`;
+    wx.setClipboardData({
+      data: copyText,
+      success: () => {
+        wx.showToast({ title: '已复制，可粘贴到系统日历', icon: 'none', duration: 2200 });
+      },
+    });
+  },
+
   /* ═══ 分享给家人（shareCard 风格：canvas 绘制吉日笺 → 分享/保存） ═══ */
   onShare() {
     if (this.data.sharing) return;
