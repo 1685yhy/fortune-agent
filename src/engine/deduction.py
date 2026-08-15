@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
+from pathlib import Path
 
 
 @dataclass
@@ -64,6 +65,17 @@ def _step(step_id: int, rule: str, fact: str, output: str,
     return DeductionStep(step_id, rule, fact, output, source, rationale)
 
 
+_QIONGTONG_PATH = Path(__file__).parent / "cases" / "qiongtong_table.json"
+_QIONGTONG_CACHE: dict | None = None
+
+
+def _load_qiongtong() -> dict:
+    global _QIONGTONG_CACHE
+    if _QIONGTONG_CACHE is None:
+        _QIONGTONG_CACHE = json.loads(_QIONGTONG_PATH.read_text(encoding="utf-8"))
+    return _QIONGTONG_CACHE
+
+
 def deduce(pills: list[str], engine_result=None, question: str = "") -> DeductionChain:
     """主推演链：排盘→十神→格局→神煞→大运流年→断语要点，逐步记录。
     engine_result: BaziResult（可选）——提供五行旺衰/大运/流年；None 走 pills-only 路径。"""
@@ -105,6 +117,18 @@ def deduce(pills: list[str], engine_result=None, question: str = "") -> Deductio
     next_step("geju.determine_geju", f"月支={month_branch}",
               geju, "子平真诠·八格",
               "月令藏干透干优先，不透取本气，比劫归建禄/月刃")
+
+    # 3.5 调候用神（穷通宝鉴 120 格查表）
+    try:
+        table = _load_qiongtong()
+        cell = table.get(day_stem, {}).get(month_branch, "")
+        cell_text = cell[:60] + ("…" if len(cell) > 60 else "")
+        next_step(f"qiongtong_table[{day_stem}][{month_branch}]",
+                  f"日干 {day_stem} × 月支 {month_branch}",
+                  cell_text, f"穷通宝鉴·{day_stem}·{month_branch}月",
+                  "穷通宝鉴查表为确定性规则；乙丑/丁丑两格为源文本缺口冬尾补给(见阶段1审计)")
+    except (KeyError, OSError) as exc:
+        chain.add_coverage("未覆盖", f"穷通宝鉴查表失败: {exc}")
 
     # 4. 神煞
     shensha_hits = shensha_of(pills)
