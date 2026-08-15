@@ -28,8 +28,14 @@ def compose_report(chain: DeductionChain, question: str, llm=None,
             evidences = []   # 检索不可用 → 降级无引用（诚实标注）
 
     if llm is None:
+        from src.config import load_settings  # 无模块级单例，按 main.py:627 先例
         from src.llm.client import FortuneLLM
-        llm = FortuneLLM()
+        # 按 main.py:764 先例构造：api_key 必填无默认值，其余参数与生产入口保持一致
+        _settings = load_settings()
+        llm = FortuneLLM(api_key=_settings.claude_api_key,
+                         model="deepseek-v4-flash",
+                         deep_model="deepseek-v4-pro",
+                         provider="deepseek")
 
     extra = ("## 推演链（引擎逐步推理记录，可审计）\n" + chain.to_text() +
              "\n\n请基于推演链与古籍依据回答，每条关键结论标注引用编号[n]。"

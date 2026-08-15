@@ -32,3 +32,29 @@ def test_compose_report_no_evidence_still_works():
     report = compose_report(chain, "", llm=fake, evidences=[])
     assert report.analysis
     assert fake.calls[0]["refs"] == 0
+
+
+class CapturingLLM:
+    """捕获构造 kwargs 的 FortuneLLM 替身：验证 llm 缺省路径按 main.py 先例传 api_key。"""
+
+    captured_kwargs = {}
+
+    def __init__(self, **kwargs):
+        CapturingLLM.captured_kwargs = kwargs
+
+    def analyze(self, chart_data, references, user_question,
+                use_pro=False, extra_system_prompt=None, stream_cb=None):
+        return type("AR", (), {"response": "缺省LLM解读", "tokens_used": 1,
+                               "model": "fake"})()
+
+
+def test_compose_report_default_llm_passes_api_key(monkeypatch):
+    # report.py 在函数内懒加载 `from src.llm.client import FortuneLLM`，
+    # 符号解析落在 src.llm.client 模块上，故 monkeypatch 该模块属性。
+    # settings 无模块级单例，按 main.py 先例（main.py:627）load_settings() 获取。
+    from src.config import load_settings
+    settings = load_settings()
+    monkeypatch.setattr("src.llm.client.FortuneLLM", CapturingLLM)
+    chain = deduce(["庚午", "乙酉", "甲午", "丁卯"])
+    compose_report(chain, "", llm=None, evidences=[])
+    assert CapturingLLM.captured_kwargs["api_key"] == settings.claude_api_key
