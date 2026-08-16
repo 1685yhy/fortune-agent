@@ -7,9 +7,11 @@
   left: 0; right: 0;
   bottom: 0;
   z-index: 25;
-  padding: 19rpx 38rpx 46rpx;            /* 10px 20px 24px */
   overflow-x: hidden;                    /* 真机修复：内容超宽时横向裁剪，页面不可横滑 */
 }
+/* Task5 滚动条修复（同 chat/history/me）：内边距移至内层 .st-inner——
+   scroll-view 自身不留 padding，滚动条贴最右侧、与内容无错位 */
+.st-inner { padding: 19rpx 38rpx 46rpx; }   /* 10px 20px 24px */
 
 /* ── 分区小标（危险区/账号与登录 …） ── */
 .op-label {
@@ -266,6 +268,14 @@
   letter-spacing: .04em;
   color: var(--ink);
   line-height: 1.1;
+}
+/* Task2 时间行提示：点按修改（picker 未设 disabled，关闭时淡显但仍可点开预选） */
+.stj-pick-hint {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 17rpx;                      /* 9px */
+  letter-spacing: .08em;
+  color: var(--ink-faint);
 }
 .stj-pick-dis { opacity: .45; }          /* 通道关闭时时间选择淡显（仍可预选，开启时带出） */
 .stj-whisper-col {

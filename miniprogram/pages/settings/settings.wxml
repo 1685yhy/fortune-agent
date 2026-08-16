@@ -12,6 +12,8 @@
   </view>
 
   <scroll-view scroll-y class="st-scroll">
+    <!-- Task5 滚动条修复（同 chat/history/me）：padding 归内层容器，scroll-view 自身无 padding -->
+    <view class="st-inner">
     <!-- 账号与登录：未登录=微信登录入口；已登录=头像/昵称 + 退出登录/更换账号 -->
     <view class="op-label"><text>账号与登录</text></view>
     <view class="papercard me-list">
@@ -64,12 +66,18 @@
     <view class="papercard me-list">
       <view class="me-row row-line">
         <view class="mr-ic"><image src="/assets/images/ic-bell.png"></image></view>
-        <view class="mr-label">晨笺 · 早安运势</view>
+        <view class="stj-whisper-col">
+          <view class="mr-label">晨笺 · 早安运势</view>
+          <view class="stj-whisper-sub">每天早晨推送今日宜忌与一句古籍金句</view>
+        </view>
         <switch class="stj-switch" checked="{{jianEnabled}}" disabled="{{jianLoading}}" bindchange="onJianSwitch" color="#A93A2C" />
       </view>
       <view class="me-row row-line">
         <view class="mr-ic"><image src="/assets/images/ic-moon.png"></image></view>
-        <view class="mr-label">晚安 · 灯下陪伴</view>
+        <view class="stj-whisper-col">
+          <view class="mr-label">晚安 · 灯下陪伴</view>
+          <view class="stj-whisper-sub">每晚陪你一段灯下私语与晚安金句</view>
+        </view>
         <switch class="stj-switch" checked="{{nightEnabled}}" disabled="{{jianLoading}}" bindchange="onNightSwitch" color="#A93A2C" />
       </view>
       <view class="me-row row-line">
@@ -102,8 +110,9 @@
           <view class="mr-ic"><image src="/assets/images/ic-seal.png"></image></view>
           <view class="stj-pick-col">
             <view class="mr-label">晨笺送达时间</view>
-            <view class="stj-pick-range">06:00 - 10:00 · 每 15 分钟</view>
+            <view class="stj-pick-range">06:00 - 10:00</view>
           </view>
+          <view class="stj-pick-hint">点按修改</view>
           <view class="stj-time">{{morningTime}}</view>
           <view class="mr-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
         </view>
@@ -113,8 +122,9 @@
           <view class="mr-ic"><image src="/assets/images/ic-seal.png"></image></view>
           <view class="stj-pick-col">
             <view class="mr-label">晚安送达时间</view>
-            <view class="stj-pick-range">21:00 - 24:00 · 每 15 分钟</view>
+            <view class="stj-pick-range">21:00 - 24:00</view>
           </view>
+          <view class="stj-pick-hint">点按修改</view>
           <view class="stj-time">{{nightTime}}</view>
           <view class="mr-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
         </view>
@@ -208,6 +218,7 @@
     </view>
 
     <view class="me-foot">秉烛而谈 · 灯火长明</view>
+    </view>
   </scroll-view>
 
   <!-- 更换账号说明弹层（原型 dir_o：将退出当前账号，可登录其他微信） -->

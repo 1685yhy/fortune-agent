@@ -213,7 +213,8 @@ Page({
     });
   },
 
-  /* 开关（红线：关闭 → PUT enabled:false，绝不默认发送；开启 → 带所选时间一并落库） */
+  /* 开关（红线：关闭 → PUT enabled:false，绝不默认发送；开启 → 带所选时间一并落库）
+     Task2 反馈：开关成功 toast 明确告知送达时间；未绑定服务号时如实告知"开通后生效" */
   onJianSwitch(e) {
     if (this.data.jianLoading) return;
     const on = !!e.detail.value;
@@ -221,7 +222,10 @@ Page({
     this.setData({ jianEnabled: on });
     const patch = { jian_enabled: on };
     if (on) patch.jian_time = this.data.morningTime;
-    this._savePrefs(patch, 'jianEnabled', prev);
+    const msg = on
+      ? (this.data.bound ? `将于 ${this.data.morningTime} 推送今日晨笺` : '已开启 · 服务号开通后生效')
+      : '已关闭晨笺推送';
+    this._savePrefs(patch, 'jianEnabled', prev, msg);
   },
 
   onNightSwitch(e) {
@@ -231,15 +235,20 @@ Page({
     this.setData({ nightEnabled: on });
     const patch = { night_enabled: on };
     if (on) patch.night_time = this.data.nightTime;
-    this._savePrefs(patch, 'nightEnabled', prev);
+    const msg = on
+      ? (this.data.bound ? `将于 ${this.data.nightTime} 陪你说晚安` : '已开启 · 服务号开通后生效')
+      : '已关闭晚安推送';
+    this._savePrefs(patch, 'nightEnabled', prev, msg);
   },
 
-  /* 时间自选（仅在对应通道开启时落库；关闭时改动留在本地，开启时随开关带出） */
+  /* 时间自选（仅在对应通道开启时落库；关闭时改动留在本地，开启时随开关带出）
+     Task2 反馈：开关关闭时改时间给明确反馈（"不能改"误解消除——可预选，开启后生效） */
   onMorningPick(e) {
     const idx = Number(e.detail.value);
     const time = MORNING_OPTIONS[idx];
     this.setData({ morningIdx: idx, morningTime: time });
     if (this.data.jianEnabled) this._savePrefs({ jian_time: time });
+    else wx.showToast({ title: '已记下 · 开启晨笺后生效', icon: 'none' });
   },
 
   onNightPick(e) {
@@ -247,12 +256,14 @@ Page({
     const time = NIGHT_OPTIONS[idx];
     this.setData({ nightIdx: idx, nightTime: time });
     if (this.data.nightEnabled) this._savePrefs({ night_time: time });
+    else wx.showToast({ title: '已记下 · 开启晚安后生效', icon: 'none' });
   },
 
-  /* 统一保存：成功静默 toast；失败回滚开关（revertField 指定）+ 提示。时间改动不回滚，下次成功落库 */
-  _savePrefs(patch, revertField, prev) {
+  /* 统一保存：成功 toast（successMsg 指定，默认"已保存"）；失败回滚开关（revertField 指定）+ 提示。
+     时间改动不回滚，下次成功落库 */
+  _savePrefs(patch, revertField, prev, successMsg) {
     api.putJianPrefs(patch).then(() => {
-      wx.showToast({ title: '已保存', icon: 'none' });
+      wx.showToast({ title: successMsg || '已保存', icon: 'none' });
     }).catch(() => {
       if (revertField) this.setData({ [revertField]: prev });
       wx.showToast({ title: '保存失败，请重试', icon: 'none' });
