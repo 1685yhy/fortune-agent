@@ -9,9 +9,11 @@
   left: 0; right: 0;
   bottom: 173rpx;                        /* 90px */
   z-index: 25;
-  padding: 19rpx 38rpx 46rpx;            /* 10px 20px 24px */
   overflow-x: hidden;                    /* 真机修复：内容超宽时横向裁剪，页面不可横滑 */
 }
+/* Task5 滚动条修复（同 chat/history）：内边距移至内层 .me-inner——
+   scroll-view 自身不留 padding，滚动条贴最右侧、与内容无错位 */
+.me-inner { padding: 19rpx 38rpx 46rpx; }   /* 10px 20px 24px */
 
 /* ── 一卷手札（木轴 + 宣纸芯 + 印章/名号/四柱） ── */
 .handscroll {
@@ -37,10 +39,10 @@
   padding: 35rpx 58rpx 31rpx;            /* 18px 30px 16px */
   display: flex;
   align-items: center;
-  gap: 27rpx;                            /* 14px */
+  gap: 20rpx;                            /* 14px→10px：四柱收窄后间隙同步收窄，信息区更宽裕 */
 }
 .hs-id {
-  width: 123rpx;                         /* 64px */
+  width: 88rpx;                          /* 64px→46px：与印章同宽（含「命盘之印」小字约 82rpx），不再吃信息区空间 */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -54,13 +56,34 @@
   letter-spacing: .08em;
   color: var(--ink-soft);
 }
-.hs-info { display: flex; flex-direction: column; gap: 6rpx; }  /* 3px */
+/* Task1 排版修复：信息区占满剩余空间（min-width:0 允许收窄），各行左对齐；
+   长昵称/生日不换行、溢出省略，杜绝"一字一行竖排" */
+.hs-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8rpx;                             /* 3px→4px：行距规整 */
+}
+.hs-info .hs-sub {
+  margin-top: 0;                         /* 行距由 .hs-info gap 统一控制 */
+  max-width: 100%;
+  white-space: nowrap;                   /* 生日/农历优先不换行，必要时整体省略（数字/中文不拆散） */
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .hs-name {
   font-family: var(--font-song);
   font-weight: 700;
   font-size: 35rpx;                      /* 18px */
   letter-spacing: .1em;
   color: var(--ink);
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;                   /* 超长昵称省略号，杜绝竖排 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── 登录显式展示：头像（微信头像，印章圆框）/ 状态标签 / 登录·退出 ── */
@@ -76,6 +99,8 @@
   display: flex;
   align-items: baseline;
   gap: 14rpx;
+  max-width: 100%;
+  min-width: 0;                          /* 昵称+标签不挤爆：昵称 flex:1 省略号，标签保持完整 */
 }
 .hs-tag {
   font-family: var(--font-song);
@@ -84,6 +109,7 @@
   border-radius: 20rpx;
   padding: 2rpx 12rpx;
   transform: translateY(-5rpx);
+  flex-shrink: 0;                        /* 昵称省略时标签保持完整 */
 }
 .hs-tag-real {                           /* 微信登录：印章朱砂色 */
   color: var(--acc-deep);
@@ -94,12 +120,12 @@
   color: var(--ink-faint);
   border: 2rpx solid var(--line);
 }
-.hs-spacer { flex: 1; }
+.hs-spacer { flex-shrink: 0; }           /* 空间全让给信息区（.hs-info flex:1），不再吃自由空间 */
 
 /* 四柱竖排（年/月/日/时） */
 .hs-pillars { display: flex; }
 .hs-pillar {
-  width: 65rpx;                          /* 34px */
+  width: 52rpx;                          /* 34px→27px：四柱总宽 260→208rpx，让出 ~50rpx 给信息区 */
   display: flex;
   flex-direction: column;
   align-items: center;

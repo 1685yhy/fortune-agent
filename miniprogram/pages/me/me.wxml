@@ -12,54 +12,57 @@
   </view>
 
   <scroll-view scroll-y class="me-scroll">
-    <view class="handscroll">
-      <view class="roll-left"></view>
-      <view class="roll-right"></view>
-      <view class="hs-in">
-        <view class="hs-id">
-          <image wx:if="{{avatarUrl}}" class="seal-avatar" src="{{avatarUrl}}" mode="aspectFill"></image>
-          <view wx:else class="seal seal-88"><text class="seal-char">明</text></view>
-          <view class="hs-sub">命盘之印</view>
-        </view>
-        <view class="hs-info">
-          <view class="hs-name-row">
-            <view class="hs-name">{{displayName}}</view>
-            <view class="hs-tag {{realLogin ? 'hs-tag-real' : 'hs-tag-local'}}" wx:if="{{loginTag}}">{{loginTag}}</view>
+    <!-- Task5 滚动条修复（同 chat/history）：padding 归内层容器，scroll-view 自身无 padding -->
+    <view class="me-inner">
+      <view class="handscroll">
+        <view class="roll-left"></view>
+        <view class="roll-right"></view>
+        <view class="hs-in">
+          <view class="hs-id">
+            <image wx:if="{{avatarUrl}}" class="seal-avatar" src="{{avatarUrl}}" mode="aspectFill"></image>
+            <view wx:else class="seal seal-88"><text class="seal-char">明</text></view>
+            <view class="hs-sub">命盘之印</view>
           </view>
-          <view class="hs-profile-edit" hover-class="hs-profile-edit-active" hover-stay-time="0" bindtap="openProfileDialog">{{nicknameSet ? '编辑' : '点击设置头像昵称'}}</view>
-          <view class="hs-sub">{{birthdayText}}</view>
-          <view class="hs-sub">{{lunarBirthday}}</view>
-        </view>
-        <view class="hs-spacer"></view>
-        <view class="hs-pillars">
-          <view wx:for="{{pillars}}" wx:key="index" class="hs-pillar {{index > 0 ? 'pillar-line' : ''}}">
-            <text class="p-label">{{item.l}}</text>
-            <text class="p-char">{{item.c}}</text>
+          <view class="hs-info">
+            <view class="hs-name-row">
+              <view class="hs-name">{{displayName}}</view>
+              <view class="hs-tag {{realLogin ? 'hs-tag-real' : 'hs-tag-local'}}" wx:if="{{loginTag}}">{{loginTag}}</view>
+            </view>
+            <view class="hs-profile-edit" hover-class="hs-profile-edit-active" hover-stay-time="0" bindtap="openProfileDialog">{{nicknameSet ? '编辑' : '点击设置头像昵称'}}</view>
+            <view class="hs-sub">{{birthdayText}}</view>
+            <view class="hs-sub">{{lunarBirthday}}</view>
+          </view>
+          <view class="hs-spacer"></view>
+          <view class="hs-pillars">
+            <view wx:for="{{pillars}}" wx:key="index" class="hs-pillar {{index > 0 ? 'pillar-line' : ''}}">
+              <text class="p-label">{{item.l}}</text>
+              <text class="p-char">{{item.c}}</text>
+            </view>
           </view>
         </view>
       </view>
-    </view>
 
-    <view class="companion-line">
-      <view class="fl"></view>
-      <text>明灯与你同行 · 第 {{nights}} 晚</text>
-    </view>
+      <view class="companion-line">
+        <view class="fl"></view>
+        <text>明灯与你同行 · 第 {{nights}} 晚</text>
+      </view>
 
-    <view class="papercard me-list">
-      <view wx:for="{{meRows}}" wx:key="label" class="me-row {{index < meRows.length - 1 ? 'row-line' : ''}}"
-        hover-class="me-row-active" hover-stay-time="0"
-        data-action="{{item.action}}" bindtap="onRowTap">
-        <view class="mr-ic"><image src="{{item.icon}}"></image></view>
-        <view class="mr-label">{{item.label}}</view>
-        <view class="mr-val">{{item.val}}</view>
-        <view class="mr-chev" wx:if="{{!item.sub}}"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
-        <view class="mr-switch" wx:else>
-          <switch checked="{{subOn}}" color="#A93A2C" bindchange="onSubChange" />
+      <view class="papercard me-list">
+        <view wx:for="{{meRows}}" wx:key="label" class="me-row {{index < meRows.length - 1 ? 'row-line' : ''}}"
+          hover-class="me-row-active" hover-stay-time="0"
+          data-action="{{item.action}}" bindtap="onRowTap">
+          <view class="mr-ic"><image src="{{item.icon}}"></image></view>
+          <view class="mr-label">{{item.label}}</view>
+          <view class="mr-val">{{item.val}}</view>
+          <view class="mr-chev" wx:if="{{!item.sub}}"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+          <view class="mr-switch" wx:else>
+            <switch checked="{{subOn}}" color="#A93A2C" bindchange="onSubChange" />
+          </view>
         </view>
       </view>
-    </view>
 
-    <view class="me-foot">秉烛而谈 · 灯火长明</view>
+      <view class="me-foot">秉烛而谈 · 灯火长明</view>
+    </view>
   </scroll-view>
 
   <!-- 头像昵称采集弹层（Task 2：chooseAvatar + nickname，墨韵 paper 风格） -->
