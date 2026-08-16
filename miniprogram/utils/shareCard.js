@@ -185,13 +185,18 @@ function drawBrandLeft(ctx, y1, y2) {
 }
 
 /**
- * 底部小字（落款定式）
+ * 底部小字（落款定式；opts.align='right' 时置于右下角）
  */
-function inkBottomNote(ctx, W, H) {
-  ctx.textAlign = 'center';
+function inkBottomNote(ctx, W, H, opts) {
   ctx.fillStyle = COLORS.faint;
   ctx.font = '20px ' + FONT_SONG;
-  ctx.fillText('签文只作心意，不作断言', W / 2, H - 40);
+  if (opts && opts.align === 'right') {
+    ctx.textAlign = 'right';
+    ctx.fillText('签文只作心意，不作断言', W - 88, H - 40);
+  } else {
+    ctx.textAlign = 'center';
+    ctx.fillText('签文只作心意，不作断言', W / 2, H - 40);
+  }
 }
 
 /**
@@ -283,13 +288,13 @@ function drawLoveCard(data, canvas, qrCodePath, callback) {
     if (ln) qy = wrapText(ctx, ln, 90, qy, W - 180, 50) + 14;
   });
 
-  // 7. 合盘略解（纸白笺块：墨细框 + 朱砂小标签 + 宋体淡墨）
+  // 7. 合盘略解（纸白笺块：墨细框 + 朱砂小标签 + 楷体淡墨，与缘语同字系更协调）
   const summary = String(data.summary || '你们的命盘呈现出奇妙的互补与共鸣');
   // 剥离 love 页拼入的等级前缀（"上吉 · 性格…" → "性格…"），等级已由 4 步单独呈现
   let body = summary;
   const m = summary.match(/^\s*(.{2,10}?)\s*[·•]\s*(.+)$/);
   if (m && m[2]) body = m[2];
-  ctx.font = '26px ' + FONT_SONG;
+  ctx.font = '26px ' + FONT_KAI;
   const aLines = countLines(ctx, body, W - 260);
   const aTop = qy + 30;
   const aH = 66 + aLines * 40 + 30;
@@ -303,13 +308,13 @@ function drawLoveCard(data, canvas, qrCodePath, callback) {
   ctx.font = '20px ' + FONT_KAI;
   ctx.fillText('合盘略解', 114, aTop + 34);
   ctx.fillStyle = MUTED;
-  ctx.font = '26px ' + FONT_SONG;
+  ctx.font = '26px ' + FONT_KAI;
   wrapText(ctx, body, 114, aTop + 66, W - 260, 40);
 
-  // 8. 品牌落款（左下）+ 二维码（右下）— 与 drawYuanCard 同构
-  drawBrandLeft(ctx, 940, 985);
+  // 8. 品牌落款（左下，上移衔接内容）+ 二维码（右下）+ 签名（右下角）
+  drawBrandLeft(ctx, 925, 970);
   drawQRPlaceholder(ctx, 560, 1020, 100);
-  inkBottomNote(ctx, W, H);
+  inkBottomNote(ctx, W, H, { align: 'right' });
 
   // 9. 导出 2x PNG
   wx.canvasToTempFilePath({
