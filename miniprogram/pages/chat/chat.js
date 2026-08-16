@@ -1274,7 +1274,11 @@ Page({
      修复「点新开报语音失败」：清理音频期间置 _audioSilent（onError 静默，不弹 toast）；
      同时 _speakSeq++ 使进行中的 TTS 请求失效（其成功回调不再继续播放/失败不再弹「语音合成失败」）。
      走查：startNewChat → _archiveCurrent → _resetChatUi 全链路无 toast 触发点（仅确认弹窗
-     与成功 toast「已新开一段夜话」）；_cleanupVoice 置 _dropResult 使识别 onError 也静默 */
+     与成功 toast「已新开一段夜话」）；_cleanupVoice 置 _dropResult 使识别 onError 也静默。
+     真机反馈修复（新开对话后界面无变化）：setData 直接写入 SEED 的 _mirror 镜像
+     （与 _onHostState 订阅路径同一渲染口径），不依赖 streamHost.reset → _emit → _onHostState
+     的订阅链路兜底——该链路在某些真机场景未生效时，界面也能立即切到 SEED 开场三笺；
+     streamHost.reset 照常执行（宿主现场/存储恢复仍以 SEED 为准），订阅到达时是幂等重绘 */
   _resetChatUi() {
     this._cleanupVoice();
     if (this._audioCtx) {
@@ -1284,7 +1288,9 @@ Page({
     }
     this._speakSeq = (this._speakSeq || 0) + 1;   // 使在途 TTS 请求失效（播新停旧语义）
     this._drawerRestore = null;
+    const seedMirror = this._mirror(SEED.slice());  // 与订阅路径同口径（md 节点/思考态/表情合并）
     this.setData({
+      messages: seedMirror,
       fb: {},
       typing: false,
       streaming: false,
@@ -1298,7 +1304,7 @@ Page({
       emojiSheet: { show: false, msgId: '', cur: [], curMap: {} },
     });
     streamHost.reset(SEED.slice());
-    this._scrollBottom(true);
+    this._scrollBottom(true);   // 强制滚底：渲染的是 SEED 开场三笺（scrollInto 复位重设触发）
   },
 
   /* ═══ v1.1 语音/键盘模式切换（元宝式） ═══ */
