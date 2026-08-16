@@ -6,9 +6,10 @@
 
 /* ═══ 页头导航行（原型 v7 反馈#7 符号钮改造）═══
    标题「对话」居中；左侧纯符号钮（零文字）：
-   - 默认 ⊕ 临时对话（虚线气泡加号）→ 点击直达发起（toast）；
-   - 临时模式中同位置切换为 新开对话（方框加号）→ 点击直接开新普通对话；
+   - 固定「新开对话」（方框加号）→ 点击归档当前会话并开新空对话（带确认弹窗）；
    - 历史 = 固定列表图标钮（三横线）。
+   v1.3：删除 ⊕ 临时对话入口（其 tempChat 状态与后端 deepNight 通道解耦——
+   深夜模式由夜间时段/晚安推送独立进入，deepNight 能力保留在后端）。
    返回箭头：tab 主屏（4-tab 常驻）隐藏；导航栈进入（历史/解梦 navigateTo）时
    显示（navrow 挂 show-back 类 → 符号钮组右移避让）。 */
 .navrow { justify-content: center; }
@@ -44,26 +45,8 @@
 }
 .nav-sym.na-strong { color: var(--acc); }
 
-/* ⊕ 临时对话（原型 Ic.plusc：虚线气泡 + 加号） */
-.sym-temp { width: 40rpx; height: 40rpx; position: relative; }
-.sym-temp-frame {
-  position: absolute; left: 0; top: 0; right: 0; bottom: 0;
-  border: 2.5rpx dashed var(--acc);
-  border-radius: 10rpx;
-  opacity: .9;
-}
-.sym-temp-tail {
-  position: absolute; left: 8rpx; bottom: -5rpx;
-  width: 12rpx; height: 12rpx;
-  border-right: 2.5rpx solid var(--acc);
-  border-bottom: 2.5rpx solid var(--acc);
-  border-bottom-right-radius: 4rpx;
-  transform: rotate(45deg);
-  opacity: .9;
-}
-
-/* 新开对话（原型 Ic.newchat：方框 + 加号） */
-.sym-new { width: 40rpx; height: 40rpx; position: relative; }
+/* 新开对话（原型 Ic.newchat：方框 + 加号）——v1.3 固定页头入口（清晰可辨，朱砂色） */
+.sym-new { width: 44rpx; height: 44rpx; position: relative; }
 .sym-new-frame {
   position: absolute; left: 0; top: 0; right: 0; bottom: 0;
   border: 2.5rpx solid var(--acc);
@@ -101,35 +84,6 @@
   opacity: .8;
 }
 .sym-list-line:last-child { width: 23rpx; align-self: flex-end; margin-right: 1rpx; }
-
-/* ── 临时对话条（⊕ 进入：临 时 印章 + 离开即不留记录，原型 .temp-strip） ── */
-.temp-strip {
-  position: absolute;
-  top: calc(215rpx + var(--nav-off));
-  left: 0; right: 0;
-  z-index: 34;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 18rpx;
-}
-.ts-seal {
-  display: flex;
-  align-items: center;
-  font-family: var(--font-brush);
-  font-size: 21rpx;
-  letter-spacing: .16em;
-  color: #FBF6E8;
-  background: var(--acc);
-  border-radius: 6rpx;
-  padding: 5rpx 15rpx;
-}
-.ts-txt {
-  font-family: var(--font-song);
-  font-size: 23rpx;
-  letter-spacing: .14em;
-  color: var(--ink-faint);
-}
 
 /* ── 头部细行（八月初六 · 夜） ── */
 .chat-head {

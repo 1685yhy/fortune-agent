@@ -4,21 +4,16 @@
     <view wx:if="{{showBack}}" class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
       <image class="back-icon" src="/assets/images/ic-back.png"></image>
     </view>
-    <!-- 页头左侧纯符号钮（零文字，原型 v7 反馈#7）：
-         默认 ⊕ 临时对话（直达动作+toast）；临时模式中同位置切换为新开对话（方框加号）；
-         历史为固定列表图标钮；标题「对话」居中 -->
+    <!-- 页头左侧符号钮（零文字，原型 v7 反馈#7 改造）：
+         左上角固定「新开对话」（方框加号）：点按 = 当前对话保存到历史 → 全新空对话（带确认弹窗）；
+         右侧历史为固定列表图标钮；标题「对话」居中。
+         v1.3：删除原「临时对话」（⊕）入口——临时对话通道（tempChat）复用 deepNight（后端不落记忆），
+         而深夜模式（灯下漫谈/枕边灯语）由夜间时段自动或晚安推送 entry='night' 独立进入（_enterNight
+         同样 setDeepNight(true)），⊕ 入口移除不影响深夜功能；后端 deepNight 能力保留，仅收回前端入口 -->
     <view class="nav-actions">
-      <view wx:if="{{tempChat}}" class="nav-sym na-strong" hover-class="navrow-hover" hover-stay-time="0" bindtap="startNewChat" aria-label="新开对话">
+      <view class="nav-sym na-strong" hover-class="navrow-hover" hover-stay-time="0" bindtap="startNewChat" aria-label="新开对话">
         <view class="sym-new">
           <view class="sym-new-frame"></view>
-          <view class="sym-plus-h"></view>
-          <view class="sym-plus-v"></view>
-        </view>
-      </view>
-      <view wx:else class="nav-sym na-strong" hover-class="navrow-hover" hover-stay-time="0" bindtap="toggleTempChat" aria-label="临时对话">
-        <view class="sym-temp">
-          <view class="sym-temp-frame"></view>
-          <view class="sym-temp-tail"></view>
           <view class="sym-plus-h"></view>
           <view class="sym-plus-v"></view>
         </view>
@@ -37,12 +32,6 @@
   </view>
 
   <view class="chat-head" bindlongpress="clearChat">八月初六 · 夜</view>
-
-  <!-- 临时对话条（⊕ 进入：临 时 印章 + 离开即不留记录，原型 .temp-strip） -->
-  <view wx:if="{{tempChat && !nightMode}}" class="temp-strip">
-    <view class="ts-seal"><text>临 时</text></view>
-    <text class="ts-txt">离开即不留记录</text>
-  </view>
 
   <!-- ═══ Task 8 · 深夜模式卡片（方案·灯下漫谈） ═══ -->
   <!-- 深夜标识：灯笼 + 倾诉临时提示（今夜不落记忆） -->

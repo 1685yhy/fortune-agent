@@ -81,7 +81,6 @@ Page({
   data: {
     navOff: 0,
     showBack: false,          // 导航栈进入（历史/解梦 navigateTo）→ 显示返回箭头；tab 主屏隐藏
-    tempChat: false,          // 临时对话模式（⊕ 符号钮进入，复用倾诉临时通道：后端不落记忆）
     messages: SEED,
     typing: false,
     inputText: '',
@@ -683,14 +682,10 @@ Page({
     if (pages && pages.length > 1) wx.navigateBack();
   },
 
-  /* 临时对话（页头 ⊕ 符号钮，原型 v7 反馈#7）：直达动作 + toast；
-     复用现有倾诉临时通道（deepNight → 后端临时不落记忆），
-     进入后同位置切换为新开对话图标（方框加号） */
-  toggleTempChat() {
-    this.setData({ tempChat: true, notKeep: true });
-    streamHost.setDeepNight(true);
-    wx.showToast({ title: '临时对话 · 离开即不留记录', icon: 'none' });
-  },
+  /* v1.3：临时对话（⊕）入口已删除——该入口独占的 tempChat 状态与 toggleTempChat 一并移除。
+     说明：⊕ 临时对话原本复用 deepNight（后端临时不落记忆）；深夜模式（灯下漫谈）由
+     夜间时段自动/晚安推送 entry='night' 独立进入（_enterNight → streamHost.setDeepNight(true)），
+     后端 deepNight 能力保留、仅收回前端入口，深夜功能不受影响。 */
 
   /* 原型 onTab：底部栏切换 */
   onTab(e) {
@@ -1076,19 +1071,15 @@ Page({
     wx.navigateTo({ url: '/pages/history/history' });
   },
 
-  /* 新开对话（页头符号钮）：临时模式中 = 离开即不留记录，直接开新普通对话
-     （临时内容不入历史、不弹确认——原型直达动作）；
-     普通模式 = 当前会话归档 ylm_chat_archives → 回到 SEED 开场。
+  /* 新开对话（页头「新开」符号钮，v1.3 固定入口）：
+     当前会话归档 ylm_chat_archives → 回到 SEED 开场（全新空对话）。
+     PM 要求：点新开 = 当前对话保存到历史 → 从欢迎/空开始重新说；下次进入小程序是
+     这段新对话而非旧内容（_resetChatUi → streamHost.reset 会把 SEED 写回
+     ylm_chat_messages，onLoad 恢复读到的是空对话开场；旧内容只存在于归档=历史页）。
+     确认弹窗保留（PM 接受：当前对话将保存到历史）。
      真机反馈修复：确认后必须清空回 SEED 并归档；任何异常不静默失败——
      归档失败不阻断重置，并给明确提示。 */
   startNewChat() {
-    if (this.data.tempChat) {
-      streamHost.setDeepNight(false);
-      this.setData({ tempChat: false, notKeep: false });
-      try { this._resetChatUi(); } catch (e) { console.error('[Chat] 新开对话失败:', e); }
-      wx.showToast({ title: '一段新对话 · 灯已点亮', icon: 'none' });
-      return;
-    }
     wx.showModal({
       title: '新开对话',
       content: '当前对话将保存到历史，重新开始一段新的夜话？',
@@ -1119,6 +1110,10 @@ Page({
   _archiveCurrent() {
     const msgs = (streamHost.messages && streamHost.messages.length) ? streamHost.messages : this.data.messages;
     if (!msgs || !msgs.length) return;
+    /* v1.3：只有开场（SEED 演示三笺，id 以 's' 开头）无真实对话 → 不产生空归档
+       （与 history.js hasRealUser 同口径：真实用户消息 id 为 u+时间戳） */
+    const hasReal = msgs.some((m) => m.role === 'user' && String(m.id || '').indexOf('s') !== 0);
+    if (!hasReal) return;
     const firstUser = msgs.find((m) => m.role === 'user' && !m.pending);
     const label = (firstUser && firstUser.content) ? String(firstUser.content).slice(0, 18) : '一段夜话';
     const arch = {
