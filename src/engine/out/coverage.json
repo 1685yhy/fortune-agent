@@ -1,5 +1,5 @@
 {
- "phase": "阶段0+1+2",
+ "phase": "阶段0+1+2+3",
  "rules": {
   "shishen": 3,
   "geju": 4,
@@ -11,7 +11,7 @@
   "shensha": 2,
   "qiongtong_cells": 120
  },
- "audit": "2026-08-15 全量跑分",
+ "audit": "2026-08-16 阶段3门禁全量跑分",
  "phase2": {
   "deduction_steps": 6,
   "deduction_steps_note": "pills-only 链实际 6 步；第 7 步'大运流年.engine'仅 engine_result 非空时条件追加",
@@ -19,5 +19,21 @@
   "report": "in",
   "e2e_cases": 25,
   "gate": "9/9 + e2e 25/25"
+ },
+ "phase3": {
+  "rules": {
+   "ziwei": 11,
+   "liuyao": 11,
+   "qimen": 10,
+   "liuren": 9
+  },
+  "cases": {
+   "ziwei": 8,
+   "liuyao": 8,
+   "qimen": 9,
+   "liuren": 12,
+   "e2e_phase3": 4
+  },
+  "gate": "回归122/122全绿 + unit 8/8/9/12 + e2e 4/4(四体系) + 八字25/25不破 + 真实冒烟四体系链5步非空 + LLM冒烟真实输出(deepseek-v4-flash)"
  }
 }
