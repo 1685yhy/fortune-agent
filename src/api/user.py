@@ -540,6 +540,9 @@ async def user_profile(uid: str = Depends(require_user), user_id: str = ""):
     has_bazi = False
     push_settings = {"daily_push": False, "push_time": "08:00"}
     stats = {"total_consultations": 0}
+    # Task4 昵称头像联动：GET profile 补齐 nickname/avatar_url（前端 me/settings 页统一数据源）
+    nickname = ""
+    avatar_url = ""
 
     chart = None
     if _dao:
@@ -561,6 +564,11 @@ async def user_profile(uid: str = Depends(require_user), user_id: str = ""):
         }
         consultations = _dao.get_user_consultations(user_id, limit=1000)
         stats["total_consultations"] = len(consultations)
+        # 昵称：users.nickname（未设置返回空串）；头像：文件存在才给公开读取路径（同上传响应格式）
+        nickname = _dao.get_user_nickname(user_id)
+        safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", user_id)
+        if (_avatar_dir() / f"{safe_id}.jpg").is_file():
+            avatar_url = f"/api/user/avatar/{user_id}"
 
     # 生成八字标签
     bazi_label = ""
@@ -578,6 +586,8 @@ async def user_profile(uid: str = Depends(require_user), user_id: str = ""):
         "stats": stats,
         "member_plan": "free",
         "queries_remaining": 50,
+        "nickname": nickname,
+        "avatar_url": avatar_url,
     }
 
 

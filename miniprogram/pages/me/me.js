@@ -311,13 +311,39 @@ Page({
         displayName: cache.nickname || (u && u.nickName) || '小晚',
         avatarUrl: cache.avatarUrl ? api.getBaseURL() + cache.avatarUrl : ((u && u.avatarUrl) || ''),
       });
+      this._loadBackendProfile(); // 后端 profile（含 nickname/avatar_url）为准，异步覆盖缓存
       return;
     }
-    // 体验模式（local_user）
+    // 体验模式（local_user）：无后端身份，昵称仍走本地，不发请求
     this.setData({ displayName: '小晚', avatarUrl: '', loginTag: '体验用户', realLogin: false, nicknameSet: false });
   },
 
-  /* ═══ 头像昵称缓存（Task 2：保存成功后本地缓存；GET /api/user/profile 暂无昵称字段，缓存即会话持久） ═══ */
+  /* ═══ 后端资料联动（Task4：GET /api/user/profile 返回 nickname/avatar_url 后优先后端值，
+       覆盖本地缓存并刷新显示；失败/未登录静默保持缓存兜底） ═══ */
+  _loadBackendProfile() {
+    const gd = (getApp() && getApp().globalData) || {};
+    if (!gd.token || this._profileBusy) return;
+    this._profileBusy = true;
+    api.getUserProfile()
+      .then((profile) => {
+        this._profileBusy = false;
+        if (!profile) return;
+        const patch = {};
+        if (profile.nickname) {
+          patch.nicknameSet = true;
+          patch.displayName = profile.nickname;
+          try { wx.setStorageSync('ylm_nickname', profile.nickname); } catch (e) { /* ignore */ }
+        }
+        if (profile.avatar_url) {
+          patch.avatarUrl = profile.avatar_url.startsWith('http') ? profile.avatar_url : api.getBaseURL() + profile.avatar_url;
+          try { wx.setStorageSync('ylm_avatar_url', profile.avatar_url); } catch (e) { /* ignore */ }
+        }
+        if (Object.keys(patch).length) this.setData(patch);
+      })
+      .catch(() => { this._profileBusy = false; /* 后端不可用：保持缓存兜底 */ });
+  },
+
+  /* ═══ 头像昵称缓存（Task 2：保存成功后本地缓存；Task4：后端 profile 为准，缓存作离线兜底） ═══ */
   _readProfileCache() {
     let nickname = '';
     let avatarUrl = '';
@@ -389,7 +415,9 @@ Page({
           }
         }
         if (nicknameOk) {
-          try { wx.setStorageSync('ylm_nickname', nickname); } catch (e) { /* ignore */ }
+          // Task4：以服务端返回的 nickname 为准（saveProfile 响应 {success, nickname}）
+          const saved = (results[0].value && results[0].value.nickname) || nickname;
+          try { wx.setStorageSync('ylm_nickname', saved); } catch (e) { /* ignore */ }
         }
         this._deriveIdentity();
         if (nicknameOk && avatarOk) {
