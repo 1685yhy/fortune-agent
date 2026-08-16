@@ -104,6 +104,13 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
         settings.embedding_dimension = int(os.getenv("EMBEDDING_DIMENSION"))
     if os.getenv("FAISS_INDEX_DIR"):
         settings.faiss_index_dir = Path(os.getenv("FAISS_INDEX_DIR"))
+    # 数据路径环境变量覆盖：/mnt/d 为 9P 挂载盘（慢窗口问题），可将数据迁到
+    # WSL ext4 盘（如 /home/a）后通过 FORTUNE_DB_PATH / VECTORDB_DIR 指定新位置；
+    # 不设置环境变量时保持默认路径不变，行为与原来完全一致。
+    if os.getenv("FORTUNE_DB_PATH"):
+        settings.db_path = Path(os.getenv("FORTUNE_DB_PATH"))
+    if os.getenv("VECTORDB_DIR"):
+        settings.vectordb_dir = Path(os.getenv("VECTORDB_DIR"))
     if os.getenv("EXPERIENCE_MODE"):
         settings.experience_mode = is_experience_mode()
     return settings
