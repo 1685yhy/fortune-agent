@@ -82,6 +82,11 @@ Page({
     navOff: 0,
     showBack: false,          // 导航栈进入（历史/解梦 navigateTo）→ 显示返回箭头；tab 主屏隐藏
     messages: SEED,
+    /* v1.3 多选收藏/分享：长按菜单「多选」进入勾选模式（勾选框 + 顶部操作条） */
+    multiMode: false,
+    multiSel: {},             // {消息id: true}
+    multiCount: 0,
+    multiAll: false,
     typing: false,
     inputText: '',
     inputFocused: false,
@@ -733,6 +738,7 @@ Page({
 
   /* 重试：丢弃失败气泡，用原消息重发 */
   retryStream(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const text = (e.currentTarget.dataset.text || '').trim();
     if (!text || streamHost.active) return;
     const id = e.currentTarget.dataset.id;
@@ -741,6 +747,7 @@ Page({
 
   /* 思考路径折叠/展开（宿主持久化） */
   toggleThink(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const id = e.currentTarget.dataset.id;
     const msg = this._findMessage(id);
     if (!msg || !msg.thinking || !msg.thinking.length) return;
@@ -758,6 +765,7 @@ Page({
 
   /* 点角标 [n]/🔗 → 打开底部抽屉（该条回复的来源列表） */
   onCiteTap(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const { msgid, idx } = e.currentTarget.dataset;
     const msg = this._findMessage(msgid);
     const items = (msg && Array.isArray(msg.citations)) ? msg.citations : [];
@@ -817,9 +825,18 @@ Page({
 
   /* ═══ v1.1 气泡长按操作菜单（墨韵弹层） ═══ */
 
-  /* 长按气泡 → 操作菜单（选取模式中不弹菜单，提示长按文字选取） */
+  /* v1.3 多选模式：气泡点按 = 勾选/取消勾选（其他气泡内交互一律不响应） */
+  onMsgTap(e) {
+    if (!this.data.multiMode) return;
+    const id = e.currentTarget.dataset.id;
+    if (!id) return;
+    this._toggleMulti(id);
+  },
+
+  /* 长按气泡 → 操作菜单（选取模式中不弹菜单，提示长按文字选取；多选模式不弹菜单） */
   onBubbleLongPress(e) {
     const { id, role } = e.currentTarget.dataset;
+    if (this.data.multiMode) return;   // v1.3 多选：长按不弹菜单，避免与勾选混淆
     if (this.data.selectMsgId) {
       wx.showToast({ title: '长按文字即可选取', icon: 'none' });
       return;
@@ -835,8 +852,9 @@ Page({
     this.setData({ actionMenu: { show: false, msgId: '', role: '' } });
   },
 
-  /* 消息区点击：选取模式自动退出 */
+  /* 消息区点击：选取模式自动退出（多选模式不退出——勾选由气泡点按负责） */
   onListTap() {
+    if (this.data.multiMode) return;
     if (this.data.selectMsgId) this.setData({ selectMsgId: '' });
   },
 
@@ -856,6 +874,10 @@ Page({
     } else if (k === 'emoji') {
       // v1.2 表情反应：打开 emoji 选择弹层
       this._openEmojiFor(msgId);
+    } else if (k === 'multi') {
+      // v1.3 多选：进入勾选模式（批量收藏 / 分享）
+      this._enterMulti();
+      return;   // 已由 _enterMulti 关闭菜单
     } else if (k === 'speak') {
       this._playWithTts(msgId, msg.content || '', true);
     } else if (k === 'feedback') {
@@ -898,6 +920,96 @@ Page({
     this._toggleFbCore(msgId, k);
   },
 
+  /* ═══ v1.3 多选收藏 / 分享（长按菜单「多选」→ 勾选模式 → 批量收藏 / 分享页） ═══ */
+
+  /* 进入勾选模式：顶部出现操作条（已选 N 条/全选/收藏/分享/取消），气泡左上角出勾选框 */
+  _enterMulti() {
+    this.setData({
+      multiMode: true,
+      multiSel: {},
+      multiCount: 0,
+      multiAll: false,
+      selectMsgId: '',
+      actionMenu: { show: false, msgId: '', role: '' },
+    });
+  },
+
+  exitMulti() {
+    if (!this.data.multiMode) return;
+    this.setData({ multiMode: false, multiSel: {}, multiCount: 0, multiAll: false });
+  },
+
+  /* 勾选/取消一条消息 */
+  _toggleMulti(id) {
+    const sel = Object.assign({}, this.data.multiSel);
+    if (sel[id]) delete sel[id]; else sel[id] = true;
+    const count = Object.keys(sel).length;
+    this.setData({
+      multiSel: sel,
+      multiCount: count,
+      multiAll: count > 0 && count === (this.data.messages || []).length,
+    });
+  },
+
+  multiSelectAll() {
+    const sel = {};
+    if (!this.data.multiAll) {
+      (this.data.messages || []).forEach((m) => { sel[m.id] = true; });
+    }
+    const count = Object.keys(sel).length;
+    this.setData({ multiSel: sel, multiCount: count, multiAll: count > 0 });
+  },
+
+  /* 批量收藏：选中的 AI 回复置 kept=true（复用单条收藏标记：patchMessage 落盘，
+     favorites 页读 ylm_chat_messages/归档的 kept）；用户消息不可收藏 */
+  multiFav() {
+    const sel = this.data.multiSel;
+    if (!Object.keys(sel).length) {
+      wx.showToast({ title: '先勾选几条再收藏', icon: 'none' });
+      return;
+    }
+    const aiIds = (this.data.messages || [])
+      .filter((m) => m.role === 'ai' && sel[m.id])
+      .map((m) => m.id);
+    if (!aiIds.length) {
+      wx.showToast({ title: '只能收藏明灯的回复', icon: 'none' });
+      return;
+    }
+    aiIds.forEach((id) => {
+      const msg = this._findMessage(id);
+      if (msg && !msg.kept) {
+        streamHost.patchMessage(id, { kept: true, keptAt: Date.now() });
+      }
+    });
+    this.exitMulti();
+    wx.showToast({ title: `已收藏 ${aiIds.length} 条 · 我的页可查看`, icon: 'none' });
+  },
+
+  /* 批量分享：选中 2-6 条 → 写入 ylm_share_msgs → 分享页（墨韵分享卡 + 出图） */
+  multiShare() {
+    const sel = this.data.multiSel;
+    const ids = Object.keys(sel);
+    if (ids.length < 2) {
+      wx.showToast({ title: '至少勾选 2 条', icon: 'none' });
+      return;
+    }
+    if (ids.length > 6) {
+      wx.showToast({ title: '最多勾选 6 条', icon: 'none' });
+      return;
+    }
+    const msgs = (this.data.messages || [])
+      .filter((m) => sel[m.id])
+      .map((m) => ({ id: m.id, role: m.role, tag: m.tag || '', content: String(m.content || ''), time: m.time || '' }));
+    try {
+      wx.setStorageSync('ylm_share_msgs', msgs);
+    } catch (e) {
+      wx.showToast({ title: '分享准备失败，请重试', icon: 'none' });
+      return;
+    }
+    this.exitMulti();
+    wx.navigateTo({ url: '/pages/share/share' });
+  },
+
   /* 意见反馈原因 → 本地留档 + 后端上报（有咨询 ID 时 negative + 备注） */
   submitFeedbackReason(e) {
     const reason = e.currentTarget.dataset.reason;
@@ -920,6 +1032,7 @@ Page({
 
   /* 打开 emoji 选择弹层（气泡尾部 ＋ 或 长按菜单「表情反应」） */
   openEmojiSheet(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const msgId = e.currentTarget.dataset.id;
     if (msgId) this._openEmojiFor(msgId);
   },
@@ -953,6 +1066,7 @@ Page({
 
   /* 点气泡角已显示的表情 → 移除 */
   removeReaction(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const { id, em } = e.currentTarget.dataset;
     if (!id || !em) return;
     this._toggleReaction(id, em);
@@ -989,6 +1103,7 @@ Page({
   /* ═══ v1.2 建议卡片：点击推荐追问 → 直接发送（生成中自动排队） ═══ */
 
   sendSuggestion(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const text = (e.currentTarget.dataset.text || '').trim();
     if (!text) return;
     this._send(text);
@@ -997,6 +1112,7 @@ Page({
   /* ═══ Task 8 对话内引导卡跳转：识别到的 /pages/ 路径 → 跳转（hehun 页 onLoad 自动回填我方） ═══ */
 
   onNavBtnTap(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const url = (e.currentTarget.dataset.url || '').trim();
     if (!url) {
       wx.showToast({ title: '页面暂不可用', icon: 'none' });
@@ -1008,6 +1124,7 @@ Page({
   /* ═══ v1.2 代码块一键复制（墨韵代码块头部「复制」钮） ═══ */
 
   copyCode(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const code = e.currentTarget.dataset.code;
     if (!code) return;
     wx.setClipboardData({ data: code }); // 系统自带「内容已复制」toast
@@ -1040,6 +1157,7 @@ Page({
 
   /* 原型 toggleFb：反馈点亮（up/down 有咨询 ID 时上报后端；keep → 持久化收藏 kept） */
   toggleFb(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应（点气泡=勾选）
     const { id, k } = e.currentTarget.dataset;
     if (k === 'keep') {
       const msg = this._findMessage(id);
@@ -1080,6 +1198,7 @@ Page({
      真机反馈修复：确认后必须清空回 SEED 并归档；任何异常不静默失败——
      归档失败不阻断重置，并给明确提示。 */
   startNewChat() {
+    this.exitMulti();   // v1.3：多选模式中新开 → 先退出勾选态
     wx.showModal({
       title: '新开对话',
       content: '当前对话将保存到历史，重新开始一段新的夜话？',
@@ -1140,6 +1259,7 @@ Page({
 
   /* 清空对话（长按页头细行）：直接清空不归档（与新开对话区分） */
   clearChat() {
+    this.exitMulti();   // v1.3 多选：清空前先退出勾选态
     wx.showModal({
       title: '清空对话',
       content: '确定清空所有聊天记录吗？',
@@ -1425,6 +1545,7 @@ Page({
 
   /* 点朗读：合成并播放该消息语音；再次点击停止 */
   speakMessage(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const id = e.currentTarget.dataset.id;
     const msg = this._findMessage(id);
     if (!msg || !this._audioCtx) return;

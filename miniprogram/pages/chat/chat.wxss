@@ -106,6 +106,82 @@
   height: 2rpx;                          /* 1px */
   background: var(--line);
 }
+/* 多选模式：隐藏页头细行（被操作条取代） */
+.chat-head.hide { opacity: 0; pointer-events: none; }
+
+/* ═══ v1.3 多选操作条（长按菜单「多选」进入：已选 N 条/全选/收藏/分享/取消） ═══ */
+.multi-bar {
+  position: absolute;
+  top: calc(190rpx + var(--nav-off));   /* 位于 navrow(90+92rpx) 之下、消息区之上 */
+  left: 0; right: 0;
+  height: 86rpx;
+  z-index: 38;
+  display: flex;
+  align-items: center;
+  padding: 0 24rpx;
+  gap: 12rpx;
+  background: var(--paper);
+  border-bottom: 2rpx solid var(--line-strong);
+  box-shadow: 0 6rpx 18rpx var(--shadow-sm);
+  box-sizing: border-box;
+}
+.mb-count {
+  flex: 1;
+  font-family: var(--font-song);
+  font-size: 24rpx;
+  letter-spacing: .1em;
+  color: var(--acc);
+  font-weight: 600;
+}
+.mb-btn {
+  flex-shrink: 0;
+  padding: 10rpx 22rpx;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .12em;
+  color: var(--ink-mid);
+  border: 2rpx solid var(--line-med);
+  border-radius: 8rpx;
+  background: var(--paper-card);
+}
+.mb-btn-acc { color: var(--acc); border-color: var(--acc-line); }
+.mb-btn-cancel { color: var(--ink-faint); border-color: transparent; background: transparent; }
+.mb-btn-active { background: var(--acc-soft); }
+
+/* 多选模式：消息区下移避让操作条（215 → 286：让出 86rpx 条高 + 8rpx 间距） */
+.msg-list.multi-on { top: calc(286rpx + var(--nav-off)); }
+
+/* 多选勾选框（气泡左上角圆形，勾选=朱砂实心 ✓）
+   left:-32rpx：消息区内边距 35rpx，勾选框仍完整在滚动容器内（overflow-x 不裁剪） */
+.msg-check {
+  position: absolute;
+  left: -32rpx;
+  top: 20rpx;
+  width: 42rpx;
+  height: 42rpx;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 3rpx solid var(--acc);
+  background: var(--paper);
+  box-sizing: border-box;
+  box-shadow: 0 2rpx 8rpx var(--shadow-sm);
+}
+.msg-check.on { background: var(--acc); }
+.mc-mark {
+  font-family: var(--font-lat);
+  font-size: 25rpx;
+  line-height: 1;
+  color: #FBF6E8;
+  font-weight: 700;
+}
+/* 勾选中的气泡：朱砂描边（与选取模式同族样式） */
+.jianzhu.multi-on, .user-note.multi-on {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 5rpx var(--acc-soft);
+}
 
 /* ── 对话建档提示条（暖金；AI 回复含建档 key 时浮于消息区顶部） ── */
 .dlg-banner {
@@ -304,9 +380,10 @@
 .cd-list {
   flex: 1;
   min-height: 0;
-  padding: 6rpx 36rpx 42rpx;
-  box-sizing: border-box;
+  /* Task6 滚动条修复：padding 移至 .cd-list-inner（scroll-view 自身不留内边距，
+     滚动条贴最右侧、与内容不错位） */
 }
+.cd-list-inner { padding: 6rpx 36rpx 42rpx; }
 .cd-item {
   margin-top: 22rpx;
   padding: 22rpx 24rpx;
@@ -488,14 +565,16 @@
   justify-content: center;
   border-radius: 10rpx;                  /* 5px */
 }
-.jz-fb-btn image { width: 33rpx; height: 33rpx; }  /* 17px */
-.jz-fb-btn.keep image { width: 31rpx; height: 31rpx; }  /* 16px */
+.jz-fb-btn image { width: 38rpx; height: 38rpx; }  /* 17px → v1.3 调大（新图标 192px 更清晰） */
+.jz-fb-btn.keep image { width: 36rpx; height: 36rpx; }  /* 16px */
 .jz-fb-active { background: var(--acc-soft); }
 .jz-fb-btn.on { background: var(--acc-soft); }
 
 /* 我的便签（右，深宣纸底）
-   v1.1：排队中消息灰态 + 「排队中」小标；选取模式朱砂描边 */
+   v1.1：排队中消息灰态 + 「排队中」小标；选取模式朱砂描边
+   v1.3：position:relative 供多选勾选框锚点 */
 .user-note {
+  position: relative;
   max-width: 504rpx;                     /* 262px */
   align-self: flex-end;
   background: var(--paper-deep);
@@ -849,44 +928,53 @@
   letter-spacing: .14em;
   color: var(--ink-faint);
 }
+/* v1.3 操作菜单项改造（PM 反馈：图标不明显/看不懂）：
+   图标+文字并排（大众认知），图标调大、墨色图标+中墨文字（宣纸/墨/朱砂，无灰） */
 .act-grid {
   display: flex;
   flex-wrap: wrap;
 }
 .act-item {
-  width: 25%;
+  width: 33.333%;
   box-sizing: border-box;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;                   /* 图标+文字并排 */
   align-items: center;
-  gap: 9rpx;
-  padding: 20rpx 0 24rpx;
+  justify-content: center;
+  gap: 14rpx;
+  padding: 24rpx 6rpx;
   border-radius: 10rpx;
   background: transparent;               /* button 默认样式重置（分享项） */
   border: none;
   line-height: 1;
   margin: 0;
+  text-align: center;
+  font-size: inherit;
 }
 .act-item::after { border: none; }       /* button 伪边框移除（分享项） */
 .act-item-active { background: var(--acc-soft); }
-.act-ic { width: 44rpx; height: 44rpx; }
+.act-ic { width: 54rpx; height: 54rpx; flex-shrink: 0; }   /* 调大 */
 .act-glyph {
-  width: 44rpx; height: 44rpx;
+  width: 54rpx; height: 54rpx;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-song);
-  font-size: 24rpx;
-  color: var(--ink-mid);
+  font-size: 28rpx;
+  color: var(--ink);
   border: 2rpx solid var(--line-med);
   border-radius: 8rpx;
   box-sizing: border-box;
 }
+.act-glyph-multi { color: var(--acc); border-color: var(--acc-line); }   /* 多选：朱砂提示 */
+.act-glyph-emoji { font-size: 36rpx; border-color: transparent; }        /* emoji 字号加大、去框 */
 .act-label {
   font-family: var(--font-song);
-  font-size: 20rpx;                      /* 10.5px */
-  letter-spacing: .1em;
-  color: var(--ink-soft);
+  font-size: 23rpx;                      /* 调大 */
+  letter-spacing: .06em;
+  color: var(--ink-mid);
+  white-space: nowrap;
 }
 .act-del {
   margin-top: 20rpx;

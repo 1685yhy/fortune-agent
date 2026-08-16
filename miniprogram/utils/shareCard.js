@@ -869,6 +869,136 @@ function drawYuanCard(data, canvas, callback) {
   });
 }
 
+/**
+ * 绘制对话分享卡（墨韵版：宣纸底 · 墨字 · 朱砂印章「明灯」）
+ * 内容：选中的 2-6 条对话（用户问 + 明灯答成组排版）+ 品牌落款
+ * @param {Object} data - { pairs: [{u, tag, content}], dateText }
+ * @param {Object} canvas - canvas 2d 节点（宽 750，高度由本函数按内容设定）
+ * @param {Function} callback - (tempFilePath)
+ */
+function drawChatCard(data, canvas, callback) {
+  const ctx = canvas.getContext('2d');
+  const W = 750;
+  const INK = '#3A2C1E', PAPER = '#F5EFE1', CINNABAR = '#A93A2C';
+  const MUTED = '#6C5B45', LIGHT = '#9A8B71', FAINT = '#BBAE92', CARD = '#FBF7EC';
+  const pairs = ((data && data.pairs) || []).slice(0, 6);
+  const dateText = (data && data.dateText) || '';
+
+  /* 行数估算（高度预算与绘制共用同一换行口径） */
+  const lineCount = (text, maxWidth) => {
+    const s = String(text || '');
+    if (!s) return 0;
+    const chars = s.split('');
+    let line = '', n = 0;
+    for (const ch of chars) {
+      if (ch === '\n') { line = ''; n++; continue; }
+      const test = line + ch;
+      if (ctx.measureText(test).width > maxWidth && line !== '') { line = ch; n++; }
+      else line = test;
+    }
+    if (line) n++;
+    return n;
+  };
+
+  /* ── 高度预算：标题区 + 问答组 + 落款区（按绘制口径逐行估算，宁多勿少） ── */
+  ctx.font = '30px "Songti SC", "PingFang SC", serif';
+  let contentH = 0;
+  pairs.forEach((p) => {
+    let h = 70;                                   // 问行区
+    h += lineCount(p.u, W - 200) * 44;
+    h += 90;                                      // AI 块头（tag + 内距）
+    h += lineCount(p.content, W - 240) * 50;
+    h += 100;                                     // AI 块尾距 + 组间距
+    contentH += h;
+  });
+  const H = Math.max(1200, 300 + contentH + 300);
+  canvas.width = W;
+  canvas.height = H;
+
+  /* ── 1. 宣纸底 + 细框 + 顶线 ── */
+  ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(58,44,30,.45)'; ctx.lineWidth = 4;
+  ctx.strokeRect(28, 28, W - 56, H - 56);
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(28, 54); ctx.lineTo(W - 28, 54); ctx.stroke();
+  ctx.textAlign = 'center';
+
+  /* ── 2. 标题 + 日期 ── */
+  ctx.fillStyle = INK;
+  ctx.font = '600 46px "Songti SC", "PingFang SC", serif';
+  ctx.fillText('夜话拾笺', W / 2, 135);
+  ctx.fillStyle = MUTED;
+  ctx.font = '24px "Songti SC", "PingFang SC", serif';
+  ctx.fillText(dateText, W / 2, 188);
+
+  /* ── 3. 问答组（用户问 + 明灯答成组排版） ── */
+  let y = 248;
+  pairs.forEach((p) => {
+    /* 问行：朱砂「问」印 + 墨字（左对齐） */
+    const uLines = lineCount(p.u, W - 200);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = CINNABAR;
+    ctx.font = '22px "Songti SC", serif';
+    ctx.fillText('问', 100, y + 24);
+    ctx.fillStyle = MUTED;
+    ctx.font = '30px "Songti SC", "PingFang SC", serif';
+    if (uLines > 0) {
+      y = wrapText(ctx, String(p.u || ''), 150, y + 33, W - 200, 42); // 返回末行基线
+      y += 26;                                                        // 问行末 → AI 块顶
+    } else {
+      y += 58;
+    }
+    /* AI 块：纸白卡 + 朱砂左条 + 标签 + 楷体正文 */
+    const aLines = lineCount(p.content, W - 240);
+    const aH = 76 + aLines * 46 + 30;
+    roundRect(ctx, 90, y, W - 180, aH, 10);
+    ctx.fillStyle = CARD; ctx.fill();
+    ctx.strokeStyle = 'rgba(58,44,30,.14)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = CINNABAR;
+    ctx.fillRect(96, y + 30, 5, aH - 44);                             // 朱砂左条
+    ctx.fillStyle = MUTED;
+    ctx.font = '20px "Songti SC", serif';
+    ctx.fillText(String(p.tag || '明灯 · 夜话'), 124, y + 44);
+    ctx.fillStyle = INK;
+    ctx.font = '30px "Kaiti SC", "STKaiti", serif';
+    wrapText(ctx, String(p.content || ''), 124, y + 88, W - 240, 46);
+    y += aH + 66;                                                      // 下一组顶
+  });
+
+  /* ── 4. 落款：菱形分隔 + 朱砂印章「明灯」 + 品牌 ── */
+  ctx.save();
+  ctx.translate(W / 2, y + 30);
+  ctx.rotate(Math.PI / 4);
+  ctx.fillStyle = CINNABAR;
+  ctx.fillRect(-7, -7, 14, 14);
+  ctx.restore();
+  const sy = y + 80;
+  roundRect(ctx, W / 2 - 55, sy, 110, 110, 10);
+  ctx.fillStyle = CINNABAR; ctx.fill();
+  ctx.fillStyle = '#FBF6E8';
+  ctx.font = '46px "Kaiti SC", serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('明', W / 2, sy + 52);
+  ctx.fillText('灯', W / 2, sy + 96);
+  ctx.fillStyle = INK;
+  ctx.font = '600 34px "PingFang SC", sans-serif';
+  ctx.fillText('易理明灯', W / 2, sy + 195);
+  ctx.fillStyle = LIGHT;
+  ctx.font = '22px "PingFang SC", sans-serif';
+  ctx.fillText('三秒内，为你掌灯', W / 2, sy + 240);
+  ctx.fillStyle = FAINT;
+  ctx.font = '20px "PingFang SC", sans-serif';
+  ctx.fillText('签文只作心意，不作断言', W / 2, H - 42);
+
+  /* ── 5. 导出 2x PNG ── */
+  wx.canvasToTempFilePath({
+    canvas, width: W, height: H, destWidth: W * 2, destHeight: H * 2,
+    fileType: 'png', quality: 1,
+    success: (res) => { if (callback) callback(res.tempFilePath); },
+    fail: (err) => { console.error('[ShareCard] chat card error:', err); if (callback) callback(null); },
+  });
+}
+
 // ---- 辅助函数 ----
 
 function getScoreLevelText(level) {
@@ -1010,6 +1140,7 @@ module.exports = {
   drawReportCard,
   drawInkCard,
   drawYuanCard,
+  drawChatCard,
   saveCardToAlbum,
   shareCard,
 };

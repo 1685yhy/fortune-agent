@@ -1,0 +1,62 @@
+<view class="screen" style="--nav-off:{{navOff}}px">
+  <view class="navrow">
+    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
+      <image class="back-icon" src="/assets/images/ic-back.png"></image>
+    </view>
+    <view class="nav-title">
+      <text>分享笺</text>
+    </view>
+    <view class="nav-right"></view>
+  </view>
+
+  <!-- Canvas 2d 绘制分享卡（画布随内容高度动态，固定屏幕外） -->
+  <canvas type="2d" id="shareCanvas" class="share-canvas-off"></canvas>
+
+  <scroll-view scroll-y class="share-scroll">
+    <!-- 生成中 -->
+    <view wx:if="{{generating}}" class="sh-loading">
+      <view class="inkdot"></view>
+      <view class="inkdot"></view>
+      <view class="inkdot"></view>
+      <text class="sh-loading-txt">研墨绘笺中…</text>
+    </view>
+
+    <!-- 预览：生成的分享卡图片（等比缩放到屏宽） -->
+    <block wx:elif="{{imgPath}}">
+      <view class="sh-head">
+        <view class="sh-title">夜话拾笺</view>
+        <view class="sh-sub">{{dateText}} · 明灯摘选你与灯下的几段对话</view>
+      </view>
+      <image class="sh-card" src="{{imgPath}}" mode="widthFix" show-menu-by-longpress="{{true}}"></image>
+
+      <!-- 问答同构预览（文字版，随图确认内容） -->
+      <view class="sh-msgs">
+        <block wx:for="{{pairs}}" wx:key="index">
+          <view wx:if="{{item.u}}" class="sh-u"><text class="sh-q">问</text><text>{{item.u}}</text></view>
+          <view class="sh-a">
+            <text class="sh-tag">{{item.tag}}</text>
+            <text class="sh-ai">{{item.content}}</text>
+          </view>
+        </block>
+      </view>
+
+      <view class="sh-actions">
+        <view class="btn btn-acc btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onSave">
+          保存到相册
+        </view>
+        <view class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onShareImage">
+          分享图片
+        </view>
+        <button class="btn btn-ghost btn-wide" open-type="share">
+          转发小程序
+        </button>
+      </view>
+      <view class="sh-note">图片长按也可保存 · 分享图含品牌落款，无隐私信息</view>
+    </block>
+
+    <!-- 生成失败兜底 -->
+    <view wx:else class="sh-loading">
+      <text class="sh-loading-txt">生成失败，请返回重试</text>
+    </view>
+  </scroll-view>
+</view>

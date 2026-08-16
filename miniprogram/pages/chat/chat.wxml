@@ -31,7 +31,16 @@
     </view>
   </view>
 
-  <view class="chat-head" bindlongpress="clearChat">八月初六 · 夜</view>
+  <view class="chat-head {{multiMode ? 'hide' : ''}}" bindlongpress="clearChat">八月初六 · 夜</view>
+
+  <!-- v1.3 多选操作条（长按菜单「多选」进入）：已选 N 条 / 全选 / 收藏 / 分享 / 取消 -->
+  <view wx:if="{{multiMode}}" class="multi-bar">
+    <text class="mb-count">已选 {{multiCount}} 条</text>
+    <view class="mb-btn" hover-class="mb-btn-active" hover-stay-time="0" bindtap="multiSelectAll">{{multiAll ? '取消全选' : '全选'}}</view>
+    <view class="mb-btn mb-btn-acc" hover-class="mb-btn-active" hover-stay-time="0" bindtap="multiFav">收藏</view>
+    <view class="mb-btn mb-btn-acc" hover-class="mb-btn-active" hover-stay-time="0" bindtap="multiShare">分享</view>
+    <view class="mb-btn mb-btn-cancel" hover-class="mb-btn-active" hover-stay-time="0" bindtap="exitMulti">取消</view>
+  </view>
 
   <!-- ═══ Task 8 · 深夜模式卡片（方案·灯下漫谈） ═══ -->
   <!-- 深夜标识：灯笼 + 倾诉临时提示（今夜不落记忆） -->
@@ -82,11 +91,15 @@
   </view>
 
   <!-- Task 5 滚动不拽回：bindscroll 记录用户滚动位置，上滑查看历史时流式自动滚不再拽回 -->
-  <scroll-view scroll-y class="msg-list" scroll-into-view="{{scrollInto}}" scroll-with-animation bindscroll="onScroll">
+  <scroll-view scroll-y class="msg-list {{multiMode ? 'multi-on' : ''}}" scroll-into-view="{{scrollInto}}" scroll-with-animation bindscroll="onScroll">
     <view class="msg-inner">
       <block wx:for="{{messages}}" wx:key="id">
-        <view wx:if="{{item.role === 'ai'}}" class="jianzhu {{selectMsgId === item.id ? 'select-mode' : ''}}"
-          bindlongpress="onBubbleLongPress" data-id="{{item.id}}" data-role="ai">
+        <view wx:if="{{item.role === 'ai'}}" class="jianzhu {{selectMsgId === item.id ? 'select-mode' : ''}} {{multiMode && multiSel[item.id] ? 'multi-on' : ''}}"
+          bindlongpress="onBubbleLongPress" bindtap="onMsgTap" data-id="{{item.id}}" data-role="ai">
+          <!-- v1.3 多选勾选框（气泡左上角圆形，点按勾选/取消） -->
+          <view wx:if="{{multiMode}}" class="msg-check {{multiSel[item.id] ? 'on' : ''}}" data-id="{{item.id}}" catchtap="onMsgTap">
+            <text wx:if="{{multiSel[item.id]}}" class="mc-mark">✓</text>
+          </view>
           <view class="jz-tag">{{item.tag}}</view>
           <!-- Task 3 思考步骤渐进展示（模式二·元宝式小字，单步渐进点亮）：
                流式中只渲染当前 doing 步（呼吸动画），已完成折叠为「已完成 N 步」计数行；
@@ -180,8 +193,12 @@
           </view>
         </view>
         <!-- v1.1 排队消息立即上屏：pending 灰态 + 「排队中」小标 -->
-        <view wx:else class="user-note {{item.pending ? 'pending' : ''}} {{selectMsgId === item.id ? 'select-mode' : ''}}"
-          bindlongpress="onBubbleLongPress" data-id="{{item.id}}" data-role="user">
+        <view wx:else class="user-note {{item.pending ? 'pending' : ''}} {{selectMsgId === item.id ? 'select-mode' : ''}} {{multiMode && multiSel[item.id] ? 'multi-on' : ''}}"
+          bindlongpress="onBubbleLongPress" bindtap="onMsgTap" data-id="{{item.id}}" data-role="user">
+          <!-- v1.3 多选勾选框（气泡左上角圆形，点按勾选/取消） -->
+          <view wx:if="{{multiMode}}" class="msg-check {{multiSel[item.id] ? 'on' : ''}}" data-id="{{item.id}}" catchtap="onMsgTap">
+            <text wx:if="{{multiSel[item.id]}}" class="mc-mark">✓</text>
+          </view>
           <!-- v1.2 图片消息预留：msg.image → 圆角墨框图片 -->
           <image wx:if="{{item.image && item.image.url}}" class="msg-img"
             src="{{item.image.url}}" mode="widthFix"
@@ -290,14 +307,17 @@
       <text class="cd-full" hover-class="cd-full-active" hover-stay-time="0" bindtap="toggleCiteFull">{{citeDrawer.full ? '收起' : '上滑全屏'}}</text>
     </view>
     <scroll-view scroll-y class="cd-list">
-      <view class="cd-item" hover-class="cd-item-active" hover-stay-time="0" wx:for="{{citeDrawer.items}}" wx:key="index" data-i="{{index}}" bindtap="onCiteItemTap">
-        <view class="cd-row">
-          <text class="cd-type {{item.type}}">{{citeTypeLabel(item.type)}}</text>
-          <text class="cd-it-title">{{item.title}}</text>
+      <!-- Task6 滚动条修复：内边距移至内部容器（scroll-view 自身不设 padding，滚动条贴最右侧） -->
+      <view class="cd-list-inner">
+        <view class="cd-item" hover-class="cd-item-active" hover-stay-time="0" wx:for="{{citeDrawer.items}}" wx:key="index" data-i="{{index}}" bindtap="onCiteItemTap">
+          <view class="cd-row">
+            <text class="cd-type {{item.type}}">{{citeTypeLabel(item.type)}}</text>
+            <text class="cd-it-title">{{item.title}}</text>
+          </view>
+          <view class="cd-it-sum">{{item.text}}</view>
         </view>
-        <view class="cd-it-sum">{{item.text}}</view>
+        <view wx:if="{{!citeDrawer.items.length}}" class="cd-empty">本条回复暂无参考资料</view>
       </view>
-      <view wx:if="{{!citeDrawer.items.length}}" class="cd-empty">本条回复暂无参考资料</view>
     </scroll-view>
   </view>
 
@@ -321,7 +341,7 @@
         <text class="act-label">收藏</text>
       </view>
       <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="emoji" bindtap="actItem">
-        <text class="act-glyph">😊</text>
+        <text class="act-glyph act-glyph-emoji">😊</text>
         <text class="act-label">表情反应</text>
       </view>
       <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="copy" bindtap="actItem">
@@ -331,6 +351,11 @@
       <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="select" bindtap="actItem">
         <text class="act-glyph">文</text>
         <text class="act-label">选取文字</text>
+      </view>
+      <!-- v1.3 多选：进入勾选模式 → 批量收藏 / 分享 -->
+      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="multi" bindtap="actItem">
+        <text class="act-glyph act-glyph-multi">选</text>
+        <text class="act-label">多选</text>
       </view>
       <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="speak" bindtap="actItem">
         <image class="act-ic" src="/assets/images/ic-speak.png"></image>
