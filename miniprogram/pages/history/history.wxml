@@ -13,52 +13,65 @@
     </view>
 
     <scroll-view scroll-y class="list-scroll" scroll-with-animation>
-      <view class="search-bar">
-        <view class="s-icon"></view>
-        <input class="search-input" value="{{q}}" bindinput="onSearchInput"
-          placeholder="搜索一句夜话…" placeholder-class="search-ph" confirm-type="search" />
-        <view wx:if="{{q}}" class="s-clear" hover-class="navrow-hover" hover-stay-time="0" bindtap="clearSearch">
-          <text class="s-clear-x">✕</text>
-        </view>
-      </view>
-
-      <!-- 空态 -->
-      <view wx:if="{{loaded && !groups.length}}" class="empty">
-        <view class="seal e-seal"><text class="seal-char">{{q ? '空' : '梦'}}</text></view>
-        <view class="e-title">{{q ? '没有找到相关的夜话' : '还没有对话'}}</view>
-        <view class="e-sub">{{q ? '换个字眼，再寻一寻' : '去和明灯聊一句 · 便有了记录'}}</view>
-      </view>
-
-      <!-- 日期分组 -->
-      <view wx:else>
-        <view wx:for="{{groups}}" wx:key="g" class="date-group">
-          <view class="date-label">
-            <view class="dl-dot"></view>
-            <text>{{item.g}}</text>
-            <text class="dl-count">{{item.items.length}} 段</text>
+      <!-- Task6 滚动条修复：内边距移至内部容器（scroll-view 自身无 padding，滚动条贴最右侧） -->
+      <view class="list-inner">
+        <!-- v1.3 我的收藏入口（墨韵：朱砂星 + 标题 + 副题，点按进收藏页） -->
+        <view class="fav-entry" hover-class="fav-entry-active" hover-stay-time="0" bindtap="goFavorites">
+          <image class="fe-ic" src="/assets/images/ic-keep-on.png"></image>
+          <view class="fe-mid">
+            <text class="fe-title">我的收藏</text>
+            <text class="fe-sub">收藏的明灯回复 · 都在这里</text>
           </view>
-          <view wx:for="{{item.items}}" wx:for-item="s" wx:key="id"
-            class="sess-row {{removing === s.id ? 'removing' : ''}}"
-            hover-class="sess-row-active" hover-stay-time="0"
-            data-id="{{s.id}}" bindtap="onRowTap">
-            <view class="sess-in">
-              <view class="sess-seal"><view class="seal seal-34"><text class="seal-char">{{s.seal}}</text></view></view>
-              <view class="sess-mid">
-                <view class="sess-sum"><text class="sq">「</text>{{s.summary}}</view>
-                <view class="sess-meta">
-                  <text>明灯 · {{s.time}}</text>
-                  <text class="sm-dot"></text>
-                  <text>{{s.count}} 条</text>
+          <text class="fe-arrow">›</text>
+        </view>
+
+        <view class="search-bar">
+          <view class="s-icon"></view>
+          <input class="search-input" value="{{q}}" bindinput="onSearchInput"
+            placeholder="搜索一句夜话…" placeholder-class="search-ph" confirm-type="search" />
+          <view wx:if="{{q}}" class="s-clear" hover-class="navrow-hover" hover-stay-time="0" bindtap="clearSearch">
+            <text class="s-clear-x">✕</text>
+          </view>
+        </view>
+
+        <!-- 空态 -->
+        <view wx:if="{{loaded && !groups.length}}" class="empty">
+          <view class="seal e-seal"><text class="seal-char">{{q ? '空' : '梦'}}</text></view>
+          <view class="e-title">{{q ? '没有找到相关的夜话' : '还没有对话'}}</view>
+          <view class="e-sub">{{q ? '换个字眼，再寻一寻' : '去和明灯聊一句 · 便有了记录'}}</view>
+        </view>
+
+        <!-- 日期分组 -->
+        <view wx:else>
+          <view wx:for="{{groups}}" wx:key="g" class="date-group">
+            <view class="date-label">
+              <view class="dl-dot"></view>
+              <text>{{item.g}}</text>
+              <text class="dl-count">{{item.items.length}} 段</text>
+            </view>
+            <view wx:for="{{item.items}}" wx:for-item="s" wx:key="id"
+              class="sess-row {{removing === s.id ? 'removing' : ''}}"
+              hover-class="sess-row-active" hover-stay-time="0"
+              data-id="{{s.id}}" bindtap="onRowTap">
+              <view class="sess-in">
+                <view class="sess-seal"><view class="seal seal-34"><text class="seal-char">{{s.seal}}</text></view></view>
+                <view class="sess-mid">
+                  <view class="sess-sum"><text class="sq">「</text>{{s.summary}}</view>
+                  <view class="sess-meta">
+                    <text>明灯 · {{s.time}}</text>
+                    <text class="sm-dot"></text>
+                    <text>{{s.count}} 条</text>
+                  </view>
                 </view>
-              </view>
-              <view class="sess-del" hover-class="navrow-hover" hover-stay-time="0"
-                data-id="{{s.id}}" catchtap="askDel">
-                <image class="sess-del-ic" src="/assets/images/ic-kebab.png"></image>
+                <view class="sess-del" hover-class="navrow-hover" hover-stay-time="0"
+                  data-id="{{s.id}}" catchtap="askDel">
+                  <image class="sess-del-ic" src="/assets/images/ic-kebab.png"></image>
+                </view>
               </view>
             </view>
           </view>
+          <view class="hist-note">夜话存于本机 · 换设备不随行</view>
         </view>
-        <view class="hist-note">夜话存于本机 · 换设备不随行</view>
       </view>
     </scroll-view>
   </block>
@@ -79,30 +92,33 @@
     </view>
 
     <scroll-view scroll-y class="preview-scroll">
-      <view class="pv-head">{{current.lunar}} · 夜 · 共 {{current.count}} 条</view>
-      <view class="pv-msgs">
-        <block wx:for="{{current.msgs}}" wx:key="index">
-          <view wx:if="{{item.role === 'ai'}}" class="jianzhu">
-            <view class="jz-tag">{{item.tag}}</view>
-            <view class="jz-body">{{item.content}}</view>
-            <view class="jz-foot">
-              <text class="jz-time">明灯 · {{item.time}}</text>
-              <image class="jz-keep" src="/assets/images/ic-keep.png"></image>
+      <!-- Task6 滚动条修复：内边距移至内部容器（scroll-view 自身无 padding，滚动条贴最右侧） -->
+      <view class="pv-inner">
+        <view class="pv-head">{{current.lunar}} · 夜 · 共 {{current.count}} 条</view>
+        <view class="pv-msgs">
+          <block wx:for="{{current.msgs}}" wx:key="index">
+            <view wx:if="{{item.role === 'ai'}}" class="jianzhu">
+              <view class="jz-tag">{{item.tag}}</view>
+              <view class="jz-body">{{item.content}}</view>
+              <view class="jz-foot">
+                <text class="jz-time">明灯 · {{item.time}}</text>
+                <image class="jz-keep" src="/assets/images/ic-keep.png"></image>
+              </view>
             </view>
-          </view>
-          <view wx:else class="user-note">
-            <text>{{item.content}}</text>
-            <text class="u-time">我 · {{item.time}}</text>
-          </view>
-        </block>
-      </view>
-      <view wx:if="{{current.truncated}}" class="pv-dots">示 意 中 途</view>
-      <view class="pv-actions">
-        <view class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onContinue">
-          <image class="btn-send-ic" src="/assets/images/ic-send.png"></image>
-          <text>继续这段夜话</text>
+            <view wx:else class="user-note">
+              <text>{{item.content}}</text>
+              <text class="u-time">我 · {{item.time}}</text>
+            </view>
+          </block>
         </view>
-        <view class="pv-delete-link" hover-class="btn-active" hover-stay-time="0" bindtap="askDel" data-id="{{current.id}}">删除这段对话</view>
+        <view wx:if="{{current.truncated}}" class="pv-dots">示 意 中 途</view>
+        <view class="pv-actions">
+          <view class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onContinue">
+            <image class="btn-send-ic" src="/assets/images/ic-send.png"></image>
+            <text>继续这段夜话</text>
+          </view>
+          <view class="pv-delete-link" hover-class="btn-active" hover-stay-time="0" bindtap="askDel" data-id="{{current.id}}">删除这段对话</view>
+        </view>
       </view>
     </scroll-view>
   </block>

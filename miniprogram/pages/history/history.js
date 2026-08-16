@@ -94,6 +94,11 @@ Page({
     wx.navigateBack({ delta: 1, fail: () => wx.reLaunch({ url: '/pages/me/me' }) });
   },
 
+  /* v1.3 我的收藏入口（列表顶部卡片 → 收藏页） */
+  goFavorites() {
+    wx.navigateTo({ url: '/pages/favorites/favorites' });
+  },
+
   /* ═══ 数据装配：归档（新开对话产生）+ 当前会话（含真实对话但未归档） ═══ */
 
   _load() {

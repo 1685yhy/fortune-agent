@@ -9,8 +9,48 @@
   left: 0; right: 0;
   bottom: 0;
   z-index: 25;
-  padding: 19rpx 38rpx 46rpx;           /* 10px 20px 24px */
   overflow-x: hidden;
+  /* Task6 滚动条修复：原 padding 移至 .list-inner——scroll-view 自身不留内边距，
+     滚动条贴最右侧、与内容无错位 */
+}
+.list-inner { padding: 19rpx 38rpx 46rpx; }   /* 10px 20px 24px */
+
+/* ── v1.3 我的收藏入口（朱砂星 + 标题 + 副题，纸白卡） ── */
+.fav-entry {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 22rpx 26rpx;
+  margin-bottom: 27rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 10rpx;
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+}
+.fav-entry-active { background: var(--acc-soft); }
+.fe-ic { width: 44rpx; height: 44rpx; flex-shrink: 0; }
+.fe-mid { flex: 1; min-width: 0; }
+.fe-title {
+  display: block;
+  font-family: var(--font-song);
+  font-size: 27rpx;
+  font-weight: 600;
+  letter-spacing: .16em;
+  color: var(--ink);
+}
+.fe-sub {
+  display: block;
+  margin-top: 4rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+}
+.fe-arrow {
+  flex-shrink: 0;
+  font-family: var(--font-lat);
+  font-size: 34rpx;
+  color: var(--acc);
 }
 
 /* ── 搜索框（墨韵：纸白底 + 淡墨线 + 朱砂聚焦） ── */
@@ -179,9 +219,10 @@
   left: 0; right: 0;
   bottom: 0;
   z-index: 25;
-  padding: 8rpx 35rpx 58rpx;            /* 4px 18px 30px */
   overflow-x: hidden;
+  /* Task6 滚动条修复：原 padding 移至 .pv-inner */
 }
+.pv-inner { padding: 8rpx 35rpx 58rpx; }   /* 4px 18px 30px */
 .pv-head {
   display: flex;
   align-items: center;
