@@ -105,7 +105,7 @@
           <view class="mp-name">{{item.name}}</view>
           <view class="mp-desc">{{item.description}}</view>
         </view>
-        <view class="mp-price">{{item.priceLabel}}</view>
+        <view class="mp-price"><text class="mp-num">{{item.priceNum}}</text><text class="mp-unit">{{item.priceUnit}}</text></view>
       </view>
       <view class="md-close" bindtap="closeMemberDialog">暂不开通</view>
     </view>

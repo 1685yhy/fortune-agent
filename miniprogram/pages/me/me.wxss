@@ -307,7 +307,15 @@
 .md-plan-active { background: var(--gold-soft); }
 .mp-ic { display: flex; align-items: center; justify-content: center; }
 .mp-seal { width: 62rpx; height: 62rpx; font-size: 36rpx; transform: rotate(-2deg); }
-.mp-info { flex: 1; display: flex; flex-direction: column; gap: 6rpx; }
+.mp-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;               /* 描述换行时信息列高度恒定（min-height），价格居中基线不浮动 */
+  gap: 6rpx;
+  min-height: 100rpx;                    /* 名称+两行描述上限高度：各卡价格在同一水平线 */
+}
 .mp-name {
   font-family: var(--font-song);
   font-weight: 700;
@@ -321,11 +329,29 @@
   letter-spacing: .06em;
   color: var(--ink-faint);
 }
+/* Task3 价格对齐：数字+单位分列（统一字重字号），整列右对齐，多卡价格同一水平线 */
 .mp-price {
+  flex-shrink: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 4rpx;
+  white-space: nowrap;
+  text-align: right;
+}
+.mp-num {
   font-family: var(--font-lat);
   font-weight: 700;
-  font-size: 30rpx;
+  font-size: 32rpx;
+  line-height: 1.2;
   color: var(--acc-deep);
+}
+.mp-unit {
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  line-height: 1.2;
+  letter-spacing: .04em;
+  color: var(--ink-faint);
 }
 .md-close {
   margin-top: 34rpx;

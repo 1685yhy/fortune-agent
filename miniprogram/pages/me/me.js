@@ -64,13 +64,18 @@ Page({
     const plans = ['first_month', 'monthly']
       .map((id) => payment.getProduct(id))
       .filter((p) => !!p)
-      .map((p) => ({
-        id: p.id,
-        name: p.name,
-        priceLabel: p.priceLabel,
-        description: p.description,
-        icon: p.icon,
-      }));
+      .map((p) => {
+        /* Task3 价格对齐：priceLabel 拆成数字+单位（¥38 /首月），wxml 分列渲染统一排版 */
+        const parts = String(p.priceLabel || '').split('/');
+        return {
+          id: p.id,
+          name: p.name,
+          priceNum: parts[0] || p.priceLabel,
+          priceUnit: parts[1] ? '/' + parts[1] : '',
+          description: p.description,
+          icon: p.icon,
+        };
+      });
     this.setData({ memberPlans: plans });
     theme.bindTheme(this, () => this._buildRows());
   },
