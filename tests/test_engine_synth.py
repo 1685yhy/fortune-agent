@@ -9,7 +9,7 @@
 import json
 from pathlib import Path
 
-from src.engine.deduction import DeductionChain, DeductionStep
+from src.engine.deduction import DeductionChain, DeductionStep, deduce
 from src.engine.synth import SystemResult, SynthResult, extract_facts, synthesize
 
 DIVERGE_NOTE = "两说并存，各带出处，由用户结合实际情况权衡"
@@ -193,3 +193,136 @@ def test_extract_facts_ziwei_points_and_wuxing():
     }]
     # 排盘步骤作为普通事实要点保留（key 为空串，不参与比较）
     assert any(f["key"] == "" and "五行局水二局" in f["text"] for f in facts)
+
+
+# ---------- Task 3：合成考卷（synth_cases.jsonl） ----------
+
+CASES_PATH = Path(__file__).parent.parent / "src" / "engine" / "cases" / "synth_cases.jsonl"
+
+
+def _load_synth_cases():
+    cases = []
+    for line in CASES_PATH.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if line:
+            cases.append(json.loads(line))
+    return cases
+
+
+def _case_results(case):
+    """按考卷 systems 构建 SystemResult（字典序即参与顺序）。"""
+    results = []
+    for sys_name, steps in case["systems"].items():
+        chain = DeductionChain(input={}, pills=list(PILLS))
+        for i, st in enumerate(steps, 1):
+            chain.append(DeductionStep(i, st["rule"], st.get("fact", ""),
+                                       st["output"], st.get("source", ""), ""))
+        results.append(SystemResult(system=sys_name, chain=chain))
+    return results
+
+
+def _synth_shape(synth):
+    """合成结果的可断言形态（与考卷 expected 逐项对应）。"""
+    return {
+        "consensus": [(c["point"], c["systems"]) for c in synth.consensus],
+        "divergences": [
+            (d["topic"], [(v["system"], v["view"]) for v in d["views"]], d["note"])
+            for d in synth.divergences],
+        "unresolved": list(synth.unresolved),
+    }
+
+
+def test_synth_cases_all_pass():
+    """合成考卷 ≥8 条全过：expected 三分类与 synthesize 输出逐项一致。"""
+    cases = _load_synth_cases()
+    assert len(cases) >= 8, f"合成考卷必须 ≥8 条，当前 {len(cases)}"
+    for case in cases:
+        exp = case["expected"]
+        expected_shape = {
+            "consensus": [(c["point"], c["systems"]) for c in exp["consensus"]],
+            "divergences": [
+                (d["topic"], [(v["system"], v["view"]) for v in d["views"]], d["note"])
+                for d in exp["divergences"]],
+            "unresolved": list(exp["unresolved"]),
+        }
+        synth = synthesize(_case_results(case))
+        assert _synth_shape(synth) == expected_shape, f"{case['id']} 三分类与考卷不符"
+
+
+def test_synth_cases_types_cover_three_categories():
+    """考卷类型覆盖：共识≥3 / 分歧≥3 / 不可比较≥2。"""
+    types = [c["type"] for c in _load_synth_cases()]
+    assert sum(t.startswith("共识") for t in types) >= 3
+    assert sum(t.startswith("分歧") for t in types) >= 3
+    assert sum(t.startswith("不可比较") for t in types) >= 2
+
+
+# ---------- Task 3：e2e 真实体系链合成 ----------
+
+def _pills_of(year, month, day, hour):
+    from lunar_python import Solar
+    bazi = Solar.fromYmdHms(year, month, day, hour, 0, 0).getLunar().getEightChar()
+    return [bazi.getYear(), bazi.getMonth(), bazi.getDay(), bazi.getTime()]
+
+
+def test_e2e_real_chains_synthesize():
+    """真实体系链合成（1990-05-20 16:30 北京 女）：
+    bazi(用神水)+ziwei(水二局) 共识水；liuyao(世爻申金) 分歧金；
+    qimen 未提供排盘结果（空链）→ 不可比较。三分类非空且无硬造共识。"""
+    from src.engines.bazi import BaziEngine
+    from src.engines.liuyao import LiuyaoEngine
+    from src.engines.ziwei import ZiweiEngine
+
+    pills = _pills_of(1990, 5, 20, 16)
+    bz = BaziEngine().calculate(1990, 5, 20, 16, 30, "北京", "女")
+    chain_bazi = deduce(bz.bazi, engine_result=bz, question="", system="bazi")
+    zw = ZiweiEngine().calculate(1990, 5, 20, 16, 30, "北京", "女")
+    chain_ziwei = deduce(pills, engine_result=zw, question="", system="ziwei")
+    ly = LiuyaoEngine().cast(method="random", question="财运如何", seed=42)
+    chain_liuyao = deduce(pills, engine_result=ly, question="财运如何", system="liuyao")
+    chain_qimen_empty = deduce(pills, engine_result=None, question="", system="qimen")
+
+    synth = synthesize([
+        SystemResult(system="bazi", chain=chain_bazi),
+        SystemResult(system="ziwei", chain=chain_ziwei),
+        SystemResult(system="liuyao", chain=chain_liuyao),
+        SystemResult(system="qimen", chain=chain_qimen_empty),
+    ])
+    assert synth.consensus, "真实链必须产生共识（八字用神水 vs 紫微水二局）"
+    assert synth.divergences, "真实链必须产生分歧（水 vs 六爻世爻金）"
+    assert synth.unresolved, "空链成员必须产生不可比较说明"
+
+    # 钉死真实共识：五行一致：水，参与 bazi+ziwei
+    c0 = next(c for c in synth.consensus if c["point"] == "五行一致：水")
+    assert c0["systems"] == ["bazi", "ziwei"]
+    # 无硬造共识：每个共识的证据必须来自真实链步骤且参与体系 ≥2
+    for c in synth.consensus:
+        assert len(c["systems"]) >= 2
+        assert all(ev["text"] for ev in c["evidence"])
+        assert all(ev["source"] for ev in c["evidence"])
+    # 分歧如实：五行不同（水 vs 金）
+    assert any("五行不同" in d["topic"] for d in synth.divergences)
+    # 不可比较如实：qimen 空链与各体系均无公共维度
+    assert any("qimen:无事实要点" in u for u in synth.unresolved)
+
+
+def test_e2e_real_pair_ziwei_qimen_same_birth():
+    """真实体系对（同一生日 1990-05-20 16:30）：紫微水二局 vs 奇门值符天英(火) → 五行分歧。
+
+    两体系仅有五行公共键且断言不同 → 分歧；无共识、无不可比较（如实，不硬造）。"""
+    from src.engines.qimen import QimenEngine
+    from src.engines.ziwei import ZiweiEngine
+
+    pills = _pills_of(1990, 5, 20, 16)
+    zw = ZiweiEngine().calculate(1990, 5, 20, 16, 30, "北京", "女")
+    qm = QimenEngine().calculate(1990, 5, 20, 16, 30)
+    chain_zw = deduce(pills, engine_result=zw, question="", system="ziwei")
+    chain_qm = deduce(pills, engine_result=qm, question="", system="qimen")
+
+    synth = synthesize([
+        SystemResult(system="ziwei", chain=chain_zw),
+        SystemResult(system="qimen", chain=chain_qm),
+    ])
+    assert synth.consensus == []
+    assert [d["topic"] for d in synth.divergences] == ["五行不同：水、火"]
+    assert synth.unresolved == []
