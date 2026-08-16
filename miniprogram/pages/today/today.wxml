@@ -1,7 +1,5 @@
-<view class="screen today-wrap" style="--nav-off:{{navOff}}px">
-  <view class="today-frame"></view>
-  <view class="today-brand">易理明灯</view>
-  <!-- 流日行（原型可点 → 今日详解页） -->
+<view class="screen today-wrap">
+  <!-- 日期副题行（弱化小字，可点 → 今日详解页） -->
   <view class="today-date" hover-class="today-date-active" hover-stay-time="0" bindtap="goTodayDetail">
     <text>{{dateText}}</text>
     <view class="zd"></view>
@@ -9,38 +7,56 @@
   </view>
 
   <view class="today-col">
+    <!-- 标题区（原型 hero：小灯笼 + 诗行 + 宜忌 chips） -->
+    <view class="today-hero">
+      <view class="lantern-box">
+        <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
+        <image class="lantern-glow lantern-glow-delay" src="/assets/images/lantern-glow2.png"></image>
+        <image class="lantern-body" src="/assets/images/lantern.jpg"></image>
+      </view>
+      <view class="poem-block">
+        <view class="poem-line">{{poemLines[0]}}<text class="jk">·</text></view>
+        <view class="poem-line">{{poemLines[1]}}</view>
+      </view>
+      <!-- 宜忌区（原型可点 → 今日详解页） -->
+      <view class="yi-chips" hover-class="yi-chips-active" hover-stay-time="0" bindtap="goTodayDetail">
+        <view class="inktag yi-chip" wx:for="{{yiChips}}" wx:key="*this">{{item}}</view>
+      </view>
+    </view>
+
     <!-- 深夜入口横幅(21:00 后出现,白天不出现) -->
     <view wx:if="{{night.mode}}" class="night-banner lamp-fade" hover-class="night-banner-active" hover-stay-time="0" bindtap="onNightEntry">
       <view class="nb-lantern"><text class="nb-lantern-char">灯</text></view>
       <view class="nb-mid">
-        <view class="nb-title">灯下漫谈 · 夜深了,灯还亮着</view>
-        <view class="nb-sub">今夜说的话,天亮就忘。进来坐坐。</view>
+        <view class="nb-title">夜深了 · 灯还亮着</view>
+        <view class="nb-sub">21:00-01:00 · 枕边灯语 &amp; 倾诉 · 今夜说的话，天亮就忘</view>
       </view>
-      <view class="nb-go">进去坐坐</view>
+      <view class="nb-go">灯下见</view>
     </view>
 
     <!-- 晨笺卡（已开启 + 数据就绪；接口失败/未开启均静默） -->
     <view class="jian-card" wx:if="{{jian.show}}">
       <view class="jian-head">
         <view class="seal jian-seal"><text class="seal-char">晨</text></view>
-        <view class="jian-title">{{jian.ganzhiDate}}</view>
+        <view class="jian-head-txt">
+          <view class="jian-title">今日晨笺</view>
+          <view class="jian-date">{{jian.ganzhiDate}}</view>
+        </view>
         <view class="jian-fav {{jian.saved ? 'jian-fav-on' : ''}}" hover-class="jian-fav-active" hover-stay-time="0" bindtap="onJianFav">{{jian.saved ? '已收藏' : '收藏'}}</view>
       </view>
 
-      <!-- 宜忌两行 -->
+      <!-- 宜忌两行（宜=朱砂胶囊 忌=淡墨虚线胶囊） -->
       <view class="jian-yi">
         <view class="jian-yi-row">
           <text class="jian-yi-label">宜</text>
           <view class="jian-yi-tags">
-            <view class="inktag jian-yi-chip" wx:for="{{jian.yi}}" wx:key="*this">{{item}}</view>
-            <view wx:if="{{!jian.yi.length}}" class="jian-yi-chip jian-yi-empty">无</view>
+            <view class="jian-yi-chip" wx:for="{{jian.yi}}" wx:key="*this">{{item}}</view>
           </view>
         </view>
         <view class="jian-yi-row">
           <text class="jian-yi-label jian-yi-label-ji">忌</text>
           <view class="jian-yi-tags">
-            <view class="inktag jian-yi-chip jian-yi-chip-ji" wx:for="{{jian.ji}}" wx:key="*this">{{item}}</view>
-            <view wx:if="{{!jian.ji.length}}" class="jian-yi-chip jian-yi-empty">无</view>
+            <view class="jian-yi-chip jian-yi-chip-ji" wx:for="{{jian.ji}}" wx:key="*this">{{item}}</view>
           </view>
         </view>
       </view>
@@ -65,41 +81,43 @@
 
       <!-- 今日小问 → 对话页 -->
       <view class="jian-question" hover-class="jian-question-active" hover-stay-time="0" bindtap="onQuestionTap">
-        <text class="jian-question-label">今日小问</text>
+        <view class="q-seal"><text class="q-seal-char">问</text></view>
         <text class="jian-question-text">{{jian.question}}</text>
         <image class="brush-arrow jian-question-arrow" src="/assets/images/brush-arrow.png"></image>
       </view>
+
+      <view class="jian-foot">明灯谨录 · 观命不执命</view>
     </view>
 
     <!-- 未开启晨笺：顶部入口 → 开启引导页 -->
     <view class="jian-open" wx:if="{{jian.notEnabled}}" hover-class="jian-open-active" hover-stay-time="0" bindtap="onOpenJian">
-      <text class="jian-open-text">开启每日晨笺 · 宜忌/金句/轻私语</text>
-      <text class="jian-open-cta">去开启</text>
+      <view class="seal jian-open-seal"><text class="seal-char">笺</text></view>
+      <view class="jian-open-mid">
+        <view class="jian-open-t">今日晨笺 · 未开启</view>
+        <view class="jian-open-s">每日 07:30 推送 · 干支宜忌与一句金句</view>
+      </view>
+      <view class="jian-open-cta">去开启</view>
     </view>
 
-    <!-- 流日四运卡（原型：事业/财运/感情/健康 4 行 + 分数；点开 → 今日详解页） -->
-    <view class="four-card" wx:if="{{fortune4.length}}" hover-class="four-card-active" hover-stay-time="0" bindtap="goTodayDetail">
-      <view class="four-head">
-        <text class="four-title">流日四运</text>
-        <view class="four-go">
-          <text class="four-go-text">详解</text>
-          <image class="brush-arrow four-arrow" src="/assets/images/brush-arrow.png"></image>
+    <!-- 今日流日（原型 day-flow：四运浅块 + 解释 + 逐条详解入口 + 时辰胶囊） -->
+    <view class="day-flow" hover-class="day-flow-active" hover-stay-time="0" bindtap="goTodayDetail">
+      <view class="df-head">
+        <text class="df-title">今日流日</text>
+        <text class="df-tag">点开详解 · 免费</text>
+      </view>
+      <view class="four-yun">
+        <view class="yun-block" wx:for="{{fortune4}}" wx:key="key">
+          <view class="yb-label">{{item.label}}</view>
+          <view class="yb-num">{{item.scoreText}}</view>
         </view>
       </view>
-      <view class="four-row" wx:for="{{fortune4}}" wx:key="key">
-        <text class="four-label">{{item.label}}</text>
-        <view class="four-bar"><view class="four-bar-fill" style="width:{{item.percent}}%"></view></view>
-        <text class="four-score">{{item.scoreText}}</text>
+      <view class="df-line">{{fortune4[0].desc}}</view>
+      <view class="df-more">
+        <text>逐条详解 · 四运 · 宜忌 · 时辰</text>
+        <image class="brush-arrow df-arrow" src="/assets/images/brush-arrow.png"></image>
       </view>
-    </view>
-
-    <!-- 时辰择时行（原型：巳时/午时/申时 chips；点开 → 今日详解页） -->
-    <view class="shichen-row" wx:if="{{shichen.length}}" hover-class="shichen-row-active" hover-stay-time="0" bindtap="goTodayDetail">
-      <view class="shichen-head">
-        <text class="shichen-title">时辰择时</text>
-        <text class="shichen-go">详解</text>
-      </view>
-      <view class="shichen-chips">
+      <!-- 时辰择时 chips（原型：巳时 9-11 宜洽谈 式胶囊） -->
+      <view class="shichen-row">
         <view class="shichen-chip {{item.cur ? 'shichen-chip-cur' : ''}}" wx:for="{{shichen}}" wx:key="time">
           <text class="sc-time">{{item.time}}</text>
           <text class="sc-tag">{{item.tag}}</text>
@@ -107,29 +125,7 @@
       </view>
     </view>
 
-    <view class="cover-col">
-    <view class="poem-block">
-      <view class="lantern-box">
-        <image class="lantern-glow" src="/assets/images/lantern-glow1.png"></image>
-        <image class="lantern-glow lantern-glow-delay" src="/assets/images/lantern-glow2.png"></image>
-        <image class="lantern-body" src="/assets/images/lantern.jpg"></image>
-      </view>
-      <view class="poem-lines">
-        <view class="poem-line">{{poemLines[0]}}<text class="jk">·</text></view>
-        <view class="poem-line">{{poemLines[1]}}</view>
-      </view>
-      <view class="seal-attach">
-        <view class="seal seal-52"><text class="seal-char">明</text></view>
-      </view>
-      <!-- 宜忌区（原型可点 → 今日详解页） -->
-      <view class="yi-chips" hover-class="yi-chips-active" hover-stay-time="0" bindtap="goTodayDetail">
-        <view class="inktag yi-chip">{{yiChips[0]}}</view>
-        <view class="inktag yi-chip">{{yiChips[1]}}</view>
-        <text class="yi-chips-go">宜忌详解</text>
-      </view>
-      <view class="poem-note">签文只作心意，不作断言 · 明灯拟</view>
-    </view>
-
+    <!-- 想聊聊？+ 随手截屏（低调收尾） -->
     <view class="talk-col">
       <view class="talk-btn" hover-class="talk-btn-active" hover-stay-time="0" bindtap="goChat">
         <text>想聊聊？</text>
@@ -143,9 +139,8 @@
 
     <view class="today-foot">
       <view class="fg"></view>
-      <text>三秒内，为你掌灯</text>
+      <text>明灯谨录 · 观命不执命</text>
       <view class="fg"></view>
-    </view>
     </view>
   </view>
 
