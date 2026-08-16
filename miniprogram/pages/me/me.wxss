@@ -38,9 +38,19 @@
 .handscroll .hs-in {
   padding: 35rpx 58rpx 31rpx;            /* 18px 30px 16px */
   display: flex;
-  align-items: center;
-  gap: 20rpx;                            /* 14px→10px：四柱收窄后间隙同步收窄，信息区更宽裕 */
+  flex-direction: column;                /* 真机反馈：昵称被四柱挤断 → 首行头像+昵称+生日，四柱下移独占一行 */
+  align-items: stretch;
+  gap: 24rpx;                            /* 首行与四柱行间距 */
 }
+/* 首行（头像 + 信息区）：昵称独占整行宽度（min-width:0 允许收窄 + 省略号兜底） */
+.hs-top {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  width: 100%;
+}
+/* 头像/昵称区未登录引导点击态（低调墨晕，防无反馈） */
+.hs-tap-hover { background: rgba(169, 58, 44, .04); }
 .hs-id {
   width: 88rpx;                          /* 64px→46px：与印章同宽（含「命盘之印」小字约 82rpx），不再吃信息区空间 */
   display: flex;
@@ -86,7 +96,11 @@
   text-overflow: ellipsis;
 }
 
-/* ── 登录显式展示：头像（微信头像，印章圆框）/ 状态标签 / 登录·退出 ── */
+/* ── 登录态展示：头像（微信头像，印章圆框）──
+   真机反馈（去掉「微信登录」标签）：登录标签与体验用户标签均不再展示——
+   身份三态（微信登录/体验用户/未登录）由设置页「当前登录态」行承担，本页保留
+   头像+昵称+生日+四柱的纯粹手札观感（体验用户单独留标签与去掉微信登录标签
+   不一致，一并移除） */
 .seal-avatar {
   width: 88rpx;                          /* 与 seal-88 同尺寸，倾角呼应印章 */
   height: 88rpx;
@@ -100,32 +114,19 @@
   align-items: baseline;
   gap: 14rpx;
   max-width: 100%;
-  min-width: 0;                          /* 昵称+标签不挤爆：昵称 flex:1 省略号，标签保持完整 */
+  min-width: 0;                          /* 昵称独占一行：flex:1 完整展示，超长省略号兜底 */
 }
-.hs-tag {
-  font-family: var(--font-song);
-  font-size: 17rpx;                      /* 9px */
-  letter-spacing: .12em;
-  border-radius: 20rpx;
-  padding: 2rpx 12rpx;
-  transform: translateY(-5rpx);
-  flex-shrink: 0;                        /* 昵称省略时标签保持完整 */
-}
-.hs-tag-real {                           /* 微信登录：印章朱砂色 */
-  color: var(--acc-deep);
-  border: 2rpx solid var(--acc-soft);
-  background: rgba(169, 58, 44, .05);
-}
-.hs-tag-local {                          /* 体验用户：低调墨色 */
-  color: var(--ink-faint);
-  border: 2rpx solid var(--line);
-}
-.hs-spacer { flex-shrink: 0; }           /* 空间全让给信息区（.hs-info flex:1），不再吃自由空间 */
 
-/* 四柱竖排（年/月/日/时） */
-.hs-pillars { display: flex; }
+/* 四柱横排（年/月/日/时）：下移独占一行居中，不再挤压昵称（真机反馈修复） */
+.hs-pillars {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  border-top: 2rpx dashed var(--line-soft);   /* 墨韵虚线分隔四柱行 */
+  padding-top: 24rpx;
+}
 .hs-pillar {
-  width: 52rpx;                          /* 34px→27px：四柱总宽 260→208rpx，让出 ~50rpx 给信息区 */
+  width: 52rpx;                          /* 34px→27px：四柱总宽 260→208rpx */
   display: flex;
   flex-direction: column;
   align-items: center;

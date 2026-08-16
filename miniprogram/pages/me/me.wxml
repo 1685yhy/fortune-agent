@@ -18,21 +18,24 @@
         <view class="roll-left"></view>
         <view class="roll-right"></view>
         <view class="hs-in">
-          <view class="hs-id">
-            <image wx:if="{{avatarUrl}}" class="seal-avatar" src="{{avatarUrl}}" mode="aspectFill"></image>
-            <view wx:else class="seal seal-88"><text class="seal-char">明</text></view>
-            <view class="hs-sub">命盘之印</view>
-          </view>
-          <view class="hs-info">
-            <view class="hs-name-row">
-              <view class="hs-name">{{displayName}}</view>
-              <view class="hs-tag {{realLogin ? 'hs-tag-real' : 'hs-tag-local'}}" wx:if="{{loginTag}}">{{loginTag}}</view>
+          <!-- 第一行：头像 + 昵称（昵称独占一行完整展示，省略号兜底）+ 生日（真机反馈修复） -->
+          <view class="hs-top">
+            <view class="hs-id" hover-class="hs-tap-hover" hover-stay-time="0" bindtap="onProfileAreaTap">
+              <image wx:if="{{avatarUrl}}" class="seal-avatar" src="{{avatarUrl}}" mode="aspectFill"></image>
+              <view wx:else class="seal seal-88"><text class="seal-char">明</text></view>
+              <view class="hs-sub">命盘之印</view>
             </view>
-            <view class="hs-profile-edit" hover-class="hs-profile-edit-active" hover-stay-time="0" bindtap="openProfileDialog">{{nicknameSet ? '编辑' : '点击设置头像昵称'}}</view>
-            <view class="hs-sub">{{birthdayText}}</view>
-            <view class="hs-sub">{{lunarBirthday}}</view>
+            <view class="hs-info">
+              <view class="hs-name-row" hover-class="hs-tap-hover" hover-stay-time="0" bindtap="onProfileAreaTap">
+                <view class="hs-name">{{displayName}}</view>
+              </view>
+              <!-- 未登录：引导去设置页重新登录；已登录：保持原行为（打开资料弹层） -->
+              <view class="hs-profile-edit" hover-class="hs-profile-edit-active" hover-stay-time="0" bindtap="openProfileDialog">{{loggedOut ? '点击登录' : (nicknameSet ? '编辑' : '点击设置头像昵称')}}</view>
+              <view class="hs-sub">{{birthdayText}}</view>
+              <view class="hs-sub">{{lunarBirthday}}</view>
+            </view>
           </view>
-          <view class="hs-spacer"></view>
+          <!-- 第二行：四柱横排（下移独占一行，不再挤压昵称） -->
           <view class="hs-pillars">
             <view wx:for="{{pillars}}" wx:key="index" class="hs-pillar {{index > 0 ? 'pillar-line' : ''}}">
               <text class="p-label">{{item.l}}</text>

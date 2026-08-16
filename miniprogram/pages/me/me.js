@@ -47,10 +47,12 @@ Page({
     personCount: 0,             // 档案行 val：本地缓存命主数
     curTab: 'me',
     dark: false,
-    /* 登录态展示（v5.1）：头像/状态标签（登录/退出/注销已移入设置页） */
+    /* 登录态展示（v5.1）：头像/状态标签（登录/退出/注销已移入设置页）
+       真机反馈：退出后点击未登录区无反应 → loggedOut 未登录态点击引导去设置页重登 */
     avatarUrl: '',              // 微信头像（无则印章「明」兜底）
-    loginTag: '',               // 微信登录 / 体验用户（未登录不显示）
-    realLogin: false,           // 标签配色：真实微信登录（朱砂） vs 体验用户（低调墨色）
+    loginTag: '',               // 微信登录 / 体验用户（本页不再渲染，设置页当前登录态承担）
+    realLogin: false,           // 真实微信登录（资料弹层门槛）
+    loggedOut: false,           // 未登录：无 token 且非 local_user（退出后）
     /* 头像昵称采集（Task 2：chooseAvatar + nickname → 弹层保存，服务端落库） */
     nicknameSet: false,         // 已采集昵称（决定引导文案 / 编辑按钮）
     profileDialogVisible: false, // 头像昵称采集弹层开关
@@ -298,13 +300,14 @@ Page({
     const loggedOut = !token && !isLocal;
 
     if (loggedOut) {
-      this.setData({ displayName: '未登录', avatarUrl: '', loginTag: '', realLogin: false, nicknameSet: false });
+      this.setData({ loggedOut: true, displayName: '未登录', avatarUrl: '', loginTag: '', realLogin: false, nicknameSet: false });
       return;
     }
     if (token) {
       // 真实昵称/头像优先取已保存值（本地缓存；头像存相对路径，渲染时拼 baseURL）
       const cache = this._readProfileCache();
       this.setData({
+        loggedOut: false,
         realLogin: true,
         loginTag: '微信登录',
         nicknameSet: !!cache.nickname,
@@ -315,7 +318,7 @@ Page({
       return;
     }
     // 体验模式（local_user）：无后端身份，昵称仍走本地，不发请求
-    this.setData({ displayName: '小晚', avatarUrl: '', loginTag: '体验用户', realLogin: false, nicknameSet: false });
+    this.setData({ loggedOut: false, displayName: '小晚', avatarUrl: '', loginTag: '体验用户', realLogin: false, nicknameSet: false });
   },
 
   /* ═══ 后端资料联动（Task4：GET /api/user/profile 返回 nickname/avatar_url 后优先后端值，
@@ -352,8 +355,14 @@ Page({
     return { nickname, avatarUrl };
   },
 
-  /* ═══ 头像昵称采集弹层（Task 2：chooseAvatar + nickname 输入 → 上传头像 + 存昵称） ═══ */
+  /* ═══ 头像昵称采集弹层（Task 2：chooseAvatar + nickname 输入 → 上传头像 + 存昵称） ═══
+     真机反馈修复（退出后无法重新登录）：未登录（退出后）点击 → 跳设置页重新登录
+     （设置页有完整微信登录入口 onLoginTap → wechatLogin）；已登录保持原行为打开弹层 */
   openProfileDialog() {
+    if (this.data.loggedOut) {
+      wx.navigateTo({ url: '/pages/settings/settings' });
+      return;
+    }
     if (!this.data.realLogin) {
       wx.showToast({ title: '请先微信登录', icon: 'none' });
       return;
@@ -363,6 +372,18 @@ Page({
       draftNickname: this.data.nicknameSet ? this.data.displayName : '',
       draftAvatar: '',
     });
+  },
+
+  /* 头像/昵称区点击（未登录引导重新登录；体验用户提示去登录；已登录无操作——
+     资料编辑仍走 hs-profile-edit 行） */
+  onProfileAreaTap() {
+    if (this.data.loggedOut) {
+      wx.navigateTo({ url: '/pages/settings/settings' });
+      return;
+    }
+    if (!this.data.realLogin) {
+      wx.showToast({ title: '请先微信登录', icon: 'none' });
+    }
   },
 
   closeProfileDialog() {
