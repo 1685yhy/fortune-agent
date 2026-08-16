@@ -130,3 +130,12 @@
   margin-top: var(--space-lg);
   padding: 0 16rpx;
 }
+
+/* 隐藏的缘笺分享画布（off-screen，同 today 的 ink-card-canvas 写法） */
+.love-share-canvas {
+  position: fixed;
+  left: -9999rpx;
+  top: 0;
+  width: 750px;
+  height: 1200px;
+}

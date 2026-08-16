@@ -34,6 +34,10 @@
     <text class="love-score">{{result.score}}%</text>
     <text class="love-score-label">默契度</text>
     <text class="love-summary">{{result.summary}}</text>
-    <view class="btn-secondary mt-xl" bindtap="reset">重新合盘</view>
+    <view class="btn-primary mt-xl text-center" hover-class="btn-primary" bindtap="generateShareCard">{{generatingShare ? '生成中…' : '保存缘笺 · 分享'}}</view>
+    <view class="btn-secondary mt-md" bindtap="reset">重新合盘</view>
   </view>
+
+  <!-- 隐藏的缘笺分享画布（off-screen，同 today 的 ink-card-canvas 写法） -->
+  <canvas type="2d" id="shareCanvas" class="love-share-canvas"></canvas>
 </view>
