@@ -1270,10 +1270,19 @@ Page({
     });
   },
 
-  /* 重置对话 UI（新开/清空共用）：宿主重置 + 页内状态归零 */
+  /* 重置对话 UI（新开/清空共用）：宿主重置 + 页内状态归零。
+     修复「点新开报语音失败」：清理音频期间置 _audioSilent（onError 静默，不弹 toast）；
+     同时 _speakSeq++ 使进行中的 TTS 请求失效（其成功回调不再继续播放/失败不再弹「语音合成失败」）。
+     走查：startNewChat → _archiveCurrent → _resetChatUi 全链路无 toast 触发点（仅确认弹窗
+     与成功 toast「已新开一段夜话」）；_cleanupVoice 置 _dropResult 使识别 onError 也静默 */
   _resetChatUi() {
     this._cleanupVoice();
-    if (this._audioCtx) this._audioCtx.stop();
+    if (this._audioCtx) {
+      this._audioSilent = true;
+      this._audioCtx.stop();
+      setTimeout(() => { this._audioSilent = false; }, 300);
+    }
+    this._speakSeq = (this._speakSeq || 0) + 1;   // 使在途 TTS 请求失效（播新停旧语义）
     this._drawerRestore = null;
     this.setData({
       fb: {},
@@ -1534,11 +1543,15 @@ Page({
   _initAudio() {
     this._audioCtx = wx.createInnerAudioContext();
     this._ttsCache = {};
+    this._audioSilent = false;   // 清理/重置中：onError 不弹 toast（仅用户主动点播放时提示）
     this._audioCtx.onEnded(() => this.setData({ speakingId: '' }));
     this._audioCtx.onStop(() => this.setData({ speakingId: '' }));
     this._audioCtx.onError((err) => {
       console.warn('[Chat] 语音播放失败:', err);
       this.setData({ speakingId: '' });
+      /* 修复：新开/清空/重置流程中 _audioCtx.stop() 可能触发 onError → 报「语音播放失败」。
+         清理中（_audioSilent）静默，错误 toast 仅限用户主动点播放时 */
+      if (this._audioSilent) return;
       wx.showToast({ title: '语音播放失败', icon: 'none' });
     });
   },
