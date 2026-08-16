@@ -1,39 +1,43 @@
 // 易理明灯 — 分享卡片 Canvas 绘制系统
-// 设计：温暖金+柔和粉+浅紫 年轻女性审美
-// 画布：750x1200（朋友圈最优尺寸）
+// 视觉语言：墨韵（项目定稿）
+//   色板：宣纸底 #F5EFE1 · 墨 #3A2C1E · 朱砂 #A93A2C · 金 #B08A4F
+//         淡墨 #6C5B45 · 浅米 #9A8B71 · 纸白 #FBF7EC · 黛青 #3E5C4E（双人第二印色）
+//   禁用：粉金紫（#E8C4B8/#D4A574/#C8B8D4 等）与灰色系
+// 字体：中文宋体（Songti SC/SimSun）+ 楷体（Kaiti SC/STKaiti，标题与正文），数字用衬线
+// 元素：朱砂印章（圆角方印）、墨线细框、宣纸底、留白呼吸感、落款小字
+// 层级节奏（全卡统一）：
+//   标题  楷体 600 34-44px 墨色   ~y=120（缘笺双印夹题）
+//   副题  宋体 22-24px 淡墨/浅米  ~y=190
+//   正文  楷体 30-36px 墨色       缘语/答句
+//   辅助  宋体 20-26px 淡墨       解析、标签
+//   数字  衬线 bold 96-100px 墨色  契合分/运势分
+//   落款  品牌（墨 600 30-34px）+ 口号（浅米 22px）+ 底部小字（极淡 20px, H-40）
+//   印章  朱砂/黛青底 + 纸白楷体字，圆角方印
+// 画布：750 宽（朋友圈最优）；drawChatCard 高度按内容自适应
 //
 // 使用方式：
 //   1. 在 wxml 中添加 <canvas type="2d" id="shareCanvas" style="width:750px;height:1200px;position:fixed;left:-9999px;"></canvas>
-//   2. 调用 drawFortuneCard(data, callback) 等
+//   2. 调用 drawLoveCard / drawInkCard / drawYuanCard / drawChatCard
 
-// ---- 设计常量 ----
+// ---- 墨韵设计常量 ----
 const COLORS = {
-  bgStart: '#FDF8F3',
-  bgEnd: '#F5F0EB',
-  cardBg: '#FFFFFF',
-  gold: '#D4A574',
-  goldLight: '#E8D5B0',
-  goldDark: '#B8895A',
-  pink: '#E8C4B8',
-  pinkLight: '#F5E0D8',
-  rose: '#D4A0A0',
-  lavender: '#C8B8D4',
-  text: '#8B7E74',
-  textDark: '#5C4F46',
-  textLight: '#B5A89E',
-  white: '#FFFFFF',
-  cream: '#F5F0EB',
-  shadow: 'rgba(180, 150, 130, 0.15)',
+  paper: '#F5EFE1',        // 宣纸底
+  paperBright: '#FBF7EC',  // 纸白（笺块/标签底）
+  ink: '#3A2C1E',          // 墨
+  cinnabar: '#A93A2C',     // 朱砂
+  gold: '#B08A4F',         // 金
+  muted: '#6C5B45',        // 淡墨
+  light: '#9A8B71',        // 浅米
+  faint: '#BBAE92',        // 极淡墨
+  daiqing: '#3E5C4E',      // 黛青（双人第二印色，与 drawYuanCard 一致）
+  sealText: '#FBF6E8',     // 印章文字（纸白微暖）
 };
 
-const FONTS = {
-  regular: 'normal 28px "PingFang SC", "Helvetica Neue", sans-serif',
-  medium: '500 30px "PingFang SC", "Helvetica Neue", sans-serif',
-  bold: 'bold 36px "PingFang SC", "Helvetica Neue", sans-serif',
-  title: 'bold 48px "PingFang SC", "Helvetica Neue", sans-serif',
-  score: 'bold 80px "PingFang SC", "Helvetica Neue", sans-serif',
-  small: 'normal 24px "PingFang SC", "Helvetica Neue", sans-serif',
-};
+// 字体族（小程序端真实字体；iOS 有 Songti/Kaiti SC，Android 落系统衬线/黑体）
+const FONT_KAI = '"Kaiti SC", "STKaiti", "KaiTi", serif';
+const FONT_SONG = '"Songti SC", "SimSun", serif';
+const FONT_HAN = '"PingFang SC", "Microsoft YaHei", sans-serif';
+const FONT_NUM = '"Songti SC", "Times New Roman", serif'; // 衬线数字
 
 const CANVAS = {
   width: 750,
@@ -61,7 +65,7 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 /**
- * 绘制多行文本自动换行
+ * 绘制多行文本自动换行（返回末行基线 y）
  */
 function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
   const chars = text.split('');
@@ -91,110 +95,111 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
 }
 
 /**
- * 绘制装饰性顶部花纹
+ * 估算文本行数（与 wrapText 同口径；高度预算与绘制共用）
  */
-function drawTopDecoration(ctx) {
-  // 顶部渐变条
-  const grad = ctx.createLinearGradient(0, 0, CANVAS.width, 0);
-  grad.addColorStop(0, COLORS.goldLight);
-  grad.addColorStop(0.5, COLORS.pink);
-  grad.addColorStop(1, COLORS.goldLight);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, CANVAS.width, 8);
-
-  // 装饰性斜线
-  ctx.strokeStyle = 'rgba(212, 165, 116, 0.08)';
-  ctx.lineWidth = 1;
-  for (let i = -100; i < CANVAS.width + 100; i += 40) {
-    ctx.beginPath();
-    ctx.moveTo(i, 60);
-    ctx.lineTo(i + 80, 120);
-    ctx.stroke();
+function countLines(ctx, text, maxWidth) {
+  const s = String(text || '');
+  if (!s) return 0;
+  const chars = s.split('');
+  let line = '';
+  let n = 0;
+  for (const ch of chars) {
+    if (ch === '\n') { line = ''; n++; continue; }
+    const test = line + ch;
+    if (ctx.measureText(test).width > maxWidth && line !== '') { line = ch; n++; }
+    else line = test;
   }
-
-  // 小装饰点
-  ctx.fillStyle = 'rgba(212, 165, 116, 0.15)';
-  const dotPositions = [
-    [60, 30], [CANVAS.width - 60, 30], [120, 50],
-    [CANVAS.width - 120, 50], [CANVAS.width / 2, 25],
-  ];
-  dotPositions.forEach(([x, y]) => {
-    ctx.beginPath();
-    ctx.arc(x, y, 4, 0, Math.PI * 2);
-    ctx.fill();
-  });
+  if (line) n++;
+  return n;
 }
 
-/**
- * 绘制底部信息（App名称 + 小程序码占位）
- */
-function drawBottomInfo(ctx, qrCodePath) {
-  const y = CANVAS.height - 180;
+// ---- 墨韵骨架（全卡共用，保证层级与边框节奏一致） ----
 
-  // 分隔线
-  ctx.strokeStyle = COLORS.goldLight;
-  ctx.lineWidth = 1;
-  ctx.setLineDash([8, 8]);
+/**
+ * 宣纸底 + 4px 墨线细框（28 内距）+ 2px 顶线（54）
+ */
+function inkPaper(ctx, W, H) {
+  ctx.fillStyle = COLORS.paper;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(58,44,30,.45)';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(28, 28, W - 56, H - 56);
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(100, y);
-  ctx.lineTo(CANVAS.width - 100, y);
+  ctx.moveTo(28, 54);
+  ctx.lineTo(W - 28, 54);
   ctx.stroke();
-  ctx.setLineDash([]);
-
-  // App名称
-  ctx.fillStyle = COLORS.goldDark;
-  ctx.font = FONTS.medium;
   ctx.textAlign = 'center';
-  ctx.fillText('易理明灯', CANVAS.width / 2, y + 50);
-
-  ctx.fillStyle = COLORS.textLight;
-  ctx.font = FONTS.small;
-  ctx.fillText('AI 命运伴侣 · 懂你的命理助手', CANVAS.width / 2, y + 82);
-
-  // 小程序码占位（绘制一个带金色边框的方形）
-  if (qrCodePath) {
-    // 如果有真实图片路径
-    // 简化处理：使用 drawImage
-    const qrSize = 100;
-    const qrX = (CANVAS.width - qrSize) / 2;
-    const qrY = y + 100;
-    roundRect(ctx, qrX - 6, qrY - 6, qrSize + 12, qrSize + 12, 12);
-    ctx.fillStyle = COLORS.white;
-    ctx.fill();
-    ctx.strokeStyle = COLORS.goldLight;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    // 这里应该加载图片，但 WeChat canvas 2d 需要 image 对象
-    // 我们绘制一个QR风格占位
-    drawQRPlaceholder(ctx, qrX, qrY, qrSize);
-  } else {
-    // 绘制QR风格占位
-    const qrSize = 100;
-    const qrX = (CANVAS.width - qrSize) / 2;
-    const qrY = y + 100;
-    roundRect(ctx, qrX - 6, qrY - 6, qrSize + 12, qrSize + 12, 12);
-    ctx.fillStyle = COLORS.white;
-    ctx.fill();
-    ctx.strokeStyle = COLORS.goldLight;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    drawQRPlaceholder(ctx, qrX, qrY, qrSize);
-  }
-
-  // 底部小字
-  ctx.fillStyle = COLORS.textLight;
-  ctx.font = FONTS.small;
-  ctx.textAlign = 'center';
-  ctx.fillText('长按扫码查看完整内容', CANVAS.width / 2, CANVAS.height - 30);
+  ctx.textBaseline = 'alphabetic';
 }
 
 /**
- * 绘制QR码占位图案
+ * 菱形分隔（旋转 45° 方块）
+ */
+function inkDiamond(ctx, x, y, s, color) {
+  const c = color || COLORS.cinnabar;
+  const half = s / 2;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.PI / 4);
+  ctx.fillStyle = c;
+  ctx.fillRect(-half, -half, s, s);
+  ctx.restore();
+}
+
+/**
+ * 朱砂/黛青圆角方印（单字默认字高 = size*0.64；两字竖排 = size*0.42）
+ */
+function inkSeal(ctx, cx, cy, size, chars, opts) {
+  const o = opts || {};
+  const bg = o.bg || COLORS.cinnabar;
+  const r = (o.r === undefined) ? Math.max(6, Math.round(size * 0.1)) : o.r;
+  roundRect(ctx, cx - size / 2, cy - size / 2, size, size, r);
+  ctx.fillStyle = bg;
+  ctx.fill();
+  ctx.fillStyle = o.textColor || COLORS.sealText;
+  ctx.textAlign = 'center';
+  if (chars.length > 1 && !o.charSize) {
+    const cs = Math.round(size * 0.42);
+    ctx.font = cs + 'px ' + FONT_KAI;
+    ctx.fillText(chars[0], cx, cy - cs * 0.18);
+    ctx.fillText(chars[1], cx, cy + cs * 0.9);
+  } else {
+    const cs = o.charSize || Math.round(size * 0.64);
+    ctx.font = cs + 'px ' + FONT_KAI;
+    ctx.fillText(chars, cx, cy + cs * 0.35);
+  }
+}
+
+/**
+ * 品牌落款（左下）：易理明灯 + 口号
+ */
+function drawBrandLeft(ctx, y1, y2) {
+  ctx.textAlign = 'left';
+  ctx.fillStyle = COLORS.ink;
+  ctx.font = '600 30px ' + FONT_HAN;
+  ctx.fillText('易理明灯', 70, y1);
+  ctx.fillStyle = COLORS.light;
+  ctx.font = '22px ' + FONT_SONG;
+  ctx.fillText('三秒内，为你掌灯', 70, y2);
+}
+
+/**
+ * 底部小字（落款定式）
+ */
+function inkBottomNote(ctx, W, H) {
+  ctx.textAlign = 'center';
+  ctx.fillStyle = COLORS.faint;
+  ctx.font = '20px ' + FONT_SONG;
+  ctx.fillText('签文只作心意，不作断言', W / 2, H - 40);
+}
+
+/**
+ * 绘制QR码占位图案（墨韵：淡墨角块 + 金心）
  */
 function drawQRPlaceholder(ctx, x, y, size) {
   const cellSize = size / 9;
-  ctx.fillStyle = COLORS.textLight;
-  // 简化QR风格：三个角的大方块
+  ctx.fillStyle = COLORS.faint;
   const corners = [
     [x + cellSize, y + cellSize],
     [x + size - cellSize * 4, y + cellSize],
@@ -204,8 +209,6 @@ function drawQRPlaceholder(ctx, x, y, size) {
     roundRect(ctx, cx, cy, cellSize * 3, cellSize * 3, 3);
     ctx.fill();
   });
-
-  // 中心圆
   ctx.fillStyle = COLORS.gold;
   ctx.beginPath();
   ctx.arc(x + size / 2, y + size / 2, 6, 0, Math.PI * 2);
@@ -215,329 +218,100 @@ function drawQRPlaceholder(ctx, x, y, size) {
 // ---- 卡片绘制函数 ----
 
 /**
- * 绘制每日运势分享卡片
- * @param {Object} data - 运势数据
- * @param {Object} canvas - canvas 节点
- * @param {string} qrCodePath - 小程序码图片路径（可选）
- * @param {Function} callback - 完成回调 (tempFilePath)
- */
-function drawFortuneCard(data, canvas, qrCodePath, callback) {
-  const ctx = canvas.getContext('2d');
-  const W = CANVAS.width;
-  const H = CANVAS.height;
-
-  // ---- 1. 背景 ----
-  const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
-  bgGrad.addColorStop(0, COLORS.bgStart);
-  bgGrad.addColorStop(0.3, COLORS.bgEnd);
-  bgGrad.addColorStop(0.7, COLORS.cream);
-  bgGrad.addColorStop(1, COLORS.bgStart);
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, W, H);
-
-  // ---- 2. 装饰 ----
-  drawTopDecoration(ctx);
-
-  // ---- 3. 标题区域 ----
-  // 日期
-  ctx.fillStyle = COLORS.textLight;
-  ctx.font = FONTS.small;
-  ctx.textAlign = 'center';
-  ctx.fillText(data.date || '', W / 2, 100);
-
-  // 干支
-  if (data.ganzhi) {
-    ctx.fillStyle = COLORS.gold;
-    ctx.font = FONTS.small;
-    ctx.textAlign = 'center';
-    // 干支标签背景
-    const ganzhiText = data.ganzhi;
-    const ganzhiW = ctx.measureText(ganzhiText).width + 30;
-    roundRect(ctx, (W - ganzhiW) / 2, 112, ganzhiW, 36, 18);
-    ctx.fillStyle = 'rgba(212, 165, 116, 0.12)';
-    ctx.fill();
-    ctx.fillStyle = COLORS.goldDark;
-    ctx.font = FONTS.small;
-    ctx.fillText(ganzhiText, W / 2, 137);
-  }
-
-  // "今日运势" 标题
-  ctx.fillStyle = COLORS.textDark;
-  ctx.font = FONTS.title;
-  ctx.textAlign = 'center';
-  ctx.fillText('每日运势', W / 2, 200);
-
-  // ---- 4. 得分环 ----
-  const score = data.score || 85;
-  const ringCenterX = W / 2;
-  const ringCenterY = 330;
-  const ringRadius = 80;
-  const ringWidth = 12;
-
-  // 外圈渐变
-  const ringGrad = ctx.createConicGradient ? null : null;
-  if (ctx.createConicGradient) {
-    try {
-      const conicGrad = ctx.createConicGradient(0, ringCenterX, ringCenterY);
-      conicGrad.addColorStop(0, COLORS.gold);
-      conicGrad.addColorStop(0.5, COLORS.pink);
-      conicGrad.addColorStop(1, COLORS.gold);
-      ctx.strokeStyle = conicGrad;
-    } catch (e) {
-      ctx.strokeStyle = COLORS.gold;
-    }
-  } else {
-    ctx.strokeStyle = COLORS.gold;
-  }
-
-  // 背景环
-  ctx.beginPath();
-  ctx.arc(ringCenterX, ringCenterY, ringRadius, 0, Math.PI * 2);
-  ctx.strokeStyle = COLORS.goldLight;
-  ctx.lineWidth = ringWidth;
-  ctx.stroke();
-
-  // 分数环 - 从顶部开始顺时针
-  const angle = (score / 100) * Math.PI * 2 - Math.PI / 2;
-  ctx.beginPath();
-  ctx.arc(ringCenterX, ringCenterY, ringRadius, -Math.PI / 2, angle);
-  ctx.strokeStyle = COLORS.gold;
-  ctx.lineWidth = ringWidth;
-  ctx.lineCap = 'round';
-  ctx.stroke();
-  ctx.lineCap = 'butt';
-
-  // 分数数字
-  ctx.fillStyle = COLORS.textDark;
-  ctx.font = FONTS.score;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(String(score), ringCenterX, ringCenterY - 10);
-
-  // "分" 标签
-  ctx.fillStyle = COLORS.textLight;
-  ctx.font = FONTS.small;
-  ctx.textBaseline = 'middle';
-  ctx.fillText('分', ringCenterX + 55, ringCenterY + 5);
-
-  // ---- 5. 运势等级 ----
-  ctx.textBaseline = 'top';
-  const levelText = getScoreLevelText(data.scoreLevel || 'good');
-  ctx.fillStyle = COLORS.goldDark;
-  ctx.font = FONTS.bold;
-  ctx.textAlign = 'center';
-  ctx.fillText(levelText, W / 2, ringCenterY + ringRadius + 30);
-
-  // ---- 6. 三列幸运信息 ----
-  const luckyY = ringCenterY + ringRadius + 85;
-  const luckyItems = [
-    { label: '幸运色', value: data.luckyColor || '金色', icon: '🎨' },
-    { label: '幸运数字', value: String(data.luckyNumber || 7), icon: '🔢' },
-    { label: '幸运方位', value: data.luckyDirection || '西方', icon: '🧭' },
-  ];
-
-  const colW = 180;
-  const gap = 30;
-  const totalW = colW * 3 + gap * 2;
-  const startX = (W - totalW) / 2;
-
-  luckyItems.forEach((item, i) => {
-    const cx = startX + i * (colW + gap);
-    const cardY = luckyY;
-
-    // 卡片背景
-    roundRect(ctx, cx, cardY, colW, 120, 16);
-    ctx.fillStyle = COLORS.white;
-    ctx.fill();
-    // 轻微阴影
-    ctx.shadowColor = COLORS.shadow;
-    ctx.shadowBlur = 12;
-    ctx.shadowOffsetY = 4;
-    roundRect(ctx, cx, cardY, colW, 120, 16);
-    ctx.fill();
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-
-    // 重新绘制白色背景覆盖阴影叠加
-    ctx.fillStyle = COLORS.white;
-    roundRect(ctx, cx, cardY, colW, 120, 16);
-    ctx.fill();
-
-    // 文字内容
-    ctx.textAlign = 'center';
-    ctx.fillStyle = COLORS.gold;
-    ctx.font = '30px "PingFang SC"';
-    ctx.fillText(item.icon, cx + colW / 2, cardY + 15);
-
-    ctx.fillStyle = COLORS.textDark;
-    ctx.font = FONTS.medium;
-    ctx.fillText(item.value, cx + colW / 2, cardY + 65);
-
-    ctx.fillStyle = COLORS.textLight;
-    ctx.font = FONTS.small;
-    ctx.fillText(item.label, cx + colW / 2, cardY + 95);
-  });
-
-  // ---- 7. 今日箴言 ----
-  const quoteY = luckyY + 160;
-  const quote = data.advice || '心怀希望，向阳而生。';
-
-  // 引号装饰
-  ctx.fillStyle = COLORS.goldLight;
-  ctx.font = '60px "PingFang SC"';
-  ctx.textAlign = 'left';
-  ctx.fillText('"', 100, quoteY);
-
-  ctx.fillStyle = COLORS.text;
-  ctx.font = FONTS.regular;
-  ctx.textAlign = 'center';
-  const wrapY = wrapText(ctx, quote, 100, quoteY + 45, W - 200, 42);
-  const endQuoteY = wrapY + 10;
-
-  ctx.fillStyle = COLORS.goldLight;
-  ctx.font = '60px "PingFang SC"';
-  ctx.textAlign = 'right';
-  ctx.fillText('"', W - 100, endQuoteY);
-
-  // ---- 8. 底部信息 ----
-  drawBottomInfo(ctx, qrCodePath);
-
-  // ---- 9. 导出图片 ----
-  wx.canvasToTempFilePath({
-    canvas,
-    width: W,
-    height: H,
-    destWidth: W * 2,
-    destHeight: H * 2,
-    fileType: 'png',
-    quality: 1,
-    success: (res) => {
-      if (callback) callback(res.tempFilePath);
-    },
-    fail: (err) => {
-      console.error('[ShareCard] canvasToTempFilePath error:', err);
-      if (callback) callback(null);
-    },
-  });
-}
-
-/**
- * 绘制感情合盘分享卡片
+ * 绘制双人合盘缘笺分享卡（墨韵：宣纸底 · 双印夹题 · 双色连印线 · 衬线契合分 · 合盘略解）
+ * 双人辨识：朱砂「缘」印 + 黛青「合」印对称夹题（两人成对），朱砂/黛青双色连印线（红线牵合）
+ * @param {Object} data - { score, quote, summary }（love 页传入，无时辰/姓名等敏感信息）
+ * @param {Object} canvas - canvas 2d 节点
+ * @param {string} qrCodePath - 保留参数（兼容调用点；当前统一绘制占位）
+ * @param {Function} callback - (tempFilePath)
  */
 function drawLoveCard(data, canvas, qrCodePath, callback) {
   const ctx = canvas.getContext('2d');
   const W = CANVAS.width;
   const H = CANVAS.height;
+  const INK = COLORS.ink, CINNABAR = COLORS.cinnabar;
+  const MUTED = COLORS.muted, LIGHT = COLORS.light, DAIQING = COLORS.daiqing;
 
-  // ---- 1. 背景（渐变粉） ----
-  const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
-  bgGrad.addColorStop(0, '#FDF8F6');
-  bgGrad.addColorStop(0.3, '#FEF0EA');
-  bgGrad.addColorStop(0.7, '#F5E8E4');
-  bgGrad.addColorStop(1, '#FDF8F6');
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, W, H);
+  // 1. 宣纸底 + 墨框 + 顶线
+  inkPaper(ctx, W, H);
 
-  // ---- 2. 装饰 ----
-  // 顶部渐变条（粉色）
-  const grad = ctx.createLinearGradient(0, 0, W, 0);
-  grad.addColorStop(0, COLORS.pink);
-  grad.addColorStop(0.5, COLORS.rose);
-  grad.addColorStop(1, COLORS.pink);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, 8);
+  // 2. 标题区：双印夹题 + 双色连印线
+  const title = '双人合盘 · 缘定三生';
+  const sealS = 48;
+  const sealCX = W / 2 - 214, sealCY = 138;
+  const sealCX2 = W / 2 + 214;
+  inkSeal(ctx, sealCX, sealCY, sealS, '缘', { bg: CINNABAR });
+  inkSeal(ctx, sealCX2, sealCY, sealS, '合', { bg: DAIQING });
+  // 连印线：缘印右缘 → 合印左缘，左朱砂右黛青（红线牵合 · 双人成线）
+  const lx = sealCX + sealS / 2 + 18, rx = sealCX2 - sealS / 2 - 18;
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = CINNABAR;
+  ctx.beginPath(); ctx.moveTo(lx, sealCY); ctx.lineTo((lx + rx) / 2, sealCY); ctx.stroke();
+  ctx.strokeStyle = DAIQING;
+  ctx.beginPath(); ctx.moveTo((lx + rx) / 2, sealCY); ctx.lineTo(rx, sealCY); ctx.stroke();
 
-  // 心形装饰点
-  ctx.fillStyle = 'rgba(212, 160, 160, 0.12)';
-  const hearts = [
-    [80, 40], [W - 80, 40], [W / 2, 30],
-    [150, 55], [W - 150, 55],
-  ];
-  hearts.forEach(([x, y]) => {
-    ctx.font = '24px sans-serif';
-    ctx.fillText('♥', x - 12, y + 8);
+  ctx.fillStyle = INK;
+  ctx.font = '600 36px ' + FONT_KAI;
+  ctx.fillText(title, W / 2, 150);
+
+  // 3. 副题
+  ctx.fillStyle = MUTED;
+  ctx.font = '24px ' + FONT_SONG;
+  ctx.fillText('两心相照 · 星命同辉', W / 2, 202);
+
+  // 4. 契合分（衬线大字）+ 等级（朱砂楷体）
+  const score = Math.round(data.score || 0);
+  ctx.fillStyle = INK;
+  ctx.font = 'bold 100px ' + FONT_NUM;
+  ctx.fillText(String(score), W / 2 - 6, 348);          // 微左移，与「分」整体光学居中
+  ctx.fillStyle = CINNABAR;
+  ctx.font = '26px ' + FONT_SONG;
+  ctx.fillText('分', W / 2 + 60, 338);
+  ctx.fillStyle = CINNABAR;
+  ctx.font = '600 32px ' + FONT_KAI;
+  ctx.fillText(getLoveLevelText(score), W / 2, 416);
+
+  // 5. 菱形分隔
+  inkDiamond(ctx, W / 2, 472, 14);
+
+  // 6. 缘语（楷体墨色，可晒体；按 \n 分行，每行自动换行）
+  const quote = (data.quote && String(data.quote)) || '缘起缘灭，皆是天意。\n相遇相知，便是缘分。';
+  ctx.fillStyle = INK;
+  ctx.font = '36px ' + FONT_KAI;
+  let qy = 548;
+  quote.split('\n').slice(0, 4).forEach((ln) => {
+    if (ln) qy = wrapText(ctx, ln, 90, qy, W - 180, 50) + 14;
   });
 
-  // ---- 3. 标题 ----
-  ctx.fillStyle = COLORS.textDark;
-  ctx.font = FONTS.title;
-  ctx.textAlign = 'center';
-  ctx.fillText('感情合盘', W / 2, 120);
-
-  // ---- 4. 匹配度大分数 ----
-  const score = data.score || 85;
-  const ringCenterX = W / 2;
-  const ringCenterY = 280;
-  const ringRadius = 90;
-
-  // 外发光
-  ctx.shadowColor = 'rgba(212, 160, 160, 0.3)';
-  ctx.shadowBlur = 30;
-  // 背景环
-  ctx.beginPath();
-  ctx.arc(ringCenterX, ringCenterY, ringRadius, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(212, 160, 160, 0.2)';
-  ctx.lineWidth = 14;
+  // 7. 合盘略解（纸白笺块：墨细框 + 朱砂小标签 + 宋体淡墨）
+  const summary = String(data.summary || '你们的命盘呈现出奇妙的互补与共鸣');
+  // 剥离 love 页拼入的等级前缀（"上吉 · 性格…" → "性格…"），等级已由 4 步单独呈现
+  let body = summary;
+  const m = summary.match(/^\s*(.{2,10}?)\s*[·•]\s*(.+)$/);
+  if (m && m[2]) body = m[2];
+  ctx.font = '26px ' + FONT_SONG;
+  const aLines = countLines(ctx, body, W - 260);
+  const aTop = qy + 30;
+  const aH = 66 + aLines * 40 + 30;
+  roundRect(ctx, 90, aTop, W - 180, aH, 10);
+  ctx.fillStyle = COLORS.paperBright;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(58,44,30,.18)';
+  ctx.lineWidth = 2;
   ctx.stroke();
+  ctx.fillStyle = CINNABAR;
+  ctx.font = '20px ' + FONT_KAI;
+  ctx.fillText('合盘略解', 114, aTop + 34);
+  ctx.fillStyle = MUTED;
+  ctx.font = '26px ' + FONT_SONG;
+  wrapText(ctx, body, 114, aTop + 66, W - 260, 40);
 
-  // 分数环（粉色渐变）
-  const angle = (score / 100) * Math.PI * 2 - Math.PI / 2;
-  ctx.shadowColor = 'transparent';
-  ctx.shadowBlur = 0;
-  ctx.beginPath();
-  ctx.arc(ringCenterX, ringCenterY, ringRadius, -Math.PI / 2, angle);
-  const ringGrad = ctx.createLinearGradient(
-    ringCenterX - ringRadius, ringCenterY,
-    ringCenterX + ringRadius, ringCenterY
-  );
-  ringGrad.addColorStop(0, COLORS.pink);
-  ringGrad.addColorStop(0.5, COLORS.rose);
-  ringGrad.addColorStop(1, COLORS.pink);
-  ctx.strokeStyle = ringGrad;
-  ctx.lineWidth = 14;
-  ctx.lineCap = 'round';
-  ctx.stroke();
-  ctx.lineCap = 'butt';
+  // 8. 品牌落款（左下）+ 二维码（右下）— 与 drawYuanCard 同构
+  drawBrandLeft(ctx, 940, 985);
+  drawQRPlaceholder(ctx, 560, 1020, 100);
+  inkBottomNote(ctx, W, H);
 
-  // 分数
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillStyle = COLORS.textDark;
-  ctx.font = FONTS.score;
-  ctx.fillText(String(score), ringCenterX, ringCenterY - 8);
-
-  ctx.fillStyle = COLORS.rose;
-  ctx.font = FONTS.small;
-  ctx.fillText('分', ringCenterX + 55, ringCenterY + 8);
-
-  // 匹配度标签
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = COLORS.rose;
-  ctx.font = FONTS.regular;
-  ctx.fillText(getLoveLevelText(score), ringCenterX, ringCenterY + ringRadius + 25);
-
-  // ---- 5. 浪漫金句 ----
-  const quoteY = ringCenterY + ringRadius + 80;
-  const quote = data.quote || '缘起缘灭，皆是天意。\n相遇相知，便是缘分。';
-
-  ctx.fillStyle = COLORS.rose;
-  ctx.font = 'italic 28px "PingFang SC"';
-  ctx.textAlign = 'center';
-  const qEndY = wrapText(ctx, quote, 80, quoteY, W - 160, 40);
-
-  // ---- 6. 分析摘要 ----
-  const summaryY = qEndY + 50;
-  const summary = data.summary || '你们的命盘呈现出奇妙的互补与共鸣';
-  ctx.fillStyle = COLORS.text;
-  ctx.font = FONTS.regular;
-  ctx.textAlign = 'center';
-  wrapText(ctx, summary, 80, summaryY, W - 160, 38);
-
-  // ---- 7. 底部信息 ----
-  drawBottomInfo(ctx, qrCodePath);
-
-  // ---- 导出 ----
+  // 9. 导出 2x PNG
   wx.canvasToTempFilePath({
     canvas,
     width: W,
@@ -557,92 +331,6 @@ function drawLoveCard(data, canvas, qrCodePath, callback) {
 }
 
 /**
- * 绘制报告分享卡片
- */
-function drawReportCard(data, canvas, qrCodePath, callback) {
-  const ctx = canvas.getContext('2d');
-  const W = CANVAS.width;
-  const H = CANVAS.height;
-
-  // ---- 1. 背景 ----
-  const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
-  bgGrad.addColorStop(0, COLORS.bgStart);
-  bgGrad.addColorStop(0.3, COLORS.bgEnd);
-  bgGrad.addColorStop(0.7, COLORS.cream);
-  bgGrad.addColorStop(1, COLORS.bgStart);
-  ctx.fillStyle = bgGrad;
-  ctx.fillRect(0, 0, W, H);
-
-  drawTopDecoration(ctx);
-
-  // ---- 2. 标题 ----
-  ctx.fillStyle = COLORS.textDark;
-  ctx.font = FONTS.title;
-  ctx.textAlign = 'center';
-  ctx.fillText(data.title || '命理解读报告', W / 2, 120);
-
-  // ---- 3. 场景标签 ----
-  if (data.scenarioLabel) {
-    ctx.fillStyle = COLORS.gold;
-    ctx.font = FONTS.regular;
-    ctx.textAlign = 'center';
-    ctx.fillText(data.scenarioLabel, W / 2, 170);
-  }
-
-  // ---- 4. 分数 ----
-  if (data.score) {
-    const scoreY = 260;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = COLORS.gold;
-    ctx.font = FONTS.score;
-    ctx.fillText(String(data.score), W / 2, scoreY);
-    ctx.fillStyle = COLORS.textLight;
-    ctx.font = FONTS.regular;
-    ctx.textBaseline = 'top';
-    ctx.fillText('运势评分', W / 2, scoreY + 45);
-  }
-
-  // ---- 5. 内容摘要 ----
-  const contentStartY = data.score ? 400 : 280;
-  const summary = data.summary || data.fullContent || '';
-  ctx.fillStyle = COLORS.text;
-  ctx.font = FONTS.regular;
-  ctx.textAlign = 'center';
-  const endY = wrapText(ctx, summary, 80, contentStartY, W - 160, 38);
-
-  // ---- 6. 日期 ----
-  if (data.date) {
-    ctx.fillStyle = COLORS.textLight;
-    ctx.font = FONTS.small;
-    ctx.textAlign = 'center';
-    ctx.fillText(data.date, W / 2, endY + 45);
-  }
-
-  // ---- 7. 底部信息 ----
-  drawBottomInfo(ctx, qrCodePath);
-
-  // ---- 导出 ----
-  wx.canvasToTempFilePath({
-    canvas,
-    width: W,
-    height: H,
-    destWidth: W * 2,
-    destHeight: H * 2,
-    fileType: 'png',
-    quality: 1,
-    success: (res) => {
-      if (callback) callback(res.tempFilePath);
-    },
-    fail: (err) => {
-      console.error('[ShareCard] report card error:', err);
-      if (callback) callback(null);
-    },
-  });
-}
-
-
-/**
  * 绘制每日笺页分享卡（墨韵版：宣纸底 · 墨字 · 朱砂印章 · 灯笼）
  * @param {Object} data - { dateText, solarHint, poemLines: [], yiChips: [], }
  * @param {Object} canvas - canvas 2d 节点
@@ -653,20 +341,8 @@ function drawInkCard(data, canvas, callback) {
   const W = 750;
   const H = 1200;
 
-  // ── 1. 宣纸底 + 细框 ──
-  ctx.fillStyle = '#F5EFE1';
-  ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(58,44,30,.45)';
-  ctx.lineWidth = 4;
-  ctx.strokeRect(28, 28, W - 56, H - 56);
-
-  // 顶线
-  ctx.strokeStyle = 'rgba(58,44,30,.45)';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(28, 54);
-  ctx.lineTo(W - 28, 54);
-  ctx.stroke();
+  // ── 1. 宣纸底 + 细框 + 顶线 ──
+  inkPaper(ctx, W, H);
 
   // ── 2. 日期 + 节气 ──
   ctx.fillStyle = '#6C5B45';
@@ -675,12 +351,7 @@ function drawInkCard(data, canvas, callback) {
   ctx.fillText(data.dateText || '', W / 2, 130);
 
   // 菱形分隔
-  ctx.save();
-  ctx.translate(W / 2, 168);
-  ctx.rotate(Math.PI / 4);
-  ctx.fillStyle = '#A93A2C';
-  ctx.fillRect(-7, -7, 14, 14);
-  ctx.restore();
+  inkDiamond(ctx, W / 2, 168, 14);
 
   ctx.fillStyle = '#9A8B71';
   ctx.font = '22px "PingFang SC", sans-serif';
@@ -733,12 +404,7 @@ function drawInkCard(data, canvas, callback) {
 
     // ── 7. 朱砂印章「明」 ──
     const sy = ly + lh + 530;
-    roundRect(ctx, W / 2 - 50, sy, 100, 100, 10);
-    ctx.fillStyle = '#A93A2C';
-    ctx.fill();
-    ctx.fillStyle = '#FBF6E8';
-    ctx.font = '64px "Kaiti SC", serif';
-    ctx.fillText('明', W / 2, sy + 74);
+    inkSeal(ctx, W / 2, sy + 50, 100, '明');
 
     // ── 8. 品牌 ──
     ctx.fillStyle = '#3A2C1E';
@@ -781,16 +447,11 @@ function drawInkCard(data, canvas, callback) {
 function drawYuanCard(data, canvas, callback) {
   const ctx = canvas.getContext('2d');
   const W = 750, H = 1200;
-  const INK = '#3A2C1E', PAPER = '#F5EFE1', CINNABAR = '#A93A2C', DAIQING = '#3E5C4E';
+  const INK = '#3A2C1E', CINNABAR = '#A93A2C', DAIQING = '#3E5C4E';
   const MUTED = '#6C5B45', LIGHT = '#9A8B71', FAINT = '#BBAE92';
 
-  // 1. 宣纸底 + 细框 + 顶线（复用 drawInkCard 底稿）
-  ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(58,44,30,.45)'; ctx.lineWidth = 4;
-  ctx.strokeRect(28, 28, W - 56, H - 56);
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(28, 54); ctx.lineTo(W - 28, 54); ctx.stroke();
-  ctx.textAlign = 'center';
+  // 1. 宣纸底 + 细框 + 顶线（墨韵骨架，全卡共用）
+  inkPaper(ctx, W, H);
 
   // 2. 标题
   ctx.fillStyle = INK;
@@ -815,12 +476,7 @@ function drawYuanCard(data, canvas, callback) {
   ctx.fillText(data.levelLabel || '', W / 2, 452);
 
   // 5. 菱形分隔
-  ctx.save();
-  ctx.translate(W / 2, 502);
-  ctx.rotate(Math.PI / 4);
-  ctx.fillStyle = CINNABAR;
-  ctx.fillRect(-7, -7, 14, 14);
-  ctx.restore();
+  inkDiamond(ctx, W / 2, 502, 14);
 
   // 6. 缘语两行（楷体，可晒体；主句一行 + 后缀/悬念一行，自动换行）
   const qp = data.quoteParts || {};
@@ -833,32 +489,15 @@ function drawYuanCard(data, canvas, callback) {
 
   // 7. 双色印章（右下）：朱砂「缘」印 + 黛青生肖印（如「午马」，视觉隐喻双人）
   const sy = 880, ss = 96;
-  roundRect(ctx, 470, sy, ss, ss, 8);
-  ctx.fillStyle = CINNABAR; ctx.fill();
-  ctx.fillStyle = '#FBF6E8';
-  ctx.font = '56px "Kaiti SC", serif';
-  ctx.fillText('缘', 470 + ss / 2, sy + 70);
-  roundRect(ctx, 590, sy, ss, ss, 8);
-  ctx.fillStyle = DAIQING; ctx.fill();
-  ctx.fillStyle = '#FBF6E8';
-  ctx.font = '44px "Kaiti SC", serif';
-  ctx.fillText(data.sealChar || '缘', 590 + ss / 2, sy + 68);
+  inkSeal(ctx, 470 + ss / 2, sy + ss / 2, ss, '缘', { charSize: 56 });
+  inkSeal(ctx, 590 + ss / 2, sy + ss / 2, ss, data.sealChar || '缘', { bg: DAIQING, charSize: 44 });
 
   // 8. 品牌落款（左下）+ 小程序码占位
-  ctx.textAlign = 'left';
-  ctx.fillStyle = INK;
-  ctx.font = '600 30px "PingFang SC", sans-serif';
-  ctx.fillText('易理明灯', 70, 940);
-  ctx.fillStyle = LIGHT;
-  ctx.font = '22px "PingFang SC", sans-serif';
-  ctx.fillText('三秒内，为你掌灯', 70, 985);
+  drawBrandLeft(ctx, 940, 985);
   drawQRPlaceholder(ctx, 560, 1020, 100);
 
   // 9. 底部小字
-  ctx.textAlign = 'center';
-  ctx.fillStyle = FAINT;
-  ctx.font = '20px "PingFang SC", sans-serif';
-  ctx.fillText('签文只作心意，不作断言', W / 2, H - 40);
+  inkBottomNote(ctx, W, H);
 
   // 10. 导出 2x PNG（同 drawInkCard）
   wx.canvasToTempFilePath({
@@ -870,7 +509,7 @@ function drawYuanCard(data, canvas, callback) {
 }
 
 /**
- * 绘制对话分享卡（墨韵版：宣纸底 · 墨字 · 朱砂印章「明灯」）
+ * 绘制对话分享卡「夜话拾笺」（墨韵版：笺印 · 书法标题 · 墨线分隔 · 问答成组 · 落款印章）
  * 内容：选中的 2-6 条对话（用户问 + 明灯答成组排版）+ 品牌落款
  * @param {Object} data - { pairs: [{u, tag, content}], dateText }
  * @param {Object} canvas - canvas 2d 节点（宽 750，高度由本函数按内容设定）
@@ -879,118 +518,109 @@ function drawYuanCard(data, canvas, callback) {
 function drawChatCard(data, canvas, callback) {
   const ctx = canvas.getContext('2d');
   const W = 750;
-  const INK = '#3A2C1E', PAPER = '#F5EFE1', CINNABAR = '#A93A2C';
-  const MUTED = '#6C5B45', LIGHT = '#9A8B71', FAINT = '#BBAE92', CARD = '#FBF7EC';
+  const INK = COLORS.ink, CINNABAR = COLORS.cinnabar;
+  const MUTED = COLORS.muted, LIGHT = COLORS.light, FAINT = COLORS.faint;
+  const CARD = COLORS.paperBright;
   const pairs = ((data && data.pairs) || []).slice(0, 6);
   const dateText = (data && data.dateText) || '';
 
-  /* 行数估算（高度预算与绘制共用同一换行口径） */
-  const lineCount = (text, maxWidth) => {
-    const s = String(text || '');
-    if (!s) return 0;
-    const chars = s.split('');
-    let line = '', n = 0;
-    for (const ch of chars) {
-      if (ch === '\n') { line = ''; n++; continue; }
-      const test = line + ch;
-      if (ctx.measureText(test).width > maxWidth && line !== '') { line = ch; n++; }
-      else line = test;
-    }
-    if (line) n++;
-    return n;
-  };
-
-  /* ── 高度预算：标题区 + 问答组 + 落款区（按绘制口径逐行估算，宁多勿少） ── */
-  ctx.font = '30px "Songti SC", "PingFang SC", serif';
+  /* ── 高度预算：笺头 + 问答组 + 落款区（与绘制共用同一换行口径） ── */
+  ctx.font = '30px ' + FONT_KAI;
+  const headerH = 278;  // 笺印+标题+日期+分隔线 → 正文顶
+  const footerH = 326;  // 菱形+印章+品牌+口号 → 底部小字前
   let contentH = 0;
   pairs.forEach((p) => {
-    let h = 70;                                   // 问行区
-    h += lineCount(p.u, W - 200) * 44;
-    h += 90;                                      // AI 块头（tag + 内距）
-    h += lineCount(p.content, W - 240) * 50;
-    h += 100;                                     // AI 块尾距 + 组间距
+    let h = 30 + Math.max(countLines(ctx, p.u, W - 230) - 1, 0) * 42 + 26;   // 问行区
+    const aL = countLines(ctx, p.content, W - 240);
+    h += 88 + (aL - 1) * 46 + 34;                                            // 答块
+    h += 84;                                                                 // 组间距
     contentH += h;
   });
-  const H = Math.max(1200, 300 + contentH + 300);
+  const H = Math.max(1200, headerH + contentH + footerH);
   canvas.width = W;
   canvas.height = H;
 
   /* ── 1. 宣纸底 + 细框 + 顶线 ── */
-  ctx.fillStyle = PAPER; ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(58,44,30,.45)'; ctx.lineWidth = 4;
-  ctx.strokeRect(28, 28, W - 56, H - 56);
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(28, 54); ctx.lineTo(W - 28, 54); ctx.stroke();
-  ctx.textAlign = 'center';
+  inkPaper(ctx, W, H);
 
-  /* ── 2. 标题 + 日期 ── */
+  /* ── 2. 笺头：朱砂「笺」印 + 书法标题 + 日期 ── */
+  inkSeal(ctx, W / 2, 98, 48, '笺');
   ctx.fillStyle = INK;
-  ctx.font = '600 46px "Songti SC", "PingFang SC", serif';
-  ctx.fillText('夜话拾笺', W / 2, 135);
+  ctx.font = '600 44px ' + FONT_KAI;
+  ctx.fillText('夜话拾笺', W / 2, 166);
   ctx.fillStyle = MUTED;
-  ctx.font = '24px "Songti SC", "PingFang SC", serif';
-  ctx.fillText(dateText, W / 2, 188);
+  ctx.font = '22px ' + FONT_SONG;
+  ctx.fillText(dateText, W / 2, 206);
 
-  /* ── 3. 问答组（用户问 + 明灯答成组排版） ── */
-  let y = 248;
+  /* ── 3. 分隔线：墨线 + 中央朱砂菱形 ── */
+  const dcy = 240, dHalf = 13;
+  ctx.strokeStyle = 'rgba(58,44,30,.28)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(88, dcy); ctx.lineTo(W / 2 - dHalf, dcy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(W / 2 + dHalf, dcy); ctx.lineTo(W - 88, dcy); ctx.stroke();
+  inkDiamond(ctx, W / 2, dcy, 8);
+
+  /* ── 4. 问答组（用户问 + 明灯答成组排版） ── */
+  let y = headerH;
   pairs.forEach((p) => {
-    /* 问行：朱砂「问」印 + 墨字（左对齐） */
-    const uLines = lineCount(p.u, W - 200);
+    /* 问：朱砂「问」小印 + 楷体墨字（左对齐） */
+    roundRect(ctx, 92, y, 30, 30, 4);
+    ctx.fillStyle = CINNABAR;
+    ctx.fill();
+    ctx.fillStyle = '#FBF6E8';
+    ctx.font = '20px ' + FONT_KAI;
+    ctx.textAlign = 'center';
+    ctx.fillText('问', 107, y + 22);
     ctx.textAlign = 'left';
-    ctx.fillStyle = CINNABAR;
-    ctx.font = '22px "Songti SC", serif';
-    ctx.fillText('问', 100, y + 24);
-    ctx.fillStyle = MUTED;
-    ctx.font = '30px "Songti SC", "PingFang SC", serif';
-    if (uLines > 0) {
-      y = wrapText(ctx, String(p.u || ''), 150, y + 33, W - 200, 42); // 返回末行基线
-      y += 26;                                                        // 问行末 → AI 块顶
-    } else {
-      y += 58;
-    }
-    /* AI 块：纸白卡 + 朱砂左条 + 标签 + 楷体正文 */
-    const aLines = lineCount(p.content, W - 240);
-    const aH = 76 + aLines * 46 + 30;
-    roundRect(ctx, 90, y, W - 180, aH, 10);
-    ctx.fillStyle = CARD; ctx.fill();
-    ctx.strokeStyle = 'rgba(58,44,30,.14)'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = CINNABAR;
-    ctx.fillRect(96, y + 30, 5, aH - 44);                             // 朱砂左条
-    ctx.fillStyle = MUTED;
-    ctx.font = '20px "Songti SC", serif';
-    ctx.fillText(String(p.tag || '明灯 · 夜话'), 124, y + 44);
     ctx.fillStyle = INK;
-    ctx.font = '30px "Kaiti SC", "STKaiti", serif';
+    ctx.font = '30px ' + FONT_KAI;
+    if (p.u) {
+      y = wrapText(ctx, String(p.u), 136, y + 24, W - 230, 42); // 返回末行基线
+      y += 26;                                                   // 问行末 → 答块顶
+    } else {
+      y += 56;
+    }
+    /* 答：纸白块 + 朱砂左条 + 朱砂描边小标签 + 楷体正文 */
+    const aL = countLines(ctx, p.content, W - 240);
+    const aH = 88 + (aL - 1) * 46 + 34;
+    roundRect(ctx, 90, y, W - 180, aH, 10);
+    ctx.fillStyle = CARD;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(58,44,30,.16)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = CINNABAR;
+    ctx.fillRect(96, y + 28, 5, aH - 52);        // 朱砂左条
+    const tag = String(p.tag || '明灯 · 夜话');
+    ctx.font = '20px ' + FONT_KAI;
+    const tagW = ctx.measureText(tag).width + 28;
+    roundRect(ctx, 124, y + 32, tagW, 30, 4);    // 朱砂描边小标签（章式）
+    ctx.strokeStyle = CINNABAR;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = CINNABAR;
+    ctx.textAlign = 'center';
+    ctx.fillText(tag, 124 + tagW / 2, y + 52);
+    ctx.textAlign = 'left';
+    ctx.fillStyle = INK;
+    ctx.font = '30px ' + FONT_KAI;
     wrapText(ctx, String(p.content || ''), 124, y + 88, W - 240, 46);
-    y += aH + 66;                                                      // 下一组顶
+    y += aH + 84;                                // 下一组顶
   });
 
-  /* ── 4. 落款：菱形分隔 + 朱砂印章「明灯」 + 品牌 ── */
-  ctx.save();
-  ctx.translate(W / 2, y + 30);
-  ctx.rotate(Math.PI / 4);
-  ctx.fillStyle = CINNABAR;
-  ctx.fillRect(-7, -7, 14, 14);
-  ctx.restore();
-  const sy = y + 80;
-  roundRect(ctx, W / 2 - 55, sy, 110, 110, 10);
-  ctx.fillStyle = CINNABAR; ctx.fill();
-  ctx.fillStyle = '#FBF6E8';
-  ctx.font = '46px "Kaiti SC", serif';
-  ctx.textAlign = 'center';
-  ctx.fillText('明', W / 2, sy + 52);
-  ctx.fillText('灯', W / 2, sy + 96);
+  /* ── 5. 落款：菱形分隔 + 朱砂「明灯」印 + 品牌 ── */
+  inkDiamond(ctx, W / 2, y + 44, 14);
+  const sy = y + 100;
+  inkSeal(ctx, W / 2, sy + 55, 110, '明灯');
   ctx.fillStyle = INK;
-  ctx.font = '600 34px "PingFang SC", sans-serif';
-  ctx.fillText('易理明灯', W / 2, sy + 195);
+  ctx.font = '600 34px ' + FONT_HAN;
+  ctx.fillText('易理明灯', W / 2, sy + 214);
   ctx.fillStyle = LIGHT;
-  ctx.font = '22px "PingFang SC", sans-serif';
-  ctx.fillText('三秒内，为你掌灯', W / 2, sy + 240);
-  ctx.fillStyle = FAINT;
-  ctx.font = '20px "PingFang SC", sans-serif';
-  ctx.fillText('签文只作心意，不作断言', W / 2, H - 42);
+  ctx.font = '22px ' + FONT_SONG;
+  ctx.fillText('三秒内，为你掌灯', W / 2, sy + 258);
+  inkBottomNote(ctx, W, H);
 
-  /* ── 5. 导出 2x PNG ── */
+  /* ── 6. 导出 2x PNG ── */
   wx.canvasToTempFilePath({
     canvas, width: W, height: H, destWidth: W * 2, destHeight: H * 2,
     fileType: 'png', quality: 1,
@@ -1000,16 +630,6 @@ function drawChatCard(data, canvas, callback) {
 }
 
 // ---- 辅助函数 ----
-
-function getScoreLevelText(level) {
-  const map = {
-    excellent: '大吉 · 万事如意',
-    good: '上吉 · 顺风顺水',
-    fair: '中平 · 稳步前行',
-    poor: '待时 · 积蓄力量',
-  };
-  return map[level] || '上吉 · 顺风顺水';
-}
 
 function getLoveLevelText(score) {
   if (score >= 90) return '天作之合';
@@ -1133,11 +753,8 @@ function shareCard(tempFilePath, title) {
 
 module.exports = {
   COLORS,
-  FONTS,
   CANVAS,
-  drawFortuneCard,
   drawLoveCard,
-  drawReportCard,
   drawInkCard,
   drawYuanCard,
   drawChatCard,
