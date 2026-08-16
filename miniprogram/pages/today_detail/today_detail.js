@@ -3,6 +3,7 @@
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const lunar = require('../../utils/lunar');
+const persons = require('../../utils/persons');
 
 /* 与今日页同款透传 key（today.js goTodayDetail 写入） */
 const DETAIL_KEY = 'ylm_today_detail';
@@ -40,12 +41,21 @@ Page({
     curHourIdx: -1,
     selHourIdx: -1,
     selHourDesc: '',
+    /* 区块显隐布尔（渲染层对 wx:if 内数组 .length 表达式在 setData 后不重算——
+       真机已知问题：数据到了但区块不显示。一律用 JS 算好的布尔值驱动显隐） */
+    hasChips: false,
+    hasF4: false,
+    hasYj: false,
+    hasHourly: false,
+    /* 无命主档案（通用运势）→ 顶部提示条 + 去设置 */
+    needsArchive: false,
   },
 
   onLoad() {
     theme.bindTheme(this);
     const cached = wx.getStorageSync(DETAIL_KEY);
     if (cached && cached.dayGanzhi) {
+      this.setData({ needsArchive: !!(cached.needsArchive) && !persons.hasLocalArchive() });
       this._render(cached);
     } else {
       this._fetch();
@@ -65,6 +75,9 @@ Page({
       const userId = (app && app.globalData && app.globalData.userId) || 'local_user';
       const res = await api.getTodayFortune(userId);
       if (!res) return;
+      this.setData({
+        needsArchive: !!(res.personal_advice || '').includes('请先设置八字信息') && !persons.hasLocalArchive(),
+      });
       this._render({
         date: res.date || '',
         dayGanzhi: res.day_ganzhi || '',
@@ -111,6 +124,11 @@ Page({
     /* 宜忌 chips（头部摘要） */
     const suitable = Array.isArray(p.suitable) ? p.suitable.filter(Boolean) : [];
     const unsuitable = Array.isArray(p.unsuitable) ? p.unsuitable.filter(Boolean) : [];
+    const yiChips = suitable.slice(0, 3);
+    const jiChips = unsuitable.slice(0, 2);
+
+    const yiDetail = (Array.isArray(p.yiDetail) ? p.yiDetail : []).filter((d) => d && d.action);
+    const jiDetail = (Array.isArray(p.jiDetail) ? p.jiDetail : []).filter((d) => d && d.action);
 
     /* 时辰 12 条：当前时辰高亮；默认选中当前时辰看 desc */
     const hourly = Array.isArray(p.hourly) ? p.hourly.filter((h) => h && h.time) : [];
@@ -120,16 +138,26 @@ Page({
     this.setData({
       dateLine,
       scoreText: p.score ? `综合运势 ${p.score} 分` : '',
-      yiChips: suitable.slice(0, 3),
-      jiChips: unsuitable.slice(0, 2),
+      yiChips,
+      jiChips,
       fortune4,
-      yiDetail: (Array.isArray(p.yiDetail) ? p.yiDetail : []).filter((d) => d && d.action),
-      jiDetail: (Array.isArray(p.jiDetail) ? p.jiDetail : []).filter((d) => d && d.action),
+      yiDetail,
+      jiDetail,
       hourly,
       curHourIdx: curIdx,
       selHourIdx: selIdx,
       selHourDesc: selIdx >= 0 ? (hourly[selIdx].desc || '') : '',
+      /* 显隐布尔一律 JS 侧算好（渲染层 .length 表达式不重算问题） */
+      hasChips: yiChips.length > 0 || jiChips.length > 0,
+      hasF4: fortune4.length > 0,
+      hasYj: yiDetail.length > 0 || jiDetail.length > 0,
+      hasHourly: hourly.length > 0,
     });
+  },
+
+  /* 未设置命主信息提示条 → 档案页（添加命主） */
+  onGoArchive() {
+    wx.navigateTo({ url: '/pages/persons/persons', fail: () => {} });
   },
 
   /* 点时辰 chip → 看该时辰吉凶解读 */

@@ -108,12 +108,28 @@ function findDefault(list) {
   return list.find((p) => !!p.is_default) || null;
 }
 
+/** 本地是否已有命主档案（persons / 旧对话档案 / 登录带回 bazi 任一存在即算）。
+    今日页/详解页「未设置命主信息 → 去设置」提示判定用：后端通用日历缓存 6h
+    未刷新时，本地已建档即不再提示。 */
+function hasLocalArchive() {
+  try {
+    const persons = wx.getStorageSync(LOCAL_KEY);
+    if (Array.isArray(persons) && persons.length) return true;
+    const arch = wx.getStorageSync('ylm_chat_archives');
+    if (Array.isArray(arch) && arch.length) return true;
+    const app = getApp();
+    if (app && app.globalData && app.globalData.hasBazi && app.globalData.baziInfo) return true;
+  } catch (e) { /* ignore */ }
+  return false;
+}
+
 module.exports = {
   RELATIONS,
   HOUR_LABELS,
   HOUR_VALUES,
   HOUR_CN,
   LOCAL_KEY,
+  hasLocalArchive,
   hourToShichenIndex,
   shichenIndexToHour,
   shichenCN,

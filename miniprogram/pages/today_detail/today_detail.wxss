@@ -241,3 +241,45 @@
   letter-spacing: .2em;
   color: var(--ink-faint);
 }
+
+/* ── 未设置命主信息提示条（通用运势时出现；墨韵虚线卡 + 朱砂去设置按钮，与今日页同款） ── */
+.arch-hint {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 26rpx;
+  border: 3rpx dashed rgba(58,44,30,.32);
+  border-radius: 12rpx;
+  padding: 24rpx 26rpx;
+  display: flex;
+  align-items: center;
+  gap: 23rpx;
+  background: rgba(251,247,236,.4);
+}
+.arch-hint-active { background: var(--acc-soft); }
+.arch-hint-mid { flex: 1; min-width: 0; }
+.arch-hint-t {
+  font-family: var(--font-song);
+  font-size: 25rpx;
+  color: var(--ink);
+  letter-spacing: .05em;
+}
+.arch-hint-s {
+  margin-top: 6rpx;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .08em;
+  color: var(--ink-faint);
+}
+.arch-hint-cta {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 24rpx;
+  letter-spacing: .16em;
+  color: #FBF6E8;
+  background: var(--acc);
+  border-radius: 12rpx;
+  padding: 19rpx 31rpx;
+  min-height: 85rpx;
+  display: flex;
+  align-items: center;
+}

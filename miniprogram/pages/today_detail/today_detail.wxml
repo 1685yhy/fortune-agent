@@ -6,14 +6,23 @@
       <text class="detail-date-main">{{dateLine}}</text>
       <text class="detail-score" wx:if="{{scoreText}}">{{scoreText}}</text>
     </view>
-    <view class="detail-chips" wx:if="{{yiChips.length || jiChips.length}}">
+    <view class="detail-chips" wx:if="{{hasChips}}">
       <view class="inktag detail-chip" wx:for="{{yiChips}}" wx:key="*this">宜 · {{item}}</view>
       <view class="inktag detail-chip detail-chip-ji" wx:for="{{jiChips}}" wx:key="*this">忌 · {{item}}</view>
     </view>
   </view>
 
+  <!-- 未设置命主信息：通用运势提示条 + 去设置（跳档案页） -->
+  <view class="arch-hint" wx:if="{{needsArchive}}" hover-class="arch-hint-active" hover-stay-time="0" bindtap="onGoArchive">
+    <view class="arch-hint-mid">
+      <view class="arch-hint-t">未设置命主信息 · 今日为通用运势</view>
+      <view class="arch-hint-s">设置后四运解读将贴合你的命盘</view>
+    </view>
+    <view class="arch-hint-cta">去设置</view>
+  </view>
+
   <!-- 四运逐条解读 -->
-  <view class="detail-sec" wx:if="{{fortune4.length}}">
+  <view class="detail-sec" wx:if="{{hasF4}}">
     <view class="detail-sec-title">流日四运</view>
     <view class="d4-item" wx:for="{{fortune4}}" wx:key="key">
       <view class="d4-row">
@@ -26,7 +35,7 @@
   </view>
 
   <!-- 宜忌详解（三宜二忌逐条） -->
-  <view class="detail-sec" wx:if="{{yiDetail.length || jiDetail.length}}">
+  <view class="detail-sec" wx:if="{{hasYj}}">
     <view class="detail-sec-title">宜忌详解</view>
     <view class="yj-item" wx:for="{{yiDetail}}" wx:key="action">
       <view class="yj-head">
@@ -47,7 +56,7 @@
   </view>
 
   <!-- 时辰高亮：当前时辰高亮，其余可点看吉凶 -->
-  <view class="detail-sec" wx:if="{{hourly.length}}">
+  <view class="detail-sec" wx:if="{{hasHourly}}">
     <view class="detail-sec-title">时辰择时</view>
     <scroll-view class="hour-scroll" scroll-x enable-flex>
       <view
