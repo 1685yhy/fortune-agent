@@ -7,7 +7,7 @@
 .today-date {
   flex-shrink: 0;
   z-index: 25;
-  padding-top: 21rpx;                     /* 11px */
+  padding-top: calc(var(--top-pad, 88px) + 10px);  /* 11px 原型间距 + 安全区（状态栏+胶囊避让） */
   text-align: center;
   font-family: var(--font-song);
   font-size: 24rpx;                       /* 12.5px */
@@ -27,10 +27,12 @@
 }
 .today-date-active { opacity: .72; }
 
-/* ── 主滚动列（原型 .today-scroll：上下滚动流，大量留白，内容居中） ── */
+/* ── 主滚动列（原型 .today-scroll：上下滚动流，大量留白，内容居中） ──
+   top 含安全区：从日期行（安全区 + 约 56rpx 行高）下方开始滚动，
+   hero 灯笼顶部不被胶囊/日期行遮挡 */
 .today-col {
   position: absolute;
-  left: 0; right: 0; top: 0; bottom: 0;
+  left: 0; right: 0; top: calc(var(--top-pad, 88px) + 56rpx); bottom: 0;
   padding: 15rpx 42rpx 190rpx;            /* 8px 22px 98px（底部给 tabbar 让位） */
   display: flex;
   flex-direction: column;

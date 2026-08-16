@@ -67,6 +67,7 @@ function splitPoem(text) {
 Page({
   data: {
     navOff: 0,
+    topPad: 88,              // 顶部安全区：状态栏 + 微信胶囊避让（真机胶囊遮挡日期行修复；88≈通用机兜底，onLoad 用胶囊实测覆盖）
     dateText: '八月六日',
     solarHint: '明日立秋 · 今夜宜早眠',
     poemLines: DEFAULT_POEM,
@@ -121,11 +122,22 @@ Page({
     this._loadNight();
   },
 
-  /* 状态栏高度适配：原型画板固定状态栏 47px，--nav-off 为差值 */
+  /* 状态栏高度适配：原型画板固定状态栏 47px，--nav-off 为差值。
+     顶部安全区 topPad（真机胶囊遮挡修复）：胶囊底部 + 12px 留白，整页内容下移避让
+     微信胶囊按钮区域；getMenuButtonBoundingClientRect 不可用时兜底
+     状态栏 + 44px（≈胶囊高 32 + 边距 12） */
   _initNavOff() {
     const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
-    const off = (info.statusBarHeight || 47) - 47;
-    if (off !== 0) this.setData({ navOff: off });
+    const sb = info.statusBarHeight || 47;
+    const off = sb - 47;
+    let pad = sb + 44;
+    try {
+      const cap = wx.getMenuButtonBoundingClientRect();
+      if (cap && cap.bottom) pad = cap.bottom + 12;
+    } catch (e) { /* 兜底值已设 */ }
+    const patch = { topPad: pad };
+    if (off !== 0) patch.navOff = off;
+    this.setData(patch);
   },
 
   /* 日期：左阳历中文数字（八月六日），右节气提示（明日立秋 · 今夜宜早眠）；

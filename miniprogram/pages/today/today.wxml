@@ -1,5 +1,5 @@
-<view class="screen today-wrap">
-  <!-- 日期副题行（弱化小字，可点 → 今日详解页） -->
+<view class="screen today-wrap" style="--top-pad:{{topPad}}px">
+  <!-- 日期副题行（弱化小字，可点 → 今日详解页；padding-top 含安全区避让微信胶囊） -->
   <view class="today-date" hover-class="today-date-active" hover-stay-time="0" bindtap="goTodayDetail">
     <text>{{dateText}}</text>
     <view class="zd"></view>
