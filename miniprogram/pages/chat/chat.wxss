@@ -1042,6 +1042,9 @@
   box-shadow: 0 -10rpx 40rpx var(--shadow);
   padding: 30rpx 34rpx calc(28rpx + env(safe-area-inset-bottom));
   animation: cite-up .22s ease;
+  /* v2.0 竖排菜单项增多：小屏可滚动，防溢出 */
+  max-height: 84vh;
+  overflow-y: auto;
 }
 .act-head {
   display: flex;
@@ -1112,22 +1115,25 @@
 }
 .act-del {
   margin-top: 20rpx;
-  padding: 24rpx 0;
+  padding: 20rpx 26rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 12rpx;
   border-top: 2rpx solid var(--line-soft);
+  border-radius: 12rpx;
 }
 .act-del-txt {
   font-family: var(--font-song);
-  font-size: 24rpx;
+  font-size: 25rpx;
   letter-spacing: .2em;
   color: var(--acc-deep);
 }
+.act-del-em { font-size: 36rpx; }
 .act-del-active { background: var(--acc-soft); }
 .act-cancel {
   margin-top: 12rpx;
-  padding: 24rpx 0 6rpx;
+  padding: 22rpx 0 6rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1138,6 +1144,42 @@
 }
 .act-cancel-active { color: var(--acc); }
 .fb-grid .act-item { width: 50%; }       /* 意见反馈原因：2×2 */
+
+/* ═══ v2.0 长按菜单竖排行（元宝式：图标+文字每行并排，分隔线分组，朱砂强调） ═══
+   参照 ref_2：点赞👍/点踩👎/收藏🔖/复制📋/选取文字📝/朗读🔊/分享↗️/意见反馈💬/删除🗑️ */
+.act-row {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 26rpx;
+  padding: 20rpx 26rpx;
+  border-radius: 12rpx;
+  background: transparent;               /* button 默认样式重置（分享项） */
+  border: none;
+  margin: 0;
+  line-height: 1;
+  font-size: inherit;
+}
+.act-row::after { border: none; }        /* button 伪边框移除（分享项） */
+.act-row-active { background: var(--acc-soft); }
+.act-em {
+  width: 52rpx;
+  height: 52rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 40rpx;
+  line-height: 1;
+}
+.act-sep {
+  height: 2rpx;
+  background: var(--line-med);          /* 分组分隔线略深，分组更易读（vision 评审反馈） */
+  margin: 10rpx 12rpx;
+}
+/* 竖排菜单行文字略大，区分分组层级 */
+.act-sheet .act-label { font-size: 26rpx; }
 
 /* ═══ v1.2 气泡内容升级：Markdown 完整渲染（墨韵：代码块深墨底浅字 / 表格细线 / 引用左线） ═══ */
 

@@ -373,56 +373,63 @@
     </scroll-view>
   </view>
 
-  <!-- v1.1 气泡长按操作菜单（墨韵弹层）：AI 完整项 / 用户简项（复制·选取·删除） -->
+  <!-- v2.0 气泡长按操作菜单（元宝式竖排：每行=图标+文字并排，分隔线分组，朱砂删除项） -->
   <view wx:if="{{actionMenu.show}}" class="act-mask" bindtap="closeActionMenu" catchtouchmove="noop"></view>
   <view wx:if="{{actionMenu.show}}" class="act-sheet" catchtouchmove="noop">
     <view class="act-head">
       <text class="act-title">{{actionMenu.role === 'ai' ? '明灯 · 此笺' : '我的 · 此笺'}}</text>
     </view>
-    <view class="act-grid">
-      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="up" bindtap="actFeedback">
-        <image class="act-ic" src="{{fb[actionMenu.msgId + '-up'] ? '/assets/images/ic-up-on.png' : '/assets/images/ic-up.png'}}"></image>
+    <!-- 组一 · 评价收藏（仅明灯回复）：点赞 / 点踩 / 收藏 / 表情反应 -->
+    <block wx:if="{{actionMenu.role === 'ai'}}">
+      <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="up" bindtap="actFeedback">
+        <text class="act-em">👍</text>
         <text class="act-label">点赞</text>
       </view>
-      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="down" bindtap="actFeedback">
-        <image class="act-ic" src="{{fb[actionMenu.msgId + '-down'] ? '/assets/images/ic-down-on.png' : '/assets/images/ic-down.png'}}"></image>
+      <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="down" bindtap="actFeedback">
+        <text class="act-em">👎</text>
         <text class="act-label">点踩</text>
       </view>
-      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="keep" bindtap="actFeedback">
-        <image class="act-ic" src="{{actionMenu.kept ? '/assets/images/ic-keep-on.png' : '/assets/images/ic-keep.png'}}"></image>
+      <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="keep" bindtap="actFeedback">
+        <text class="act-em">🔖</text>
         <text class="act-label">收藏</text>
       </view>
-      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="emoji" bindtap="actItem">
-        <text class="act-glyph act-glyph-emoji">😊</text>
+      <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="emoji" bindtap="actItem">
+        <text class="act-em">😊</text>
         <text class="act-label">表情反应</text>
       </view>
-      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="copy" bindtap="actItem">
-        <image class="act-ic" src="/assets/images/ic-copy.png"></image>
-        <text class="act-label">复制</text>
-      </view>
-      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="select" bindtap="actItem">
-        <text class="act-glyph">文</text>
-        <text class="act-label">选取文字</text>
-      </view>
-      <!-- v1.3 多选：进入勾选模式 → 批量收藏 / 分享 -->
-      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="multi" bindtap="actItem">
-        <text class="act-glyph act-glyph-multi">选</text>
-        <text class="act-label">多选</text>
-      </view>
-      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="speak" bindtap="actItem">
-        <image class="act-ic" src="/assets/images/ic-speak.png"></image>
+      <view class="act-sep"></view>
+    </block>
+    <!-- 组二 · 文字处理（通用）：复制 / 选取文字 / 多选 -->
+    <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="copy" bindtap="actItem">
+      <text class="act-em">📋</text>
+      <text class="act-label">复制</text>
+    </view>
+    <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="select" bindtap="actItem">
+      <text class="act-em">📝</text>
+      <text class="act-label">选取文字</text>
+    </view>
+    <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="multi" bindtap="actItem">
+      <text class="act-em">☑️</text>
+      <text class="act-label">多选</text>
+    </view>
+    <!-- 组三 · 明灯专属（仅 AI）：朗读 / 分享 / 意见反馈 -->
+    <block wx:if="{{actionMenu.role === 'ai'}}">
+      <view class="act-sep"></view>
+      <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="speak" bindtap="actItem">
+        <text class="act-em">🔊</text>
         <text class="act-label">朗读</text>
       </view>
-      <button wx:if="{{actionMenu.role === 'ai'}}" class="act-item act-share" open-type="share" bindtap="closeActionMenu">
-        <image class="act-ic" src="/assets/images/ic-share.png"></image>
+      <button class="act-row act-share" open-type="share" bindtap="closeActionMenu">
+        <text class="act-em">↗️</text>
         <text class="act-label">分享</text>
       </button>
-      <view wx:if="{{actionMenu.role === 'ai'}}" class="act-item" hover-class="act-item-active" hover-stay-time="0" data-k="feedback" bindtap="actItem">
-        <text class="act-glyph">议</text>
+      <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="feedback" bindtap="actItem">
+        <text class="act-em">💬</text>
         <text class="act-label">意见反馈</text>
       </view>
-    </view>
+    </block>
     <view class="act-del" hover-class="act-del-active" hover-stay-time="0" data-k="delete" bindtap="actItem">
+      <text class="act-em act-del-em">🗑️</text>
       <text class="act-del-txt">删除此条</text>
     </view>
     <view class="act-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeActionMenu">取消</view>
