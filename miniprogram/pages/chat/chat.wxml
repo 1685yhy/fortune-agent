@@ -90,8 +90,60 @@
     <view class="db-x" catchtap="dismissSaveBanner">✕</view>
   </view>
 
+  <!-- v2.0 空会话引导区（元宝式）：无消息时显示（品牌 + 示例问题 + 快捷入口），
+       有消息/历史时列表接管（wx:if 与 wx:else 互斥，msg-list 保持原布局） -->
+  <view wx:if="{{showGuide}}" class="guide">
+    <!-- 中部 · 品牌（印章 + 名称 + 副标题） -->
+    <view class="guide-main">
+      <view class="guide-brand">
+        <view class="guide-seal"><text class="guide-seal-char">易</text></view>
+        <view class="guide-name">易理明灯</view>
+        <view class="guide-sub">观命 · 不执命</view>
+        <view class="guide-rule"></view>
+      </view>
+      <!-- 中部 · 示例问题（墨韵小卡片，点击直接发送提问） -->
+      <view class="guide-qs">
+        <view class="guide-q" hover-class="guide-q-active" hover-stay-time="0" data-text="今天运势如何？" bindtap="quickAsk">
+          <text class="guide-q-mark">问</text>
+          <text class="guide-q-txt">今天运势如何？</text>
+        </view>
+        <view class="guide-q" hover-class="guide-q-active" hover-stay-time="0" data-text="帮我看看这段感情" bindtap="quickAsk">
+          <text class="guide-q-mark">问</text>
+          <text class="guide-q-txt">帮我看看这段感情</text>
+        </view>
+        <view class="guide-q" hover-class="guide-q-active" hover-stay-time="0" data-text="我这个名字怎么样？" bindtap="quickAsk">
+          <text class="guide-q-mark">问</text>
+          <text class="guide-q-txt">我这个名字怎么样？</text>
+        </view>
+        <view class="guide-q" hover-class="guide-q-active" hover-stay-time="0" data-text="测测明天的宜忌" bindtap="quickAsk">
+          <text class="guide-q-mark">问</text>
+          <text class="guide-q-txt">测测明天的宜忌</text>
+        </view>
+      </view>
+    </view>
+    <!-- 左下角 · 快捷入口（今日运势 / 深夜灯语 / 双人合盘 / 择吉日） -->
+    <view class="guide-quick">
+      <view class="guide-entry" hover-class="guide-entry-active" hover-stay-time="0" data-url="/pages/today/today" data-mode="relaunch" bindtap="onGuideNav">
+        <text class="guide-entry-ic">🏮</text>
+        <text class="guide-entry-txt">今日运势</text>
+      </view>
+      <view class="guide-entry" hover-class="guide-entry-active" hover-stay-time="0" data-url="/pages/chat/chat?entry=night" data-mode="relaunch" bindtap="onGuideNav">
+        <text class="guide-entry-ic">🌙</text>
+        <text class="guide-entry-txt">深夜灯语</text>
+      </view>
+      <view class="guide-entry" hover-class="guide-entry-active" hover-stay-time="0" data-url="/pages/hehun/hehun" bindtap="onGuideNav">
+        <text class="guide-entry-ic">👥</text>
+        <text class="guide-entry-txt">双人合盘</text>
+      </view>
+      <view class="guide-entry" hover-class="guide-entry-active" hover-stay-time="0" data-url="/pages/zeri/zeri" bindtap="onGuideNav">
+        <text class="guide-entry-ic">📅</text>
+        <text class="guide-entry-txt">择吉日</text>
+      </view>
+    </view>
+  </view>
+
   <!-- Task 5 滚动不拽回：bindscroll 记录用户滚动位置，上滑查看历史时流式自动滚不再拽回 -->
-  <scroll-view scroll-y class="msg-list {{multiMode ? 'multi-on' : ''}}" scroll-into-view="{{scrollInto}}" scroll-with-animation bindscroll="onScroll">
+  <scroll-view wx:else scroll-y class="msg-list {{multiMode ? 'multi-on' : ''}}" scroll-into-view="{{scrollInto}}" scroll-with-animation bindscroll="onScroll">
     <view class="msg-inner">
       <block wx:for="{{messages}}" wx:key="id">
         <view wx:if="{{item.role === 'ai'}}" class="jianzhu {{selectMsgId === item.id ? 'select-mode' : ''}} {{multiMode && multiSel[item.id] ? 'multi-on' : ''}}"

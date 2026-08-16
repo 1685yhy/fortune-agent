@@ -25,12 +25,9 @@ function curatedFor(prompt) {
   return CURATED[hit] || CURATED.default;
 }
 
-/* 原型 SEED 开场三笺（dir_b.html 802-806 行） */
-const SEED = [
-  { id: 's1', role: 'ai', tag: '明灯 · 问候', content: '夜好。窗外有风，你这里也有灯。今晚想聊什么？梦、心事，或只是一天的尾巴。', time: '23:38' },
-  { id: 's2', role: 'user', content: '我梦见自己站在桥上，河水很清，我却不敢走过去。', time: '23:39' },
-  { id: 's3', role: 'ai', tag: '解梦 · 水与桥', content: '桥在梦里，是「渡」的记号——你心里已经有了过河的打算。水清，说明你并不糊涂；不敢过桥，只是还差一句推你上桥的话。这三日，把最想做的那件事，说给最信任的人听。桥，会自己搭好。', time: '23:41' },
-];
+/* v2.0 元宝式空会话引导：SEED 开场三笺已移除——新开/首访不再自动出现演示对话，
+   改为空消息 + 引导区（品牌 + 示例问题 + 快捷入口，见 chat.wxml .guide）。
+   历史续读逻辑不受影响：有历史/现场 → 显示历史；无消息 → 空 + 引导区。 */
 
 const STORAGE_KEY = 'ylm_chat_messages';
 const ARCHIVE_KEY = 'ylm_chat_archives';
@@ -81,7 +78,8 @@ Page({
   data: {
     navOff: 0,
     showBack: false,          // 导航栈进入（历史/解梦 navigateTo）→ 显示返回箭头；tab 主屏隐藏
-    messages: SEED,
+    messages: [],
+    showGuide: true,          // v2.0 空会话引导（元宝式）：无消息时显示品牌+示例问题+快捷入口
     /* v1.3 多选收藏/分享：长按菜单「多选」进入勾选模式（勾选框 + 顶部操作条） */
     multiMode: false,
     multiSel: {},             // {消息id: true}
@@ -421,8 +419,10 @@ Page({
       }
     }
     this._prevStreaming = !!state.streaming;
+    const mirrored = this._mirror(state.messages || []);
     this.setData({
-      messages: this._mirror(state.messages || []),
+      messages: mirrored,
+      showGuide: mirrored.length === 0,   // v2.0：消息出现即隐藏引导区
       streaming: !!state.streaming,
       typing: !!state.typing,
     });
@@ -548,10 +548,11 @@ Page({
     return out;
   },
 
-  /* 历史续读：宿主现场优先（可能后台生成中/刚完成）；无则 storage；再无则 SEED 开场。
+  /* 历史续读：宿主现场优先（可能后台生成中/刚完成）；无则 storage；再无则空会话引导区
+     （v2.0：不再回 SEED 开场——渲染空列表 → 引导区显示）。
      M2：晨笺条目(type==='jian')不在此过滤——host 必须保留它，否则 streamHost._save()
      会把过滤后的数组写回 storage，永久抹除收藏条目；渲染层(_mirror)才做排除。
-     若会话里只剩晨笺条目（首访先收藏），补 SEED 开场保证聊天页非空（晨笺仍留在 host） */
+     只剩晨笺条目时渲染为空 → 显示引导区（晨笺仍留在 host，favorites 笺匣不受影响） */
   _loadHistory() {
     const hostState = streamHost.getState();
     let messages = null;
@@ -566,13 +567,12 @@ Page({
       }
       if (Array.isArray(saved) && saved.length) messages = saved;
     }
-    if (Array.isArray(messages) && messages.length && messages.every((m) => isJianEntry(m))) {
-      messages = SEED.slice().concat(messages);
-    }
-    if (!messages || !messages.length) messages = SEED.slice();
+    if (!messages || !messages.length) messages = [];
     streamHost.setMessages(messages);
+    const mirrored = this._mirror(messages);
     this.setData({
-      messages: this._mirror(messages),
+      messages: mirrored,
+      showGuide: mirrored.length === 0,   // v2.0：无消息 → 元宝式空会话引导区
       streaming: !!hostState.streaming,
       typing: !!hostState.typing,
     });
@@ -704,6 +704,19 @@ Page({
     const text = (e.currentTarget.dataset.text || '').trim();
     if (!text) return;
     this._send(text);
+  },
+
+  /* v2.0 引导区快捷入口（元宝式左下角）：
+     今日运势 / 深夜灯语（tab 页与同页重入）→ reLaunch；双人合盘 / 择吉日 → navigateTo */
+  onGuideNav(e) {
+    const url = (e.currentTarget.dataset.url || '').trim();
+    if (!url) return;
+    const mode = e.currentTarget.dataset.mode;
+    if (mode === 'relaunch') {
+      wx.reLaunch({ url });
+    } else {
+      wx.navigateTo({ url });
+    }
   },
 
   onInput(e) {
@@ -1190,12 +1203,12 @@ Page({
   },
 
   /* 新开对话（页头「新开」符号钮，v1.3 固定入口）：
-     当前会话归档 ylm_chat_archives → 回到 SEED 开场（全新空对话）。
+     当前会话归档 ylm_chat_archives → 回到空会话引导区（v2.0 元宝式空页）。
      PM 要求：点新开 = 当前对话保存到历史 → 从欢迎/空开始重新说；下次进入小程序是
-     这段新对话而非旧内容（_resetChatUi → streamHost.reset 会把 SEED 写回
-     ylm_chat_messages，onLoad 恢复读到的是空对话开场；旧内容只存在于归档=历史页）。
+     这段新对话而非旧内容（_resetChatUi → streamHost.reset 会把空数组写回
+     ylm_chat_messages，onLoad 恢复读到的是空对话 → 显示引导区；旧内容只存在于归档=历史页）。
      确认弹窗保留（PM 接受：当前对话将保存到历史）。
-     真机反馈修复：确认后必须清空回 SEED 并归档；任何异常不静默失败——
+     真机反馈修复：确认后必须清空并归档；任何异常不静默失败——
      归档失败不阻断重置，并给明确提示。 */
   startNewChat() {
     this.exitMulti();   // v1.3：多选模式中新开 → 先退出勾选态
@@ -1229,8 +1242,9 @@ Page({
   _archiveCurrent() {
     const msgs = (streamHost.messages && streamHost.messages.length) ? streamHost.messages : this.data.messages;
     if (!msgs || !msgs.length) return;
-    /* v1.3：只有开场（SEED 演示三笺，id 以 's' 开头）无真实对话 → 不产生空归档
-       （与 history.js hasRealUser 同口径：真实用户消息 id 为 u+时间戳） */
+    /* v1.3：只有演示/引导（无真实用户消息）→ 不产生空归档
+       （与 history.js hasRealUser 同口径：真实用户消息 id 为 u+时间戳；v2.0 起
+       引导区不发消息，空会话不会走到归档） */
     const hasReal = msgs.some((m) => m.role === 'user' && String(m.id || '').indexOf('s') !== 0);
     if (!hasReal) return;
     const firstUser = msgs.find((m) => m.role === 'user' && !m.pending);
@@ -1275,10 +1289,11 @@ Page({
      同时 _speakSeq++ 使进行中的 TTS 请求失效（其成功回调不再继续播放/失败不再弹「语音合成失败」）。
      走查：startNewChat → _archiveCurrent → _resetChatUi 全链路无 toast 触发点（仅确认弹窗
      与成功 toast「已新开一段夜话」）；_cleanupVoice 置 _dropResult 使识别 onError 也静默。
-     真机反馈修复（新开对话后界面无变化）：setData 直接写入 SEED 的 _mirror 镜像
-     （与 _onHostState 订阅路径同一渲染口径），不依赖 streamHost.reset → _emit → _onHostState
-     的订阅链路兜底——该链路在某些真机场景未生效时，界面也能立即切到 SEED 开场三笺；
-     streamHost.reset 照常执行（宿主现场/存储恢复仍以 SEED 为准），订阅到达时是幂等重绘 */
+     v2.0（元宝式空会话引导）：新开/清空后不再回 SEED 三笺——setData 直接写空消息镜像 +
+     showGuide=true（与 _onHostState 订阅路径同一渲染口径），不依赖 streamHost.reset →
+     _emit → _onHostState 的订阅链路兜底——该链路在某些真机场景未生效时，界面也能立即
+     切到空会话引导区；streamHost.reset([]) 照常执行（宿主现场/存储恢复为空，
+     下次 onLoad 读到空 → 引导区），订阅到达时是幂等重绘 */
   _resetChatUi() {
     this._cleanupVoice();
     if (this._audioCtx) {
@@ -1288,9 +1303,10 @@ Page({
     }
     this._speakSeq = (this._speakSeq || 0) + 1;   // 使在途 TTS 请求失效（播新停旧语义）
     this._drawerRestore = null;
-    const seedMirror = this._mirror(SEED.slice());  // 与订阅路径同口径（md 节点/思考态/表情合并）
+    const emptyMirror = this._mirror([]);  // 与订阅路径同口径（空列表，引导区接管）
     this.setData({
-      messages: seedMirror,
+      messages: emptyMirror,
+      showGuide: true,
       fb: {},
       typing: false,
       streaming: false,
@@ -1303,8 +1319,7 @@ Page({
       inputText: '',
       emojiSheet: { show: false, msgId: '', cur: [], curMap: {} },
     });
-    streamHost.reset(SEED.slice());
-    this._scrollBottom(true);   // 强制滚底：渲染的是 SEED 开场三笺（scrollInto 复位重设触发）
+    streamHost.reset([]);
   },
 
   /* ═══ v1.1 语音/键盘模式切换（元宝式） ═══ */
