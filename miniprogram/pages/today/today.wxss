@@ -609,3 +609,47 @@
   width: 750px;
   height: 1200px;
 }
+
+/* ── 未设置命主信息提示条（通用运势时出现；墨韵虚线卡 + 朱砂去设置按钮，与晨笺未开启同款） ── */
+.arch-hint {
+  width: 100%;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  margin-top: 34rpx;                      /* 18px */
+  border: 3rpx dashed rgba(58,44,30,.32); /* 1.5px */
+  border-radius: 12rpx;                   /* 6px */
+  padding: 25rpx 29rpx;                   /* 13px 15px */
+  display: flex;
+  align-items: center;
+  gap: 23rpx;                             /* 12px */
+  background: rgba(251,247,236,.4);
+}
+.arch-hint-active { background: var(--acc-soft); }
+.arch-hint-seal { width: 65rpx; height: 65rpx; font-size: 38rpx; border-radius: 6rpx; transform: rotate(-2deg); }
+.arch-hint-mid { flex: 1; min-width: 0; }
+.arch-hint-t {
+  font-family: var(--font-song);
+  font-size: 25rpx;                       /* 13px */
+  color: var(--ink);
+  letter-spacing: .05em;
+}
+.arch-hint-s {
+  margin-top: 6rpx;                       /* 3px */
+  font-family: var(--font-song);
+  font-size: 23rpx;                       /* 12px */
+  letter-spacing: .08em;
+  color: var(--ink-faint);
+}
+.arch-hint-cta {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 24rpx;                       /* 12.5px */
+  letter-spacing: .16em;
+  color: #FBF6E8;
+  background: var(--acc);
+  border-radius: 12rpx;                   /* 6px */
+  padding: 19rpx 31rpx;                   /* 10px 16px */
+  min-height: 85rpx;                      /* 44px */
+  display: flex;
+  align-items: center;
+}

@@ -4,6 +4,7 @@ const theme = require('../../utils/theme');
 const shareCard = require('../../utils/shareCard');
 const lunar = require('../../utils/lunar');
 const streamHost = require('../../utils/streamHost'); // 收藏同步宿主用（见 _syncHostJian）
+const persons = require('../../utils/persons'); // 命主档案本地判定（未设置提示条用）
 
 /* 收藏复用现有收藏机制：ylm_chat_messages 中 role==='ai' && kept===true（favorites 页数据源）。
    type:'jian' 为笺匣分类标记（Task 10 收藏页「笺」分类）。 */
@@ -76,6 +77,8 @@ Page({
     dark: false,
     /* 深夜入口横幅：mode=深夜时段内(21:00 后,白天不出现)；banner=入口开关 */
     night: { mode: false, banner: true },
+    /* 未设置命主档案 → 通用运势提示条（true 时显示「去设置」跳档案页） */
+    archiveHint: false,
     /* 晨笺卡：show=已开启且有数据；notEnabled=未开启（显示「开启晨笺」入口） */
     jian: {
       show: false,
@@ -173,9 +176,15 @@ Page({
       const chips = [suitable[0], suitable[1]]
         .filter(Boolean)
         .map((s) => '宜 · ' + s);
+      /* 无命主档案 → 后端返回通用日历（personal_advice 以「请先设置八字信息」标识）。
+         诗签不再展示这段说明文字（回退原型诗签），改为提示条 + 「去设置」按钮跳档案页；
+         本地已建档（后端缓存未刷新）时不再提示 */
+      const needsArchive = (res.personal_advice || '').includes('请先设置八字信息')
+        && !persons.hasLocalArchive();
       this.setData({
         yiChips: chips.length >= 2 ? chips : DEFAULT_CHIPS,
-        poemLines: splitPoem(res.personal_advice || res.advice || ''),
+        poemLines: needsArchive ? DEFAULT_POEM.slice() : splitPoem(res.personal_advice || res.advice || ''),
+        archiveHint: needsArchive,
       });
 
       /* ── 流日四运（0-10 分，进度条 = score×10%） ── */
@@ -451,9 +460,15 @@ Page({
         jiDetail: this.data.jiDetail,
         fortune4: this.data.detailFortune4,
         hourly: this.data.hourlyRaw,
+        needsArchive: this.data.archiveHint, // 通用运势标记 → 详解页提示条
       });
     } catch (e) { /* 存储失败不阻断跳转（详情页自拉 API） */ }
     wx.navigateTo({ url: '/pages/today_detail/today_detail' });
+  },
+
+  /* 未设置命主信息提示条 → 档案页（添加命主） */
+  onGoArchive() {
+    wx.navigateTo({ url: '/pages/persons/persons', fail: () => {} });
   },
 
   /* 原型 onTalk：进入夜话 */

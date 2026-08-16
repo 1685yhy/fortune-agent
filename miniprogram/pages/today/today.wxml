@@ -24,12 +24,22 @@
       </view>
     </view>
 
+    <!-- 未设置命主档案：通用运势提示条 + 去设置（跳档案页） -->
+    <view class="arch-hint" wx:if="{{archiveHint}}" hover-class="arch-hint-active" hover-stay-time="0" bindtap="onGoArchive">
+      <view class="seal arch-hint-seal"><text class="seal-char">命</text></view>
+      <view class="arch-hint-mid">
+        <view class="arch-hint-t">尚未设置命主信息</view>
+        <view class="arch-hint-s">今日为通用运势 · 设置后解读更贴合自己</view>
+      </view>
+      <view class="arch-hint-cta">去设置</view>
+    </view>
+
     <!-- 深夜入口横幅(21:00 后出现,白天不出现) -->
     <view wx:if="{{night.mode}}" class="night-banner lamp-fade" hover-class="night-banner-active" hover-stay-time="0" bindtap="onNightEntry">
       <view class="nb-lantern"><text class="nb-lantern-char">灯</text></view>
       <view class="nb-mid">
         <view class="nb-title">夜深了 · 灯还亮着</view>
-        <view class="nb-sub">21:00-01:00 · 枕边灯语 &amp; 倾诉 · 今夜说的话，天亮就忘</view>
+        <view class="nb-sub">21:00-01:00 · 枕边灯语 · 倾诉 · 今夜说的话，天亮就忘</view>
       </view>
       <view class="nb-go">灯下见</view>
     </view>
