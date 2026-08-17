@@ -48,14 +48,14 @@ Page({
     if (off !== 0) this.setData({ navOff: off });
   },
 
-  goBack() {
-    wx.navigateBack({
-      delta: 1,
-      fail: () => wx.reLaunch({ url: '/pages/celiang/celiang' }),
-    });
-  },
+  /* v2026-08-17（PM）：goBack 已移除——本页 qian.json 为默认导航样式，
+     系统导航栏自带返回键（navigateTo 栈），自定义返回钮（navrow .back）已删，
+     返回途径统一为系统导航栏返回键；onShake 保留（签筒 idle 态 + 再摇按钮用） */
 
-  /* 点签筒 / 摇一支: 先进入摇动态,同时请求;响应后补足 1.6s 再揭签卡 */
+  /* 点签筒 / 摇一支: 先进入摇动态,同时请求;响应后补足 1.6s 再揭签卡。
+     v2026-08-17（PM）：抽完后签筒不可再点——wxml bindtap 仅 idle 态绑定
+     onShake（done/shaking 态点击不触发），重摇只走下方「再摇一支」按钮；
+     此处 shaking 守卫兜底（连点/按钮连击不重复触发） */
   onShake() {
     if (this.data.stage === 'shaking') return;
     this.setData({ stage: 'shaking', card: null, raisedIdx: -1 });

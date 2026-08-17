@@ -2,10 +2,11 @@
      视觉基准: 原型 S12(13-qian-idle / 14-qian-card / 14b / 14c)
      签筒=CSS 样式绘制(5 签枝朱砂顶,非图片资产);摇签动效=CSS keyframes 1.6s -->
 <view class="screen qian-wrap" style="--nav-off:{{navOff}}px">
+  <!-- v2026-08-17（PM）：本页 qian.json 为默认导航样式，系统导航栏自带返回键，
+       自定义 navrow 的返回按钮与之重复（PM 反馈"还有个独立的返回按钮"）——
+       移除自定义返回钮，返回途径统一为系统导航栏返回键（navigateTo 栈）。
+       仅保留标题行与右侧占位，布局不变 -->
   <view class="navrow">
-    <view class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
-      <image class="back-icon" src="/assets/images/ic-back.png"></image>
-    </view>
     <view class="nav-title">
       <text>抽灵签</text>
     </view>
@@ -16,10 +17,12 @@
     <!-- 引语(原型: 朱砂小字居中) -->
     <view class="qian-quote">心中默念一事，摇一支签。签不欺人，诚则灵。</view>
 
-    <!-- 签筒区: 点签筒/摇一支 → 摇签动效 1.6s → 单支弹出(签号竖写) -->
+    <!-- 签筒区: 点签筒/摇一支 → 摇签动效 1.6s → 单支弹出(签号竖写)
+         v2026-08-17（PM）：抽完后（stage=done）签筒不可再点——只响应 idle 态
+         的点击（bindtap 条件绑定为空时事件不触发），重摇仅走下方「再摇一支」按钮 -->
     <view class="qian-stage {{stage === 'shaking' ? 'shaking' : ''}}"
       hover-class="{{stage === 'idle' ? 'qian-stage-active' : 'none'}}" hover-stay-time="0"
-      bindtap="onShake">
+      bindtap="{{stage === 'idle' ? 'onShake' : ''}}">
       <view class="tube">
         <view wx:for="{{sticks}}" wx:key="index" class="stick s{{index + 1}} {{raisedIdx === index && stage === 'done' ? 'raised' : ''}}">
           <view wx:if="{{raisedIdx === index && stage === 'done'}}" class="stick-no">
@@ -31,7 +34,7 @@
           <view class="tube-stamp"><text>明</text></view>
         </view>
       </view>
-      <view class="qian-hint">{{stage === 'shaking' ? '摇签中 · 心诚则灵' : '点一下签筒，摇一支'}}</view>
+      <view class="qian-hint">{{stage === 'shaking' ? '摇签中 · 心诚则灵' : (stage === 'done' ? '已摇出 · 见下方签卡' : '点一下签筒，摇一支')}}</view>
     </view>
 
     <!-- 签卡(摇出后) -->
