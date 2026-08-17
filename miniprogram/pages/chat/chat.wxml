@@ -96,6 +96,11 @@
        v2026-08-17：去掉底部快捷入口排（今日运势/深夜灯语/双人合盘/择吉日，
        4 条示例问题已足够，避免视觉冗余）。
        有消息/历史时列表接管（条件互斥，msg-list 保持原布局） -->
+  <!-- 全局免责一行（2026-08-17：对话回复不再逐条带「仅供参考」尾巴——改为
+       消息区顶部固定浅色小字，空会话时在引导区下方、有消息时在列表上方，
+       不随消息滚动隐藏；全局只出现一次） -->
+  <view class="chat-disclaimer">内容由 AI 生成 · 仅供娱乐参考</view>
+
   <view wx:if="{{showGuide}}" class="guide">
     <view class="guide-main">
       <!-- 左下 · 品牌（印章 + 名称 + 副标题） -->
@@ -126,11 +131,6 @@
       </view>
     </view>
   </view>
-
-  <!-- 全局免责一行（2026-08-17：对话回复不再逐条带「仅供参考」尾巴——改为
-       消息区顶部固定浅色小字，空会话时在引导区下方、有消息时在列表上方，
-       不随消息滚动隐藏；全局只出现一次） -->
-  <view class="chat-disclaimer">内容由 AI 生成 · 仅供娱乐参考</view>
 
   <!-- Task 5 滚动不拽回：bindscroll 记录用户滚动位置，上滑查看历史时流式自动滚不再拽回 -->
   <scroll-view wx:else scroll-y class="msg-list {{multiMode ? 'multi-on' : ''}}" scroll-into-view="{{scrollInto}}" scroll-with-animation bindscroll="onScroll">
