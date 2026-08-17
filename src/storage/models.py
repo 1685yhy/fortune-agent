@@ -93,10 +93,13 @@ CREATE TABLE IF NOT EXISTS sessions (
     retrieval_hit TEXT DEFAULT 'unused',  -- hit / miss / unused
     model TEXT,                   -- 生成模型/版本（训练溯源）
     safety_flag TEXT,             -- 安全事件标记（如 self_harm_referral 自伤转介）
+    session_id TEXT,              -- 会话标识（会话隔离：新开对话 → 新 session_id）
     created_at TEXT DEFAULT (datetime('now')),
     id INTEGER PRIMARY KEY AUTOINCREMENT
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, created_at);
+-- 注意：idx_sessions_session 不在 SCHEMA 建（老库 executescript 时列尚不存在），
+-- 在 _migrate_db 中与 session_id ALTER 同批创建
 
 -- L2 会话摘要（增量摘要持久化；summary/memories 加密落库，同 sessions.content）
 CREATE TABLE IF NOT EXISTS session_summaries (
@@ -172,6 +175,7 @@ def _migrate_db(conn):
         changes = True
 
     # 阶段 2（方案 §7.2）：sessions 表补齐数据资产字段（安全加列，幂等）
+    # 会话隔离：sessions 加 session_id 维度（老库 ALTER 兼容；新库已含于 SCHEMA）
     tables = {row[0] for row in conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
     if "sessions" in tables:
@@ -182,10 +186,14 @@ def _migrate_db(conn):
             ("retrieval_hit", "TEXT DEFAULT 'unused'"),
             ("model", "TEXT"),
             ("safety_flag", "TEXT"),
+            ("session_id", "TEXT"),
         ):
             if col not in session_cols:
                 conn.execute(f"ALTER TABLE sessions ADD COLUMN {col} {ddl}")
                 changes = True
+        # 会话级查询索引（老库可能只缺索引不缺列：无条件执行并提交，保证落盘）
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_session ON sessions(session_id)")
+        changes = True
 
     if changes:
         conn.commit()

@@ -112,6 +112,7 @@ class StreamHost {
     this.notice = null;          // 一次性 toast 提示（页面消费后清除）
     this.tick = 0;               // 状态变更计数（页面据此判断是否需要滚动/刷新）
     this._stopRequested = false;
+    this.sessionId = '';         // 会话隔离：当前会话标识（chat 页注入；请求随附）
   }
 
   /* ── 页面挂载/解挂 ── */
@@ -174,6 +175,12 @@ class StreamHost {
      （后端：临时不落记忆 + 深夜语气层） */
   setDeepNight(v) {
     this.deepNight = !!v;
+  }
+
+  /* ── 会话隔离：chat 页注入当前会话标识（新开对话 → 新 sessionId 覆盖；
+     请求 payload 随附 session_id → 后端 AI 上下文只取本会话消息） ── */
+  setSessionId(v) {
+    this.sessionId = (v || '').trim();
   }
 
   send(text, tag) {
@@ -252,7 +259,8 @@ class StreamHost {
       onAbort: () => this._onAbort(),
       onError: (err) => this._onError(err),
     };
-    api.chatStream(this.curText, handlers, { deepNight: !!this.deepNight })
+    api.chatStream(this.curText, handlers,
+                   { deepNight: !!this.deepNight, sessionId: this.sessionId })
       .then((handle) => {
         this.task = handle;
         if (this._stopRequested) {
@@ -484,7 +492,8 @@ class StreamHost {
     if (!hasPartial && !this.fallbackStarted) {
       this.fallbackStarted = true;
       try {
-        const res = await api.chat(this.curText || '');
+        const res = await api.chat(this.curText || '', '', [],
+                                   { sessionId: this.sessionId });
         const content = (res && (res.reply || res.content || '')) || '';
         const cur = this._find(this.msgId);
         if (!cur) return;

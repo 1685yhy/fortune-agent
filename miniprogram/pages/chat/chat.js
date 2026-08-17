@@ -148,6 +148,9 @@ Page({
     const nightMode = require('../../utils/nightMode');
     this.data.nightMode = forceNight || nightMode.isNightMode(this._nightPreset);
     streamHost.setDeepNight(this.data.nightMode);
+    /* ═══ 会话隔离：恢复/生成会话标识（ylm_session_id）→ 请求随附 →
+       后端 AI 上下文只取本会话消息（新开对话 = 全新 session_id = 全新上下文） ═══ */
+    this._loadSessionId();
     if (this.data.nightMode) this._enterNight();
     this._loadNightPrefs();           // 异步拉取档位/动效/挽留并缓存
     this._loadReactions();
@@ -1319,6 +1322,34 @@ Page({
       emojiSheet: { show: false, msgId: '', cur: [], curMap: {} },
     });
     streamHost.reset([]);
+    /* 会话隔离：新开/清空 = 新会话 → 生成新 session_id（旧会话消息不再进入上下文） */
+    const sid = this._genSessionId();
+    try { wx.setStorageSync(this.SESSION_KEY, sid); } catch (e) { /* ignore */ }
+    streamHost.setSessionId(sid);
+  },
+
+  /* ═══ 会话隔离（PM：新开对话后回复不得带上个对话内容） ═══
+     sessionId 生命周期：onLoad 恢复（无则生成）→ 新开/清空（_resetChatUi）时生成新的；
+     持久化 ylm_session_id；请求 payload 随附 session_id → 后端上下文只取本会话。
+     本期不做「历史页继续 → 切回旧 session_id」（历史续读按 user 兜底上下文）。 */
+  SESSION_KEY: 'ylm_session_id',
+
+  _genSessionId() {
+    /* s_ + 时间戳36进制(8位) + 随机4位 → 总长 11~14，全 [A-Za-z0-9_]，
+       符合后端格式校验 ^[A-Za-z0-9_-]{8,64}$ */
+    const rand = Math.random().toString(36).slice(2, 6);
+    return 's_' + Date.now().toString(36) + (rand || '0000');
+  },
+
+  /* 恢复（首次则生成）会话标识并注入流式宿主 */
+  _loadSessionId() {
+    let sid = '';
+    try { sid = wx.getStorageSync(this.SESSION_KEY) || ''; } catch (e) { /* ignore */ }
+    if (typeof sid !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(sid)) {
+      sid = this._genSessionId();
+      try { wx.setStorageSync(this.SESSION_KEY, sid); } catch (e) { /* ignore */ }
+    }
+    streamHost.setSessionId(sid);
   },
 
   /* ═══ v1.1 语音/键盘模式切换（元宝式） ═══ */

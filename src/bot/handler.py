@@ -451,7 +451,8 @@ class MessageHandler:
     # Feedback Learning (F1-F3)
     # ============================================================
 
-    def _handle_feedback(self, msg: str, user_id: str) -> str:
+    def _handle_feedback(self, msg: str, user_id: str,
+                         session_id: Optional[str] = None) -> str:
         """Handle 👍/👎 feedback — learn user preferences."""
         is_positive = msg in ("👍", "好评", "准", "good")
         is_negative = msg in ("👎", "差评", "不准", "bad")
@@ -470,7 +471,8 @@ class MessageHandler:
             last_topic = ""
             last_msg = ""
             if self.session_dao:
-                history = self.session_dao.get_context_for_llm(user_id, history_limit=5)
+                history = self.session_dao.get_context_for_llm(
+                    user_id, history_limit=5, session_id=session_id)
                 user_msgs = [m.get("content", "") for m in history if m.get("role") == "user"]
                 last_msgs = " ".join(user_msgs)
                 last_topic = self.preference_dao.detect_topic(last_msgs)
@@ -669,7 +671,8 @@ class MessageHandler:
     # AI Message Analysis — emotion + intent in ONE call (no keywords)
     # ============================================================
 
-    def _analyze_message(self, msg: str, user_id: str = "") -> MessageAnalysis:
+    def _analyze_message(self, msg: str, user_id: str = "",
+                         session_id: Optional[str] = None) -> MessageAnalysis:
         """Single AI call for emotion detection + intent classification.
 
         Replaces _soothe() + _detect_intent() — zero hardcoded keywords.
@@ -684,7 +687,8 @@ class MessageHandler:
                 history = None
                 if user_id and self.session_dao:
                     try:
-                        history = self.session_dao.get_context_for_llm(user_id, history_limit=6)
+                        history = self.session_dao.get_context_for_llm(
+                            user_id, history_limit=6, session_id=session_id)
                     except Exception:
                         history = None
                 return analyzer.analyze(msg, history=history)
@@ -815,7 +819,8 @@ class MessageHandler:
 
     def _run_tool_loop(self, msg: str, user_id: str, reply: str,
                        stream_cb: Optional[Callable] = None,
-                       analysis: Optional[MessageAnalysis] = None) -> str:
+                       analysis: Optional[MessageAnalysis] = None,
+                       session_id: Optional[str] = None) -> str:
         """检测回复中的 <tool_call> 标签 → 执行工具 → 结果以 system 注入 → 再次调 LLM。
 
         - 最多 MAX_TOOL_ITERATIONS（2）次迭代，防死循环
@@ -846,7 +851,8 @@ class MessageHandler:
         if self.session_dao:
             try:
                 # 会话历史末尾即当前用户消息（assistant 回复尚未保存）
-                history = self.session_dao.get_context_for_llm(user_id, history_limit=20)
+                history = self.session_dao.get_context_for_llm(
+                    user_id, history_limit=20, session_id=session_id)
             except Exception:
                 history = None
 
@@ -1021,7 +1027,8 @@ class MessageHandler:
     def _polish_with_engine_draft(self, msg: str, user_id: str, draft: str,
                                   stream_cb: Optional[Callable] = None,
                                   extra_hint: str = "",
-                                  search_hint: str = "") -> str:
+                                  search_hint: str = "",
+                                  session_id: Optional[str] = None) -> str:
         """方案 B·引擎结果注入：把 _handle_* 的引擎分析结果作为「引擎草稿」
         注入 system → LLM 以豆包式语气生成最终回复（AI 原生架构统一）。
 
@@ -1121,7 +1128,8 @@ class MessageHandler:
         if self.session_dao:
             try:
                 # 会话历史末尾即当前用户消息（assistant 回复尚未保存）
-                history = self.session_dao.get_context_for_llm(user_id, history_limit=20)
+                history = self.session_dao.get_context_for_llm(
+                    user_id, history_limit=20, session_id=session_id)
             except Exception:
                 history = None
         if history:
@@ -2130,7 +2138,8 @@ class MessageHandler:
         return self._tool_logs.pop(user_id, None)
 
     def process(self, message: str, user_id: str,
-                stream_cb: Optional[Callable] = None, deep_night: bool = False) -> str:
+                stream_cb: Optional[Callable] = None, deep_night: bool = False,
+                session_id: Optional[str] = None) -> str:
         """处理用户消息，返回回复。
 
         stream_cb（v8 流式阶段 3）：提供时把生成过程实时回调出去——
@@ -2140,6 +2149,9 @@ class MessageHandler:
 
         deep_night（Task 5 倾诉临时通道）：跳过 L2 事实/事件捕捉/演化链等记忆管线，
         本轮回合消息全部以 temp 标记落库（24h 硬清理兜底），并注入深夜语气层。
+
+        session_id（会话隔离）：前端新开对话时生成新会话标识，AI 上下文只取本会话
+        消息（不带上个对话内容）；None = 旧行为（按用户全量取上下文）。
         """
         msg = message.strip()
         self._deep_night[user_id] = bool(deep_night)
@@ -2152,14 +2164,16 @@ class MessageHandler:
         # Step -2: Cache check (D2 speed optimization)
         # 终审：deepNight 请求跳过缓存读写——夜里语气/陪伴类回复不可命中白天缓存，
         # 缓存键也隐含用户+消息，避免倾诉缓存串味（应修 #缓存命中 temp/语气）
+        # 会话隔离：缓存键掺入 session_id——新会话不命中旧会话同文回复的缓存
+        # （否则新开对话问同一句仍会拿到旧会话缓存答案，白做隔离）
         if is_cacheable(msg) and not deep:
-            cached = self.cache.get(msg, user_id)
+            cached = self.cache.get(msg, user_id, session_id or "")
             if cached:
                 return cached
 
         # Step -1: 反馈检测 (👍/👎) — learn from user feedback
         if msg in ("👍", "👎", "好评", "差评", "准", "不准", "good", "bad") or msg.startswith("👍") or msg.startswith("👎"):
-            return self._handle_feedback(msg, user_id)
+            return self._handle_feedback(msg, user_id, session_id=session_id)
 
         # Step 0.6: P1-2 额度检查 — 免费用户每日3次限制
         remaining, is_limited = self._check_quota(user_id)
@@ -2167,7 +2181,8 @@ class MessageHandler:
             if remaining <= 0:
                 msg_warning = "💡 你今天的免费额度已用完。成为会员即可无限畅聊，基础版仅需 19.9 元/月。\n\n回复「会员」了解更多升级方案。\n或回复「👍」告诉我之前的分析有用，帮助我改进～"
                 if self.session_dao:
-                    self.session_dao.add_message(user_id, "assistant", msg_warning, temp=deep)
+                    self.session_dao.add_message(user_id, "assistant", msg_warning,
+                                                 temp=deep, session_id=session_id)
                 return msg_warning
             elif remaining == 1:
                 # 倒计时提醒：仅剩1次免费机会
@@ -2195,7 +2210,8 @@ class MessageHandler:
                 "回复「开通基础版」即可升级！"
             )
             if self.session_dao:
-                self.session_dao.add_message(user_id, "assistant", upgrade_msg, temp=deep)
+                self.session_dao.add_message(user_id, "assistant", upgrade_msg,
+                                             temp=deep, session_id=session_id)
             return upgrade_msg
 
         # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
@@ -2207,7 +2223,7 @@ class MessageHandler:
         # 用户发送后胶囊迟迟不出现——首条事件在开工时即发出
         self._emit_stream_event(stream_cb, "thinking", "正在领会你的意思…")
         _t0 = time.monotonic()
-        analysis = self._analyze_message(msg, user_id)
+        analysis = self._analyze_message(msg, user_id, session_id=session_id)
         logger.info("[timing] stage=intent duration=%.1fs",
                     time.monotonic() - _t0)
         # 阶段 5（方案 v5）：记录本轮理解出的关键事实（subject=other 时排盘不写本人画像）
@@ -2282,6 +2298,7 @@ class MessageHandler:
                 model=getattr(self.llm, 'model', '') or '',
                 safety_flag=self._safety_flag(msg),
                 temp=deep,
+                session_id=session_id,
             )
 
         # 流式模式（v8 阶段 3）："欢迎回来"开场提前生成并作为首个正文块流出，
@@ -2300,7 +2317,7 @@ class MessageHandler:
             reply = self._handle_xuetang(msg, user_id)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply, intent="xuetang",
-                                             temp=deep)
+                                             temp=deep, session_id=session_id)
             return reply
 
         # Task 5: advisor keyword fallback — catch "建议"/"怎么办" even if AI misses it
@@ -2309,7 +2326,7 @@ class MessageHandler:
             reply = self._handle_advisor(msg, user_id)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply, intent="advisor",
-                                             temp=deep)
+                                             temp=deep, session_id=session_id)
             return reply
 
         # H1: 心事树洞 — user sharing a story (overrides fortune intent when no birth info)
@@ -2318,9 +2335,11 @@ class MessageHandler:
             has_birth_info = bool(re.search(r'\d{4}\s*[年/-]', msg))
             if not has_birth_info:
                 self._consume_quota(user_id)
-                reply = self._handle_confidant(msg, user_id, analysis)
+                reply = self._handle_confidant(msg, user_id, analysis,
+                                               session_id=session_id)
                 if self.session_dao:
-                    self.session_dao.add_message(user_id, "assistant", reply, temp=deep)
+                    self.session_dao.add_message(user_id, "assistant", reply,
+                                                 temp=deep, session_id=session_id)
                 return reply
 
         if analysis.intent is None:
@@ -2331,10 +2350,10 @@ class MessageHandler:
                 hints.insert(0, NIGHT_TONE_HINT)
             reply = self._free_chat(msg, user_id, emotion_label=analysis.emotion_label,
                                     extra_hint="\n".join(hints),
-                                    stream_cb=stream_cb)
+                                    stream_cb=stream_cb, session_id=session_id)
             # AI 原生（Phase 1）：<tool_call> 工具调用循环
             reply = self._run_tool_loop(msg, user_id, reply, stream_cb=stream_cb,
-                                        analysis=analysis)
+                                        analysis=analysis, session_id=session_id)
             # 阶段 2：本轮工具调用日志 → 落库字段
             tool_log = self._pop_tool_log(user_id)
             # AI 原生（Phase 2）：长期记忆 — 会话开始（非首次）注入"欢迎回来"式开场
@@ -2354,6 +2373,7 @@ class MessageHandler:
                     model=getattr(self.llm, 'model', '') or '',
                     safety_flag=self._safety_flag(msg),
                     temp=deep,
+                    session_id=session_id,
                 )
             if analysis.needs_soothe and analysis.soothe_text:
                 reply = analysis.soothe_text + "\n\n" + reply
@@ -2386,7 +2406,13 @@ class MessageHandler:
         if handler:
             try:
                 self._consume_quota(user_id)
-                reply = handler(msg, user_id, stream_cb=stream_cb)
+                # 会话隔离：解梦需读会话历史（P0-1 已有梦境免重复描述），
+                # 仅 dream 处理器感知 session_id；其余引擎处理器不读历史
+                if analysis.intent == "dream":
+                    reply = handler(msg, user_id, stream_cb=stream_cb,
+                                    session_id=session_id)
+                else:
+                    reply = handler(msg, user_id, stream_cb=stream_cb)
             except Exception as e:
                 reply = f"⚠️ 服务暂时不可用：{str(e)[:100]}\n\n请稍后再试或换一种命理方式。"
         else:
@@ -2404,13 +2430,13 @@ class MessageHandler:
                 reply = self._polish_with_engine_draft(
                     msg, user_id, reply, stream_cb,
                     extra_hint="\n".join(h for h in (topic_hint, analysis_hint) if h),
-                    search_hint=analysis_hint)
+                    search_hint=analysis_hint, session_id=session_id)
             except Exception:
                 pass  # 润色异常 → 保留引擎原稿（静默降级，行为不劣于现状）
 
         # AI 原生（Phase 1）：<tool_call> 工具调用循环
         reply = self._run_tool_loop(msg, user_id, reply, stream_cb=stream_cb,
-                                    analysis=analysis)
+                                    analysis=analysis, session_id=session_id)
         # 阶段 2：本轮工具调用日志 → 落库字段
         tool_log = self._pop_tool_log(user_id)
         # AI 原生（Phase 2）：长期记忆 — 会话开始（非首次）注入"欢迎回来"式开场
@@ -2430,6 +2456,7 @@ class MessageHandler:
                 model=getattr(self.llm, 'model', '') or '',
                 safety_flag=self._safety_flag(msg),
                 temp=deep,
+                session_id=session_id,
             )
 
         if analysis.needs_soothe and analysis.soothe_text:
@@ -2442,8 +2469,9 @@ class MessageHandler:
 
         # D2: Cache the response for high-frequency queries
         # 终审：deepNight 不写缓存（见 Step -2 注释，夜里回复只属于当晚）
+        # 会话隔离：缓存键掺入 session_id，与 Step -2 读取同口径
         if is_cacheable(msg) and not deep:
-            self.cache.set(msg, reply, user_id)
+            self.cache.set(msg, reply, user_id, scope=session_id or "")
 
         return reply
 
@@ -4070,7 +4098,8 @@ class MessageHandler:
     # ============================================================
 
     def _handle_dream(self, msg: str, user_id: str,
-                      stream_cb: Optional[Callable] = None) -> str:
+                      stream_cb: Optional[Callable] = None,
+                      session_id: Optional[str] = None) -> str:
         """处理解梦请求 - 提取完整梦境 + 处境
 
         P0-1 修复: 如果用户在本会话中已经分享过梦境内容，
@@ -4084,7 +4113,8 @@ class MessageHandler:
         if not dream_text or len(dream_text) < 2:
             # P0-1: 检查会话历史中是否有已分享的梦境内容
             if self.session_dao:
-                history = self.session_dao.get_context_for_llm(user_id, history_limit=20)
+                history = self.session_dao.get_context_for_llm(
+                    user_id, history_limit=20, session_id=session_id)
                 for m in reversed(history):
                     if m["role"] == "user" and any(kw in m["content"] for kw in ["梦见", "梦到", "做梦", "梦见了"]):
                         dream_text = m["content"]
@@ -4547,7 +4577,8 @@ class MessageHandler:
     # 心事树洞 — Deep Listening Mode (H1-H3)
     # ============================================================
 
-    def _handle_confidant(self, msg: str, user_id: str, analysis) -> str:
+    def _handle_confidant(self, msg: str, user_id: str, analysis,
+                          session_id: Optional[str] = None) -> str:
         """Deep listening mode: engage with user's story before offering fortune reading.
 
         Uses a dedicated system prompt (CONFIDANT_PROMPT) that prioritizes
@@ -4577,7 +4608,8 @@ class MessageHandler:
 
             api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
             if not api_key:
-                return self._free_chat(msg, user_id, emotion_label="sadness")
+                return self._free_chat(msg, user_id, emotion_label="sadness",
+                                       session_id=session_id)
 
             import httpx
             headers = {
@@ -4592,7 +4624,8 @@ class MessageHandler:
 
             # Include recent conversation context
             if self.session_dao:
-                history = self.session_dao.get_context_for_llm(user_id, history_limit=5)
+                history = self.session_dao.get_context_for_llm(
+                    user_id, history_limit=5, session_id=session_id)
                 if len(history) > 1:
                     messages = [{"role": "system", "content": CONFIDANT_PROMPT}]
                     messages.extend(history[-4:])  # last 4 messages
@@ -4625,7 +4658,8 @@ class MessageHandler:
 
             return reply
         except Exception:
-            return self._free_chat(msg, user_id, emotion_label="sadness")
+            return self._free_chat(msg, user_id, emotion_label="sadness",
+                                   session_id=session_id)
 
     def _get_listening_turns(self, user_id: str) -> int:
         """Track how many consecutive listening turns a user has had."""
@@ -4645,7 +4679,8 @@ class MessageHandler:
     # 帮助信息
     # ============================================================
 
-    def _conversational_chat(self, history: list, user_id: str) -> str:
+    def _conversational_chat(self, history: list, user_id: str,
+                             session_id: Optional[str] = None) -> str:
         """多轮对话 - 带完整上下文的自然聊天。
 
         优先使用 API 调用方传递的显式历史（history 参数），
@@ -4669,7 +4704,8 @@ class MessageHandler:
 
         # 如果显式历史只有一条消息，尝试从会话存储中补充更早的上下文
         if len(history) <= 1 and self.session_dao:
-            session_ctx = self.session_dao.get_context_for_llm(user_id, history_limit=15)
+            session_ctx = self.session_dao.get_context_for_llm(
+                user_id, history_limit=15, session_id=session_id)
             if len(session_ctx) > len(history):
                 # 用会话历史替换，但确保当前用户消息在最后
                 llm_history = [m for m in session_ctx if m["role"] != "user" or m["content"] != current_msg]
@@ -4677,7 +4713,8 @@ class MessageHandler:
 
         # Save user message to session
         if self.session_dao and current_msg:
-            self.session_dao.add_message(user_id, "user", current_msg)
+            self.session_dao.add_message(user_id, "user", current_msg,
+                                         session_id=session_id)
 
         # 多轮对话：把历史消息传给 LLM
         try:
@@ -4687,13 +4724,15 @@ class MessageHandler:
 
         # Save assistant reply to session
         if self.session_dao:
-            self.session_dao.add_message(user_id, "assistant", reply)
+            self.session_dao.add_message(user_id, "assistant", reply,
+                                         session_id=session_id)
 
         return reply
 
     def _free_chat(self, msg: str, user_id: str, emotion_label: str = None,
                    extra_hint: str = "",
-                   stream_cb: Optional[Callable] = None) -> str:
+                   stream_cb: Optional[Callable] = None,
+                   session_id: Optional[str] = None) -> str:
         """自由对话：没有命中任何命理意图时，直接用 LLM 自然聊天。
 
         当检测到情绪信号时，将情绪上下文注入提示词，
@@ -4729,7 +4768,8 @@ class MessageHandler:
             return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
         if saved_bazi and (has_year or has_gender):
             # 用户已有八字，但提供了新的出生信息，可能想更新或已有信息
-            intent_result = self._analyze_message(msg, user_id)
+            intent_result = self._analyze_message(msg, user_id,
+                                                  session_id=session_id)
             if intent_result.intent == "bazi":
                 return self._handle_bazi(msg, user_id)
 
@@ -4784,8 +4824,9 @@ class MessageHandler:
                 key_facts = self._collect_key_facts(user_id)
                 # 终审：白天 LLM 上下文排除 temp 倾诉消息（天亮就忘——
                 # 24h 窗口内的夜间倾诉不流入白天对话，只删不用的兜底在 cleanup_temp）
+                # 会话隔离：session_id 传入 → 上下文只取本会话消息（新开对话全新上下文）
                 history = self.session_dao.get_context_for_llm(
-                    user_id, history_limit=200, temp=False)
+                    user_id, history_limit=200, session_id=session_id, temp=False)
                 messages = _assemble_context(
                     history, profile=profile, summary=summary,
                     current=msg, key_facts=tuple(key_facts),

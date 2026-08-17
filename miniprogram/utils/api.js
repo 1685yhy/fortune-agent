@@ -355,7 +355,8 @@ function getScenarios() {
  * @param {string} message - 用户消息
  * @param {string} scenario - 场景标识
  * @param {Array} history - 历史消息（用于上下文）
- * @param {Object} options - { messageType: 'text'|'voice', voiceText: string }
+ * @param {Object} options - { messageType: 'text'|'voice', voiceText: string,
+ *                             sessionId: string }（会话隔离：新开对话 → 新 sessionId）
  * @returns {Promise<{reply, parts, consultation_id, disclaimer, structured}>}
  */
 function chat(message, scenario = '', history = [], options = {}) {
@@ -366,6 +367,7 @@ function chat(message, scenario = '', history = [], options = {}) {
   };
   if (options.voiceText) data.voice_text = options.voiceText;
   if (options.deepNight) data.deep_night = true;  // Task 8 深夜倾诉：临时不记录 + 深夜语气层
+  if (options.sessionId) data.session_id = options.sessionId;  // 会话隔离
   // chat 冷启动最慢 59s：单独长超时 60s（微信平台单请求上限），其余请求 30s
   return waitForLogin().then(() => {
     data.user_id = resolveUserId(); // 登录定型后取最新统一身份
@@ -386,7 +388,8 @@ function chat(message, scenario = '', history = [], options = {}) {
  *
  * @param {string} message - 用户消息
  * @param {Object} handlers - { onStart, onThinking, onTool, onChunk, onDone, onError, onAbort }
- * @param {Object} options  - { messageType: 'text'|'voice', voiceText }
+ * @param {Object} options  - { messageType: 'text'|'voice', voiceText,
+ *                              sessionId: string }（会话隔离：新开对话 → 新 sessionId）
  * @returns {Promise<{abort: Function}>} abort() = 停止生成（已输出保留）
  */
 function chatStream(message, handlers = {}, options = {}) {
@@ -397,6 +400,7 @@ function chatStream(message, handlers = {}, options = {}) {
   };
   if (options.voiceText) data.voice_text = options.voiceText;
   if (options.deepNight) data.deep_night = true;  // Task 8 深夜倾诉：临时不记录 + 深夜语气层
+  if (options.sessionId) data.session_id = options.sessionId;  // 会话隔离
 
   return waitForLogin().then(ensureBaseURL).then(() => {
     data.user_id = resolveUserId(); // 登录定型后取最新统一身份

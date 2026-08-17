@@ -76,7 +76,7 @@ class ResponseCache:
     # ── New key-based API (Step 4) ───────────────────────────────────────
 
     def set(self, key: str, value: Any, user_id: str = "",
-            ttl_seconds: int = TTL_DEFAULT) -> None:
+            ttl_seconds: int = TTL_DEFAULT, scope: str = "") -> None:
         """Cache a value with per-entry TTL.
 
         Args:
@@ -84,8 +84,9 @@ class ResponseCache:
             value: Any serializable value to cache.
             user_id: Optional user identifier for scoping.
             ttl_seconds: Time-to-live in seconds (default 300 / 5 min).
+            scope: 额外作用域（会话隔离：session_id；空 = 旧行为不掺入键）。
         """
-        full_key = self._make_key(key, user_id)
+        full_key = self._make_key(key, user_id, scope)
         entry = CacheEntry(value, ttl_seconds)
         with self._lock:
             # Evict oldest if at capacity
@@ -93,17 +94,18 @@ class ResponseCache:
                 self._cache.popitem(last=False)
             self._cache[full_key] = entry
 
-    def get(self, key: str, user_id: str = "") -> Optional[Any]:
+    def get(self, key: str, user_id: str = "", scope: str = "") -> Optional[Any]:
         """Get cached value. Returns None if miss or expired.
 
         Args:
             key: Cache key used during set().
             user_id: Optional user identifier for scoping.
+            scope: 额外作用域（会话隔离：session_id；空 = 旧行为不掺入键）。
 
         Returns:
             Cached value if found and not expired, else None.
         """
-        full_key = self._make_key(key, user_id)
+        full_key = self._make_key(key, user_id, scope)
         with self._lock:
             entry = self._cache.get(full_key)
             if entry is not None:
@@ -115,9 +117,11 @@ class ResponseCache:
                 return entry.value
         return None
 
-    def _make_key(self, key: str, user_id: str = "") -> str:
-        """Build a full cache key from logical key + user scope."""
+    def _make_key(self, key: str, user_id: str = "", scope: str = "") -> str:
+        """Build a full cache key from logical key + user scope + extra scope."""
         raw = f"{key}::{user_id}" if user_id else key
+        if scope:
+            raw = f"{raw}::{scope}"
         return hashlib.md5(raw.encode()).hexdigest()
 
     # ── Legacy message-based API (backward compatible) ──────────────────

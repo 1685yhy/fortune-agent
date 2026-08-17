@@ -1303,6 +1303,7 @@ class ChatRequest(BaseModel):
     image_url: str = ""  # 图片链接（message_type=image 时）
     voice_text: str = ""  # 语音转文字结果（message_type=voice 时）
     deep_night: bool = False  # Task 5: 深夜倾诉模式(默认临时不记录+深夜语气层)
+    session_id: str = ""  # 会话隔离：新开对话 → 新 session_id（AI 上下文只取本会话）
 
 
 class ChatResponse(BaseModel):
@@ -1421,8 +1422,12 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
             )
         else:
             # 同步 LLM 调用放线程池：事件循环不阻塞，请求超时中间件才可生效
+            # 会话隔离：session_id 透传（新开对话 → 全新上下文；空/非法 → 旧行为）
+            from src.api.chat_stream import normalize_session_id
             reply = await loop.run_in_executor(
-                None, lambda: handler.process(req.message, req.user_id, deep_night=req.deep_night))
+                None, lambda: handler.process(
+                    req.message, req.user_id, deep_night=req.deep_night,
+                    session_id=normalize_session_id(req.session_id)))
         # 阶段 5：本轮引用来源（校验后），随响应返回给前端渲染角标
         citations = handler.pop_citations(req.user_id) or None
 

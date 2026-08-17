@@ -108,6 +108,25 @@ def sse_format(event: dict) -> str:
     return "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
 
 
+# 会话标识格式：字母/数字/下划线/连字符，8~64 位（前端生成 s_+时间戳+随机4位）
+SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+def normalize_session_id(raw: str = "") -> Optional[str]:
+    """会话标识归一化：去空白；格式合法返回原值，空/非法返回 None（= 旧行为）。
+
+    - 空请求 → None：不传 session_id 的存量调用完全按旧行为（按 user 取上下文）；
+    - 非法格式 → None：防御非法输入（不 4xx 拒绝，避免误伤；也不落入存储）。
+    """
+    sid = (raw or "").strip()
+    if not sid:
+        return None
+    if SESSION_ID_RE.match(sid):
+        return sid
+    logger.warning("session_id 格式非法已忽略: %r", sid[:40])
+    return None
+
+
 class ChatStreamer:
     """流式对话编排器：与 /api/chat 共用核心 handler 逻辑，但逐事件推送。"""
 
@@ -238,8 +257,12 @@ class ChatStreamer:
                 elif req.message_type == "image":
                     reply = self.handler._handle_image(req.image_url, req.message)
                 else:
-                    reply = self.handler.process(req.message, user_id, stream_cb=stream_cb,
-                                                 deep_night=bool(getattr(req, "deep_night", False)))
+                    # 会话隔离：session_id 透传（新开对话 → 全新上下文；空/非法 → 旧行为）
+                    reply = self.handler.process(
+                        req.message, user_id, stream_cb=stream_cb,
+                        deep_night=bool(getattr(req, "deep_night", False)),
+                        session_id=normalize_session_id(
+                            getattr(req, "session_id", "") or ""))
             except Exception:
                 logger.exception("chat stream process failed: user=%s", user_id)
                 raise

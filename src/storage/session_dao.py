@@ -68,6 +68,8 @@ class SessionDAO:
         self.db_path = db_path
         init_db(db_path)
         # Task 5 迁移: temp 倾诉消息标记 + 24h 过期时间(老库 ALTER 兼容)
+        # 会话隔离迁移: sessions 表加 session_id 维度（老库 ALTER 兼容；幂等——
+        # 重复初始化时列已存在跳过；旧行 session_id 为 NULL）
         conn = self._connect()
         try:
             cols = [d[1] for d in conn.execute("PRAGMA table_info(sessions)")]
@@ -75,6 +77,11 @@ class SessionDAO:
                 conn.execute("ALTER TABLE sessions ADD COLUMN temp INTEGER DEFAULT 0")
             if "temp_expire_at" not in cols:
                 conn.execute("ALTER TABLE sessions ADD COLUMN temp_expire_at TEXT DEFAULT ''")
+            if "session_id" not in cols:
+                conn.execute("ALTER TABLE sessions ADD COLUMN session_id TEXT")
+            # 会话级查询走该索引（session_id 维度；CREATE IF NOT EXISTS 天然幂等）
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_session ON sessions(session_id)")
             conn.commit()
         finally:
             conn.close()
@@ -94,6 +101,7 @@ class SessionDAO:
         model: Optional[str] = None,
         safety_flag: Optional[str] = None,
         temp: bool = False,
+        session_id: Optional[str] = None,
     ):
         """保存一条聊天消息（content 加密落库）。
 
@@ -112,6 +120,8 @@ class SessionDAO:
             safety_flag: 安全事件标记（self_harm_referral 等）
             temp: 倾诉临时消息（深夜默认模式）——带 24h 过期时间，
                   由 cleanup_temp 硬清理兜底（方案§4:服务端 24h 硬清理）。
+            session_id: 会话标识（会话隔离：新开对话 → 新 session_id →
+                  上下文只取本会话消息；None = 旧行为，按用户全量存取）。
         """
         content_enc = _encrypt_text(content)
         temp_expire_at = ""
@@ -123,10 +133,12 @@ class SessionDAO:
             conn.execute(
                 """INSERT INTO sessions
                    (user_id, role, content, intent, emotion, tool_calls,
-                    retrieval_hit, model, safety_flag, temp, temp_expire_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    retrieval_hit, model, safety_flag, temp, temp_expire_at,
+                    session_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (user_id, role, content_enc, intent, emotion, tool_calls,
-                 retrieval_hit, model, safety_flag, 1 if temp else 0, temp_expire_at),
+                 retrieval_hit, model, safety_flag, 1 if temp else 0,
+                 temp_expire_at, session_id),
             )
             conn.commit()
         finally:
@@ -182,10 +194,16 @@ class SessionDAO:
             logger.warning("会话消息迁移加密失败 id=%s: %s", message_id, e)
 
     def get_history(self, user_id: str, limit: int = 20,
+                    session_id: Optional[str] = None,
                     temp: Optional[bool] = None) -> List[Dict]:
         """获取指定用户的最近 N 条消息（content 自动解密；旧明文读取时懒迁移）。
 
+        会话隔离：session_id 传了则只取该会话的消息（旧行 session_id 为 NULL
+        不会带入——新会话上下文绝不混入无会话标记的存量消息）；
+        未传则保持旧行为（按用户取最近消息，跨会话混合）。
+
         Args:
+            session_id: 会话标识（None=旧行为：按用户全量取）。
             temp: None=全部消息（含 temp 倾诉）；False=排除 temp 倾诉消息
                   （压缩/L2 摘要路径，隐私红线：夜间倾诉不进 L2）；True=仅 temp。
 
@@ -201,6 +219,9 @@ class SessionDAO:
                    " temp, temp_expire_at, created_at"
                    " FROM sessions WHERE user_id = ?")
             params = [user_id]
+            if session_id is not None:
+                sql += " AND session_id = ?"
+                params.append(session_id)
             if temp is not None:
                 sql += " AND temp = ?"
                 params.append(1 if temp else 0)
@@ -305,19 +326,25 @@ class SessionDAO:
             conn.close()
 
     def get_context_for_llm(self, user_id: str, history_limit: int = 15,
+                            session_id: Optional[str] = None,
                             temp: Optional[bool] = None) -> List[Dict]:
         """获取可用于 LLM API 的历史消息列表（自动解密）。
+
+        会话隔离：session_id 传了则只取该会话消息（AI 上下文 = 当前会话，
+        新开对话不带上个对话内容）；未传保持旧行为（按用户全量取）。
 
         Args:
             user_id: 用户标识
             history_limit: 最多返回多少条消息（默认 15，控制 token 用量）
+            session_id: 会话标识（None=旧行为）
             temp: 透传 get_history 的 temp 过滤（None=全部；False=白天不读
                   夜间倾诉；True=仅 temp），None 保持原行为
 
         Returns:
             list of dicts: [{"role": "user"/"assistant", "content": "..."}, ...]
         """
-        history = self.get_history(user_id, limit=history_limit, temp=temp)
+        history = self.get_history(user_id, limit=history_limit,
+                                   session_id=session_id, temp=temp)
         return [{"role": h["role"], "content": h["content"]} for h in history]
 
     def clear_history(self, user_id: str):
