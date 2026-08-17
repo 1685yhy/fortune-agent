@@ -14,7 +14,9 @@ def get_version_footer() -> str:
 
     tz = timezone(timedelta(hours=8))
     now = datetime.now(tz).strftime("%Y-%m-%dT%H:%M:%S+08:00")
+    # v2026-08-17：去 emoji（PM：回复 emoji 过多显 low）——页脚随每条
+    # 分析回复展示，🔖/📌 去掉，保留版本与可复现说明
     return (
-        f"🔖 解读版本: v{READING_VERSION} | 生成时间: {now}\n"
-        "📌 同一八字同一问题，结果始终一致"
+        f"解读版本: v{READING_VERSION} | 生成时间: {now}\n"
+        "同一八字同一问题，结果始终一致"
     )

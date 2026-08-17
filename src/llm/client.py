@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import re
 from dataclasses import dataclass
 from typing import List, Union, Optional, Callable, AsyncIterator
 import threading
@@ -12,6 +13,33 @@ logger = logging.getLogger(__name__)
 from .prompts import SYSTEM_PROMPT, CHAT_PROMPT, USER_CONTEXT_TEMPLATE
 from src.engines.bazi import BaziResult
 from src.rag.retriever import ChunkResult
+
+# ---------------------------------------------------------------------------
+# emoji 强收敛（v2026-08-17，PM 反馈回复 emoji 过多显 low）：
+# 所有 LLM 输出在客户端统一后处理剔除 emoji——提示词兜底 + 此处硬兜底。
+# 覆盖块：
+#   U+1F000-1FAFF  表情/扩展象形/符号（主 emoji 区）
+#   U+2600-26FF    杂项符号（☀⛅☕⚠ 等，常被渲染为 emoji）
+#   U+2700-27BF    印刷符号（✂✈✓✕ 等）
+#   U+2B00-2BFF    杂项符号箭头（⭕⭐ 等）
+#   变体选择符 FE0F / ZWJ 200D / 键盘帽 20E3
+# 另剔孤立代理项（\uD800-\uDFFF）：流式分片可能切断代理对，残缺半对一并剔除，
+# 不会残留乱码。中文（一-）、全角标点（　-〿、＀-）、
+# 半角标点/字母数字均不受影响。
+_EMOJI_RE = re.compile(
+    "[\U0001F000-\U0001FAFF"
+    "\U00002600-\U000027BF"
+    "\U00002B00-\U00002BFF"
+    "️‍⃣]"
+)
+_LONE_SURROGATE_RE = re.compile("[\uD800-\uDFFF]")
+
+
+def strip_emoji(text: str) -> str:
+    """剔除回复文本中的 emoji 字符与孤立代理项，保留中文/标点/字母数字。"""
+    if not text:
+        return text
+    return _LONE_SURROGATE_RE.sub("", _EMOJI_RE.sub("", text))
 
 # Bugfix: 原生 /v1/chat/completions 下 deepseek-v4-flash 是推理模型，
 # reasoning_content 会占满 max_tokens 导致 content 为空（finish_reason=length，
@@ -107,6 +135,10 @@ def _run_stream_feed_callback(
     buf: list = []
 
     def _feed(text: str):
+        # emoji 强收敛：流式增量也逐段剔除（残缺代理对由 _LONE_SURROGATE_RE 兜底）
+        text = strip_emoji(text)
+        if not text:
+            return
         buf.append(text)
         if stream_cb:
             try:
@@ -167,7 +199,7 @@ def deepseek_anthropic_completion(
             break
     if not text:
         raise ValueError(f"Empty content from LLM (stop_reason={data.get('stop_reason')})")
-    return text
+    return strip_emoji(text)
 
 
 def _anthropic_model_name(model: str) -> str:
@@ -322,7 +354,7 @@ class FortuneLLM:
             if not acquired:
                 logger.warning("LLM 排队超时: model=%s 并发占满（semaphore 120s 未获取）", model)
                 return AnalysisResult(
-                    response="服务繁忙，请稍后再试。当前排队人数较多，建议1分钟后重试 🙏",
+                    response="服务繁忙，请稍后再试。当前排队人数较多，建议1分钟后重试。",
                     tokens_used=0, model=model)
 
         try:
@@ -350,14 +382,14 @@ class FortuneLLM:
                         _log_llm_failure("_call_deepseek_model", model, e, retry=True)
                         content = ""
             return AnalysisResult(
-                response=content or "AI 服务暂时不可用，请稍后重试 🙏",
+                response=content or "AI 服务暂时不可用，请稍后重试。",
                 tokens_used=0,
                 model=model,
             )
         except Exception as e:
             _log_llm_failure("_call_deepseek_model", model, e, retry=True)
             return AnalysisResult(
-                response="AI 服务暂时不可用，请稍后重试 🙏",
+                response="AI 服务暂时不可用，请稍后重试。",
                 tokens_used=0, model=model)
         finally:
             if is_pro:

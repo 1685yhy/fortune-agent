@@ -115,7 +115,9 @@ from src.rag.web_search import search_web, web_search_available
 
 # 方案 B·引擎结果注入（AI 原生统一）：_handle_* 分析回复的系统尾巴
 # （反馈提示/版本页脚）——润色时先剥离、润色后原样回接，防 LLM 改写
-_FEEDBACK_PROMPT = "———\n💬 这个分析对你有帮助吗？👍 有帮助  👎 不太准"
+# v2026-08-17：去 emoji（PM 反馈回复 emoji 过多显 low），反馈字词保留
+# （_handle_feedback 仍识别「准/不准」文本）
+_FEEDBACK_PROMPT = "———\n这个分析对你有帮助吗？可回复「准」或「不准」告诉我"
 
 
 class _FaissChunk:
@@ -1106,7 +1108,9 @@ class MessageHandler:
             "5. 若原结果本身已是清晰的列表/卡片格式（如宜忌、时辰表、排盘卡片），"
             "宜忌/时辰表等表格用 markdown 表格格式呈现、不要用代码块包裹，"
             "保持该结构完整，不要合并或删减条目，仅补充口语化的开头和结尾；\n"
-            "6. 直接输出给用户的回复文本，不要解释过程。"
+            "6. 直接输出给用户的回复文本，不要解释过程；\n"
+            "7. 【硬性要求】回复中禁止使用任何 emoji 表情符号"
+            "（表情图标、颜文字、装饰符号都不用），只用文字与中文标点表达语气。"
             + (("\n\n" + extra_hint) if extra_hint else "")
         )
 
@@ -4086,14 +4090,15 @@ class MessageHandler:
                         dream_text = m["content"]
                         break
             if not dream_text or len(dream_text) < 2:
-                return """🌙 请描述您的梦境，我来为您解梦：
+                # v2026-08-17：去 emoji（PM：回复 emoji 过多显 low）
+                return """请描述您的梦境，我来为您解梦：
 
 您可以详细说说：
 • 梦里发生了什么？
 • 梦里有什么情绪和感觉？
 • 最近有什么特别担心或关注的事情吗？
 
-💡 例如：「梦见一条大蟒蛇在追我，我很害怕，最近工作压力大，老板总刁难我」"""
+例如：「梦见一条大蟒蛇在追我，我很害怕，最近工作压力大，老板总刁难我」"""
 
         return self._do_dream_analysis(dream_text, user_id, stream_cb=stream_cb)
 
