@@ -10,6 +10,8 @@ from typing import Optional, Dict, List, Tuple
 import numpy as np
 import cv2
 
+from src.utils.text_clean import strip_emoji
+
 
 @dataclass
 class PalmMetrics:
@@ -219,14 +221,14 @@ def generate_palm_report(metrics: PalmMetrics, retriever=None, api_key: str = ""
     if api_key:
         try:
             import httpx
-            prompt = f"精通手相学的专家。根据检测数据生成150-300字解读。\n{lines_text}\n{refs_text}"
+            prompt = f"精通手相学的专家。根据检测数据生成150-300字解读。回复中不使用任何 emoji 表情符号。\n{lines_text}\n{refs_text}"
             resp = httpx.post(
                 "https://api.deepseek.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}],
                       "max_tokens": 400, "temperature": 0.7}, timeout=30.0)
             llm = resp.json()["choices"][0]["message"]["content"]
-            return f"✋ **手相分析报告**\n\n{llm}\n\n{lines_text}\n{refs_text}"
+            return strip_emoji(f"✋ **手相分析报告**\n\n{llm}\n\n{lines_text}\n{refs_text}")
         except Exception:
             pass
-    return f"✋ **手相分析报告**\n\n{lines_text}\n{refs_text}"
+    return strip_emoji(f"✋ **手相分析报告**\n\n{lines_text}\n{refs_text}")

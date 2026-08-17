@@ -10,6 +10,8 @@ from typing import Optional
 
 import httpx
 
+from src.utils.text_clean import strip_emoji
+
 logger = logging.getLogger(__name__)
 
 # 命理分类标签
@@ -172,7 +174,7 @@ class QueryEnhancer:
             logger.warning("DeepSeek API error for query enhancement: %s", data["error"])
             return self._build_fallback(query)
 
-        content = data["choices"][0]["message"]["content"]
+        content = strip_emoji(data["choices"][0]["message"]["content"])
         return self._parse_response(content, query)
 
     def _parse_response(self, content: str, original_query: str) -> EnhancedQuery:

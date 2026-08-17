@@ -2,7 +2,6 @@
 import asyncio
 import json
 import logging
-import re
 from dataclasses import dataclass
 from typing import List, Union, Optional, Callable, AsyncIterator
 import threading
@@ -14,32 +13,11 @@ from .prompts import SYSTEM_PROMPT, CHAT_PROMPT, USER_CONTEXT_TEMPLATE
 from src.engines.bazi import BaziResult
 from src.rag.retriever import ChunkResult
 
-# ---------------------------------------------------------------------------
 # emoji 强收敛（v2026-08-17，PM 反馈回复 emoji 过多显 low）：
 # 所有 LLM 输出在客户端统一后处理剔除 emoji——提示词兜底 + 此处硬兜底。
-# 覆盖块：
-#   U+1F000-1FAFF  表情/扩展象形/符号（主 emoji 区）
-#   U+2600-26FF    杂项符号（☀⛅☕⚠ 等，常被渲染为 emoji）
-#   U+2700-27BF    印刷符号（✂✈✓✕ 等）
-#   U+2B00-2BFF    杂项符号箭头（⭕⭐ 等）
-#   变体选择符 FE0F / ZWJ 200D / 键盘帽 20E3
-# 另剔孤立代理项（\uD800-\uDFFF）：流式分片可能切断代理对，残缺半对一并剔除，
-# 不会残留乱码。中文（一-）、全角标点（　-〿、＀-）、
-# 半角标点/字母数字均不受影响。
-_EMOJI_RE = re.compile(
-    "[\U0001F000-\U0001FAFF"
-    "\U00002600-\U000027BF"
-    "\U00002B00-\U00002BFF"
-    "️‍⃣]"
-)
-_LONE_SURROGATE_RE = re.compile("[\uD800-\uDFFF]")
-
-
-def strip_emoji(text: str) -> str:
-    """剔除回复文本中的 emoji 字符与孤立代理项，保留中文/标点/字母数字。"""
-    if not text:
-        return text
-    return _LONE_SURROGATE_RE.sub("", _EMOJI_RE.sub("", text))
+# strip_emoji 实现已下沉至 src/utils/text_clean.py（轻量零依赖），
+# 供统一模型层与各引擎直调点共用。
+from src.utils.text_clean import strip_emoji
 
 # Bugfix: 原生 /v1/chat/completions 下 deepseek-v4-flash 是推理模型，
 # reasoning_content 会占满 max_tokens 导致 content 为空（finish_reason=length，

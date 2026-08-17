@@ -12,6 +12,8 @@ from typing import Dict
 
 import httpx
 
+from src.utils.text_clean import strip_emoji
+
 
 @dataclass
 class MoodResult:
@@ -88,7 +90,7 @@ class MoodDetector:
                 timeout=30.0,
             )
             data = resp.json()
-            content = data["choices"][0]["message"]["content"].strip()
+            content = strip_emoji(data["choices"][0]["message"]["content"].strip())
             result = self._parse_response(content)
         except Exception:
             result = MoodResult(mood="sassy", confidence=0.5, emotion_label="中性")

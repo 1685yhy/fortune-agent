@@ -2,6 +2,8 @@
 import logging, os, re
 import httpx
 
+from src.utils.text_clean import strip_emoji
+
 logger = logging.getLogger(__name__)
 _QUOTE_RECENT: list = []          # 最近 30 天已用金句
 _RECENT_MAX = 30
@@ -63,7 +65,7 @@ def _llm_verify(quote: str, book: str, day_ganzhi: str) -> str:
                       "这句话与今日干支/宜忌是否呼应?只回答:是 或 否"}],
                   "max_tokens": 10, "temperature": 0},
             timeout=15)
-        ans = r.json()["choices"][0]["message"]["content"].strip()
+        ans = strip_emoji(r.json()["choices"][0]["message"]["content"].strip())
         return quote if "否" not in ans else ""
     except Exception as e:
         logger.warning("金句核对失败(宽容通过): %s", e)
@@ -81,7 +83,7 @@ def generate_daily_quote(date_str: str, day_ganzhi: str) -> dict | None:
         _QUOTE_RECENT.append(c["text"])
         if len(_QUOTE_RECENT) > _RECENT_MAX:
             _QUOTE_RECENT.pop(0)
-        result = {"quote": c["text"], "book": c["book"],
+        result = {"quote": strip_emoji(c["text"]), "book": c["book"],
                   "translation": "", "matched_advice": True, "date": date_str}
         QUOTE_CACHE[date_str] = result
         return result

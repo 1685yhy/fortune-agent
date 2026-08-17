@@ -14,6 +14,8 @@ from typing import Dict, Optional, Tuple
 
 import httpx
 
+from src.utils.text_clean import strip_emoji
+
 
 @dataclass
 class SootherResult:
@@ -33,6 +35,7 @@ Analyze the user's message. Determine:
    - Be specific to their situation, not generic
    - Use natural modern Chinese, NO classical/文言文
    - NO "小友", "老夫", "老朽", "本道"
+   - NO emoji at all in soothe_text or emotion (回复中不使用任何 emoji 表情符号)
 3. If NO, soothe_text should be empty string "".
 
 Return ONLY JSON:
@@ -88,7 +91,7 @@ class EmotionSoother:
                 timeout=30.0,
             )
             data = resp.json()
-            content = data["choices"][0]["message"]["content"].strip()
+            content = strip_emoji(data["choices"][0]["message"]["content"].strip())
             result = self._parse_response(content)
         except Exception:
             result = SootherResult(needs_soothe=False, emotion_label=None, soothe_text="")

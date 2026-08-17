@@ -8,6 +8,7 @@ import logging
 from typing import Dict, List, Optional
 
 from src.engines.bazi import BaziResult
+from src.utils.text_clean import strip_emoji
 
 logger = logging.getLogger(__name__)
 
@@ -217,7 +218,7 @@ class AdaptiveAdvisor:
       "confidence": "high/medium/low"
     }}
   ],
-  "serendipity": "你问的是[领域]，但你的命盘同时提示了其他重要信息。格式：'💡 顺便说一句（你可能没问但很重要）：' + 简要说明其他领域的好时机与需注意的风险（80字以内）。如果实在没有特别信息，输出空字符串。",
+  "serendipity": "你问的是[领域]，但你的命盘同时提示了其他重要信息。格式：'顺便说一句（你可能没问但很重要）：' + 简要说明其他领域的好时机与需注意的风险（80字以内）。如果实在没有特别信息，输出空字符串。",
   "daily_tip": "一句今日小建议（30字以内）",
   "style_notes": "一句话总结用户命格特点和建议（30字以内）"
 }}
@@ -231,7 +232,8 @@ class AdaptiveAdvisor:
 4. 时间窗口要具体到日期范围（如"2027年9月15日至10月15日"），不能只说季节或月份
 5. 风格要符合当前模式的要求
 6. 如果用户问了特定领域（如"事业"），也要通过serendipity提示其他领域的重要信息
-7. **只输出JSON，不要其他任何文字**"""
+7. **只输出JSON，不要其他任何文字**
+8. 回复中不使用任何 emoji 表情符号（所有字段均不得包含 emoji）"""
 
         return prompt
 
@@ -264,7 +266,8 @@ class AdaptiveAdvisor:
             timeout=45.0,
         )
         logger.info("LLM调用成功")
-        return content
+        # emoji 强收敛：统一模型层已 strip，此处再兜底（直调点最终输出统一过 strip_emoji）
+        return strip_emoji(content)
 
     # ----------------------------------------------------------
     # 解析 LLM 输出

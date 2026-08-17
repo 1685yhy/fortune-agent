@@ -12,6 +12,8 @@ from typing import Dict, Optional
 
 import httpx
 
+from src.utils.text_clean import strip_emoji
+
 
 INTENT_CLASSIFY_PROMPT = """You are an intent classifier for a Chinese fortune-telling AI assistant (易理明灯).
 Given a user message, classify it into EXACTLY ONE of these intents:
@@ -98,7 +100,7 @@ class IntentClassifier:
                 timeout=30.0,
             )
             data = resp.json()
-            content = data["choices"][0]["message"]["content"].strip()
+            content = strip_emoji(data["choices"][0]["message"]["content"].strip())
             intent = self._parse_response(content)
         except Exception:
             intent = None

@@ -13,6 +13,8 @@ import os
 import numpy as np
 import cv2
 
+from src.utils.text_clean import strip_emoji
+
 # ============================================================
 # 68-point iBUG 300-W landmark indices (same as dlib)
 # ============================================================
@@ -386,13 +388,13 @@ def generate_report(metrics: FaceMetrics, retriever=None, api_key: str = "") -> 
     if api_key:
         try:
             import httpx
-            prompt = f"精通《麻衣神相》的面相专家。根据数据生成200-350字报告。用现代中文、自然亲切的语气。\n\n{mt}{rtxt}"
+            prompt = f"精通《麻衣神相》的面相专家。根据数据生成200-350字报告。用现代中文、自然亲切的语气。回复中不使用任何 emoji 表情符号。\n\n{mt}{rtxt}"
             resp = httpx.post(
                 "https://api.deepseek.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}],
                       "max_tokens": 500, "temperature": 0.7}, timeout=30.0)
-            return f"📷 **面相分析报告**\n\n{resp.json()['choices'][0]['message']['content']}\n\n{mt}{rtxt}"
+            return strip_emoji(f"📷 **面相分析报告**\n\n{resp.json()['choices'][0]['message']['content']}\n\n{mt}{rtxt}")
         except Exception:
             pass
-    return f"📷 **面相分析报告**\n\n{mt}{rtxt}"
+    return strip_emoji(f"📷 **面相分析报告**\n\n{mt}{rtxt}")

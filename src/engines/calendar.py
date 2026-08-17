@@ -16,6 +16,8 @@ from typing import List, Optional, Dict, Any
 
 import httpx
 
+from src.utils.text_clean import strip_emoji
+
 
 @dataclass
 class CalendarDay:
@@ -81,7 +83,8 @@ CALENDAR_PROMPT = """你是一位精通八字命理的 AI 日历顾问。基于�
 4. 五行平衡：用户缺什么五行，宜对应补什么
 5. personality 影响语气但不要出现在 JSON 中
 6. fortune4 为「流日四运」：事业/财运/感情/健康四维，score 为 0-10 一位小数；
-   desc 用现代中文、自然亲切，2-3 句，结合今日流日与命主五行关系给出具体建议"""
+   desc 用现代中文、自然亲切，2-3 句，结合今日流日与命主五行关系给出具体建议
+7. 回复中不使用任何 emoji 表情符号（所有字段均不得包含 emoji）"""
 
 
 # 天干五行（流日四运规则兜底用）
@@ -310,7 +313,7 @@ class LuckyCalendar:
             content = ""
             for block in resp_data.get("content", []):
                 if block.get("type") == "text":
-                    content = block.get("text", "").strip()
+                    content = strip_emoji(block.get("text", "").strip())
                     break
             if not content:
                 # 无 text block / content 为空，必须降级到 fallback
