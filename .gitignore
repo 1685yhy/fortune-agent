@@ -33,3 +33,6 @@ screenshots*/
 # 运行时生成物（不提交）
 data/charts/
 data/memory/*.json
+
+# 竞品数据大文件不入库（超 GitHub 100MB 限制）
+data/competitor_data/*.jsonl
