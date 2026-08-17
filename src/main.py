@@ -761,7 +761,7 @@ async def lifespan(app: FastAPI):
             logger.info("注销账号归档清理: %s", _cancel_stats)
     except Exception as e:
         logger.warning("注销账号归档清理失败: %s", e)
-    llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-v4-flash", deep_model="deepseek-v4-pro", provider="deepseek")
+    llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-v4-flash", deep_model="deepseek-v4-flash", provider="deepseek")
 
     # ── Init Narrative Service ──────────────────────────────────
     from .services.narrative import NarrativeService

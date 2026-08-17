@@ -206,7 +206,7 @@ class FortuneLLM:
     _pro_semaphore = threading.Semaphore(3)
 
     def __init__(self, api_key: str, model: str = "deepseek-v4-flash", provider: str = "deepseek",
-                 deep_model: str = "deepseek-v4-pro"):
+                 deep_model: str = "deepseek-v4-flash"):
         self.api_key = api_key
         self.model = model          # 快速模型 (日常聊天)
         self.deep_model = deep_model  # 深度模型 (命理分析)

@@ -66,7 +66,7 @@ for ci, case in enumerate(sample):
                 'Authorization': 'Bearer ' + API_KEY,
                 'Content-Type': 'application/json'
             }, json={
-                'model': 'deepseek-v4-pro',
+                'model': 'deepseek-v4-flash',
                 'messages': [
                     {'role': 'system', 'content': SYSTEM_PROMPT[:500]},  # 精简版prompt
                     {'role': 'user', 'content': prompt}
