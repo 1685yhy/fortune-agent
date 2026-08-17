@@ -1,8 +1,9 @@
 /* ═══ 屏 2 · 夜话 — 笺注对话（dir_b.html 825-903 行逐行翻译，px×1.923→rpx） ═══ */
 
-/* 输入条总高（快捷笺行 + 输入行 + 内边距，rpx 常量估算）：
-   msg-list 底部与其联动，滚动到底时最后一条气泡不被快捷笺条遮挡 */
-.screen { --inputbar-h: 192rpx; }
+/* 输入条总高（输入行 + 内边距，rpx 常量估算；v2026-08-17 移除快捷 chip 行后
+   由 192rpx 降为 130rpx）：
+   msg-list 底部与其联动，滚动到底时最后一条气泡不被输入条遮挡 */
+.screen { --inputbar-h: 130rpx; }
 
 /* ═══ 页头导航行（原型 v7 反馈#7 符号钮改造）═══
    标题「对话」居中；左侧纯符号钮（零文字）：
@@ -85,32 +86,14 @@
 }
 .sym-list-line:last-child { width: 23rpx; align-self: flex-end; margin-right: 1rpx; }
 
-/* ── 头部细行（八月初六 · 夜） ── */
-.chat-head {
-  position: absolute;
-  top: calc(183rpx + var(--nav-off));   /* 95px */
-  left: 0; right: 0;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 27rpx;                            /* 14px */
-  font-family: var(--font-song);
-  font-size: 20rpx;                      /* 10.5px */
-  letter-spacing: .3em;
-  color: var(--ink-faint);
-}
-.chat-head::before, .chat-head::after {
-  content: '';
-  width: 65rpx;                          /* 34px */
-  height: 2rpx;                          /* 1px */
-  background: var(--line);
-}
-/* 多选模式：隐藏页头细行（被操作条取代） */
-.chat-head.hide { opacity: 0; pointer-events: none; }
+/* v2026-08-17：顶部悬浮细行（八月初六 · 夜）已整个移除（PM：透明看不清、
+   点没反应、删不掉）——wxml 元素删除 + 本样式块删除；多选操作条 top 定位
+   独立（190rpx），不依赖该行高度，无需联动调整 */
 
-/* ═══ v2.0 空会话引导区（元宝式：品牌 + 示例问题 + 快捷入口） ═══
-   与 msg-list 同区域互斥（wxml wx:if/wx:else），有消息即隐藏 */
+/* ═══ v2.0 空会话引导区（微信对话空态式：品牌 + 示例问题，左下对齐） ═══
+   与 msg-list 同区域互斥（wxml wx:if/wx:else），有消息即隐藏
+   v2026-08-17（PM）：整体左下对齐（参考微信对话空态：内容在左下，不居中），
+   去掉底部快捷入口排（guide-quick/guide-entry* 样式已删） */
 .guide {
   position: absolute;
   top: calc(215rpx + var(--nav-off));
@@ -119,22 +102,22 @@
   z-index: 25;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  justify-content: flex-end;            /* 内容贴下（输入条上方） */
+  align-items: flex-start;              /* 整体左对齐 */
+  padding: 0 44rpx 34rpx;               /* 左侧留白 + 底部收边 */
 }
 .guide-main {
-  flex: 1;
   width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  align-items: flex-start;
 }
-/* 品牌：朱砂印章（双线）+ 名称 + 副标题 + 朱砂短墨线 */
+/* 品牌：朱砂印章（双线）+ 名称 + 副标题 + 朱砂短墨线（左下排列） */
 .guide-brand {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  margin-bottom: 60rpx;
+  align-items: flex-start;
+  margin-bottom: 46rpx;
 }
 .guide-seal {
   width: 112rpx;
@@ -174,15 +157,17 @@
   height: 2rpx;
   background: linear-gradient(90deg, transparent, var(--acc), transparent);
 }
-/* 示例问题：墨韵小卡片（宣纸卡 + 细墨边 + 朱砂「问」印，点击直接发送） */
+/* 示例问题：墨韵小卡片（宣纸卡 + 细墨边 + 朱砂「问」印，点击直接发送；
+   左下对齐、撑满引导区宽度） */
 .guide-qs {
+  width: 100%;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 22rpx;
 }
 .guide-q {
-  width: 560rpx;
+  width: 100%;
   box-sizing: border-box;
   display: flex;
   align-items: center;
@@ -214,34 +199,7 @@
   letter-spacing: .06em;
   color: var(--ink-mid);
 }
-/* 左下角 · 快捷入口（今日运势 / 深夜灯语 / 双人合盘 / 择吉日） */
-.guide-quick {
-  width: 100%;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 8rpx;
-  padding: 20rpx 36rpx 30rpx;
-}
-.guide-entry {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8rpx;
-  padding: 12rpx 16rpx;
-  border-radius: 12rpx;
-  min-width: 136rpx;
-}
-.guide-entry-active { background: var(--acc-soft); }
-.guide-entry-ic { font-size: 38rpx; line-height: 1; }
-.guide-entry-txt {
-  font-family: var(--font-song);
-  font-size: 21rpx;
-  letter-spacing: .08em;
-  color: var(--ink-mid);
-  white-space: nowrap;
-}
+/* v2026-08-17：快捷入口排（guide-quick/guide-entry*）样式已删（wxml 同步移除） */
 
 /* ═══ v1.3 多选操作条（长按菜单「多选」进入：已选 N 条/全选/收藏/分享/取消） ═══ */
 .multi-bar {
@@ -573,40 +531,91 @@
   color: var(--ink-faint);
 }
 
-/* ═══ v8 阶段 3·过程体验：思考路径 / 打字机光标 / 重试 ═══ */
+/* ═══ v8 阶段 3·过程体验：思考路径（元宝「深度思考」胶囊） / 打字机光标 / 重试 ═══
+   v2026-08-17 重做（PM：学习元宝深度思考样式 + 修复步骤不轮换）：
+   - 顶部胶囊：呼吸墨点 + 状态文案（思考中/深度思考完成/思考中断）+ 用时秒数
+   - 展开分步列表：✓ 已完成 / ● 进行中，流式中逐条累积（可见推进）
+   - 墨韵配色（宣纸/墨/朱砂），仅呼吸动画，无花哨动效
+   - 折叠/展开平滑过渡（max-height + opacity） */
 
-/* 思考路径（AI 气泡上方小字区，元宝式逐步点亮，可折叠） */
+/* 思考胶囊（AI 气泡上方小字区） */
 .think-path {
-  margin: -2rpx 0 16rpx;
-  padding: 13rpx 16rpx;
+  margin: 0 0 16rpx;
+  padding: 0 18rpx;
   background: var(--tag-bg);
   border: 2rpx solid var(--line-soft);
-  border-radius: 8rpx;
+  border-radius: 22rpx;                  /* 胶囊 */
+  overflow: hidden;
+  transition: border-radius .2s ease;
 }
 .think-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8rpx;
+  gap: 12rpx;
+  padding: 13rpx 2rpx;
+}
+/* 呼吸墨点：思考中 = 朱砂呼吸；完成/中断 = 静态浅墨 */
+.think-dot {
+  flex-shrink: 0;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: var(--ink-faint);
+  transition: background .3s ease;
+}
+.think-dot.pulse {
+  background: var(--acc);
+  animation: think-breathe 1.2s ease-in-out infinite;
+}
+@keyframes think-breathe {
+  0%, 100% { opacity: .35; transform: scale(.85); }
+  50% { opacity: 1; transform: scale(1.12); }
 }
 .think-label {
+  flex: 1;
+  min-width: 0;
   font-family: var(--font-song);
-  font-size: 19rpx;                      /* 10px */
-  letter-spacing: .2em;
+  font-size: 21rpx;                      /* 11px */
+  letter-spacing: .14em;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.think-secs {
+  flex-shrink: 0;
+  font-family: var(--font-lat);
+  font-size: 18rpx;                      /* 9.5px */
+  letter-spacing: .04em;
   color: var(--ink-faint);
 }
 .think-fold {
+  flex-shrink: 0;
   font-family: var(--font-lat);
   font-size: 22rpx;
   color: var(--ink-faint);
   padding: 0 6rpx;
 }
-.think-path.fold .think-row { margin-bottom: 0; }
+/* 展开列表：分隔线上方一列步骤（✓/● 逐条） */
+.think-items {
+  padding: 4rpx 2rpx 13rpx;
+  border-top: 2rpx solid var(--line-soft);
+  max-height: 420rpx;                    /* 折叠动画上限（步骤多时可滚出前先限高） */
+  overflow: hidden;
+  transition: max-height .22s ease, opacity .22s ease, padding .22s ease;
+}
+.think-path.fold .think-items {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  border-top-color: transparent;
+}
 .think-item {
   display: flex;
   align-items: baseline;
   gap: 9rpx;
-  padding: 5rpx 0;
+  padding: 7rpx 0;
 }
 .think-mark {
   flex-shrink: 0;
@@ -616,7 +625,6 @@
   font-size: 19rpx;                      /* 10px */
   color: var(--acc);                     /* 朱砂 ● 进行中 */
   animation: think-pulse 1.2s ease-in-out infinite;
-  /* Task 3：完成瞬间 ● → ✓ 过渡（点亮色渐变） */
   transition: color .25s ease, opacity .25s ease;
 }
 .think-mark.ok {
@@ -631,17 +639,9 @@
 .think-text {
   font-family: var(--font-song);
   font-size: 21rpx;                      /* 11px */
-  letter-spacing: .1em;
+  letter-spacing: .08em;
+  line-height: 1.7;
   color: var(--ink-soft);
-}
-/* Task 3：已完成计数行（流式中折叠为一行，弱化显示 + 淡入） */
-.think-done-row {
-  opacity: .72;
-  animation: think-fade .3s ease;
-}
-@keyframes think-fade {
-  from { opacity: 0; }
-  to { opacity: .72; }
 }
 
 /* 打字机光标（流式中正文末尾墨点闪烁） */
@@ -782,22 +782,10 @@
   border-top: 2rpx solid var(--line-soft);  /* 1px */
   padding: 17rpx 27rpx 19rpx;            /* 9px 14px 10px */
 }
-.chip-row { display: flex; gap: 15rpx; margin-bottom: 17rpx; }  /* 8px 9px */
-.quickchip {
-  display: inline-flex;
-  align-items: center;
-  gap: 12rpx;                            /* 6px */
-  font-family: var(--font-song);
-  font-size: 21rpx;                      /* 11px */
-  letter-spacing: .14em;
-  color: var(--ink-soft);
-  border: 2rpx solid var(--line);        /* 1px */
-  border-radius: 6rpx;                   /* 3px */
-  padding: 10rpx 23rpx;                  /* 5px 12px */
-  background: var(--paper-card);
-}
-.quickchip-active { color: var(--acc); border-color: var(--acc); background: var(--acc-soft); }
-
+/* v2026-08-17：输入条上方快捷 chip 排（chip-row/quickchip）已删
+   （wxml 同步移除；示例问题已在引导区，无需重复入口）。
+   quickAsk 函数保留（引导区示例问题使用）；输入条现仅输入行 + 内边距，
+   --inputbar-h 已同步降为 130rpx，msg-list/引导区底部联动不变 */
 .input-row { display: flex; align-items: center; gap: 17rpx; }  /* 9px */
 .chat-input {
   flex: 1;

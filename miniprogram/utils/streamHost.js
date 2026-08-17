@@ -377,7 +377,10 @@ class StreamHost {
     if (!msg) return;
     const thinking = (msg.thinking || []).map((s) => ({ text: s.text, state: 'done' }));
     thinking.push({ text, state: 'doing' });
-    this._patch(this.msgId, { thinking });
+    // v2026-08-17（元宝深度思考）：首步记起点，done 时算全程秒数（用时 Xs）
+    const patch = { thinking };
+    if (!msg.thinkStart) patch.thinkStart = Date.now();
+    this._patch(this.msgId, patch);
     this.tick++;
     this._emit({ autoScroll: true });
     this._save();                       // 页面可能已销毁：思考路径也落盘
@@ -417,6 +420,10 @@ class StreamHost {
     // 空回复兜底（v8 8.3）："我走神了，你再说一遍？"
     if (!content.trim()) content = '我走神了，你再说一遍？';
     const cits = Array.isArray(citations) ? citations : [];
+    // v2026-08-17（元宝深度思考）：全程秒数 = 首步思考事件 → done
+    const thinkSeconds = msg.thinkStart
+      ? Math.max(1, Math.round((Date.now() - msg.thinkStart) / 1000))
+      : 0;
     this._patch(this.msgId, {
       content,
       citations: cits,
@@ -425,8 +432,9 @@ class StreamHost {
       streaming: false,
       error: false,
       thinking: (msg.thinking || []).map((s) => ({ text: s.text, state: 'done' })),
-      // Task 3（思考步骤渐进展示）：全部完成后自动收起为一行
-      // （页面镜像派生 thinkLabel「思考完成 ✓ 已生成回复」，点开展开全部历史）
+      thinkSeconds,
+      // Task 3（思考步骤元宝式）：全部完成后自动收起为胶囊一行
+      // （页面镜像派生 thinkLabel「深度思考完成 · 用时 Xs」，点开展开全部步骤）
       thinkCollapsed: true,
     });
     this.streaming = false;

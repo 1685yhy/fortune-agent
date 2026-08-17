@@ -1030,6 +1030,9 @@ class MessageHandler:
         """
         if not draft:
             return draft
+        # v2026-08-17（思考过程元宝式）：润色阶段（4~5s LLM 调用）此前无任何
+        # 思考事件，前端思考胶囊长时间静止（PM：步骤不轮换）——补一步
+        self._emit_stream_event(stream_cb, "thinking", "正在整理思绪…")
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         # Mock 兼容：Mock 对象不是 str（单元测试用 Mock llm 时不发起真实网络调用）
         if not isinstance(api_key, str) or not api_key:
@@ -2192,6 +2195,9 @@ class MessageHandler:
         # 后台线程与意图分析并行发出（二者无依赖，可重叠）；bazi/career 路由由
         # _do_bazi_analysis 消费，其他路由静默丢弃（flash 成本低、无墙钟代价）。
         self._pregen_instant[user_id] = self._start_pregen_instant(msg)
+        # v2026-08-17（思考过程元宝式）：意图分析（~1s）此前无思考事件，
+        # 用户发送后胶囊迟迟不出现——首条事件在开工时即发出
+        self._emit_stream_event(stream_cb, "thinking", "正在领会你的意思…")
         _t0 = time.monotonic()
         analysis = self._analyze_message(msg, user_id)
         logger.info("[timing] stage=intent duration=%.1fs",

@@ -485,10 +485,12 @@ Page({
      M2：晨笺收藏条目(type==='jian')在此渲染层排除（host/storage 原样保留——streamHost._save
      会把 host.messages 原样写回 ylm_chat_messages，若在存储层过滤，任何一次保存都会
      永久抹除收藏的晨笺；favorites 笺匣仍展示）
-     Task 3（思考步骤渐进展示）：派生 thinkDone（已完成计数）/thinkDoing（当前
-     进行中步）/thinkLabel（标题文案）——渲染层只显示当前 doing 步 + 计数行，
-     已完成不逐条展示；完成后自动收起（streamHost._onDone 置 thinkCollapsed）。 */
-  /* 思考区派生视图：数组语义来自 streamHost（旧步→done，新步→doing） */
+     v2026-08-17（元宝「深度思考」胶囊版）：派生 thinkDone/thinkDoing/thinkLabel/
+     thinkSeconds——流式中展开分步列表逐条累积（可见推进），完成后自动收起为
+     「深度思考完成 · 用时 Xs」（streamHost._onDone 置 thinkCollapsed 与 thinkSeconds）。 */
+  /* 思考区派生视图：数组语义来自 streamHost（旧步→done，新步→doing）；
+     thinkLabel 状态文案：深度思考中 / 深度思考完成 / 思考中断 / 思考过程；
+     thinkSeconds = 后端生成全程秒数（streamHost._onDone 计算落盘） */
   _thinkView(m) {
     const arr = Array.isArray(m.thinking) ? m.thinking : [];
     let done = 0;
@@ -498,17 +500,21 @@ Page({
       if (s && s.state === 'done') done++;
       else if (s && s.state === 'doing' && !doing) doing = s.text || '';
     }
-    let label = '我在想…';
-    if (m.thinkCollapsed) {
-      if (m.streaming) label = '正在思考…';
-      else if (m.error) label = '思考中断';
-      else if (m.consultationId) label = '思考完成 ✓ 已生成回复';
-      else label = '思考过程';   // 停止/历史消息：未完成也不误标"思考完成"
-    } else if (!m.streaming && !m.error && done > 0) {
-      // 异常/回退路径（abort/回退成功未收起）：思考已完成 → 同完成态标题，不残留「我在想…」
-      label = m.consultationId ? '思考完成 ✓ 已生成回复' : '思考过程';
+    let label = '思考中';
+    if (m.streaming) {
+      label = '深度思考中';
+    } else if (m.error) {
+      label = '思考中断';
+    } else if (done > 0) {
+      // 完成态（含异常/回退成功路径）：不残留「思考中」
+      label = m.consultationId ? '深度思考完成' : '思考过程';
     }
-    return { thinkDone: done, thinkDoing: doing, thinkLabel: label };
+    return {
+      thinkDone: done,
+      thinkDoing: doing,
+      thinkLabel: label,
+      thinkSeconds: Number(m.thinkSeconds) || 0,
+    };
   },
 
   _mirror(messages) {
@@ -529,6 +535,7 @@ Page({
           thinkDone: tv.thinkDone,
           thinkDoing: tv.thinkDoing,
           thinkLabel: tv.thinkLabel,
+          thinkSeconds: tv.thinkSeconds,
         });
         continue;
       }
@@ -543,6 +550,7 @@ Page({
         thinkDone: tv.thinkDone,
         thinkDoing: tv.thinkDoing,
         thinkLabel: tv.thinkLabel,
+        thinkSeconds: tv.thinkSeconds,
       });
     }
     return out;
@@ -706,18 +714,9 @@ Page({
     this._send(text);
   },
 
-  /* v2.0 引导区快捷入口（元宝式左下角）：
-     今日运势 / 深夜灯语（tab 页与同页重入）→ reLaunch；双人合盘 / 择吉日 → navigateTo */
-  onGuideNav(e) {
-    const url = (e.currentTarget.dataset.url || '').trim();
-    if (!url) return;
-    const mode = e.currentTarget.dataset.mode;
-    if (mode === 'relaunch') {
-      wx.reLaunch({ url });
-    } else {
-      wx.navigateTo({ url });
-    }
-  },
+  /* v2026-08-17：引导区快捷入口（onGuideNav）已移除——引导区仅保留 4 条示例
+     问题（PM 反馈），今日运势/深夜灯语/双人合盘/择吉日入口排整体删除；
+     quickAsk 保留（引导区示例问题使用） */
 
   onInput(e) {
     this.setData({ inputText: e.detail.value });

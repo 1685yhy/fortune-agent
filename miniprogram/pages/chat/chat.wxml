@@ -31,8 +31,6 @@
     </view>
   </view>
 
-  <view class="chat-head {{multiMode ? 'hide' : ''}}" bindlongpress="clearChat">八月初六 · 夜</view>
-
   <!-- v1.3 多选操作条（长按菜单「多选」进入）：已选 N 条 / 全选 / 收藏 / 分享 / 取消 -->
   <view wx:if="{{multiMode}}" class="multi-bar">
     <text class="mb-count">已选 {{multiCount}} 条</text>
@@ -90,18 +88,21 @@
     <view class="db-x" catchtap="dismissSaveBanner">✕</view>
   </view>
 
-  <!-- v2.0 空会话引导区（元宝式）：无消息时显示（品牌 + 示例问题 + 快捷入口），
+  <!-- v2.0 空会话引导区（微信对话空态式）：无消息时显示（品牌 + 示例问题），
+       内容整体左下对齐（PM 反馈：参考微信对话空态——内容在左下，不是居中）；
+       v2026-08-17：去掉底部快捷入口排（今日运势/深夜灯语/双人合盘/择吉日，
+       4 条示例问题已足够，避免视觉冗余）。
        有消息/历史时列表接管（wx:if 与 wx:else 互斥，msg-list 保持原布局） -->
   <view wx:if="{{showGuide}}" class="guide">
-    <!-- 中部 · 品牌（印章 + 名称 + 副标题） -->
     <view class="guide-main">
+      <!-- 左下 · 品牌（印章 + 名称 + 副标题） -->
       <view class="guide-brand">
         <view class="guide-seal"><text class="guide-seal-char">易</text></view>
         <view class="guide-name">易理明灯</view>
         <view class="guide-sub">观命 · 不执命</view>
         <view class="guide-rule"></view>
       </view>
-      <!-- 中部 · 示例问题（墨韵小卡片，点击直接发送提问） -->
+      <!-- 左下 · 示例问题（墨韵小卡片，点击直接发送提问） -->
       <view class="guide-qs">
         <view class="guide-q" hover-class="guide-q-active" hover-stay-time="0" data-text="今天运势如何？" bindtap="quickAsk">
           <text class="guide-q-mark">问</text>
@@ -121,25 +122,6 @@
         </view>
       </view>
     </view>
-    <!-- 左下角 · 快捷入口（今日运势 / 深夜灯语 / 双人合盘 / 择吉日） -->
-    <view class="guide-quick">
-      <view class="guide-entry" hover-class="guide-entry-active" hover-stay-time="0" data-url="/pages/today/today" data-mode="relaunch" bindtap="onGuideNav">
-        <text class="guide-entry-ic">🏮</text>
-        <text class="guide-entry-txt">今日运势</text>
-      </view>
-      <view class="guide-entry" hover-class="guide-entry-active" hover-stay-time="0" data-url="/pages/chat/chat?entry=night" data-mode="relaunch" bindtap="onGuideNav">
-        <text class="guide-entry-ic">🌙</text>
-        <text class="guide-entry-txt">深夜灯语</text>
-      </view>
-      <view class="guide-entry" hover-class="guide-entry-active" hover-stay-time="0" data-url="/pages/hehun/hehun" bindtap="onGuideNav">
-        <text class="guide-entry-ic">👥</text>
-        <text class="guide-entry-txt">双人合盘</text>
-      </view>
-      <view class="guide-entry" hover-class="guide-entry-active" hover-stay-time="0" data-url="/pages/zeri/zeri" bindtap="onGuideNav">
-        <text class="guide-entry-ic">📅</text>
-        <text class="guide-entry-txt">择吉日</text>
-      </view>
-    </view>
   </view>
 
   <!-- Task 5 滚动不拽回：bindscroll 记录用户滚动位置，上滑查看历史时流式自动滚不再拽回 -->
@@ -153,31 +135,25 @@
             <text wx:if="{{multiSel[item.id]}}" class="mc-mark">✓</text>
           </view>
           <view class="jz-tag">{{item.tag}}</view>
-          <!-- Task 3 思考步骤渐进展示（模式二·元宝式小字，单步渐进点亮）：
-               流式中只渲染当前 doing 步（呼吸动画），已完成折叠为「已完成 N 步」计数行；
-               完成后自动收起为一行（thinkLabel），点开看全部历史步骤（✓ 逐个） -->
+          <!-- Task 3 思考步骤（元宝「深度思考」样式，v2026-08-17 重做）：
+               顶部折叠胶囊（呼吸墨点 + 状态文案 + 用时秒数），展开后是分步列表
+               （✓ 已完成 / ● 进行中）；流式中逐条累积上屏——每来一步新事件
+               上一步即变 ✓，步骤可见地推进（修复 PM：步骤不轮换）；
+               完成后自动收起为「深度思考完成 · 用时 Xs」，点开展开全部步骤 -->
           <view wx:if="{{item.thinking && item.thinking.length}}" class="think-path {{item.thinkCollapsed ? 'fold' : ''}}" data-id="{{item.id}}" bindtap="toggleThink">
             <view class="think-row">
+              <view class="think-dot {{item.streaming ? 'pulse' : 'ok'}}"></view>
               <text class="think-label">{{item.thinkLabel}}</text>
+              <text wx:if="{{!item.streaming && item.thinkSeconds > 0}}" class="think-secs">用时 {{item.thinkSeconds}}s</text>
               <text class="think-fold">{{item.thinkCollapsed ? '＋' : '－'}}</text>
             </view>
             <block wx:if="{{!item.thinkCollapsed}}">
-              <block wx:if="{{item.streaming}}">
-                <view wx:if="{{item.thinkDone > 0}}" class="think-item think-done-row">
-                  <text class="think-mark ok">✓</text>
-                  <text class="think-text">已完成 {{item.thinkDone}} 步</text>
-                </view>
-                <view wx:if="{{item.thinkDoing}}" class="think-item">
-                  <text class="think-mark">●</text>
-                  <text class="think-text">{{item.thinkDoing}}</text>
-                </view>
-              </block>
-              <block wx:else>
+              <view class="think-items">
                 <view class="think-item" wx:for="{{item.thinking}}" wx:key="index">
-                  <text class="think-mark {{item.state === 'done' ? 'ok' : ''}}">{{item.state === 'done' ? '✓' : '●'}}</text>
+                  <text class="think-mark {{item.state === 'done' ? 'ok' : 'doing'}}">{{item.state === 'done' ? '✓' : '●'}}</text>
                   <text class="think-text">{{item.text}}</text>
                 </view>
-              </block>
+              </view>
             </block>
           </view>
           <!-- v1.2 正文：Markdown 节点树渲染（md-block 模板逐节点 view/text，墨韵样式）；
@@ -273,11 +249,6 @@
   </scroll-view>
 
   <view class="chat-inputbar">
-    <view class="chip-row">
-      <view class="quickchip" hover-class="quickchip-active" hover-stay-time="0" data-text="解梦" bindtap="quickAsk">解梦</view>
-      <view class="quickchip" hover-class="quickchip-active" hover-stay-time="0" data-text="今日运势" bindtap="quickAsk">今日运势</view>
-      <view class="quickchip" hover-class="quickchip-active" hover-stay-time="0" data-text="看看本周" bindtap="quickAsk">看看本周</view>
-    </view>
     <!-- v1.1 语音/键盘模式切换（元宝式）：
          文字模式 = 左侧语音图标（点一下切按住说话）+ 输入框 + 发送/停止
          语音模式 = 按住说话条（复用录音逻辑）+ 右侧键盘图标（点一下切回文字） -->
