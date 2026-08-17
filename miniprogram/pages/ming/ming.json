@@ -1,7 +1,4 @@
 {
-  "navigationBarTitleText": "AI取名",
-  "backgroundColor": "#F5EFE1",
-  "navigationBarBackgroundColor": "#F5EFE1",
-  "navigationBarTextStyle": "black",
+  "navigationStyle": "custom",
   "usingComponents": {}
 }
