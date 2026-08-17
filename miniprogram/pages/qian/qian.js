@@ -75,6 +75,13 @@ Page({
       });
   },
 
+  /* v2026-08-17（PM）：「再摇一支」不自动摇——复位到待抽状态
+     （stage=idle + 清签卡 + 签枝回落），引语回到「点一下签筒，摇一支」，
+     由用户自己点签筒再摇；不会触发 onShake */
+  resetDraw() {
+    this.setData({ stage: 'idle', card: null, raisedIdx: -1 });
+  },
+
   /* 每日首摇提示(本地日期标记,非登录态校验) */
   _firstDrawHint() {
     try {

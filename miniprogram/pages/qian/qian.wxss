@@ -4,10 +4,12 @@
 
 .qian-wrap { position: fixed; inset: 0; }
 
-/* 主列滚动区(navrow 之下,子页无 tabbar,通到屏幕底) */
+/* 主列滚动区(系统导航栏之下,子页无 tabbar,通到屏幕底)
+   v2026-08-17（PM）：页内自定义 navrow 已删（系统导航栏自带标题/返回）——
+   top 从 183rpx 收到 90rpx，内容上移紧凑、消除顶部大片空白 */
 .qian-scroll {
   position: absolute;
-  top: calc(183rpx + var(--nav-off));   /* 95px */
+  top: calc(90rpx + var(--nav-off));    /* 系统导航栏下沿 */
   left: 0; right: 0;
   bottom: 0;
   z-index: 25;
@@ -32,7 +34,11 @@
   align-items: center;
   padding: 26rpx 0 6rpx;
   border-radius: 20rpx;
+  transition: padding-top .35s ease;    /* done 态让位弹起签枝，过渡不跳变 */
 }
+/* v2026-08-17（PM）：抽完后弹起的签枝（raised 上探 180rpx）会盖住上方引语——
+   done 态给签筒区预留同量上空间（签枝弹起进入预留区，引语不再被遮挡） */
+.qian-stage.done { padding-top: 200rpx; }
 .qian-stage-active { background: var(--acc-soft); }
 
 /* 签筒: 竹筒(纸色竹纹) + 5 签枝(朱砂顶) */
