@@ -406,8 +406,12 @@ Page({
     wx.showToast({ title: '明细见深度报告·契合详情章', icon: 'none' });
   },
 
-  // ---- 悬念半句「展开」→ 付费墙 ----
+  // ---- 悬念半句「展开」→ 付费墙（历史查看态无双方生辰，不可付费重跑） ----
   onExpandCliffhanger() {
+    if (this.data.viewingHistory) {
+      wx.showToast({ title: '历史记录不含双方生辰，无法解锁深度报告', icon: 'none', duration: 2200 });
+      return;
+    }
     this.setData({ showPaywall: true });
   },
   onClosePaywall() {
