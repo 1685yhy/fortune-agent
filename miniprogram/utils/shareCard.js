@@ -514,13 +514,14 @@ function drawYuanCard(data, canvas, callback) {
 }
 
 /**
- * 绘制对话分享卡「夜话拾笺」（墨韵版：笺印 · 书法标题 · 墨线分隔 · 问答成组 · 落款印章）
- * 内容：选中的 2-6 条对话（用户问 + 明灯答成组排版）+ 品牌落款
+ * 绘制对话分享卡「夜话拾笺」（墨韵版：笺印 · 书法标题 · 墨线分隔 · 问答成组 · 落款印章 · 品牌二维码）
+ * 内容：选中的 2-6 条对话（用户问 + 明灯答成组排版）+ 品牌落款 +（二维码：扫码查看这段对话）
  * @param {Object} data - { pairs: [{u, tag, content}], dateText }
  * @param {Object} canvas - canvas 2d 节点（宽 750，高度由本函数按内容设定）
  * @param {Function} callback - (tempFilePath)
+ * @param {string} qrPath - 二维码本地临时路径（可选；为空/加载失败则不画二维码，不阻塞出图）
  */
-function drawChatCard(data, canvas, callback) {
+function drawChatCard(data, canvas, callback, qrPath) {
   const ctx = canvas.getContext('2d');
   const W = 750;
   const INK = COLORS.ink, CINNABAR = COLORS.cinnabar;
@@ -532,7 +533,9 @@ function drawChatCard(data, canvas, callback) {
   /* ── 高度预算：笺头 + 问答组 + 落款区（与绘制共用同一换行口径） ── */
   ctx.font = '30px ' + FONT_KAI;
   const headerH = 278;  // 笺印+标题+日期+分隔线 → 正文顶
-  const footerH = 326;  // 菱形+印章+品牌+口号 → 底部小字前
+  // 落款区：菱形+印章+品牌+口号 → 底部小字前；带二维码时增加 二维码笺块+说明小字
+  // （修复原 326 偏紧：长内容时口号会顶到底部小字，预算增至 420）
+  const footerH = qrPath ? 720 : 420;
   let contentH = 0;
   pairs.forEach((p) => {
     let h = 30 + Math.max(countLines(ctx, p.u, W - 230) - 1, 0) * 42 + 26;   // 问行区
@@ -613,7 +616,7 @@ function drawChatCard(data, canvas, callback) {
     y += aH + 84;                                // 下一组顶
   });
 
-  /* ── 5. 落款：菱形分隔 + 朱砂「明灯」印 + 品牌 ── */
+  /* ── 5. 落款：菱形分隔 + 朱砂「明灯」印 + 品牌 +（二维码笺块 + 说明小字） ── */
   inkDiamond(ctx, W / 2, y + 44, 14);
   const sy = y + 100;
   inkSeal(ctx, W / 2, sy + 55, 110, '明灯');
@@ -623,15 +626,51 @@ function drawChatCard(data, canvas, callback) {
   ctx.fillStyle = LIGHT;
   ctx.font = '22px ' + FONT_SONG;
   ctx.fillText('三秒内，为你掌灯', W / 2, sy + 258);
+  // 二维码区（纸白笺块 + 淡墨框 + 二维码 + 墨韵小字），仅 qrPath 存在时绘制
+  const qrY = y + 410;
+  const drawQrBlock = () => {
+    roundRect(ctx, W / 2 - 105, qrY, 210, 210, 12);
+    ctx.fillStyle = CARD;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(58,44,30,.18)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.textAlign = 'center';
+    ctx.fillStyle = FAINT;
+    ctx.font = '22px ' + FONT_SONG;
+    ctx.fillText('扫码查看这段对话 · 与明灯继续聊', W / 2, qrY + 244);
+  };
   inkBottomNote(ctx, W, H);
 
-  /* ── 6. 导出 2x PNG ── */
-  wx.canvasToTempFilePath({
-    canvas, width: W, height: H, destWidth: W * 2, destHeight: H * 2,
-    fileType: 'png', quality: 1,
-    success: (res) => { if (callback) callback(res.tempFilePath); },
-    fail: (err) => { console.error('[ShareCard] chat card error:', err); if (callback) callback(null); },
-  });
+  /* ── 6. 导出 2x PNG（有二维码时先异步加载二维码图，加载失败跳过二维码不阻塞出图） ── */
+  const exportCard = () => {
+    wx.canvasToTempFilePath({
+      canvas, width: W, height: H, destWidth: W * 2, destHeight: H * 2,
+      fileType: 'png', quality: 1,
+      success: (res) => { if (callback) callback(res.tempFilePath); },
+      fail: (err) => { console.error('[ShareCard] chat card error:', err); if (callback) callback(null); },
+    });
+  };
+
+  if (qrPath) {
+    const qrImg = canvas.createImage();
+    qrImg.onload = () => {
+      try {
+        drawQrBlock();
+        ctx.drawImage(qrImg, W / 2 - 85, qrY + 20, 170, 170);
+      } catch (e) {
+        console.error('[ShareCard] chat card qr draw error:', e);
+      }
+      exportCard();
+    };
+    qrImg.onerror = () => {
+      console.warn('[ShareCard] 二维码加载失败，跳过二维码区域');
+      exportCard();
+    };
+    qrImg.src = qrPath;
+  } else {
+    exportCard();
+  }
 }
 
 // ---- 辅助函数 ----

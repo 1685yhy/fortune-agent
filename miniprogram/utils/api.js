@@ -1095,6 +1095,47 @@ function uploadAvatar(filePath) {
   }));
 }
 
+// ---- 分享（落地页 + 二维码） ----
+
+/**
+ * 提交对话分享内容 → 落地页 id（分享页出图流程第一步）
+ * @param {Array} pairs - [{u, tag, content}]（分享页已脱敏，无姓名/生辰）
+ * @param {string} dateText - 日期文案
+ * @returns {Promise<{id: string}>} 失败 reject（分享页用本地兜底 id，不阻塞出图）
+ */
+function createShare(pairs, dateText) {
+  return request('/api/share', {
+    method: 'POST',
+    data: { pairs, dateText },
+    timeout: 10000, // 分享非关键链路：快失败，不阻塞出图（失败走本地兜底 id）
+  });
+}
+
+/**
+ * 下载落地页二维码（GET /api/share/qr?url=落地页地址，返回 PNG）
+ * @param {string} landingUrl - 落地页地址（二维码内容）
+ * @returns {Promise<string>} 临时文件路径；失败 reject（分享页跳过二维码区域）
+ */
+function downloadShareQr(landingUrl) {
+  return ensureBaseURL().then(() => new Promise((resolve, reject) => {
+    wx.downloadFile({
+      url: `${getBaseURL()}/api/share/qr?url=${encodeURIComponent(landingUrl)}`,
+      timeout: 15000,
+      success: (res) => {
+        if (res.statusCode >= 200 && res.statusCode < 300 && res.tempFilePath) {
+          resolve(res.tempFilePath);
+        } else {
+          reject(new Error(`二维码下载失败 status=${res.statusCode}`));
+        }
+      },
+      fail: (err) => {
+        console.error('[API] downloadShareQr error:', err);
+        reject(new Error('二维码下载失败'));
+      },
+    });
+  }));
+}
+
 // ---- 导出 ----
 
 module.exports = {
@@ -1215,4 +1256,8 @@ module.exports = {
   saveMing,
   getMingSaved,
   deleteMing,
+
+  // Share (落地页 + 二维码)
+  createShare,
+  downloadShareQr,
 };

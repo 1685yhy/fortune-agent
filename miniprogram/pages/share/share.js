@@ -1,6 +1,7 @@
 // 分享笺 — 对话多选分享页（v1.4）
 // 数据源：聊天页多选 → multiShare 写入 ylm_share_msgs（选中的 2-6 条消息）→ navigateTo 本页
-// 流程：问答分组（用户问+明灯答成组）→ Canvas 2d 绘制墨韵分享卡（宣纸/墨/朱砂/印章「明灯」）→ 预览
+// 流程：问答分组（用户问+明灯答成组）→ POST /api/share 拿落地页 id → 下载二维码 →
+//       Canvas 2d 绘制墨韵分享卡（宣纸/墨/朱砂/印章「明灯」+ 品牌二维码）→ 预览
 // 渠道区（元宝式）：微信好友（onShareAppMessage 卡片带分享图）/ 朋友圈（onShareTimeline）/
 //                  生成分享图（wx.shareImageMessage，失败降级保存）/ 复制链接（落地页）
 const shareCard = require('../../utils/shareCard');
@@ -31,9 +32,56 @@ Page({
     this.setData({ dateText: this._dateText() });
   },
 
-  /* 页面渲染完成后再取 canvas 节点绘制 */
+  /* 页面渲染完成后再出图：POST /api/share 拿落地页 id → 下载二维码 → 绘制（任一失败均降级，不阻塞出图） */
   onReady() {
-    if (this.data.pairs.length) this._draw();
+    if (this.data.pairs.length) this._prepareCard();
+  },
+
+  /* 出图流程编排：服务端不可用 → 本地兜底 id 且跳过二维码立即出图；二维码下载失败 → 跳过二维码 */
+  _prepareCard() {
+    this.setData({ generating: true });
+    this._ensureShareId().then(({ id, fromServer }) => {
+      if (!fromServer) return this._draw('');                 // 接口不可用：不尝试下载，立即出图
+      return this._loadQr(id).then((qrPath) => this._draw(qrPath));
+    }).catch(() => this._draw(''));
+  },
+
+  /* 落地页 id：POST /api/share 提交 {pairs, dateText} 拿 {id}；失败本地兜底（时间戳+随机） */
+  _ensureShareId() {
+    if (this._shareId) return Promise.resolve({ id: this._shareId, fromServer: this._shareFromServer !== false });
+    const api = require('../../utils/api');
+    return api.createShare(this.data.pairs, this.data.dateText)
+      .then((res) => {
+        if (res && res.id) {
+          this._shareId = String(res.id);
+          this._shareFromServer = true;
+          return { id: this._shareId, fromServer: true };
+        }
+        throw new Error('响应缺少 id');
+      })
+      .catch((err) => {
+        console.warn('[share] POST /api/share 失败，用本地兜底 id:', err && err.message);
+        this._shareId = this._localShareId();
+        this._shareFromServer = false;
+        return { id: this._shareId, fromServer: false };
+      });
+  },
+
+  /* 下载落地页二维码（GET /api/share/qr?url=落地页）→ 临时路径；失败返回空串（跳过二维码不阻塞出图） */
+  _loadQr(id) {
+    const api = require('../../utils/api');
+    const landingUrl = 'https://yilichat.com/share?id=' + encodeURIComponent(id);
+    return api.downloadShareQr(landingUrl)
+      .then((p) => p || '')
+      .catch((err) => {
+        console.warn('[share] 二维码下载失败，跳过二维码区域:', err && err.message);
+        return '';
+      });
+  },
+
+  /* 本地兜底 id（时间戳+随机；落地页此时可能查不到内容，但链接结构一致） */
+  _localShareId() {
+    return 'local_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
   },
 
   /* 微信好友转发卡片：墨韵分享图（canvas 出图完成才渲染渠道区，此时必已就绪；兜底不带图） */
@@ -83,10 +131,10 @@ Page({
     });
   },
 
-  /* 落地页分享 id：本地兜底（时间戳+随机；落地页可能暂查不到内容，但链接结构一致） */
+  /* 落地页分享 id：有服务端 id 用之，否则本地兜底（时间戳+随机，链接结构一致） */
   _getShareId() {
     if (this._shareId) return this._shareId;
-    this._shareId = 'local_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    this._shareId = this._localShareId();
     return this._shareId;
   },
 
@@ -127,8 +175,8 @@ Page({
     this.setData({ pairs });
   },
 
-  /* Canvas 2d 绘制 → 预览 */
-  _draw() {
+  /* Canvas 2d 绘制 → 预览（qrPath 为空则分享图不带二维码） */
+  _draw(qrPath) {
     this.setData({ generating: true });
     const query = wx.createSelectorQuery();
     query.select('#shareCanvas')
@@ -150,7 +198,7 @@ Page({
           } else {
             wx.showToast({ title: '生成图片失败', icon: 'none' });
           }
-        });
+        }, qrPath);
       });
   },
 

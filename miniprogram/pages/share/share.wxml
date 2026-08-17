@@ -66,7 +66,7 @@
           <text class="ch-label">复制链接</text>
         </view>
       </view>
-      <view class="sh-note">长按图片也可保存 · 分享图含品牌落款，无隐私信息</view>
+      <view class="sh-note">长按图片也可保存 · 分享图含品牌二维码，可扫码继续对话</view>
     </block>
 
     <!-- 生成失败兜底 -->
