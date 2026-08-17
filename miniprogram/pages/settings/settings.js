@@ -112,12 +112,26 @@ Page({
     });
   },
 
-  /* getPhoneNumber 授权回调：e.detail.code → bindPhone(code) → 脱敏号显示 + toast */
+  /* getPhoneNumber 授权回调：e.detail.code → bindPhone(code) → 脱敏号显示 + toast
+     v2026-08-17 排查：fail 分支区分「未开通权限 / 用户取消 / 其他」——
+     原实现一律提示「已取消绑定」，权限类失败（未认证主体/后台未开通手机号能力）
+     会误导 PM 反复尝试。 */
   onGetPhoneNumber(e) {
     if (this.data.phoneLoading) return;
     const detail = e.detail || {};
     if (detail.errMsg && detail.errMsg.indexOf('ok') === -1) {
-      wx.showToast({ title: '已取消绑定', icon: 'none' });
+      const m = String(detail.errMsg || '');
+      if (m.indexOf('no permission') !== -1 || m.indexOf('unauthorized') !== -1
+        || m.indexOf('not support') !== -1 || m.indexOf('forbidden') !== -1) {
+        wx.showToast({
+          title: '未开通手机号获取权限：需微信认证主体并在小程序后台开通「手机号快速验证」能力',
+          icon: 'none', duration: 3000,
+        });
+      } else if (m.indexOf('deny') !== -1 || m.indexOf('cancel') !== -1 || m.indexOf('fail') !== -1) {
+        wx.showToast({ title: '已取消绑定', icon: 'none' });
+      } else {
+        wx.showToast({ title: '绑定失败（' + m + '）', icon: 'none', duration: 2500 });
+      }
       return;
     }
     const code = detail.code;

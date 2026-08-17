@@ -375,10 +375,27 @@ async def _get_wx_access_token() -> str:
     return token
 
 
+# 微信 getuserphonenumber 常见 errcode → 用户可操作的明确文案（v2026-08-17 排查）
+_PHONE_ERR_HINTS = {
+    40029: "授权码已失效，请重新点击绑定",
+    40163: "授权码已使用，请重新点击绑定",
+    47001: "参数异常，请重新点击绑定",
+    40001: "微信凭证失效，请稍后重试",
+    40003: "微信凭证异常，请稍后重试",
+    43004: "调用过于频繁，请稍后重试",
+    87011: "当前微信暂不支持获取手机号，请稍后重试",
+    87012: "手机号获取受限，请稍后重试",
+    87013: "授权与小程序不匹配，请用正式版重试",
+    87017: "手机号能力未开通，请在小程序后台开通后重试",
+    87018: "手机号能力未开通，请在小程序后台开通后重试",
+}
+
+
 async def _wechat_get_phone_number(code: str) -> dict:
     """调用微信 wxa/business/getuserphonenumber 换取手机号信息。
 
     成功返回 data.phone_info dict；微信返回错误 → HTTPException(400)（明确文案）。
+    errcode 有映射表时透出可操作提示；无映射时保留原始 errmsg 供诊断（不泄手机号）。
     """
     token = await _get_wx_access_token()
     import httpx
@@ -393,10 +410,15 @@ async def _wechat_get_phone_number(code: str) -> dict:
     except Exception as e:
         logger.warning("微信 getuserphonenumber 请求失败: %s", e)
         raise HTTPException(status_code=400, detail="微信服务暂不可用，请稍后重试")
-    if data.get("errcode"):
-        logger.warning("微信 getuserphonenumber 返回错误: errcode=%s errmsg=%s",
-                       data.get("errcode"), data.get("errmsg"))
-        raise HTTPException(status_code=400, detail="手机号授权失败或已过期，请重新授权")
+    errcode = data.get("errcode")
+    if errcode:
+        # 只记 errcode/errmsg/响应结构，不落手机号明文
+        logger.warning("微信 getuserphonenumber 返回错误: errcode=%s errmsg=%s has_data=%s",
+                       errcode, data.get("errmsg"), "data" in data)
+        detail = _PHONE_ERR_HINTS.get(errcode)
+        if not detail:
+            detail = f"手机号获取失败（{errcode}），请重新授权"
+        raise HTTPException(status_code=400, detail=detail)
     return data.get("data") or {}
 
 
@@ -420,6 +442,11 @@ async def user_phone_bind(req: PhoneBindRequest, uid: str = Depends(require_user
     phone_info = info.get("phone_info") or {}
     phone = str(phone_info.get("phoneNumber") or "").strip()
     if not phone:
+        # 记录响应结构（不含手机号明文）便于诊断「微信 200 但无 phoneNumber」
+        logger.warning("微信未返回手机号: has_phone_info=%s watermark_appid=%s user=%s",
+                       "phone_info" in info,
+                       (phone_info.get("watermark") or {}).get("appid"),
+                       uid)
         raise HTTPException(status_code=400, detail="微信未返回手机号，请重新授权")
     # watermark 缺失/部分字段（缺 appid）→ 视为校验失败拒绝
     watermark = phone_info.get("watermark") or {}
