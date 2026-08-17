@@ -54,12 +54,22 @@ class DreamEngine:
         keywords = self._extract_keywords(dream_text)
 
         # 3. 策略化RAG搜索
+        # 性能（2026-08-17 真机排查，P1）：FAISS 完整管线（LLM 查询扩展 +
+        # bge-m3 多路召回 + rerank 精排）单次实测 17~94s（warm/冷启动），
+        # 解梦是「关键词式多策略召回」，若每路都走完整管线最多 22 次调用
+        # = 数分钟级响应（PM 反馈解梦慢）。改为全路 cheap 召回
+        # （expand=False/rerank=False，单次 ~0.04s）：
+        #   - 解梦查询本身就是"梦见 蛇"式关键词，无扩展必要；
+        #   - 引擎本身做多策略召回 + 去重 + 按分排序（recall 语义），
+        #     精排增益远小于其耗时代价，且古籍池语义相近内容本就同源；
+        #   - 检索工具 _tool_search 仍走完整管线（每轮仅 1 次，保精排质量）。
         seen_texts = set()
         all_results = []
 
         # 策略A: 高频梦境专用搜索
         if dream_type:
-            for r in retriever.search(f"梦见 {keywords[0] if keywords else dream_type}", top_k=5):
+            for r in retriever.search(f"梦见 {keywords[0] if keywords else dream_type}",
+                                      top_k=5, expand=False, rerank=False):
                 if r.text not in seen_texts:
                     seen_texts.add(r.text)
                     all_results.append(r)
@@ -67,7 +77,7 @@ class DreamEngine:
         # 策略B: 关键词逐一搜索
         for kw in keywords[:8]:
             for q in [f"梦见 {kw}", f"{kw} 梦"]:
-                for r in retriever.search(q, top_k=3):
+                for r in retriever.search(q, top_k=3, expand=False, rerank=False):
                     if r.text not in seen_texts:
                         seen_texts.add(r.text)
                         all_results.append(r)
@@ -76,7 +86,8 @@ class DreamEngine:
         if user_context:
             ctx_kw = self._extract_keywords(user_context)
             for kw in ctx_kw[:5]:
-                for r in retriever.search(f"梦 {kw}", top_k=2):
+                for r in retriever.search(f"梦 {kw}", top_k=2,
+                                          expand=False, rerank=False):
                     if r.text not in seen_texts:
                         seen_texts.add(r.text)
                         all_results.append(r)
@@ -159,6 +170,8 @@ def format_dream_prompt(
 
 请用亲切、专业的口吻回复，像一位有智慧的老先生在和年轻人聊天。
 结合古籍依据，但要给出切实可行的现实建议。
-字数：500-800字。""")
+字数：500-800字。
+禁止使用任何 emoji 表情符号（不用表情图标、不用颜文字），
+只用文字与中文标点表达语气。""")
 
     return "\n".join(parts)

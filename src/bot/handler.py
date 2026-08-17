@@ -135,13 +135,17 @@ class _FaissChunk:
 
 
 class _ChunkSearchAdapter:
-    """FAISS dict 结果 → ChunkResult 风格对象（.search 接口兼容）。"""
+    """FAISS dict 结果 → ChunkResult 风格对象（.search 接口兼容）。
+
+    v2026-08-17 修复：转发 **kw（expand/rerank 等检索参数此前被静默丢弃——
+    调用方传 expand=False/rerank=False 不生效，仍走 LLM 扩展+精排全管线）。
+    """
 
     def __init__(self, faiss_retriever):
         self._fr = faiss_retriever
 
     def search(self, query: str, top_k: int = 5, **kw):
-        return [_FaissChunk(d) for d in self._fr.search(query, top_k=top_k)]
+        return [_FaissChunk(d) for d in self._fr.search(query, top_k=top_k, **kw)]
 
 # L2 会话增量摘要（方案 §5.4）— 触发式滚动压缩，<summary>+<memories>
 from src.bot.memory_compactor import MemoryCompactor

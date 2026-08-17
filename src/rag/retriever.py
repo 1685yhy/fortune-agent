@@ -111,8 +111,13 @@ class Retriever:
         category: Optional[str] = None,
         top_k: int = 20,
         min_score: float = 0.3,
+        **kw,
     ) -> List[ChunkResult]:
-        """混合检索：先语义检索，无结果则用BM25关键词检索"""
+        """混合检索：先语义检索，无结果则用BM25关键词检索
+
+        **kw：兼容 FAISS 检索接口的扩展参数（expand/rerank/original_query 等），
+        本检索器无查询扩展与精排，静默忽略（调用方在两类检索器间可透明切换）。
+        """
         # Try vector search first
         chunk_results = self._vector_search(query, category, top_k, min_score)
 
