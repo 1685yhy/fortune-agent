@@ -348,15 +348,13 @@ class ChatStreamer:
             yield {"type": "error", "message": "回复生成失败，请稍后重试"}
             return
 
-        # 准确率验证（与 /api/chat 一致：违规记日志；长回复无引文补免责声明）
-        disclaimer_extra = ""
+        # 准确率验证（与 /api/chat 一致：违规记日志；
+        # 2026-08-17：不再追加免责尾巴——免责改为对话页顶部静态浅色小字）
         if self.validator and reply and len(reply) > 10:
             try:
                 val_result = self.validator.validate(reply, engine_data_used=True)
                 if not val_result["passed"]:
                     logger.warning("Accuracy issue in stream response: %s", val_result["violations"])
-                if not val_result["has_citation"] and len(reply) > 300:
-                    disclaimer_extra = "\n\n---\n📖 以上分析仅供参考，命理之说，信则有，不信则无。"
             except Exception:
                 pass
 
@@ -374,8 +372,6 @@ class ChatStreamer:
                 if self.simulation_delay > 0:
                     await asyncio.sleep(self.simulation_delay)
                 yield {"type": "chunk", "content": piece}
-        if disclaimer_extra:
-            yield {"type": "chunk", "content": disclaimer_extra}
 
         consultation_id = None
         if self.dao:

@@ -1449,13 +1449,12 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
             except Exception:
                 suggestions = []
 
-        # ── 准确率验证 ───────────────────────────────────────────
+        # ── 准确率验证（2026-08-17：不再追加免责尾巴——免责改为对话页顶部
+        #    静态浅色小字，PM 要求对话回复不逐句带「仅供参考」） ─────────
         if reply and len(reply) > 10:
             val_result = _validator.validate(reply, engine_data_used=True)
             if not val_result["passed"]:
                 logger.warning(f"Accuracy issue in response: {val_result['violations']}")
-            if not val_result["has_citation"] and len(reply) > 300:
-                reply += "\n\n---\n📖 以上分析仅供参考，命理之说，信则有，不信则无。"
 
         # 成功响应后扣减配额（体验模式不扣）
         if not is_experience_mode():
