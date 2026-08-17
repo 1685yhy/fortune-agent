@@ -94,9 +94,26 @@
    与 msg-list 同区域互斥（wxml wx:if/wx:else），有消息即隐藏
    v2026-08-17（PM）：整体左下对齐（参考微信对话空态：内容在左下，不居中），
    去掉底部快捷入口排（guide-quick/guide-entry* 样式已删） */
+/* 全局免责一行（2026-08-17）：淡墨小字，固定于消息区顶部（navrow 之下、
+   第一条气泡之上），不随消息滚动隐藏；空会话时同样在引导区上方显示。
+   各消息区绝对定位元素（guide/msg-list/横幅/灯语卡）整体下移 32rpx 让位 */
+.chat-disclaimer {
+  position: absolute;
+  top: calc(188rpx + var(--nav-off));
+  left: 0; right: 0;
+  z-index: 26;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .12em;
+  line-height: 28rpx;
+  text-align: center;
+  color: var(--ink-soft);               /* 淡墨 #9A8B71 */
+  pointer-events: none;
+}
+
 .guide {
   position: absolute;
-  top: calc(215rpx + var(--nav-off));
+  top: calc(247rpx + var(--nav-off));
   left: 0; right: 0;
   bottom: calc(173rpx + var(--inputbar-h) + 12rpx);
   z-index: 25;
@@ -241,7 +258,7 @@
 .mb-btn-active { background: var(--acc-soft); }
 
 /* 多选模式：消息区下移避让操作条（215 → 286：让出 86rpx 条高 + 8rpx 间距） */
-.msg-list.multi-on { top: calc(286rpx + var(--nav-off)); }
+.msg-list.multi-on { top: calc(318rpx + var(--nav-off)); }
 
 /* 多选勾选框（气泡左上角圆形，勾选=朱砂实心 ✓）
    left:-32rpx：消息区内边距 35rpx，勾选框仍完整在滚动容器内（overflow-x 不裁剪） */
@@ -278,7 +295,7 @@
 /* ── 对话建档提示条（暖金；AI 回复含建档 key 时浮于消息区顶部） ── */
 .dlg-banner {
   position: absolute;
-  top: calc(215rpx + var(--nav-off));
+  top: calc(247rpx + var(--nav-off));
   left: 35rpx;
   right: 35rpx;
   z-index: 32;
@@ -336,7 +353,7 @@
    滚动到底时最后一条气泡（含反馈钮）完整露出，不被快捷笺条/输入行遮挡 */
 .msg-list {
   position: absolute;
-  top: calc(215rpx + var(--nav-off));   /* 112px */
+  top: calc(247rpx + var(--nav-off));   /* 112px（免责一行占位后下移 32rpx） */
   left: 0; right: 0;
   bottom: calc(173rpx + var(--inputbar-h) + 12rpx);  /* 原 246rpx 会被输入条盖住 */
   z-index: 25;
@@ -1430,7 +1447,7 @@
 /* ── 深夜标识条（灯笼 + 灯下漫谈 + 倾诉临时提示，浮于消息区顶部） ── */
 .night-head {
   position: absolute;
-  top: calc(215rpx + var(--nav-off));
+  top: calc(247rpx + var(--nav-off));
   left: 35rpx;
   right: 35rpx;
   z-index: 31;
@@ -1455,11 +1472,24 @@
   letter-spacing: .12em;
   color: var(--ink-soft);
 }
+/* 深夜提示条关闭钮（✕）：2026-08-17 PM——提示条不常驻，可点关/自动消失 */
+.night-head-x {
+  flex-shrink: 0;
+  margin-left: 10rpx;
+  padding: 6rpx 10rpx;
+  font-size: 20rpx;
+  line-height: 1;
+  color: var(--gold);
+  border: 2rpx solid var(--gold-soft);
+  border-radius: 50%;
+  opacity: .85;
+}
+.night-head-x-active { opacity: .45; }
 
 /* ── 枕边灯语卡（23:00-01:00） ── */
 .lamp-card {
   position: absolute;
-  top: calc(302rpx + var(--nav-off));
+  top: calc(334rpx + var(--nav-off));
   left: 35rpx;
   right: 35rpx;
   z-index: 31;

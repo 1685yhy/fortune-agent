@@ -88,12 +88,14 @@ Page({
     typing: false,
     inputText: '',
     inputFocused: false,
+    inputFocus: false,         // 一次性聚焦开关（今日小问预填触发输入框聚焦）
     fb: {},
     scrollInto: '',
     curTab: 'chat',
     dark: false,
     /* ═══ Task 8 · 深夜模式（方案·灯下漫谈） ═══ */
     nightMode: false,          // 深夜模式(夜色主题+语气)
+    nightHeadShow: true,       // 深夜提示条可见（2026-08-17 PM：可关闭/自动消失）
     lampLit: false,            // 灯笼动效本轮是否已播
     lamp: { show: false, date: '', text: '', audioUrl: '', favorited: false,
             timerMin: 15, playing: false },
@@ -158,7 +160,11 @@ Page({
     this._initNavDepth();     // 返回箭头仅导航栈进入（历史/解梦 navigateTo）时显示
     this._attachHost();
     this._loadHistory();
-    this._consumePrefill();
+    /* 今日小问预填（PM 2026-08-17：不自动发送——问题填进输入框由用户编辑/发送） */
+    try {
+      const prefill = (options.question || '').trim();
+      if (prefill) this._prefillQuestion(prefill);
+    } catch (e) { /* ignore */ }
     theme.bindTheme(this);
     // 真机保护：语音/音频初始化失败不阻塞页面（各自再兜一层 try/catch）
     try { this._initSpeech(); } catch (e) { console.warn('[Chat] 语音初始化失败:', e); }
@@ -205,6 +211,7 @@ Page({
     /* Task 8 深夜：清定时器与灯语音频，退出深夜态 */
     if (this._keepTimer) { clearTimeout(this._keepTimer); this._keepTimer = null; }
     if (this._lampTimer) { clearTimeout(this._lampTimer); this._lampTimer = null; }
+    this._clearNightHeadTimer();
     if (this._lampAudio) { try { this._lampAudio.destroy(); } catch (e) { /* ignore */ } this._lampAudio = null; }
     streamHost.setDeepNight(false);
   },
@@ -222,10 +229,12 @@ Page({
 
   /* 进入深夜模式：夜色主题 + 灯笼动效(每日一次,可关) + 临时倾诉提示 */
   _enterNight() {
-    this.setData({ nightMode: true, notKeep: true });
+    this.setData({ nightMode: true, nightHeadShow: true, notKeep: true });
     streamHost.setDeepNight(true);
     try { wx.setNavigationBarColor({ frontColor: '#000000', backgroundColor: '#F4EBD6' }); } catch (e) {}
     try { wx.setBackgroundColor({ backgroundColor: '#F4EBD6' }); } catch (e) {}
+    /* 2026-08-17 PM：深夜提示条不常驻——3.5s 自动淡出消失（也可点 ✕ 关闭） */
+    this._armNightHeadAutoHide();
     const nightMode = require('../../utils/nightMode');
     const h = nightMode.bjHour(Date.now());
     if (h >= 23 || h === 0) this._loadLamp();        // 23:00-01:00 灯语卡
@@ -235,6 +244,28 @@ Page({
       wx.setStorageSync('ylm_lamp_lit_date', this._bjDate());
     }
     this._armKeepTimer();                             // 挽留定时器
+  },
+
+  /* 深夜提示条自动消失（3.5s；点 ✕ 手动关闭走 dismissNightHead） */
+  _armNightHeadAutoHide() {
+    this._clearNightHeadTimer();
+    this._nightHeadTimer = setTimeout(() => {
+      this._nightHeadTimer = null;
+      this.setData({ nightHeadShow: false });
+    }, 3500);
+  },
+
+  _clearNightHeadTimer() {
+    if (this._nightHeadTimer) {
+      clearTimeout(this._nightHeadTimer);
+      this._nightHeadTimer = null;
+    }
+  },
+
+  /* 深夜提示条手动关闭（✕） */
+  dismissNightHead() {
+    this._clearNightHeadTimer();
+    this.setData({ nightHeadShow: false });
   },
 
   _bjDate() { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); },
@@ -376,23 +407,15 @@ Page({
 
   /* ═══ v1.1 全局流式宿主接线（切 tab 对话不中断） ═══ */
 
-  /* ═══ 晨笺「今日小问」预填（从今日页晨笺卡跳入，问题作为首条消息自动发出） ═══ */
-
-  _consumePrefill() {
-    const app = getApp();
-    const q = (app && app.globalData && app.globalData.jianQuestion) || '';
-    if (!q) return;
-    try {
-      delete app.globalData.jianQuestion;
-    } catch (e) {
-      app.globalData.jianQuestion = '';
-    }
-    // 等历史上屏/宿主就位后再发；只消费一次（页面实例级）
-    setTimeout(() => {
-      if (this._prefillSent) return;
-      this._prefillSent = true;
-      this._send(String(q));
-    }, 300);
+  /* ═══ 晨笺「今日小问」预填（2026-08-17 PM：不自动发送——从今日页晨笺卡跳入
+     时问题经 URL 参数（?question=）传入，只填充输入框 + 聚焦，由用户编辑/发送） ═══ */
+  _prefillQuestion(q) {
+    const text = String(q || '').trim();
+    if (!text) return;
+    this.setData({ inputText: text });
+    // 触发输入框聚焦（focus 一次性置真，blur 时复位以便下次再触）
+    this.setData({ inputFocus: true });
+    setTimeout(() => { try { this.setData({ inputFocus: false }); } catch (e) { /* ignore */ } }, 600);
   },
 
   _attachHost() {
@@ -489,8 +512,9 @@ Page({
      会把 host.messages 原样写回 ylm_chat_messages，若在存储层过滤，任何一次保存都会
      永久抹除收藏的晨笺；favorites 笺匣仍展示）
      v2026-08-17（元宝「深度思考」胶囊版）：派生 thinkDone/thinkDoing/thinkLabel/
-     thinkSeconds——流式中展开分步列表逐条累积（可见推进），完成后自动收起为
-     「深度思考完成 · 用时 Xs」（streamHost._onDone 置 thinkCollapsed 与 thinkSeconds）。 */
+     thinkSeconds/thinkCollapsed——流式中展开分步列表逐条累积（可见推进），完成后
+     自动收起为「深度思考完成 · 用时 Xs」（streamHost._onDone 置 thinkCollapsed 与
+     thinkSeconds；镜像必须显式派生 thinkCollapsed，否则 wxml 收起判断恒 false）。 */
   /* 思考区派生视图：数组语义来自 streamHost（旧步→done，新步→doing）；
      thinkLabel 状态文案：深度思考中 / 深度思考完成 / 思考中断 / 思考过程；
      thinkSeconds = 后端生成全程秒数（streamHost._onDone 计算落盘） */
@@ -517,6 +541,10 @@ Page({
       thinkDoing: doing,
       thinkLabel: label,
       thinkSeconds: Number(m.thinkSeconds) || 0,
+      // 完成态收起标记（streamHost._onDone/_onAbort/回退成功路径置 thinkCollapsed）：
+      // 宿主字段必须显式派生到渲染项，否则 wxml item.thinkCollapsed 恒为 false，
+      // 思考过程完成后永远展开不收起（真机反馈 #1）
+      thinkCollapsed: !!m.thinkCollapsed,
     };
   },
 
@@ -539,6 +567,7 @@ Page({
           thinkDoing: tv.thinkDoing,
           thinkLabel: tv.thinkLabel,
           thinkSeconds: tv.thinkSeconds,
+          thinkCollapsed: tv.thinkCollapsed,
         });
         continue;
       }
@@ -554,6 +583,7 @@ Page({
         thinkDoing: tv.thinkDoing,
         thinkLabel: tv.thinkLabel,
         thinkSeconds: tv.thinkSeconds,
+        thinkCollapsed: tv.thinkCollapsed,
       });
     }
     return out;

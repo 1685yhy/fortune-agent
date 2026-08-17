@@ -336,14 +336,11 @@ Page({
     this.setData({ 'jian.expanded': !this.data.jian.expanded });
   },
 
-  /* 今日小问 → 对话页（问题经 globalData 预填为聊天首条消息） */
+  /* 今日小问 → 对话页（2026-08-17 PM：不自动发送——问题经 URL 参数传给
+     对话页，填充到输入框由用户编辑/决定发送；对话页 onLoad 读取 ?question=） */
   onQuestionTap() {
     const q = this.data.jian.question;
-    try {
-      const app = getApp();
-      if (app && app.globalData) app.globalData.jianQuestion = q;
-    } catch (e) { /* ignore */ }
-    wx.reLaunch({ url: '/pages/chat/chat' });
+    wx.reLaunch({ url: '/pages/chat/chat?question=' + encodeURIComponent(q) });
   },
 
   /* 收藏/取消收藏：写入 ylm_chat_messages（kept 消息，favorites 页同数据源） */

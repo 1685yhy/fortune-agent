@@ -41,11 +41,14 @@
   </view>
 
   <!-- ═══ Task 8 · 深夜模式卡片（方案·灯下漫谈） ═══ -->
-  <!-- 深夜标识：灯笼 + 倾诉临时提示（今夜不落记忆） -->
-  <view wx:if="{{nightMode}}" class="night-head {{lampLit ? 'lamp-fade' : ''}}">
+  <!-- 深夜标识：灯笼 + 倾诉临时提示（今夜不落记忆）。
+       2026-08-17 PM：不常驻——3.5s 自动消失，也可点 ✕ 手动关闭
+       （nightHeadShow 控制；nightMode 仅 entry=night 或 21:00-01:00 时段进入） -->
+  <view wx:if="{{nightMode && nightHeadShow}}" class="night-head {{lampLit ? 'lamp-fade' : ''}}">
     <image class="night-lantern" src="/assets/images/ic-lantern-on.png"></image>
     <text>灯下漫谈 · 今夜说的话,天亮就忘</text>
     <text wx:if="{{notKeep}}" class="night-head-sub">倾诉不落记忆 · 要记住的要当面说</text>
+    <view class="night-head-x" hover-class="night-head-x-active" hover-stay-time="0" catchtap="dismissNightHead" aria-label="关闭深夜提示">✕</view>
   </view>
   <!-- 枕边灯语卡（23:00-01:00：文字免费/语音会员/收藏/定时关闭 5-30 分钟） -->
   <view wx:if="{{lamp.show}}" class="lamp-card">
@@ -123,6 +126,11 @@
       </view>
     </view>
   </view>
+
+  <!-- 全局免责一行（2026-08-17：对话回复不再逐条带「仅供参考」尾巴——改为
+       消息区顶部固定浅色小字，空会话时在引导区下方、有消息时在列表上方，
+       不随消息滚动隐藏；全局只出现一次） -->
+  <view class="chat-disclaimer">内容由 AI 生成 · 仅供娱乐参考</view>
 
   <!-- Task 5 滚动不拽回：bindscroll 记录用户滚动位置，上滑查看历史时流式自动滚不再拽回 -->
   <scroll-view wx:else scroll-y class="msg-list {{multiMode ? 'multi-on' : ''}}" scroll-into-view="{{scrollInto}}" scroll-with-animation bindscroll="onScroll">
@@ -286,7 +294,7 @@
           <image src="/assets/images/ic-mic.png"></image>
         </view>
         <input class="chat-input {{inputFocused ? 'input-focused' : ''}}" placeholder="{{nightMode ? '慢慢说,我听着。' : '写下一句心事…'}}"
-          placeholder-class="input-ph" value="{{inputText}}" bindinput="onInput"
+          placeholder-class="input-ph" value="{{inputText}}" focus="{{inputFocus}}" bindinput="onInput"
           bindfocus="onFocus" bindblur="onBlur" bindconfirm="onConfirm" confirm-type="send" />
         <!-- v8 阶段 3：生成中无输入 → 停止钮；正在打字 → 发送钮（点按=排队，豆包式） -->
         <view wx:if="{{streaming && !inputText}}" class="stop-btn" hover-class="stop-btn-active" hover-stay-time="0" bindtap="stopStream">
