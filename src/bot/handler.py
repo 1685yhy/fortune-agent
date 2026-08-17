@@ -2169,7 +2169,8 @@ class MessageHandler:
         if is_cacheable(msg) and not deep:
             cached = self.cache.get(msg, user_id, session_id or "")
             if cached:
-                return cached
+                # 兜底：缓存回复可能存于旧格式（TOOL 标签残留）——出口强制 strip
+                return strip_tool_calls(cached) or cached
 
         # Step -1: 反馈检测 (👍/👎) — learn from user feedback
         if msg in ("👍", "👎", "好评", "差评", "准", "不准", "good", "bad") or msg.startswith("👍") or msg.startswith("👎"):

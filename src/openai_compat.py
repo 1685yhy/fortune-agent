@@ -116,6 +116,9 @@ def create_openai_router(_handler=None):
                 import hashlib
                 uid = "api_" + hashlib.md5(user_message.encode()[:100]).hexdigest()[:12]
             reply = handler.process(user_message, uid)
+            # 兜底：出口清理 TOOL 标签残留（与其他对话出口一致）
+            from src.bot.tool_calls import strip_tool_calls
+            reply = strip_tool_calls(reply) or reply
         except Exception as e:
             reply = f"⚠️ 处理出错：{str(e)}"
 
@@ -141,6 +144,9 @@ def create_openai_router(_handler=None):
                 import hashlib
                 uid = "api_" + hashlib.md5(req.prompt.encode()[:100]).hexdigest()[:12]
             reply = handler.process(req.prompt, uid)
+            # 兜底：出口清理 TOOL 标签残留（与其他对话出口一致）
+            from src.bot.tool_calls import strip_tool_calls
+            reply = strip_tool_calls(reply) or reply
         except Exception as e:
             reply = f"⚠️ {e}"
         token_count = max(len(reply) // 2, 1)  # approx tokens

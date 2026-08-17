@@ -15,10 +15,30 @@ from dataclasses import dataclass
 from typing import List
 
 # 支持的工具体系（方案 3.3 工具表 + 阶段 5 网络检索）
+# 格式放宽（2026-08-17 真机修复·TOOL 标签残留）：
+#   - 前缀兼容 <tool_call>（不区分大小写）与 TOOL:（冒号必需，防英文 "tool for…" 误伤）
+#   - 标签内工具名不限列表（未知工具名也 strip 掉，不执行）；TOOL: 前缀任意名同理
+#   - 分隔符兼容 [:：\s]（无冒号空格分隔也认）
+#   - 无 </tool_call> 的残留（截断/换行/末尾）同样匹配：参数只吃到行尾/闭合标签，
+#     绝不跨行吞掉后续正文
 TOOL_CALL_RE = re.compile(
-    r'<tool_call>\s*(排盘|检索|解梦|风水|择日|搜索)\s*[:：]\s*(.*?)</tool_call>',
-    re.S,
+    r'(?:'
+    r'(?i:<tool_call>)\s*(?P<name1>[^\s<>{}\[\]:：]+)'
+    r'|(?i:TOOL)\s*[:：]\s*(?P<name2>[^\s<>{}\[\]:：]+)'
+    r')'
+    r'(?P<sep>\s*[:：]\s*|\s+)'
+    r'(?P<params>[^<\n]*)(?i:</tool_call>)?',
 )
+# 裸标签残留（开口/悬挂闭合符）：strip 时兜底清掉
+_TOOL_RESIDUE_RE = re.compile(r'</?tool_call>', re.I)
+
+# 搜索类工具同义词 → 归一为注册表名「搜索」（LLM 偶尔写 联网/网络）
+_TOOL_SYNONYMS = {
+    "联网": "搜索",
+    "网络": "搜索",
+    "上网": "搜索",
+    "网上": "搜索",
+}
 
 # 防循环：最多 2 次工具迭代
 MAX_TOOL_ITERATIONS = 2
@@ -96,21 +116,31 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
     """解析回复中的全部 <tool_call> 标签。
 
     解析失败（无标签/格式错误）返回空列表，调用方静默降级。
+    放宽后的正则会匹配到未知工具名（标签内任意名）——只把注册表内
+    可执行的工具返回（未知名会被 strip 掉但不执行，防无意义迭代）。
     """
     if not text:
         return []
     calls = []
     for m in TOOL_CALL_RE.finditer(text):
-        name = m.group(1).strip()
-        params = m.group(2).strip()
-        if not params:
-            params = ""
+        name = (m.group("name1") or m.group("name2") or "").strip()
+        name = _TOOL_SYNONYMS.get(name, name)
+        params = (m.group("params") or "").strip()
+        if name not in TOOL_REGISTRY:
+            continue  # 未知工具：不执行（strip 路径仍会移除）
         calls.append(ToolCall(name=name, params=params))
     return calls
 
 
 def strip_tool_calls(text: str) -> str:
-    """去掉回复中的 <tool_call> 标签，保留其余文字（用户可见部分）。"""
+    """去掉回复中的 <tool_call> 标签，保留其余文字（用户可见部分）。
+
+    兜底两层：
+      1) TOOL_CALL_RE 匹配完整调用/截断残留（<tool_call> / TOOL: 前缀均可）；
+      2) 裸标签符（<tool_call> / </tool_call> 悬挂残留）单独清除。
+    """
     if not text:
         return text
-    return TOOL_CALL_RE.sub("", text).strip()
+    s = TOOL_CALL_RE.sub("", text)
+    s = _TOOL_RESIDUE_RE.sub("", s)
+    return s.strip()

@@ -29,6 +29,7 @@ from .rag.retriever import Retriever
 from .rag.collection_manager import CollectionManager
 from .llm.client import FortuneLLM
 from .bot.handler import MessageHandler, is_question  # is_question: v1.2 建议卡片触发判定
+from .bot.tool_calls import strip_tool_calls  # 兜底：回复出口强制清理 TOOL 标签残留
 from .bot.formatter import split_long_message
 from .storage.dao import UserDAO
 from .storage.member_dao import MemberDAO
@@ -1428,6 +1429,9 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
                 None, lambda: handler.process(
                     req.message, req.user_id, deep_night=req.deep_night,
                     session_id=normalize_session_id(req.session_id)))
+        # 兜底：回复出口强制清理 TOOL 标签残留（格式变体/未知工具名/未闭合标签
+        # 统一在返回前端前 strip 一次，双保险——handler 工具循环已清，这里再兜底）
+        reply = strip_tool_calls(reply) or reply
         # 阶段 5：本轮引用来源（校验后），随响应返回给前端渲染角标
         citations = handler.pop_citations(req.user_id) or None
 

@@ -43,6 +43,54 @@ def test_strip_tool_calls():
     assert strip_tool_calls(text) == "我帮你排个盘看看~"
 
 
+def test_strip_tool_calls_5_format_variants():
+    """TOOL 标签残留修复（2026-08-17 真机反馈）：5 种格式变体全部被 strip"""
+    cases = [
+        # 1. 标准格式
+        ("<tool_call>排盘: 1990年5月20日 午时 北京 男</tool_call>", ""),
+        # 2. 无冒号（空格分隔）
+        ("<tool_call>搜索 今天天气怎么样</tool_call>", ""),
+        # 3. 未知工具名（标签内任意名也清掉）
+        ("<tool_call>占卜: 感情运势</tool_call>", ""),
+        # 4. 大写 TOOL: 前缀（无闭合标签）
+        ("TOOL: 搜索: 实时金价", ""),
+        # 5. 缺 </tool_call> 的截断残留
+        ("<tool_call>搜索:xxx", ""),
+    ]
+    for src, expected in cases:
+        assert strip_tool_calls(src) == expected, f"变体未剥离: {src!r}"
+
+
+def test_strip_tool_calls_preserves_body():
+    """剥离标签时保留正文；未闭合标签不得跨行吞掉后续正文"""
+    assert strip_tool_calls("你好，<tool_call>排盘: 1990年5月20日</tool_call>我帮你排个盘看看~") \
+        == "你好，我帮你排个盘看看~"
+    # 未闭合标签只吃到行尾，后续正文保留
+    assert strip_tool_calls("<tool_call>搜索: A\n正文继续…<tool_call>排盘: B</tool_call>") \
+        == "正文继续…"
+    # 无标签文本原样
+    assert strip_tool_calls("你好呀，今天天气不错") == "你好呀，今天天气不错"
+    assert strip_tool_calls(None) is None
+    assert strip_tool_calls("") == ""
+
+
+def test_strip_tool_calls_no_english_false_positive():
+    """TOOL: 前缀要求冒号——英文 "tool for…" 散文不误伤"""
+    assert strip_tool_calls("this is a tool for meditation") == "this is a tool for meditation"
+
+
+def test_parse_tool_calls_variants():
+    """放宽后：无冒号/大写 TOOL/同义词可解析；未知工具不执行（过滤）"""
+    assert [(c.name, c.params) for c in parse_tool_calls("TOOL: 搜索: 实时金价")] \
+        == [("搜索", "实时金价")]
+    assert [(c.name, c.params) for c in parse_tool_calls("<tool_call>搜索 今天天气</tool_call>")] \
+        == [("搜索", "今天天气")]
+    # 同义词归一：联网/网络 → 搜索
+    assert [c.name for c in parse_tool_calls("TOOL: 联网: 金价")] == ["搜索"]
+    # 未知工具名 → 不执行（返回空列表，但 strip 仍会移除）
+    assert parse_tool_calls("<tool_call>占卜: 感情</tool_call>") == []
+
+
 def test_max_tool_iterations():
     """防循环：最多 2 次工具迭代"""
     assert MAX_TOOL_ITERATIONS == 2

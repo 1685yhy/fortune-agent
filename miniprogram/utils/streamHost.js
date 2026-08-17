@@ -9,6 +9,19 @@ const STORAGE_KEY = 'ylm_chat_messages';
 const FLUSH_MS = 50;              // setData 合并节流：每 50ms 批量刷新一次（防卡）
 const CHUNK_GAP_TIMEOUT_S = 90;   // 90s 无 chunk → 判超时（Task 2：给后端排盘管线更长窗口）
 
+/* 兜底清理 TOOL 标签残留（2026-08-17 真机反馈 #2）：后端各回复出口已强制 strip，
+   前端 done/回退/中断/失败收尾时再兜底一次——格式变体全覆盖：
+   <tool_call> 或 TOOL: 前缀（冒号必需，防英文 "tool for…" 误伤）、无冒号空格分隔、
+   未知工具名、缺 </tool_call> 的截断残留；参数只吃到行尾，绝不吞后续正文 */
+function stripToolTags(text) {
+  if (!text) return text;
+  let s = String(text);
+  s = s.replace(/<tool_call>\s*[^\s<>{}\[\]:：]+\s*(?:[:：]\s*|\s+)[^<\n]*(?:<\/tool_call>)?/gi, '');
+  s = s.replace(/TOOL\s*[:：]\s*[^\s<>{}\[\]:：]+\s*(?:[:：]\s*|\s+)[^<\n]*(?:<\/tool_call>)?/gi, '');
+  s = s.replace(/<\/?tool_call>/gi, '');   // 裸标签符（开口/悬挂闭合）
+  return s.replace(/\n{3,}/g, '\n\n').trim();
+}
+
 /* SSE 行解析：UTF-8 增量解码（小程序无 TextDecoder，用字节缓冲 + 逐行转码） */
 function _u8toString(bytes) {
   if (!bytes || typeof bytes.length !== 'number') return '';
@@ -433,7 +446,7 @@ class StreamHost {
       ? Math.max(1, Math.round((Date.now() - msg.thinkStart) / 1000))
       : 0;
     this._patch(this.msgId, {
-      content,
+      content: stripToolTags(content),
       citations: cits,
       suggestions: Array.isArray(suggestions) ? suggestions.slice(0, 3) : [],
       consultationId: consultationId > 0 ? consultationId : null,
@@ -465,6 +478,7 @@ class StreamHost {
     if (!msg) return;
     this._patch(this.msgId, {
       streaming: false,
+      content: stripToolTags(msg.content || ''),
       thinking: (msg.thinking || []).map((s) => ({ text: s.text, state: 'done' })),
     });
     this.streaming = false;
@@ -498,7 +512,7 @@ class StreamHost {
         const cur = this._find(this.msgId);
         if (!cur) return;
         this._patch(this.msgId, {
-          content: content || '网络开小差了，再试一次？',
+          content: stripToolTags(content) || '网络开小差了，再试一次？',
           citations: Array.isArray(res && res.citations) ? res.citations : [],
           suggestions: Array.isArray(res && res.suggestions) ? res.suggestions.slice(0, 3) : [],
           consultationId: (res && res.consultation_id) || null,
@@ -524,8 +538,8 @@ class StreamHost {
     this._patch(this.msgId, {
       streaming: false,
       error: true,
-      // 部分内容已输出时保留；否则给一句兜底提示
-      content: hasPartial ? msg.content : (msg.content || '网络开小差了，再试一次？'),
+      // 部分内容已输出时保留；否则给一句兜底提示（均先清 TOOL 标签残留）
+      content: stripToolTags(hasPartial ? msg.content : (msg.content || '网络开小差了，再试一次？')),
       thinking: (msg.thinking || []).map((s) => ({ text: s.text, state: 'done' })),
     });
     this.streaming = false;

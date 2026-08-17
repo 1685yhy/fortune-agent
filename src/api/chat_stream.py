@@ -31,6 +31,7 @@ from typing import AsyncIterator, Optional
 
 from src.config import is_experience_mode
 from src.bot.handler import is_question
+from src.bot.tool_calls import strip_tool_calls  # 兜底：流式出口清理 TOOL 标签残留
 
 logger = logging.getLogger(__name__)
 
@@ -263,6 +264,10 @@ class ChatStreamer:
                         deep_night=bool(getattr(req, "deep_night", False)),
                         session_id=normalize_session_id(
                             getattr(req, "session_id", "") or ""))
+                # 兜底：回复出口强制清理 TOOL 标签残留（格式变体/未知工具名/
+                # 未闭合标签——handler 工具循环已清，这里对最终 reply 再 strip 一次，
+                # 后续「剩余文本模拟流式」与 done 内容都基于清理后的文本）
+                reply = strip_tool_calls(reply) or reply
             except Exception:
                 logger.exception("chat stream process failed: user=%s", user_id)
                 raise
