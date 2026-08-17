@@ -1,7 +1,9 @@
-// 今日 — 笺谱封面（原型 TodayScreen：date/brand/poem/yi-chips/talk-btn/shot-hint/foot + TabBar）
+// 今日 — 笺谱封面（原型 TodayScreen：date/brand/poem/yi-chips/talk-btn/foot + TabBar；
+// v2026-08-17 随手截屏入口已移除）
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
-const shareCard = require('../../utils/shareCard');
+// v2026-08-17：shareCard 依赖已移除（随手截屏入口 onShot 删除，drawInkCard
+// 仍被 ming 页使用——utils/shareCard.js 勿删）
 const lunar = require('../../utils/lunar');
 const streamHost = require('../../utils/streamHost'); // 收藏同步宿主用（见 _syncHostJian）
 const persons = require('../../utils/persons'); // 命主档案本地判定（未设置提示条用）
@@ -258,36 +260,9 @@ Page({
     wx.reLaunch({ url: '/pages/chat/chat?entry=night' });
   },
 
-  /* 随手截屏 · 存为今晚的笺页：绘制墨韵笺页卡 → 保存相册 */
-  onShot() {
-    const data = {
-      dateText: this.data.dateText,
-      solarHint: this.data.solarHint,
-      poemLines: this.data.poemLines,
-      yiChips: this.data.yiChips,
-    };
-    wx.createSelectorQuery()
-      .select('#inkCard')
-      .fields({ node: true, size: true })
-      .exec((res) => {
-        const info = res && res[0];
-        if (!info || !info.node) {
-          wx.showToast({ title: '笺页绘制暂不可用', icon: 'none' });
-          return;
-        }
-        const canvas = info.node;
-        const dpr = wx.getWindowInfo ? wx.getWindowInfo().pixelRatio : 2;
-        canvas.width = 750 * dpr;
-        canvas.height = 1200 * dpr;
-        const ctx = canvas.getContext('2d');
-        ctx.scale(dpr, dpr);
-        shareCard.drawInkCard(data, canvas, (tempFilePath) => {
-          shareCard.saveCardToAlbum(tempFilePath, (ok) => {
-            if (ok) wx.showToast({ title: '已存入相册 · 今晚的笺页', icon: 'none', duration: 2200 });
-          });
-        });
-      });
-  },
+  /* v2026-08-17：随手截屏入口（onShot）已移除（PM：真机与下方元素视觉重叠，
+     做不好就去掉）。绘制能力保留：utils/shareCard.js drawInkCard 仍被
+     ming 页（AI取名）使用，勿删；今日页 #inkCard 画布保留（无害）。 */
 
   /* ═══ 晨笺卡（spec 三·小程序内晨笺卡 / 五·免费边界） ═══
      开启态：拉 GET /api/jian/today 渲染卡片；未开启态：顶部「开启晨笺」入口；

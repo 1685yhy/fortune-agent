@@ -568,18 +568,8 @@
 .talk-btn-active { color: var(--acc); }
 .brush-arrow { width: 33rpx; height: 23rpx; }  /* 17×12 */
 
-.shot-hint {
-  display: flex;
-  align-items: center;
-  gap: 13rpx;                             /* 7px */
-  justify-content: center;
-  font-family: var(--font-song);
-  font-size: 20rpx;                       /* 10.5px */
-  letter-spacing: .2em;
-  color: var(--ink-soft);
-}
-.shot-ic { width: 25rpx; height: 25rpx; }  /* 13px */
-.shot-hint-active { color: var(--acc); }
+/* v2026-08-17：随手截屏入口（shot-hint/shot-ic/shot-hint-active）样式已删
+   （wxml 与 js onShot 同步移除；ink-card-canvas 画布保留——ming 页仍在用） */
 
 /* ── 脚注（原型 .today-foot：明灯谨录 · 观命不执命） ── */
 .today-foot {

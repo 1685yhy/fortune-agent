@@ -135,15 +135,12 @@
       </view>
     </view>
 
-    <!-- 想聊聊？+ 随手截屏（低调收尾） -->
+    <!-- 想聊聊？（低调收尾；v2026-08-17：随手截屏入口移除——真机上与下方元素
+         视觉重叠（PM 反馈），绘制能力 drawInkCard 保留（ming 页仍在用）） -->
     <view class="talk-col">
       <view class="talk-btn" hover-class="talk-btn-active" hover-stay-time="0" bindtap="goChat">
         <text>想聊聊？</text>
         <image class="brush-arrow" src="/assets/images/brush-arrow.png"></image>
-      </view>
-      <view class="shot-hint" hover-class="shot-hint-active" hover-stay-time="0" bindtap="onShot">
-        <image class="shot-ic" src="/assets/images/ic-camera-soft.png"></image>
-        <text>随手截屏 · 存为今晚的笺页</text>
       </view>
     </view>
 
