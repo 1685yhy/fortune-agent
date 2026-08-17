@@ -89,6 +89,43 @@ def _archive_report(uid: str, union: dict, full_text: str) -> str:
     return str(rid)
 
 
+def _archive_free_record(uid: str, union: dict, quote: dict) -> None:
+    """免费档脱敏归档（v2026-08-17 PM：合盘历史记录）。
+
+    隐私红线：只写脱敏摘要（得分/等级/关系/三维得分/缘语/缘笺），
+    绝不写双方生辰/时辰/出生地；历史查看态也不含付费入口。
+    """
+    chart = {
+        "type": "yuan_union",
+        "score": union["score"],
+        "level": union["levelLabel"],
+        "levelSublabel": union.get("levelSublabel", ""),
+        "relation": union.get("relation", ""),
+        "dimensions": union.get("dimensions", {}),
+        "quoteParts": quote,
+        "yuan_card": union.get("yuan_card", {}),
+    }
+    question = f"双人合盘：契合{union['score']}分（{union['levelLabel']}）" + (
+        f"·{union['relation']}" if union.get("relation") else "")
+    try:
+        _dao.save_consultation(uid, question, chart_result=chart,
+                               analysis="", intent="hehun")
+    except Exception as e:  # 归档失败不影响主流程
+        logger.warning("免费档合盘归档失败: %s", e)
+
+
+@router.get("/api/union/history")
+async def union_history(uid: str = Depends(require_user)):
+    """合盘历史记录（只显示自己的）：得分/等级/关系/时间。
+
+    隐私：按 user_id 过滤；返回仅 chart 脱敏摘要 + created_at，不含双方生辰。
+    """
+    if _dao is None:
+        raise HTTPException(status_code=503, detail="服务未就绪")
+    records = _dao.get_user_hehun_records(uid, limit=50)
+    return {"records": records}
+
+
 @router.post("/api/union")
 async def union_match(req: UnionRequest, uid: str = Depends(require_user)):
     """合盘聚合：免费档即时返回；付费档见 Task 5（_require_paid + 报告生成 + 归档）。"""
@@ -129,6 +166,10 @@ async def union_match(req: UnionRequest, uid: str = Depends(require_user)):
                                 polish_fn=_make_polish_fn())
     union["yuan_card"]["quote"] = quote["full"]
     union["yuan_card"]["quoteParts"] = quote
+
+    # 免费档脱敏归档（合盘历史记录；失败不阻断主流程）
+    if _dao is not None:
+        _archive_free_record(uid, union, quote)
 
     return {
         "score": union["score"], "levelLabel": union["levelLabel"],

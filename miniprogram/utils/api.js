@@ -799,6 +799,12 @@ function union(data) {
   });
 }
 
+/** 合盘历史记录（GET /api/union/history）：{records:[{id, chart:{type:'yuan_union',score,level,relation,…}, created_at}]}
+ * 只显示自己的 · 脱敏摘要（不含双方生辰） */
+function unionHistory() {
+  return request('/api/union/history', { method: 'GET' });
+}
+
 // 洛书九宫：宫名 → 宫位序号（九宫盘用 position 判断中宫）
 const LO_SHU_POSITION = { 坎: 1, 坤: 2, 震: 3, 巽: 4, 中: 5, 乾: 6, 兑: 7, 艮: 8, 离: 9 };
 const LO_SHU_WUXING = { 坎: '水', 坤: '土', 震: '木', 巽: '木', 中: '土', 乾: '金', 兑: '金', 艮: '土', 离: '火' };
@@ -1213,6 +1219,7 @@ module.exports = {
   // Four Arts
   hehun,
   union,
+  unionHistory,
   qimen,
   xingming,
   getXuetangTopics,

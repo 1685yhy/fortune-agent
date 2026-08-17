@@ -445,6 +445,40 @@ class UserDAO:
             for r in rows
         ]
 
+    def get_user_hehun_records(self, user_id: str, limit: int = 50) -> list:
+        """获取用户最近合盘记录（intent='hehun'，只返回脱敏摘要 chart_data）。
+
+        隐私红线：只回 chart_data（得分/等级/关系/三维/缘语/缘笺，均不含生辰、
+        时辰、出生地）；非 yuan_union 类型的记录跳过。chart_data 自动解密。
+        """
+        conn = self._connect()
+        rows = conn.execute(
+            """SELECT id, chart_data, created_at
+               FROM consultations
+               WHERE user_id = ? AND intent = 'hehun'
+               ORDER BY created_at DESC, id DESC
+               LIMIT ?""",
+            (user_id, int(limit)),
+        ).fetchall()
+        conn.close()
+        records = []
+        for r in rows:
+            chart = None
+            raw = _decrypt_or_plain(r[1])
+            if raw:
+                try:
+                    chart = json.loads(raw)
+                except (ValueError, TypeError):
+                    chart = None
+            if not chart or chart.get("type") != "yuan_union":
+                continue
+            records.append({
+                "id": r[0],
+                "chart": chart,
+                "created_at": r[2],
+            })
+        return records
+
     def get_last_consultation_id(self, user_id: str) -> Optional[int]:
         """获取用户最近一次咨询的 ID（无则返回 None）。
 
