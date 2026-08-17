@@ -9,9 +9,7 @@ const EMPTY_DRAFT = () => ({
   name: '',
   rel: '自己',
   cal: 'solar',
-  year: '',
-  month: '',
-  day: '',
+  date: '',
   hourIndex: 0,
   gender: '女',
   place: '',
@@ -31,9 +29,7 @@ Page({
     dName: '',
     dRel: '自己',
     dCal: 'solar',
-    dYear: '',
-    dMonth: '',
-    dDay: '',
+    dDate: '',                 // 'YYYY-MM-DD'（按 dCal 历法的数值）
     dHourIndex: 0,
     dGender: '女',
     dPlace: '',
@@ -78,16 +74,17 @@ Page({
     }));
   },
 
-  /* 视图 → 契约 payload */
+  /* 视图 → 契约 payload（字段结构与原先一致：year/month/day + calendar 标记） */
   _payload() {
     const d = this.data;
+    const parts = String(d.dDate || '').split('-');
     return {
       name: d.dName.trim(),
       relation: d.dRel,
       gender: persons.genderCode(d.dGender),
-      birth_year: parseInt(d.dYear, 10),
-      birth_month: parseInt(d.dMonth, 10),
-      birth_day: parseInt(d.dDay, 10),
+      birth_year: parseInt(parts[0], 10) || 0,
+      birth_month: parseInt(parts[1], 10) || 0,
+      birth_day: parseInt(parts[2], 10) || 0,
       birth_hour: persons.shichenIndexToHour(d.dHourIndex),
       birth_minute: 0,
       calendar: d.dCal,
@@ -108,9 +105,7 @@ Page({
       dName: raw.name || '',
       dRel: raw.relation || '自己',
       dCal: raw.calendar === 'lunar' ? 'lunar' : 'solar',
-      dYear: String(raw.birth_year || ''),
-      dMonth: String(raw.birth_month || ''),
-      dDay: String(raw.birth_day || ''),
+      dDate: raw.birth_year ? this._fmtDate(raw.birth_year, raw.birth_month, raw.birth_day) : '',
       dHourIndex: persons.hourToShichenIndex(raw.birth_hour),
       dGender: persons.genderCN(raw.gender),
       dPlace: raw.city || '',
@@ -177,12 +172,19 @@ Page({
 
   // ---- 保存 / 删除 ----
 
+  _fmtDate(y, m, d) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${y}-${pad(m)}-${pad(d)}`;
+  },
+
   _refreshForm() {
     const d = this.data;
-    const filled = !!(d.dName.trim() && d.dYear && d.dMonth && d.dDay);
+    const filled = !!(d.dName.trim() && d.dDate);
     let hint = '';
     if (filled) {
-      hint = `「${d.dName}」 ${d.dCal === 'solar' ? '公历' : '农历'} ${d.dYear}年${d.dMonth}月${d.dDay}日 ${persons.shichenCN(d.dHourIndex)} · ${d.dGender} · ${d.dPlace || '未填出生地'}`;
+      const parts = String(d.dDate).split('-');
+      const p2 = (s) => parseInt(s, 10) || 0;
+      hint = `「${d.dName}」 ${d.dCal === 'solar' ? '公历' : '农历'} ${p2(parts[0])}年${p2(parts[1])}月${p2(parts[2])}日 ${persons.shichenCN(d.dHourIndex)} · ${d.dGender} · ${d.dPlace || '未填出生地'}`;
     } else {
       hint = '填写姓名与出生年月日后可保存';
     }
@@ -191,17 +193,10 @@ Page({
 
   onNameInput(e) { this.setData({ dName: e.detail.value }, () => this._refreshForm()); },
   onRelChange(e) { this.setData({ dRel: e.currentTarget.dataset.rel }, () => this._refreshForm()); },
-  onCalChange(e) { this.setData({ dCal: e.currentTarget.dataset.cal }, () => this._refreshForm()); },
-  onYearInput(e) { this.setData({ dYear: this._digits(e.detail.value, 4) }, () => this._refreshForm()); },
-  onMonthInput(e) { this.setData({ dMonth: this._digits(e.detail.value, 2) }, () => this._refreshForm()); },
-  onDayInput(e) { this.setData({ dDay: this._digits(e.detail.value, 2) }, () => this._refreshForm()); },
+  onBirthDateChange(e) { this.setData({ dCal: e.detail.calendar, dDate: e.detail.date }, () => this._refreshForm()); },
+  onPlaceChange(e) { this.setData({ dPlace: e.detail.full }, () => this._refreshForm()); },
   onHourChange(e) { this.setData({ dHourIndex: parseInt(e.currentTarget.dataset.idx, 10) || 0 }, () => this._refreshForm()); },
   onGenderChange(e) { this.setData({ dGender: e.currentTarget.dataset.g }, () => this._refreshForm()); },
-  onPlaceInput(e) { this.setData({ dPlace: e.detail.value }, () => this._refreshForm()); },
-
-  _digits(v, max) {
-    return String(v || '').replace(/\D/g, '').slice(0, max);
-  },
 
   /* 保存：新增 POST / 编辑 PUT；接口失败 → 本地降级 */
   async onSave() {

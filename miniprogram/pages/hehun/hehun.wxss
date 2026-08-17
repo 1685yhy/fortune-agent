@@ -856,3 +856,89 @@
   width: 750px;
   height: 1200px;
 }
+
+/* ═══ 合盘历史记录（v2026-08-17 PM：只显示自己的 · 脱敏摘要） ═══ */
+.hh-history-link {
+  margin-top: 14rpx;
+  padding: 8rpx 22rpx;
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .18em;
+  color: var(--acc);
+  background: var(--acc-soft);
+  border-radius: 999rpx;
+}
+.hh-history-link-active { opacity: .75; }
+
+.hh-hist-note {
+  margin: 0 40rpx 8rpx;
+  font-size: 22rpx;
+  text-align: center;
+  color: var(--ink-faint);
+  line-height: 1.7;
+}
+
+.hh-history-sheet {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 91;
+  height: 68vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper-card);
+  border-radius: 28rpx 28rpx 0 0;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.hh-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 28rpx 34rpx 16rpx;
+  border-bottom: 2rpx solid var(--line-soft);
+}
+.hh-history-title {
+  font-family: var(--font-song);
+  font-size: 33rpx;
+  font-weight: 600;
+  letter-spacing: .14em;
+  color: var(--ink);
+}
+.hh-history-x {
+  width: 60rpx; height: 60rpx;
+  line-height: 60rpx;
+  text-align: center;
+  font-size: 32rpx;
+  color: var(--ink-soft);
+  border-radius: 50%;
+}
+.hh-x-active { background: var(--acc-soft); color: var(--acc); }
+.hh-history-body { flex: 1; min-height: 0; }
+.hh-history-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 34rpx;
+  padding: 26rpx 6rpx;
+  border-bottom: 2rpx solid var(--line-soft);
+}
+.hh-history-item-active { background: var(--acc-soft); }
+.hh-hi-top { display: flex; align-items: baseline; gap: 10rpx; }
+.hh-hi-score { font-size: 40rpx; font-weight: 700; color: var(--acc); font-family: var(--font-song); }
+.hh-hi-unit { font-size: 22rpx; color: var(--ink-soft); }
+.hh-hi-level { font-size: 26rpx; color: var(--ink); }
+.hh-hi-rel {
+  font-size: 20rpx;
+  color: var(--gold);
+  border: 2rpx solid var(--gold-soft);
+  border-radius: 999rpx;
+  padding: 2rpx 12rpx;
+}
+.hh-hi-time { display: block; margin-top: 8rpx; font-size: 21rpx; color: var(--ink-faint); }
+.hh-hi-chev { width: 40rpx; }
+.hh-history-empty {
+  padding: 80rpx 40rpx;
+  text-align: center;
+  font-size: 26rpx;
+  color: var(--ink-faint);
+  line-height: 1.9;
+}

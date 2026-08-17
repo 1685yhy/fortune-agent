@@ -229,8 +229,6 @@ button::after { border: none; }
   color: var(--ink);
 }
 .input-placeholder { color: var(--ink-faint); letter-spacing: .12em; font-size: 24rpx; }
-.input-row3 { display: flex; gap: 17rpx; }
-.input-row3 .input-ink { flex: 1; text-align: center; min-width: 0; }
 
 .seg {
   display: flex;

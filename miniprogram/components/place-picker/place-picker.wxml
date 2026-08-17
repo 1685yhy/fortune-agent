@@ -1,0 +1,46 @@
+<!-- 出生地选择 · 省/市级联 + 搜索弹层 -->
+<view class="pp-wrap">
+  <view class="pp-box {{value ? '' : 'pp-empty'}}" hover-class="pp-box-active" hover-stay-time="0" bindtap="onTap">
+    <text class="pp-text">{{value || placeholder}}</text>
+    <text class="pp-chev">▾</text>
+  </view>
+
+  <view wx:if="{{show}}" class="pp-mask" catchtouchmove="noop" bindtap="close"></view>
+  <view wx:if="{{show}}" class="pp-sheet" catchtouchmove="noop">
+    <view class="pp-sheet-head">
+      <text class="pp-sheet-title">选择出生地</text>
+      <view class="pp-sheet-x" hover-class="pp-x-active" hover-stay-time="0" bindtap="close">✕</view>
+    </view>
+
+    <input class="pp-search" type="text" placeholder="搜索城市，如：广州" placeholder-class="pp-search-ph"
+      value="{{keyword}}" bindinput="onSearchInput" confirm-type="search" />
+
+    <block wx:if="{{keyword}}">
+      <scroll-view scroll-y class="pp-search-list">
+        <view wx:for="{{searchResults}}" wx:key="full"
+          class="pp-sr" hover-class="pp-sr-active" hover-stay-time="0"
+          data-idx="{{index}}" bindtap="onSearchResultTap">
+          <text class="pp-sr-city">{{item.city}}</text>
+          <text class="pp-sr-prov">{{item.province}}</text>
+        </view>
+        <view wx:if="{{!searchResults.length}}" class="pp-sr-empty">未找到「{{keyword}}」，换个关键词试试</view>
+      </scroll-view>
+    </block>
+
+    <block wx:else>
+      <view class="pp-cols">
+        <scroll-view scroll-y class="pp-prov-col">
+          <view wx:for="{{provinces}}" wx:key="*this"
+            class="pp-prov {{index === provinceIdx ? 'on' : ''}}"
+            hover-class="pp-prov-active" hover-stay-time="0"
+            data-idx="{{index}}" bindtap="onProvinceTap">{{item}}</view>
+        </scroll-view>
+        <scroll-view scroll-y class="pp-city-col">
+          <view wx:for="{{cities}}" wx:key="*this"
+            class="pp-city" hover-class="pp-city-active" hover-stay-time="0"
+            data-city="{{item}}" bindtap="onCityTap">{{item}}</view>
+        </scroll-view>
+      </view>
+    </block>
+  </view>
+</view>

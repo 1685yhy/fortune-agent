@@ -7,6 +7,7 @@
     <view class="hh-header-seal"><text class="hh-header-seal-char">合</text></view>
     <text class="hh-header-title">双人合盘 · 缘分契合</text>
     <text class="hh-header-subtitle">输入两人生辰，看看你们合不合</text>
+    <text class="hh-history-link" hover-class="hh-history-link-active" hover-stay-time="0" bindtap="onShowHistory">历史记录 ▸</text>
   </view>
 
   <!-- ===== 表单区 ===== -->
@@ -21,30 +22,8 @@
       </view>
 
       <view class="form-group">
-        <text class="form-label">出生年份 <text class="form-required">必填</text></text>
-        <picker mode="selector" range="{{yearOptions}}" bindchange="onP1YearChange" value="{{p1YearIdx}}">
-          <view class="form-picker {{p1BirthYear === '请选择' ? 'form-picker-empty' : ''}}">
-            <text>{{p1BirthYear === '请选择' ? '请选择出生年份' : p1BirthYear + ' 年'}}</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">出生月份 <text class="form-required">必填</text></text>
-        <picker mode="selector" range="{{monthOptions}}" bindchange="onP1MonthChange" value="{{p1MonthIdx}}">
-          <view class="form-picker {{p1BirthMonth === '请选择' ? 'form-picker-empty' : ''}}">
-            <text>{{p1BirthMonth === '请选择' ? '请选择出生月份' : p1BirthMonth + ' 月'}}</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">出生日期 <text class="form-required">必填</text></text>
-        <picker mode="selector" range="{{dayOptions}}" bindchange="onP1DayChange" value="{{p1DayIdx}}">
-          <view class="form-picker {{p1BirthDay === '请选择' ? 'form-picker-empty' : ''}}">
-            <text>{{p1BirthDay === '请选择' ? '请选择出生日期' : p1BirthDay + ' 日'}}</text>
-          </view>
-        </picker>
+        <text class="form-label">出生年月日 <text class="form-required">必填</text> <text class="form-optional">公历 / 农历一次选完</text></text>
+        <birth-date value="{{p1Date}}" calendar="{{p1Cal}}" placeholder="请选择出生年月日" bindchange="onP1DateChange" />
       </view>
 
       <view class="form-group">
@@ -58,11 +37,7 @@
 
       <view class="form-group">
         <text class="form-label">出生地 <text class="form-optional">选填</text></text>
-        <picker mode="selector" range="{{cities}}" bindchange="onP1CityChange" value="{{p1CityIdx}}">
-          <view class="form-picker {{!p1CitySet ? 'form-picker-empty' : ''}}">
-            <text>{{p1City}}</text>
-          </view>
-        </picker>
+        <place-picker value="{{p1City}}" placeholder="选择省 / 市" bindchange="onP1CityChange" />
       </view>
 
       <view class="form-group">
@@ -98,30 +73,8 @@
       </view>
 
       <view class="form-group">
-        <text class="form-label">出生年份 <text class="form-required">必填</text></text>
-        <picker mode="selector" range="{{yearOptions}}" bindchange="onP2YearChange" value="{{p2YearIdx}}">
-          <view class="form-picker {{p2BirthYear === '请选择' ? 'form-picker-empty' : ''}}">
-            <text>{{p2BirthYear === '请选择' ? '请选择出生年份' : p2BirthYear + ' 年'}}</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">出生月份 <text class="form-required">必填</text></text>
-        <picker mode="selector" range="{{monthOptions}}" bindchange="onP2MonthChange" value="{{p2MonthIdx}}">
-          <view class="form-picker {{p2BirthMonth === '请选择' ? 'form-picker-empty' : ''}}">
-            <text>{{p2BirthMonth === '请选择' ? '请选择出生月份' : p2BirthMonth + ' 月'}}</text>
-          </view>
-        </picker>
-      </view>
-
-      <view class="form-group">
-        <text class="form-label">出生日期 <text class="form-required">必填</text></text>
-        <picker mode="selector" range="{{dayOptions}}" bindchange="onP2DayChange" value="{{p2DayIdx}}">
-          <view class="form-picker {{p2BirthDay === '请选择' ? 'form-picker-empty' : ''}}">
-            <text>{{p2BirthDay === '请选择' ? '请选择出生日期' : p2BirthDay + ' 日'}}</text>
-          </view>
-        </picker>
+        <text class="form-label">出生年月日 <text class="form-required">必填</text> <text class="form-optional">公历 / 农历一次选完</text></text>
+        <birth-date value="{{p2Date}}" calendar="{{p2Cal}}" placeholder="请选择出生年月日" bindchange="onP2DateChange" />
       </view>
 
       <view class="form-group">
@@ -135,11 +88,7 @@
 
       <view class="form-group">
         <text class="form-label">出生地 <text class="form-optional">选填</text></text>
-        <picker mode="selector" range="{{cities}}" bindchange="onP2CityChange" value="{{p2CityIdx}}">
-          <view class="form-picker {{!p2CitySet ? 'form-picker-empty' : ''}}">
-            <text>{{p2City}}</text>
-          </view>
-        </picker>
+        <place-picker value="{{p2City}}" placeholder="选择省 / 市" bindchange="onP2CityChange" />
       </view>
 
       <view class="form-group">
@@ -197,8 +146,8 @@
       <text class="hh-hour-note" wx:if="{{hourNotSetNote}}">时辰未填，仅供参考</text>
     </view>
 
-    <!-- 三维得分条（数值可见，明细锁定） -->
-    <view class="card hh-dims">
+    <!-- 三维得分条（数值可见，明细锁定；历史记录无三维数据时整卡隐藏） -->
+    <view wx:if="{{dims.length}}" class="card hh-dims">
       <view class="card-header">
         <text class="card-title">三维契合得分</text>
       </view>
@@ -215,7 +164,7 @@
     </view>
 
     <!-- 缘语 -->
-    <view class="card hh-yuan">
+    <view wx:if="{{yuanLine || cliffhanger}}" class="card hh-yuan">
       <view class="card-header">
         <text class="card-title">缘语</text>
       </view>
@@ -226,15 +175,45 @@
       </view>
     </view>
 
-    <!-- 按钮行 -->
+    <!-- 按钮行（历史查看态：无双方生辰，不可解锁深度报告） -->
     <view class="hh-action-row">
       <button class="hh-btn hh-btn-primary" bindtap="onGenerateCard" disabled="{{generatingCard}}" loading="{{generatingCard}}">生成墨韵缘笺（免费）</button>
-      <button class="hh-btn hh-btn-gold" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告 ¥19.9</button>
+      <button wx:if="{{!viewingHistory}}" class="hh-btn hh-btn-gold" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告 ¥19.9</button>
     </view>
+    <view wx:if="{{viewingHistory}}" class="hh-hist-note">历史记录不含双方生辰 · 如需深度报告请重新输入后再测</view>
     <view class="hh-action-row hh-action-row-sub">
       <button class="hh-btn hh-btn-ghost" bindtap="onSwitchPerson">换一个人再测</button>
       <button class="hh-btn hh-btn-ghost" bindtap="onReInput">重新输入</button>
     </view>
+  </view>
+
+  <!-- ===== 合盘历史记录弹层（只显示自己的 · 脱敏摘要，点选回看结果） ===== -->
+  <view wx:if="{{showHistory}}" class="mask" bindtap="onCloseHistory"></view>
+  <view wx:if="{{showHistory}}" class="hh-history-sheet" catchtouchmove="noop">
+    <view class="hh-history-head">
+      <text class="hh-history-title">合盘历史记录</text>
+      <text class="hh-history-x" hover-class="hh-x-active" hover-stay-time="0" bindtap="onCloseHistory">✕</text>
+    </view>
+    <scroll-view scroll-y class="hh-history-body">
+      <view wx:if="{{historyLoading}}" class="hh-history-empty">加载中…</view>
+      <block wx:elif="{{historyList.length}}">
+        <view wx:for="{{historyList}}" wx:key="id"
+          class="hh-history-item" hover-class="hh-history-item-active" hover-stay-time="0"
+          data-idx="{{index}}" bindtap="onHistoryTap">
+          <view class="hh-hi-left">
+            <view class="hh-hi-top">
+              <text class="hh-hi-score">{{item.chart.score}}</text>
+              <text class="hh-hi-unit">分</text>
+              <text class="hh-hi-level">{{item.chart.level}}</text>
+              <text wx:if="{{item.chart.relation}}" class="hh-hi-rel">{{item.chart.relation}}</text>
+            </view>
+            <text class="hh-hi-time">{{item.timeText}}</text>
+          </view>
+          <view class="hh-hi-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+        </view>
+      </block>
+      <view wx:else class="hh-history-empty">还没有合盘记录 · 完成一次合盘后会出现在这里</view>
+    </scroll-view>
   </view>
 
   <!-- ===== 付费墙弹层（悬念半句展开） ===== -->

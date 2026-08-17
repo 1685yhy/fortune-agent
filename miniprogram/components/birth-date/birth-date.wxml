@@ -1,0 +1,23 @@
+<!-- 出生年月日 · 一次选完：历法切换 + 公历原生日期选择器 / 农历三列联动选择器 -->
+<view class="bd-wrap">
+  <view class="bd-cal">
+    <view class="bd-cal-btn {{calendar === 'solar' ? 'on' : ''}}" data-cal="solar" bindtap="onCalTap">公历</view>
+    <view class="bd-cal-btn {{calendar === 'lunar' ? 'on' : ''}}" data-cal="lunar" bindtap="onCalTap">农历</view>
+  </view>
+
+  <picker wx:if="{{calendar === 'solar'}}" mode="date" start="1900-01-01" end="2100-12-31"
+    value="{{solarDate}}" bindchange="onSolarChange">
+    <view class="bd-box {{dateText ? '' : 'bd-empty'}}">
+      <view class="bd-main">{{dateText || placeholder}}</view>
+      <view wx:if="{{subText}}" class="bd-sub">{{subText}}</view>
+    </view>
+  </picker>
+
+  <picker wx:else mode="multiSelector" range="{{[lunarYears, lunarMonths, lunarDays]}}"
+    value="{{lunarValues}}" bindcolumnchange="onLunarColumnChange" bindchange="onLunarChange">
+    <view class="bd-box {{dateText ? '' : 'bd-empty'}}">
+      <view class="bd-main">{{dateText || placeholder}}</view>
+      <view wx:if="{{subText}}" class="bd-sub">{{subText}}</view>
+    </view>
+  </picker>
+</view>

@@ -1,0 +1,65 @@
+/* 出生年月日 · 一次选完（persons / hehun / bazi 共用） */
+
+.bd-wrap {
+  width: 100%;
+}
+
+/* 历法切换（公历/农历 分段钮） */
+.bd-cal {
+  display: flex;
+  align-items: center;
+  margin-bottom: 16rpx;
+}
+
+.bd-cal-btn {
+  min-width: 128rpx;
+  height: 60rpx;
+  line-height: 60rpx;
+  text-align: center;
+  font-size: 27rpx;
+  color: var(--ink-mid);
+  background: var(--paper);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 12rpx 0 0 12rpx;
+}
+
+.bd-cal-btn:last-child {
+  border-radius: 0 12rpx 12rpx 0;
+  border-left: none;
+}
+
+.bd-cal-btn.on {
+  color: #fff;
+  background: var(--acc);
+  border-color: var(--acc);
+}
+
+/* 日期展示框（点开选择器） */
+.bd-box {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 92rpx;
+  padding: 12rpx 24rpx;
+  background: #fff;
+  border: 2rpx solid var(--line-soft);
+  border-radius: 12rpx;
+  box-sizing: border-box;
+}
+
+.bd-box.bd-empty .bd-main {
+  color: var(--ink-faint);
+}
+
+.bd-main {
+  font-size: 30rpx;
+  color: var(--ink);
+  line-height: 1.5;
+}
+
+.bd-sub {
+  margin-top: 2rpx;
+  font-size: 22rpx;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}

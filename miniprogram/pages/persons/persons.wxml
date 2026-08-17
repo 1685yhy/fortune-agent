@@ -96,21 +96,8 @@
             data-rel="{{item}}" bindtap="onRelChange">{{item}}</view>
         </view>
 
-        <view class="form-label">历法</view>
-        <view class="seg">
-          <view class="seg-btn {{dCal === 'solar' ? 'on' : ''}}" data-cal="solar" bindtap="onCalChange">公历</view>
-          <view class="seg-btn {{dCal === 'lunar' ? 'on' : ''}}" data-cal="lunar" bindtap="onCalChange">农历</view>
-        </view>
-
         <view class="form-label">出生年月日<text class="req">*</text></view>
-        <view class="input-row3">
-          <input class="input-ink" type="number" maxlength="4" placeholder="年"
-            placeholder-class="input-placeholder" value="{{dYear}}" bindinput="onYearInput" />
-          <input class="input-ink" type="number" maxlength="2" placeholder="月"
-            placeholder-class="input-placeholder" value="{{dMonth}}" bindinput="onMonthInput" />
-          <input class="input-ink" type="number" maxlength="2" placeholder="日"
-            placeholder-class="input-placeholder" value="{{dDay}}" bindinput="onDayInput" />
-        </view>
+        <birth-date value="{{dDate}}" calendar="{{dCal}}" placeholder="请选择出生年月日（公历 / 农历）" bindchange="onBirthDateChange" />
 
         <view class="form-label">出生时辰</view>
         <view class="seg shichen-seg">
@@ -126,8 +113,7 @@
         </view>
 
         <view class="form-label">出生地</view>
-        <input class="input-ink" type="text" maxlength="20" placeholder="如：北京市 · 东城区"
-          placeholder-class="input-placeholder" value="{{dPlace}}" bindinput="onPlaceInput" />
+        <place-picker value="{{dPlace}}" placeholder="选择省 / 市" bindchange="onPlaceChange" />
       </view>
 
       <view class="form-hint">

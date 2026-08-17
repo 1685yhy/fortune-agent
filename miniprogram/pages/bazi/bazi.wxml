@@ -65,14 +65,7 @@
         <view class="mb-hint">未保存的命主，排完即走，不进入档案</view>
 
         <view class="form-label">出生年月日<text class="req">*</text></view>
-        <view class="input-row3">
-          <input class="input-ink" type="number" maxlength="4" placeholder="年"
-            placeholder-class="input-placeholder" value="{{mYear}}" bindinput="onMYearInput" />
-          <input class="input-ink" type="number" maxlength="2" placeholder="月"
-            placeholder-class="input-placeholder" value="{{mMonth}}" bindinput="onMMonthInput" />
-          <input class="input-ink" type="number" maxlength="2" placeholder="日"
-            placeholder-class="input-placeholder" value="{{mDay}}" bindinput="onMDayInput" />
-        </view>
+        <birth-date value="{{mDate}}" calendar="{{mCal}}" placeholder="请选择出生年月日（公历 / 农历）" bindchange="onMDateChange" />
 
         <view class="form-label">时辰</view>
         <view class="seg shichen-seg">
@@ -87,8 +80,7 @@
             <view class="seg-btn {{mGender === '男' ? 'on' : ''}}" data-g="男" bindtap="onMGenderChange">男</view>
             <view class="seg-btn {{mGender === '女' ? 'on' : ''}}" data-g="女" bindtap="onMGenderChange">女</view>
           </view>
-          <input class="input-ink place-input" type="text" maxlength="20" placeholder="出生地 · 如：广州"
-            placeholder-class="input-placeholder" value="{{mPlace}}" bindinput="onMPlaceInput" />
+          <place-picker class="place-input" value="{{mPlace}}" placeholder="出生地 · 选择省 / 市" bindchange="onMPlaceChange" />
         </view>
 
         <view class="save-check {{saveToArc ? 'on' : ''}}" hover-class="save-check-active" hover-stay-time="0" bindtap="toggleSaveArc">
@@ -136,31 +128,10 @@
 
       <!-- 表单笺纸卡 -->
       <view class="papercard bazi-card">
-        <view class="bazi-row">
-          <view class="form-group form-group-third">
-            <text class="form-label">出生年份</text>
-            <picker mode="selector" range="{{years}}" bindchange="onYearChange" value="{{yearIdx}}">
-              <view class="form-picker">
-                <text>{{birthYear}} 年</text>
-              </view>
-            </picker>
-          </view>
-          <view class="form-group form-group-third">
-            <text class="form-label">出生月份</text>
-            <picker mode="selector" range="{{months}}" bindchange="onMonthChange" value="{{monthIdx}}">
-              <view class="form-picker">
-                <text>{{birthMonth}} 月</text>
-              </view>
-            </picker>
-          </view>
-          <view class="form-group form-group-third">
-            <text class="form-label">出生日期</text>
-            <picker mode="selector" range="{{days}}" bindchange="onDayChange" value="{{dayIdx}}">
-              <view class="form-picker">
-                <text>{{birthDay}} 日</text>
-              </view>
-            </picker>
-          </view>
+        <view class="form-group">
+          <text class="form-label">出生年月日<text class="form-required">*</text></text>
+          <birth-date value="{{birthDate}}" calendar="{{calendar}}" placeholder="请选择出生年月日（公历 / 农历）" bindchange="onFormDateChange" />
+          <text class="form-hint">排盘引擎目前仅支持公历（阳历），农历按原样保存</text>
         </view>
 
         <view class="form-group">
@@ -189,24 +160,7 @@
 
         <view class="form-group">
           <text class="form-label">出生地 <text class="form-optional">（选填）</text></text>
-          <input
-            class="form-input"
-            type="text"
-            value="{{city}}"
-            placeholder="如：北京（用于真太阳时校准）"
-            placeholder-class="form-input-placeholder"
-            bindinput="onCityInput"
-            maxlength="20"
-          />
-        </view>
-
-        <view class="form-group">
-          <text class="form-label">历法</text>
-          <view class="form-picker form-picker-static">
-            <text>{{calendar === 'lunar' ? '农历' : '公历'}}</text>
-            <text class="form-static-tag">{{calendar === 'lunar' ? '按原样保存' : '已选'}}</text>
-          </view>
-          <text class="form-hint">排盘引擎目前仅支持公历（阳历），农历按原样保存</text>
+          <place-picker value="{{city}}" placeholder="选择省 / 市（用于真太阳时校准）" bindchange="onCityChange" />
         </view>
       </view>
 

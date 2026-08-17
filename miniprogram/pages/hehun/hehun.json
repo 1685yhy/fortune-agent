@@ -3,5 +3,8 @@
   "backgroundColor": "#F5EFE1",
   "navigationBarBackgroundColor": "#F5EFE1",
   "navigationBarTextStyle": "black",
-  "usingComponents": {}
+  "usingComponents": {
+    "birth-date": "/components/birth-date/birth-date",
+    "place-picker": "/components/place-picker/place-picker"
+  }
 }

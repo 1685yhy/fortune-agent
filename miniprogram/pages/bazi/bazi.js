@@ -15,22 +15,21 @@ const HOUR_LABELS = [
 ];
 const HOUR_VALUES = [23, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21];
 
-/* 出生年份范围（与合婚页一致） */
-const YEAR_MIN = 1940;
-const YEAR_MAX = 2024;
-
 const CURRENT_KEY = 'ylm_current_person';     // 当前排盘命主 id（默认命主直接进入的依据）
 const BANNER_KEY = 'ylm_dlg_person_saved';    // 对话建档提示标记（chat 页写入，本页消费）
 
-function _years() {
-  const arr = [];
-  for (let y = YEAR_MIN; y <= YEAR_MAX; y++) arr.push(String(y));
-  return arr;
+/* 日期 'YYYY-MM-DD' → 年月日（容错） */
+function _parseDate(dateStr) {
+  const parts = String(dateStr || '').split('-');
+  return {
+    year: parseInt(parts[0], 10) || 0,
+    month: parseInt(parts[1], 10) || 0,
+    day: parseInt(parts[2], 10) || 0,
+  };
 }
-function _range(n) {
-  const arr = [];
-  for (let i = 1; i <= n; i++) arr.push(String(i));
-  return arr;
+function _fmtDate(y, m, d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${y}-${pad(m)}-${pad(d)}`;
 }
 
 /** 存档 hour（整点/时辰序号）→ 时辰序号 */
@@ -52,7 +51,8 @@ Page({
     /* ── 选命主（原型捌） ── */
     persons: [],                 // 视图：{id,name,rel,seal,birth,is_default}
     selId: '',                   // 选中命主 id
-    mYear: '', mMonth: '', mDay: '',       // 手动临时生辰
+    mDate: '',                   // 手动临时生辰 'YYYY-MM-DD'（一次选完）
+    mCal: 'solar',               // 手动历法 solar|lunar
     mHourIndex: 0,               // 手动时辰序号
     mGender: '女',
     mPlace: '',
@@ -64,20 +64,12 @@ Page({
     bannerText: '',
 
     /* ── 排盘表单（原 bazi 页） ── */
-    years: _years(),
-    months: _range(12),
-    days: _range(31),
     hourLabels: HOUR_LABELS,
-    birthYear: '1990',
-    birthMonth: '1',
-    birthDay: '1',
+    birthDate: '1990-01-01',     // 排盘表单出生年月日（一次选完）
+    calendar: 'solar',           // solar|lunar（历法随选择器切换）
     hourIndex: 0,
     gender: 'male',
     city: '',
-    calendar: 'solar',
-    yearIdx: 24,
-    monthIdx: 0,
-    dayIdx: 0,
     hasBazi: false,              // 已有档案（标题「更正档案」）
     formTitle: '设置档案',        // 表单导航标题
     currentPerson: null,         // {id,name,relation} 当前排盘命主（档案直选）
@@ -142,25 +134,19 @@ Page({
       this._refreshCta();
     }
   },
-  onMYearInput(e) { this.setData({ mYear: this._digits(e.detail.value, 4) }, () => this._clearSel()); },
-  onMMonthInput(e) { this.setData({ mMonth: this._digits(e.detail.value, 2) }, () => this._clearSel()); },
-  onMDayInput(e) { this.setData({ mDay: this._digits(e.detail.value, 2) }, () => this._clearSel()); },
+  onMDateChange(e) { this.setData({ mCal: e.detail.calendar, mDate: e.detail.date }, () => this._clearSel()); },
   onMHourChange(e) { this.setData({ mHourIndex: parseInt(e.currentTarget.dataset.idx, 10) || 0 }); },
   onMGenderChange(e) { this.setData({ mGender: e.currentTarget.dataset.g }); },
-  onMPlaceInput(e) { this.setData({ mPlace: e.detail.value }); },
+  onMPlaceChange(e) { this.setData({ mPlace: e.detail.full }); },
   onMNameInput(e) { this.setData({ mName: e.detail.value }); },
 
   toggleSaveArc() {
     this.setData({ saveToArc: !this.data.saveToArc });
   },
 
-  _digits(v, max) {
-    return String(v || '').replace(/\D/g, '').slice(0, max);
-  },
-
   _refreshCta() {
     const d = this.data;
-    const manualFilled = !!(d.mYear && d.mMonth && d.mDay);
+    const manualFilled = !!d.mDate;
     const sel = this._selPerson();
     const canStart = !!sel || manualFilled;
     let ctaText = '请先选择或填写生辰';
@@ -182,7 +168,7 @@ Page({
       return;
     }
     const m = this.data;
-    if (!(m.mYear && m.mMonth && m.mDay)) return;
+    if (!m.mDate) return;
     if (m.saveToArc) {
       this._confirmSaveToArc();
     } else {
@@ -211,7 +197,8 @@ Page({
   _confirmSaveToArc() {
     const m = this.data;
     const name = (m.mName || '').trim() || '命主';
-    const brief = `${m.mYear}年${m.mMonth}月${m.mDay}日 ${persons.shichenCN(m.mHourIndex)} ${m.mGender} · ${m.mPlace || '未填出生地'}`;
+    const bd = _parseDate(m.mDate);
+    const brief = `${m.mCal === 'lunar' ? '农历' : '公历'} ${bd.year}年${bd.month}月${bd.day}日 ${persons.shichenCN(m.mHourIndex)} ${m.mGender} · ${m.mPlace || '未填出生地'}`;
     wx.showModal({
       title: '保存到档案？',
       content: `此命主将加入「档案」\n${brief}\n保存后可在档案中再次选用`,
@@ -248,16 +235,17 @@ Page({
 
   _manualPayload(name) {
     const m = this.data;
+    const bd = _parseDate(m.mDate);
     return {
       name,
       relation: '朋友',
       gender: persons.genderCode(m.mGender),
-      birth_year: parseInt(m.mYear, 10),
-      birth_month: parseInt(m.mMonth, 10),
-      birth_day: parseInt(m.mDay, 10),
+      birth_year: bd.year,
+      birth_month: bd.month,
+      birth_day: bd.day,
       birth_hour: persons.shichenIndexToHour(m.mHourIndex),
       birth_minute: 0,
-      calendar: 'solar',
+      calendar: m.mCal,
       city: (m.mPlace || '').trim(),
     };
   },
@@ -281,48 +269,37 @@ Page({
   /* 临时命主进表单（不存档案） */
   _enterTempForm() {
     const m = this.data;
-    const patch = {
+    const bd = _parseDate(m.mDate);
+    this.setData({
       mode: 'form',
       currentPerson: null,
       formTitle: '临时排盘',
-      birthYear: m.mYear || '1990',
-      birthMonth: m.mMonth || '1',
-      birthDay: m.mDay || '1',
+      birthDate: m.mDate || '1990-01-01',
+      calendar: m.mCal,
       hourIndex: m.mHourIndex || 0,
       gender: m.mGender === '女' ? 'female' : 'male',
       city: m.mPlace || '',
-      calendar: 'solar',
       hasBazi: false,
       saving: false,
-    };
-    patch.yearIdx = Math.max(0, this.data.years.indexOf(patch.birthYear));
-    patch.monthIdx = Math.max(0, this.data.months.indexOf(patch.birthMonth));
-    patch.dayIdx = Math.max(0, this.data.days.indexOf(patch.birthDay));
-    this.setData(patch);
+    });
   },
 
   /* 命主（档案/刚保存）→ 表单回显 */
   _enterForm(p) {
     if (!p) { this._prefill(); return; }
     const hourIndex = persons.hourToShichenIndex(p.birth_hour);
-    const patch = {
+    this.setData({
       mode: 'form',
       currentPerson: { id: p.id, name: p.name || '未命名', relation: p.relation || '' },
       formTitle: `为「${p.name || '命主'}」排盘`,
-      birthYear: String(p.birth_year || '1990'),
-      birthMonth: String(p.birth_month || '1'),
-      birthDay: String(p.birth_day || '1'),
+      birthDate: p.birth_year ? _fmtDate(p.birth_year, p.birth_month, p.birth_day) : '1990-01-01',
+      calendar: p.calendar === 'lunar' ? 'lunar' : 'solar',
       hourIndex,
       gender: persons.genderCode(p.gender),
       city: p.city || '',
-      calendar: p.calendar === 'lunar' ? 'lunar' : 'solar',
       hasBazi: true,
       saving: false,
-    };
-    patch.yearIdx = Math.max(0, this.data.years.indexOf(patch.birthYear));
-    patch.monthIdx = Math.max(0, this.data.months.indexOf(patch.birthMonth));
-    patch.dayIdx = Math.max(0, this.data.days.indexOf(patch.birthDay));
-    this.setData(patch);
+    });
     try { wx.setStorageSync(CURRENT_KEY, p.id); } catch (e) { /* ignore */ }
   },
 
@@ -411,34 +388,23 @@ Page({
 
   _applyBazi(b) {
     const hourIndex = _hourToIndex(b.hour !== undefined && b.hour !== null ? b.hour : b.birthHour);
-    const patch = {
-      birthYear: String(b.year || b.birthYear),
-      birthMonth: String(b.month || b.birthMonth),
-      birthDay: String(b.day || b.birthDay),
+    const y = b.year || b.birthYear;
+    const mo = b.month || b.birthMonth;
+    const da = b.day || b.birthDay;
+    this.setData({
+      birthDate: y ? _fmtDate(y, mo || 1, da || 1) : '1990-01-01',
+      calendar: b.calendar === 'lunar' ? 'lunar' : 'solar',
       hourIndex,
       gender: b.gender === '女' ? 'female' : (b.gender === '男' ? 'male' : (b.gender || 'male')),
       city: b.city || '',
       hasBazi: true,
       formTitle: '更正档案',
-    };
-    patch.yearIdx = Math.max(0, this.data.years.indexOf(patch.birthYear));
-    patch.monthIdx = Math.max(0, this.data.months.indexOf(patch.birthMonth));
-    patch.dayIdx = Math.max(0, this.data.days.indexOf(patch.birthDay));
-    this.setData(patch);
+    });
   },
 
   // ---- 选择器 ----
-  onYearChange(e) {
-    const birthYear = this.data.years[e.detail.value];
-    this.setData({ birthYear, yearIdx: e.detail.value });
-  },
-  onMonthChange(e) {
-    const birthMonth = this.data.months[e.detail.value];
-    this.setData({ birthMonth, monthIdx: e.detail.value });
-  },
-  onDayChange(e) {
-    const birthDay = this.data.days[e.detail.value];
-    this.setData({ birthDay, dayIdx: e.detail.value });
+  onFormDateChange(e) {
+    this.setData({ calendar: e.detail.calendar, birthDate: e.detail.date });
   },
   onHourChange(e) {
     this.setData({ hourIndex: parseInt(e.detail.value, 10) || 0 });
@@ -446,24 +412,25 @@ Page({
   onGenderChange(e) {
     this.setData({ gender: e.detail.value });
   },
-  onCityInput(e) {
-    this.setData({ city: e.detail.value });
+  onCityChange(e) {
+    this.setData({ city: e.detail.full });
   },
 
   /* 保存：档案命主 → PUT /api/persons/{id}；临时/旧档案 → POST /api/user/bazi（原有） */
   async onSave() {
     if (this.data.saving) return;
     const d = this.data;
-    if (!d.birthYear || !d.birthMonth || !d.birthDay) {
+    if (!d.birthDate) {
       wx.showToast({ title: '请完整填写出生年月日', icon: 'none' });
       return;
     }
 
     this.setData({ saving: true });
+    const bd = _parseDate(d.birthDate);
     const baziData = {
-      birth_year: parseInt(d.birthYear, 10),
-      birth_month: parseInt(d.birthMonth, 10),
-      birth_day: parseInt(d.birthDay, 10),
+      birth_year: bd.year,
+      birth_month: bd.month,
+      birth_day: bd.day,
       birth_hour: HOUR_VALUES[d.hourIndex],
       birth_minute: 0,
       gender: d.gender === 'female' ? '女' : '男',

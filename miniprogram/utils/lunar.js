@@ -46,6 +46,10 @@ const DAY_NAMES = [
   '廿一', '廿二', '廿三', '廿四', '廿五', '廿六', '廿七', '廿八', '廿九', '三十',
 ];
 
+/* 农历年份支持范围（LUNAR_INFO 覆盖 1900-2100） */
+const LUNAR_YEAR_MIN = 1900;
+const LUNAR_YEAR_MAX = 2100;
+
 /* 节气名（索引 0-23） */
 const TERM_NAMES = [
   '小寒', '大寒', '立春', '雨水', '惊蛰', '春分', '清明', '谷雨',
@@ -158,6 +162,63 @@ function solar2lunar(y, m, d) {
   return { year, month: i, day: offset + 1, isLeap };
 }
 
+/* 农历 → 公历。入参：农历年/月/日（isLeap 闰月标记），
+ * 返回 { year, month, day }（公历）或 null（非法日期/超出范围）。
+ * 与 solar2lunar 互逆：对合法日期 round-trip 一致（与 lunar_python 逐日验证）。 */
+function lunar2solar(lYear, lMonth, lDay, isLeap) {
+  if (lYear < LUNAR_YEAR_MIN || lYear > LUNAR_YEAR_MAX || lMonth < 1 || lMonth > 12 || lDay < 1 || lDay > 30) {
+    return null;
+  }
+  const leap = leapMonth(lYear);
+  // 该农历年的月序（闰月插在对应月之后）：1..leap, 闰leap, leap+1..12
+  const seq = [];
+  for (let m = 1; m <= 12; m++) {
+    seq.push({ m, isLeap: false });
+    if (leap > 0 && m === leap) seq.push({ m, isLeap: true });
+  }
+  const target = seq.find((s) => s.m === lMonth && !!s.isLeap === !!isLeap);
+  if (!target) return null;
+  const maxDay = target.isLeap ? leapDays(lYear) : monthDays(lYear, target.m);
+  if (lDay > maxDay) return null;
+
+  // 先累计 1900..lYear-1 完整农历年
+  let offset = 0;
+  for (let y = LUNAR_YEAR_MIN; y < lYear; y++) offset += lYearDays(y);
+  // 再累计目标年内 target 之前的月份
+  for (const s of seq) {
+    if (s === target) break;
+    offset += s.isLeap ? leapDays(lYear) : monthDays(lYear, s.m);
+  }
+  offset += lDay - 1;
+  // 公历 1900-01-31 = 农历 1900 年正月初一
+  const dt = new Date(Date.UTC(1900, 0, 31) + offset * 86400000);
+  return { year: dt.getUTCFullYear(), month: dt.getUTCMonth() + 1, day: dt.getUTCDate() };
+}
+
+/* 农历月名：如「正月」「闰四月」「腊月」 */
+function lunarMonthName(y, m, isLeap) {
+  return (isLeap ? '闰' : '') + MONTH_NAMES[m - 1] + '月';
+}
+
+/* 农历日名：如「初一」「廿九」「三十」 */
+function lunarDayName(d) {
+  return DAY_NAMES[d - 1] + '日';
+}
+
+/* 公历日期 → 「农历四月十七」文案 */
+function lunarDateText(y, m, d) {
+  const l = solar2lunar(y, m, d);
+  if (!l) return '';
+  return lunarMonthName(l.year, l.month, l.isLeap) + lunarDayName(l.day);
+}
+
+/* 农历日期 → 「公历 1998-05-12」文案（非法返回空串） */
+function solarDateText(lYear, lMonth, lDay, isLeap) {
+  const s = lunar2solar(lYear, lMonth, lDay, isLeap);
+  if (!s) return '';
+  return `公历 ${s.year}-${String(s.month).padStart(2, '0')}-${String(s.day).padStart(2, '0')}`;
+}
+
 /* 节气日：返回某年某节气在当月的日号（1-31）。 */
 function getTermDay(y, n) {
   const Y = y % 100;
@@ -210,7 +271,17 @@ module.exports = {
   MONTH_NAMES,
   DAY_NAMES,
   TERM_NAMES,
+  LUNAR_YEAR_MIN,
+  LUNAR_YEAR_MAX,
+  leapMonth,
+  monthDays,
+  leapDays,
   solar2lunar,
+  lunar2solar,
+  lunarMonthName,
+  lunarDayName,
+  lunarDateText,
+  solarDateText,
   formatLunarDate,
   getTermDay,
   getTermName,
