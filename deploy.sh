@@ -21,7 +21,7 @@ mkdir -p /opt/fortune-agent /opt/fortune-data/{books,vectordb,userdata,charts}
 # 3. 安装 Python 依赖
 echo "[3/5] 安装 Python 依赖..."
 pip3 install --break-system-packages -q fastapi uvicorn chromadb sentence-transformers \
-  anthropic pymupdf jieba pillow matplotlib pyyaml httpx lunar-python cnlunar 2>/dev/null || \
+  anthropic pymupdf jieba pillow qrcode matplotlib pyyaml httpx lunar-python cnlunar 2>/dev/null || \
 pip3 install -q fastapi uvicorn chromadb sentence-transformers \
   anthropic pymupdf jieba pillow matplotlib pyyaml httpx lunar-python cnlunar 2>/dev/null
 
