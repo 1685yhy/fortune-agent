@@ -40,18 +40,33 @@
         </block>
       </view>
 
-      <view class="sh-actions">
-        <view class="btn btn-acc btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onSave">
-          保存到相册
-        </view>
-        <view class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onShareImage">
-          分享图片
-        </view>
-        <button class="btn btn-ghost btn-wide" open-type="share">
-          转发小程序
-        </button>
+      <!-- 分隔线：内容区与分享渠道之间（元宝式分享面板布局，参考 ref_3） -->
+      <view class="sh-divider">
+        <view class="sh-div-line"></view>
+        <view class="sh-div-diamond"></view>
+        <view class="sh-div-line"></view>
       </view>
-      <view class="sh-note">图片长按也可保存 · 分享图含品牌落款，无隐私信息</view>
+
+      <!-- 分享渠道区（元宝式：图标+文字并排的渠道列表，与长按菜单同构） -->
+      <view class="sh-channels">
+        <button class="ch-row" hover-class="ch-row-active" hover-stay-time="0" open-type="share">
+          <view class="ch-ic">💬</view>
+          <text class="ch-label">微信好友</text>
+        </button>
+        <view class="ch-row" hover-class="ch-row-active" hover-stay-time="0" bindtap="onChannelTimeline">
+          <view class="ch-ic">📸</view>
+          <text class="ch-label">朋友圈</text>
+        </view>
+        <view class="ch-row" hover-class="ch-row-active" hover-stay-time="0" bindtap="onChannelImage">
+          <view class="ch-ic">🖼️</view>
+          <text class="ch-label">生成分享图</text>
+        </view>
+        <view class="ch-row" hover-class="ch-row-active" hover-stay-time="0" bindtap="onChannelLink">
+          <view class="ch-ic">🔗</view>
+          <text class="ch-label">复制链接</text>
+        </view>
+      </view>
+      <view class="sh-note">长按图片也可保存 · 分享图含品牌落款，无隐私信息</view>
     </block>
 
     <!-- 生成失败兜底 -->
