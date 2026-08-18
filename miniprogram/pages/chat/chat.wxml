@@ -174,6 +174,8 @@
             <template is="md-block" data="{{nodes: item.mdNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
             <text wx:if="{{item.streaming && item.content}}" class="jz-cursor"></text>
           </view>
+          <!-- 2026-08-18 生成中断分级：网络中断/超时/失败 → 气泡底部浅色小字（正文保留，不覆盖为失败） -->
+          <view wx:if="{{item.statusText}}" class="jz-status">{{item.statusText}}</view>
           <!-- Task 8 对话内引导卡：AI 回复行内识别 /pages/ 路径 → 气泡末尾跳转按钮 -->
           <view wx:if="{{item.navPath && !item.streaming}}" class="nav-btn" hover-class="nav-btn-active" hover-stay-time="0" data-url="{{item.navPath}}" bindtap="onNavBtnTap">
             <text class="nav-btn-txt">{{item.navLabel || '进入双人合盘 →'}}</text>
@@ -246,12 +248,16 @@
           </view>
         </view>
       </block>
-      <view wx:if="{{typing}}" class="typing">
+      <!-- 2026-08-18：慢提示生效（15s 无内容）时隐藏陈旧的「研墨中」——研墨中是意图分析
+           阶段提示，干等 15s+ 后应以主生成阶段的「正在深入分析」为准 -->
+      <view wx:if="{{typing && !slowHint}}" class="typing">
         <view class="inkdot"></view>
         <view class="inkdot"></view>
         <view class="inkdot"></view>
         <text class="tlabel">研墨中 · 约三息</text>
       </view>
+      <!-- 2026-08-18 生成慢提示：主生成阶段 15s 无内容输出 → 输入区上方浅色小字（不打断） -->
+      <view wx:if="{{slowHint}}" class="slow-hint">正在深入分析，请稍候…</view>
       <view id="btm" class="msg-anchor"></view>
     </view>
   </scroll-view>

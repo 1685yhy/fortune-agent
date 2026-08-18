@@ -8,6 +8,7 @@ const api = require('./api');
 const STORAGE_KEY = 'ylm_chat_messages';
 const FLUSH_MS = 50;              // setData 合并节流：每 50ms 批量刷新一次（防卡）
 const CHUNK_GAP_TIMEOUT_S = 90;   // 90s 无 chunk → 判超时（Task 2：给后端排盘管线更长窗口）
+const SLOW_HINT_MS = 15000;       // 生成开始 15s 仍无可见内容 → 「正在深入分析」轻提示（2026-08-18）
 
 /* 兜底清理 TOOL 标签残留（2026-08-17 真机反馈 #2）：后端各回复出口已强制 strip，
    前端 done/回退/中断/失败收尾时再兜底一次——格式变体全覆盖：
@@ -20,6 +21,28 @@ function stripToolTags(text) {
   s = s.replace(/TOOL\s*[:：]\s*[^\s<>{}\[\]:：]+\s*(?:[:：]\s*|\s+)[^<\n]*(?:<\/tool_call>)?/gi, '');
   s = s.replace(/<\/?tool_call>/gi, '');   // 裸标签符（开口/悬挂闭合）
   return s.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/* 流式中断/失败提示分级（2026-08-18 PM：区分「连接中断」与「生成失败」——
+   用户切后台/切页面导致连接被断开时，笼统显示「生成失败」误导用户以为服务端出问题）。
+   partial：已有部分输出 → 气泡底部 statusText 小字（正文保留，不覆盖为失败）；
+   empty  ：什么都没生成 → toast 分级文案 */
+const STREAM_ERROR_TEXT = {
+  network: { partial: '网络中断，已保留已生成内容，可继续发送', empty: '生成中断，请重新发送' },
+  timeout: { partial: '生成超时，已保留已生成内容，可重试',     empty: '生成超时，请重试' },
+  server:  { partial: '生成失败，已保留已生成内容，可重试',     empty: '生成失败，请重试' },
+};
+
+/* 错误分级：
+   - 连接类：wx.request fail 的 errMsg 通常含 "request:fail"（如 request:fail interrupted——
+     切后台/切页面平台断开；request:fail timeout）；api.js 网络失败统一文案「网络连接失败…」
+   - 超时：流式看门狗 90s 无 chunk → '回复超时（90 秒无新内容）'；平台 request:fail timeout 同判
+   - 服务端类：其余（非 200 状态 / SSE error 事件 / 异常） */
+function classifyStreamError(err) {
+  const msg = String((err && (err.message || err.errMsg)) || '');
+  if (/超时|timeout|timed\s*out/i.test(msg)) return 'timeout';
+  if (/request:fail|网络连接失败|网络中断|interrupt|abort/i.test(msg)) return 'network';
+  return 'server';
 }
 
 /* SSE 行解析：UTF-8 增量解码（小程序无 TextDecoder，用字节缓冲 + 逐行转码） */
@@ -122,6 +145,8 @@ class StreamHost {
     this.watchdogFired = false;
     this.gotData = false;
     this.fallbackStarted = false;
+    this.slowHint = false;       // 生成慢提示：15s 无可见内容 → 页面输入区上方浅色小字
+    this.slowTimer = null;
     this.notice = null;          // 一次性 toast 提示（页面消费后清除）
     this.tick = 0;               // 状态变更计数（页面据此判断是否需要滚动/刷新）
     this._stopRequested = false;
@@ -148,6 +173,7 @@ class StreamHost {
       typing: this.typing,
       activeMsgId: this.msgId,
       notice: this.notice,
+      slowHint: this.slowHint,
       tick: this.tick,
     };
   }
@@ -164,6 +190,7 @@ class StreamHost {
       typing: this.typing,
       activeMsgId: this.msgId,
       notice: this.notice,
+      slowHint: this.slowHint,
       tick: this.tick,
     }, extra || {});
     this.listeners.forEach((fn) => {
@@ -257,11 +284,13 @@ class StreamHost {
     this.gotData = false;
     this.fallbackStarted = false;
     this.watchdogFired = false;
+    this.slowHint = false;
     this._stopRequested = false;
     this.tick++;
     this._emit({ autoScroll: true });
     this._save();
     this._resetWatchdog();
+    this._armSlowHint();
     this._startRequest();
   }
 
@@ -311,6 +340,7 @@ class StreamHost {
       }
       this._clearFlush();
       this._clearWatchdog();
+      this._clearSlowHint();
       this.streaming = false;
       this.typing = false;
       this.task = null;
@@ -357,6 +387,7 @@ class StreamHost {
     }
     this._clearFlush();
     this._clearWatchdog();
+    this._clearSlowHint();
     this._init();
     this.messages = Array.isArray(messages) ? messages : [];
     this.tick++;
@@ -412,6 +443,7 @@ class StreamHost {
     this.chunkAccum = (this.chunkAccum || '') + content;
     if (this.typing) {
       this.typing = false;              // 首个 chunk 到达：研墨中 → 打字机
+      this._clearSlowHint();            // 已有内容输出 → 慢提示消失
       this.tick++;
       this._emit({ autoScroll: true });
     }
@@ -435,6 +467,7 @@ class StreamHost {
     this._flushAccum();   // 收尾前冲刷未 flush 的尾部增量（防最后 chunk 被 _clearFlush 丢弃）
     this._clearFlush();
     this._clearWatchdog();
+    this._clearSlowHint();
     const msg = this._find(this.msgId);
     if (!msg) return;
     let content = msg.content || '';
@@ -474,6 +507,7 @@ class StreamHost {
     this._flushAccum();   // 收尾前冲刷未 flush 的尾部增量（停止时同样不丢已流出的尾巴）
     this._clearFlush();
     this._clearWatchdog();
+    this._clearSlowHint();
     const msg = this._find(this.msgId);
     if (!msg) return;
     this._patch(this.msgId, {
@@ -490,12 +524,17 @@ class StreamHost {
     this._nextQueued();
   }
 
-  /* 失败：无任何输出 → 自动回退普通 /api/chat；有部分输出 → 保留 + 重试钮 */
+  /* 失败/中断收尾（2026-08-18 提示分级）：
+     - 已有部分内容 → 消息保留（正文不覆盖为失败），气泡底部 statusText 小字分级提示
+     - 无任何输出 → 先静默回退普通 /api/chat（Task 2 真机保护）；回退也失败才
+       进错误态 + toast 分级文案（连接中断 ≠ 生成失败） */
   async _onError(err) {
     this._flushAccum();   // 收尾前冲刷未 flush 的尾部增量（失败时尽量保留已流出的内容）
     this._clearFlush();
     this._clearWatchdog();
+    this._clearSlowHint();
     console.warn('[StreamHost] 流式失败:', err && (err.message || err.errMsg));
+    const kind = classifyStreamError(err);
     const msg = this._find(this.msgId);
     if (!msg) return;
     const hasPartial = !!(msg.content && msg.content.trim());
@@ -535,12 +574,15 @@ class StreamHost {
       }
     }
 
+    const tip = STREAM_ERROR_TEXT[kind];
     this._patch(this.msgId, {
       streaming: false,
       error: true,
       // 部分内容已输出时保留；否则给一句兜底提示（均先清 TOOL 标签残留）
       content: stripToolTags(hasPartial ? msg.content : (msg.content || '网络开小差了，再试一次？')),
       thinking: (msg.thinking || []).map((s) => ({ text: s.text, state: 'done' })),
+      // 已输出部分内容 → 气泡底部浅色小字（分级文案，消息保留而非覆盖为失败）
+      statusText: hasPartial ? tip.partial : '',
     });
     this.streaming = false;
     this.typing = false;
@@ -548,7 +590,8 @@ class StreamHost {
     this.tick++;
     this._emit();
     this._save();
-    if (!hasPartial) this.notify('生成失败，可点「重试」');
+    // 什么都没生成 → toast 分级提示（不再笼统「生成失败」）
+    if (!hasPartial) this.notify(tip.empty);
     this._nextQueued();
   }
 
@@ -579,6 +622,33 @@ class StreamHost {
     if (this.watchdog) {
       clearTimeout(this.watchdog);
       this.watchdog = null;
+    }
+  }
+
+  /* 生成慢提示（2026-08-18）：生成开始 15s 后仍无任何可见内容 → slowHint 置真，
+     页面在输入区上方显示浅色小字「正在深入分析，请稍候…」；首个 chunk 或流结束 → 清除。
+     与 typing「研墨中」区分：typing 是意图分析阶段（首个 chunk 前恒真），slowHint 是
+     主生成阶段的超时兜底——两者同时成立时页面以 slowHint 为准（隐藏陈旧的「研墨中」）。 */
+  _armSlowHint() {
+    this._clearSlowHint();
+    this.slowTimer = setTimeout(() => {
+      this.slowTimer = null;
+      if (!this.streaming) return;
+      const msg = this._find(this.msgId);
+      if (msg && msg.content && String(msg.content).trim()) return; // 已有可见内容
+      this.slowHint = true;
+      this._emit();
+    }, SLOW_HINT_MS);
+  }
+
+  _clearSlowHint() {
+    if (this.slowTimer) {
+      clearTimeout(this.slowTimer);
+      this.slowTimer = null;
+    }
+    if (this.slowHint) {
+      this.slowHint = false;
+      this._emit();
     }
   }
 

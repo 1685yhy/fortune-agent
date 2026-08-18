@@ -106,6 +106,7 @@ Page({
     notKeep: false,            // 倾诉临时模式提示条(默认不记录)
     /* v8 阶段 3·过程体验（流式） */
     streaming: false,       // 当前有回复正在生成（发送钮 → 停止钮）
+    slowHint: false,        // 2026-08-18 生成慢提示：15s 无可见内容 → 输入区上方浅色小字
     /* v1.1 语音/键盘模式切换（元宝式） */
     inputMode: 'text',      // 'text' | 'voice'
     /* 语音输入（元宝式长按） */
@@ -430,6 +431,10 @@ Page({
       wx.showToast({ title: state.notice, icon: 'none' });
       streamHost.clearNotice();
     }
+    /* 2026-08-18 生成慢提示：tick 未变（无新内容）也要消费 slowHint 状态 */
+    if (this.data.slowHint !== !!state.slowHint) {
+      this.setData({ slowHint: !!state.slowHint });
+    }
     if (this._lastTick === state.tick) return; // tick 未变：仅提示类事件
     this._lastTick = state.tick;
     // 流式结束且本轮有新内容 → 检查回复是否含建档标记（最小实现：含 persons 相关 key 即提示）
@@ -616,6 +621,7 @@ Page({
       showGuide: mirrored.length === 0,   // v2.0：无消息 → 元宝式空会话引导区
       streaming: !!hostState.streaming,
       typing: !!hostState.typing,
+      slowHint: !!hostState.slowHint,     // 2026-08-18 生成慢提示现场恢复
     });
     this._lastTick = hostState.tick;
     this._prevStreaming = !!hostState.streaming;
@@ -1341,6 +1347,7 @@ Page({
       showGuide: true,
       fb: {},
       typing: false,
+      slowHint: false,      // 2026-08-18 生成慢提示复位（宿主 reset 亦清除）
       streaming: false,
       speakingId: '',
       citeDrawer: { show: false, full: false, msgId: '', items: [] },

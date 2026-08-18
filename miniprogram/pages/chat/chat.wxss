@@ -699,6 +699,15 @@
   letter-spacing: .18em;
   color: var(--acc);
 }
+
+/* 2026-08-18 生成中断分级：气泡底部浅色小字（内容已保留提示，不打断阅读） */
+.jz-status {
+  margin-top: 12rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .12em;
+  color: var(--ink-faint);
+}
 .jz-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 17rpx; }  /* 9px */
 .jz-time {
   font-family: var(--font-lat);
@@ -787,6 +796,17 @@
   font-size: 21rpx;                      /* 11px */
   letter-spacing: .2em;
   color: var(--ink-soft);
+}
+
+/* 2026-08-18 生成慢提示：输入区上方浅色小字（墨韵风格，不打断） */
+.slow-hint {
+  align-self: center;
+  margin: 10rpx 0 4rpx;
+  padding: 4rpx 14rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .18em;
+  color: var(--ink-faint);
 }
 
 /* ── 输入条（快捷笺 + 输入行 + 朱砂发送） ── */
