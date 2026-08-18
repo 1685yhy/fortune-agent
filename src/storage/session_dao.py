@@ -79,9 +79,21 @@ class SessionDAO:
                 conn.execute("ALTER TABLE sessions ADD COLUMN temp_expire_at TEXT DEFAULT ''")
             if "session_id" not in cols:
                 conn.execute("ALTER TABLE sessions ADD COLUMN session_id TEXT")
+            # 断点续传迁移: offline_completed=1 表示"客户端在生成完成前断开,回复由
+            # 服务端后台完成并落库"(下次进入经 pending 接口补全); consumed=1 表示
+            # 前端已消费该补全(不再返回)。老库 ALTER 兼容,幂等。
+            if "offline_completed" not in cols:
+                conn.execute(
+                    "ALTER TABLE sessions ADD COLUMN offline_completed INTEGER DEFAULT 0")
+            if "consumed" not in cols:
+                conn.execute("ALTER TABLE sessions ADD COLUMN consumed INTEGER DEFAULT 0")
             # 会话级查询走该索引（session_id 维度；CREATE IF NOT EXISTS 天然幂等）
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_sessions_session ON sessions(session_id)")
+            # 断点续传补全查询索引（user+session+未消费离线回复）
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sessions_offline ON "
+                "sessions(user_id, session_id, offline_completed, consumed)")
             conn.commit()
         finally:
             conn.close()
@@ -144,6 +156,137 @@ class SessionDAO:
         finally:
             conn.close()
         self._cleanup(user_id)
+
+    # ------------------------------------------------------------
+    # 断点续传（生成断点续传）：客户端断开后服务端继续生成并落库，
+    # 落库消息打 offline_completed 标记 → pending 接口补全 → consume 消费
+    # ------------------------------------------------------------
+
+    def get_max_message_id(self, user_id: str,
+                           session_id: Optional[str] = None) -> int:
+        """断点续传：生成开始前该会话最后一条消息 id（离线标记的 id 下界）。
+
+        语义：watcher 只标记本轮生成期间新增的 assistant 消息（id > 该值），
+        缓存命中/反馈等不落库分支不会误标记上一轮未标记的回复。
+        """
+        conn = self._connect()
+        try:
+            sql = "SELECT MAX(id) FROM sessions WHERE user_id = ?"
+            params = [user_id]
+            if session_id is not None:
+                sql += " AND session_id = ?"
+                params.append(session_id)
+            row = conn.execute(sql, params).fetchone()
+            return row[0] if row and row[0] is not None else 0
+        finally:
+            conn.close()
+
+    def mark_offline_completed(self, user_id: str,
+                               session_id: Optional[str] = None,
+                               min_id: Optional[int] = None) -> int:
+        """把指定会话中最近一条未标记的 assistant 消息标记为离线完成。
+
+        断点续传语义：客户端在生成完成前断开（SSE 流中断），生成在服务端
+        后台跑完并由 handler 正常落库——本条只补标记，不重复写入。
+
+        Args:
+            user_id: 用户标识
+            session_id: 会话标识（None = 旧行为按用户维度找最近一条）
+            min_id: 只标记 id > min_id 的 assistant 消息（本轮生成开始前
+                    的最后一条消息 id——缓存命中/反馈等不落库分支不会误标记
+                    上一轮未标记的回复；None = 不限，按最近一条）
+
+        Returns:
+            受影响行数（0 = 无符合条件且未标记的 assistant 消息）。
+        """
+        conn = self._connect()
+        try:
+            # 先取目标 id 再 UPDATE：SQLite 的 UPDATE...IN(子查询) 会随扫描行
+            # 重求值子查询（本次更新已改的 flag 立即可见），同一会话多次标记会
+            # 级联打到更旧的消息——两步式保证每次只打一条（幂等）。
+            sql = ("SELECT id FROM sessions"
+                   " WHERE user_id = ? AND role = 'assistant'"
+                   " AND offline_completed = 0"
+                   " AND (? IS NULL OR session_id = ?)")
+            params = [user_id, session_id, session_id]
+            if min_id is not None:
+                sql += " AND id > ?"
+                params.append(min_id)
+            sql += " ORDER BY id DESC LIMIT 1"
+            row = conn.execute(sql, params).fetchone()
+            if row is None:
+                return 0
+            cur = conn.execute(
+                "UPDATE sessions SET offline_completed=1 WHERE id = ?",
+                (row[0],),
+            )
+            conn.commit()
+            return cur.rowcount
+        finally:
+            conn.close()
+
+    def get_pending_offline_messages(
+        self, user_id: str, session_id: str, limit: int = 5
+    ) -> List[Dict]:
+        """断点续传补全：指定会话中未消费的后台完成回复（最新在前）。
+
+        Args:
+            user_id: 用户标识（鉴权层保证 = JWT sub，防越权）
+            session_id: 会话标识（必填，接口层已归一化）
+            limit: 最多返回条数
+
+        Returns:
+            list of dicts: [{id, content(已解密), created_at}, ...]
+        """
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """SELECT id, content, created_at FROM sessions
+                   WHERE user_id = ?
+                     AND session_id = ?
+                     AND role = 'assistant'
+                     AND offline_completed = 1
+                     AND consumed = 0
+                   ORDER BY id DESC LIMIT ?""",
+                (user_id, session_id, limit),
+            ).fetchall()
+            return [{
+                "id": r[0],
+                "content": _decrypt_or_plain(r[1]),
+                "created_at": r[2],
+            } for r in rows]
+        finally:
+            conn.close()
+
+    def consume_pending_offline(self, user_id: str, session_id: str,
+                                up_to_time: str = "") -> int:
+        """消费断点续传补全：把该会话中 created_at <= up_to_time 的
+        未消费离线回复标记为已消费（前端补全展示后调用，幂等）。
+
+        Args:
+            user_id: 用户标识
+            session_id: 会话标识
+            up_to_time: 消费截止时间（created_at 字符串比较，ISO 排序兼容；
+                        空 = 消费全部）
+
+        Returns:
+            受影响行数。
+        """
+        conn = self._connect()
+        try:
+            sql = ("UPDATE sessions SET consumed=1"
+                   " WHERE user_id = ? AND session_id = ?"
+                   " AND role = 'assistant' AND offline_completed = 1"
+                   " AND consumed = 0")
+            params = [user_id, session_id]
+            if up_to_time:
+                sql += " AND created_at <= ?"
+                params.append(up_to_time)
+            cur = conn.execute(sql, params)
+            conn.commit()
+            return cur.rowcount
+        finally:
+            conn.close()
 
     def cleanup_temp(self, now_iso: str = "") -> int:
         """删除过期的临时倾诉消息(24h 硬清理兜底),返回删除条数。"""

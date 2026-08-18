@@ -21,6 +21,19 @@
     error 事件（正文流尚未开始——引擎计算阶段——给 2× 宽限，防误杀）。
   - 收尾：真实流式未覆盖的正文（尾部/早退分支/缓存命中）以分句模拟流式
     补足（最长公共前缀对齐，不重复已流出的部分）。
+
+断点续传（2026-08-19，PM：退出/切走后生成不中断）：
+  - 生成在 executor 线程跑，客户端断开后继续完成（不 cancel），handler 照常
+    落库（回复 + session_id 已由 handler.process 内部完成，无需重复写入）。
+  - 生成器提前关闭（客户端断开/异常）时，finally 安排 watcher 任务等在后台
+    生成完成，随后给该会话最近一条 assistant 消息打 offline_completed=1
+    （SessionDAO.mark_offline_completed，只补标记；watcher 在事件循环线程
+    执行，无跨线程竞态；await task 同时保住 future 引用，线程完成后回调不丢）。
+  - 前端下次进入经 GET /api/chat/pending 补全 → POST /api/chat/pending/consume
+    消费（契约见 build_pending_response / consume_pending）。
+  - 在线路径不受影响：生成器正常跑完到 done → 不打标记；看门狗超时返回
+    （error 事件）时任务仍在跑 → finally 同样安排 watcher → 视为离线完成
+    （用户看到"超时"，实际回复后台完成了，下次进入自动补全）。
 """
 import asyncio
 import json
@@ -128,6 +141,50 @@ def normalize_session_id(raw: str = "") -> Optional[str]:
     return None
 
 
+# ── 断点续传补全（pending 接口契约，main.py 端点薄调用）────────────
+# GET  /api/chat/pending?session_id=xxx → {"items":[{role,content,time,offline}]}
+#      未消费的后台完成回复，最新在前；非法/空 session_id → 空 items
+# POST /api/chat/pending/consume {session_id, time} → {"ok": true}
+#      消费截止 time（created_at <= time 的全部离线回复标记已消费，幂等）
+def build_pending_response(dao, user_id: str, session_id: str = "") -> dict:
+    """断点续传补全响应：该会话未消费的后台完成回复（最新在前）。"""
+    sid = normalize_session_id(session_id or "")
+    if sid is None:
+        return {"items": []}
+    if dao is None:
+        return {"items": []}
+    items = []
+    try:
+        pending = dao.get_pending_offline_messages(user_id, sid)
+    except Exception:
+        logger.exception("chat pending query failed: user=%s", user_id)
+        return {"items": []}
+    for m in pending or []:
+        items.append({
+            "role": "assistant",
+            "content": m.get("content", ""),
+            "time": m.get("created_at", ""),
+            "offline": True,
+        })
+    return {"items": items}
+
+
+def consume_pending(dao, user_id: str, session_id: str = "",
+                    time: str = "") -> dict:
+    """消费断点续传补全：标记该会话 created_at <= time 的离线回复为已消费。"""
+    sid = normalize_session_id(session_id or "")
+    if sid is None:
+        return {"ok": False}
+    if dao is None:
+        return {"ok": True}
+    try:
+        dao.consume_pending_offline(user_id, sid, time or "")
+    except Exception:
+        logger.exception("chat pending consume failed: user=%s", user_id)
+        return {"ok": False}
+    return {"ok": True}
+
+
 class ChatStreamer:
     """流式对话编排器：与 /api/chat 共用核心 handler 逻辑，但逐事件推送。"""
 
@@ -152,6 +209,30 @@ class ChatStreamer:
         self.ping_interval = ping_interval          # 心跳间隔（保活）
         self.chunk_gap_timeout = chunk_gap_timeout  # 无正文看门狗
         self.simulation_delay = simulation_delay    # 模拟流式块间延迟
+
+    # ── 断点续传：离线完成标记 ───────────────────────────────────
+    def _mark_offline_if_needed(self, user_id: str,
+                                session_id: Optional[str], reply: str,
+                                min_id: Optional[int] = None):
+        """把本轮落库的 assistant 回复标记为离线完成（offline_completed=1）。
+
+        断点续传：消息本身已由 handler.process 内部落库（回复 + session_id），
+        这里只补标记——给该会话本轮生成期间新增的最近一条 assistant 消息打
+        标记（min_id = 生成开始前最后一条消息 id）。
+        无 session_dao / 落库失败 → 静默降级（标记失败不影响本轮流程，
+        仅补全不可用）。
+        """
+        if not reply:
+            return
+        # handler 持有 session_dao（与 /api/chat 落库同一实例）
+        session_dao = getattr(self.handler, "session_dao", None)
+        if session_dao is None:
+            return
+        try:
+            session_dao.mark_offline_completed(user_id, session_id,
+                                               min_id=min_id)
+        except Exception:
+            logger.warning("chat stream offline mark failed: user=%s", user_id)
 
     # ── 事件转换 / 收集 ──────────────────────────────────────────
     @staticmethod
@@ -241,6 +322,18 @@ class ChatStreamer:
         loop = asyncio.get_running_loop()
         chunk_texts: list = []
         disconnected = {"flag": False}
+        # 断点续传：会话标识（text 路径透传；voice/image 无会话维度 → None）
+        session_id = (normalize_session_id(getattr(req, "session_id", "") or "")
+                      if req.message_type == "text" else None)
+        # 生成开始前该会话最后一条消息 id——离线标记只打本轮新增的消息
+        # （缓存命中/反馈等不落库分支不会误标记上一轮未标记的回复）
+        before_id = None
+        try:
+            _sdao = getattr(self.handler, "session_dao", None)
+            if _sdao is not None:
+                before_id = _sdao.get_max_message_id(user_id, session_id)
+        except Exception:
+            before_id = None
         out_box: dict = {}  # 阶段 5：worker 线程回传引用来源（done 事件携带）
 
         def stream_cb(evt_type: str, payload: dict):
@@ -251,7 +344,13 @@ class ChatStreamer:
                 disconnected["flag"] = True  # 事件循环已关（客户端断开）
 
         def _run() -> str:
-            """executor 线程内跑核心逻辑 + 成功即扣配额（与 /api/chat 一致）。"""
+            """executor 线程内跑核心逻辑 + 成功即扣配额（与 /api/chat 一致）。
+
+            断点续传：生成不因客户端断开而中断——本线程照常跑完，handler 照常
+            落库（回复 + session_id）。离线标记不在此线程做（跨线程读标志有
+            竞态），由事件循环线程在生成器提前关闭时安排 watcher 任务补打
+            （见下方 finally）。
+            """
             try:
                 if req.message_type == "voice":
                     reply = self.handler._handle_voice(req.voice_text)
@@ -262,8 +361,7 @@ class ChatStreamer:
                     reply = self.handler.process(
                         req.message, user_id, stream_cb=stream_cb,
                         deep_night=bool(getattr(req, "deep_night", False)),
-                        session_id=normalize_session_id(
-                            getattr(req, "session_id", "") or ""))
+                        session_id=session_id)
                 # 兜底：回复出口强制清理 TOOL 标签残留（格式变体/未知工具名/
                 # 未闭合标签——handler 工具循环已清，这里对最终 reply 再 strip 一次，
                 # 后续「剩余文本模拟流式」与 done 内容都基于清理后的文本）
@@ -338,8 +436,28 @@ class ChatStreamer:
                 yield {"type": "ping"}
         finally:
             if not task.done():
-                # 生成器被关闭（客户端断开/异常）：后台线程自然跑完，仅记日志
+                # 生成器被关闭（客户端断开/异常）：后台线程自然跑完，仅记日志。
+                # 断点续传：客户端已断开但生成未中断——安排 watcher 任务等生成
+                # 完成后补打 offline_completed 标记（下次进入经 pending 补全）。
+                # 标记在事件循环线程做（无跨线程竞态）；await task 同时保住了
+                # future 引用，线程完成后回调不会丢。
                 logger.info("chat stream generator closed early: user=%s", user_id)
+
+                async def _wait_and_mark():
+                    try:
+                        reply = await task
+                    except Exception:
+                        return  # 生成失败/取消：无回复可补全
+                    if reply:
+                        self._mark_offline_if_needed(
+                            user_id, session_id, reply, min_id=before_id)
+
+                try:
+                    loop.create_task(_wait_and_mark())
+                except RuntimeError:
+                    logger.warning(
+                        "chat stream offline watcher create failed: user=%s",
+                        user_id)
 
         # ── 收尾：校验 / 模拟流式 / done ─────────────────────────
         try:

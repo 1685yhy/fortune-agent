@@ -1518,6 +1518,38 @@ async def chat_stream(req: ChatRequest, request: Request = None, auth: dict = De
     )
 
 
+class PendingConsumeRequest(BaseModel):
+    """断点续传消费请求：标记该会话中 created_at <= time 的离线回复为已消费。"""
+    session_id: str = ""
+    time: str = ""
+
+
+@app.get("/api/chat/pending")
+async def chat_pending(session_id: str = "", uid: str = Depends(require_user)):
+    """断点续传补全：返回当前会话中未消费的后台完成回复（最新在前）。
+
+    场景：用户在生成中退出/切走 → 服务端继续生成完并落库（offline_completed=1）
+    → 下次进入本会话时前端调此接口取回补全 → consume 标记消费。
+    契约：{"items": [{role:"assistant", content, time, offline:true}, ...]}
+    鉴权：require_user（uid = JWT sub，查询严格限定本人，防越权）。
+    """
+    from .api.chat_stream import build_pending_response
+    return build_pending_response(session_dao, uid, session_id)
+
+
+@app.post("/api/chat/pending/consume")
+async def chat_pending_consume(req: PendingConsumeRequest,
+                               uid: str = Depends(require_user)):
+    """断点续传消费：前端补全展示后调用（幂等）。
+
+    契约：{"session_id": ..., "time": <补全最新一条的 created_at>} → {"ok": true}
+    语义：消费截止时间——该会话 created_at <= time 的未消费离线回复全部标记
+    已消费（按会话 + 用户限定，JWT 鉴权）。
+    """
+    from .api.chat_stream import consume_pending
+    return consume_pending(session_dao, uid, req.session_id, req.time)
+
+
 @app.get("/api/health")
 async def health():
     """轻量健康检查：不触发任何重活（不查 DB、不调 LLM），看门狗专用。"""
