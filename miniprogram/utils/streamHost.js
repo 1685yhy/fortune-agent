@@ -183,6 +183,61 @@ class StreamHost {
     if (Array.isArray(messages)) this.messages = messages;
   }
 
+  /* ── 断点续传：服务端后台完成的回复 → 追加到消息列表（下次进入自动补全） ──
+     chat 页 onLoad 恢复历史后调用（时序：本地历史 → 服务端 pending 补全）；
+     静默追加（无 toast），不打断流式现场；返回实际追加条数。 */
+  appendOfflineMessages(items) {
+    if (!Array.isArray(items) || !items.length) return 0;
+    let added = 0;
+    const existing = Array.isArray(this.messages) ? this.messages.slice() : [];
+    // 去重：本地已含相同完整回复（在线已看到）→ 跳过，避免重复展示
+    const seen = new Set(existing.filter((m) => m.role === 'ai')
+      .map((m) => String(m.content || '').trim()));
+    const base = Date.now();
+    items.forEach((it, i) => {
+      const content = String(it.content || '').trim();
+      if (!content || seen.has(content)) return;
+      seen.add(content);
+      existing.push({
+        id: 'p' + base + '_' + i,   // 补全消息 id 前缀 p（与 u/a 区分）
+        role: 'ai',
+        tag: '',
+        content,
+        time: this._fmtServerTime(it.time),  // 服务端时间 → HH:mm（本地时区）
+        offline: true,               // 气泡底部小字「上次生成 · 退出后已完成」
+        thinking: [],
+        streaming: false,
+        error: false,
+        consultationId: null,
+        citations: [],
+        suggestions: [],
+        segments: [],
+        mdNodes: [],
+      });
+      added++;
+    });
+    if (!added) return 0;
+    this.messages = existing;
+    this.tick++;
+    this._emit({ autoScroll: true });
+    this._save();
+    return added;
+  }
+
+  /* 服务端 created_at（UTC "YYYY-MM-DD HH:MM:SS"）→ 本地 HH:mm */
+  _fmtServerTime(t) {
+    const s = String(t || '').trim();
+    const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(s);
+    if (!m) return '';
+    try {
+      const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]));
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } catch (e) {
+      return '';
+    }
+  }
+
   _emit(extra) {
     const state = Object.assign({
       messages: this.messages,

@@ -466,6 +466,29 @@ function chatStream(message, handlers = {}, options = {}) {
 }
 
 /**
+ * 断点续传·补全查询：返回当前会话中未消费的后台完成回复（最新在前）。
+ * 场景：生成中退出/切走 → 服务端继续生成完并落库 → 下次进入本会话取回补全。
+ * @param {string} sessionId - 当前会话标识（仅查本会话）
+ * @returns {Promise<{items: Array<{role, content, time, offline}>}>}
+ */
+function chatPending(sessionId) {
+  return request(`/api/chat/pending?session_id=${encodeURIComponent(sessionId || '')}`);
+}
+
+/**
+ * 断点续传·消费标记：补全展示后调用（幂等）。
+ * @param {string} sessionId - 当前会话标识
+ * @param {string} time - 补全最新一条的 created_at（服务端时间）
+ * @returns {Promise<{ok: boolean}>}
+ */
+function consumePending(sessionId, time) {
+  return request('/api/chat/pending/consume', {
+    method: 'POST',
+    data: { session_id: sessionId || '', time: time || '' },
+  });
+}
+
+/**
  * 文字转语音（语音播报）
  * @param {string} text - 要朗读的文本
  * @param {string} voice - 音色（可选，默认由后端决定）
@@ -1188,6 +1211,8 @@ module.exports = {
   chatStream,
   tts,
   feedback,
+  chatPending,
+  consumePending,
 
   // Reports
   getReports,

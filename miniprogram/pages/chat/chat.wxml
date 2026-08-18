@@ -176,6 +176,8 @@
           </view>
           <!-- 2026-08-18 生成中断分级：网络中断/超时/失败 → 气泡底部浅色小字（正文保留，不覆盖为失败） -->
           <view wx:if="{{item.statusText}}" class="jz-status">{{item.statusText}}</view>
+          <!-- 2026-08-19 断点续传：退出后服务端后台完成的回复 → 气泡底部小字 -->
+          <view wx:if="{{item.offline}}" class="jz-status">上次生成 · 退出后已完成</view>
           <!-- Task 8 对话内引导卡：AI 回复行内识别 /pages/ 路径 → 气泡末尾跳转按钮 -->
           <view wx:if="{{item.navPath && !item.streaming}}" class="nav-btn" hover-class="nav-btn-active" hover-stay-time="0" data-url="{{item.navPath}}" bindtap="onNavBtnTap">
             <text class="nav-btn-txt">{{item.navLabel || '进入双人合盘 →'}}</text>

@@ -161,6 +161,9 @@ Page({
     this._initNavDepth();     // 返回箭头仅导航栈进入（历史/解梦 navigateTo）时显示
     this._attachHost();
     this._loadHistory();
+    /* 断点续传：本地历史恢复后 → 服务端 pending 补全（生成中退出/切走 →
+       服务端继续生成完，下次进入自动补全看到结果；只查当前会话，静默追加） */
+    this._loadPendingOffline();
     /* 今日小问预填（PM 2026-08-17：不自动发送——问题填进输入框由用户编辑/发送） */
     try {
       const prefill = (options.question || '').trim();
@@ -631,6 +634,34 @@ Page({
     }
     this._recoverInterrupted();
     this._scrollBottom(true);
+  },
+
+  /* ═══ 断点续传：退出/切走后生成不中断，下次进入自动补全 ═══
+     时序：_loadHistory（本地历史）→ _loadPendingOffline（服务端 pending 补全）。
+     只查当前 session_id（新开会话后端无数据，天然空）；静默追加不打断、
+     不弹 toast；追加后按服务端最新时间调 consume 标记已消费（幂等）。 */
+  async _loadPendingOffline() {
+    const sid = streamHost.sessionId;
+    if (!sid) return;
+    if (streamHost.active) return;  // 宿主仍在生成中：等本次流式结束后自然落库/补全
+    let res = null;
+    try {
+      res = await api.chatPending(sid);
+    } catch (e) {
+      return;  // 网络失败静默降级（不影响历史展示）
+    }
+    const items = (res && res.items) || [];
+    if (!items.length) return;
+    const added = streamHost.appendOfflineMessages(items);
+    if (added > 0) {
+      // 追加完成 → 滚动到底（自动滚动遵守「上滑不拽回」规则）
+      this._scrollBottom(true);
+    }
+    // 消费标记：以补全最新一条的服务端时间为截止（所有已返回的补全一次消费）
+    const last = items[0] && items[0].time;
+    if (last) {
+      api.consumePending(sid, last).catch(() => {});
+    }
   },
 
   /* v1.1 中断恢复：返回时检测「发送中但无响应」状态 → 自动重连/重试 */
