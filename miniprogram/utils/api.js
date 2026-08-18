@@ -28,6 +28,7 @@ const BASEURL_STORAGE_KEY = 'ylm_baseurl';
 const PROBE_TIMEOUT = 3000;                 // 单候选探测超时（并发进行，总等待 ≈ 3s）
 const PROBE_CACHE_TTL = 24 * 60 * 60 * 1000; // 缓存 1 天
 const PROBE_RETRY_COOLDOWN = 30 * 1000;     // 网络失败触发后台重探的最小间隔
+const LOGIN_WAIT_MS = 5000;                 // 首启请求等登录就绪的最长等待（2026-08-18 消除首启 401 风暴）
 
 let baseURL = null;         // 探测结果（null = 未探测/探测中）
 let probePromise = null;    // 探测 Promise：业务请求 await 它，保证探测期间不抢发
@@ -132,11 +133,23 @@ function getToken() {
 // ---- 核心请求方法 ----
 
 /**
- * 统一请求入口：先等 baseURL 探测完成（探测期间排队），再真正发请求。
+ * 统一请求入口：先等 baseURL 探测 + 登录定型（两者并发进行），再真正发请求。
  * @param {string} url - 业务路径（如 /api/calendar/today），baseURL 自动拼接
+ *
+ * 首启竞态修复（2026-08-18）：页面请求在 app.js 登录定型前发出会触发 401 风暴
+ * （日志：22:39:26 多个请求 401「令牌无效/过期」，先于 22:39:52 登录成功）→
+ * 统一入口先等登录完成（≤LOGIN_WAIT_MS，登录完成后零开销）再发——携带有效 token，
+ * 不再出现首启 401/未登录展示。与 relogin 职责分离：等待解决「首启竞态」，
+ * relogin 解决「token 过期」，互不影响。
+ * 登录请求自身（login/relogin 置 _skipLoginWait）不等待——它在 loginPromise 内部，
+ * 等待会造成自锁（等自己）。
  */
 function request(url, options = {}) {
-  return ensureBaseURL().then(() => doRequest(url, options));
+  if (options._skipLoginWait) {
+    return ensureBaseURL().then(() => doRequest(url, options));
+  }
+  return Promise.all([waitForLogin(), ensureBaseURL()])
+    .then(() => doRequest(url, options));
 }
 
 /** 实际发请求（baseURL 已确定） */
@@ -255,7 +268,8 @@ function relogin() {
         request('/api/user/login', {
           method: 'POST',
           data: { code: res.code },
-          _noAuthRetry: true,
+          _noAuthRetry: true,     // 登录本身不触发 401 重登，避免死循环
+          _skipLoginWait: true,   // 登录请求在 loginPromise 内部：等待会自锁
         }).then((data) => {
           if (data && data.token) {
             applyAuth(data);
@@ -273,8 +287,10 @@ function relogin() {
 }
 
 /**
- * 等待 app.js 的登录流程定型（最多 3s），避免登录未完成时用兜底 user_id 发请求。
+ * 等待 app.js 的登录流程定型（最多 LOGIN_WAIT_MS = 5s），避免登录未完成时
+ * 用兜底 user_id / 无 token 发请求（首启 401 风暴根因）。
  * 登录失败/超时不影响请求继续（走统一兜底 local_user）。
+ * 登录已完成（loginPromise 已 resolve）时零开销。
  * @returns {Promise<void>}
  */
 function waitForLogin() {
@@ -282,7 +298,7 @@ function waitForLogin() {
   if (app && app.loginPromise) {
     return Promise.race([
       Promise.resolve(app.loginPromise).catch(() => {}),
-      new Promise((resolve) => setTimeout(resolve, 3000)),
+      new Promise((resolve) => setTimeout(resolve, LOGIN_WAIT_MS)),
     ]);
   }
   return Promise.resolve();
@@ -306,7 +322,8 @@ function login(code) {
   return request('/api/user/login', {
     method: 'POST',
     data: { code },
-    _noAuthRetry: true, // 登录本身不触发 401 重登，避免死循环
+    _noAuthRetry: true,   // 登录本身不触发 401 重登，避免死循环
+    _skipLoginWait: true, // 登录请求在 loginPromise 内部：等待会自锁（2026-08-18）
   });
 }
 
