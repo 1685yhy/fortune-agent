@@ -47,8 +47,7 @@ NAYIN = {
     "庚申":"石榴木","辛酉":"石榴木","壬戌":"大海水","癸亥":"大海水",
 }
 
-# 主要城市经纬度表（经度, 纬度）——真太阳时修正用。
-# 北京时间 = 120°E 标准时，出生地真太阳时 = 北京时间 + (经度-120)*4分钟 + 均时差。
+# 主要城市经纬度表（经度, 纬度）——真太阳时修正用。# 北京时间 = 120°E 标准时，出生地真太阳时 = 北京时间 + (经度-120)*4分钟 + 均时差。
 # 城市不在表中时不做修正（兼容原行为）。数值为城市中心坐标，精度足以支撑 ±1 分钟内的均时差计算。
 CITY_LONGLAT = {
     # 直辖市
@@ -120,6 +119,25 @@ CITY_LONGLAT = {
     "库尔勒": (86.15, 41.77), "哈密": (93.51, 42.83), "伊宁": (81.28, 43.92),
 }
 
+# 五虎遁：年干 → 寅月天干（甲己之年丙作首…）。返回 TIANGAN 下标。
+WUHU_DUN = {"甲": 2, "乙": 4, "庚": 4, "丙": 6, "辛": 6, "丁": 8, "壬": 8, "戊": 0, "癸": 0, "己": 2}
+
+# 旬空亡：六十甲子 → 本旬空亡支（问真 kw 每柱按本柱旬查、kongwang 按日柱旬查，两口径一致）
+XUN_KONG = {
+    "甲子": "戌亥", "乙丑": "戌亥", "丙寅": "戌亥", "丁卯": "戌亥", "戊辰": "戌亥", "己巳": "戌亥",
+    "庚午": "戌亥", "辛未": "戌亥", "壬申": "戌亥", "癸酉": "戌亥",
+    "甲戌": "申酉", "乙亥": "申酉", "丙子": "申酉", "丁丑": "申酉", "戊寅": "申酉", "己卯": "申酉",
+    "庚辰": "申酉", "辛巳": "申酉", "壬午": "申酉", "癸未": "申酉",
+    "甲申": "午未", "乙酉": "午未", "丙戌": "午未", "丁亥": "午未", "戊子": "午未", "己丑": "午未",
+    "庚寅": "午未", "辛卯": "午未", "壬辰": "午未", "癸巳": "午未",
+    "甲午": "辰巳", "乙未": "辰巳", "丙申": "辰巳", "丁酉": "辰巳", "戊戌": "辰巳", "己亥": "辰巳",
+    "庚子": "辰巳", "辛丑": "辰巳", "壬寅": "辰巳", "癸卯": "辰巳",
+    "甲辰": "寅卯", "乙巳": "寅卯", "丙午": "寅卯", "丁未": "寅卯", "戊申": "寅卯", "己酉": "寅卯",
+    "庚戌": "寅卯", "辛亥": "寅卯", "壬子": "寅卯", "癸丑": "寅卯",
+    "甲寅": "子丑", "乙卯": "子丑", "丙辰": "子丑", "丁巳": "子丑", "戊午": "子丑", "己未": "子丑",
+    "庚申": "子丑", "辛酉": "子丑", "壬戌": "子丑", "癸亥": "子丑",
+}
+
 @dataclass
 class BaziResult:
     bazi: List[str]       # ["庚午","辛巳","乙酉","甲申"]
@@ -135,6 +153,16 @@ class BaziResult:
     gender: str = ""      # P1-3: 原始性别，可能为 "unknown"
     shensha_detail: List[dict] = field(default_factory=list)  # [{name,source,luck},...]
     raw_data: dict = field(default_factory=dict)
+    # 问真口径扩展字段（2026-08-19 校准新增）
+    taiyuan: str = ""             # 胎元干支（月柱天干进1、地支进3）
+    taiyuan_nayin: str = ""       # 胎元纳音
+    minggong: str = ""            # 命宫干支（命宫支=(8-月支-时支) mod 12，五虎遁配干）
+    minggong_nayin: str = ""      # 命宫纳音
+    shenggong: str = ""           # 身宫干支（身宫支=(月支+时支) mod 12，五虎遁配干）
+    shenggong_nayin: str = ""     # 身宫纳音
+    kongwang: List[str] = field(default_factory=list)  # 空亡（四柱各柱按本柱旬查，问真 kw 口径）
+    kongwang_day: str = ""        # 日柱旬空亡（问真顶层 kongwang 口径）
+    qiyun_detail: tuple = ()      # 起运时间分解 (年,月,日,时,分)（问真 qiyunarr 前5位口径）
 
 
 class BaziEngine:
@@ -251,7 +279,9 @@ class BaziEngine:
             nayin.append(NAYIN.get(p, ""))
 
         # 大运
+        self._qiyun_breakdown = ()
         dayun = self._calc_dayun(lunar, calc_gender, bazi_pillars, orig_birth)
+        qiyun_detail = self._qiyun_breakdown
 
         # 流年（简化：使用 lunar-python 或计算）
         liunian = self._calc_liunian(lunar, day_gan)
@@ -262,15 +292,23 @@ class BaziEngine:
         # 用神（调候优先 + 扶抑辅助）
         yongshen = self._calc_yongshen(wuxing, day_gan, month_zhi)
 
-        # 神煞（60甲子速查表 29 种：年柱+日柱两局并查 + 按日干计算，问真数据基准）
+        # 神煞（问真 szshensha 计算口径：年干/日干、年支/日支双查 + 年支类 + 空亡/元辰/学堂/词馆/天罗地网）
         shensha_items = shensha_of(
             year_pillar=bazi_pillars[0],
             day_pillar=bazi_pillars[2],
             all_gan=all_gan,
             all_zhi=all_zhi,
+            gender=calc_gender,
         )
         shensha = [item.name for item in shensha_items]
         shensha_detail = [item.__dict__ for item in shensha_items]
+
+        # 胎元 / 命宫 / 身宫（含纳音，问真口径，2026-08-19 校准）
+        taiyuan = self._calc_taiyuan(bazi_pillars[1])
+        minggong = self._calc_gongwei("ming", year_gan, month_zhi, time_zhi)
+        shenggong = self._calc_gongwei("shen", year_gan, month_zhi, time_zhi)
+        # 空亡：四柱各按本柱旬查（问真 kw 口径）；日柱旬空亡另存（问真顶层 kongwang 口径）
+        kongwang = [XUN_KONG.get(p, "") for p in bazi_pillars]
 
         return BaziResult(
             bazi=bazi_pillars,
@@ -285,6 +323,15 @@ class BaziEngine:
             shensha_detail=shensha_detail,
             nayin=nayin,
             gender=gender,
+            taiyuan=taiyuan,
+            taiyuan_nayin=NAYIN.get(taiyuan, ""),
+            minggong=minggong,
+            minggong_nayin=NAYIN.get(minggong, ""),
+            shenggong=shenggong,
+            shenggong_nayin=NAYIN.get(shenggong, ""),
+            kongwang=kongwang,
+            kongwang_day=kongwang[2] if len(kongwang) > 2 else "",
+            qiyun_detail=qiyun_detail,
         )
 
     def _calc_shishen(self, day_gan: str, target_gan: str) -> str:
@@ -319,6 +366,37 @@ class BaziEngine:
 
         return "比肩"  # fallback
 
+    def _calc_taiyuan(self, month_pillar: str) -> str:
+        """胎元：月柱天干进一位、地支进三位（问真口径）。
+
+        例：己巳月 → 庚申（己→庚，巳→申）。
+        """
+        gan = TIANGAN[(TIANGAN.index(month_pillar[0]) + 1) % 10]
+        zhi = DIZHI[(DIZHI.index(month_pillar[1]) + 3) % 12]
+        return gan + zhi
+
+    def _calc_gongwei(self, kind: str, year_gan: str, month_zhi: str, time_zhi: str) -> str:
+        """命宫 / 身宫（问真口径，2026-08-19 经 10 案例反推校准）。
+
+        地支：身宫支序 = (月支序 + 时支序) mod 12；命宫支序 = (8 - 月支序 - 时支序) mod 12
+        （子=1…亥=12，结果 0 记 12）。取四柱月支、时支。
+        天干：五虎遁从年干起寅月，顺推至宫支（与问真 minggong/shenggong 干支一致）。
+        """
+        month_idx = DIZHI.index(month_zhi) + 1
+        hour_idx = DIZHI.index(time_zhi) + 1
+        if kind == "ming":
+            idx = (8 - month_idx - hour_idx) % 12
+        else:  # shen
+            idx = (month_idx + hour_idx) % 12
+        if idx == 0:
+            idx = 12
+        gong_zhi = DIZHI[idx - 1]
+        # 五虎遁：寅月干 + (宫支到寅的偏移)
+        base = WUHU_DUN[year_gan]
+        offset = (idx - 3) % 12  # 寅=3（子=1 序）为 0
+        gong_gan = TIANGAN[(base + offset) % 10]
+        return gong_gan + gong_zhi
+
     def _calc_dayun(self, lunar, gender: str, bazi: list, orig_birth: tuple = None) -> list:
         """计算大运起运和排列 — 标准排盘算法（与问真八字对齐）
 
@@ -349,16 +427,17 @@ class BaziEngine:
         is_male = gender == "男"
         forward = (is_male and is_yang) or (not is_male and not is_yang)
 
-        # 节气时刻（精确到分）：顺排取下一节，逆排取上一节（12节，非中气）
+        # 节气时刻（秒级精度，问真口径）：顺排取下一节，逆排取上一节（12节，非中气）
         solar = Solar.fromYmdHms(year, month, day, hour, minute, 0)
         jie = solar.getLunar().getNextJie() if forward else solar.getLunar().getPrevJie()
         jt = jie.getSolar()
-        jie_time = dt(jt.getYear(), jt.getMonth(), jt.getDay(), jt.getHour(), jt.getMinute())
+        jie_time = dt(jt.getYear(), jt.getMonth(), jt.getDay(),
+                      jt.getHour(), jt.getMinute(), jt.getSecond())
         dist_days = (jie_time - birth).total_seconds() / 86400.0
         if dist_days < 0:  # 防御：取错方向时反转
             dist_days = -dist_days
 
-        # 换算：3天=1岁；分解为 年/月/日/时/分
+        # 换算：3天=1岁；分解为 年/月/日/时/分（全部截断，分钟四舍五入；60 分钟进位）
         years_exact = dist_days / 3.0
         yy = int(years_exact)
         rem_month = (years_exact - yy) * 12
@@ -369,7 +448,8 @@ class BaziEngine:
         hh = int(rem_hour)
         mi = int(round((rem_hour - hh) * 60))
         if mi >= 60:
-            mi = 59
+            mi -= 60
+            hh += 1
 
         # 按日历相加：先加整年整月（日对齐到目标月有效天数），再加日时分
         months = yy * 12 + mm
@@ -378,6 +458,7 @@ class BaziEngine:
         day2 = min(birth.day, calendar.monthrange(y2, m2)[1])
         qy = dt(y2, m2, day2, birth.hour, birth.minute) + timedelta(days=dd, hours=hh, minutes=mi)
 
+        self._qiyun_breakdown = (yy, mm, dd, hh, mi)  # 供 qiyun_detail 暴露（问真 qiyunarr 前5位）
         return qy.year - birth.year + 1  # 虚岁
 
     def _calc_dayun_improved(self, lunar, gender: str, orig_birth: tuple = None) -> list:

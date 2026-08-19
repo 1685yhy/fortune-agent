@@ -132,61 +132,65 @@ def test_shensha_luck_classification():
     assert luck["空亡"] == "凶"
 
 
-# ---------------------------------------------------------------- 4. 按日干计算神煞
+# ---------------------------------------------------------------- 4. 按日干计算神煞（问真 szshensha 口径）
 def test_computed_lushen_and_yangren():
-    """乙卯日：乙禄在卯（禄神）、乙刃在寅（羊刃，四柱无寅则无）。"""
+    """乙卯日：乙禄在卯（禄神，日支）、乙刃在寅（羊刃，月支）。
+    问真口径（2026-08-19 校准）：禄神/羊刃按日干查支，source 记命中柱位。"""
     items = shensha_of("甲子", "乙卯", all_gan=["甲", "丙", "乙", "丙"], all_zhi=["子", "寅", "卯", "午"])
     names = [i.name for i in items]
     assert "禄神" in names
     assert "羊刃" in names  # 寅在月支
     lushen = next(i for i in items if i.name == "禄神")
-    assert lushen.source == "计算"
+    assert lushen.source == "日柱"  # 卯 = 日支
     assert lushen.luck == "吉"
     yangren = next(i for i in items if i.name == "羊刃")
+    assert yangren.source == "月柱"  # 寅 = 月支
     assert yangren.luck == "凶"
 
 
 def test_computed_tianyi_yima_kept():
-    """乙日主见申（时支）→ 天乙贵人（计算）；酉日支三合见亥 → 驿马（计算）。
-    与速查表双源合并去重：庚午年表无天乙贵人，此例天乙贵人仅来自计算。"""
+    """乙日主见申（时支）→ 天乙贵人（时柱）；午年支/酉日支三合见申 → 驿马。
+    问真口径（2026-08-19 校准）：年干+日干、年支+日支双查，source 记命中柱位。"""
     items = shensha_of("庚午", "乙酉", all_gan=["庚", "辛", "乙", "甲"], all_zhi=["午", "巳", "酉", "申"])
     by_name = {i.name: i for i in items}
-    assert by_name["天乙贵人"].source == "计算"  # 乙→子申，申在时支
-    assert "驿马" not in by_name  # 巳酉丑见亥，无亥
+    assert by_name["天乙贵人"].source == "时柱"  # 乙→子申，申在时支
+    assert "驿马" in by_name  # 年支午三合寅午戌→申（时支）/ 日支酉三合巳酉丑→亥（无）
+    assert by_name["驿马"].source == "时柱"
 
 
 # ---------------------------------------------------------------- 5. BaziEngine 集成
 def test_bazi_shensha_integration():
-    """1990-05-20 15:00 北京 男 → 庚午 辛巳 乙酉 甲申。
-    年柱庚午查表[勾绞煞,天喜] + 日柱乙酉查表[文昌贵人,天厨贵人,空亡,灾煞]
-    + 计算[天乙贵人(乙见申)]，全部带出。
+    """1990-05-20 15:00 男 → 庚午 辛巳 乙酉 甲申（问真 250 案例校准已验证全字段一致）。
+    问真 szshensha 口径：年干/日干、年支/日支双查 + 年支类 + 空亡/学堂等，source 记命中柱位。
     期望值为北京时间口径，city 传空 = 不修正（真太阳时修正见 test_bazi_solar_time.py）。"""
     engine = BaziEngine()
     result = engine.calculate(1990, 5, 20, 15, 0, "", "男")
     assert result.bazi == ["庚午", "辛巳", "乙酉", "甲申"]
     shensha = result.shensha
-    for expected in ["勾绞煞", "天喜", "文昌贵人", "天厨贵人", "空亡", "灾煞", "天乙贵人"]:
+    for expected in ["天乙贵人", "太极贵人", "文昌贵人", "天厨贵人", "福星贵人",
+                     "金舆", "驿马", "桃花", "亡神", "红鸾", "丧门", "勾绞煞",
+                     "孤辰", "空亡", "学堂"]:
         assert expected in shensha, f"BaziResult.shensha 缺少 {expected}: {shensha}"
     assert len(shensha) == len(set(shensha))  # 无重复
     # 详情字段带 source/luck
     detail = {d["name"]: d for d in result.shensha_detail}
-    assert detail["勾绞煞"]["source"] == "年柱"
-    assert detail["文昌贵人"]["source"] == "日柱"
-    assert detail["天乙贵人"]["source"] == "计算"
+    assert detail["勾绞煞"]["source"] == "日柱"   # 午年支前三辰=酉，酉在日支
+    assert detail["文昌贵人"]["source"] == "年柱"  # 乙日干→午，午在年支
+    assert detail["天乙贵人"]["source"] == "时柱"  # 乙日干→子申，申在时支
     assert detail["文昌贵人"]["luck"] == "吉"
     assert detail["空亡"]["luck"] == "凶"
 
 
 def test_bazi_shensha_lushen_yangren_integration():
     """2026-02-10 08:00 北京 男 → 丙午 庚寅 乙卯 庚辰。
-    乙卯日主：乙禄在卯（禄神，日支）、乙刃在寅（羊刃，月支）→ 计算神煞进入 BaziResult。"""
+    乙卯日主：乙禄在卯（禄神，日支）、乙刃在寅（羊刃，月支）→ 神煞进入 BaziResult。"""
     engine = BaziEngine()
     result = engine.calculate(2026, 2, 10, 8, 0, "北京", "男")
     assert result.bazi == ["丙午", "庚寅", "乙卯", "庚辰"]
     assert "禄神" in result.shensha
     assert "羊刃" in result.shensha
     detail = {d["name"]: d for d in result.shensha_detail}
-    assert detail["禄神"]["source"] == "计算"
+    assert detail["禄神"]["source"] == "日柱"  # 卯 = 日支
     assert detail["禄神"]["luck"] == "吉"
-    assert detail["羊刃"]["source"] == "计算"
+    assert detail["羊刃"]["source"] == "月柱"  # 寅 = 月支
     assert detail["羊刃"]["luck"] == "凶"
