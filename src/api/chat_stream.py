@@ -43,7 +43,6 @@ import time
 from typing import AsyncIterator, Optional
 
 from src.config import is_experience_mode
-from src.bot.handler import is_question
 from src.bot.tool_calls import strip_tool_calls  # 兜底：流式出口清理 TOOL 标签残留
 
 logger = logging.getLogger(__name__)
@@ -503,6 +502,7 @@ class ChatStreamer:
         # 前端不渲染建议卡即自然降级）。等待期间不产生事件，远小于前端看门狗 60s。
         suggestions: list = []
         question = (req.voice_text or "").strip() or (req.message or "").strip()
+        from src.bot.handler import is_question  # 局部导入：避免启动时拉入 handler 全链（torch）
         if question and is_question(question) and reply and not reply.startswith("⚠️"):
             def _gen_sugg() -> list:
                 try:
