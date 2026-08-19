@@ -351,7 +351,9 @@ def test_compare_qz(case):
     """四柱 + 大运前5步 + 起运虚岁，三向对比问真八字固化期望值。"""
     y, m, d = (int(x) for x in case["date"].split("-"))
     h, mi = (int(x) for x in case["time"].split(":"))
-    result = ENGINE.calculate(y, m, d, h, mi, "北京", case["gender"])
+    # 案例采集自问真 API 原始北京时间（未做真太阳时修正），故 city 传空保持不修正口径；
+    # 真太阳时修正按出生地经度生效（见 tests/test_bazi_solar_time.py）
+    result = ENGINE.calculate(y, m, d, h, mi, "", case["gender"])
 
     expect = case["expect"]
     # 四柱 8 字

@@ -159,9 +159,10 @@ def test_computed_tianyi_yima_kept():
 def test_bazi_shensha_integration():
     """1990-05-20 15:00 北京 男 → 庚午 辛巳 乙酉 甲申。
     年柱庚午查表[勾绞煞,天喜] + 日柱乙酉查表[文昌贵人,天厨贵人,空亡,灾煞]
-    + 计算[天乙贵人(乙见申)]，全部带出。"""
+    + 计算[天乙贵人(乙见申)]，全部带出。
+    期望值为北京时间口径，city 传空 = 不修正（真太阳时修正见 test_bazi_solar_time.py）。"""
     engine = BaziEngine()
-    result = engine.calculate(1990, 5, 20, 15, 0, "北京", "男")
+    result = engine.calculate(1990, 5, 20, 15, 0, "", "男")
     assert result.bazi == ["庚午", "辛巳", "乙酉", "甲申"]
     shensha = result.shensha
     for expected in ["勾绞煞", "天喜", "文昌贵人", "天厨贵人", "空亡", "灾煞", "天乙贵人"]:

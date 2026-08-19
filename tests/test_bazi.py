@@ -36,9 +36,10 @@ def test_bazi_dayun_sequence():
 
 
 def test_bazi_known_case():
-    """已知案例：庚午 辛巳 乙酉 甲申（1990年5月20日15时 男）"""
+    """已知案例：庚午 辛巳 乙酉 甲申（1990年5月20日15时 男）。
+    期望值为北京时间口径，city 传空 = 不修正（真太阳时修正见 test_bazi_solar_time.py）。"""
     engine = BaziEngine()
-    result = engine.calculate(1990, 5, 20, 15, 0, "北京", "男")
+    result = engine.calculate(1990, 5, 20, 15, 0, "", "男")
     # 至少日柱应该是乙酉
     assert "乙" in result.bazi[2] or "酉" in result.bazi[2], f"Expected 乙酉 in day pillar, got {result.bazi[2]}"
     # 时柱甲（木）与日主乙（木）同五行不同天干 → 应为劫财
