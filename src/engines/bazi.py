@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 from lunar_python import Lunar, Solar
 
 from src.engines.shensha import shensha_of
+from src.engines.ganzhi_rel import analyze_relations
 
 logger = logging.getLogger(__name__)
 
@@ -320,6 +321,39 @@ class BaziResult:
     jiaoyun: dict = field(default_factory=dict)  # 交运信息（问真口径，P0-1）：见 _calc_jiaoyun
     siling: str = ""              # 人元司令天干（问真排盘页"司令：X"口径，P0-1）
     siling_detail: dict = field(default_factory=dict)  # 司令分野明细 {gan,days,elapsed,remaining,...}
+    ganzhi_rel: list = field(default_factory=list)  # 原局四柱间两两干支关系 [{between,type,desc}]（P0-3）
+
+    def rel_with(self, ganzhi: str) -> list:
+        """大运/流年干支与原局各柱的干支关系（问真点大运流年同款入口，P0-3）。
+
+        :param ganzhi: 大运/流年干支，如 "乙丑"
+        :return: [{between, type, desc}]：
+            between = 年柱/月柱/日柱/时柱 —— ganzhi 与该柱的作用关系；
+            between = 自身 —— ganzhi 柱自身的盖头/截脚。
+        """
+        out = []
+        seen = set()
+        # ganzhi 柱自身：盖头/截脚（问真点大运流年时该柱自身的柱内性质）
+        for it in analyze_relations(ganzhi, ganzhi, self.bazi):
+            if it.type in ("盖头", "截脚"):
+                key = (it.type, it.desc)
+                if key not in seen:
+                    seen.add(key)
+                    out.append({"between": "自身", "type": it.type, "desc": it.desc})
+        # ganzhi vs 原局各柱（原局柱自身的盖头/截脚为柱内性质，不在此列）
+        for name, p in zip(("年柱", "月柱", "日柱", "时柱"), self.bazi):
+            for it in analyze_relations(ganzhi, p, self.bazi):
+                if it.type in ("盖头", "截脚"):
+                    continue
+                if it.type in ("争合", "妒合"):
+                    key = (it.type, it.desc)  # 多柱参与的作用，仅首个柱位输出
+                else:
+                    key = (name, it.type, it.desc)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append({"between": name, "type": it.type, "desc": it.desc})
+        return out
 
 
 class BaziEngine:
@@ -483,6 +517,9 @@ class BaziEngine:
         # 空亡：四柱各按本柱旬查（问真 kw 口径）；日柱旬空亡另存（问真顶层 kongwang 口径）
         kongwang = [XUN_KONG.get(p, "") for p in bazi_pillars]
 
+        # 干支关系：原局四柱间两两（伏吟/反吟/盖头/截脚/争合/妒合，问真同款规则，P0-3）
+        ganzhi_rel = self._calc_ganzhi_rel(bazi_pillars)
+
         return BaziResult(
             bazi=bazi_pillars,
             day_master=day_master,
@@ -509,6 +546,7 @@ class BaziEngine:
             jiaoyun=jiaoyun,
             siling=siling,
             siling_detail=siling_detail,
+            ganzhi_rel=ganzhi_rel,
         )
 
     def _calc_shishen(self, day_gan: str, target_gan: str) -> str:
@@ -924,3 +962,32 @@ class BaziEngine:
             all_gan=all_gan,
             all_zhi=all_zhi,
         )]
+
+    @staticmethod
+    def _calc_ganzhi_rel(pillars: list) -> list:
+        """原局四柱间两两干支关系（问真 newgetGZRelaction 同款规则，P0-3）。
+
+        只输出有关系的对（避免 4×4 噪音）；盖头/截脚为单柱柱内性质，不在此列
+        （大运/流年视角的盖头/截脚见 BaziResult.rel_with）。
+        返回 [{between: '年-月', type, desc}]。
+        """
+        out = []
+        seen = set()
+        for i in range(4):
+            for j in range(i + 1, 4):
+                for it in analyze_relations(pillars[i], pillars[j], pillars):
+                    if it.type in ("盖头", "截脚"):
+                        continue
+                    if it.type in ("争合", "妒合"):
+                        key = (it.type, it.desc)  # 多柱参与的作用，仅首个柱对输出
+                    else:
+                        key = (i, j, it.type, it.desc)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append({
+                        "between": "%s-%s" % ("年月日时"[i], "年月日时"[j]),
+                        "type": it.type,
+                        "desc": it.desc,
+                    })
+        return out
