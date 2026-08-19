@@ -119,7 +119,7 @@ def test_shensha_of_item_fields():
         assert i.name and i.source in ("年柱", "日柱", "计算",
                                        "年柱+日柱", "年柱+计算", "日柱+计算",
                                        "年柱+日柱+计算")
-        assert i.luck in ("吉", "凶", "中性", "中性偏吉")
+        assert i.luck in ("吉", "凶", "中性", "中性偏吉", "中性偏凶")
 
 
 def test_shensha_luck_classification():
