@@ -138,6 +138,112 @@ XUN_KONG = {
     "庚申": "子丑", "辛酉": "子丑", "壬戌": "子丑", "癸亥": "子丑",
 }
 
+# 人元司令分野表（问真《子平真诠》分日决，问真 chunk2 内嵌参考表，2026-08-19 提取）。
+# 各月支自本气节起按天干分段用事（各段用事天数之和为 30 天）；申月首段为戊己共 10 日。
+SILING_TABLE = {
+    "寅": (("戊", 7), ("丙", 7), ("甲", 16)),
+    "卯": (("甲", 10), ("乙", 20)),
+    "辰": (("乙", 9), ("癸", 3), ("戊", 18)),
+    "巳": (("戊", 5), ("庚", 9), ("丙", 16)),
+    "午": (("丙", 10), ("己", 9), ("丁", 11)),
+    "未": (("丁", 9), ("乙", 3), ("己", 18)),
+    "申": (("戊己", 10), ("壬", 3), ("庚", 17)),
+    "酉": (("庚", 10), ("辛", 20)),
+    "戌": (("辛", 9), ("丁", 3), ("戊", 18)),
+    "亥": (("戊", 7), ("甲", 5), ("壬", 18)),
+    "子": (("壬", 10), ("癸", 20)),
+    "丑": (("癸", 9), ("辛", 3), ("己", 18)),
+}
+
+# 月支 → 本气节（人元司令分野的起点）
+JIE_OF_MONTH = {
+    "寅": "立春", "卯": "惊蛰", "辰": "清明", "巳": "立夏", "午": "芒种", "未": "小暑",
+    "申": "立秋", "酉": "白露", "戌": "寒露", "亥": "立冬", "子": "大雪", "丑": "小寒",
+}
+
+# 12 节（交运时刻所在节月判定用，非中气）
+JIE_NAMES = ["立春", "惊蛰", "清明", "立夏", "芒种", "小暑", "立秋", "白露", "寒露", "立冬", "大雪", "小寒"]
+
+
+def _calendar_add(base: dt, years: int, months: int, days: int,
+                  hours: int = 0, minutes: int = 0) -> dt:
+    """按日历加年月日时分（问真起运/交运口径：加整年整月后日对齐目标月有效天数）。"""
+    import calendar
+    total_months = years * 12 + months
+    y2 = base.year + (base.month - 1 + total_months) // 12
+    m2 = (base.month - 1 + total_months) % 12 + 1
+    d2 = min(base.day, calendar.monthrange(y2, m2)[1])
+    return dt(y2, m2, d2, base.hour, base.minute) + timedelta(days=days, hours=hours, minutes=minutes)
+
+
+def _jie_time_of(year: int, name: str) -> Optional[dt]:
+    """lunar-python 节气时刻（秒级）→ datetime；查不到返回 None。"""
+    solar = Solar.fromYmdHms(year, 6, 1, 12, 0, 0)
+    v = solar.getLunar().getJieQiTable().get(name)
+    if not v:
+        return None
+    return dt(v.getYear(), v.getMonth(), v.getDay(),
+              v.getHour(), v.getMinute(), v.getSecond())
+
+
+def _siling_calc(month_zhi: str, solar_date) -> dict:
+    """人元司令分野计算（问真《子平真诠》分日决表，P0-1）。
+
+    solar_date: datetime 或 (年,月,日,时,分) 元组。自本气节起按分野表分段，
+    生日落在哪段即该干司令。返回 {gan, days, elapsed, remaining, month_zhi, jie}。
+    例：巳月立夏后 7.18 天 → 戊5天已尽，庚用事9天 → gan=庚。
+    """
+    if isinstance(solar_date, (tuple, list)):
+        parts = list(solar_date) + [0] * (5 - len(solar_date))
+        birth = dt(int(parts[0]), int(parts[1]), int(parts[2]),
+                   int(parts[3]), int(parts[4]))
+    else:
+        birth = solar_date
+    jie = (Solar.fromYmdHms(birth.year, birth.month, birth.day,
+                            birth.hour, birth.minute, 0)
+           .getLunar().getPrevJie())
+    jt = jie.getSolar()
+    jie_time = dt(jt.getYear(), jt.getMonth(), jt.getDay(),
+                  jt.getHour(), jt.getMinute(), jt.getSecond())
+    # 防御：月支与本气节不一致属调用方错误（如把巳月生日配成寅月支）
+    if JIE_OF_MONTH.get(month_zhi) != jie.getName():
+        raise ValueError(
+            "month_zhi %s 与生日所在节月(%s)不一致" % (month_zhi, jie.getName()))
+    elapsed = (birth - jie_time).total_seconds() / 86400.0
+    segs = SILING_TABLE.get(month_zhi, ())
+    if not segs:
+        return {}
+    cum = 0.0
+    for gan, days in segs:
+        if elapsed < cum + days:
+            return {
+                "gan": gan, "days": days,
+                "elapsed": round(elapsed, 6),
+                "remaining": round(cum + days - elapsed, 6),
+                "month_zhi": month_zhi,
+                "jie": jie.getName(),
+            }
+        cum += days
+    # 节气月可略超 30 天，末段顺延
+    gan, days = segs[-1]
+    return {
+        "gan": gan, "days": days,
+        "elapsed": round(elapsed, 6),
+        "remaining": round(cum + days - elapsed, 6),
+        "month_zhi": month_zhi,
+        "jie": jie.getName(),
+    }
+
+
+def sizhilingxiu(month_zhi: str, solar_date) -> tuple:
+    """人元司令（问真分野表，P0-1）→ (司令天干, 用事天数)。
+
+    例：sizhilingxiu("巳", (1999,5,13,11,25)) → ("庚", 9)（立夏后7.18天，戊5天已尽）。
+    """
+    info = _siling_calc(month_zhi, solar_date)
+    return (info.get("gan", ""), info.get("days", 0))
+
+
 @dataclass
 class BaziResult:
     bazi: List[str]       # ["庚午","辛巳","乙酉","甲申"]
@@ -163,6 +269,10 @@ class BaziResult:
     kongwang: List[str] = field(default_factory=list)  # 空亡（四柱各柱按本柱旬查，问真 kw 口径）
     kongwang_day: str = ""        # 日柱旬空亡（问真顶层 kongwang 口径）
     qiyun_detail: tuple = ()      # 起运时间分解 (年,月,日,时,分)（问真 qiyunarr 前5位口径）
+    qiyun_desc: str = ""          # 起运描述 "出生后2年4月22天0时起运"（问真排盘页口径，P0-1）
+    jiaoyun: dict = field(default_factory=dict)  # 交运信息（问真口径，P0-1）：见 _calc_jiaoyun
+    siling: str = ""              # 人元司令天干（问真排盘页"司令：X"口径，P0-1）
+    siling_detail: dict = field(default_factory=dict)  # 司令分野明细 {gan,days,elapsed,remaining,...}
 
 
 class BaziEngine:
@@ -280,8 +390,24 @@ class BaziEngine:
 
         # 大运
         self._qiyun_breakdown = ()
+        self._qiyun_datetime = None
+        self._qiyun_desc = ""
         dayun = self._calc_dayun(lunar, calc_gender, bazi_pillars, orig_birth)
         qiyun_detail = self._qiyun_breakdown
+        qiyun_desc = self._qiyun_desc
+
+        # 交运 + 人元司令（问真口径，P0-1）
+        jiaoyun = {}
+        if self._qiyun_datetime is not None:
+            jiaoyun = self._calc_jiaoyun(
+                self._qiyun_datetime, self._qiyun_breakdown,
+                dayun[0][0] if dayun else 0)
+        siling_detail = {}
+        try:
+            siling_detail = _siling_calc(month_zhi, orig_birth)
+        except Exception:
+            siling_detail = {}
+        siling = siling_detail.get("gan", "")
 
         # 流年（简化：使用 lunar-python 或计算）
         liunian = self._calc_liunian(lunar, day_gan)
@@ -332,6 +458,10 @@ class BaziEngine:
             kongwang=kongwang,
             kongwang_day=kongwang[2] if len(kongwang) > 2 else "",
             qiyun_detail=qiyun_detail,
+            qiyun_desc=qiyun_desc,
+            jiaoyun=jiaoyun,
+            siling=siling,
+            siling_detail=siling_detail,
         )
 
     def _calc_shishen(self, day_gan: str, target_gan: str) -> str:
@@ -417,7 +547,6 @@ class BaziEngine:
 
         经问真 API 校准：280/280 (100%) 一致。
         """
-        import calendar
         from datetime import datetime as dt, timedelta
 
         birth = dt(year, month, day, hour, minute)
@@ -437,28 +566,32 @@ class BaziEngine:
         if dist_days < 0:  # 防御：取错方向时反转
             dist_days = -dist_days
 
-        # 换算：3天=1岁；分解为 年/月/日/时/分（全部截断，分钟四舍五入；60 分钟进位）
-        years_exact = dist_days / 3.0
+        # 换算：3天=1岁；分解为 年/月/日/时/分（全部截断，分钟四舍五入；60 分钟进位）。
+        # 浮点边界吸附：起运分解数学上应为精确值（节气表分钟精度），浮点误差可能把整界
+        # 值落在 N-1.9999999 上（如 22 天整 → 21天23.9999时，问真服务端为 22天0时），
+        # 逐级吸附回整界。例：1999-05-13 11:25 → 立夏后 7.18333 天 → 2年4月22天0时。
+        def _snap(x):
+            return round(x) if abs(x - round(x)) < 1e-9 else x
+
+        years_exact = _snap(dist_days / 3.0)
         yy = int(years_exact)
-        rem_month = (years_exact - yy) * 12
+        rem_month = _snap((years_exact - yy) * 12)
         mm = int(rem_month)
-        rem_day = (rem_month - mm) * 30
+        rem_day = _snap((rem_month - mm) * 30)
         dd = int(rem_day)
-        rem_hour = (rem_day - dd) * 24
+        rem_hour = _snap((rem_day - dd) * 24)
         hh = int(rem_hour)
         mi = int(round((rem_hour - hh) * 60))
         if mi >= 60:
             mi -= 60
             hh += 1
 
-        # 按日历相加：先加整年整月（日对齐到目标月有效天数），再加日时分
-        months = yy * 12 + mm
-        y2 = birth.year + (birth.month - 1 + months) // 12
-        m2 = (birth.month - 1 + months) % 12 + 1
-        day2 = min(birth.day, calendar.monthrange(y2, m2)[1])
-        qy = dt(y2, m2, day2, birth.hour, birth.minute) + timedelta(days=dd, hours=hh, minutes=mi)
+        # 起运时刻（日历相加：先加整年整月[日对齐到目标月有效天数]，再加日时分）
+        qy = _calendar_add(birth, yy, mm, dd, hh, mi)
 
         self._qiyun_breakdown = (yy, mm, dd, hh, mi)  # 供 qiyun_detail 暴露（问真 qiyunarr 前5位）
+        self._qiyun_datetime = qy                      # 起运时刻 = 首个交运时刻（问真口径，P0-1）
+        self._qiyun_desc = "出生后%d年%d月%d天%d时起运" % (yy, mm, dd, hh)
         return qy.year - birth.year + 1  # 虚岁
 
     def _calc_dayun_improved(self, lunar, gender: str, orig_birth: tuple = None) -> list:
@@ -500,6 +633,63 @@ class BaziEngine:
             dayun.append((start_age + i * 10, TIANGAN[gan_idx] + DIZHI[zhi_idx]))
 
         return dayun
+
+    def _calc_jiaoyun(self, qy_time: dt, breakdown: tuple, start_sui: int) -> dict:
+        """交运信息（问真口径，P0-1；2026-08-19 经 7 例服务端 jiaoyun 数据验证 7/7）。
+
+        问真排盘页/API jiaoyun 字段："逢X、Y年 节后N天 交大运"：
+          1. 交运时刻 = 起运时刻（出生时刻 + 起运分解，按日历加法）
+          2. 交运年 = 交运时刻所在年按立春界定（交运时刻 < 该年立春 → 取前一年）
+          3. X、Y = 交运年天干 + 其五合之干（甲己/乙庚/丙辛/丁壬/戊癸）
+          4. N = floor(交运时刻 − 所在节时刻)（节为 12 节之一，如"白露后27天"）
+        客户端 fatemaps 另输出 "每逢 X、Y 年M月D日H时交脱大运"，本实现同用上述
+        服务端口径的交运时刻（与排盘页/API 一致），格式字符串对齐问真。
+        """
+        if not breakdown or qy_time is None:
+            return {}
+        jy_time = qy_time
+        # 交运年（立春界定）
+        lichun = _jie_time_of(jy_time.year, "立春")
+        if lichun is None:
+            return {}
+        V = jy_time.year if jy_time >= lichun else jy_time.year - 1
+        stem_idx = (V + 4712 + 24) % 10
+        gan1, gan2 = TIANGAN[stem_idx], TIANGAN[(stem_idx + 5) % 10]
+        # 交运时刻所在节 + 节后天数（floor）
+        jie_t, jie_name, n_days = None, "", -1
+        for cand_year in (jy_time.year - 1, jy_time.year):
+            for name in JIE_NAMES:
+                jt = _jie_time_of(cand_year, name)
+                if jt is not None and jt <= jy_time and (jie_t is None or jt > jie_t):
+                    jie_t, jie_name = jt, name
+        if jie_t is not None:
+            n_days = int(math.floor((jy_time - jie_t).total_seconds() / 86400.0))
+        # 交运年列表（每步大运 10 年一交，逐年立春界定）
+        years = []
+        for k in range(9):
+            t = _calendar_add(qy_time, 10 * k, 0, 0)
+            lc = _jie_time_of(t.year, "立春")
+            if lc is None:
+                break
+            vk = t.year if t >= lc else t.year - 1
+            years.append({
+                "sui": start_sui + 10 * k,
+                "year": vk,
+                "ganzhi": SHENG_XU[(vk + 4712 + 24) % 60],
+                "time": t.strftime("%Y-%m-%d %H:%M"),
+            })
+        return {
+            "text": "每逢 %s、%s 年%d月%d日%d时交脱大运"
+                    % (gan1, gan2, jy_time.month, jy_time.day, jy_time.hour),
+            "page_text": "逢%s、%s年 %s后%d天 交大运" % (gan1, gan2, jie_name, n_days),
+            "gan_pair": "%s、%s" % (gan1, gan2),
+            "year": V,
+            "year_ganzhi": SHENG_XU[(V + 4712 + 24) % 60],
+            "time": jy_time.strftime("%Y-%m-%d %H:%M"),
+            "jie": jie_name,
+            "days_after_jie": n_days,
+            "years": years,
+        }
 
     def _fallback_dayun(self, lunar, gender: str) -> list:
         """简化大运计算（备选方案）"""
