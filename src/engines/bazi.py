@@ -3,6 +3,8 @@ from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 from lunar_python import Lunar, Solar
 
+from src.engines.shensha import shensha_of
+
 TIANGAN = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"]
 DIZHI = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
 WUXING_TG = {"甲":"木","乙":"木","丙":"火","丁":"火","戊":"土","己":"土","庚":"金","辛":"金","壬":"水","癸":"水"}
@@ -53,9 +55,10 @@ class BaziResult:
     liunian: Dict[str,str]  # {"2026":"丙午"}
     geju: str             # "正官格"
     yongshen: str         # "水木"
-    shensha: List[str]    # ["天乙贵人","驿马"]
+    shensha: List[str]    # ["天乙贵人","驿马"]（年日两局查表+计算，去重）
     nayin: List[str]      # 纳音
     gender: str = ""      # P1-3: 原始性别，可能为 "unknown"
+    shensha_detail: List[dict] = field(default_factory=list)  # [{name,source,luck},...]
     raw_data: dict = field(default_factory=dict)
 
 
@@ -139,8 +142,15 @@ class BaziEngine:
         # 用神（调候优先 + 扶抑辅助）
         yongshen = self._calc_yongshen(wuxing, day_gan, month_zhi)
 
-        # 神煞（简化版：天乙贵人、驿马）
-        shensha = self._calc_shensha(all_gan, all_zhi)
+        # 神煞（60甲子速查表 29 种：年柱+日柱两局并查 + 按日干计算，问真数据基准）
+        shensha_items = shensha_of(
+            year_pillar=bazi_pillars[0],
+            day_pillar=bazi_pillars[2],
+            all_gan=all_gan,
+            all_zhi=all_zhi,
+        )
+        shensha = [item.name for item in shensha_items]
+        shensha_detail = [item.__dict__ for item in shensha_items]
 
         return BaziResult(
             bazi=bazi_pillars,
@@ -152,6 +162,7 @@ class BaziEngine:
             geju=geju,
             yongshen=yongshen,
             shensha=shensha,
+            shensha_detail=shensha_detail,
             nayin=nayin,
             gender=gender,
         )
@@ -434,34 +445,12 @@ class BaziEngine:
         tiaohou_note = "（调候优先）" if is_extreme_season else ""
         return "%s为用神%s（喜%s）" % (wx_names.get(best, best), tiaohou_note, "、".join(helpful))
 
-    def _calc_shensha(self, all_gan: list, all_zhi: list) -> list:
-        """神煞计算（简化版）"""
-        shensha = []
-        day_gan = all_gan[2]
-        day_zhi = all_zhi[2]
-
-        # 天乙贵人
-        guiren_map = {
-            "甲":"丑未","乙":"子申","丙":"亥酉","丁":"亥酉","戊":"丑未",
-            "己":"子申","庚":"丑未","辛":"寅午","壬":"卯巳","癸":"卯巳",
-        }
-        guiren = guiren_map.get(day_gan, "")
-        for z in all_zhi:
-            if z in guiren:
-                shensha.append("天乙贵人")
-                break
-
-        # 驿马（申子辰见寅...）
-        yima_map = {
-            "申":"寅","子":"寅","辰":"寅",
-            "寅":"申","午":"申","戌":"申",
-            "巳":"亥","酉":"亥","丑":"亥",
-            "亥":"巳","卯":"巳","未":"巳",
-        }
-        yima = yima_map.get(day_zhi, "")
-        for z in all_zhi:
-            if z == yima:
-                shensha.append("驿马")
-                break
-
-        return shensha
+    def _calc_shensha(self, bazi_pillars: list, all_gan: list, all_zhi: list) -> list:
+        """神煞计算 — 委托 shensha.py 引擎（年柱+日柱查表 29 种 + 按日干计算），
+        保留旧方法名供外部兼容；calculate() 主流程已直接用 shensha_of。"""
+        return [item.name for item in shensha_of(
+            year_pillar=bazi_pillars[0],
+            day_pillar=bazi_pillars[2],
+            all_gan=all_gan,
+            all_zhi=all_zhi,
+        )]
