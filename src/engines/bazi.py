@@ -1,5 +1,6 @@
 """八字排盘引擎 - 基于 lunar-python."""
 import json as _json
+import logging
 import math
 import os as _os
 from dataclasses import dataclass, field
@@ -8,6 +9,8 @@ from typing import List, Dict, Optional
 from lunar_python import Lunar, Solar
 
 from src.engines.shensha import shensha_of
+
+logger = logging.getLogger(__name__)
 
 TIANGAN = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"]
 DIZHI = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
@@ -201,7 +204,10 @@ def _jieqi_time(year: int, jie_name: str) -> Optional[dt]:
     表格式：{"1800": {"1": ["小寒", "6", "07:46:02"], ...12节}, ...}
     （scripts/extract_jieqi_qz.py 从问真 eOvQ 模块提取，2026-08-20 修正年份错位；
     问真表时刻与 lunar-python 有秒级差异，起运分解用问真表可与问真 qiyunarr 对齐）。
-    越界（<1799 或 >2100）或缺失 → 回退 lunar-python（_jie_time_of）。
+    回退契约（不抛异常）：
+    - 越界（<1799 或 >2100）、缺失、条目损坏（如 day=32、时间串格式错）→
+      按缺失处理，回退 lunar-python（_jie_time_of，返回 lunar 值）；
+    - 表文件缺失/损坏（JSON 加载失败）→ logger.warning 一行后返回 None（调用方整表回退 lunar）。
     """
     global _JIEQI_QZ_CACHE
     if _JIEQI_QZ_CACHE is None:
@@ -210,14 +216,20 @@ def _jieqi_time(year: int, jie_name: str) -> Optional[dt]:
         try:
             with open(_path, encoding="utf-8") as _f:
                 _JIEQI_QZ_CACHE = _json.load(_f)
-        except Exception:
+        except Exception as _e:
+            # 表文件缺失/损坏：不静默，告警一行后按"无表"处理（返回 None，调用方走 lunar 回退）
+            logger.warning("jieqi_qz.json 加载失败，起运节气回退 lunar-python: %s", _e)
             _JIEQI_QZ_CACHE = {}
+            return None
     idx = JIE_INDEX.get(jie_name)
     if idx is not None:
-        entry = _JIEQI_QZ_CACHE.get(str(year), {}).get(str(idx))
-        if entry and entry[0] == jie_name:
-            hh, mm, ss = entry[2].split(":")
-            return dt(year, idx, int(entry[1]), int(hh), int(mm), int(ss))
+        try:
+            entry = _JIEQI_QZ_CACHE.get(str(year), {}).get(str(idx))
+            if entry and entry[0] == jie_name:
+                hh, mm, ss = entry[2].split(":")
+                return dt(year, idx, int(entry[1]), int(hh), int(mm), int(ss))
+        except (ValueError, TypeError, IndexError, AttributeError):
+            pass  # 条目损坏（如 day=32、结构缺字段）：按缺失处理，落到下方 lunar 回退
     return _jie_time_of(year, jie_name)
 
 
@@ -617,7 +629,23 @@ class BaziEngine:
         dist_days = abs((jie_time - birth).total_seconds() / 86400.0)
 
         # 换算：3天=1年 → 30天月单位分解（问真服务端 qiyunarr 口径，250 案例反推）。
-        # 月/日边界借位 + 小时浮点路径；分钟可为 60（问真服务端存在该输出，不进位）。
+        # ── 单位体系推导（R = 距离(实天) × 120，即 120 单位 = 1 实天）──
+        #   1 年 = 3 实天 = 360 单位（古典换算：3 天折 1 年）
+        #   1 月 = 1/4 实天 = 30 单位（古典换算：1 实天折 4 月）
+        #   1 单位 = 12 实分钟 = 1 个"输出日"；1 实小时 = 5 单位 = 5 输出日
+        #     （古典换算：1 时辰 = 2 实小时 = 10 输出日 → 24 实小时 = 120 单位 = 120 输出日）
+        # ── 月借位（Df < 1.0 且 mm % 4 == 1）──
+        #   mm ≡ 1 (mod 4) ⟺ 整实天之外恰余 1 整月（4 月 = 4×30 = 120 单位 = 1 实天，
+        #   故整月数每满 4 即消耗 1 实天；余 1 整月 = 30 单位 = 30 输出日 = 6 实小时）。
+        #   再叠加日余不足 1 单位（Df < 1.0，即 <12 实分钟，零头日无）时，问真 qiyunarr
+        #   把"X月0天"改写为"X-1月30天"（量值不变，如 1月0天 → 0月30天，250 案例反推）。
+        # ── 日借位（Df-dd < 1/24 且 dd % 5 == 1）──
+        #   dd ≡ 1 (mod 5) ⟺ 整实小时之外恰余 1 输出日（5 输出日 = 5 单位 = 1 实小时，
+        #   故输出日每满 5 即消耗 1 实小时；余 1 输出日 = 24 输出时 = 12 实分钟）。
+        #   再叠加日余不足 1 输出时（Df-dd < 1/24 单位，即 <30 实秒）时，qiyunarr
+        #   把"X天0时"改写为"X-1天24时"（如 21天26分 → 20天24时26分）。
+        # ── 分钟 ──
+        #   mi 四舍五入后可为 60：问真服务端存在该输出且不进位（口径如此，勿"修正"进位）。
         # 例：1999-05-13 11:25 → 立夏后 7.18333 天 → 2年4月22天0时。
         R = dist_days * 120.0
         yy = int(R / 360.0)
