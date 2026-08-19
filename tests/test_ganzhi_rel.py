@@ -144,3 +144,60 @@ def test_rel_item_dataclass():
     """RelationItem 字段契约：{type, desc, between}。"""
     it = RelationItem('伏吟', '乙丑与乙丑完全相同（伏吟）')
     assert it.type == '伏吟' and it.desc.startswith('乙丑') and it.between == ''
+
+
+# ---------------------------------------------------------------- 9. 争合/妒合茎池双计数回归（P0-3 修复）
+def test_rel_with_single_he_day_master():
+    """大运/流年庚合日主乙 → 单合"庚合日主乙"，非争合非妒合，desc 无伪造双乙。"""
+    r = _chart()  # 闫海洋盘：己卯 己巳 乙丑 壬午，日主乙
+    for ganzhi in ('庚午', '庚辰'):
+        rels = r.rel_with(ganzhi)
+        # 单合：庚(大运/流年) 合日主乙
+        assert any(x['type'] == '合' and x['desc'] == '庚合日主乙' for x in rels), rels
+        # 非争合非妒合：仅一个庚伴，不得伪造"两干争合"
+        assert not any(x['type'] in ('争合', '妒合') for x in rels), rels
+        # desc 无伪造双乙：日主乙只物理存在一次，不再被茎池双计（旧 bug：乙、乙两干争合庚）
+        assert all('乙、乙' not in x['desc'] for x in rels), rels
+        assert all('两干' not in x['desc'] for x in rels), rels
+
+
+def test_zhenghe_original_chart():
+    """原局含两庚争合一乙（庚子 庚辰 戊午 乙巳）：恰好 1 条争合、计数精确（无 3 庚膨胀、无重复）。"""
+    rels = BaziEngine._calc_ganzhi_rel(['庚子', '庚辰', '戊午', '乙巳'])
+    zhenghe = [x for x in rels if x['type'] == '争合']
+    # 年-月/年-时/月-时 多对检出同一条池级关系，仅首个柱对输出，无重复
+    assert len(zhenghe) == 1, rels
+    assert zhenghe[0]['desc'] == '庚、庚两干争合乙', zhenghe
+    # 被合者乙非日主（日主戊午）→ 争合，不报妒合
+    assert not any(x['type'] == '妒合' for x in rels), rels
+    # 无 3 庚膨胀：茎池按物理存在去重（a/b 本就是原局柱，天干不重复计入）
+    assert all('庚、庚、庚' not in x['desc'] for x in rels), rels
+    assert all('三干' not in x['desc'] for x in rels), rels
+    # 三干案例：原局两庚 + 大运庚 → 三庚争合一乙（"三干"措辞，计数精确）
+    items3 = analyze_relations('庚午', '丙辰', ['庚子', '庚寅', '戊午', '乙巳'])
+    zh3 = [it for it in items3 if it.type == '争合']
+    assert len(zh3) == 1, items3
+    assert zh3[0].desc == '庚、庚、庚三干争合乙', zh3
+
+
+def test_duhe_integration():
+    """日主被两干争合 → 妒合，desc 计数精确（原局庚 + 大运庚 两庚争合日主乙）。"""
+    # 2020-03-23 12:00 → 庚子 己卯 乙丑 壬午：年干庚 + 日主乙
+    r = ENGINE.calculate(2020, 3, 23, 12, 0, "", "男")
+    assert r.bazi == ['庚子', '己卯', '乙丑', '壬午']
+    rels = r.rel_with('庚午')  # 大运庚 + 原局庚 → 两庚争合日主乙
+    duhe = [x for x in rels if x['type'] == '妒合']
+    assert len(duhe) == 1, rels
+    assert duhe[0]['desc'] == '庚、庚两干争合乙（日主被争合）', duhe
+    # 日主被争合只报妒合，不报争合（互斥）
+    assert not any(x['type'] == '争合' for x in rels), rels
+    # analyze_relations 直接入口：两外干合日主乙（闫海洋盘无原局庚）→ 妒合，且无重复输出
+    items = analyze_relations('庚午', '庚辰', PILLARS)
+    duhe2 = [it for it in items if it.type == '妒合']
+    assert len(duhe2) == 1, items
+    assert duhe2[0].desc == '庚、庚两干争合乙（日主被争合）', duhe2
+    # 三干妒合案例：原局三庚争合日主乙 → "三干"
+    items3 = analyze_relations('庚午', '丙辰', ['庚子', '庚寅', '乙巳', '庚午'])
+    duhe3 = [it for it in items3 if it.type == '妒合']
+    assert len(duhe3) == 1, items3
+    assert duhe3[0].desc == '庚、庚、庚三干争合乙（日主被争合）', duhe3

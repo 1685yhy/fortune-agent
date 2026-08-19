@@ -345,7 +345,7 @@ class BaziResult:
             for it in analyze_relations(ganzhi, p, self.bazi):
                 if it.type in ("盖头", "截脚"):
                     continue
-                if it.type in ("争合", "妒合"):
+                if it.type in ("合", "争合", "妒合"):
                     key = (it.type, it.desc)  # 多柱参与的作用，仅首个柱位输出
                 else:
                     key = (name, it.type, it.desc)
@@ -978,7 +978,7 @@ class BaziEngine:
                 for it in analyze_relations(pillars[i], pillars[j], pillars):
                     if it.type in ("盖头", "截脚"):
                         continue
-                    if it.type in ("争合", "妒合"):
+                    if it.type in ("合", "争合", "妒合"):
                         key = (it.type, it.desc)  # 多柱参与的作用，仅首个柱对输出
                     else:
                         key = (i, j, it.type, it.desc)
