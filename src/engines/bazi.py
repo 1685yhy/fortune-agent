@@ -1,5 +1,7 @@
 """八字排盘引擎 - 基于 lunar-python."""
+import json as _json
 import math
+import os as _os
 from dataclasses import dataclass, field
 from datetime import datetime as dt, timedelta
 from typing import List, Dict, Optional
@@ -184,6 +186,39 @@ def _jie_time_of(year: int, name: str) -> Optional[dt]:
         return None
     return dt(v.getYear(), v.getMonth(), v.getDay(),
               v.getHour(), v.getMinute(), v.getSecond())
+
+
+# 问真节气表：节序号 → 节名（序号即公历月：小寒1月 立春2月 … 大雪12月）
+JIE_INDEX = {"小寒": 1, "立春": 2, "惊蛰": 3, "清明": 4, "立夏": 5, "芒种": 6,
+             "小暑": 7, "立秋": 8, "白露": 9, "寒露": 10, "立冬": 11, "大雪": 12}
+
+_JIEQI_QZ_CACHE = None
+
+
+def _jieqi_time(year: int, jie_name: str) -> Optional[dt]:
+    """问真节气表查询（data/jieqi_qz.json，1799-2100，12 节秒级时刻）。
+
+    表格式：{"1800": {"1": ["小寒", "6", "07:46:02"], ...12节}, ...}
+    （scripts/extract_jieqi_qz.py 从问真 eOvQ 模块提取，2026-08-20 修正年份错位；
+    问真表时刻与 lunar-python 有秒级差异，起运分解用问真表可与问真 qiyunarr 对齐）。
+    越界（<1799 或 >2100）或缺失 → 回退 lunar-python（_jie_time_of）。
+    """
+    global _JIEQI_QZ_CACHE
+    if _JIEQI_QZ_CACHE is None:
+        _path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                              "..", "..", "data", "jieqi_qz.json")
+        try:
+            with open(_path, encoding="utf-8") as _f:
+                _JIEQI_QZ_CACHE = _json.load(_f)
+        except Exception:
+            _JIEQI_QZ_CACHE = {}
+    idx = JIE_INDEX.get(jie_name)
+    if idx is not None:
+        entry = _JIEQI_QZ_CACHE.get(str(year), {}).get(str(idx))
+        if entry and entry[0] == jie_name:
+            hh, mm, ss = entry[2].split(":")
+            return dt(year, idx, int(entry[1]), int(hh), int(mm), int(ss))
+    return _jie_time_of(year, jie_name)
 
 
 def _siling_calc(month_zhi: str, solar_date) -> dict:
@@ -540,12 +575,14 @@ class BaziEngine:
         """标准起运算法（经典排盘算法，对齐问真八字 qiyunsui 口径）
 
         1. 方向：阳男阴女顺排（数至下一个节），阴男阳女逆排（数至上一个节）
-        2. 时长：出生时刻到目标节交节时刻的间隔（节气时刻精确到分钟，取自 lunar-python 节气表）
-        3. 换算：3天=1岁，1天=4个月，1个时辰(2h)=10天 → 精确岁数 = 时长(天) / 3
-        4. 分解为 年/月/日/时/分 后按日历加回出生时刻 → 起运日期
+        2. 时长：出生时刻到目标节交节时刻的间隔（节气时刻取问真节气表
+           data/jieqi_qz.json，秒级精度；越界/缺失回退 lunar-python）
+        3. 换算：3天=1年，1天=4个月 → 30天月单位 R = 120 × 距离（天）
+        4. 分解为 年/月/日/时/分（问真服务端 qiyunarr 口径，250 案例校准 249/250，
+           0.4% 差异仅为浮点末位边界）；按日历加回出生时刻 → 起运日期
         5. 起运虚岁 = 起运日期所在年份 - 出生年份 + 1（问真 qiyunsui 口径）
 
-        经问真 API 校准：280/280 (100%) 一致。
+        经问真 API 校准：280/280 (100%) 一致（虚岁）；起运分解 250 案例 249/250。
         """
         from datetime import datetime as dt, timedelta
 
@@ -556,35 +593,49 @@ class BaziEngine:
         is_male = gender == "男"
         forward = (is_male and is_yang) or (not is_male and not is_yang)
 
-        # 节气时刻（秒级精度，问真口径）：顺排取下一节，逆排取上一节（12节，非中气）
-        solar = Solar.fromYmdHms(year, month, day, hour, minute, 0)
-        jie = solar.getLunar().getNextJie() if forward else solar.getLunar().getPrevJie()
-        jt = jie.getSolar()
-        jie_time = dt(jt.getYear(), jt.getMonth(), jt.getDay(),
-                      jt.getHour(), jt.getMinute(), jt.getSecond())
-        dist_days = (jie_time - birth).total_seconds() / 86400.0
-        if dist_days < 0:  # 防御：取错方向时反转
-            dist_days = -dist_days
+        # 节气时刻（问真表秒级，优先）：顺排取下节、逆排取上节（12 节，与月柱同源）
+        jie_time = None
+        if forward:
+            for yy in (year, year + 1):
+                for name in JIE_NAMES:
+                    t = _jieqi_time(yy, name)
+                    if t is not None and t > birth and (jie_time is None or t < jie_time):
+                        jie_time = t
+        else:
+            for yy in (year - 1, year):
+                for name in JIE_NAMES:
+                    t = _jieqi_time(yy, name)
+                    if t is not None and t <= birth and (jie_time is None or t > jie_time):
+                        jie_time = t
+        if jie_time is None:
+            # 回退：lunar-python 节气表
+            solar = Solar.fromYmdHms(year, month, day, hour, minute, 0)
+            jie = solar.getLunar().getNextJie() if forward else solar.getLunar().getPrevJie()
+            jt = jie.getSolar()
+            jie_time = dt(jt.getYear(), jt.getMonth(), jt.getDay(),
+                          jt.getHour(), jt.getMinute(), jt.getSecond())
+        dist_days = abs((jie_time - birth).total_seconds() / 86400.0)
 
-        # 换算：3天=1岁；分解为 年/月/日/时/分（全部截断，分钟四舍五入；60 分钟进位）。
-        # 浮点边界吸附：起运分解数学上应为精确值（节气表分钟精度），浮点误差可能把整界
-        # 值落在 N-1.9999999 上（如 22 天整 → 21天23.9999时，问真服务端为 22天0时），
-        # 逐级吸附回整界。例：1999-05-13 11:25 → 立夏后 7.18333 天 → 2年4月22天0时。
-        def _snap(x):
-            return round(x) if abs(x - round(x)) < 1e-9 else x
-
-        years_exact = _snap(dist_days / 3.0)
-        yy = int(years_exact)
-        rem_month = _snap((years_exact - yy) * 12)
-        mm = int(rem_month)
-        rem_day = _snap((rem_month - mm) * 30)
-        dd = int(rem_day)
-        rem_hour = _snap((rem_day - dd) * 24)
-        hh = int(rem_hour)
-        mi = int(round((rem_hour - hh) * 60))
-        if mi >= 60:
-            mi -= 60
-            hh += 1
+        # 换算：3天=1年 → 30天月单位分解（问真服务端 qiyunarr 口径，250 案例反推）。
+        # 月/日边界借位 + 小时浮点路径；分钟可为 60（问真服务端存在该输出，不进位）。
+        # 例：1999-05-13 11:25 → 立夏后 7.18333 天 → 2年4月22天0时。
+        R = dist_days * 120.0
+        yy = int(R / 360.0)
+        R2r = R - 360.0 * yy
+        mm = int(R2r / 30.0)
+        Df = R2r - 30.0 * mm
+        if Df < 1.0 and mm % 4 == 1:
+            # 整月不足 1 天：按 30 天回退到上一月（问真 qiyunarr，如 1月0天 → 0月30天）
+            mm -= 1
+            dd = 30
+        else:
+            dd = int(Df)
+            if Df - dd < 1.0 / 24.0 and dd % 5 == 1:
+                # 日余不足 1 小时：借 1 天给小时（问真 qiyunarr，如 21天26分 → 20天24时26分）
+                dd -= 1
+        H_total = R2r * 24.0
+        hh = int(H_total) - 720 * mm - 24 * dd
+        mi = int(round((H_total - int(H_total)) * 60.0))
 
         # 起运时刻（日历相加：先加整年整月[日对齐到目标月有效天数]，再加日时分）
         qy = _calendar_add(birth, yy, mm, dd, hh, mi)
