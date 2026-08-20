@@ -65,6 +65,8 @@ def liunian_ganzhi(birth_year: int, year_pillar: str, target_year: int) -> str:
     """流年干支（年柱 + 岁差，六十甲子循环）。
 
     口径：流年干支 = 出生年柱干支 + (目标年 − 出生年) mod 60。
+    birth_year 为出生干支年（立春界定，与 year_pillar 同一年，见 BaziEngine._pillar_year）
+    ——非农历年，否则 [立春, 正月初一) 出生者岁差整体错位一年。
     例：liunian_ganzhi(1999, "己卯", 2026) == "丙午"（2024 甲辰 / 2020 庚子 同法）。
     """
     return SHENG_XU[(SHENG_XU_MAP.get(year_pillar, 0)
@@ -72,10 +74,13 @@ def liunian_ganzhi(birth_year: int, year_pillar: str, target_year: int) -> str:
 
 
 def liunian_table(birth_year: int, year_pillar: str, years: int = 30) -> List[dict]:
-    """流年表：从出生年起逐年顺推（年柱 + 岁差 i，问真排盘页流年列表同款口径）。
+    """流年表：从出生干支年起逐年顺推（年柱 + 岁差 i，问真排盘页流年列表同款口径）。
 
-    每项 {year, age, ganzhi, nayin}：year 为流年公历年（出生年 ~ 出生年+years−1），
+    每项 {year, age, ganzhi, nayin}：year 为流年公历年（出生干支年 ~ 出生干支年+years−1），
     age 为虚岁（流年年份 − 出生年份 + 1），ganzhi/nayin 为流年干支及纳音。
+    birth_year 须为年柱所在干支年（立春界定，与 year_pillar 同一干支年）——非农历年：
+    农历年正月初一换年、年柱立春换年，[立春, 正月初一) 出生者两口径差 1，若传农历年
+    则整表年份/干支错位一年（2026-08-20 修复）。
     性能口径：全表不含神煞/干支关系（rel 只给当前年，见 BaziResult.liunian_rel）。
     例：liunian_table(1999, "己卯")[1] == {"year": 2000, "age": 2,
                                          "ganzhi": "庚辰", "nayin": "白蜡金"}。
@@ -543,12 +548,15 @@ class BaziEngine:
         qiyun_detail = self._qiyun_breakdown
         qiyun_desc = self._qiyun_desc
 
-        # 流年/流月/流时（L2-4）：流年表从出生年（农历年，与年柱同源）起 30 年；
-        # 当前流年（真年，立春界定）驱动 流月/干支关系；流时 = 今日 12 时辰。
-        birth_lunar_year = int(lunar.getYear())
-        liunian_full = liunian_table(birth_lunar_year, bazi_pillars[0])
+        # 流年/流月/流时（L2-4）：流年表从出生年柱所在干支年起 30 年——干支年以
+        # 立春界定（与年柱同口径）；农历年正月初一换年、年柱立春换年，[立春, 正月初一)
+        # 出生者（约 4%）农历年比干支年小 1，若用农历年作起点/岁差基数，流年表/
+        # 流月/流年关系将整体错位一年（2026-08-20 修复）。当前流年（真年，立春界定）
+        # 驱动 流月/干支关系；流时 = 今日 12 时辰。
+        pillar_year = self._pillar_year(year, month, day, hour, minute)
+        liunian_full = liunian_table(pillar_year, bazi_pillars[0])
         current_ln_year, current_ln_gz = self._current_liunian(
-            birth_lunar_year, bazi_pillars[0])
+            pillar_year, bazi_pillars[0])
         _now = dt.now()
         # 今日日柱取正午（规避晚子时口径差异），五鼠遁配 12 流时
         _today_pillar = Solar.fromYmdHms(
@@ -974,11 +982,29 @@ class BaziEngine:
 
         return dayun
 
+    @staticmethod
+    def _pillar_year(year: int, month: int, day: int, hour: int, minute: int) -> int:
+        """出生年柱所在干支年（立春界定，与年柱同口径，2026-08-20 流年基准年修复）。
+
+        年柱由 lunar-python 在晚子时归一化后的日期上按立春换年排盘，故干支年 =
+        归一化日期所在年，出生时刻早于该年立春 → 取前一年；比较时刻即排盘用到的
+        归一化时刻（晚子时已归到次日 00:00，与年柱口径完全一致）。立春时刻取
+        lunar-python 节气表（_jie_time_of，与年柱同源）；查不到（越界/表缺失）→
+        按当年处理（与 _current_liunian 回退口径一致）。
+        例：1999-02-10（立春 02-04 后、正月初一 02-16 前，农历年 1998）→ 1999；
+            1999-01-20（立春前）→ 1998。
+        """
+        lichun = _jie_time_of(year, "立春")
+        if lichun is None:
+            return year
+        return year - 1 if dt(year, month, day, hour, minute) < lichun else year
+
     def _current_liunian(self, birth_year: int, year_pillar: str) -> tuple:
         """当前流年（真年，立春界定）：返回 (年, 干支)（L2-4）。
 
         口径：立春前属上一年流年、立春后属当年（问真流年口径，与交运年同用
         立春界定）；立春节气查不到（越界/表缺失）时按当年处理。
+        birth_year 为出生干支年（立春界定，与年柱同口径，见 _pillar_year）。
         干支 = 年柱 + 岁差（liunian_ganzhi）。
         """
         now = dt.now()

@@ -167,3 +167,53 @@ def test_rel_anchor_2027_dingwei():
     rel = r.rel_with("丁未")
     assert {"between": "日柱", "type": "地冲", "desc": "地支未冲丑"} in rel
     assert {"between": "时柱", "type": "天克", "desc": "天干壬克丁"} in rel
+
+
+# ───────────────── 6. 流年基准年边界（干支年 vs 农历年，2026-08-20 修复） ─────────────────
+
+def test_boundary_lichun_after_cny_before_table0():
+    """[立春, 正月初一) 窗口：1999-02-10（立春 02-04 后、正月初一 02-16 前），
+    农历年 = 1998 但年柱 = 己卯（1999 干支年）→ 流年表首项必须 {1999, 己卯}，
+    不得按农历年基数错位成 {1998, 己卯}（旧口径 bug：整表错位一年）。"""
+    r = ENGINE.calculate(1999, 2, 10, 12, 0, "北京", "男")
+    assert r.bazi[0] == "己卯"  # 年柱已按立春换年（口径前提）
+    assert r.liunian_full[0] == {"year": 1999, "age": 1,
+                                 "ganzhi": "己卯", "nayin": "城头土"}
+    assert r.liunian_full[1] == {"year": 2000, "age": 2,
+                                 "ganzhi": "庚辰", "nayin": "白蜡金"}
+    # 全表与干支年基数自洽
+    for i, row in enumerate(r.liunian_full):
+        assert row["ganzhi"] == liunian_ganzhi(1999, "己卯", 1999 + i)
+        assert row["year"] == 1999 + i
+
+
+def test_boundary_lichun_after_cny_before_current_2026():
+    """同窗口盘（1999-02-10）2026 当前流年：rel/liuyue 干支 == 丙午
+    （1999 干支年 + 27），不得按农历年基数（1998）错成 丁未（+28）。"""
+    r = ENGINE.calculate(1999, 2, 10, 12, 0, "北京", "男")
+    assert r.liunian_rel["year"] == 2026
+    assert r.liunian_rel["ganzhi"] == "丙午"
+    assert r.liuyue["year"] == 2026
+    assert r.liuyue["ganzhi"] == "丙午"
+    assert r.liuyue["months"] == liuyue("丙午")
+    assert liunian_ganzhi(1999, "己卯", 2026) == "丙午"
+
+
+def test_boundary_before_lichun_table0():
+    """立春前：1999-01-20（早于立春 02-04）→ 干支年 1998、年柱 戊寅，
+    流年表首项 {1998, 戊寅}（边界另一侧不受影响）。"""
+    r = ENGINE.calculate(1999, 1, 20, 12, 0, "北京", "男")
+    assert r.bazi[0] == "戊寅"
+    assert r.liunian_full[0] == {"year": 1998, "age": 1,
+                                 "ganzhi": "戊寅", "nayin": "城头土"}
+    assert r.liunian_full[1] == {"year": 1999, "age": 2,
+                                 "ganzhi": "己卯", "nayin": "城头土"}
+
+
+def test_anchor_2026_liunian_rel_fixed():
+    """2026 流年锚点（固定年断言）：1999-05-13 盘（干支年 = 1999）→
+    当前流年干支 == 丙午（旧口径同值，防回归）。"""
+    r = ENGINE.calculate(*ANCHOR_BIRTH)
+    assert r.liunian_rel["year"] == 2026
+    assert r.liunian_rel["ganzhi"] == "丙午"
+    assert r.liuyue["ganzhi"] == "丙午"
