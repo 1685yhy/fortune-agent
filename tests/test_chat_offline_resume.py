@@ -368,7 +368,7 @@ class _MockHandler:
         return []
 
     def process(self, message, user_id, stream_cb=None, deep_night=False,
-                session_id=None):
+                session_id=None, downgraded=False):
         time.sleep(0.6)  # 模拟慢生成（客户端在生成中退出）
         self.session_dao.add_message(user_id, "user", message,
                                      session_id=session_id)

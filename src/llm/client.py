@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import os
 from dataclasses import dataclass
 from typing import List, Union, Optional, Callable, AsyncIterator
 import threading
@@ -24,6 +25,11 @@ from src.utils.text_clean import strip_emoji
 # 日志 "Empty/short reply (0 chars)"）。统一改用 Anthropic 兼容端点并显式
 # 关闭 thinking（与 src/engines/calendar.py 的修复方式一致），内容稳定返回。
 ANTHROPIC_MESSAGES_URL = "https://api.deepseek.com/anthropic/v1/messages"
+
+# ── GLM（智谱）— 对话降级链路（L5-1）：免费用户额度用尽后切 GLM-4-Flash ──
+# OpenAI 兼容端点（已验证可调：ZHIPU_API_KEY 在 .env，配置见 src/config.py）。
+GLM_COMPLETIONS_URL = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+GLM_DEFAULT_MODEL = "glm-4-flash"
 
 # 流式回调类型：stream_cb(event_type: str, payload: dict)
 #   event_type: "chunk" → payload {"text": str}（正文增量）
@@ -187,6 +193,160 @@ def _anthropic_model_name(model: str) -> str:
     return model
 
 
+# ── GLM（智谱）OpenAI 兼容调用（对话降级链路，L5-1）───────────────────
+# 与 DeepSeek Anthropic 兼容端点并列的第二种 provider：base_url/api_key/model
+# 全参数化，_chat_lite 中按 key 配置选择。流式失败且已有内容流出时返回已流出
+# 文本（不抛异常），避免调用方二次回退产生重复内容。
+
+def _glm_headers(api_key: str) -> dict:
+    return {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+
+
+def _glm_payload(messages: list, model: str, max_tokens: int,
+                 temperature: float, stream: bool = False) -> dict:
+    return {
+        "model": model,
+        "messages": messages,
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stream": stream,
+    }
+
+
+async def glm_openai_completion_stream(
+    api_key: str,
+    messages: list,
+    model: str = GLM_DEFAULT_MODEL,
+    max_tokens: int = 400,
+    temperature: float = 0.7,
+    timeout: float = 45.0,
+) -> AsyncIterator[str]:
+    """GLM OpenAI 兼容端点的真实 SSE 流式调用（stream: true）。
+
+    逐段 yield 文本增量（choices[0].delta.content）；上游错误抛异常。
+    """
+    payload = _glm_payload(messages, model, max_tokens, temperature, stream=True)
+    async with httpx.AsyncClient(timeout=httpx.Timeout(timeout, connect=10.0)) as client:
+        async with client.stream(
+            "POST", GLM_COMPLETIONS_URL,
+            headers=_glm_headers(api_key), json=payload,
+        ) as resp:
+            if resp.status_code != 200:
+                body = (await resp.aread()).decode("utf-8", "ignore")
+                raise RuntimeError(
+                    f"GLM stream HTTP {resp.status_code}: {body[:200]}")
+            async for line in resp.aiter_lines():
+                if not line or not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if not data or data == "[DONE]":
+                    continue
+                try:
+                    evt = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                try:
+                    delta = (evt.get("choices") or [{}])[0].get("delta") or {}
+                    text = delta.get("content") or ""
+                except (AttributeError, IndexError, TypeError):
+                    continue
+                if text:
+                    yield text
+
+
+def _run_glm_stream_feed_callback(
+    api_key: str,
+    messages: list,
+    model: str,
+    max_tokens: int,
+    temperature: float,
+    timeout: float,
+    stream_cb: StreamCallback,
+) -> str:
+    """在调用方（线程池）线程内跑 GLM async 流式，增量实时喂给 stream_cb。
+
+    流式失败时：已有内容流出 → 以已流出文本作为结果返回（不回退重发，
+    避免调用方降级回退产生重复内容）；尚未流出任何内容 → 抛异常由调用方回退。
+    """
+    buf: list = []
+
+    def _feed(text: str):
+        text = strip_emoji(text)
+        if not text:
+            return
+        buf.append(text)
+        if stream_cb:
+            try:
+                stream_cb("chunk", {"text": text})
+            except Exception:
+                pass
+
+    async def _collect():
+        async for delta in glm_openai_completion_stream(
+            api_key, messages, model=model, max_tokens=max_tokens,
+            temperature=temperature, timeout=timeout,
+        ):
+            _feed(delta)
+
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(_collect())
+    except Exception:
+        if buf:
+            logger.warning("GLM 流式中途失败，返回已流出内容 %d chars: model=%s",
+                           len("".join(buf)), model)
+            return "".join(buf)
+        raise
+    finally:
+        try:
+            loop.close()
+        except Exception:
+            pass
+    return "".join(buf)
+
+
+def glm_openai_completion(
+    api_key: str,
+    messages: list,
+    model: str = GLM_DEFAULT_MODEL,
+    max_tokens: int = 400,
+    temperature: float = 0.7,
+    timeout: float = 45.0,
+    client: Optional[httpx.Client] = None,
+    stream_cb: StreamCallback = None,
+) -> str:
+    """调用 GLM OpenAI 兼容端点，返回文本内容。
+
+    响应为空 / 解析失败 / 上游错误时抛异常，由调用方决定回退（DeepSeek）。
+    stream_cb 提供时走真实流式：增量实时回调（"chunk" 事件），返回完整文本。
+    """
+    if stream_cb is not None:
+        return _run_glm_stream_feed_callback(
+            api_key, messages, model, max_tokens, temperature, timeout, stream_cb)
+
+    payload = _glm_payload(messages, model, max_tokens, temperature)
+    headers = _glm_headers(api_key)
+    if client is not None:
+        resp = client.post(GLM_COMPLETIONS_URL, headers=headers, json=payload)
+    else:
+        resp = httpx.post(GLM_COMPLETIONS_URL, headers=headers,
+                          json=payload, timeout=timeout)
+    data = resp.json()
+    if "error" in data:
+        raise RuntimeError(str(data.get("error"))[:200])
+    try:
+        text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
+    except (AttributeError, IndexError, TypeError):
+        text = ""
+    text = (text or "").strip()
+    if not text:
+        raise ValueError(f"Empty content from GLM (finish={data.get('finish_reason')})")
+    return strip_emoji(text)
+
+
 def _log_llm_failure(caller: str, model: str, exc: Exception, retry: bool = False):
     """统一记录 LLM 调用失败/超时（供调用方排查上游质量与超时配置）。
 
@@ -216,22 +376,32 @@ class FortuneLLM:
     _pro_semaphore = threading.Semaphore(3)
 
     def __init__(self, api_key: str, model: str = "deepseek-v4-flash", provider: str = "deepseek",
-                 deep_model: str = "deepseek-v4-flash"):
+                 deep_model: str = "deepseek-v4-flash", glm_api_key: str = ""):
         self.api_key = api_key
         self.model = model          # 快速模型 (日常聊天)
         self.deep_model = deep_model  # 深度模型 (命理分析)
         self.provider = provider
+        # 降级链路（L5-1）：智谱 GLM key（未显式传入时回退环境变量 ZHIPU_API_KEY）
+        self.glm_api_key = glm_api_key or os.environ.get("ZHIPU_API_KEY", "").strip()
         # Server hardening: shared httpx client with connection pooling
         self._client = httpx.Client(
             timeout=httpx.Timeout(120.0, connect=15.0),
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
         )
 
-    def chat(self, user_message: str) -> AnalysisResult:
-        """自由对话 - 用快速模型（V4 Flash），轻量人设提示。"""
+    def chat(self, user_message: str, lite: bool = False) -> AnalysisResult:
+        """自由对话 - 用快速模型（V4 Flash），轻量人设提示。
+
+        lite=True（降级链路）：GLM-4-Flash + CHAT_PROMPT_LITE 精简回复。
+        """
+        if lite:
+            return AnalysisResult(
+                response=self._chat_lite(user_message=user_message, max_tokens=400),
+                tokens_used=0, model=GLM_DEFAULT_MODEL)
         return self._call_deepseek_model(user_message, self.model, max_tokens=1000)
 
-    def chat_conversation(self, history: list, stream_cb: StreamCallback = None) -> str:
+    def chat_conversation(self, history: list, stream_cb: StreamCallback = None,
+                          lite: bool = False) -> str:
         """多轮对话 - 带完整上下文的自然聊天。
 
         Bugfix: 改走 Anthropic 兼容端点 + thinking disabled，避免推理占满
@@ -239,9 +409,15 @@ class FortuneLLM:
 
         stream_cb 提供时走真实流式（chunk 增量实时回调）；流式模式下
         不做内部自动重试（避免半截重发），失败抛异常由调用方兜底。
+
+        lite=True（降级链路）：切 GLM-4-Flash（OpenAI 兼容端点）+ 精简
+        prompt，短回复、不调工具；GLM 失败自动回退 DeepSeek 同精简 prompt。
         """
         messages = [{"role": "system", "content": CHAT_PROMPT}]
         messages.extend(history)
+        if lite:
+            return self._chat_lite(history=messages, max_tokens=400,
+                                   stream_cb=stream_cb)
         try:
             return deepseek_anthropic_completion(
                 self.api_key, messages, model=self.model,
@@ -262,6 +438,41 @@ class FortuneLLM:
             except Exception as e2:
                 _log_llm_failure("chat_conversation", self.model, e2, retry=True)
                 return ""
+
+    def _chat_lite(self, user_message: str = None, history: Optional[list] = None,
+                   max_tokens: int = 400, stream_cb: StreamCallback = None) -> str:
+        """对话降级链路：GLM-4-Flash + CHAT_PROMPT_LITE 精简回复（L5-1）。
+
+        - 优先 GLM（ZHIPU_API_KEY）：OpenAI 兼容端点，成本低；
+        - GLM key 未配置 / 调用失败 → 回退 DeepSeek（同精简 prompt，
+          内容仍短，只是模型不同）；
+        - 全失败 → 返回礼貌降级文案（绝不抛出打断正常对话流）。
+        """
+        from .prompts import CHAT_PROMPT_LITE
+        messages = [{"role": "system", "content": CHAT_PROMPT_LITE}]
+        if history is not None:
+            messages.extend(history)
+        else:
+            messages.append({"role": "user", "content": user_message or ""})
+
+        if self.glm_api_key:
+            try:
+                return glm_openai_completion(
+                    self.glm_api_key, messages, model=GLM_DEFAULT_MODEL,
+                    max_tokens=max_tokens, temperature=0.7, timeout=45.0,
+                    client=self._client, stream_cb=stream_cb,
+                )
+            except Exception as e:
+                _log_llm_failure("chat_lite", GLM_DEFAULT_MODEL, e)
+        try:
+            return deepseek_anthropic_completion(
+                self.api_key, messages, model=self.model,
+                max_tokens=max_tokens, temperature=0.7, timeout=45.0,
+                client=self._client, stream_cb=stream_cb,
+            )
+        except Exception as e:
+            _log_llm_failure("chat_lite", self.model, e, retry=True)
+            return "今日额度已用尽，这里先给你简要回复：如有更多问题，可明天再来，或升级会员畅聊。"
 
     def analyze(
         self,

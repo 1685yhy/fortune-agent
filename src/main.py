@@ -81,6 +81,7 @@ handler = None
 llm = None
 member_dao = None
 session_dao = None
+chat_quota_dao = None  # L5-1：对话日额度（免费用户降级链路）
 _push_task = None  # 后台推送任务
 _precompute_task = None  # Step 4: 每日预计算任务
 _jian_precompute_task = None  # Task 6: 晨笺每日内容预生成任务
@@ -754,6 +755,9 @@ async def lifespan(app: FastAPI):
     dao = UserDAO(str(settings.db_path))
     member_dao = MemberDAO(str(settings.db_path))
     session_dao = SessionDAO(str(settings.db_path))
+    # L5-1：对话日额度表（chat_quota，参考 ming_quota 先例，独立于查询次数）
+    from src.storage.chat_quota_dao import ChatQuotaDAO
+    chat_quota_dao = ChatQuotaDAO(str(settings.db_path))
 
     # P2 账号注销（软删+90 天归档）：启动时清理已过保留期的注销账号
     try:
@@ -762,7 +766,8 @@ async def lifespan(app: FastAPI):
             logger.info("注销账号归档清理: %s", _cancel_stats)
     except Exception as e:
         logger.warning("注销账号归档清理失败: %s", e)
-    llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-v4-flash", deep_model="deepseek-v4-flash", provider="deepseek")
+    llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-v4-flash", deep_model="deepseek-v4-flash", provider="deepseek",
+                     glm_api_key=settings.zhipu_api_key)  # L5-1 降级链路：GLM-4-Flash
 
     # ── Init Narrative Service ──────────────────────────────────
     from .services.narrative import NarrativeService
@@ -1335,6 +1340,7 @@ class ChatResponse(BaseModel):
     disclaimer: str = PIPL_DISCLAIMER  # PIPL 免责声明
     citations: Optional[list] = None  # 阶段 5：本轮引用来源 [{index,type,title,text,url?}]
     suggestions: Optional[list] = None  # v1.2 建议卡片：回复后的推荐追问（提问时生成，失败为空）
+    downgraded: bool = False  # L5-1：对话额度用尽 → 降级链路（GLM 精简回复）标记
 
 
 class TTSRequest(BaseModel):
@@ -1431,11 +1437,22 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
             membership=membership,
         )
 
+    # ── 对话额度（L5-1）：请求进入时消费；超限 → 降级链路（不 429 硬断）──
+    # 会员/体验模式不计数；免费用户第 16 条起 downgraded=True →
+    # handler 走精简 prompt + GLM 模型（正常对话完全不变）。
+    downgraded = False
+    try:
+        from src.services.chat_quota import try_consume_chat_quota
+        quota_ctx = try_consume_chat_quota(member_dao, chat_quota_dao, req.user_id)
+        downgraded = bool(quota_ctx.get("downgraded"))
+    except Exception:
+        logger.warning("chat quota ctx failed: user=%s", req.user_id)
+
     try:
         loop = asyncio.get_event_loop()
         if req.message_type == "voice":
             reply = await loop.run_in_executor(
-                None, handler._handle_voice, req.voice_text
+                None, handler._handle_voice, req.voice_text, downgraded
             )
         elif req.message_type == "image":
             reply = await loop.run_in_executor(
@@ -1448,7 +1465,8 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
             reply = await loop.run_in_executor(
                 None, lambda: handler.process(
                     req.message, req.user_id, deep_night=req.deep_night,
-                    session_id=normalize_session_id(req.session_id)))
+                    session_id=normalize_session_id(req.session_id),
+                    downgraded=downgraded))
         # 兜底：回复出口强制清理 TOOL 标签残留（格式变体/未知工具名/未闭合标签
         # 统一在返回前端前 strip 一次，双保险——handler 工具循环已清，这里再兜底）
         reply = strip_tool_calls(reply) or reply
@@ -1494,6 +1512,7 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
             consultation_id=consultation_id,
             citations=citations,
             suggestions=suggestions,
+            downgraded=downgraded,
         )
     except Exception as e:
         import traceback
@@ -1502,6 +1521,7 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
         return ChatResponse(
             reply=f"⚠️ 处理出错：{str(e)}\n请稍后重试。",
             membership=membership,
+            downgraded=downgraded,
         )
 
 
@@ -1523,7 +1543,7 @@ async def chat_stream(req: ChatRequest, request: Request = None, auth: dict = De
         async for evt in ChatStreamer(
             handler=handler, member_dao=member_dao, dao=dao,
             sanitizer=security_sanitizer, auditor=security_audit,
-            validator=_validator,
+            validator=_validator, chat_quota_dao=chat_quota_dao,
         ).events(req, request, auth):
             yield sse_format(evt)
 
@@ -1536,6 +1556,20 @@ async def chat_stream(req: ChatRequest, request: Request = None, auth: dict = De
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.get("/api/user/chat-quota")
+async def user_chat_quota(uid: str = Depends(require_user)):
+    """对话额度查询（L5-1）：前端对话页展示用。
+
+    契约：{"used": 今日已用条数, "limit": 每日上限(免费15/会员null),
+           "downgraded": 是否已降级, "is_member": 是否会员}
+    鉴权：require_user（uid = JWT sub，权威来源，防越权）。
+    """
+    if member_dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    from src.services.chat_quota import chat_quota_status
+    return chat_quota_status(member_dao, chat_quota_dao, uid)
 
 
 class PendingConsumeRequest(BaseModel):

@@ -2139,7 +2139,8 @@ class MessageHandler:
 
     def process(self, message: str, user_id: str,
                 stream_cb: Optional[Callable] = None, deep_night: bool = False,
-                session_id: Optional[str] = None) -> str:
+                session_id: Optional[str] = None,
+                downgraded: bool = False) -> str:
         """处理用户消息，返回回复。
 
         stream_cb（v8 流式阶段 3）：提供时把生成过程实时回调出去——
@@ -2351,7 +2352,8 @@ class MessageHandler:
                 hints.insert(0, NIGHT_TONE_HINT)
             reply = self._free_chat(msg, user_id, emotion_label=analysis.emotion_label,
                                     extra_hint="\n".join(hints),
-                                    stream_cb=stream_cb, session_id=session_id)
+                                    stream_cb=stream_cb, session_id=session_id,
+                                    downgraded=downgraded)
             # AI 原生（Phase 1）：<tool_call> 工具调用循环
             reply = self._run_tool_loop(msg, user_id, reply, stream_cb=stream_cb,
                                         analysis=analysis, session_id=session_id)
@@ -2480,15 +2482,16 @@ class MessageHandler:
     # Voice input support
     # ============================================================
 
-    def _handle_voice(self, voice_text: str = "") -> str:
+    def _handle_voice(self, voice_text: str = "", downgraded: bool = False) -> str:
         """处理语音输入。
 
         如果 CoW（Claude on WeChat）提供了语音→文字转写，
         则直接通过正常意图检测流程处理。
         如果没有转写文本，说明需要 CoW 语音插件支持。
+        downgraded（L5-1）：对话额度用尽 → 降级链路（精简回复）。
         """
         if voice_text:
-            return self.process(voice_text, "")
+            return self.process(voice_text, "", downgraded=downgraded)
 
         return "🎤 语音处理需要 CoW 语音插件支持。如果您正在使用微信，" \
                "请确保已安装 CoW 语音转文字插件。"
@@ -4733,7 +4736,8 @@ class MessageHandler:
     def _free_chat(self, msg: str, user_id: str, emotion_label: str = None,
                    extra_hint: str = "",
                    stream_cb: Optional[Callable] = None,
-                   session_id: Optional[str] = None) -> str:
+                   session_id: Optional[str] = None,
+                   downgraded: bool = False) -> str:
         """自由对话：没有命中任何命理意图时，直接用 LLM 自然聊天。
 
         当检测到情绪信号时，将情绪上下文注入提示词，
@@ -4838,12 +4842,13 @@ class MessageHandler:
                             "role": messages[-1]["role"],
                             "content": messages[-1]["content"] + f"\n\n{combined_hint}"
                         }
-                    return self.llm.chat_conversation(messages, stream_cb=stream_cb)
+                    return self.llm.chat_conversation(
+                        messages, stream_cb=stream_cb, lite=downgraded)
             # 无会话存储时，用单消息模式
             chat_msg = msg
             if combined_hint:
                 chat_msg = msg + f"\n\n{combined_hint}"
-            result = self.llm.chat(chat_msg)
+            result = self.llm.chat(chat_msg, lite=downgraded)
             return result.response
         except Exception:
             return '我在这里。有什么想问的尽管说。若要看八字，请告知您的出生年月日时。'

@@ -195,6 +195,7 @@ class ChatStreamer:
         sanitizer=None,
         auditor=None,
         validator=None,
+        chat_quota_dao=None,
         ping_interval: float = 15.0,
         chunk_gap_timeout: float = 60.0,
         simulation_delay: float = 0.05,
@@ -205,6 +206,7 @@ class ChatStreamer:
         self.sanitizer = sanitizer
         self.auditor = auditor
         self.validator = validator
+        self.chat_quota_dao = chat_quota_dao  # L5-1：对话日额度（降级链路）
         self.ping_interval = ping_interval          # 心跳间隔（保活）
         self.chunk_gap_timeout = chunk_gap_timeout  # 无正文看门狗
         self.simulation_delay = simulation_delay    # 模拟流式块间延迟
@@ -316,6 +318,18 @@ class ChatStreamer:
             yield {"type": "done", "consultation_id": None}
             return
 
+        # ── 对话额度（L5-1）：请求进入时消费；超限 → 降级链路（不 429 硬断）──
+        # 会员/体验模式不计数；免费用户第 16 条起 downgraded=True →
+        # LLM 切 GLM-4-Flash + 精简 prompt（见 _run 与 done 事件）。
+        downgraded = False
+        try:
+            from src.services.chat_quota import try_consume_chat_quota
+            quota_ctx = try_consume_chat_quota(
+                self.member_dao, self.chat_quota_dao, user_id)
+            downgraded = bool(quota_ctx.get("downgraded"))
+        except Exception:
+            logger.warning("chat stream quota ctx failed: user=%s", user_id)
+
         # ── 主流水线：executor 线程跑 handler，本协程边收边推 ─────
         queue: asyncio.Queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
@@ -352,15 +366,17 @@ class ChatStreamer:
             """
             try:
                 if req.message_type == "voice":
-                    reply = self.handler._handle_voice(req.voice_text)
+                    reply = self.handler._handle_voice(
+                        req.voice_text, downgraded=downgraded)
                 elif req.message_type == "image":
                     reply = self.handler._handle_image(req.image_url, req.message)
                 else:
                     # 会话隔离：session_id 透传（新开对话 → 全新上下文；空/非法 → 旧行为）
+                    # L5-1 降级：对话额度用尽 → 精简 prompt + GLM 模型
                     reply = self.handler.process(
                         req.message, user_id, stream_cb=stream_cb,
                         deep_night=bool(getattr(req, "deep_night", False)),
-                        session_id=session_id)
+                        session_id=session_id, downgraded=downgraded)
                 # 兜底：回复出口强制清理 TOOL 标签残留（格式变体/未知工具名/
                 # 未闭合标签——handler 工具循环已清，这里对最终 reply 再 strip 一次，
                 # 后续「剩余文本模拟流式」与 done 内容都基于清理后的文本）
@@ -521,4 +537,6 @@ class ChatStreamer:
             "consultation_id": consultation_id,
             "citations": out_box.get("citations", []) or [],
             "suggestions": suggestions,
+            # L5-1 降级标记：true 时前端提示"今日额度已用尽，已为你精简回复"
+            "downgraded": downgraded,
         }
