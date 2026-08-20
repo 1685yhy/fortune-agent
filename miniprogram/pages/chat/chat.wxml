@@ -1,4 +1,4 @@
-<view class="screen {{nightMode ? 'night' : ''}}" style="--nav-off:{{navOff}}px" bindtap="onListTap">
+<view class="screen {{nightMode ? 'night' : ''}} {{quotaBar.show ? 'qb-on' : ''}}" style="--nav-off:{{navOff}}px" bindtap="onListTap">
   <view class="navrow {{showBack ? 'show-back' : ''}}">
     <!-- 返回箭头：仅导航栈进入（历史/解梦 navigateTo）时显示；tab 主屏隐藏（原型 4-tab 常驻无返回） -->
     <view wx:if="{{showBack}}" class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
@@ -265,6 +265,11 @@
   </scroll-view>
 
   <view class="chat-inputbar">
+    <!-- L5-1/L5-2 对话额度条：免费用户「今日 X/15」；超限降级 → 精简提示 + 开通会员入口 -->
+    <view wx:if="{{quotaBar.show}}" class="quota-bar {{quotaBar.downgraded ? 'qb-downgraded' : ''}}">
+      <text class="qb-text">{{quotaBar.text}}</text>
+      <view wx:if="{{quotaBar.downgraded}}" class="qb-btn" hover-class="qb-btn-active" hover-stay-time="0" bindtap="goMember">开通会员</view>
+    </view>
     <!-- v1.1 语音/键盘模式切换（元宝式）：
          文字模式 = 左侧语音图标（点一下切按住说话）+ 输入框 + 发送/停止
          语音模式 = 按住说话条（复用录音逻辑）+ 右侧键盘图标（点一下切回文字） -->

@@ -1423,19 +1423,11 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
         if not is_attack:
             req.voice_text = cleaned
 
-    # 配额检查（体验模式不限次）
-    if not is_experience_mode() and not member_dao.check_quota(req.user_id):
-        membership = member_dao.get_membership(req.user_id)
-        plan = membership.get("plan", "free")
-        return ChatResponse(
-            reply=f"⚠️ 今日查询次数已用尽。\n"
-                  f"当前计划：{membership.get('plan_label', '免费版')}\n"
-                  f"已用次数：{membership.get('queries_used', 0)}\n"
-                  f"上限：{membership.get('queries_limit', 3)}\n\n"
-                  f"💡 升级会员可获得更多查询次数："
-                  f"基础版¥19.9/月(50次)，专业版¥39.9/月(150次)",
-            membership=membership,
-        )
+    # 配额检查（L5-2 I-2 新旧额度协调）：聊天消息不再走旧额度硬断——免费用户
+    # 对话由 chat_quota（15 条/日）治理，超限走降级链路（downgraded=True，
+    # GLM 精简回复），绝不 429 硬断（「免费用户永远能聊」）。旧额度
+    # （memberships.queries_used/queries_limit）仅对非聊天功能生效
+    # （如 handler._tool_zeri 的引擎调用门）。
 
     # ── 对话额度（L5-1）：请求进入时消费；超限 → 降级链路（不 429 硬断）──
     # 会员/体验模式不计数；免费用户第 16 条起 downgraded=True →
@@ -1455,8 +1447,9 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
                 None, handler._handle_voice, req.voice_text, downgraded
             )
         elif req.message_type == "image":
+            # L5-2（I-3）：降级标记透传 → CV 报告走本地精简文案（不调付费报告）
             reply = await loop.run_in_executor(
-                None, handler._handle_image, req.image_url, req.message
+                None, handler._handle_image, req.image_url, req.message, downgraded
             )
         else:
             # 同步 LLM 调用放线程池：事件循环不阻塞，请求超时中间件才可生效
@@ -1477,7 +1470,9 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
         # 走线程池不阻塞事件循环；6s 内返回）
         suggestions: list = []
         question = (req.voice_text or "").strip() or (req.message or "").strip()
-        if question and is_question(question) and reply and not reply.startswith("⚠️"):
+        # L5-2（I-1）：降级链路不生成建议卡（独立 LLM 调用，降级不调）
+        if question and is_question(question) and reply and not reply.startswith("⚠️") \
+                and not downgraded:
             try:
                 suggestions = await asyncio.wait_for(
                     loop.run_in_executor(

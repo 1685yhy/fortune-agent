@@ -293,32 +293,10 @@ class ChatStreamer:
             if not is_attack:
                 req.voice_text = cleaned
 
-        # ── 配额检查（与 /api/chat 一致；体验模式不限次）───────────
-        try:
-            quota_ok = True if is_experience_mode() else self.member_dao.check_quota(user_id)
-        except Exception:
-            quota_ok = True
-        if not quota_ok:
-            try:
-                membership = self.member_dao.get_membership(user_id)
-                plan = (membership or {}).get("plan", "free")
-                yield {
-                    "type": "chunk",
-                    "content": (
-                        f"⚠️ 今日查询次数已用尽。\n"
-                        f"当前计划：{(membership or {}).get('plan_label', '免费版')}\n"
-                        f"已用次数：{(membership or {}).get('queries_used', 0)}\n"
-                        f"上限：{(membership or {}).get('queries_limit', 3)}\n\n"
-                        f"💡 升级会员可获得更多查询次数："
-                        f"基础版¥19.9/月(50次)，专业版¥39.9/月(150次)"
-                    ),
-                }
-            except Exception:
-                yield {"type": "chunk", "content": "⚠️ 今日查询次数已用尽，请明日再来或升级会员。"}
-            yield {"type": "done", "consultation_id": None}
-            return
-
-        # ── 对话额度（L5-1）：请求进入时消费；超限 → 降级链路（不 429 硬断）──
+        # ── 对话额度（L5-1/L5-2 I-2）：请求进入时消费；超限 → 降级链路（不 429 硬断）──
+        # L5-2（I-2 新旧额度协调）：移除旧额度（member_dao.check_quota）硬断——
+        # 聊天消息由 chat_quota（15 条/日）治理，超限降级续聊，绝不硬断；
+        # 旧额度仅对非聊天功能生效（如择日工具 _tool_zeri 的引擎调用门）。
         # 会员/体验模式不计数；免费用户第 16 条起 downgraded=True →
         # LLM 切 GLM-4-Flash + 精简 prompt（见 _run 与 done 事件）。
         downgraded = False
@@ -369,7 +347,9 @@ class ChatStreamer:
                     reply = self.handler._handle_voice(
                         req.voice_text, downgraded=downgraded)
                 elif req.message_type == "image":
-                    reply = self.handler._handle_image(req.image_url, req.message)
+                    # L5-2（I-3）：降级标记透传 → CV 报告走本地精简文案（不调付费报告）
+                    reply = self.handler._handle_image(
+                        req.image_url, req.message, downgraded=downgraded)
                 else:
                     # 会话隔离：session_id 透传（新开对话 → 全新上下文；空/非法 → 旧行为）
                     # L5-1 降级：对话额度用尽 → 精简 prompt + GLM 模型
@@ -519,7 +499,9 @@ class ChatStreamer:
         suggestions: list = []
         question = (req.voice_text or "").strip() or (req.message or "").strip()
         from src.bot.handler import is_question  # 局部导入：避免启动时拉入 handler 全链（torch）
-        if question and is_question(question) and reply and not reply.startswith("⚠️"):
+        # L5-2（I-1）：降级链路不生成建议卡（独立 LLM 调用，降级不调）
+        if question and is_question(question) and reply and not reply.startswith("⚠️") \
+                and not downgraded:
             def _gen_sugg() -> list:
                 try:
                     return self.handler.gen_suggestions(user_id, question, reply) or []

@@ -442,6 +442,7 @@ class MessageHandler:
         self._pregen_pool = concurrent.futures.ThreadPoolExecutor(
             max_workers=2, thread_name_prefix="pregen")
         self._pregen_instant: dict = {}
+        self._downgraded: dict = {}  # L5-2（I-1/I-2）：本轮回合是否走降级链路（对话额度用尽）
 
         # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除）：
         # 不再初始化 SimilarityEngine（原 data/wenzhen_charts.db 44k 命例对照），
@@ -702,6 +703,22 @@ class MessageHandler:
                                    emotion_label=None, intent="bazi")
         return MessageAnalysis(needs_soothe=False, soothe_text="",
                                emotion_label=None, intent=None)
+
+    def _rule_analyze(self, msg: str) -> MessageAnalysis:
+        """降级链路意图快判（L5-2 I-1）：零 LLM 调用的规则判定，替代 _analyze_message。
+
+        规则（复用 MessageAnalyzer fast path，与 _quick_intent 同口径）：
+        - 纯生日陈述（含出生日期、无意图提示词）→ intent='bazi'（主流程走
+          引擎排盘，成本可控）；
+        - 其余一律 intent=None → 自由对话（_free_chat 走 GLM 精简回复）。
+        情绪/安抚/附加需求等字段全部缺省（降级用户优先保障对话可用与成本）。
+        """
+        try:
+            intent = self._quick_intent(msg) or None
+        except Exception:
+            intent = None
+        return MessageAnalysis(needs_soothe=False, soothe_text="",
+                               emotion_label=None, intent=intent)
 
     # ============================================================
     # Task 2 等待时长优化：秒回安抚预生成（与意图分析并行发出）
@@ -2157,6 +2174,9 @@ class MessageHandler:
         msg = message.strip()
         self._deep_night[user_id] = bool(deep_night)
         deep = self._deep_night.get(user_id, False)
+        # L5-2（I-1）：降级链路标记——本回合各前置 LLM 调用（意图分析/秒回安抚/
+        # L2 压缩/建议卡）按此跳过或降为规则判定，只保留核心回复生成走精简链路
+        self._downgraded[user_id] = bool(downgraded)
         # 清理上一轮残留的工具日志（xuetang/advisor/confidant 等早退分支不消费）
         self._pop_tool_log(user_id)
         # 阶段 5：清理上一轮残留的引用来源（早退分支不注册，防泄漏）
@@ -2177,39 +2197,26 @@ class MessageHandler:
         if msg in ("👍", "👎", "好评", "差评", "准", "不准", "good", "bad") or msg.startswith("👍") or msg.startswith("👎"):
             return self._handle_feedback(msg, user_id, session_id=session_id)
 
-        # Step 0.6: P1-2 额度检查 — 免费用户每日3次限制
-        remaining, is_limited = self._check_quota(user_id)
-        if is_limited:
-            if remaining <= 0:
-                msg_warning = "💡 你今天的免费额度已用完。成为会员即可无限畅聊，基础版仅需 19.9 元/月。\n\n回复「会员」了解更多升级方案。\n或回复「👍」告诉我之前的分析有用，帮助我改进～"
-                if self.session_dao:
-                    self.session_dao.add_message(user_id, "assistant", msg_warning,
-                                                 temp=deep, session_id=session_id)
-                return msg_warning
-            elif remaining == 1:
-                # 倒计时提醒：仅剩1次免费机会
-                msg = (
-                    "💡 你还有 1 次免费提问机会，之后可以升级会员继续使用。\n\n"
-                    + msg
-                )
+        # Step 0.6: 额度检查（L5-2 I-2 新旧额度协调）——聊天消息不再走旧硬断：
+        # 免费用户对话由 chat_quota（15 条/日）治理，超限降级续聊（downgraded=True），
+        # 绝不 429 硬断（「免费用户永远能聊」）。旧额度（memberships.queries_used/
+        # queries_limit）只对非聊天功能生效——如择日工具 _tool_zeri 的引擎调用门
+        # （_check_quota 仍在 1533 行保持原样）。
 
-        # Handle "会员" keyword — show upgrade info
+        # Handle "会员" keyword — show upgrade info（L5-2：档位与 SUBSCRIBE_PLANS 对齐）
         if msg.strip() in ("会员", "升级", "付费", "套餐", "价格", "多少钱"):
             upgrade_msg = (
                 "🌟 **易理明灯会员计划**\n\n"
-                "📌 **基础版** 19.9元/月\n"
-                "  - 每月50次完整命理分析\n"
-                "  - 含命盘图表\n"
-                "  - 无广告\n\n"
-                "📌 **专业版** 39.9元/月\n"
-                "  - 每月150次分析\n"
-                "  - 含PDF详细报告\n"
-                "  - 优先回复\n\n"
-                "📌 **年度版** 168元/年（省65%）\n"
-                "  - 专业版全部功能\n"
-                "  - 每周运势推送\n\n"
-                "💡 免费用户每天可享3次基础分析。\n"
-                "回复「开通基础版」即可升级！"
+                "📌 **基础会员**（完整分析 · 每日运势 · 畅聊不设限）\n"
+                "  - 月卡 19.9 元/月\n"
+                "  - 季卡 49.9 元/季\n"
+                "  - 年卡 168 元/年（折合 14 元/月）\n\n"
+                "📌 **高级会员** 39.9 元/月\n"
+                "  - 含论财/论事业/论健康等专项论断\n"
+                "  - 专属深度报告\n\n"
+                "💡 免费用户每天可畅聊 15 条，超限自动切换精简回复；"
+                "开通会员解锁完整版。\n"
+                "回复「开通会员」或在「我的」页选择套餐即可升级！"
             )
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", upgrade_msg,
@@ -2220,12 +2227,20 @@ class MessageHandler:
         # Task 2 等待时长优化：消息含完整出生信息时，把「排盘 + 秒回安抚」提交到
         # 后台线程与意图分析并行发出（二者无依赖，可重叠）；bazi/career 路由由
         # _do_bazi_analysis 消费，其他路由静默丢弃（flash 成本低、无墙钟代价）。
-        self._pregen_instant[user_id] = self._start_pregen_instant(msg)
+        # L5-2（I-1）：降级链路禁用付费前置调用——不提交「排盘+秒回安抚」预生成
+        # （worker 内 _gen_instant_reply 为 LLM 调用）；意图分析改规则快判。
+        if not downgraded:
+            self._pregen_instant[user_id] = self._start_pregen_instant(msg)
+        else:
+            self._pregen_instant.pop(user_id, None)  # 清掉残留 Future，防泄漏
         # v2026-08-17（思考过程元宝式）：意图分析（~1s）此前无思考事件，
         # 用户发送后胶囊迟迟不出现——首条事件在开工时即发出
         self._emit_stream_event(stream_cb, "thinking", "正在领会你的意思…")
         _t0 = time.monotonic()
-        analysis = self._analyze_message(msg, user_id, session_id=session_id)
+        if downgraded:
+            analysis = self._rule_analyze(msg)
+        else:
+            analysis = self._analyze_message(msg, user_id, session_id=session_id)
         logger.info("[timing] stage=intent duration=%.1fs",
                     time.monotonic() - _t0)
         # 阶段 5（方案 v5）：记录本轮理解出的关键事实（subject=other 时排盘不写本人画像）
@@ -2500,21 +2515,26 @@ class MessageHandler:
     # Image input support
     # ============================================================
 
-    def _handle_image(self, image_url: str = "", user_text: str = "") -> str:
+    def _handle_image(self, image_url: str = "", user_text: str = "",
+                      downgraded: bool = False) -> str:
         """处理图片输入 — 支持面相分析 + 风水 + 通用。
 
         优先尝试 CV 面相分析（如果人脸检测成功），否则根据关键词路由。
+        downgraded（L5-2 I-3）：降级时 CV 本地测量照跑，但跳过付费 DeepSeek
+        报告生成（api_key 置空走本地规则文案），并附精简提示。
         """
         if not image_url:
             return "📷 请提供图片链接以便进行分析。"
 
         # Try face reading first
-        face_result = self._try_face_reading(image_url, user_text)
+        face_result = self._try_face_reading(image_url, user_text,
+                                             downgraded=downgraded)
         if face_result:
             return face_result
 
         # Try palm reading
-        palm_result = self._try_palm_reading(image_url, user_text)
+        palm_result = self._try_palm_reading(image_url, user_text,
+                                             downgraded=downgraded)
         if palm_result:
             return palm_result
 
@@ -2526,8 +2546,13 @@ class MessageHandler:
         else:
             return self._handle_image_generic(image_url, user_text)
 
-    def _try_palm_reading(self, image_url: str, user_text: str = "") -> str:
-        """Try CV palm analysis on an image. Returns result or None."""
+    def _try_palm_reading(self, image_url: str, user_text: str = "",
+                          downgraded: bool = False) -> str:
+        """Try CV palm analysis on an image. Returns result or None.
+
+        downgraded（L5-2 I-3）：跳过付费 DeepSeek 报告（api_key 置空 → 本地
+        规则文案），附精简提示。
+        """
         try:
             import urllib.request, tempfile, os
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
@@ -2542,13 +2567,22 @@ class MessageHandler:
                 pass
             if metrics is None:
                 return None
-            api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
-            return generate_palm_report(metrics, retriever=self.retriever, api_key=api_key)
+            api_key = "" if downgraded else (getattr(self.llm, 'api_key', '') if self.llm else '')
+            report = generate_palm_report(metrics, retriever=None if downgraded else self.retriever,
+                                          api_key=api_key)
+            if downgraded:
+                report = f"{report}\n\n💡 今日额度已用尽，已为你精简回复；开通会员解锁完整解读。"
+            return report
         except Exception:
             return None
 
-    def _try_face_reading(self, image_url: str, user_text: str = "") -> str:
-        """Try CV face analysis on an image. Returns result or None if no face."""
+    def _try_face_reading(self, image_url: str, user_text: str = "",
+                          downgraded: bool = False) -> str:
+        """Try CV face analysis on an image. Returns result or None if no face.
+
+        downgraded（L5-2 I-3）：CV 本地测量照跑（零成本），跳过付费 DeepSeek
+        报告（api_key 置空 → generate_report 走本地测量/优势关注文案），附精简提示。
+        """
         try:
             import urllib.request, tempfile, os
             # Download image to temp file
@@ -2569,12 +2603,14 @@ class MessageHandler:
                 return None  # No face detected, let other handlers try
 
             # Generate report
-            api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
+            api_key = "" if downgraded else (getattr(self.llm, 'api_key', '') if self.llm else '')
             report = generate_report(
                 metrics,
-                retriever=self.retriever if hasattr(self, 'retriever') else None,
+                retriever=None if downgraded else (self.retriever if hasattr(self, 'retriever') else None),
                 api_key=api_key,
             )
+            if downgraded:
+                report = f"{report}\n\n💡 今日额度已用尽，已为你精简回复；开通会员解锁完整解读。"
             return report
         except Exception:
             return None  # Face analysis failed, fall back gracefully
@@ -2923,8 +2959,10 @@ class MessageHandler:
 
         # 2. 秒回安抚（在LLM分析前生成，最终拼接到回复开头）
         # Task 2：优先取并行预生成结果（意图分析期间已完成），未就绪则同步兜底
+        # L5-2（I-1）：降级链路禁用——预生成未提交、同步兜底也是 LLM 调用，
+        # 均跳过（downgraded 时精简回复已足够，不再产生额外 Flash 调用）
         instant_reply = self._consume_pregen_instant(user_id)
-        if not instant_reply:
+        if not instant_reply and not self._downgraded.get(user_id, False):
             instant_reply = self._gen_instant_reply(result)
 
         # 3. 保存用户数据
@@ -3240,6 +3278,9 @@ class MessageHandler:
         """
         q = (question or "").strip()
         if not q or not is_question(q):
+            return []
+        # L5-2（I-1）：降级链路禁用建议卡生成（独立 LLM 调用，降级不调）
+        if self._downgraded.get(user_id, False):
             return []
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         if not isinstance(api_key, str) or not api_key:
@@ -4773,8 +4814,12 @@ class MessageHandler:
             return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
         if saved_bazi and (has_year or has_gender):
             # 用户已有八字，但提供了新的出生信息，可能想更新或已有信息
-            intent_result = self._analyze_message(msg, user_id,
-                                                  session_id=session_id)
+            # L5-2（I-1）：降级链路意图判定改规则快判（零 LLM 调用）
+            if self._downgraded.get(user_id, False):
+                intent_result = self._rule_analyze(msg)
+            else:
+                intent_result = self._analyze_message(msg, user_id,
+                                                      session_id=session_id)
             if intent_result.intent == "bazi":
                 return self._handle_bazi(msg, user_id)
 
@@ -4812,7 +4857,9 @@ class MessageHandler:
             # 1) L2 触发检查（超阈值 → 分块滚动摘要，摘要存 session_summaries）
             # 2) L1 按 token 预算动态保留轮数 + 关键事实保底（八字/L3 is_key）
             # Task 5 deepNight：深夜不压缩 → 内容不入 L2 摘要（临时通道 24h 硬清理）
-            if self.session_dao and not self._deep_night.get(user_id, False):
+            # L5-2（I-1）：降级链路跳过 L2 压缩（compactor 为 LLM 调用，降级不调）
+            if self.session_dao and not self._deep_night.get(user_id, False) \
+                    and not self._downgraded.get(user_id, False):
                 summary = self._maybe_compact(user_id)
                 profile = ""
                 if self.memory_system:

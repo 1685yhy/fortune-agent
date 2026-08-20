@@ -129,6 +129,8 @@ Page({
     emojiSheet: { show: false, msgId: '', cur: [], curMap: {} },
     /* 对话建档提示条：AI 回复含建档 key（已保存到档案/建档…）→ 顶部提示 */
     saveBanner: false,
+    /* L5-1/L5-2 对话额度条：免费用户「今日 X/15」；超限降级 → 精简提示 + 会员引导 */
+    quotaBar: { show: false, text: '', downgraded: false },
   },
 
   onLoad(options) {
@@ -161,6 +163,8 @@ Page({
     this._initNavDepth();     // 返回箭头仅导航栈进入（历史/解梦 navigateTo）时显示
     this._attachHost();
     this._loadHistory();
+    /* L5-1/L5-2 对话额度展示：免费用户「今日 X/15」；超限降级提示 + 会员引导 */
+    this._refreshQuota();
     /* 断点续传：本地历史恢复后 → 服务端 pending 补全（生成中退出/切走 →
        服务端继续生成完，下次进入自动补全看到结果；只查当前会话，静默追加） */
     this._loadPendingOffline();
@@ -428,6 +432,36 @@ Page({
     this._unsubHost = streamHost.subscribe((state) => this._onHostState(state));
   },
 
+  /* ── L5-1/L5-2 对话额度条：GET /api/user/chat-quota ──
+     会员/体验模式：不展示；免费用户：展示「今日 X/15」；
+     超限（downgraded）：展示「今日额度已用尽，已为你精简回复」+ 会员开通入口 */
+  _refreshQuota() {
+    api.getChatQuota()
+      .then((q) => {
+        if (!q || q.is_member || q.limit == null) {
+          if (this.data.quotaBar.show) this.setData({ quotaBar: { show: false, text: '', downgraded: false } });
+          return;
+        }
+        const used = Math.min(q.used || 0, q.limit);
+        const left = Math.max(0, q.limit - used);
+        this.setData({
+          quotaBar: {
+            show: true,
+            downgraded: !!q.downgraded,
+            text: q.downgraded
+              ? '今日额度已用尽 · 已为你精简回复'
+              : `今日 ${left}/${q.limit} 条`,
+          },
+        });
+      })
+      .catch(() => { /* 额度查询失败：静默隐藏（不打扰对话） */ });
+  },
+
+  /* 降级引导 → 我的页会员入口（开通会员解锁完整版） */
+  goMember() {
+    wx.reLaunch({ url: '/pages/me/me' });
+  },
+
   /* 宿主状态 → 页面镜像（segments 由页面重算，引用分段渲染在页面侧） */
   _onHostState(state) {
     if (state.notice) {
@@ -442,6 +476,8 @@ Page({
     this._lastTick = state.tick;
     // 流式结束且本轮有新内容 → 检查回复是否含建档标记（最小实现：含 persons 相关 key 即提示）
     if (this._prevStreaming && !state.streaming) {
+      /* L5-1/L5-2：一轮对话完成 → 后端已消费额度，刷新额度条（免费超限转降级提示） */
+      this._refreshQuota();
       this._checkArchiveKeys(state.messages || []);
       // 深夜：回复扫描「要我记得吗」触发点 + 回复侧 12356 安全检测
       const msgs = state.messages || [];

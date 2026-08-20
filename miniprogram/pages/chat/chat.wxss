@@ -809,16 +809,45 @@
   color: var(--ink-faint);
 }
 
-/* ── 输入条（快捷笺 + 输入行 + 朱砂发送） ── */
+/* ── L5-1/L5-2 对话额度条（输入条内顶部；免费用户展示，降级时附开通会员入口） ── */
+.quota-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14rpx;
+  padding: 0 0 8rpx;                     /* 与输入行间距 */
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .16em;
+  color: var(--ink-faint);
+}
+.quota-bar.qb-downgraded {
+  color: var(--ink-soft);
+}
+.qb-btn {
+  padding: 3rpx 18rpx;
+  border: 2rpx solid var(--acc-line);
+  border-radius: 20rpx;
+  font-size: 20rpx;
+  letter-spacing: .14em;
+  color: var(--acc-ink);
+}
+.qb-btn-active { opacity: .7; }
+
+/* ── 输入条（额度条 + 输入行 + 朱砂发送） ── */
 .chat-inputbar {
   position: absolute;
   left: 0; right: 0;
   bottom: 173rpx;                        /* 90px */
   z-index: 30;
+  display: flex;
+  flex-direction: column;
   background: var(--tabbar-bg);
   border-top: 2rpx solid var(--line-soft);  /* 1px */
   padding: 17rpx 27rpx 19rpx;            /* 9px 14px 10px */
 }
+/* 额度条展示时输入条增高（~42rpx）→ 消息列表底部联动让位（qb-on 挂在 .screen） */
+.screen.qb-on { --inputbar-h: 172rpx; }
 /* v2026-08-17：输入条上方快捷 chip 排（chip-row/quickchip）已删
    （wxml 同步移除；示例问题已在引导区，无需重复入口）。
    quickAsk 函数保留（引导区示例问题使用）；输入条现仅输入行 + 内边距，
