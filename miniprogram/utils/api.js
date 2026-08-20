@@ -824,6 +824,36 @@ function hehun(payload) {
 }
 
 /**
+ * 八字排盘（POST /api/paipan，L4 排盘结果页）
+ * 入参：{birthYear, birthMonth, birthDay, birthHour(0-11 时辰序号或 12-23 时钟小时),
+ *        gender('male'|'female'), city, minute?}
+ * 响应：BaziResult 全字段序列化 JSON（基础/L1 起运交运司令大运流年/L2 五行称骨神煞
+ *       知识索引 + pillars 盘面 + meta 命主头）。生辰只用于内存排盘，不落库。
+ */
+function paipan(payload) {
+  const p = payload || {};
+  const data = {
+    birthYear: parseInt(p.birthYear, 10),
+    birthMonth: parseInt(p.birthMonth, 10),
+    birthDay: parseInt(p.birthDay, 10),
+    birthHour: parseInt(p.birthHour, 10),
+    gender: p.gender === 'female' ? 'female' : 'male',
+    city: p.city || '北京',
+  };
+  if (p.minute != null) data.minute = parseInt(p.minute, 10);
+  return request('/api/paipan', { method: 'POST', data, showLoading: true });
+}
+
+/**
+ * 命理知识解析（GET /api/knowledge?category=&name=，排盘页点文字查解析）
+ * category ∈ shishen / zhangsheng / nayin / shensha / tiangan / dizhi
+ * 响应：{name, tip, gujue?, chafa?, ...}
+ */
+function getKnowledge(category, name) {
+  return request(`/api/knowledge?category=${encodeURIComponent(category)}&name=${encodeURIComponent(name)}`);
+}
+
+/**
  * 双人合盘（POST /api/union）
  * 入参：{ person1: {birthYear, birthMonth, birthDay, birthHour(0-11 时辰序号,可省), gender('male'|'female'), city(可省)},
  *        person2: {…同}, relation(恋人/暧昧/夫妻/朋友/暗恋,可省), paid(付费档,可省) }
@@ -1260,6 +1290,8 @@ module.exports = {
 
   // Four Arts
   hehun,
+  paipan,
+  getKnowledge,
   union,
   unionHistory,
   qimen,

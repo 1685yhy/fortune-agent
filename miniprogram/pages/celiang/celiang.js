@@ -1,6 +1,6 @@
-// 测算 — 问事入口台（dir_b 屏 3 · SUANCE_MAIN 分组克制排布：姻缘·命名·择日 / 问事 / 运势）
-// 只接已开发功能：双人合盘 → /pages/hehun/hehun、AI取名 → /pages/ming/ming、
-// 大事择吉日 → /pages/zeri_guide/zeri_guide、抽灵签 → /pages/qian/qian（问事组 = 解梦 + 抽灵签，塔罗已移除）；
+// 测算 — 问事入口台（dir_b 屏 3 · SUANCE_MAIN 分组克制排布：看我的 / 姻缘·命名·择日 / 问事 / 运势）
+// 已开发功能：八字排盘 → /pages/paipan/paipan（L4 主推第一位）、双人合盘 → /pages/hehun/hehun、
+// AI取名 → /pages/ming/ming、大事择吉日 → /pages/zeri_guide/zeri_guide、抽灵签 → /pages/qian/qian；
 // 未开发功能（解梦/人生时轴/运势曲线/水逆提醒）灰态占位「即将上线」，不可点（宁缺毋滥，不造假入口）。
 const theme = require('../../utils/theme');
 

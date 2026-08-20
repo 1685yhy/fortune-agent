@@ -1,0 +1,295 @@
+<!-- 排盘结果页（L4）— 原型 index.html 墨韵盘面：命主信息 → 四柱盘面 → 司令交运
+     → 五行能量 → 大运时间线 → 流年胶囊 → 干支关系 → 神煞标签 → 称骨卡 → 知识弹层 -->
+
+<!-- ════════ ① 输入区 ════════ -->
+<view class="pp-input" wx:if="{{!submitted}}">
+  <view class="input-head">
+    <view class="input-seal"><text class="input-seal-char">排</text></view>
+    <view class="input-mid">
+      <text class="input-title">八字排盘</text>
+      <text class="input-sub">四柱 · 大运 · 神煞 · 称骨</text>
+    </view>
+  </view>
+
+  <view class="form-card">
+    <view class="form-group">
+      <text class="form-label">出生年月日 <text class="form-req">必填</text> <text class="form-opt">公历 / 农历一次选完</text></text>
+      <birth-date value="{{bDate}}" calendar="{{bCal}}" placeholder="请选择出生年月日" bindchange="onDateChange" />
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">出生时辰 <text class="form-req">必填</text> <text class="form-opt">时辰不同，盘面不同</text></text>
+      <picker mode="selector" range="{{hourOptions}}" bindchange="onHourChange" value="{{bHourIdx}}">
+        <view class="form-picker {{!bHourSet ? 'form-picker-empty' : ''}}">
+          <text>{{hourOptions[bHourIdx]}}</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">出生地 <text class="form-opt">选填 · 用于真太阳时校准</text></text>
+      <place-picker value="{{bCity}}" placeholder="选择省 / 市" bindchange="onCityChange" />
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">性别</text>
+      <view class="form-radio-group">
+        <label class="form-radio {{bGender === 'male' ? 'active' : ''}}">
+          <radio value="male" checked="{{bGender === 'male'}}" bindchange="onGenderChange" color="#A93A2C" />
+          <text>男</text>
+        </label>
+        <label class="form-radio {{bGender === 'female' ? 'active' : ''}}">
+          <radio value="female" checked="{{bGender === 'female'}}" bindchange="onGenderChange" color="#A93A2C" />
+          <text>女</text>
+        </label>
+      </view>
+    </view>
+
+    <view class="form-error" wx:if="{{errorMsg}}">{{errorMsg}}</view>
+
+    <view class="pp-btn {{loading ? 'pp-btn-disabled' : ''}}" hover-class="pp-btn-active" hover-stay-time="0" bindtap="onPaipan">
+      <text>{{loading ? '排盘中…' : '开始排盘'}}</text>
+    </view>
+    <view class="input-privacy">生辰仅用于本次排盘，不留存</view>
+  </view>
+</view>
+
+<!-- ════════ ② 结果区 ════════ -->
+<view class="pp-page" wx:if="{{chart}}">
+
+  <!-- ① 命主信息 -->
+  <view class="master-head">
+    <view class="master-seal"><text>{{master.seal}}</text></view>
+    <view class="master-mid">
+      <view class="master-name"><text>我的命盘</text><text class="master-name-sub">{{master.name}}</text></view>
+      <view class="master-sub">{{master.sub}}</view>
+    </view>
+    <view class="master-right">
+      <view class="mr-tag">{{master.tag}}</view>
+      <view class="mr-time">{{master.time}}</view>
+    </view>
+  </view>
+
+  <!-- ② 四柱盘面卡 -->
+  <view class="pp-card">
+    <view class="pp-head">
+      <view class="pp-seal"><text>排</text></view>
+      <text class="pp-title">四柱排盘</text>
+      <text class="pp-head-sub">{{chart.bazi[0]}}{{chart.meta.zodiac}} · {{chart.meta.shichen}}</text>
+    </view>
+    <view class="pp-row">
+      <view class="pp-pillar {{p.isDay ? 'is-day' : ''}}" wx:for="{{pillars}}" wx:key="name" wx:for-item="p">
+        <text class="pp-ganzhi-name">{{p.name}}</text>
+        <view class="pp-shishen {{p.isDay ? '' : 'is-link'}}"
+          hover-class="pp-tap" hover-stay-time="0"
+          wx:if="{{!p.isDay}}" data-cat="shishen" data-name="{{p.shishen}}" data-src="{{p.name}}" bindtap="onKnowTap">
+          <text>{{p.shishen}}</text>
+        </view>
+        <text class="pp-shishen is-ri" wx:if="{{p.isDay}}">{{p.shishen}}</text>
+        <text class="pp-tg" data-cat="tiangan" data-name="{{p.gan}}" data-src="{{p.name}} · 天干" bindtap="onKnowTap">{{p.gan}}</text>
+        <text class="pp-dz" data-cat="dizhi" data-name="{{p.zhi}}" data-src="{{p.name}} · 地支" bindtap="onKnowTap">{{p.zhi}}</text>
+        <view class="pp-canggan">
+          <view class="pp-cg-item" wx:for="{{p.canggan}}" wx:key="gan" wx:for-item="cg">
+            <text class="pp-cg-char">{{cg.gan}}</text>
+            <text class="pp-cg-star">{{cg.shishen}}</text>
+          </view>
+        </view>
+        <text class="pp-nayin" data-cat="nayin" data-name="{{p.nayin}}" data-src="{{p.name}} · 纳音" bindtap="onKnowTap">{{p.nayin}}</text>
+        <text class="pp-xingyun {{p.xingyun === '长生' ? 'is-changsheng' : ''}}"
+          data-cat="zhangsheng" data-name="{{p.xingyun}}" data-src="{{p.name}} · 十二长生" bindtap="onKnowTap">{{p.xingyun}}</text>
+      </view>
+    </view>
+    <view class="pp-foot">
+      <text class="pp-foot-tag">论断</text>
+      <text class="pp-foot-txt">{{wuxingNote}}</text>
+    </view>
+  </view>
+
+  <!-- ③ 司令 / 交运信息行 -->
+  <view class="sl-wrap">
+    <view class="sl-chip {{c.gold ? 'is-gold' : ''}}" wx:for="{{slChips}}" wx:key="name" wx:for-item="c">
+      <view class="sl-seal"><text>{{c.seal}}</text></view>
+      <view class="sl-mid">
+        <text class="sl-name">{{c.name}}</text>
+        <rich-text class="sl-val" nodes="{{c.val}}"></rich-text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ④ 五行能量 -->
+  <view class="wx-card">
+    <view class="wx-head">
+      <view class="wx-seal"><text>行</text></view>
+      <text class="wx-title">五行能量</text>
+      <text class="wx-yongshen">{{yongshenChip}}</text>
+    </view>
+    <view class="wx-row" wx:for="{{wuxingRows}}" wx:key="char">
+      <view class="wx-name">
+        <text class="wx-char">{{item.char}}</text>
+        <view class="wx-dot {{item.cls}}"></view>
+      </view>
+      <view class="wx-bar">
+        <view class="wx-fill {{item.cls}}" style="width:{{item.pct}}%"></view>
+      </view>
+      <text class="wx-count">{{item.count}}<text class="wx-count-unit">个</text></text>
+      <text class="wx-wangs {{item.wangsCls}}">{{item.wangs}}</text>
+    </view>
+    <view class="wx-sum">
+      <text class="wx-sum-tag">论断</text>
+      <text class="wx-sum-txt">{{wuxingNote}}</text>
+    </view>
+  </view>
+
+  <!-- ⑤ 大运时间线 -->
+  <view class="dy-card">
+    <view class="dy-head">
+      <view class="dy-seal"><text>运</text></view>
+      <text class="dy-title">大运时间线</text>
+      <text class="dy-hint">{{chart.dayun[0].sui}} 岁起运 · 十年一运</text>
+    </view>
+    <view class="dy-jiaoyun">
+      <text class="dy-jy-seal">交运</text>
+      <rich-text class="dy-jy-txt" nodes="{{jiaoyunLine}}"></rich-text>
+    </view>
+    <scroll-view class="dy-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+      <view class="dy-track">
+        <view class="dy-step {{d.isCur ? 'is-current' : ''}}" hover-class="dy-step-tap" hover-stay-time="0"
+          wx:for="{{dayunView}}" wx:key="ganzhi" wx:for-item="d"
+          data-item="{{d}}" bindtap="onDayunTap">
+          <text class="dy-qi" wx:if="{{d.isQi}}">起运</text>
+          <text class="dy-age"><text class="dy-age-b">{{d.suiText}}</text>岁</text>
+          <text class="dy-shen">{{d.shishen}}</text>
+          <text class="dy-ganzhi">{{d.ganzhi}}</text>
+          <text class="dy-years">{{d.years}}</text>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- ⑥ 流年胶囊行 -->
+  <view class="ln-card">
+    <view class="ln-head">
+      <view class="ln-seal"><text>年</text></view>
+      <text class="ln-title">流年</text>
+      <text class="ln-hint">左右滑动 · 30 年</text>
+    </view>
+    <scroll-view class="ln-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+      <view class="ln-track">
+        <view class="ln-cap {{y.isNow ? 'is-now' : ''}}" hover-class="ln-cap-tap" hover-stay-time="0"
+          wx:for="{{liunianView}}" wx:key="year" wx:for-item="y"
+          data-item="{{y}}" bindtap="onLiunianTap">
+          <text class="ln-gz">{{y.ganzhi}}</text>
+          <text class="ln-yr">{{y.year}}</text>
+        </view>
+      </view>
+    </scroll-view>
+    <view class="ln-note">点击任一流年，查看该年干支与命局的关系详析</view>
+  </view>
+
+  <!-- ⑦ 干支关系徽标 -->
+  <view class="rb-card">
+    <view class="rb-head">
+      <view class="rb-seal"><text>系</text></view>
+      <text class="rb-title">干支关系</text>
+      <text class="rb-hint">大运流年与原局对照</text>
+    </view>
+    <view class="rb-group" wx:for="{{relGroups}}" wx:key="name" wx:for-item="g">
+      <text class="rb-gname">{{g.name}}</text>
+      <view class="rb-chips" wx:if="{{g.badges.length}}">
+        <view class="rb-badge {{b.cls}}" hover-class="rb-tap" hover-stay-time="0"
+          wx:for="{{g.badges}}" wx:key="index" wx:for-item="b"
+          data-rel="{{b.rel}}" bindtap="onRelTap">
+          <text class="rb-name">{{b.name}}</text>
+          <text class="rb-where" wx:if="{{b.where}}">{{b.where}}</text>
+          <text class="rb-note" wx:if="{{b.note}}">{{b.note}}</text>
+        </view>
+      </view>
+      <view class="rb-empty" wx:else>暂无显著关系</view>
+    </view>
+    <view class="rb-foot">
+      <view class="rb-def">
+        <text wx:for="{{relDefs}}" wx:key="k"><text class="rb-def-b">{{item.k}}</text> {{item.d}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ⑧ 神煞标签组 -->
+  <view class="ss-card">
+    <view class="ss-head">
+      <view class="ss-seal"><text>煞</text></view>
+      <text class="ss-title">神煞</text>
+      <text class="ss-hint">点击查看解析</text>
+    </view>
+    <view class="ss-legend">
+      <text><view class="lg-dot lg-ji"></view>吉</text>
+      <text><view class="lg-dot lg-zhong"></view>中性</text>
+      <text><view class="lg-dot lg-xiong"></view>凶</text>
+    </view>
+    <view class="ss-tags">
+      <view class="ss-tag {{s.cls}}" hover-class="ss-tap" hover-stay-time="0"
+        wx:for="{{shenshaView}}" wx:key="name" wx:for-item="s"
+        data-name="{{s.name}}" data-src="{{s.src}}" bindtap="onShenshaTap">
+        <text>{{s.name}}</text>
+        <text class="ss-tag-src" wx:if="{{s.src}}">{{s.src}}</text>
+      </view>
+    </view>
+    <view class="ss-foot">共 <text class="ss-foot-b">{{chart.shensha.length}}</text> 种神煞引擎逐项推算 · 吉凶仅作参考，重在知命修身</view>
+  </view>
+
+  <!-- ⑨ 称骨卡 -->
+  <view class="cg-card">
+    <view class="cg-head">
+      <view class="cg-seal"><text>骨</text></view>
+      <text class="cg-title">称骨论命</text>
+      <text class="cg-sub">{{chenggu.sub}}</text>
+    </view>
+    <view class="cg-weight">
+      <view class="cg-num">{{chenggu.weight_text}}</view>
+      <view class="cg-source">{{chenggu.source}}</view>
+    </view>
+    <view class="cg-detail" wx:if="{{chenggu.parts.length}}">
+      <view class="cg-chip {{pt.isTotal ? 'is-total' : ''}}" wx:for="{{chenggu.parts}}" wx:key="index" wx:for-item="pt">
+        <text>{{pt.label}}</text><text class="cg-chip-w">{{pt.weight}}</text>
+      </view>
+    </view>
+    <view class="cg-verse">
+      <text class="cg-verse-p">{{chenggu.jieci}}</text>
+      <text class="cg-verse-src">—— {{chenggu.sub}} · 称骨歌</text>
+    </view>
+  </view>
+
+  <!-- 页脚 -->
+  <view class="page-foot">
+    <view class="pf-line"></view>
+    <text class="pf-t1">命理之学，重在知命修身 · 内容仅供参考</text>
+    <text class="pf-t2">易理明灯 · 墨韵排盘 · {{footDate}}</text>
+  </view>
+
+  <view class="pp-repick" hover-class="pp-btn-active" hover-stay-time="0" bindtap="onReset">
+    <text>重新排盘</text>
+  </view>
+</view>
+
+<!-- ════════ 知识弹层 ════════ -->
+<view class="zs-mask {{zsOpen ? 'zs-open' : ''}}" bindtap="onZsMaskTap" catchtouchmove="noop">
+  <view class="zs-sheet" catchtap="noop">
+    <view class="zs-grip"></view>
+    <view class="zs-head">
+      <view class="zs-seal"><text>解</text></view>
+      <text class="zs-kind">{{zsKind}}</text>
+      <text class="zs-name">{{zsName}}</text>
+      <text class="zs-src" wx:if="{{zsSrc}}">{{zsSrc}}</text>
+      <view class="zs-close" hover-class="zs-close-active" hover-stay-time="0" bindtap="onZsClose">
+        <text>×</text>
+      </view>
+    </view>
+    <view class="zs-tabs" wx:if="{{zsTabs.length > 1}}">
+      <view class="zs-tab {{zsTabIdx === idx ? 'is-on' : ''}}" hover-class="zs-tab-active" hover-stay-time="0"
+        wx:for="{{zsTabs}}" wx:key="t" data-idx="{{index}}" bindtap="onZsTab">{{item.t}}</view>
+    </view>
+    <scroll-view class="zs-body" scroll-y>
+      <text class="zs-para">{{zsTabs[zsTabIdx].body}}</text>
+    </scroll-view>
+    <view class="zs-foot">内容整理自《三命通会》《渊海子平》等古籍 · 易理明灯知识库</view>
+  </view>
+</view>

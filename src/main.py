@@ -790,6 +790,10 @@ async def lifespan(app: FastAPI):
     from .api.hehun import setup as setup_hehun
     setup_hehun(hehun_engine, engine, narrative_svc)
 
+    # Task: Setup paipan API（排盘结果，复用同一 bazi_engine；生辰内存排盘不落库）
+    from .api.paipan import setup as setup_paipan
+    setup_paipan(engine)
+
     # Phase: 双人合盘聚合 API（免费钩子 + 付费深度报告）
     from .api.union import setup as setup_union
     setup_union(hehun_engine, engine, llm=llm, retriever=retriever,
@@ -1067,6 +1071,10 @@ app.include_router(ming_router)              # /api/ming/*
 # 命理知识解析 API（十神/十二长生/纳音/神煞/天干/地支知识，全接口 require_user，L2-2）
 from .api.knowledge import router as knowledge_router
 app.include_router(knowledge_router)         # /api/knowledge, /api/knowledge/categories
+
+# 排盘结果 API（BaziResult 全字段序列化，全接口 require_user，L4）
+from .api.paipan import router as paipan_router
+app.include_router(paipan_router)            # POST /api/paipan
 
 # 专项论断 API（论财/论事业/论健康; 高级会员门控，全接口 require_user，L2-5）
 from .api.zhuanxiang import router as zhuanxiang_router
