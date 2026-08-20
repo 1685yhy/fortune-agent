@@ -36,6 +36,12 @@ ANCHORS = {
     "wuxing_imbalance": (2000, 1, 1, 10, 0, "北京", "男"),
     # 财星不显盘：戊寅 乙卯 己巳 庚午（己土，财水 0 透 0 藏）
     "cai_bu_xian": (1998, 3, 23, 13, 0, "北京", "女"),
+    # 身强劫财盘：乙丑 己卯 甲戌 乙丑（甲木旺，劫财透 2 正财透 1、财地支 3）
+    # —— 劫财夺财须身弱，身强时劫财为用，应判身财相当而非凶局（终审 Fix）
+    "shen_qiang_jiecai": (1985, 4, 5, 2, 0, "北京", "女"),
+    # 身弱劫财夺财盘：庚申 丁亥 丙戌 丁酉（丙火弱，劫财透 2、财地支 2）
+    # —— 身弱劫财夺财凶局仍须命中（正例锁定，防修复矫枉过正）
+    "shen_ruo_jiecai_duocai": (1980, 11, 9, 17, 0, "北京", "女"),
 }
 
 _engine = BaziEngine()
@@ -136,6 +142,25 @@ def test_lun_cai_dizhi_cang_cai_not_bu_xian():
     # 己卯 丙子 戊午 丁巳：财水不透干，地支子水 1 位
     d2 = lun_cai(_chart("wuxing_imbalance"))
     assert "财星不显" not in d2["summary"]
+
+
+def test_lun_cai_shen_qiang_jiecai_not_duocai():
+    """身强劫财盘：乙丑 己卯 甲戌 乙丑 —— 甲木旺，劫财透 2 为用（帮身任财），
+    不判「劫财夺财」凶局（终审 Fix：劫财夺财须叠加身弱条件）。"""
+    d = lun_cai(_chart("shen_qiang_jiecai"))
+    assert "旺" in d["summary"]  # 日主身强前提
+    assert "劫财夺财" not in d["summary"]
+    assert "身财相当" in d["summary"]  # 落入身强吉局分支
+
+
+def test_lun_cai_shen_ruo_jiecai_duocai():
+    """身弱劫财夺财盘：庚申 丁亥 丙戌 丁酉 —— 丙火弱，劫财透 2、财地支 2，
+    身弱劫财夺财凶局仍须命中（防修复矫枉过正）。"""
+    d = lun_cai(_chart("shen_ruo_jiecai_duocai"))
+    assert "弱" in d["summary"]  # 日主身弱前提
+    assert "劫财夺财" in d["summary"]
+    geju_point = [p for p in d["points"] if p["title"] == "财运格局"][0]
+    assert "破财" in geju_point["text"]
 
 
 # ── 论事业锚点 ──────────────────────────────────────────────────
