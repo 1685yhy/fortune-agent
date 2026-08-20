@@ -12,6 +12,8 @@ from src.engines.shensha import shensha_of
 from src.engines.ganzhi_rel import analyze_relations
 from src.engines.chenggu import chenggu_bone, bone_weight_text
 from src.engines.bazi_formatter import get_changsheng
+from src.engines.wuxing import (wuxing_counts, month_wangshuai,
+                                changsheng_state, day_master_strength)
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +21,7 @@ TIANGAN = ["甲","乙","丙","丁","戊","己","庚","辛","壬","癸"]
 DIZHI = ["子","丑","寅","卯","辰","巳","午","未","申","酉","戌","亥"]
 WUXING_TG = {"甲":"木","乙":"木","丙":"火","丁":"火","戊":"土","己":"土","庚":"金","辛":"金","壬":"水","癸":"水"}
 WUXING_DZ = {"子":"水","丑":"土","寅":"木","卯":"木","辰":"土","巳":"火","午":"火","未":"土","申":"金","酉":"金","戌":"土","亥":"水"}
+WUXING_ORDER = ["金","木","水","火","土"]  # 五行序（与 data/wuxing_tables.json 表头一致，L2-3）
 SHENG_XU = ["甲子","乙丑","丙寅","丁卯","戊辰","己巳","庚午","辛未","壬申","癸酉",
             "甲戌","乙亥","丙子","丁丑","戊寅","己卯","庚辰","辛巳","壬午","癸未",
             "甲申","乙酉","丙戌","丁亥","戊子","己丑","庚寅","辛卯","壬辰","癸巳",
@@ -328,6 +331,9 @@ class BaziResult:
     # 知识索引（问真点文字查解析同款入口，L2-2）：{category: [名称...]}，
     # 前端据此渲染可点文字 → GET /api/knowledge?category=&name=
     knowledge_index: dict = field(default_factory=dict)
+    # 五行能量引擎（L2-3）：{counts, wangshuai, changsheng, strength, yongshen}
+    # 供前端"五行进度条"等展示（L4 设计）
+    wuxing_energy: dict = field(default_factory=dict)
 
     def rel_with(self, ganzhi: str) -> list:
         """大运/流年干支与原局各柱的干支关系（问真点大运流年同款入口，P0-3）。
@@ -457,12 +463,8 @@ class BaziEngine:
         # 日主
         day_master = f"{day_gan}{WUXING_TG[day_gan]}"
 
-        # 五行统计
-        wuxing = {"金":0,"木":0,"水":0,"火":0,"土":0}
-        for g in all_gan:
-            wuxing[WUXING_TG[g]] += 1
-        for z in all_zhi:
-            wuxing[WUXING_DZ[z]] += 1
+        # 五行统计（L2-3 统一走五行能量引擎；口径 = 天干 + 地支本气，与问真排盘页"五行"同款）
+        wuxing = wuxing_counts(bazi_pillars)
 
         # 十神
         shishen = []
@@ -504,6 +506,20 @@ class BaziEngine:
 
         # 用神（调候优先 + 扶抑辅助）
         yongshen = self._calc_yongshen(wuxing, day_gan, month_zhi)
+
+        # 五行能量引擎（L2-3）：统计/月令旺衰/十二长生/日主强弱；用神沿用 _calc_yongshen
+        wuxing_energy = {
+            "counts": wuxing,  # 同口径：天干 + 地支本气
+            "wangshuai": {wx: month_wangshuai(month_zhi, wx) for wx in WUXING_ORDER},
+            "changsheng": {
+                "年": changsheng_state(day_gan, year_zhi),
+                "月": changsheng_state(day_gan, month_zhi),
+                "日": changsheng_state(day_gan, day_zhi),
+                "时": changsheng_state(day_gan, time_zhi),
+            },
+            "strength": day_master_strength(bazi_pillars, wuxing),
+            "yongshen": yongshen,
+        }
 
         # 神煞（问真 szshensha 计算口径：年干/日干、年支/日支双查 + 年支类 + 空亡/元辰/学堂/词馆/天罗地网）
         shensha_items = shensha_of(
@@ -587,6 +603,7 @@ class BaziEngine:
             ganzhi_rel=ganzhi_rel,
             chenggu=chenggu,
             knowledge_index=knowledge_index,
+            wuxing_energy=wuxing_energy,
         )
 
     def _calc_shishen(self, day_gan: str, target_gan: str) -> str:
