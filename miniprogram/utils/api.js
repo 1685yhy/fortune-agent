@@ -751,7 +751,7 @@ function confirmPayment(paymentParams) {
 
 /**
  * 创建虚拟支付订单（后端生成 signData/paySig/signature 三要素）
- * @param {string} productId - 商品/套餐 ID（love_compatibility / deep_report / full_analysis / monthly / first_month）
+ * @param {string} productId - 商品/套餐 ID（love_compatibility / deep_report / full_analysis / monthly / quarterly / yearly / pro_monthly）
  * @returns {Promise<{signData, paySig, signature, mode, outTradeNo, productId, goodsPrice, offerId, env}>}
  *         未启用虚拟支付时 reject {detail:{code:'virtual_pay_not_enabled'}}
  */
@@ -1049,7 +1049,7 @@ function getMemberInfo() {
 
 /**
  * 订阅会员
- * @param {string} planId - 套餐 ID: 'monthly' | 'first_month'
+ * @param {string} planId - 套餐 ID: 'monthly' | 'quarterly' | 'yearly' | 'pro_monthly'
  * @returns {Promise}
  */
 function subscribeMember(planId) {
@@ -1057,6 +1057,16 @@ function subscribeMember(planId) {
     method: 'POST',
     data: { plan_id: planId },
     showLoading: true,
+  });
+}
+
+/**
+ * 对话额度查询（L5-1/L5-2：免费用户每日 15 条，超限降级精简回复）
+ * @returns {Promise<{used: number, limit: number|null, downgraded: boolean, is_member: boolean}>}
+ */
+function getChatQuota() {
+  return request('/api/user/chat-quota', {
+    method: 'GET',
   });
 }
 
@@ -1305,6 +1315,7 @@ module.exports = {
   // Member
   getMemberInfo,
   subscribeMember,
+  getChatQuota,
 
   // Orders
   getOrders,

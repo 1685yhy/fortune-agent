@@ -62,12 +62,12 @@ Page({
 
   onLoad() {
     this._initNavOff();
-    // 会员开通方案（首月/月度，价格与后端 SUBSCRIBE_PLANS 对齐）
-    const plans = ['first_month', 'monthly']
+    // 会员开通方案（L5-2：基础三档 + 高级一档，价格与后端 SUBSCRIBE_PLANS 对齐）
+    const plans = ['monthly', 'quarterly', 'yearly', 'pro_monthly']
       .map((id) => payment.getProduct(id))
       .filter((p) => !!p)
       .map((p) => {
-        /* Task3 价格对齐：priceLabel 拆成数字+单位（¥38 /首月），wxml 分列渲染统一排版 */
+        /* Task3 价格对齐：priceLabel 拆成数字+单位（¥19.9 /月），wxml 分列渲染统一排版 */
         const parts = String(p.priceLabel || '').split('/');
         return {
           id: p.id,

@@ -57,23 +57,38 @@ const PRODUCTS = {
     icon: '✨',
   },
 
-  // 会员
-  first_month: {
-    id: 'first_month',
-    name: '首月会员',
-    price: 38,
-    priceLabel: '¥38/首月',
-    priceOrigLabel: '¥68/月',
-    description: '首月优惠，全功能解锁',
-    icon: '👑',
-  },
+  // 会员（L5-2 档位与后端 SUBSCRIBE_PLANS 对齐：基础三档 + 高级一档）
   monthly: {
     id: 'monthly',
-    name: '月度会员',
-    price: 68,
-    priceLabel: '¥68/月',
-    description: '连续订阅，自动续费',
-    icon: '👑',
+    name: '基础会员·月',
+    price: 19.9,
+    priceLabel: '¥19.9/月',
+    description: '完整分析 · 每日运势 · 畅聊不设限',
+    icon: '阅',
+  },
+  quarterly: {
+    id: 'quarterly',
+    name: '基础会员·季',
+    price: 49.9,
+    priceLabel: '¥49.9/季',
+    description: '基础会员全部权益 · 一次开通 90 天',
+    icon: '阅',
+  },
+  yearly: {
+    id: 'yearly',
+    name: '基础会员·年',
+    price: 168,
+    priceLabel: '¥168/年',
+    description: '超值年卡 · 折合 ¥14/月',
+    icon: '阅',
+  },
+  pro_monthly: {
+    id: 'pro_monthly',
+    name: '高级会员·月',
+    price: 39.9,
+    priceLabel: '¥39.9/月',
+    description: '含论财/论事业/论健康等专项解读',
+    icon: '玺',
   },
 };
 
@@ -85,9 +100,9 @@ const MEMBER_BENEFITS = [
     desc: '解锁完整运势解读，含十二生肖逐项分析',
   },
   {
-    icon: '❤️',
-    title: '感情合盘无限次',
-    desc: '不限次数分析你和TA的缘分',
+    icon: '💬',
+    title: '畅聊不设限',
+    desc: '对话额度不设上限，无需降级精简',
   },
   {
     icon: '📜',
@@ -96,8 +111,8 @@ const MEMBER_BENEFITS = [
   },
   {
     icon: '🌟',
-    title: '专属标识 · 去广告',
-    desc: '会员专属徽章，清爽使用体验',
+    title: '高级会员专项',
+    desc: '高级会员含论财/论事业/论健康等专项论断',
   },
 ];
 
@@ -298,7 +313,7 @@ async function purchase(productId) {
 
 /**
  * 购买会员（虚拟支付优先，后端未启用时降级 mock）
- * @param {string} planId - 'monthly' | 'first_month'
+ * @param {string} planId - 'monthly' | 'quarterly' | 'yearly' | 'pro_monthly'
  * @returns {Promise<{success: boolean}>}
  */
 async function subscribeMember(planId) {

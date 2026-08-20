@@ -11,7 +11,7 @@ PLANS = {
     "free": {
         "label": "免费版",
         "price": 0,
-        "queries_limit": 20,
+        "queries_limit": 3,  # L5-2：与 _ensure_free_membership 行默认/日重置阈值一致（旧额度，仅非聊天功能用）
         "period_days": 1,  # daily reset for free
         "features": ["基础分析"],
     },
@@ -123,25 +123,50 @@ class MemberDAO:
         finally:
             conn.close()
 
-    def create_membership(self, user_id: str, plan: str, queries_limit: Optional[int] = None) -> bool:
-        """Create or upgrade a membership."""
+    @staticmethod
+    def _compute_expiry(existing_plan: Optional[str], existing_expires_at: Optional[str],
+                        period_days: Optional[int]) -> str:
+        """到期时间计算（L5-2）：续费延长——付费会员未过期时从原到期日续加 period_days，
+        否则（新开通/已过期/免费档）从现在起算 period_days。"""
+        now = datetime.now()
+        base = now
+        if existing_plan and existing_plan != "free" and existing_expires_at:
+            try:
+                expires = datetime.fromisoformat(existing_expires_at)
+                if expires > now:
+                    base = expires
+            except (TypeError, ValueError):
+                pass
+        return (base + timedelta(days=period_days)).isoformat() if period_days else None
+
+    def create_membership(self, user_id: str, plan: str, queries_limit: Optional[int] = None,
+                          period_days: Optional[int] = None) -> bool:
+        """Create or upgrade a membership.
+
+        period_days（L5-2）：显式指定（如季度 90/年度 365 商品）；缺省取 PLANS[plan]。
+        到期时间：付费会员未过期时从原到期日续加（续费延长），否则从现在起算。
+        """
         if plan not in PLANS:
             return False
 
         if queries_limit is None:
             queries_limit = PLANS[plan]["queries_limit"]
 
+        if period_days is None:
+            period_days = PLANS[plan]["period_days"]
+
         now = datetime.now()
         started_at = now.isoformat()
-
-        period = PLANS[plan]["period_days"]
-        expires_at = (now + timedelta(days=period)).isoformat() if period else None
 
         conn = self._connect()
         try:
             existing = conn.execute(
-                "SELECT user_id FROM memberships WHERE user_id = ?", (user_id,)
+                "SELECT plan, expires_at FROM memberships WHERE user_id = ?", (user_id,)
             ).fetchone()
+
+            expires_at = self._compute_expiry(
+                existing[0] if existing else None,
+                existing[1] if existing else None, period_days)
 
             if existing:
                 conn.execute(
@@ -404,16 +429,21 @@ class MemberDAO:
         finally:
             conn.close()
 
-    def confirm_payment(self, payment_id: int, user_id: str, plan: str):
-        """Confirm a payment and activate membership."""
+    def confirm_payment(self, payment_id: int, user_id: str, plan: str,
+                        period_days: Optional[int] = None):
+        """Confirm a payment and activate membership.
+
+        period_days（L5-2）：商品显式档期（如季度 90/年度 365），缺省取 PLANS[plan]；
+        到期时间按续费延长计算（见 _compute_expiry）。
+        """
         if plan not in PLANS:
             return
 
         queries_limit = PLANS[plan]["queries_limit"]
         now = datetime.now()
         started_at = now.isoformat()
-        period = PLANS[plan]["period_days"]
-        expires_at = (now + timedelta(days=period)).isoformat() if period else None
+        if period_days is None:
+            period_days = PLANS[plan]["period_days"]
 
         conn = self._connect()
         try:
@@ -422,8 +452,12 @@ class MemberDAO:
                 (payment_id, user_id),
             )
             existing = conn.execute(
-                "SELECT user_id FROM memberships WHERE user_id = ?", (user_id,)
+                "SELECT plan, expires_at FROM memberships WHERE user_id = ?", (user_id,)
             ).fetchone()
+
+            expires_at = self._compute_expiry(
+                existing[0] if existing else None,
+                existing[1] if existing else None, period_days)
 
             if existing:
                 conn.execute(

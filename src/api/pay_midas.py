@@ -245,11 +245,13 @@ def _lookup_product(product_id: str):
     """支持道具直购商品（PRODUCTS）与会员订阅套餐（SUBSCRIBE_PLANS）。"""
     if product_id in PRODUCTS:
         return {"kind": "product", "name": PRODUCTS[product_id]["name"],
-                "amount": PRODUCTS[product_id]["amount"], "plan": None}
+                "amount": PRODUCTS[product_id]["amount"], "plan": None,
+                "period_days": None}
     if product_id in SUBSCRIBE_PLANS:
         return {"kind": "subscription", "name": SUBSCRIBE_PLANS[product_id]["name"],
                 "amount": SUBSCRIBE_PLANS[product_id]["amount"],
-                "plan": SUBSCRIBE_PLANS[product_id]["internal_plan"]}
+                "plan": SUBSCRIBE_PLANS[product_id]["internal_plan"],
+                "period_days": SUBSCRIBE_PLANS[product_id]["period_days"]}
     return None
 
 
@@ -295,7 +297,8 @@ async def virtual_pay_create(req: VirtualPayCreateRequest, uid: str = Depends(re
     payment_id = _member_dao.create_payment(uid, product["amount"], req.product_id, "midas")
 
     attach = json.dumps(
-        {"kind": product["kind"], "id": req.product_id, "plan": product["plan"]},
+        {"kind": product["kind"], "id": req.product_id, "plan": product["plan"],
+         "period_days": product["period_days"]},
         ensure_ascii=True, separators=(",", ":"),
     )
     env = midas_env()
@@ -370,13 +373,24 @@ def _verify_callback_signature(raw_body: bytes, headers: dict, app_key: str) -> 
 
 
 def _deliver_goods(order: dict) -> bool:
-    """按 attach 发货：product → 订单置 paid；subscription → 开通会员。幂等。"""
+    """按 attach 发货：product → 订单置 paid；subscription → 开通会员。幂等。
+
+    L5-2：会员商品按 attach 携带的 period_days 开通（季度 90/年度 365 等档期
+    不丢失），到期时间按续费延长计算（member_dao._compute_expiry）。
+    """
     global _member_dao
     if _member_dao is None:
         return False
     try:
         if order["kind"] == "subscription" and order["plan"]:
-            _member_dao.confirm_payment(order["payment_id"], order["user_id"], order["plan"])
+            period_days = None
+            try:
+                attach = json.loads(order["attach"] or "{}")
+                period_days = attach.get("period_days")
+            except (ValueError, AttributeError):
+                pass
+            _member_dao.confirm_payment(order["payment_id"], order["user_id"],
+                                        order["plan"], period_days=period_days)
         else:
             _member_dao.mark_payment_paid(order["payment_id"], order["user_id"])
         return True

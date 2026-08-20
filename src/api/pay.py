@@ -53,10 +53,15 @@ PRODUCTS = {
     "detailed_fortune": {"name": "详细每日运势", "amount": 0.0, "type": "single"},
 }
 
-# 会员套餐：前端 plan_id → 内部套餐（member_dao.PLANS 的 key）+ 定价
+# 会员套餐（L5-2）：前端 plan_id → 内部套餐（member_dao.PLANS 的 key）+ 定价
+# 档位设计：基础会员三档（月/季/年，plan='basic'）+ 高级会员一档（月，plan='pro'，
+# 含论财/论事业/论健康等专项论断，见 zhuanxiang 高级会员门控）。
+# period_days 参与到期时间计算（confirm_payment 续费延长，见 member_dao）。
 SUBSCRIBE_PLANS = {
-    "monthly": {"name": "月度会员", "amount": 68.0, "internal_plan": "pro", "period_days": 30},
-    "first_month": {"name": "首月会员", "amount": 38.0, "internal_plan": "pro", "period_days": 30},
+    "monthly": {"name": "基础会员·月", "amount": 19.9, "internal_plan": "basic", "period_days": 30},
+    "quarterly": {"name": "基础会员·季", "amount": 49.9, "internal_plan": "basic", "period_days": 90},
+    "yearly": {"name": "基础会员·年", "amount": 168.0, "internal_plan": "basic", "period_days": 365},
+    "pro_monthly": {"name": "高级会员·月", "amount": 39.9, "internal_plan": "pro", "period_days": 30},
 }
 
 
@@ -162,7 +167,8 @@ async def pay_subscribe(req: SubscribeRequest, uid: str = Depends(require_user))
 
     membership = None
     if not wechat_pay_enabled():
-        _member_dao.confirm_payment(payment_id, uid, plan["internal_plan"])
+        _member_dao.confirm_payment(payment_id, uid, plan["internal_plan"],
+                                     period_days=plan["period_days"])
         membership = _member_dao.get_membership(uid)
         logger.info("订阅支付建单(模拟): user=%s plan=%s amount=%s payment_id=%s 已开通会员=%s",
                     uid, req.plan_id, plan["amount"], payment_id, plan["internal_plan"])
