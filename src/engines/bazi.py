@@ -58,6 +58,54 @@ NAYIN = {
     "庚申":"石榴木","辛酉":"石榴木","壬戌":"大海水","癸亥":"大海水",
 }
 
+
+# ── 流年 / 流月 / 流时（L2-4，问真方式：排盘结果带出流年表）──
+
+def liunian_ganzhi(birth_year: int, year_pillar: str, target_year: int) -> str:
+    """流年干支（年柱 + 岁差，六十甲子循环）。
+
+    口径：流年干支 = 出生年柱干支 + (目标年 − 出生年) mod 60。
+    例：liunian_ganzhi(1999, "己卯", 2026) == "丙午"（2024 甲辰 / 2020 庚子 同法）。
+    """
+    return SHENG_XU[(SHENG_XU_MAP.get(year_pillar, 0)
+                     + (target_year - birth_year)) % 60]
+
+
+def liunian_table(birth_year: int, year_pillar: str, years: int = 30) -> List[dict]:
+    """流年表：从出生年起逐年顺推（年柱 + 岁差 i，问真排盘页流年列表同款口径）。
+
+    每项 {year, age, ganzhi, nayin}：year 为流年公历年（出生年 ~ 出生年+years−1），
+    age 为虚岁（流年年份 − 出生年份 + 1），ganzhi/nayin 为流年干支及纳音。
+    性能口径：全表不含神煞/干支关系（rel 只给当前年，见 BaziResult.liunian_rel）。
+    例：liunian_table(1999, "己卯")[1] == {"year": 2000, "age": 2,
+                                         "ganzhi": "庚辰", "nayin": "白蜡金"}。
+    """
+    start = SHENG_XU_MAP.get(year_pillar, 0)
+    return [{
+        "year": birth_year + i,
+        "age": i + 1,
+        "ganzhi": SHENG_XU[(start + i) % 60],
+        "nayin": NAYIN.get(SHENG_XU[(start + i) % 60], ""),
+    } for i in range(years)]
+
+
+def liuyue(year_ganzhi: str) -> List[str]:
+    """流月十二干支（五虎遁：年干定月干首——甲己之年丙作首…；月支固定 寅=正月）。
+
+    例：liuyue("己卯") == ["丙寅", "丁卯", …, "丁丑"]（己年正月丙寅）。
+    """
+    base = WUHU_DUN.get(year_ganzhi[0], 0)
+    return [TIANGAN[(base + i) % 10] + DIZHI[(2 + i) % 12] for i in range(12)]
+
+
+def liushi(day_ganzhi: str) -> List[str]:
+    """流时十二时辰干支（五鼠遁：日干定时干首——甲己还加甲…；时辰支固定 子=首）。
+
+    例：liushi("乙丑")[0] == "丙子"（乙日子时丙子）。
+    """
+    base = WUSHU_DUN.get(day_ganzhi[0], 0)
+    return [TIANGAN[(base + i) % 10] + DIZHI[i] for i in range(12)]
+
 # 主要城市经纬度表（经度, 纬度）——真太阳时修正用。# 北京时间 = 120°E 标准时，出生地真太阳时 = 北京时间 + (经度-120)*4分钟 + 均时差。
 # 城市不在表中时不做修正（兼容原行为）。数值为城市中心坐标，精度足以支撑 ±1 分钟内的均时差计算。
 CITY_LONGLAT = {
@@ -132,6 +180,10 @@ CITY_LONGLAT = {
 
 # 五虎遁：年干 → 寅月天干（甲己之年丙作首…）。返回 TIANGAN 下标。
 WUHU_DUN = {"甲": 2, "乙": 4, "庚": 4, "丙": 6, "辛": 6, "丁": 8, "壬": 8, "戊": 0, "癸": 0, "己": 2}
+
+# 五鼠遁：日干 → 子时天干（甲己还加甲、乙庚丙作初、丙辛从戊起、丁壬庚子居、戊癸壬子头）。
+# 返回 TIANGAN 下标（L2-4 流时）。
+WUSHU_DUN = {"甲": 0, "己": 0, "乙": 2, "庚": 2, "丙": 4, "辛": 4, "丁": 6, "壬": 6, "戊": 8, "癸": 8}
 
 # 旬空亡：六十甲子 → 本旬空亡支（问真 kw 每柱按本柱旬查、kongwang 按日柱旬查，两口径一致）
 XUN_KONG = {
@@ -334,6 +386,12 @@ class BaziResult:
     # 五行能量引擎（L2-3）：{counts, wangshuai, changsheng, strength, yongshen}
     # 供前端"五行进度条"等展示（L4 设计）
     wuxing_energy: dict = field(default_factory=dict)
+    # 流年/流月/流时 + 干支关系集成（L2-4，问真方式：排盘结果带出流年表）
+    liunian_full: list = field(default_factory=list)  # 流年表（出生年起 30 年）[{year,age,ganzhi,nayin}]
+    liunian_rel: dict = field(default_factory=dict)   # 当前流年 vs 原局各柱 {year, ganzhi, rel}（rel_with 结果）
+    liuyue: dict = field(default_factory=dict)        # 当前流年 12 流月 {year, ganzhi, months}
+    liushi: dict = field(default_factory=dict)        # 今日 12 流时 {day_pillar, hours}
+    dayun_rel: list = field(default_factory=list)     # 各步大运 vs 原局 [{sui, ganzhi, rel}]（rel_with 结果）
 
     def rel_with(self, ganzhi: str) -> list:
         """大运/流年干支与原局各柱的干支关系（问真点大运流年同款入口，P0-3）。
@@ -485,6 +543,20 @@ class BaziEngine:
         qiyun_detail = self._qiyun_breakdown
         qiyun_desc = self._qiyun_desc
 
+        # 流年/流月/流时（L2-4）：流年表从出生年（农历年，与年柱同源）起 30 年；
+        # 当前流年（真年，立春界定）驱动 流月/干支关系；流时 = 今日 12 时辰。
+        birth_lunar_year = int(lunar.getYear())
+        liunian_full = liunian_table(birth_lunar_year, bazi_pillars[0])
+        current_ln_year, current_ln_gz = self._current_liunian(
+            birth_lunar_year, bazi_pillars[0])
+        _now = dt.now()
+        # 今日日柱取正午（规避晚子时口径差异），五鼠遁配 12 流时
+        _today_pillar = Solar.fromYmdHms(
+            _now.year, _now.month, _now.day, 12, 0, 0).getLunar().getDayInGanZhi()
+        liuyue_now = {"year": current_ln_year, "ganzhi": current_ln_gz,
+                      "months": liuyue(current_ln_gz)}
+        liushi_now = {"day_pillar": _today_pillar, "hours": liushi(_today_pillar)}
+
         # 交运 + 人元司令（问真口径，P0-1）
         jiaoyun = {}
         if self._qiyun_datetime is not None:
@@ -574,7 +646,7 @@ class BaziEngine:
             "dizhi": _dedupe(p[1] for p in bazi_pillars),
         }
 
-        return BaziResult(
+        result = BaziResult(
             bazi=bazi_pillars,
             day_master=day_master,
             wuxing=wuxing,
@@ -605,6 +677,17 @@ class BaziEngine:
             knowledge_index=knowledge_index,
             wuxing_energy=wuxing_energy,
         )
+        # 干支关系集成（L2-4）：当前流年 + 各步大运 vs 原局各柱（复用 rel_with，
+        # 问真点大运/流年查关系同款入口）。流年 rel 只算当前年（30 年表全量 rel
+        # 性能不划算）；大运各步全量（12 步柱间判定开销可忽略，前端点每步即时可用）。
+        result.liunian_full = liunian_full
+        result.liunian_rel = {"year": current_ln_year, "ganzhi": current_ln_gz,
+                              "rel": result.rel_with(current_ln_gz)}
+        result.liuyue = liuyue_now
+        result.liushi = liushi_now
+        result.dayun_rel = [{"sui": sui, "ganzhi": gz, "rel": result.rel_with(gz)}
+                            for sui, gz in dayun]
+        return result
 
     def _calc_shishen(self, day_gan: str, target_gan: str) -> str:
         """计算十神关系"""
@@ -890,6 +973,21 @@ class BaziEngine:
             dayun.append((start_age + i * 10, TIANGAN[gan_idx] + DIZHI[zhi_idx]))
 
         return dayun
+
+    def _current_liunian(self, birth_year: int, year_pillar: str) -> tuple:
+        """当前流年（真年，立春界定）：返回 (年, 干支)（L2-4）。
+
+        口径：立春前属上一年流年、立春后属当年（问真流年口径，与交运年同用
+        立春界定）；立春节气查不到（越界/表缺失）时按当年处理。
+        干支 = 年柱 + 岁差（liunian_ganzhi）。
+        """
+        now = dt.now()
+        lichun = _jie_time_of(now.year, "立春")
+        if lichun is None:
+            year = now.year
+        else:
+            year = now.year if now >= lichun else now.year - 1
+        return year, liunian_ganzhi(birth_year, year_pillar, year)
 
     def _calc_liunian(self, lunar, day_gan: str) -> dict:
         """计算流年（简化版：取当年干支）"""

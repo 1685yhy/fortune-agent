@@ -197,9 +197,52 @@ def test_engine_integration_other():
     assert r.bazi == ["辛丑", "庚子", "壬寅", "辛亥"]
     we = r.wuxing_energy
     assert we["changsheng"] == {"年": "衰", "月": "帝旺", "日": "病", "时": "临官"}
-    # 壬长生在申、帝旺在亥、临官在亥？——按表：壬 申酉戌亥子丑… 申=长生 亥=临官，子=帝旺
+    # 壬长生在申、临官在亥、帝旺在子——按表：壬 申酉戌亥子丑… 申=长生 亥=临官 子=帝旺
     assert changsheng_state("壬", "子") == "帝旺"
     assert changsheng_state("壬", "亥") == "临官"
     assert we["wangshuai"]["水"] == "旺"     # 子月水旺
     assert we["wangshuai"]["金"] == "休"     # 子月金休
     assert we["counts"] == r.wuxing
+
+
+# ───────────────────────── 7. 回退路径（L2-4 顺带） ─────────────────────────
+
+class _FakeOS:
+    """把 _load_tables 的表文件路径指到不存在文件。
+
+    只替换 wuxing 模块的 _os 引用（该模块仅 _load_tables 用 _os），
+    不碰全局 os.path，避免影响 pytest 自身机制。
+    """
+    class path:
+        @staticmethod
+        def abspath(p):
+            return "/nonexistent_fortune_dir/wuxing.py"
+
+        @staticmethod
+        def dirname(p):
+            return "/nonexistent_fortune_dir"
+
+        @staticmethod
+        def join(*parts):
+            return "/nonexistent_fortune_dir/wuxing_tables.json"
+
+
+def test_fallback_embedded_tables_equal_json(monkeypatch):
+    """回退契约（L2-4 审查遗留 I1）：表文件缺失 → 回退内嵌表，且与 JSON 全等。"""
+    from src.engines import wuxing as wx_mod
+    monkeypatch.setattr(wx_mod, "_os", _FakeOS)
+    monkeypatch.setattr(wx_mod, "_TABLES", None)  # 清缓存强制走加载路径
+    names, cs_by_gan, ws_by_month = wx_mod._load_tables()
+    raw = _load_raw()
+    # 回退表与 data/wuxing_tables.json 全等
+    assert names == raw["changsheng"][0]
+    assert cs_by_gan == {g: raw["changsheng"][i + 1]
+                         for i, g in enumerate("甲乙丙丁戊己庚辛壬癸")}
+    assert ws_by_month == {w: raw["wuxing_wangshuai"][i + 1]
+                           for i, w in enumerate(["金", "木", "水", "火", "土"])}
+    # 与内嵌表逐项全等（回退即内嵌表本身）
+    assert cs_by_gan == wx_mod._CHANGSHENG_BY_GAN
+    assert ws_by_month == wx_mod._WANGSHUAI_BY_MONTH
+    # 回退后引擎照常工作（不抛异常、口径不变）
+    assert wx_mod.changsheng_state("乙", "卯") == "临官"
+    assert wx_mod.month_wangshuai("巳", "火") == "旺"
