@@ -10,6 +10,7 @@ from lunar_python import Lunar, Solar
 
 from src.engines.shensha import shensha_of
 from src.engines.ganzhi_rel import analyze_relations
+from src.engines.chenggu import chenggu_bone, bone_weight_text
 
 logger = logging.getLogger(__name__)
 
@@ -322,6 +323,7 @@ class BaziResult:
     siling: str = ""              # 人元司令天干（问真排盘页"司令：X"口径，P0-1）
     siling_detail: dict = field(default_factory=dict)  # 司令分野明细 {gan,days,elapsed,remaining,...}
     ganzhi_rel: list = field(default_factory=list)  # 原局四柱间两两干支关系 [{between,type,desc}]（P0-3）
+    chenggu: dict = field(default_factory=dict)  # 称骨（问真口径，L2-1）：{weight_text, liang, qian, jieci}
 
     def rel_with(self, ganzhi: str) -> list:
         """大运/流年干支与原局各柱的干支关系（问真点大运流年同款入口，P0-3）。
@@ -520,6 +522,23 @@ class BaziEngine:
         # 干支关系：原局四柱间两两（伏吟/反吟/盖头/截脚/争合/妒合，问真同款规则，P0-3）
         ganzhi_rel = self._calc_ganzhi_rel(bazi_pillars)
 
+        # 称骨（问真口径，L2-1）：年柱干支 + 农历月/日（闰月与平月同重，lunar_python
+        # 闰月 getMonth() 为负 → abs 归一）+ 时支。与四柱同用晚子时归日后的同一农历日，
+        # 保证称骨与排盘自洽。
+        chenggu = {}
+        try:
+            cg_liang, cg_qian, cg_jieci = chenggu_bone(
+                bazi_pillars[0], abs(lunar.getMonth()), lunar.getDay(),
+                time_zhi, gender=calc_gender)
+            chenggu = {
+                "weight_text": bone_weight_text(cg_liang, cg_qian),
+                "liang": cg_liang,
+                "qian": cg_qian,
+                "jieci": cg_jieci,
+            }
+        except Exception:
+            chenggu = {}
+
         return BaziResult(
             bazi=bazi_pillars,
             day_master=day_master,
@@ -547,6 +566,7 @@ class BaziEngine:
             siling=siling,
             siling_detail=siling_detail,
             ganzhi_rel=ganzhi_rel,
+            chenggu=chenggu,
         )
 
     def _calc_shishen(self, day_gan: str, target_gan: str) -> str:
