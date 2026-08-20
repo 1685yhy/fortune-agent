@@ -215,6 +215,11 @@ def _get_order(out_trade_no: str):
 
 
 def _mark_order_paid(out_trade_no: str) -> bool:
+    """原子抢占：pending → paid（并发回调下只有一个赢家返回 True）。
+
+    L5-2 修复（支付红线）：notify 发货前必须先原子抢占成功才允许发货——
+    并发重复通知中 rowcount==0 的一方直接应答"已处理"，绝不重复发货。
+    """
     conn = _connect()
     try:
         cur = conn.execute(
@@ -223,6 +228,19 @@ def _mark_order_paid(out_trade_no: str) -> bool:
         )
         conn.commit()
         return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def _revert_order_paid(out_trade_no: str) -> None:
+    """发货失败回滚：paid → pending（微信重试时可重新发货，防订单丢失）。"""
+    conn = _connect()
+    try:
+        conn.execute(
+            "UPDATE midas_orders SET status='pending', updated_at=datetime('now') WHERE out_trade_no=? AND status='paid'",
+            (out_trade_no,),
+        )
+        conn.commit()
     finally:
         conn.close()
 
@@ -404,7 +422,9 @@ async def virtual_pay_notify(request: Request):
     """米大师发货通知回调（xpay_goods_deliver_notify）——无鉴权但必须验签通过。
 
     验签：请求头 X-WeChat-Signature = hex(hmac_sha256(appKey, 原始请求体))。
-    验签通过 → 更新 payments 为 paid + 按 attach 发货 → 返回 {"errcode": 0}。
+    验签通过 → 原子抢占订单（pending→paid，仅一个并发赢家）→ 按 attach 发货
+    → 返回 {"errcode": 0}。抢占失败（重复通知/并发）直接应答"已处理"（不发货）；
+    发货失败回滚 pending，微信重试可重新发货。
     幂等：已发货订单重复通知直接返回成功。
     """
     raw_body = await request.body()
@@ -441,13 +461,19 @@ async def virtual_pay_notify(request: Request):
         logger.warning("虚拟支付回调未知订单: %s（忽略）", out_trade_no)
         return {"errcode": 0, "errmsg": "ok, unknown order"}
 
-    if order["status"] == "paid":
-        return {"errcode": 0, "errmsg": "ok, already paid"}
+    # L5-2 修复（支付红线·并发幂等）：发货前先原子抢占 pending→paid——
+    # 并发重复通知只有一个赢家；rowcount==0（已被并发回调处理/已发货）
+    # 直接应答"已处理"，绝不重复发货（原实现 read-then-act 可双倍发货）。
+    if not _mark_order_paid(out_trade_no):
+        logger.info("虚拟支付回调重复通知（原子抢占失败）: outTradeNo=%s", out_trade_no)
+        return {"errcode": 0, "errmsg": "ok, already processed"}
 
     if not _deliver_goods(order):
+        # 发货失败 → 回滚为 pending（微信会按 errcode!=0 重试，可重新发货，
+        # 避免订单被永久跳过）；deliver 幂等，重试不产生副作用。
+        _revert_order_paid(out_trade_no)
         return {"errcode": -1, "errmsg": "deliver failed"}
 
-    _mark_order_paid(out_trade_no)
     logger.info("虚拟支付发货完成: outTradeNo=%s kind=%s product=%s user=%s",
                 out_trade_no, order["kind"], order["product_id"], order["user_id"])
     return {"errcode": 0, "errmsg": "success"}

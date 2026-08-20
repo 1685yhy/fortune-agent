@@ -286,6 +286,10 @@ CHINESE_HOUR_MAP = {
     "巳": 9, "午": 11, "未": 13, "申": 15, "酉": 17, "戌": 19, "亥": 21,
 }
 
+# L5-2（降级成本）：日主天干 → 五行（降级链路精简文案的规则要点用）
+_DM_WUXING = {"甲": "木", "乙": "木", "丙": "火", "丁": "火", "戊": "土",
+              "己": "土", "庚": "金", "辛": "金", "壬": "水", "癸": "水"}
+
 # 中文数字 → 阿拉伯数字
 _CN_NUMS = {
     "零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
@@ -858,6 +862,13 @@ class MessageHandler:
             logger.info("[timing] stage=tool_loop duration=%.1fs",
                         time.monotonic() - _t0)
             return reply
+        # L5-2 修复（降级成本）：降级链路禁用工具循环——lite prompt 已禁工具，
+        # 这里做防御性门控：即使回复残留 <tool_call> 标签也不执行工具、不再调
+        # LLM（原实现 read-then-act：降级用户仍可能触发检索/搜索等昂贵工具）。
+        if self._downgraded.get(user_id, False):
+            logger.info("[timing] stage=tool_loop duration=%.1fs (downgraded, disabled)",
+                        time.monotonic() - _t0)
+            return strip_tool_calls(reply) or reply
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         if not api_key:
             logger.info("[timing] stage=tool_loop duration=%.1fs",
@@ -2329,9 +2340,14 @@ class MessageHandler:
                     pass
 
         # Priority: xuetang keywords trump everything
+        # L5-2 修复（降级成本）：降级时 xuetang/advisor/confidant 关键词分支
+        # 门控 → 走 lite 精简回复（这些分支内部为 RAG/LLM 全量调用，降级不调）。
         if any(kw in msg for kw in ["学堂", "学习教程", "命理入门"]):
             self._consume_quota(user_id)
-            reply = self._handle_xuetang(msg, user_id)
+            if downgraded:
+                reply = self._free_chat(msg, user_id, downgraded=True)
+            else:
+                reply = self._handle_xuetang(msg, user_id)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply, intent="xuetang",
                                              temp=deep, session_id=session_id)
@@ -2340,14 +2356,19 @@ class MessageHandler:
         # Task 5: advisor keyword fallback — catch "建议"/"怎么办" even if AI misses it
         if any(kw in msg for kw in ["建议", "怎么办", "有什么建议", "帮我分析", "我该怎么做"]):
             self._consume_quota(user_id)
-            reply = self._handle_advisor(msg, user_id)
+            if downgraded:
+                reply = self._free_chat(msg, user_id, downgraded=True)
+            else:
+                reply = self._handle_advisor(msg, user_id)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply, intent="advisor",
                                              temp=deep, session_id=session_id)
             return reply
 
         # H1: 心事树洞 — user sharing a story (overrides fortune intent when no birth info)
-        if analysis.is_sharing:
+        # L5-2 修复（降级成本）：降级时 is_sharing 门控——不走 confidant 全量
+        # LLM 分支，落回 intent=None → _free_chat 走 lite 精简回复。
+        if analysis.is_sharing and not downgraded:
             # Only skip confidant if user explicitly provides birth date info
             has_birth_info = bool(re.search(r'\d{4}\s*[年/-]', msg))
             if not has_birth_info:
@@ -2441,7 +2462,10 @@ class MessageHandler:
         # system → LLM 以豆包式语气生成最终回复（可再输出 <tool_call> 补检索）；
         # 信息收集/错误回复不注册引用 → 不润色，保持原样。
         # xuetang/advisor/confidant 为独立对话模式（早退分支），保持现状。
+        # L5-2 修复（降级成本）：降级时禁用润色 LLM 调用（_do_bazi_lite 的
+        # 精简文案已自成一体，无需二次生成）。
         if (analysis.intent not in ("xuetang", "advisor")
+                and not downgraded
                 and reply and not reply.startswith("⚠️")
                 and self._citations.get(user_id)):
             try:
@@ -2798,13 +2822,16 @@ class MessageHandler:
                      stream_cb: Optional[Callable] = None) -> str:
         """处理八字请求"""
         parsed = self._extract_bazi_info(msg)
+        # L5-2 修复（降级成本）：降级用户的前置文案（复用档案确认/信息收集
+        # 引导）不调 LLM，全部走固定文案（_do_bazi_analysis 内部同口径门控）。
+        _dg = self._downgraded.get(user_id, False)
 
         if parsed is None:
             # 检查是否有已保存的信息 — 自动复用（bazi_info + persons 档案兜底）
             saved = self._get_user_birth_profile(user_id)
             if saved and saved.get("year") and saved.get("month") and saved.get("day"):
                 # AI generates a brief acknowledgment that we're using saved info
-                ack = self._gen_reuse_acknowledgment(msg, saved)
+                ack = self._gen_reuse_acknowledgment(msg, saved, lite=_dg)
                 result = self._do_bazi_analysis(
                     saved.get("year"), saved.get("month"), saved.get("day"),
                     saved.get("hour") if saved.get("hour") is not None else 0,
@@ -2816,7 +2843,7 @@ class MessageHandler:
                 return ack + "\n\n" + result if ack else result
 
             # AI generates contextual info-collection prompt
-            return self._gen_info_collection_prompt(msg)
+            return self._gen_info_collection_prompt(msg, lite=_dg)
 
         year, month, day, hour, minute, city, gender = parsed
         return self._do_bazi_analysis(
@@ -2957,6 +2984,16 @@ class MessageHandler:
         self._emit_stream_event(stream_cb, "thinking", "正在排盘…")
         result = self.engine.calculate(year, month, day, hour, minute, city, gender)
 
+        # L5-2 修复（降级成本漏洞）：降级时 bazi 走「引擎排盘 + 精简文案」——
+        # 排盘为确定性 0 成本（BaziEngine 本地计算）；RAG 检索 / AdaptiveAdvisor
+        # 并行 LLM / 主分析 LLM / 秒回安抚 / 下文引导等最贵路径全部跳过。
+        if self._downgraded.get(user_id, False):
+            return self._do_bazi_lite(result, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute,
+                "city": city, "gender": gender,
+            }, question=question, user_id=user_id, stream_cb=stream_cb)
+
         # 2. 秒回安抚（在LLM分析前生成，最终拼接到回复开头）
         # Task 2：优先取并行预生成结果（意图分析期间已完成），未就绪则同步兜底
         # L5-2（I-1）：降级链路禁用——预生成未提交、同步兜底也是 LLM 调用，
@@ -2965,49 +3002,12 @@ class MessageHandler:
         if not instant_reply and not self._downgraded.get(user_id, False):
             instant_reply = self._gen_instant_reply(result)
 
-        # 3. 保存用户数据
-        # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人档案（数据库层同步保护）
-        _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
-        _facts_this = self._analysis_facts.get(user_id) or {}
-        if _subject != "other":
-            self.dao.save_user_bazi(user_id, {
-                "year": year, "month": month, "day": day,
-                "hour": hour, "minute": minute,
-                "city": city, "gender": gender,
-                "bazi": result.bazi,
-            })
-        # P2 多人档案：对话建档（subject=self 年份不同→新建命主N；other 按关系/姓名）
-        self._sync_person_profile(user_id, {
+        # 3. 保存用户数据（dao 档案 / persons 多人档案 / 咨询记录 / 记忆画像）
+        self._save_bazi_records(result, {
             "year": year, "month": month, "day": day,
             "hour": hour, "minute": minute,
             "city": city, "gender": gender,
-        }, subject=_subject, facts=_facts_this)
-        self.dao.save_consultation(user_id, question, result)
-
-        # Phase 3: Save to user memory system
-        # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人画像
-        _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
-        if self.memory_system and _subject != "other":
-            self.memory_system.save_bazi_info(user_id, {
-                "year": year, "month": month, "day": day,
-                "hour": hour, "minute": minute,
-                "city": city, "gender": gender,
-                "bazi": result.bazi,
-                "day_master": getattr(result, "day_master", ""),
-            }, subject=_subject)
-            # L3（方案 §5.5 来源②）：八字 → profile 关键事实条目
-            self._persist_l3_bazi(user_id, {
-                "year": year, "month": month, "day": day,
-                "hour": hour, "minute": minute,
-                "city": city, "gender": gender,
-                "bazi": result.bazi,
-                "day_master": getattr(result, "day_master", ""),
-            })
-            # Extract topic from question
-            user_context = self._extract_user_context(question)
-            if user_context:
-                self.memory_system.add_concern(user_id, user_context)
-                self.memory_system.remember(user_id, "last_topic", user_context)
+        }, question=question, user_id=user_id)
 
         # 4. P1-3: If gender is unknown, add instruction for gender-neutral language
         gender_note = ""
@@ -3214,6 +3214,129 @@ class MessageHandler:
 
         return reply
 
+    def _save_bazi_records(self, result, birth: dict, question: str,
+                           user_id: str) -> None:
+        """八字结果落库（主路径与降级路径共用）：dao 档案 / persons 多人档案 /
+        咨询记录 / 记忆画像。subject=other（帮他人排盘）不写本人档案与画像。"""
+        year, month, day = birth["year"], birth["month"], birth["day"]
+        hour, minute, city, gender = (birth["hour"], birth["minute"],
+                                      birth["city"], birth["gender"])
+        _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
+        _facts_this = self._analysis_facts.get(user_id) or {}
+        if _subject != "other":
+            self.dao.save_user_bazi(user_id, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute,
+                "city": city, "gender": gender,
+                "bazi": result.bazi,
+            })
+        # P2 多人档案：对话建档（subject=self 年份不同→新建命主N；other 按关系/姓名）
+        self._sync_person_profile(user_id, {
+            "year": year, "month": month, "day": day,
+            "hour": hour, "minute": minute,
+            "city": city, "gender": gender,
+        }, subject=_subject, facts=_facts_this)
+        self.dao.save_consultation(user_id, question, result)
+
+        # Phase 3: Save to user memory system
+        # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人画像
+        _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
+        if self.memory_system and _subject != "other":
+            self.memory_system.save_bazi_info(user_id, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute,
+                "city": city, "gender": gender,
+                "bazi": result.bazi,
+                "day_master": getattr(result, "day_master", ""),
+            }, subject=_subject)
+            # L3（方案 §5.5 来源②）：八字 → profile 关键事实条目
+            self._persist_l3_bazi(user_id, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute,
+                "city": city, "gender": gender,
+                "bazi": result.bazi,
+                "day_master": getattr(result, "day_master", ""),
+            })
+            # Extract topic from question
+            user_context = self._extract_user_context(question)
+            if user_context:
+                self.memory_system.add_concern(user_id, user_context)
+                self.memory_system.remember(user_id, "last_topic", user_context)
+
+    def _do_bazi_lite(self, result, birth: dict, question: str, user_id: str,
+                      stream_cb: Optional[Callable] = None) -> str:
+        """降级链路八字：引擎排盘 + 精简文案（确定性 0 成本，不调任何 LLM）。
+
+        L5-2 修复（降级成本漏洞）：原 _do_bazi_analysis 在降级时仍走
+        RAG（retriever.search）+ AdaptiveAdvisor 并行 LLM + 主分析 LLM
+        的最贵路径；本方法保留：排盘（确定性 0 成本）+ 命盘卡片 +
+        规则要点文案 + 数据落库（不丢档案），跳过：RAG / advisor /
+        主分析 LLM / 秒回安抚 / 下文引导（全部 LLM 调用）。
+        """
+        # 数据落库与主路径同口径（subject=other 保护）
+        self._save_bazi_records(result, birth, question, user_id)
+        # 命盘卡片（确定性 0 成本）
+        try:
+            from src.engines.bazi_formatter import format_compact_card
+            chart = format_compact_card(result, birth)
+        except Exception:
+            chart = ""
+        # 规则要点文案（确定性 0 成本）
+        reply = chart + "\n\n" + self._bazi_lite_summary(result)
+        # 阶段 5·来源体系：排盘也标引擎来源（引用列表纯内存，无成本）
+        try:
+            idx = self._alloc_citations(user_id, 1)
+            self._append_citations(user_id, [make_citation(
+                idx, "engine",
+                f"你的命盘：八字 {' '.join(result.bazi)}，日主 {result.day_master}"
+                f"（{birth['year']}年{birth['month']}月{birth['day']}日{birth['gender']}）",
+                title="你的命盘", source="排盘引擎",
+            )])
+        except Exception:
+            pass
+        # 反馈提示 + 版本页脚（静态文本）
+        reply = self._add_feedback_prompt(reply)
+        reply += f"\n\n---\n{get_version_footer()}"
+        # 记录对话记忆（本地存储）
+        if self.memory:
+            self.memory.add_interaction(user_id, question, reply, intent="bazi",
+                                        key_data={"day_master": result.day_master,
+                                                  "geju": getattr(result, 'geju', '')})
+        return reply
+
+    def _bazi_lite_summary(self, result) -> str:
+        """降级链路八字精简文案：纯规则要点（确定性 0 成本，不调 LLM）。
+
+        与 format_compact_card 命盘卡片互补：补一段规则生成的日主强弱 /
+        格局 / 用神 / 神煞文字要点，让降级用户也有可读的结论而非只有表格。
+        """
+        lines = ["🔍 命局要点"]
+        dm = str(getattr(result, "day_master", "") or "")
+        wx = getattr(result, "wuxing", {}) or {}
+        if dm and wx:
+            elem = _DM_WUXING.get(dm[0], "")
+            own = wx.get(elem, 0)
+            total = sum(wx.values()) or 1
+            top = max(wx, key=wx.get)
+            low = min(wx, key=wx.get)
+            if elem:
+                trend = "偏旺" if own * 5 >= total * 2 else "偏弱"
+                lines.append(f"· 日主{dm}属{elem}，命局{elem}气{own}分（{trend}），"
+                             f"五行为「{top}」最旺、「{low}」最弱")
+        geju = str(getattr(result, "geju", "") or "")
+        if geju:
+            lines.append(f"· 格局：{geju}")
+        yongshen = str(getattr(result, "yongshen", "") or "")
+        if yongshen:
+            lines.append(f"· 用神：{yongshen}（补益方向）")
+        ss = getattr(result, "shensha", []) or []
+        if ss:
+            lines.append(f"· 神煞：{'、'.join(str(s) for s in ss[:5])}")
+        lines.append("")
+        lines.append("💡 今日额度已用尽，回复已精简；开通会员可解锁完整深度分析"
+                     "（含流年、大运、行动建议）。")
+        return "\n".join(lines)
+
     def _gen_chart_title(self, result) -> str:
         """Generate a short personalized title for the chart based on user's chart data."""
         try:
@@ -3322,11 +3445,17 @@ class MessageHandler:
         except Exception:
             return []  # 生成失败 → 无建议（前端不渲染建议卡，主回复不受影响）
 
-    def _gen_reuse_acknowledgment(self, msg: str, saved: dict) -> str:
-        """Generate a brief acknowledgment when reusing saved bazi info."""
+    def _gen_reuse_acknowledgment(self, msg: str, saved: dict,
+                                  lite: bool = False) -> str:
+        """Generate a brief acknowledgment when reusing saved bazi info.
+
+        lite（L5-2 修复·降级成本）：降级链路不调 LLM，返回固定文案。
+        """
         bazi_str = " ".join(saved.get("bazi", ["?"])[:4]) if saved.get("bazi") else ""
         if not bazi_str:
             return ""
+        if lite:
+            return "📌 已按你之前保存的出生信息排盘（今日额度用尽，回复已精简）。"
         prompt = (
             f"用户之前已提供过八字信息（{bazi_str}），现在用户问：「{msg}」。\n"
             "请用15字以内的现代中文，自然地告诉用户「基于你之前的八字信息来看...」。\n"
@@ -3334,8 +3463,16 @@ class MessageHandler:
         )
         return self._quick_flash(prompt, max_tokens=60)
 
-    def _gen_info_collection_prompt(self, msg: str) -> str:
-        """AI generates contextual info-collection prompt based on what user said."""
+    def _gen_info_collection_prompt(self, msg: str, lite: bool = False) -> str:
+        """AI generates contextual info-collection prompt based on what user said.
+
+        lite（L5-2 修复·降级成本）：降级链路不调 LLM，直接返回固定引导文案。
+        """
+        if lite:
+            return ("好的，想帮你看看八字～请告诉我：\n"
+                    "📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n"
+                    "📍 出生城市\n👤 性别（男/女，这个很重要，影响大运方向）\n\n"
+                    "💡 示例：1990年5月20日 下午3点 北京 男")
         # P1-3: explicitly prompt for gender, don't default to male
         prompt = (
             f"用户说：「{msg}」，想了解八字命理但还没提供出生信息。\n"

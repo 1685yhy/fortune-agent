@@ -38,6 +38,10 @@ PLANS = {
     },
 }
 
+# L5-2 修复（跨档续费"取高者"）：档位排序——跨档购买时若现有更高档未过期，
+# 保留高档（不降 plan）；同档/升档照常升级并延长。free < basic < pro < annual。
+_PLAN_RANK = {"free": 0, "basic": 1, "pro": 2, "annual": 3}
+
 
 class MemberDAO:
     """Membership data access layer."""
@@ -124,6 +128,26 @@ class MemberDAO:
             conn.close()
 
     @staticmethod
+    def _keep_higher_plan(purchased_plan: str, existing_plan: Optional[str],
+                          existing_expires_at: Optional[str]) -> str:
+        """跨档购买"取高者"（L5-2 修复）：现有档更高且未过期 → 保留现有档。
+
+        购买低档时若现有高档未过期 → 返回现有档（不降 plan，购买天数照常入账）；
+        否则返回购买档（升级/同档/已过期/无档一律按购买档生效）。
+        """
+        if not existing_plan or existing_plan == "free" or not existing_expires_at:
+            return purchased_plan
+        try:
+            expires = datetime.fromisoformat(existing_expires_at)
+        except (TypeError, ValueError):
+            return purchased_plan
+        if expires <= datetime.now():
+            return purchased_plan
+        if _PLAN_RANK.get(existing_plan, 0) > _PLAN_RANK.get(purchased_plan, 0):
+            return existing_plan
+        return purchased_plan
+
+    @staticmethod
     def _compute_expiry(existing_plan: Optional[str], existing_expires_at: Optional[str],
                         period_days: Optional[int]) -> str:
         """到期时间计算（L5-2）：续费延长——付费会员未过期时从原到期日续加 period_days，
@@ -145,12 +169,11 @@ class MemberDAO:
 
         period_days（L5-2）：显式指定（如季度 90/年度 365 商品）；缺省取 PLANS[plan]。
         到期时间：付费会员未过期时从原到期日续加（续费延长），否则从现在起算。
+        跨档"取高者"（L5-2 修复）：购买低档时若现有高档未过期 → 保留高档
+        （与 confirm_payment 同口径）。
         """
         if plan not in PLANS:
             return False
-
-        if queries_limit is None:
-            queries_limit = PLANS[plan]["queries_limit"]
 
         if period_days is None:
             period_days = PLANS[plan]["period_days"]
@@ -163,10 +186,17 @@ class MemberDAO:
             existing = conn.execute(
                 "SELECT plan, expires_at FROM memberships WHERE user_id = ?", (user_id,)
             ).fetchone()
+            existing_plan = existing[0] if existing else None
+            existing_expires_at = existing[1] if existing else None
+
+            # L5-2 修复（跨档续费"取高者"）：生效档 = max(购买档, 未过期现有档)
+            effective_plan = self._keep_higher_plan(
+                plan, existing_plan, existing_expires_at)
+            if queries_limit is None:
+                queries_limit = PLANS[effective_plan]["queries_limit"]
 
             expires_at = self._compute_expiry(
-                existing[0] if existing else None,
-                existing[1] if existing else None, period_days)
+                existing_plan, existing_expires_at, period_days)
 
             if existing:
                 conn.execute(
@@ -174,14 +204,14 @@ class MemberDAO:
                        SET plan=?, started_at=?, expires_at=?, queries_used=0,
                            queries_limit=?, auto_renew=0
                        WHERE user_id=?""",
-                    (plan, started_at, expires_at, queries_limit, user_id),
+                    (effective_plan, started_at, expires_at, queries_limit, user_id),
                 )
             else:
                 conn.execute(
                     """INSERT INTO memberships
                        (user_id, plan, started_at, expires_at, queries_used, queries_limit, auto_renew)
                        VALUES (?, ?, ?, ?, 0, ?, 0)""",
-                    (user_id, plan, started_at, expires_at, queries_limit),
+                    (user_id, effective_plan, started_at, expires_at, queries_limit),
                 )
             conn.commit()
             return True
@@ -435,15 +465,16 @@ class MemberDAO:
 
         period_days（L5-2）：商品显式档期（如季度 90/年度 365），缺省取 PLANS[plan]；
         到期时间按续费延长计算（见 _compute_expiry）。
+        跨档"取高者"（L5-2 修复）：购买低档时若现有高档未过期 → 保留高档
+        （不降 plan，购买天数照常从原到期日延长）；购买高档 → 升级并延长。
         """
         if plan not in PLANS:
             return
 
-        queries_limit = PLANS[plan]["queries_limit"]
-        now = datetime.now()
-        started_at = now.isoformat()
         if period_days is None:
             period_days = PLANS[plan]["period_days"]
+        now = datetime.now()
+        started_at = now.isoformat()
 
         conn = self._connect()
         try:
@@ -454,10 +485,16 @@ class MemberDAO:
             existing = conn.execute(
                 "SELECT plan, expires_at FROM memberships WHERE user_id = ?", (user_id,)
             ).fetchone()
+            existing_plan = existing[0] if existing else None
+            existing_expires_at = existing[1] if existing else None
+
+            # L5-2 修复（跨档续费"取高者"）：生效档 = max(购买档, 未过期现有档)
+            effective_plan = self._keep_higher_plan(
+                plan, existing_plan, existing_expires_at)
+            queries_limit = PLANS[effective_plan]["queries_limit"]
 
             expires_at = self._compute_expiry(
-                existing[0] if existing else None,
-                existing[1] if existing else None, period_days)
+                existing_plan, existing_expires_at, period_days)
 
             if existing:
                 conn.execute(
@@ -465,14 +502,14 @@ class MemberDAO:
                        SET plan=?, started_at=?, expires_at=?, queries_used=0,
                            queries_limit=?, auto_renew=0
                        WHERE user_id=?""",
-                    (plan, started_at, expires_at, queries_limit, user_id),
+                    (effective_plan, started_at, expires_at, queries_limit, user_id),
                 )
             else:
                 conn.execute(
                     """INSERT INTO memberships
                        (user_id, plan, started_at, expires_at, queries_used, queries_limit, auto_renew)
                        VALUES (?, ?, ?, ?, 0, ?, 0)""",
-                    (user_id, plan, started_at, expires_at, queries_limit),
+                    (user_id, effective_plan, started_at, expires_at, queries_limit),
                 )
             conn.commit()
         finally:

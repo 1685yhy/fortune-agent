@@ -24,6 +24,8 @@ import json
 import os
 import sys
 import tempfile
+import threading
+import time
 from datetime import datetime, timedelta
 from unittest.mock import Mock
 
@@ -622,3 +624,297 @@ def _src_of(module) -> str:
     """模块源码文本（供行为断言）。"""
     import inspect
     return inspect.getsource(module)
+
+
+# ───────────────────────── L5-2 修复：并发回调幂等（支付红线） ─────────────────────────
+
+class TestNotifyConcurrency:
+    def test_concurrent_notify_delivers_once(self, midas_client, member_dao, monkeypatch):
+        """并发回调幂等：两线程同时 notify 同一订单 → 原子抢占只发货一次。
+
+        旧实现 read-then-act（先查 status 再发货再标记），两并发回调都可
+        通过 status 检查 → 双倍发货；修复后发货前先原子 UPDATE pending→paid，
+        只有一个赢家，输家直接应答"已处理"（不发货）。
+        """
+        r = midas_client.post("/api/pay/virtual/create",
+                              json={"product_id": "monthly"}, headers=_token("buyer"))
+        assert r.status_code == 200, r.text
+        out_no = r.json()["outTradeNo"]
+
+        delivered = []
+        orig_deliver = pay_midas._deliver_goods
+
+        def slow_deliver(order):
+            time.sleep(0.05)  # 放大竞态窗口（旧实现两线程都会进入发货）
+            delivered.append(order["out_trade_no"])
+            return orig_deliver(order)
+
+        monkeypatch.setattr(pay_midas, "_deliver_goods", slow_deliver)
+
+        # 两个独立 TestClient（各自事件循环/portal），同一订单并发打回调
+        client_b = TestClient(midas_client.app)
+        results, errors = [], []
+
+        def hit(client):
+            try:
+                results.append(_notify(client, out_no).json())
+            except Exception as e:  # noqa: BLE001
+                errors.append(e)
+
+        t1 = threading.Thread(target=hit, args=(midas_client,))
+        t2 = threading.Thread(target=hit, args=(client_b,))
+        t1.start()
+        t2.start()
+        t1.join()
+        t2.join()
+
+        assert not errors, errors
+        assert len(delivered) == 1, f"并发回调必须只发货一次，实际 {len(delivered)} 次"
+        assert all(res["errcode"] == 0 for res in results)  # 双方都应答成功（幂等）
+        assert pay_midas._get_order(out_no)["status"] == "paid"
+        # 会员只开通一次（到期不重复延长）
+        mem = member_dao.get_membership("buyer")
+        assert mem["plan"] == "basic"
+        delta = datetime.fromisoformat(mem["expires_at"]) - datetime.now()
+        assert timedelta(days=28) < delta <= timedelta(days=30)
+
+    def test_deliver_failure_rolls_back_for_retry(self, midas_client, member_dao, monkeypatch):
+        """发货失败 → 回滚 pending（微信按 errcode!=0 重试，订单不丢）。"""
+        r = midas_client.post("/api/pay/virtual/create",
+                              json={"product_id": "monthly"}, headers=_token("buyer"))
+        assert r.status_code == 200, r.text
+        out_no = r.json()["outTradeNo"]
+        calls = {"n": 0}
+        orig_deliver = pay_midas._deliver_goods
+
+        def fail_once(order):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return False  # 首次发货失败（如 DB 抖动）
+            return orig_deliver(order)
+
+        monkeypatch.setattr(pay_midas, "_deliver_goods", fail_once)
+
+        r1 = _notify(midas_client, out_no).json()
+        assert r1["errcode"] == -1
+        assert pay_midas._get_order(out_no)["status"] == "pending"  # 已回滚可重试
+
+        r2 = _notify(midas_client, out_no).json()  # 微信重试
+        assert r2["errcode"] == 0
+        assert pay_midas._get_order(out_no)["status"] == "paid"
+        assert member_dao.get_membership("buyer")["plan"] == "basic"
+
+
+# ───────────────────────── L5-2 修复：跨档续费"取高者" ─────────────────────────
+
+class TestCrossTierRenewal:
+    def _set_remaining(self, member_dao, user_id: str, days: float):
+        """把会员到期时间拨到 days 天后（模拟剩余天数；负数=已过期）。"""
+        conn = member_dao._connect()
+        try:
+            conn.execute(
+                "UPDATE memberships SET expires_at=? WHERE user_id=?",
+                ((datetime.now() + timedelta(days=days)).isoformat(), user_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _buy(self, midas_client, product_id: str, user: str = "buyer") -> None:
+        r = midas_client.post("/api/pay/virtual/create",
+                              json={"product_id": product_id}, headers=_token(user))
+        assert r.status_code == 200, r.text
+        out_no = r.json()["outTradeNo"]
+        resp = _notify(midas_client, out_no).json()
+        assert resp["errcode"] == 0, resp
+
+    def test_pro_buys_basic_keeps_pro(self, midas_client, member_dao):
+        """pro 剩 20 天买 basic → plan 仍 pro（不降级），购买天数照常入账。"""
+        member_dao.create_membership("cross1", "pro", period_days=30)
+        self._set_remaining(member_dao, "cross1", 20)
+        before = datetime.fromisoformat(member_dao.get_membership("cross1")["expires_at"])
+
+        self._buy(midas_client, "monthly", user="cross1")  # basic 30 天
+
+        mem = member_dao.get_membership("cross1")
+        assert mem["plan"] == "pro"  # 取高者：保留高档，不降级
+        after = datetime.fromisoformat(mem["expires_at"])
+        delta = after - before
+        assert timedelta(days=29) < delta <= timedelta(days=31)  # 从原到期 +30 天
+
+    def test_basic_buys_pro_upgrades_with_gift(self, midas_client, member_dao):
+        """basic 剩 15 天买 pro → pro + 赠期（剩余 basic 天数并入 pro 期）。"""
+        member_dao.create_membership("cross2", "basic", period_days=30)
+        self._set_remaining(member_dao, "cross2", 15)
+        before = datetime.fromisoformat(member_dao.get_membership("cross2")["expires_at"])
+
+        self._buy(midas_client, "pro_monthly", user="cross2")  # pro 30 天
+
+        mem = member_dao.get_membership("cross2")
+        assert mem["plan"] == "pro"  # 升级
+        after = datetime.fromisoformat(mem["expires_at"])
+        delta = after - before
+        assert timedelta(days=29) < delta <= timedelta(days=31)  # 赠期：原到期 + 30 天
+
+    def test_same_tier_renewal_unchanged(self, midas_client, member_dao):
+        """同档续费：plan 不变、到期照常从原到期日延长（既有行为不回归）。"""
+        member_dao.create_membership("cross5", "basic", period_days=30)
+        self._set_remaining(member_dao, "cross5", 10)
+        before = datetime.fromisoformat(member_dao.get_membership("cross5")["expires_at"])
+
+        self._buy(midas_client, "quarterly", user="cross5")  # basic 90 天
+
+        mem = member_dao.get_membership("cross5")
+        assert mem["plan"] == "basic"
+        delta = datetime.fromisoformat(mem["expires_at"]) - before
+        assert timedelta(days=89) < delta <= timedelta(days=91)
+
+    def test_expired_higher_does_not_hold(self, midas_client, member_dao):
+        """pro 已过期 → 买 basic → plan=basic（过期高档不拦截购买，从现在起算）。"""
+        member_dao.create_membership("cross3", "pro", period_days=30)
+        self._set_remaining(member_dao, "cross3", -5)
+
+        self._buy(midas_client, "monthly", user="cross3")
+
+        mem = member_dao.get_membership("cross3")
+        assert mem["plan"] == "basic"
+        delta = datetime.fromisoformat(mem["expires_at"]) - datetime.now()
+        assert timedelta(days=28) < delta <= timedelta(days=30)
+
+    def test_create_membership_same_semantics(self, member_dao):
+        """create_membership 与 confirm_payment 同口径（根因一致，不降级）。"""
+        member_dao.create_membership("cross4", "pro", period_days=30)
+        self._set_remaining(member_dao, "cross4", 20)
+        member_dao.create_membership("cross4", "basic", period_days=30)
+        mem = member_dao.get_membership("cross4")
+        assert mem["plan"] == "pro"  # 高档未过期 → 保留
+
+
+# ───────────────────────── L5-2 修复：降级 bazi 全量管线门控（降级成本） ─────────────────────────
+
+def _make_real_engine_handler():
+    """真实 BaziEngine + Mock LLM 的 handler（bazi 降级/正常路径断言用）。"""
+    from src.engines.bazi import BaziEngine
+    h = _make_handler_with_llm()
+    h.engine = BaziEngine()  # 确定性 0 成本排盘
+    h.memory_system = Mock()  # 防记忆 JSON 落盘
+    return h
+
+
+class _FakeChartGen:
+    """命盘图片生成打桩（正常路径避免 Playwright 真实渲染）。"""
+
+    def generate(self, result, title=""):
+        return "/tmp/fake_chart.png"
+
+
+class _FakeAnthropicResp:
+    """httpx 响应替身（DeepSeek Anthropic 兼容格式，仅防意外调用时崩）。"""
+
+    def __init__(self, content="", status=200):
+        self._content = content
+        self.status_code = status
+
+    def json(self):
+        return {"content": [{"type": "text", "text": self._content}],
+                "stop_reason": "end_turn"}
+
+
+class TestBaziDowngradeLite:
+    def test_downgraded_bazi_engine_only_no_llm(self, monkeypatch):
+        """降级用户发"1990年5月20日午时男" → 引擎排盘+精简文案，零 LLM 调用。
+
+        断言：不调 DeepSeek 端点（httpx 层零调用）、不调 RAG、不调
+        analyze/chat/chat_conversation（仅确定性引擎 + 规则文案）。
+        """
+        import httpx
+        h = _make_real_engine_handler()
+        calls = []
+
+        def fake_post(self, url, **kw):
+            calls.append((url, kw))
+            return _FakeAnthropicResp("不应被调用")
+
+        monkeypatch.setattr(httpx.Client, "post", fake_post)
+        reply = h.process("1990年5月20日午时男", "d9", downgraded=True)
+
+        assert reply
+        assert calls == [], f"降级 bazi 不应发起任何 HTTP/LLM 调用: {[c[0] for c in calls]}"
+        h.llm.analyze.assert_not_called()
+        h.llm.chat.assert_not_called()
+        h.llm.chat_conversation.assert_not_called()
+        h.retriever.search.assert_not_called()  # 不调 RAG
+        # 回复 = 引擎排盘卡片 + 规则精简要点
+        assert "八字命盘" in reply  # format_compact_card 卡片
+        assert "日主" in reply
+        assert "命局要点" in reply  # 精简文案
+
+    def test_normal_bazi_still_full_pipeline(self, monkeypatch):
+        """非降级：bazi 仍走 RAG + 主分析 LLM（门控不破坏正常链路）。"""
+        import src.bot.handler as hmod
+        h = _make_real_engine_handler()
+        calls = {"analyze": 0, "retriever": 0}
+
+        def fake_analyze(*a, **k):
+            calls["analyze"] += 1
+            return Mock(response="深度分析正文")
+
+        def fake_search(*a, **k):
+            calls["retriever"] += 1
+            return []
+
+        h.llm.analyze = fake_analyze
+        h.retriever.search = fake_search
+        # 打桩正常链路的真实副作用：并行 advisor LLM / 图表渲染 / 引用校验嵌入模型
+        monkeypatch.setattr(
+            hmod, "AdaptiveAdvisor",
+            lambda: Mock(generate=lambda *a, **k: {"actions": []}))
+        monkeypatch.setattr("src.images.bazi_chart_html.BaziChartHTML", _FakeChartGen)
+        monkeypatch.setattr(
+            hmod, "verify_citations",
+            lambda reply, question, citations: (reply, citations))
+
+        reply = h.process("1990年5月20日午时男", "n9", downgraded=False)
+
+        assert calls["analyze"] == 1  # 主分析 LLM 照常
+        assert calls["retriever"] == 1  # RAG 照常
+        assert "深度分析正文" in reply
+
+    def test_downgraded_tool_loop_disabled(self):
+        """降级时 _run_tool_loop 禁用：残留 <tool_call> 不执行工具、不再调 LLM。"""
+        h = _make_handler_with_llm()
+        h._downgraded["t1"] = True
+        out = h._run_tool_loop("帮我查查", "t1",
+                               "今天运势不错<tool_call>检索: 婚姻古籍</tool_call>")
+        assert "<tool_call>" not in out
+        h.llm.chat_conversation.assert_not_called()
+
+    def test_downgraded_xuetang_goes_lite(self):
+        """降级时 xuetang 关键词分支门控 → 走 lite 自由对话（不调学堂 RAG/LLM）。"""
+        h = _make_handler_with_llm()
+        called = []
+        h._handle_xuetang = lambda *a, **k: called.append(1) or "学堂内容"
+        reply = h.process("我想学命理入门", "x1", downgraded=True)
+        assert called == []  # 未走学堂全量分支
+        assert reply == "🔮 精简回复"  # lite 自由对话
+        assert h.llm.chat.called
+        assert h.llm.chat.call_args.kwargs.get("lite") is True  # lite 模型/prompt
+
+    def test_downgraded_advisor_goes_lite(self):
+        """降级时 advisor 关键词分支门控 → 走 lite（不调 AdaptiveAdvisor LLM）。"""
+        h = _make_handler_with_llm()
+        called = []
+        h._handle_advisor = lambda *a, **k: called.append(1) or "建议内容"
+        reply = h.process("我最近很迷茫，我该怎么办", "a1", downgraded=True)
+        assert called == []
+        assert reply == "🔮 精简回复"
+        assert h.llm.chat.called
+
+    def test_downgraded_confidant_gated(self):
+        """降级时倾诉分支门控：is_sharing 不再触发 confidant 全量 LLM，走 lite。"""
+        h = _make_handler_with_llm()
+        called = []
+        h._handle_confidant = lambda *a, **k: called.append(1) or "倾诉回复"
+        reply = h.process("最近工作压力好大，每天都快撑不住了", "c1", downgraded=True)
+        assert called == []  # 规则快判 is_sharing=False + 显式门控兜底
+        assert reply == "🔮 精简回复"
