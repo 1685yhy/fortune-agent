@@ -852,6 +852,10 @@ async def lifespan(app: FastAPI):
     setup_ming(llm=llm, retriever=retriever, member_dao=member_dao, dao=dao,
                bazi_engine=engine, ming_dao=MingDAO(_zeri_conn()))
 
+    # 专项论断 API（论财/论事业/论健康; 高级会员门控, 全接口 require_user, L2-5）
+    from .api.zhuanxiang import setup as setup_zhuanxiang
+    setup_zhuanxiang(member_dao, engine)
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -1063,6 +1067,10 @@ app.include_router(ming_router)              # /api/ming/*
 # 命理知识解析 API（十神/十二长生/纳音/神煞/天干/地支知识，全接口 require_user，L2-2）
 from .api.knowledge import router as knowledge_router
 app.include_router(knowledge_router)         # /api/knowledge, /api/knowledge/categories
+
+# 专项论断 API（论财/论事业/论健康; 高级会员门控，全接口 require_user，L2-5）
+from .api.zhuanxiang import router as zhuanxiang_router
+app.include_router(zhuanxiang_router)        # POST /api/zhuanxiang
 
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)
