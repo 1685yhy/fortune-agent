@@ -11,6 +11,7 @@ from lunar_python import Lunar, Solar
 from src.engines.shensha import shensha_of
 from src.engines.ganzhi_rel import analyze_relations
 from src.engines.chenggu import chenggu_bone, bone_weight_text
+from src.engines.bazi_formatter import get_changsheng
 
 logger = logging.getLogger(__name__)
 
@@ -324,6 +325,9 @@ class BaziResult:
     siling_detail: dict = field(default_factory=dict)  # 司令分野明细 {gan,days,elapsed,remaining,...}
     ganzhi_rel: list = field(default_factory=list)  # 原局四柱间两两干支关系 [{between,type,desc}]（P0-3）
     chenggu: dict = field(default_factory=dict)  # 称骨（问真口径，L2-1）：{weight_text, liang, qian, jieci}
+    # 知识索引（问真点文字查解析同款入口，L2-2）：{category: [名称...]}，
+    # 前端据此渲染可点文字 → GET /api/knowledge?category=&name=
+    knowledge_index: dict = field(default_factory=dict)
 
     def rel_with(self, ganzhi: str) -> list:
         """大运/流年干支与原局各柱的干支关系（问真点大运流年同款入口，P0-3）。
@@ -539,6 +543,21 @@ class BaziEngine:
         except Exception:
             chenggu = {}
 
+        # 知识索引（L2-2）：各类别可点文字清单，去重保序。
+        # 契约：每类名称必须能在本类知识库命中（"日主"位省略——日主天干
+        # 已含于 tiangan 类，前端点日主格查 tiangan 即可）。
+        def _dedupe(seq):
+            return list(dict.fromkeys(x for x in seq if x))
+
+        knowledge_index = {
+            "shishen": _dedupe(s for s in shishen if s != "日主"),
+            "zhangsheng": _dedupe(get_changsheng(day_gan, p[1]) for p in bazi_pillars),
+            "nayin": _dedupe(nayin),
+            "shensha": _dedupe(shensha),
+            "tiangan": _dedupe(p[0] for p in bazi_pillars),
+            "dizhi": _dedupe(p[1] for p in bazi_pillars),
+        }
+
         return BaziResult(
             bazi=bazi_pillars,
             day_master=day_master,
@@ -567,6 +586,7 @@ class BaziEngine:
             siling_detail=siling_detail,
             ganzhi_rel=ganzhi_rel,
             chenggu=chenggu,
+            knowledge_index=knowledge_index,
         )
 
     def _calc_shishen(self, day_gan: str, target_gan: str) -> str:

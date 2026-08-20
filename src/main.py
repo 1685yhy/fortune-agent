@@ -1060,6 +1060,10 @@ app.include_router(qian_router)              # /api/qian/*
 from .api.ming import router as ming_router
 app.include_router(ming_router)              # /api/ming/*
 
+# 命理知识解析 API（十神/十二长生/纳音/神煞/天干/地支知识，全接口 require_user，L2-2）
+from .api.knowledge import router as knowledge_router
+app.include_router(knowledge_router)         # /api/knowledge, /api/knowledge/categories
+
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)
 # ──────────────────────────────────────────
