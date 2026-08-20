@@ -106,6 +106,33 @@ def bone_weight_text(liang: int, qian: int) -> str:
     return text
 
 
+def chenggu_parts(year_ganzhi: str, lunar_month: Union[int, str], lunar_day: int,
+                  hour_ganzhi: str) -> List[int]:
+    """四柱分项骨重（钱整数，问真口径）：[年, 月, 日, 时]。
+
+    与 chenggu_bone 同表同索引取数，故 合计 == chenggu_bone 总骨重（钱）
+    ——供 API 层展示分项且保证分项合计恒等于总重（晚子时归日口径下同源）。
+    """
+    if not 1 <= lunar_day <= 30:
+        raise ValueError(f"农历日越界: {lunar_day}")
+    tables = _load_tables()
+    return [
+        int(round(tables["fn"][_year_index(year_ganzhi)] * 10)),
+        int(round(tables["cn"][_month_index(lunar_month)] * 10)),
+        int(round(tables["ln"][lunar_day - 1] * 10)),
+        int(round(tables["un"][_hour_index(hour_ganzhi)] * 10)),
+    ]
+
+
+def part_weight_text(qian: int) -> str:
+    """分项骨重文本（总重格式要求两≥1，分项可不足 1 两，如 7 钱 → "七钱"）。"""
+    liang, q = divmod(qian, 10)
+    text = f"{RN[liang - 1]}两" if liang else ""
+    if q:
+        text += f"{RN[q - 1]}钱"
+    return text
+
+
 def chenggu_verse(liang: int, qian: int, gender: str = "男") -> str:
     """总骨重 → 歌诀全文（问真 _n 口径：索引 = (X-2)*10 + (Y-1)，整两 Y=0 → -1）。
 

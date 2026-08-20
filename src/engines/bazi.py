@@ -10,7 +10,8 @@ from lunar_python import Lunar, Solar
 
 from src.engines.shensha import shensha_of
 from src.engines.ganzhi_rel import analyze_relations
-from src.engines.chenggu import chenggu_bone, bone_weight_text
+from src.engines.chenggu import (chenggu_bone, bone_weight_text, chenggu_parts,
+                                 part_weight_text, MONTH_CN, RN)
 from src.engines.bazi_formatter import get_changsheng
 from src.engines.wuxing import (wuxing_counts, month_wangshuai,
                                 changsheng_state, day_master_strength)
@@ -384,7 +385,12 @@ class BaziResult:
     siling: str = ""              # 人元司令天干（问真排盘页"司令：X"口径，P0-1）
     siling_detail: dict = field(default_factory=dict)  # 司令分野明细 {gan,days,elapsed,remaining,...}
     ganzhi_rel: list = field(default_factory=list)  # 原局四柱间两两干支关系 [{between,type,desc}]（P0-3）
-    chenggu: dict = field(default_factory=dict)  # 称骨（问真口径，L2-1）：{weight_text, liang, qian, jieci}
+    chenggu: dict = field(default_factory=dict)  # 称骨（问真口径，L2-1）：{weight_text, liang, qian, jieci, parts}
+    # parts：分项骨重 [{label, weight}]（年/月/日/时），与 weight_text 同源同口径，
+    # 分项合计恒等于总重（晚子时/真太阳时归日后的同一农历日计算）。
+    lunar: dict = field(default_factory=dict)  # 归一化后农历口径（晚子时已归日）：
+    # {year, month(闰月已 abs 归一), day, day_text}——API 层 meta 农历信息须用此，
+    # 与四柱（日柱=次日）自洽。
     # 知识索引（问真点文字查解析同款入口，L2-2）：{category: [名称...]}，
     # 前端据此渲染可点文字 → GET /api/knowledge?category=&name=
     knowledge_index: dict = field(default_factory=dict)
@@ -622,19 +628,42 @@ class BaziEngine:
         # 干支关系：原局四柱间两两（伏吟/反吟/盖头/截脚/争合/妒合，问真同款规则，P0-3）
         ganzhi_rel = self._calc_ganzhi_rel(bazi_pillars)
 
-        # 称骨（问真口径，L2-1）：年柱干支 + 农历月/日（闰月与平月同重，lunar_python
-        # 闰月 getMonth() 为负 → abs 归一）+ 时支。与四柱同用晚子时归日后的同一农历日，
-        # 保证称骨与排盘自洽。
+        # 归一化后农历（晚子时归日/真太阳时跨日口径已体现在 lunar 对象上）：
+        # 供称骨分项与 API 层 meta 使用，保证与四柱（日柱=次日）自洽。
+        lunar_month = abs(lunar.getMonth())  # 闰月与平月同重（问真 G.c 口径）
+        lunar_day = lunar.getDay()
+        lunar_disp = {
+            "year": int(lunar.getYear()),
+            "month": lunar_month,
+            "day": lunar_day,
+            "day_text": lunar.getDayInChinese(),
+        }
+
+        # 称骨（问真口径，L2-1）：年柱干支 + 农历月/日 + 时支。与四柱同用晚子时
+        # 归日后的同一农历日，保证称骨与排盘自洽；分项 parts 同源同口径计算，
+        # 分项合计恒等于总重（晚子时不再出现分项≠总重矛盾）。
         chenggu = {}
         try:
             cg_liang, cg_qian, cg_jieci = chenggu_bone(
-                bazi_pillars[0], abs(lunar.getMonth()), lunar.getDay(),
+                bazi_pillars[0], lunar_month, lunar_day,
                 time_zhi, gender=calc_gender)
+            parts_qian = chenggu_parts(
+                bazi_pillars[0], lunar_month, lunar_day, time_zhi)
+            part_labels = [
+                "年 %s" % bazi_pillars[0],
+                "月 %s" % MONTH_CN[lunar_month - 1],
+                "日 %s" % ("初%s" % RN[lunar_day - 1]
+                           if lunar_day <= 10 else lunar.getDayInChinese()),
+                "时 %s" % time_zhi,
+            ]
             chenggu = {
                 "weight_text": bone_weight_text(cg_liang, cg_qian),
                 "liang": cg_liang,
                 "qian": cg_qian,
                 "jieci": cg_jieci,
+                "parts": [{"label": part_labels[i],
+                           "weight": part_weight_text(parts_qian[i])}
+                          for i in range(4)],
             }
         except Exception:
             chenggu = {}
@@ -682,6 +711,7 @@ class BaziEngine:
             siling_detail=siling_detail,
             ganzhi_rel=ganzhi_rel,
             chenggu=chenggu,
+            lunar=lunar_disp,
             knowledge_index=knowledge_index,
             wuxing_energy=wuxing_energy,
         )

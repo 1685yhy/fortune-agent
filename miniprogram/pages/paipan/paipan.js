@@ -190,7 +190,7 @@ Page({
     const jy = c.jiaoyun || {};
     const slChips = [
       { seal: '起', name: '起运', val: `<b>${qiyunSui}</b> 岁`, gold: false },
-      { seal: '交', name: '交运', val: `逢<b>${jy.gan_pair || ''}</b>年 · ${jy.jie || ''}后<b>${jy.days_after_jie}</b>天`, gold: false },
+      { seal: '交', name: '交运', val: `逢<b>${jy.gan_pair || ''}</b>年 · ${jy.jie || ''}后<b>${jy.days_after_jie || ''}</b>天`, gold: false },
       { seal: '令', name: '司令', val: `<b>${c.siling}</b>${WUXING_TG[c.siling] || ''}当令`, gold: true },
     ];
 
@@ -223,7 +223,7 @@ Page({
       isQi: i === 0,
       isCur: curSui >= d.sui && curSui <= d.end_sui,
     }));
-    const jiaoyunLine = `逢<b>${jy.gan_pair || ''}</b>年 · <b>${jy.jie || ''}后 ${jy.days_after_jie} 天</b>换运 · 司令${c.siling}${WUXING_TG[c.siling] || ''}当令`;
+    const jiaoyunLine = `逢<b>${jy.gan_pair || ''}</b>年 · <b>${jy.jie || ''}后 ${jy.days_after_jie || ''} 天</b>换运 · 司令${c.siling}${WUXING_TG[c.siling] || ''}当令`;
 
     /* 流年胶囊 */
     const nowYear = c.liunian_rel && c.liunian_rel.year;

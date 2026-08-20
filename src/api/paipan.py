@@ -18,18 +18,13 @@
 DAO —— 与合婚接口同口径。全接口 require_user 鉴权。
 错误：生辰缺失/越界/伪日期（如 2 月 30 日）→ 400；未登录 → 401。
 """
-import logging
-
 from fastapi import APIRouter, Depends, HTTPException
-from lunar_python import Solar
 
 from ..engines.bazi import BaziEngine, BaziResult
-from ..engines import chenggu as chenggu_mod
 from ..security.auth import require_user
 from ..api.birth_contract import normalize_gender, normalize_hour
 from ..api.hehun import BaziInput, _resolve_person
 
-logger = logging.getLogger(__name__)
 router = APIRouter(tags=["paipan"])
 
 # ── 序列化用静态表 ─────────────────────────────────────────────
@@ -46,10 +41,17 @@ SHENGXIAO = {"子": "鼠", "丑": "牛", "寅": "虎", "卯": "兔", "辰": "龙
 # 农历月名（含「冬月」「腊月」，与称骨表口径一致）
 LUNAR_MONTH_CN = ["正月", "二月", "三月", "四月", "五月", "六月",
                   "七月", "八月", "九月", "十月", "冬月", "腊月"]
-# 时钟小时 → 时辰名（子时按晚子时 23 点口径，与 BaziEngine 晚子时处理一致）
-SHICHEN_NAME = {23: "子时", 0: "子时", 1: "丑时", 3: "寅时", 5: "卯时", 7: "辰时",
-                9: "巳时", 11: "午时", 13: "未时", 15: "申时", 17: "酉时",
-                19: "戌时", 21: "亥时"}
+# 时钟小时 → 时辰名，全 24 小时覆盖（按时辰起点映射：子23-1/丑1-3/寅3-5/
+# 卯5-7/辰7-9/巳9-11/午11-13/未13-15/申15-17/酉17-19/戌19-21/亥21-23；
+# 子时含晚子时 23 点口径，与 BaziEngine 晚子时处理一致）
+SHICHEN_NAME = {
+    23: "子时", 0: "子时", 1: "丑时", 2: "丑时",
+    3: "寅时", 4: "寅时", 5: "卯时", 6: "卯时",
+    7: "辰时", 8: "辰时", 9: "巳时", 10: "巳时",
+    11: "午时", 12: "午时", 13: "未时", 14: "未时",
+    15: "申时", 16: "申时", 17: "酉时", 18: "酉时",
+    19: "戌时", 20: "戌时", 21: "亥时", 22: "亥时",
+}
 
 
 # ── 全局依赖注入 ──────────────────────────────────────────────
@@ -130,50 +132,15 @@ def serialize_bazi(r: BaziResult, engine: BaziEngine,
             "end_year": next_year - 1,
         })
 
-    # 称骨分项（问真称骨表：年按 60 甲子序、月按农历月、日按农历日、时按时支）
+    # 称骨：原样透传引擎结果（weight_text/liang/qian/jieci/parts）。
+    # parts 分项由引擎按晚子时归日后的同一农历日计算（与总重同源同口径，
+    # 分项合计恒等于总重）——不再在此用原始日期重算，避免分项≠总重矛盾。
     chenggu = dict(r.chenggu or {})
-    if chenggu:
-        try:
-            lunar = Solar.fromYmdHms(
-                person.year, person.month, person.day,
-                person.hour, person.minute, 0).getLunar()
-            # 晚子时归日（与引擎口径一致，保证与排盘自洽）
-            l_month = abs(lunar.getMonth())
-            l_day = lunar.getDay()
-            tables = chenggu_mod._load_tables()
-            parts_qian = [
-                int(round(tables["fn"][chenggu_mod._year_index(r.bazi[0])] * 10)),
-                int(round(tables["cn"][l_month - 1] * 10)),
-                int(round(tables["ln"][l_day - 1] * 10)),
-                int(round(tables["un"][chenggu_mod._hour_index(r.bazi[3])] * 10)),
-            ]
-            labels = ["年 %s" % r.bazi[0], "月 %s" % LUNAR_MONTH_CN[l_month - 1],
-                      "日 %s" % ("初%s" % chenggu_mod.RN[l_day - 1]
-                                 if l_day <= 10 else lunar.getDayInChinese()),
-                      "时 %s" % r.bazi[3][1]]
-            # 分项骨重可不足 1 两（如 7 钱）：bone_weight_text 要求两≥1，这里手动格式化
-            def _part_weight(qian: int) -> str:
-                liang, q = divmod(qian, 10)
-                text = "%s两" % chenggu_mod.RN[liang - 1] if liang else ""
-                if q:
-                    text += "%s钱" % chenggu_mod.RN[q - 1]
-                return text
 
-            chenggu["parts"] = [{
-                "label": labels[i],
-                "weight": _part_weight(parts_qian[i]),
-            } for i in range(4)]
-        except Exception as _e:  # 分项为展示增强，失败不阻塞主结果
-            logger.warning("称骨分项计算失败，忽略: %s", _e)
-
-    # 命主信息头（农历干支月日 + 生肖 + 时辰名 + 公历文本）
-    lunar = None
-    try:
-        lunar = Solar.fromYmdHms(
-            person.year, person.month, person.day,
-            person.hour, person.minute, 0).getLunar()
-    except Exception:
-        lunar = None
+    # 命主信息头（农历干支月日 + 生肖 + 时辰名 + 公历文本）。
+    # lunar 农历信息用引擎归一化口径（r.lunar，晚子时/真太阳时已归日），
+    # 保证 meta 的月/日文本与四柱（日柱=次日）自洽。
+    _lunar = r.lunar or {}
     meta = {
         "solar_text": "%d年%d月%d日 %02d:%02d"
                       % (person.year, person.month, person.day,
@@ -184,9 +151,10 @@ def serialize_bazi(r: BaziResult, engine: BaziEngine,
             "year_ganzhi": r.bazi[0],
             "month_ganzhi": r.bazi[1],
             "day_ganzhi": r.bazi[2],
-            "month_text": LUNAR_MONTH_CN[abs(lunar.getMonth()) - 1] if lunar else "",
-            "day_text": lunar.getDayInChinese() if lunar else "",
-        } if lunar else {},
+            "month_text": LUNAR_MONTH_CN[_lunar["month"] - 1]
+                          if _lunar.get("month") else "",
+            "day_text": _lunar.get("day_text", ""),
+        },
     }
 
     return {
@@ -219,4 +187,6 @@ def serialize_bazi(r: BaziResult, engine: BaziEngine,
         "knowledge_index": r.knowledge_index,
         # 元信息
         "meta": meta,
+        # 注：taiyuan / minggong / shenggong / kongwang 等宫位字段引擎已算出，
+        # 但本接口暂未序列化（前端排盘页当前不展示）——后续扩展时在此追加。
     }

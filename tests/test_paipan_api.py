@@ -161,6 +161,86 @@ def test_paipan_native_contract_fields():
     assert body["dayun"][0]["sui"] == 3
 
 
+# ---------------------------------------------------------------- 晚子时称骨自洽
+_CN_NUM = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6,
+           "七": 7, "八": 8, "九": 9, "十": 10}
+
+
+def _weight_to_qian(w: str) -> int:
+    """分项骨重文本（如 "一两九钱"/"八钱"/"一两"）→ 钱整数。"""
+    total, i = 0, 0
+    while i < len(w):
+        if w[i] == "两":
+            total += _CN_NUM[w[i - 1]] * 10
+        elif w[i] == "钱":
+            total += _CN_NUM[w[i - 1]]
+        i += 1
+    return total
+
+
+def test_paipan_late_zi_chenggu_consistent():
+    """晚子时 23:50：称骨分项合计 == 总重，meta 农历日与日柱自洽（归日口径）。
+
+    1999-05-13 23:50 北京 男：真太阳时修正后仍属晚子时 → 引擎按次日 5/14 排盘
+    （日柱丙寅），称骨/农历信息必须同为次日口径，不得用原始日期重算。
+    """
+    r = _client().post("/api/paipan", json={
+        "year": 1999, "month": 5, "day": 13,
+        "hour": 23, "minute": 50, "city": "北京", "gender": "男",
+    }, headers=_headers())
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    # 晚子时归日：日柱 = 次日 5/14 丙寅（原始日 5/13 为乙丑）
+    assert body["bazi"][2] == "丙寅"
+
+    # 分项合计 == 总重（此前分项用原始日期算成六两一钱，与总重六两九钱矛盾）
+    cg = body["chenggu"]
+    total_qian = cg["liang"] * 10 + cg["qian"]
+    parts_sum = sum(_weight_to_qian(p["weight"]) for p in cg["parts"])
+    assert parts_sum == total_qian == 69
+    assert cg["weight_text"] == "六两九钱"
+    # 分项月/日同为归日口径（次日 3/29）
+    assert cg["parts"][1]["label"] == "月 三月"
+    assert cg["parts"][2]["label"] == "日 廿九"
+
+    # meta 农历日与日柱自洽（丙寅 = 5/14 农历三月廿九，而非原始日 5/13 的廿八）
+    meta_lunar = body["meta"]["lunar"]
+    assert meta_lunar["day_ganzhi"] == "丙寅"
+    assert meta_lunar["month_text"] == "三月"
+    assert meta_lunar["day_text"] == "廿九"
+    assert body["meta"]["zodiac"] == "兔"  # 年柱己卯 → 兔（年柱亦为归日口径）
+
+
+def test_paipan_shichen_all_hours():
+    """SHICHEN_NAME 全 24 小时覆盖：偶数小时（原生契约 hour=12/22）非空且正确。
+
+    此前 SHICHEN_NAME 只覆盖奇数小时 + 23/0，hour=12 等偶数小时 shichen 为空串。
+    """
+    # 时钟小时 12（午时整点）→ 午时
+    r = _client().post("/api/paipan", json={
+        "year": 1999, "month": 5, "day": 13,
+        "hour": 12, "minute": 25, "city": "北京", "gender": "男",
+    }, headers=_headers())
+    assert r.status_code == 200, r.text
+    assert r.json()["meta"]["shichen"] == "午时"
+
+    # 时钟小时 22（亥时末）→ 亥时
+    r = _client().post("/api/paipan", json={
+        "year": 1999, "month": 5, "day": 13,
+        "hour": 22, "minute": 25, "city": "北京", "gender": "男",
+    }, headers=_headers())
+    assert r.status_code == 200, r.text
+    assert r.json()["meta"]["shichen"] == "亥时"
+
+    # 全部 24 小时均有映射（按时辰起点：子23-1/丑1-3/…/亥21-23）
+    expect = {23: "子时", 0: "子时", 1: "丑时", 2: "丑时", 3: "寅时", 4: "寅时",
+              5: "卯时", 6: "卯时", 7: "辰时", 8: "辰时", 9: "巳时", 10: "巳时",
+              11: "午时", 12: "午时", 13: "未时", 14: "未时", 15: "申时", 16: "申时",
+              17: "酉时", 18: "酉时", 19: "戌时", 20: "戌时", 21: "亥时", 22: "亥时"}
+    assert paipan_api.SHICHEN_NAME == expect
+
+
 # ---------------------------------------------------------------- 鉴权
 def test_paipan_401_unauthorized():
     """未登录 → 401（require_user 鉴权红线；生辰为敏感数据）。"""
