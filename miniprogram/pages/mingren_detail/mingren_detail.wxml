@@ -1,0 +1,107 @@
+<!-- 名人命例 — 详情页(墨韵: 宣纸/墨/朱砂) -->
+<view class="mrd-page">
+
+  <!-- 加载态 -->
+  <view class="mrd-loading" wx:if="{{loading}}">
+    <text>翻检命册中…</text>
+  </view>
+
+  <!-- 未解锁视图(403 VIP_REQUIRED) -->
+  <view class="mrd-locked" wx:elif="{{locked}}">
+    <view class="seal mrd-lock-seal"><text class="seal-char">锁</text></view>
+    <text class="mrd-lock-t">此命例为高级会员典藏</text>
+    <text class="mrd-lock-s">{{lockMessage || '开通高级会员，解锁全部 2807 位名人命例与穷通宝鉴评注'}}</text>
+    <view class="mrd-lock-btn" hover-class="mrd-lock-btn-active" hover-stay-time="0" bindtap="openMemberDialog">开通高级会员</view>
+  </view>
+
+  <!-- 详情 -->
+  <block wx:else>
+    <scroll-view scroll-y class="mrd-scroll">
+      <!-- 姓名题头 -->
+      <view class="mrd-hero">
+        <view class="seal mrd-hero-seal"><text class="seal-char">{{detail.name.charAt(0)}}</text></view>
+        <view class="mrd-hero-mid">
+          <text class="mrd-hero-name">{{detail.name}}</text>
+          <text class="mrd-hero-sub">名人命例 · 穷通宝鉴</text>
+        </view>
+      </view>
+
+      <!-- 简介 -->
+      <view class="papercard mrd-card">
+        <view class="mrd-sec-head">
+          <view class="zd"></view>
+          <text>人物简介</text>
+        </view>
+        <text class="mrd-info">{{detail.info}}</text>
+      </view>
+
+      <!-- 命理评注(穷通宝鉴 · 徐乐吾曰 — 朱砂框突出) -->
+      <view class="mrd-note" wx:if="{{detail.hasInfo2}}">
+        <view class="mrd-note-head">
+          <view class="seal mrd-note-seal"><text class="seal-char">鉴</text></view>
+          <view class="mrd-note-title">
+            <text>穷通宝鉴评注</text>
+            <text class="mrd-note-sub">徐乐吾曰 · 古法命理</text>
+          </view>
+        </view>
+        <text class="mrd-note-body">{{detail.info2}}</text>
+        <text class="mrd-note-src" wx:if="{{detail.source && detail.source !== '-'}}">出处：{{detail.source}}</text>
+      </view>
+
+      <!-- 生平大事时间线 -->
+      <view class="papercard mrd-card">
+        <view class="mrd-sec-head">
+          <view class="zd"></view>
+          <text>生平大事 · 时间线</text>
+          <text class="mrd-sec-count">{{detail.flist.length}} 记</text>
+        </view>
+        <view class="mrd-tl" wx:if="{{detail.flist.length > 0}}">
+          <view class="mrd-tl-item" wx:for="{{detail.flist}}" wx:key="index">
+            <view class="mrd-tl-rail">
+              <view class="mrd-tl-dot"></view>
+            </view>
+            <view class="mrd-tl-body">
+              <text class="mrd-tl-year">{{item.year}}</text>
+              <text class="mrd-tl-text">{{item.text}}</text>
+            </view>
+          </view>
+        </view>
+        <view class="mrd-tl-empty" wx:else>
+          <text>此例未载生平大事</text>
+        </view>
+      </view>
+
+      <view class="mrd-foot">
+        <view class="fg"></view>
+        <text>明灯谨录 · 观命不执命</text>
+        <view class="fg"></view>
+      </view>
+    </scroll-view>
+  </block>
+
+  <!-- 会员开通(同列表页弹层) -->
+  <view class="member-mask" wx:if="{{memberDialogVisible}}" bindtap="closeMemberDialog">
+    <view class="member-dialog" catchtap="noop">
+      <view class="md-seal"><view class="seal md-seal-seal"><text class="seal-char">明</text></view></view>
+      <view class="md-title">开通高级会员</view>
+      <view class="md-sub">全量命例 · 明灯长明</view>
+      <view class="md-benefits">
+        <view class="md-b-item" wx:for="{{['全部 2807 位名人命例', '穷通宝鉴 · 徐乐吾评注', '生平大事 · 逐年时间线']}}" wx:key="*this">
+          <view class="md-b-dot"></view>
+          <text>{{item}}</text>
+        </view>
+      </view>
+      <view class="md-plan" wx:for="{{memberPlans}}" wx:key="id"
+        hover-class="md-plan-active" hover-stay-time="0"
+        data-plan="{{item.id}}" bindtap="buyPlan">
+        <view class="mp-ic"><view class="seal mp-seal"><text class="seal-char">{{item.icon}}</text></view></view>
+        <view class="mp-info">
+          <view class="mp-name">{{item.name}}</view>
+          <view class="mp-desc">{{item.description}}</view>
+        </view>
+        <view class="mp-price"><text class="mp-num">{{item.priceNum}}</text><text class="mp-unit">{{item.priceUnit}}</text></view>
+      </view>
+      <view class="md-close" bindtap="closeMemberDialog">暂不开通</view>
+    </view>
+  </view>
+</view>

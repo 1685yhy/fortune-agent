@@ -1,0 +1,403 @@
+/* ═══ 名人命例 — 详情页（L3-1）墨韵视觉基准：
+   宣纸 #F5EFE1 / 墨 #3A2C1E / 朱砂 #A93A2C / 金 #B08A4F（同列表页一族） ═══ */
+
+.mrd-page {
+  min-height: 100vh;
+  background: var(--paper);
+}
+
+/* ── 加载态 ── */
+.mrd-loading {
+  padding: 200rpx 0;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .3em;
+  color: var(--ink-faint);
+}
+
+/* ── 未解锁视图（朱砂锁印 + 开通引导） ── */
+.mrd-locked {
+  padding: 200rpx 70rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20rpx;
+}
+.mrd-lock-seal {
+  width: 110rpx;
+  height: 110rpx;
+  font-size: 60rpx;
+  border-radius: 14rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 6rpx 16rpx rgba(60,30,20,.25);
+}
+.mrd-lock-t {
+  margin-top: 20rpx;
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 34rpx;
+  letter-spacing: .14em;
+  color: var(--ink);
+}
+.mrd-lock-s {
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  line-height: 1.7;
+  letter-spacing: .05em;
+  color: var(--ink-mid);
+  text-align: center;
+}
+.mrd-lock-btn {
+  margin-top: 26rpx;
+  padding: 22rpx 70rpx;
+  background: var(--acc);
+  border-radius: 12rpx;
+  font-family: var(--font-song);
+  font-size: 26rpx;
+  letter-spacing: .2em;
+  color: #FBF6E8;
+  box-shadow: 0 8rpx 20rpx rgba(169,58,44,.3);
+}
+.mrd-lock-btn-active { opacity: .85; transform: translateY(2rpx); }
+
+/* ── 详情滚动区 ── */
+.mrd-scroll {
+  height: 100vh;
+  padding: 26rpx 38rpx 80rpx;
+  box-sizing: border-box;
+  overflow-x: hidden;
+}
+
+/* 姓名题头 */
+.mrd-hero {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  padding: 10rpx 6rpx 30rpx;
+}
+.mrd-hero-seal {
+  width: 92rpx;
+  height: 92rpx;
+  font-size: 52rpx;
+  border-radius: 12rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 6rpx 16rpx rgba(60,30,20,.25);
+}
+.mrd-hero-mid { display: flex; flex-direction: column; gap: 8rpx; }
+.mrd-hero-name {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 52rpx;
+  letter-spacing: .24em;
+  color: var(--ink);
+}
+.mrd-hero-sub {
+  font-family: var(--font-kai);
+  font-size: 22rpx;
+  letter-spacing: .2em;
+  color: var(--acc);
+}
+
+/* ── 章节卡（papercard 底） ── */
+.mrd-card {
+  margin-bottom: 26rpx;
+  padding: 28rpx 30rpx 32rpx;
+}
+.mrd-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-bottom: 18rpx;
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 28rpx;
+  letter-spacing: .14em;
+  color: var(--ink);
+}
+.mrd-sec-head .zd {
+  width: 10rpx;
+  height: 10rpx;
+  transform: rotate(45deg);
+  background: var(--acc);
+  border-radius: 2rpx;
+}
+.mrd-sec-count {
+  margin-left: auto;
+  font-weight: 400;
+  font-size: 19rpx;
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+}
+.mrd-info {
+  font-family: var(--font-song);
+  font-size: 25rpx;
+  line-height: 1.8;
+  letter-spacing: .05em;
+  color: var(--ink-mid);
+}
+
+/* ── 穷通宝鉴评注（朱砂框 + 印章，突出呈现） ── */
+.mrd-note {
+  margin-bottom: 26rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--acc-line);
+  border-left: 8rpx solid var(--acc);
+  border-radius: 14rpx;
+  padding: 28rpx 30rpx 32rpx;
+  box-shadow: 0 14rpx 40rpx rgba(169,58,44,.08);
+}
+.mrd-note-head {
+  display: flex;
+  align-items: center;
+  gap: 18rpx;
+  margin-bottom: 18rpx;
+}
+.mrd-note-seal {
+  width: 64rpx;
+  height: 64rpx;
+  font-size: 36rpx;
+  border-radius: 8rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12);
+}
+.mrd-note-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 30rpx;
+  letter-spacing: .14em;
+  color: var(--acc-deep);
+}
+.mrd-note-sub {
+  font-family: var(--font-kai);
+  font-weight: 400;
+  font-size: 20rpx;
+  letter-spacing: .16em;
+  color: var(--acc);
+}
+.mrd-note-body {
+  font-family: var(--font-kai);
+  font-size: 26rpx;
+  line-height: 1.9;
+  letter-spacing: .04em;
+  color: var(--ink);
+}
+.mrd-note-src {
+  display: block;
+  margin-top: 16rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+}
+
+/* ── 生平大事时间线（朱砂点 + 墨线） ── */
+.mrd-tl { margin-top: 4rpx; }
+.mrd-tl-item {
+  display: flex;
+  gap: 20rpx;
+}
+.mrd-tl-rail {
+  width: 28rpx;
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  position: relative;
+}
+.mrd-tl-dot {
+  width: 14rpx;
+  height: 14rpx;
+  margin-top: 12rpx;
+  border-radius: 50%;
+  background: var(--acc);
+  box-shadow: 0 0 0 4rpx var(--acc-soft);
+  flex-shrink: 0;
+}
+.mrd-tl-item:not(:last-child) .mrd-tl-rail::after {
+  content: '';
+  position: absolute;
+  top: 34rpx;
+  bottom: -8rpx;
+  left: 50%;
+  width: 2rpx;
+  transform: translateX(-50%);
+  background: var(--line);
+}
+.mrd-tl-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  padding-bottom: 30rpx;
+}
+.mrd-tl-year {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 25rpx;
+  letter-spacing: .12em;
+  color: var(--acc-deep);
+}
+.mrd-tl-text {
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  line-height: 1.75;
+  letter-spacing: .04em;
+  color: var(--ink-mid);
+}
+.mrd-tl-empty {
+  padding: 30rpx 0 10rpx;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .16em;
+  color: var(--ink-faint);
+}
+
+/* 页脚 */
+.mrd-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 19rpx;
+  margin-top: 20rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .24em;
+  color: var(--ink-faint);
+}
+
+/* ── 会员开通弹层（同列表页一族） ── */
+.member-mask {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(20, 14, 8, .6);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60rpx;
+}
+.member-dialog {
+  width: 100%;
+  max-width: 620rpx;
+  background: var(--paper);
+  border: 2rpx solid var(--line);
+  border-radius: 16rpx;
+  box-shadow: 0 24rpx 64rpx rgba(30, 20, 10, .35);
+  padding: 52rpx 44rpx 38rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.md-seal { display: flex; align-items: center; justify-content: center; }
+.md-seal-seal { width: 92rpx; height: 92rpx; font-size: 56rpx; transform: rotate(-3deg); }
+.md-title {
+  margin-top: 18rpx;
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 40rpx;
+  letter-spacing: .22em;
+  color: var(--ink);
+}
+.md-sub {
+  margin-top: 10rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .16em;
+  color: var(--ink-soft);
+}
+.md-benefits {
+  width: 100%;
+  margin-top: 28rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  background: var(--paper-deep);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 12rpx;
+  padding: 26rpx 28rpx;
+}
+.md-b-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .1em;
+  color: var(--ink-mid);
+}
+.md-b-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: var(--acc);
+  flex-shrink: 0;
+}
+.md-plan {
+  width: 100%;
+  margin-top: 30rpx;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  background: var(--paper-deep);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 12rpx;
+  padding: 24rpx 26rpx;
+}
+.md-plan-active { background: var(--gold-soft); }
+.mp-ic { display: flex; align-items: center; justify-content: center; }
+.mp-seal { width: 62rpx; height: 62rpx; font-size: 36rpx; transform: rotate(-2deg); }
+.mp-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6rpx;
+  min-height: 100rpx;
+}
+.mp-name {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 28rpx;
+  letter-spacing: .08em;
+  color: var(--ink);
+}
+.mp-desc {
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+}
+.mp-price {
+  flex-shrink: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 4rpx;
+  white-space: nowrap;
+  text-align: right;
+}
+.mp-num {
+  font-family: var(--font-lat);
+  font-weight: 700;
+  font-size: 32rpx;
+  line-height: 1.2;
+  color: var(--acc-deep);
+}
+.mp-unit {
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  line-height: 1.2;
+  letter-spacing: .04em;
+  color: var(--ink-faint);
+}
+.md-close {
+  margin-top: 34rpx;
+  padding: 10rpx 40rpx;
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+}

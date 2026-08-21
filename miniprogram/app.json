@@ -29,7 +29,9 @@
     "pages/jian_onboard/jian_onboard",
     "pages/persons/persons",
     "pages/settings/settings",
-    "pages/night_mark/night_mark"
+    "pages/night_mark/night_mark",
+    "pages/mingren/mingren",
+    "pages/mingren_detail/mingren_detail"
   ],
   "window": {
     "navigationBarBackgroundColor": "#F5EFE1",

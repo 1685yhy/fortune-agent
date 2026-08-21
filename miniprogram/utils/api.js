@@ -1141,6 +1141,10 @@ function saveMing(data) { return request('/api/ming/save', { method: 'POST', dat
 function getMingSaved() { return request('/api/ming/saved', { method: 'GET' }); }
 function deleteMing(data) { return request('/api/ming/delete', { method: 'DELETE', data }); }
 
+// Mingren (名人命例库 · L3-1：免费 35 例/高级会员全量)
+function listMingren(params) { return request('/api/mingren', { method: 'GET', data: params }); }
+function getMingrenDetail(name) { return request('/api/mingren/' + encodeURIComponent(name), { method: 'GET' }); }
+
 // ---- 登录增强（Task 2：手机号绑定 + 头像昵称采集） ----
 
 /** 绑定/换绑手机号：微信 getPhoneNumber 授权 code → 后端 AES 落库，响应 {phone_masked} */
@@ -1352,6 +1356,10 @@ module.exports = {
   saveMing,
   getMingSaved,
   deleteMing,
+
+  // Mingren (名人命例库)
+  listMingren,
+  getMingrenDetail,
 
   // Share (落地页 + 二维码)
   createShare,

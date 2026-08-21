@@ -124,6 +124,24 @@
       </view>
     </view>
 
+    <!-- 进阶工具：名人命例（L3-1：2807 例+穷通宝鉴评注，免费 35 例/高级会员全量） -->
+    <view class="eg-head">
+      <text>进阶工具</text>
+      <text class="eg-tag">以史为鉴</text>
+    </view>
+    <view class="papercard eg-card">
+      <!-- 实入口：名人命例 → 命例库列表（免费试看前 35 · 高级会员全量 2807 位） -->
+      <view class="book-row" hover-class="book-row-active" hover-stay-time="0"
+        data-url="/pages/mingren/mingren" bindtap="onEntryTap">
+        <view class="seal cl-seal"><text class="seal-char">例</text></view>
+        <view class="br-mid">
+          <view class="br-title">名人命例</view>
+          <view class="br-sub">2807 位历史人物 · 穷通宝鉴评注 · 免费试看 35 例</view>
+        </view>
+        <view class="br-page"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
+    </view>
+
     <view class="suance-foot">
       <view class="fg"></view>
       <text>明灯谨录 · 观命不执命</text>

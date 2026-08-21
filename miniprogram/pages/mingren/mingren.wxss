@@ -1,0 +1,368 @@
+/* ═══ 名人命例 — 列表页（L3-1）墨韵视觉基准：
+   宣纸 #F5EFE1 / 墨 #3A2C1E / 朱砂 #A93A2C / 金 #B08A4F（同 paipan/celiang 一族）
+   变量复用 app.wxss page 级 :root（--paper/--ink/--acc/--line/--font-*） ═══ */
+
+.mr-screen { position: fixed; inset: 0; }
+
+/* 主列滚动区（navrow 之下） */
+.mr-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off));
+  left: 0; right: 0;
+  bottom: 0;
+  z-index: 25;
+  padding: 23rpx 38rpx 80rpx;
+  overflow-x: hidden;
+}
+
+/* 页头题跋（同 suance-date 家族：宋体小字 + 朱砂菱点） */
+.mr-date {
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .32em;
+  color: var(--ink-soft);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 19rpx;
+  margin-bottom: 24rpx;
+}
+.mr-date .zd {
+  width: 10rpx;
+  height: 10rpx;
+  transform: rotate(45deg);
+  background: var(--acc);
+  border-radius: 2rpx;
+}
+
+/* ── 搜索框：宣纸底 + 墨线 ── */
+.mr-search { margin-bottom: 20rpx; }
+.mr-search-box {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-input);
+  border-radius: 12rpx;
+  padding: 18rpx 24rpx;
+}
+.mr-search-ic {
+  width: 44rpx; height: 44rpx;
+  flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--acc-soft);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 6rpx;
+  font-family: var(--font-kai);
+  font-size: 22rpx;
+  color: var(--acc);
+}
+.mr-search-input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-song);
+  font-size: 26rpx;
+  letter-spacing: .06em;
+  color: var(--ink);
+}
+.mr-search-ph { color: var(--ink-faint); }
+.mr-search-clear {
+  flex-shrink: 0;
+  padding: 6rpx 14rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 6rpx;
+}
+
+/* 统计行 */
+.mr-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 4rpx 6rpx 18rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+}
+.mr-meta-tag {
+  font-size: 19rpx;
+  color: var(--acc);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 6rpx;
+  padding: 3rpx 12rpx;
+}
+
+/* ── 命例卡片行（papercard 底 + 行间墨线，同 book-row 一族） ── */
+.mr-card { margin-bottom: 26rpx; }
+.mr-row {
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  padding: 26rpx 28rpx;
+}
+.mr-row + .mr-row { border-top: 2rpx solid var(--line-soft); }
+.mr-row-active { background: var(--acc-soft); }
+.mr-seal { width: 64rpx; height: 64rpx; font-size: 36rpx; border-radius: 8rpx; }
+.mr-mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+.mr-name {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 32rpx;
+  letter-spacing: .12em;
+  color: var(--ink);
+}
+.mr-info {
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  line-height: 1.55;
+  letter-spacing: .04em;
+  color: var(--ink-mid);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.mr-info2 {
+  font-family: var(--font-kai);
+  font-size: 21rpx;
+  line-height: 1.5;
+  letter-spacing: .03em;
+  color: var(--acc);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+}
+.mr-chev { flex-shrink: 0; }
+.mr-chev .chev { width: 30rpx; height: 30rpx; opacity: .55; }
+
+/* 空态 */
+.mr-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 70rpx 0 80rpx;
+  gap: 14rpx;
+}
+.mr-empty-seal { width: 76rpx; height: 76rpx; font-size: 42rpx; opacity: .5; }
+.mr-empty-t {
+  font-family: var(--font-song);
+  font-size: 26rpx;
+  letter-spacing: .2em;
+  color: var(--ink-soft);
+}
+.mr-empty-s {
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .08em;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+/* 加载更多 */
+.mr-loadmore {
+  text-align: center;
+  padding: 20rpx 0 8rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+}
+
+/* ── 免费用户引导卡（朱砂框 + 印章，点开 → 会员弹层） ── */
+.mr-guide {
+  display: flex;
+  align-items: center;
+  gap: 22rpx;
+  margin-top: 30rpx;
+  background: var(--acc-soft);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 14rpx;
+  padding: 28rpx 26rpx;
+}
+.mr-guide-active { background: rgba(169,58,44,.18); }
+.mr-guide-seal { width: 66rpx; height: 66rpx; font-size: 38rpx; border-radius: 8rpx; }
+.mr-guide-mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
+.mr-guide-t {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 27rpx;
+  letter-spacing: .1em;
+  color: var(--acc-deep);
+}
+.mr-guide-s {
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  line-height: 1.5;
+  letter-spacing: .04em;
+  color: var(--ink-mid);
+}
+.mr-guide-btn {
+  flex-shrink: 0;
+  padding: 14rpx 26rpx;
+  background: var(--acc);
+  border-radius: 10rpx;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .16em;
+  color: #FBF6E8;
+}
+
+/* 页脚 */
+.mr-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 19rpx;
+  margin-top: 44rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .24em;
+  color: var(--ink-faint);
+}
+
+/* ── 会员开通弹层（同 me.js/member-mask 一族，全量复制样式） ── */
+.member-mask {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(20, 14, 8, .6);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 60rpx;
+}
+.member-dialog {
+  width: 100%;
+  max-width: 620rpx;
+  background: var(--paper);
+  border: 2rpx solid var(--line);
+  border-radius: 16rpx;
+  box-shadow: 0 24rpx 64rpx rgba(30, 20, 10, .35);
+  padding: 52rpx 44rpx 38rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.md-seal { display: flex; align-items: center; justify-content: center; }
+.md-seal-seal { width: 92rpx; height: 92rpx; font-size: 56rpx; transform: rotate(-3deg); }
+.md-title {
+  margin-top: 18rpx;
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 40rpx;
+  letter-spacing: .22em;
+  color: var(--ink);
+}
+.md-sub {
+  margin-top: 10rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .16em;
+  color: var(--ink-soft);
+}
+.md-benefits {
+  width: 100%;
+  margin-top: 28rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+  background: var(--paper-deep);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 12rpx;
+  padding: 26rpx 28rpx;
+}
+.md-b-item {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .1em;
+  color: var(--ink-mid);
+}
+.md-b-dot {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 50%;
+  background: var(--acc);
+  flex-shrink: 0;
+}
+.md-plan {
+  width: 100%;
+  margin-top: 30rpx;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  background: var(--paper-deep);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 12rpx;
+  padding: 24rpx 26rpx;
+}
+.md-plan-active { background: var(--gold-soft); }
+.mp-ic { display: flex; align-items: center; justify-content: center; }
+.mp-seal { width: 62rpx; height: 62rpx; font-size: 36rpx; transform: rotate(-2deg); }
+.mp-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6rpx;
+  min-height: 100rpx;
+}
+.mp-name {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 28rpx;
+  letter-spacing: .08em;
+  color: var(--ink);
+}
+.mp-desc {
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+}
+.mp-price {
+  flex-shrink: 0;
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 4rpx;
+  white-space: nowrap;
+  text-align: right;
+}
+.mp-num {
+  font-family: var(--font-lat);
+  font-weight: 700;
+  font-size: 32rpx;
+  line-height: 1.2;
+  color: var(--acc-deep);
+}
+.mp-unit {
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  line-height: 1.2;
+  letter-spacing: .04em;
+  color: var(--ink-faint);
+}
+.md-close {
+  margin-top: 34rpx;
+  padding: 10rpx 40rpx;
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+}

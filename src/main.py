@@ -865,6 +865,10 @@ async def lifespan(app: FastAPI):
     from .api.zhuanxiang import setup as setup_zhuanxiang
     setup_zhuanxiang(member_dao, engine)
 
+    # 名人命例库 API（2807 例+穷通宝鉴评注; 免费 35 例/高级会员全量, 问真同款门控, L3-1）
+    from .api.mingren import setup as setup_mingren
+    setup_mingren(member_dao)
+
     # 启动后台推送任务
     if settings.push_enabled:
         _push_task = asyncio.create_task(_daily_push_worker())
@@ -1084,6 +1088,10 @@ app.include_router(paipan_router)            # POST /api/paipan
 # 专项论断 API（论财/论事业/论健康; 高级会员门控，全接口 require_user，L2-5）
 from .api.zhuanxiang import router as zhuanxiang_router
 app.include_router(zhuanxiang_router)        # POST /api/zhuanxiang
+
+# 名人命例库 API（2807 例+穷通宝鉴评注; 免费 35 例/高级会员全量，全接口 require_user，L3-1）
+from .api.mingren import router as mingren_router
+app.include_router(mingren_router)           # /api/mingren/*
 
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)

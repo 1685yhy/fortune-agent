@@ -1,0 +1,106 @@
+<!-- 名人命例 — 列表页(墨韵: 宣纸/墨/朱砂, 同 paipan/celiang 一族) -->
+<view class="screen mr-screen" style="--nav-off:{{navOff}}px">
+  <view class="navrow">
+    <view class="nav-title">
+      <text>名人命例</text>
+    </view>
+  </view>
+
+  <scroll-view scroll-y class="mr-scroll">
+    <!-- 头部: 题跋 -->
+    <view class="mr-date">
+      <text>穷通宝鉴 · 徐乐吾评注</text>
+      <view class="zd"></view>
+      <text>以史为鉴 · 以命观人</text>
+    </view>
+
+    <!-- 搜索框 -->
+    <view class="mr-search">
+      <view class="mr-search-box">
+        <text class="mr-search-ic">寻</text>
+        <input class="mr-search-input" placeholder="搜历史人物，如 朱元璋" placeholder-class="mr-search-ph"
+          value="{{keyword}}" confirm-type="search" bindinput="onSearchInput" />
+        <view class="mr-search-clear" wx:if="{{keyword}}" bindtap="onClearSearch">清</view>
+      </view>
+    </view>
+
+    <!-- 统计行 -->
+    <view class="mr-meta" wx:if="{{!loading}}">
+      <text wx:if="{{keyword}}">「{{keyword}}」 命中 {{total}} 位</text>
+      <text wx:else>{{isFull ? '全库' : '免费试看前 35 位'}} · 共 {{libraryTotal}} 位名人命例</text>
+      <text class="mr-meta-tag" wx:if="{{!isFull}}">高级会员全量</text>
+    </view>
+
+    <!-- 列表 -->
+    <view class="papercard mr-card">
+      <view class="mr-row" hover-class="mr-row-active" hover-stay-time="0"
+        wx:for="{{items}}" wx:key="name"
+        data-name="{{item.name}}" bindtap="onItemTap">
+        <view class="seal mr-seal"><text class="seal-char">{{item.sealChar}}</text></view>
+        <view class="mr-mid">
+          <view class="mr-name">{{item.name}}</view>
+          <view class="mr-info">{{item.info}}</view>
+          <view class="mr-info2" wx:if="{{item.hasInfo2}}">{{item.info2}}</view>
+        </view>
+        <view class="mr-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
+
+      <!-- 空态 -->
+      <view class="mr-empty" wx:if="{{!loading && items.length === 0}}">
+        <view class="seal mr-empty-seal"><text class="seal-char">例</text></view>
+        <text class="mr-empty-t">未寻得此命例</text>
+        <text class="mr-empty-s" wx:if="{{keyword && !isFull}}">或为高级会员专属命例 · 开通会员全库可搜</text>
+      </view>
+    </view>
+
+    <!-- 加载更多 -->
+    <view class="mr-loadmore" wx:if="{{loadingMore}}">
+      <text>翻检命册中…</text>
+    </view>
+    <view class="mr-loadmore" wx:if="{{!loading && !loadingMore && finished && items.length > 0}}">
+      <text>{{isFull ? '已览尽全库' : '免费试看已尽 · 余册为会员典藏'}}</text>
+    </view>
+
+    <!-- 免费用户引导卡: 开通高级会员查看全部 -->
+    <view class="mr-guide" wx:if="{{!isFull}}" hover-class="mr-guide-active" hover-stay-time="0" bindtap="openMemberDialog">
+      <view class="seal mr-guide-seal"><text class="seal-char">全</text></view>
+      <view class="mr-guide-mid">
+        <view class="mr-guide-t">已试看前 35 位</view>
+        <view class="mr-guide-s">开通高级会员 · 解锁全部 {{libraryTotal || 2807}} 位名人命例与穷通宝鉴评注</view>
+      </view>
+      <view class="mr-guide-btn">开通</view>
+    </view>
+
+    <view class="mr-foot">
+      <view class="fg"></view>
+      <text>明灯谨录 · 观命不执命</text>
+      <view class="fg"></view>
+    </view>
+  </scroll-view>
+
+  <!-- 会员开通(同 me.js 弹层: 虚拟支付优先, mock 降级由 payment.js 统一处理) -->
+  <view class="member-mask" wx:if="{{memberDialogVisible}}" bindtap="closeMemberDialog">
+    <view class="member-dialog" catchtap="noop">
+      <view class="md-seal"><view class="seal md-seal-seal"><text class="seal-char">明</text></view></view>
+      <view class="md-title">开通高级会员</view>
+      <view class="md-sub">全量命例 · 明灯长明</view>
+      <view class="md-benefits">
+        <view class="md-b-item" wx:for="{{['全部 2807 位名人命例', '穷通宝鉴 · 徐乐吾评注', '生平大事 · 逐年时间线']}}" wx:key="*this">
+          <view class="md-b-dot"></view>
+          <text>{{item}}</text>
+        </view>
+      </view>
+      <view class="md-plan" wx:for="{{memberPlans}}" wx:key="id"
+        hover-class="md-plan-active" hover-stay-time="0"
+        data-plan="{{item.id}}" bindtap="buyPlan">
+        <view class="mp-ic"><view class="seal mp-seal"><text class="seal-char">{{item.icon}}</text></view></view>
+        <view class="mp-info">
+          <view class="mp-name">{{item.name}}</view>
+          <view class="mp-desc">{{item.description}}</view>
+        </view>
+        <view class="mp-price"><text class="mp-num">{{item.priceNum}}</text><text class="mp-unit">{{item.priceUnit}}</text></view>
+      </view>
+      <view class="md-close" bindtap="closeMemberDialog">暂不开通</view>
+    </view>
+  </view>
+</view>
