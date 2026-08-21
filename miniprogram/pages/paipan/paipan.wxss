@@ -46,14 +46,21 @@ page {
   color: var(--ink-mid);
 }
 .form-picker-empty { color: var(--ink-faint); }
-.form-radio-group { display: flex; gap: 22rpx; }
-.form-radio {
-  display: flex; align-items: center; justify-content: center; gap: 6rpx;
-  padding: 20rpx 22rpx; border-radius: 22rpx;
-  background: var(--paper); border: 2rpx solid var(--line-input);
-  font-size: 28rpx; color: var(--ink-soft); flex: 1;
+/* 性别：男/女 并排大按钮（问真式：选中朱砂底白字，未选宣纸墨框） */
+.gender-group { display: flex; gap: 22rpx; }
+.gender-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 26rpx 0; border-radius: 14rpx;
+  background: var(--paper); border: 2rpx solid var(--line-btn);
+  box-shadow: inset 0 0 0 2rpx rgba(255,255,255,.35);
 }
-.form-radio.active { border-color: var(--acc-line); color: var(--acc); background: var(--acc-soft); }
+.gender-char { font-family: var(--font-song); font-size: 32rpx; letter-spacing: .3em; color: var(--ink); text-indent: .3em; }
+.gender-btn-tap { transform: translateY(2rpx); }
+.gender-btn.is-on {
+  background: var(--acc); border-color: var(--acc);
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 6rpx 18rpx rgba(169,58,44,.28);
+}
+.gender-btn.is-on .gender-char { color: #FBF6E8; font-weight: 600; }
 .form-error { margin-top: 22rpx; font-family: var(--font-song); font-size: 24rpx; color: var(--acc); letter-spacing: .06em; }
 
 .pp-btn {
@@ -103,13 +110,16 @@ page {
 }
 .mr-time { margin-top: 8rpx; font-family: var(--font-kai); font-size: 21rpx; letter-spacing: .06em; color: var(--ink-mid); }
 
-/* ════════ ③ 四柱盘面（paipan-pillars） ════════ */
+/* ════════ ③ 四柱盘面（paipan-pillars） ════════
+   问真式层级：柱名 → 十神小签 → 天干大字 → 地支大字 → 藏干+副星小字一行
+   纳音/星运弱化为柱底小注，收进「展开」（柱身点击切换，默认收起）
+   四柱等宽并排：天干地支 80rpx（40px），藏干行 17/15rpx 一行放得下 */
 
 .pp-card {
   background: var(--paper-card); border: 2rpx solid var(--line); border-radius: 24rpx;
-  padding: 36rpx 32rpx 32rpx; box-shadow: 0 20rpx 56rpx rgba(58,44,30,.07);
+  padding: 36rpx 24rpx 32rpx; box-shadow: 0 20rpx 56rpx rgba(58,44,30,.07);
 }
-.pp-head { display: flex; align-items: center; gap: 18rpx; padding-bottom: 26rpx; border-bottom: 2rpx solid var(--line-soft); }
+.pp-head { display: flex; align-items: center; gap: 18rpx; padding: 0 8rpx 26rpx; border-bottom: 2rpx solid var(--line-soft); }
 .pp-seal {
   width: 52rpx; height: 52rpx; flex-shrink: 0; border-radius: 8rpx; background: var(--acc); color: #FBF6E8;
   font-family: var(--font-kai); font-size: 30rpx; line-height: 1;
@@ -118,32 +128,41 @@ page {
 }
 .pp-title { font-family: var(--font-song); font-weight: 700; font-size: 30rpx; letter-spacing: .3em; color: var(--ink); }
 .pp-head-sub { margin-left: auto; font-family: var(--font-song); font-size: 19rpx; letter-spacing: .12em; color: var(--ink-faint); }
-.pp-row { display: flex; margin-top: 28rpx; }
-.pp-pillar { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; gap: 12rpx; }
+.pp-row { display: flex; margin-top: 24rpx; }
+.pp-pillar { flex: 1; position: relative; display: flex; flex-direction: column; align-items: center; gap: 10rpx; padding: 2rpx 4rpx 6rpx; border-radius: 12rpx; }
+.pp-pillar-tap { background: rgba(58,44,30,.05); }
 .pp-pillar + .pp-pillar::before {
-  content: ''; position: absolute; left: 0; top: 16rpx; bottom: 16rpx; width: 2rpx; background: var(--line-soft);
+  content: ''; position: absolute; left: -2rpx; top: 10rpx; bottom: 10rpx; width: 2rpx; background: var(--line-soft);
 }
 .pp-pillar.is-day::after {
-  content: ''; position: absolute; left: 0; right: 0; bottom: -20rpx; height: 4rpx;
+  content: ''; position: absolute; left: 6rpx; right: 6rpx; bottom: -14rpx; height: 4rpx;
   background: var(--acc); opacity: .85; border-radius: 2rpx;
 }
-.pp-pillar.is-day { background: linear-gradient(180deg, rgba(169,58,44,.045) 0%, transparent 78%); }
+.pp-pillar.is-day { background: linear-gradient(180deg, rgba(169,58,44,.05) 0%, transparent 72%); }
+.pp-pillar.is-expanded { background: rgba(169,58,44,.045); }
 .pp-ganzhi-name { font-family: var(--font-song); font-size: 19rpx; letter-spacing: .3em; color: var(--ink-faint); }
 .pp-shishen {
-  font-family: var(--font-song); font-size: 22rpx; letter-spacing: .14em; line-height: 1;
+  font-family: var(--font-song); font-size: 21rpx; letter-spacing: .14em; line-height: 1;
   color: var(--acc); background: var(--acc-soft); border: 2rpx solid rgba(169,58,44,.28);
-  border-radius: 6rpx; padding: 8rpx 18rpx;
+  border-radius: 6rpx; padding: 6rpx 16rpx;
 }
 .pp-shishen.is-ri { color: #FBF6E8; background: var(--acc); border-color: var(--acc); box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12); }
 .pp-tap { transform: translateY(2rpx); }
-.pp-tg, .pp-dz { font-family: var(--font-song); font-weight: 700; font-size: 80rpx; line-height: 1.12; color: var(--ink); letter-spacing: .02em; }
-.pp-canggan { display: flex; gap: 18rpx; margin-top: 4rpx; }
-.pp-cg-item { display: flex; flex-direction: column; align-items: center; gap: 4rpx; }
-.pp-cg-char { font-family: var(--font-song); font-weight: 600; font-size: 24rpx; line-height: 1; color: var(--ink-mid); }
-.pp-cg-star { font-family: var(--font-song); font-size: 17rpx; line-height: 1; color: var(--ink-soft); letter-spacing: .06em; }
-.pp-nayin { font-family: var(--font-song); font-size: 20rpx; letter-spacing: .18em; color: var(--gold); }
-.pp-xingyun { font-family: var(--font-song); font-size: 19rpx; letter-spacing: .2em; color: var(--ink-faint); }
+.pp-tg, .pp-dz { font-family: var(--font-song); font-weight: 700; font-size: 80rpx; line-height: 1.15; color: var(--ink); letter-spacing: .02em; }
+/* 藏干+副星：淡墨小字一行（藏干 17rpx 中墨 · 副星 15rpx 淡墨），超宽自动折行兜底 */
+.pp-canggan { display: flex; justify-content: center; align-items: baseline; gap: 6rpx; margin-top: 2rpx; flex-wrap: wrap; }
+.pp-cg-item { display: inline-flex; align-items: baseline; }
+.pp-cg-char { font-family: var(--font-song); font-weight: 600; font-size: 17rpx; line-height: 1.45; color: var(--ink-mid); }
+.pp-cg-star { font-family: var(--font-song); font-size: 15rpx; line-height: 1.45; color: var(--ink-soft); margin-left: 2rpx; }
+/* 弱化区：纳音/星运（展开后显示） */
+.pp-more { display: flex; flex-direction: column; align-items: center; gap: 4rpx; margin-top: 4rpx; }
+.pp-nayin { font-family: var(--font-song); font-size: 18rpx; letter-spacing: .16em; color: var(--ink-soft); }
+.pp-xingyun { font-family: var(--font-song); font-size: 18rpx; letter-spacing: .18em; color: var(--ink-soft); }
 .pp-xingyun.is-changsheng { color: var(--acc); font-weight: 600; }
+.pp-more-hint {
+  margin-top: 2rpx; font-family: var(--font-song); font-size: 17rpx;
+  letter-spacing: .24em; color: var(--ink-faint); opacity: .8;
+}
 .pp-foot { margin-top: 40rpx; padding-top: 24rpx; border-top: 2rpx solid var(--line-soft); display: flex; align-items: center; gap: 16rpx; }
 .pp-foot-tag {
   font-family: var(--font-song); font-size: 19rpx; letter-spacing: .14em; color: #FBF6E8;

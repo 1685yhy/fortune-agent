@@ -33,15 +33,17 @@
 
     <view class="form-group">
       <text class="form-label">性别</text>
-      <view class="form-radio-group">
-        <label class="form-radio {{bGender === 'male' ? 'active' : ''}}">
-          <radio value="male" checked="{{bGender === 'male'}}" bindchange="onGenderChange" color="#A93A2C" />
-          <text>男</text>
-        </label>
-        <label class="form-radio {{bGender === 'female' ? 'active' : ''}}">
-          <radio value="female" checked="{{bGender === 'female'}}" bindchange="onGenderChange" color="#A93A2C" />
-          <text>女</text>
-        </label>
+      <view class="gender-group">
+        <view class="gender-btn {{bGender === 'male' ? 'is-on' : ''}}"
+          hover-class="gender-btn-tap" hover-stay-time="0"
+          data-gender="male" bindtap="onGenderTap">
+          <text class="gender-char">男</text>
+        </view>
+        <view class="gender-btn {{bGender === 'female' ? 'is-on' : ''}}"
+          hover-class="gender-btn-tap" hover-stay-time="0"
+          data-gender="female" bindtap="onGenderTap">
+          <text class="gender-char">女</text>
+        </view>
       </view>
     </view>
 
@@ -78,25 +80,33 @@
       <text class="pp-head-sub">{{chart.bazi[0]}}{{chart.meta.zodiac}} · {{chart.meta.shichen}}</text>
     </view>
     <view class="pp-row">
-      <view class="pp-pillar {{p.isDay ? 'is-day' : ''}}" wx:for="{{pillars}}" wx:key="name" wx:for-item="p">
+      <!-- 问真式层级：柱名 → 十神小签 → 天干大字 → 地支大字 → 藏干+副星小字一行；
+           纳音/星运收进「展开」（点击柱身切换，默认收起） -->
+      <view class="pp-pillar {{p.isDay ? 'is-day' : ''}} {{p.expanded ? 'is-expanded' : ''}}"
+        hover-class="pp-pillar-tap" hover-stay-time="0"
+        data-idx="{{index}}" bindtap="onPillarTap"
+        wx:for="{{pillars}}" wx:key="name" wx:for-item="p">
         <text class="pp-ganzhi-name">{{p.name}}</text>
-        <view class="pp-shishen {{p.isDay ? '' : 'is-link'}}"
-          hover-class="pp-tap" hover-stay-time="0"
-          wx:if="{{!p.isDay}}" data-cat="shishen" data-name="{{p.shishen}}" data-src="{{p.name}}" bindtap="onKnowTap">
+        <view class="pp-shishen {{p.isDay ? 'is-ri' : ''}}"
+          hover-class="pp-tap" hover-stay-time="0" catchtap="onKnowTap"
+          wx:if="{{!p.isDay}}" data-cat="shishen" data-name="{{p.shishen}}" data-src="{{p.name}}">
           <text>{{p.shishen}}</text>
         </view>
         <text class="pp-shishen is-ri" wx:if="{{p.isDay}}">{{p.shishen}}</text>
-        <text class="pp-tg" data-cat="tiangan" data-name="{{p.gan}}" data-src="{{p.name}} · 天干" bindtap="onKnowTap">{{p.gan}}</text>
-        <text class="pp-dz" data-cat="dizhi" data-name="{{p.zhi}}" data-src="{{p.name}} · 地支" bindtap="onKnowTap">{{p.zhi}}</text>
+        <text class="pp-tg" data-cat="tiangan" data-name="{{p.gan}}" data-src="{{p.name}} · 天干" catchtap="onKnowTap">{{p.gan}}</text>
+        <text class="pp-dz" data-cat="dizhi" data-name="{{p.zhi}}" data-src="{{p.name}} · 地支" catchtap="onKnowTap">{{p.zhi}}</text>
         <view class="pp-canggan">
           <view class="pp-cg-item" wx:for="{{p.canggan}}" wx:key="gan" wx:for-item="cg">
             <text class="pp-cg-char">{{cg.gan}}</text>
             <text class="pp-cg-star">{{cg.shishen}}</text>
           </view>
         </view>
-        <text class="pp-nayin" data-cat="nayin" data-name="{{p.nayin}}" data-src="{{p.name}} · 纳音" bindtap="onKnowTap">{{p.nayin}}</text>
-        <text class="pp-xingyun {{p.xingyun === '长生' ? 'is-changsheng' : ''}}"
-          data-cat="zhangsheng" data-name="{{p.xingyun}}" data-src="{{p.name}} · 十二长生" bindtap="onKnowTap">{{p.xingyun}}</text>
+        <view class="pp-more" wx:if="{{p.expanded}}">
+          <text class="pp-nayin" data-cat="nayin" data-name="{{p.nayin}}" data-src="{{p.name}} · 纳音" catchtap="onKnowTap">{{p.nayin}}</text>
+          <text class="pp-xingyun {{p.xingyun === '长生' ? 'is-changsheng' : ''}}"
+            data-cat="zhangsheng" data-name="{{p.xingyun}}" data-src="{{p.name}} · 十二长生" catchtap="onKnowTap">{{p.xingyun}}</text>
+        </view>
+        <text class="pp-more-hint" wx:if="{{!p.expanded}}">展开</text>
       </view>
     </view>
     <view class="pp-foot">

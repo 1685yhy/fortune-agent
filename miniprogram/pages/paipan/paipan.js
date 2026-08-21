@@ -115,8 +115,17 @@ Page({
   onCityChange(e) {
     this.setData({ bCity: e.detail.full, bCityName: e.detail.city, bCitySet: !!e.detail.city });
   },
-  onGenderChange(e) {
-    this.setData({ bGender: e.detail.value });
+  /* 性别：男/女 大按钮（点击切换） */
+  onGenderTap(e) {
+    this.setData({ bGender: e.currentTarget.dataset.gender });
+  },
+
+  /* 四柱柱身点击：展开/收起 纳音+星运（问真式弱化，默认收起） */
+  onPillarTap(e) {
+    const idx = parseInt(e.currentTarget.dataset.idx, 10);
+    const p = this.data.pillars[idx];
+    if (!p) return;
+    this.setData({ [`pillars[${idx}].expanded`]: !p.expanded });
   },
 
   /* ════════ 排盘 ════════ */
@@ -167,11 +176,12 @@ Page({
     const now = new Date();
     const birthYear = parseInt(p.birthYear, 10);
 
-    /* 四柱盘面：后端字段 is_day → 视图 isDay（camelCase） */
+    /* 四柱盘面：后端字段 is_day → 视图 isDay（camelCase）；expanded 为柱身展开态 */
     const pillars = (c.pillars || []).map((x) => ({
       name: x.name, ganzhi: x.ganzhi, gan: x.gan, zhi: x.zhi,
       shishen: x.shishen, isDay: !!x.is_day,
       canggan: x.canggan || [], nayin: x.nayin || '', xingyun: x.xingyun || '',
+      expanded: false,
     }));
 
     /* 命主信息头 */
