@@ -15,6 +15,10 @@
        （getDayYi，通胜逐日宜忌表）按序去重合并 —— 与 zeri.py _build_lucky_card
        的合并口径完全一致（list(dict.fromkeys(r.yi + lunar.getDayYi()))）。
   忌 = 同理（建除忌 + getDayJi 去重合并）。
+  冲突消解（对比报告 P2 项，2026-08-21）：合并后同一事项同时出现在宜、忌时
+       （如 2026-08-21 既宜又忌"嫁娶"），按忌优先（保守口径——通书惯例：忌示
+       不宜行事，宁可错忌不可错宜；见 _resolve_yi_ji_conflicts）从宜中剔除、
+       保留于忌。月视图 yi_short/ji_short 与日详情 yi/ji 同一消解。
   黄黑道 = lunar-python 十二值神: 青龙/明堂/金匮/天德/玉堂/司命 为黄道（吉）；
            天刑/朱雀/白虎/天牢/玄武/勾陈 为黑道（凶）。
   值日吉凶 quality = 建除十二神吉凶（JIANCHU_QUALITY: 吉/平/凶）。
@@ -70,6 +74,18 @@ def _merge_yi_ji(jianchu_yi: List[str], day_yi: List[str]) -> List[str]:
     return list(dict.fromkeys(list(jianchu_yi) + list(day_yi)))
 
 
+def _resolve_yi_ji_conflicts(yi: List[str], ji: List[str]) -> tuple:
+    """宜忌冲突消解（忌优先，保守口径，对比报告 P2 项）。
+
+    合并后同一事项同时出现在宜、忌（如 2026-08-21 既宜又忌"嫁娶"）时，通书惯例
+    以忌为准（忌示当日不宜行事，保守口径：宁可错忌、不可错宜），从宜中剔除该
+    事项、保留于忌。忌列表不变（消解只影响宜）。
+    返回 (消解后宜, 忌)。月视图与日详情共用此消解，保证两处口径一致。
+    """
+    ji_set = set(ji)
+    return [x for x in yi if x not in ji_set], ji
+
+
 def _jieqi_and_festival(lunar) -> tuple:
     """(当日节气名 or "", [节日列表])。节气当日返回节气名（立秋等），否则空串。"""
     return (lunar.getJieQi() or ""), list(lunar.getFestivals() or [])
@@ -109,6 +125,8 @@ class WannianliEngine:
             )
             yi = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["yi"], list(lunar.getDayYi() or []))
             ji = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["ji"], list(lunar.getDayJi() or []))
+            # 宜忌冲突消解（忌优先）——与日详情同一口径（对比报告 P2）
+            yi, ji = _resolve_yi_ji_conflicts(yi, ji)
 
             days.append({
                 "date": f"{year:04d}-{month:02d}-{day:02d}",
@@ -165,6 +183,8 @@ class WannianliEngine:
         jianchu = _zeri._calc_jianchu_with_jieqi(month_zhi, day_zhi, jieqi)
         yi = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["yi"], list(lunar.getDayYi() or []))
         ji = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["ji"], list(lunar.getDayJi() or []))
+        # 宜忌冲突消解（忌优先）——与月视图 yi_short/ji_short 同一口径（对比报告 P2）
+        yi, ji = _resolve_yi_ji_conflicts(yi, ji)
         chong_desc = lunar.getDayChongDesc() or ""
         chong = _chong_parse(chong_desc)
         chong["sha"] = lunar.getDaySha() or ""          # 煞方（东/南/西/北）

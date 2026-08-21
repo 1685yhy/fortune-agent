@@ -226,6 +226,43 @@ def test_yi_ji_rule_consistency():
     assert d19["ji_short"] == r1["ji"][:3]
 
 
+# ---------------------------------------------------------------- 宜忌冲突消解（对比报告 P2 项）
+def test_yi_ji_conflict_resolution_day_detail():
+    """宜忌冲突消解（忌优先）：同日宜∩忌=空，冲突项保留于忌、从宜中剔除。
+
+    2026-08-21 对比报告原样例：合并前 宜∩忌 = {出行, 嫁娶, 开市, 移徙}（既宜又忌
+    "嫁娶"即此日）；消解后无交集，且 忌优先 —— "嫁娶"等仍留忌、不再出现在宜。
+    """
+    for date, conflicts in [("2026-08-21", ["出行", "嫁娶", "开市", "移徙"]),
+                            ("2025-01-15", ["出行", "动土", "嫁娶", "安床",
+                                            "开市", "移徙", "纳畜"])]:
+        r = _client().get(f"/api/wannianli/day?date={date}", headers=_headers())
+        assert r.status_code == 200, r.text
+        body = r.json()
+        yi, ji = body["yi"], body["ji"]
+        inter = set(yi) & set(ji)
+        assert inter == set(), f"{date} 宜忌仍有交集: {inter}"
+        # 忌优先：原冲突事项保留于忌（忌列表不受消解影响）
+        for c in conflicts:
+            assert c in ji, f"{date} 冲突项 {c} 应从忌中保留"
+            assert c not in yi, f"{date} 冲突项 {c} 应从宜中剔除（忌优先）"
+
+
+def test_yi_ji_conflict_resolution_month_view():
+    """月视图 yi_short/ji_short 与日详情同一消解口径：无交集。"""
+    c = _client()
+    for date in ("2026-08-21", "2025-01-15"):
+        y, m, d = (int(x) for x in date.split("-"))
+        mv = c.get(f"/api/wannianli?year={y}&month={m}", headers=_headers()).json()
+        day = next(x for x in mv["days"] if x["date"] == date)
+        assert set(day["yi_short"]) & set(day["ji_short"]) == set(), \
+            f"{date} 月视图简表宜忌仍有交集"
+        # 与日详情全表同源：简表 = 消解后全表前 3 项
+        det = c.get(f"/api/wannianli/day?date={date}", headers=_headers()).json()
+        assert day["yi_short"] == det["yi"][:3]
+        assert day["ji_short"] == det["ji"][:3]
+
+
 def test_month_view_deterministic():
     """月视图确定性：同月两次调用结果完全一致。"""
     c = _client()

@@ -8,7 +8,7 @@ from datetime import datetime as dt, timedelta
 from typing import List, Dict, Optional
 from lunar_python import Lunar, Solar
 
-from src.engines.shensha import shensha_of
+from src.engines.shensha import shensha_of, shensha_of_dayun
 from src.engines.ganzhi_rel import analyze_relations
 from src.engines.chenggu import (chenggu_bone, bone_weight_text, chenggu_parts,
                                  part_weight_text, MONTH_CN, RN)
@@ -61,6 +61,20 @@ NAYIN = {
 
 
 # ── 流年 / 流月 / 流时（L2-4，问真方式：排盘结果带出流年表）──
+
+def xiaoyun_table(time_pillar: str, forward: bool, years: int = 110) -> List[str]:
+    """小运（问真 xiaoyun 口径，2026-08-21 从语料 8658 例全量反推 100% 一致）。
+
+    规则：以时柱干支为起点，顺逆与大运同向（阳男阴女顺排、阴男阳女逆排），
+    逐年推进一位；第 1 条 = 时柱顺/逆推一位（出生次年），共 110 条（问真语料
+    恒 110 条，覆盖出生后 110 年，起运前使用、起运后与流年并列展示）。
+    例：xiaoyun_table("甲子", True)[:3] == ["乙丑", "丙寅", "丁卯"]；
+        xiaoyun_table("甲子", False)[:3] == ["癸亥", "壬戌", "辛酉"]。
+    """
+    start = SHENG_XU_MAP.get(time_pillar, 0)
+    step = 1 if forward else -1
+    return [SHENG_XU[(start + step * i) % 60] for i in range(1, years + 1)]
+
 
 def liunian_ganzhi(birth_year: int, year_pillar: str, target_year: int) -> str:
     """流年干支（年柱 + 岁差，六十甲子循环）。
@@ -405,6 +419,12 @@ class BaziResult:
     liuyue: dict = field(default_factory=dict)        # 当前流年 12 流月 {year, ganzhi, months}
     liushi: dict = field(default_factory=dict)        # 今日 12 流时 {day_pillar, hours}
     dayun_rel: list = field(default_factory=list)     # 各步大运 vs 原局 [{sui, ganzhi, rel}]（rel_with 结果）
+    # 小运（问真 xiaoyun 口径，P2-2 补全）：110 条干支列表（时柱起、与大运同向顺逆，
+    # 语料 8658 例全量对齐 100%，见 xiaoyun_table）
+    xiaoyun: list = field(default_factory=list)
+    # 每步大运神煞（问真 dyshensha 口径，P2-2 补全）：[[大运干支, [神煞名...]], ...]
+    # 与 dayun 同序同位（shensha_of_dayun，语料 8658 例全量对齐 100%）
+    dyshensha: list = field(default_factory=list)
 
     def rel_with(self, ganzhi: str) -> list:
         """大运/流年干支与原局各柱的干支关系（问真点大运流年同款入口，P0-3）。
@@ -559,6 +579,17 @@ class BaziEngine:
         qiyun_detail = self._qiyun_breakdown
         qiyun_desc = self._qiyun_desc
 
+        # 小运 / 大运神煞（问真口径，P2-2 补全）：顺逆与大运同向（阳男阴女顺、
+        # 阴男阳女逆），时柱起逐年推 110 条；大运神煞逐柱套通用规则（shensha_of_dayun）
+        year_gan0 = bazi_pillars[0][0]
+        is_yang0 = TIANGAN.index(year_gan0) % 2 == 0
+        is_male0 = calc_gender == "男"
+        dayun_forward = (is_male0 and is_yang0) or (not is_male0 and not is_yang0)
+        xiaoyun = xiaoyun_table(bazi_pillars[3], dayun_forward)
+        dyshensha = [[gz, shensha_of_dayun(gz, bazi_pillars[0], bazi_pillars[1],
+                                           bazi_pillars[2], calc_gender)]
+                     for _, gz in dayun]
+
         # 流年/流月/流时（L2-4）：流年表从出生年柱所在干支年起 30 年——干支年以
         # 立春界定（与年柱同口径）；农历年正月初一换年、年柱立春换年，[立春, 正月初一)
         # 出生者（约 4%）农历年比干支年小 1，若用农历年作起点/岁差基数，流年表/
@@ -611,6 +642,11 @@ class BaziEngine:
             "strength": day_master_strength(bazi_pillars, wuxing),
             "yongshen": yongshen,
         }
+        # 旺衰逐字段（问真 zz）核对（对比报告 P3，2026-08-21）：语料 zz = 各柱
+        # 本柱天干十二长生（30 例抽样 100% 一致），语义上已被 wangshuai（五行月令
+        # 旺衰）与 changsheng（日主十二长生逐柱，即语料 xy）覆盖——前端"五行旺衰
+        # 逐字段"展示用 wuxing_energy.wangshuai/changsheng 即可，不重复输出 zz
+        # （"已有则不重复"原则）。
 
         # 神煞（问真 szshensha 计算口径：年干/日干、年支/日支双查 + 年支类 + 空亡/元辰/学堂/词馆/天罗地网）
         shensha_items = shensha_of(
@@ -720,6 +756,8 @@ class BaziEngine:
             lunar=lunar_disp,
             knowledge_index=knowledge_index,
             wuxing_energy=wuxing_energy,
+            xiaoyun=xiaoyun,
+            dyshensha=dyshensha,
         )
         # 干支关系集成（L2-4）：当前流年 + 各步大运 vs 原局各柱（复用 rel_with，
         # 问真点大运/流年查关系同款入口）。流年 rel 只算当前年（30 年表全量 rel
@@ -945,6 +983,12 @@ class BaziEngine:
           4. N = floor(交运时刻 − 所在节时刻)（节为 12 节之一，如"白露后27天"）
         客户端 fatemaps 另输出 "每逢 X、Y 年M月D日H时交脱大运"，本实现同用上述
         服务端口径的交运时刻（与排盘页/API 一致），格式字符串对齐问真。
+
+        口径说明（对比报告 P2 项，2026-08-21）：起运虚岁已与问真 100% 对齐，但
+        "节后 N 天"（交运日期）与本引擎节气口径存在 ≤2 天差异——节锚定规则不同
+        （本引擎用问真节气表/起运时刻所在节 floor 天数，问真服务端按自身交运日
+        口径锚定）。差异属口径而非错误，刻意不改输出（避免引入回归）；前端展示
+        时以"约"字弱化精确对比即可。
         """
         if not breakdown or qy_time is None:
             return {}

@@ -7,7 +7,8 @@
       基础：bazi / pillars(四柱盘面含藏干十神纳音长生) / day_master / shishen /
             nayin / gender / wuxing
       L1：jiaoyun(交运 page_text 等) / siling(司令) / siling_detail / qiyun_desc /
-          起运分解 qiyun_detail / dayun(带十神+年份) / liunian_full(30 年) /
+          起运分解 qiyun_detail / dayun(带十神+年份) / xiaoyun(小运 110 条) /
+          dyshensha(每步大运神煞 [[干支,[名...]],...]) / liunian_full(30 年) /
           liunian_rel / liuyue / liushi / dayun_rel / ganzhi_rel
       L2：wuxing_energy(counts/wangshuai/changsheng/strength/yongshen) /
           chenggu(weight_text/jieci/分项) / shensha_detail(59 种 name/source/luck) /
@@ -173,6 +174,9 @@ def serialize_bazi(r: BaziResult, engine: BaziEngine,
         "qiyun_desc": r.qiyun_desc,
         "qiyun_detail": list(r.qiyun_detail or ()),
         "dayun": dayun,
+        # 小运（110 条干支，起运前逐年）与每步大运神煞 [[干支, [神煞...]], ...]（P2-2 补全）
+        "xiaoyun": list(r.xiaoyun),
+        "dyshensha": r.dyshensha,
         "dayun_rel": r.dayun_rel,
         "liunian_full": r.liunian_full,
         "liunian_rel": r.liunian_rel,

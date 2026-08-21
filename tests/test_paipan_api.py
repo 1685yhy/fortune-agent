@@ -145,6 +145,29 @@ def test_paipan_full_chart_anchors():
     assert meta["solar_text"].startswith("1999年5月13日")
 
 
+def test_paipan_xiaoyun_dyshensha():
+    """小运/大运神煞序列化（对比报告 P3 补全）：字段存在、与盘面同口径。
+
+    YAN 盘（己卯 己巳 乙丑 壬午 男）：阴年男 → 大运/小运均逆排——
+    时柱壬午 逆推 → 小运前 3 = [辛巳, 庚辰, 己卯]；dyshensha 与 dayun
+    12 步同序同位（每步干支 == 大运干支，神煞为名称列表）。
+    """
+    r = _client().post("/api/paipan", json=YAN, headers=_headers())
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    xy = body["xiaoyun"]
+    assert isinstance(xy, list) and len(xy) == 110
+    assert xy[:3] == ["辛巳", "庚辰", "己卯"]          # 时柱壬午 逆排（阴男）
+    assert len(set(xy)) == 60                           # 六十甲子循环（110 条含 1 圈余 50）
+
+    ds = body["dyshensha"]
+    assert isinstance(ds, list) and len(ds) == 12       # 与 12 步大运同序同位
+    assert [g for g, _ in ds] == [d["ganzhi"] for d in body["dayun"]]
+    assert ds[0][0] == "戊辰" and ds[0][1]              # 首步神煞非空
+    assert all(isinstance(n, str) for n in ds[0][1])
+
+
 def test_paipan_native_contract_fields():
     """原生契约字段（year/month/day/hour 时钟小时）同样可用（双契约兼容）。
 
@@ -275,6 +298,7 @@ def test_serialize_bazi_handles_tuples():
     # 全字段集合（任务验收清单）
     required = {"bazi", "pillars", "day_master", "shishen", "nayin", "gender",
                 "jiaoyun", "siling", "qiyun_desc", "qiyun_detail", "dayun",
+                "xiaoyun", "dyshensha",
                 "liunian_full", "liunian_rel", "liuyue", "liushi",
                 "dayun_rel", "ganzhi_rel", "wuxing_energy", "chenggu",
                 "shensha_detail", "knowledge_index", "meta"}

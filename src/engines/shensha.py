@@ -584,3 +584,155 @@ def shensha_names(year_pillar: str, day_pillar: str,
                   gender: str = "男") -> List[str]:
     """shensha_of 的名称简版（BaziResult.shensha 字段用，兼容旧消费方）。"""
     return [item.name for item in shensha_of(year_pillar, day_pillar, all_gan, all_zhi, gender)]
+
+
+def _gu_chen_gu_su_zhi(zhi: str, kind: str) -> str:
+    """孤辰/寡宿目标支（三合局位偏移：首+3/-1、中+2/-2、尾+1/-3），年支单查。"""
+    group = SANHE[zhi]
+    pos = group.index(zhi)  # 0 首 1 中 2 尾
+    if kind == "gu":
+        return _zhi_plus(zhi, 3 - pos)
+    return _zhi_plus(zhi, -(1 + pos))
+
+
+def shensha_of_dayun(dayun_pillar: str, year_pillar: str, month_pillar: str,
+                     day_pillar: str, gender: str = "男") -> List[str]:
+    """大运神煞（问真 dyshensha 口径，2026-08-21 从语料 8658 例全量反推 100% 一致）。
+
+    问真 dyshensha = 大运干支逐柱套用 szshensha 的通用规则（41 种）：以命盘
+    年/月/日柱为规则源，大运干支为命中对象——大运支查支类规则、大运干查干类
+    规则；纯日柱规则（十灵日/阴差阳错/十恶大败/八专日/九丑日/孤鸾煞/六秀日/
+    魁罡日/金神/四废日/天赦日/天转日/地转日）与柱组合规则（拱禄/三奇/童子煞）
+    属原局判定，不适用于大运柱（语料中从未出现）。天罗地网为"互补成网"口径：
+    大运支 ∈ {戌亥辰巳} 且 年支或日支 == 其互补支（辰↔巳、戌↔亥）即成网——
+    与四柱 szshensha 的"四柱内成对"口径不同（大运柱本身充当网的另一支）。
+    名序为引擎规则序（问真服务端输出无序——语料 49 对名称顺序两可，见
+    scripts 反推记录），消费方按集合比对。
+
+    :param dayun_pillar: 大运干支，如 "丁丑"
+    :param year_pillar/month_pillar/day_pillar: 命盘年/月/日柱
+    :param gender: 性别（元辰需用）
+    """
+    dg, dz = dayun_pillar[0], dayun_pillar[1]
+    yg, yz = year_pillar[0], year_pillar[1]
+    mz = month_pillar[1]
+    day_gan, day_zhi = day_pillar[0], day_pillar[1]
+    out = []
+
+    def _add(name: str) -> None:
+        out.append(name)
+
+    # ---- 年干/日干双查（支命中）
+    for name, mapping in [
+        ("天乙贵人", TIANYI_GUIREN), ("太极贵人", TAIJI), ("文昌贵人", WENCHANG),
+        ("天厨贵人", TIANCHU), ("福星贵人", FUXING), ("金舆", JINYU), ("国印贵人", GUOYIN),
+    ]:
+        if dz in set(mapping.get(yg, "")) | set(mapping.get(day_gan, "")):
+            _add(name)
+
+    # ---- 日干单查（支命中）
+    for name, mapping in [
+        ("禄神", LUSHEN), ("羊刃", YANGREN), ("飞刃", FEIREN),
+        ("红艳煞", HONGYAN), ("流霞", LIUXIA),
+    ]:
+        if dz in mapping.get(day_gan, ""):
+            _add(name)
+
+    # ---- 年支/日支双查（支命中）
+    for name, mapping in [("驿马", YIMA), ("桃花", TAOHUA),
+                          ("劫煞", JIESHA), ("亡神", WANGSHEN)]:
+        if dz in set(mapping.get(yz, "")) | set(mapping.get(day_zhi, "")):
+            _add(name)
+
+    # ---- 灾煞：年支单查
+    if dz in ZAISHA.get(yz, ""):
+        _add("灾煞")
+
+    # ---- 年支类（红鸾/天喜/丧门/吊客/披麻/勾绞煞）
+    if dz == HONGLUAN.get(yz, ""):
+        _add("红鸾")
+    if dz == TIANXI.get(yz, ""):
+        _add("天喜")
+    if dz == _zhi_plus(yz, 2):
+        _add("丧门")
+    if dz == _zhi_plus(yz, -2):
+        _add("吊客")
+    if dz == _zhi_plus(yz, -3):
+        _add("披麻")
+    if dz == _zhi_plus(yz, 3):
+        _add("勾绞煞")
+
+    # ---- 孤辰/寡宿：年支单查
+    if dz == _gu_chen_gu_su_zhi(yz, "gu"):
+        _add("孤辰")
+    if dz == _gu_chen_gu_su_zhi(yz, "su"):
+        _add("寡宿")
+
+    # ---- 元辰：阳男阴女大耗（对冲+1）、阴男阳女小耗（对冲-1）
+    is_male = gender == "男"
+    year_yang = TIANGAN.index(yg) % 2 == 0
+    da_hao = (is_male and year_yang) or (not is_male and not year_yang)
+    if dz == (_zhi_plus(yz, 7) if da_hao else _zhi_plus(yz, 5)):
+        _add("元辰")
+
+    # ---- 空亡：年柱旬 + 日柱旬（双旬），支命中
+    kong = set(_xun_kong_zhi(yg, yz)) | set(_xun_kong_zhi(day_gan, day_zhi))
+    if dz in kong:
+        _add("空亡")
+
+    # ---- 将星/华盖：年支/日支三合局中神/墓库（大运柱无柱位排除）
+    if dz in (JIANGXING.get(yz, ""), JIANGXING.get(day_zhi, "")):
+        _add("将星")
+    if dz in (HUAGAI.get(yz, ""), HUAGAI.get(day_zhi, "")):
+        _add("华盖")
+
+    # ---- 月支查：月德/月德合/天德/天德合/德秀（干命中）、天医/血刃（支命中）
+    yd = YUEDE.get(mz, "")
+    if dg == yd:
+        _add("月德贵人")
+    if dg == YUEDE_HE.get(yd, ""):
+        _add("月德合")
+    td = TIANDE.get(mz, "")
+    if td in TIANGAN:
+        if dg == td:
+            _add("天德贵人")
+        if dg == TIANDE_HE.get(td, ""):
+            _add("天德合")
+    else:
+        if dz == td:
+            _add("天德贵人")
+        if dz == TIANDE_HE.get(td, ""):
+            _add("天德合")
+    if dg in DEXIU.get(mz, ""):
+        _add("德秀贵人")
+    if dz == _zhi_plus(mz, -1):
+        _add("天医")
+    if dz in XUEREN.get(mz, ""):
+        _add("血刃")
+
+    # ---- 学堂/正学堂、词馆/正词馆：年纳音长生/临官位（大运柱无柱位排除；
+    #      正=大运自柱纳音 == 年纳音，同 szshensha 口径）
+    y_nayin = NAYIN_WX.get(year_pillar, "")
+    if dz == CS_BY_WX.get(y_nayin, ""):
+        if NAYIN_WX.get(dayun_pillar, "") == y_nayin:
+            _add("正学堂")
+        else:
+            _add("学堂")
+    if dz == LG_BY_WX.get(y_nayin, ""):
+        if NAYIN_WX.get(dayun_pillar, "") == y_nayin:
+            _add("正词馆")
+        else:
+            _add("词馆")
+
+    # ---- 天罗：大运支戌亥（年纳音火）；地网：大运支辰巳（年纳音水土）
+    if y_nayin == "火" and dz in "戌亥":
+        _add("天罗")
+    elif y_nayin in ("水", "土") and dz in "辰巳":
+        _add("地网")
+
+    # ---- 天罗地网：互补成网（大运支 ∈ {戌亥辰巳} 且 年支或日支 == 互补支）
+    complement = {"戌": "亥", "亥": "戌", "辰": "巳", "巳": "辰"}
+    if dz in complement and (complement[dz] == yz or complement[dz] == day_zhi):
+        _add("天罗地网")
+
+    return out
