@@ -73,7 +73,7 @@ Page({
     yongshenChip: '',     // 用神 chip
     dayunView: [],        // 大运步 [{suiText,ganzhi,shishen,years,isCur,isQi}]
     jiaoyunLine: '',      // 大运卡交运行
-    liunianView: [],      // 流年胶囊 [{year,ganzhi,isNow}]
+    liunianView: [],      // 流年胶囊 [{year,ganzhi,nayin,age,shensha,rel,dayun,isNow}]
     relGroups: [],        // 干支关系 [{name,badges:[{name,where,note,cls}]}]
     relDefs: REL_DEF,
     shenshaView: [],      // 神煞 [{name,src,cls}]
@@ -87,6 +87,10 @@ Page({
     zsSrc: '',
     zsTabs: [],           // [{t, body}]（纯文本，\n 换行）
     zsTabIdx: 0,
+
+    /* ── 流年详解弹层（批1：逐流年 干支/神煞/与原局关系/大运流年关系） ── */
+    lnOpen: false,
+    lnSheet: null,        // {gz, src, year, age, nayin, shenshaTags, relBadges, dayun:{ganzhi,sui,rel}}
   },
 
   onLoad() {
@@ -225,13 +229,16 @@ Page({
     }));
     const jiaoyunLine = `逢<b>${jy.gan_pair || ''}</b>年 · <b>${jy.jie || ''}后 ${jy.days_after_jie || ''} 天</b>换运 · 司令${c.siling}${WUXING_TG[c.siling] || ''}当令`;
 
-    /* 流年胶囊 */
+    /* 流年胶囊（批1：全量带 流年神煞/与原局关系/所在大运，点开即弹层详析） */
     const nowYear = c.liunian_rel && c.liunian_rel.year;
     const liunianView = (c.liunian_full || []).map((y) => ({
       year: y.year,
       ganzhi: y.ganzhi,
       nayin: y.nayin || '',
       age: y.age,
+      shensha: y.shensha || [],
+      rel: y.rel || [],
+      dayun: y.dayun || {},
       isNow: y.year === nowYear,
     }));
 
@@ -351,24 +358,59 @@ Page({
     this._openKnowledge('shensha', ds.name, ds.src || '');
   },
 
-  /* 流年点查：当年给干支关系详析，其余年给干支/纳音 */
+  /* 流年点查（批1 流年详解）：底部弹层 —— 流年干支/神煞标签/与原局关系徽标/
+     所在大运及大运流年关系（30 年全量数据由后端 liunian_full 逐项带出） */
   onLiunianTap(e) {
     const ds = e.currentTarget.dataset;
     const item = ds.item || {};
-    if (item.isNow && this.data.chart && this.data.chart.liunian_rel) {
-      const rel = this.data.chart.liunian_rel.rel || [];
-      const lines = rel.length
-        ? rel.map((r) => `${r.type}：${r.between} ${r.desc}`).join('\n')
-        : '该年与原局无显著干支关系。';
-      this._openLocalSheet('流年', `${item.ganzhi}年`, `${item.year}年`, [
-        { t: '解析', body: `${item.ganzhi}年（${item.year}，虚岁${item.age}）：流年与原局各柱的干支关系详析。\n\n${lines}` },
-        { t: '干支', body: `${item.ganzhi}：天干${item.ganzhi[0]}、地支${item.ganzhi[1]}，纳音${item.nayin}。` },
-      ]);
-    } else {
-      this._openLocalSheet('流年', `${item.ganzhi}年`, `${item.year}年`, [
-        { t: '干支', body: `${item.ganzhi}年（${item.year}，虚岁${item.age}）：天干${item.ganzhi[0]}、地支${item.ganzhi[1]}，纳音${item.nayin}。\n\n完整干支关系详析仅对当前流年提供，逐年断语敬请期待。` },
-      ]);
-    }
+    if (!item.ganzhi) return;
+    // 神煞吉凶类：复用原局 shensha_detail 的 name→luck 映射，未收录按中性
+    const luckMap = {};
+    (this.data.chart && this.data.chart.shensha_detail || []).forEach((s) => {
+      if (s.name && s.luck) luckMap[s.name] = s.luck;
+    });
+    const shenshaTags = (item.shensha || []).map((name) => ({
+      name,
+      cls: LUCK_CLS[luckMap[name]] || 'is-zhong',
+    }));
+    const relBadges = (item.rel || []).map((r) => ({
+      name: r.type,
+      where: r.between || '',
+      note: r.desc || '',
+      cls: REL_CLS[r.type] || 'is-zhong',
+    }));
+    const dayun = item.dayun || {};
+    const dayunRel = (dayun.rel || []).map((r) => ({
+      name: r.type,
+      note: r.desc || '',
+      cls: REL_CLS[r.type] || 'is-zhong',
+    }));
+    const gz = item.ganzhi || '';
+    this.setData({
+      lnOpen: true,
+      lnSheet: {
+        gz,
+        gan: gz[0] || '',
+        zhi: gz[1] || '',
+        src: `${item.year}年 · 虚岁${item.age}`,
+        year: item.year,
+        age: item.age,
+        nayin: item.nayin || '',
+        shenshaTags,
+        relBadges,
+        dayun: {
+          ganzhi: dayun.ganzhi || '',
+          sui: dayun.sui || 0,
+          rel: dayunRel,
+        },
+      },
+    });
+  },
+  onLnClose() {
+    this.setData({ lnOpen: false });
+  },
+  onLnMaskTap() {
+    this.setData({ lnOpen: false });
   },
 
   /* 大运点查：该步大运 vs 原局干支关系 */

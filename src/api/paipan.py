@@ -8,7 +8,8 @@
             nayin / gender / wuxing
       L1：jiaoyun(交运 page_text 等) / siling(司令) / siling_detail / qiyun_desc /
           起运分解 qiyun_detail / dayun(带十神+年份) / xiaoyun(小运 110 条) /
-          dyshensha(每步大运神煞 [[干支,[名...]],...]) / liunian_full(30 年) /
+          dyshensha(每步大运神煞 [[干支,[名...]],...]) / liunian_full(30 年，
+          批1 每项带 shensha 流年神煞 + rel 与原局关系 + dayun 所在大运及大运vs流年关系) /
           liunian_rel / liuyue / liushi / dayun_rel / ganzhi_rel
       L2：wuxing_energy(counts/wangshuai/changsheng/strength/yongshen) /
           chenggu(weight_text/jieci/分项) / shensha_detail(59 种 name/source/luck) /

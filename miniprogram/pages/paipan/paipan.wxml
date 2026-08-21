@@ -293,3 +293,88 @@
     <view class="zs-foot">内容整理自《三命通会》《渊海子平》等古籍 · 易理明灯知识库</view>
   </view>
 </view>
+
+<!-- ════════ 流年详解弹层（批1：逐流年 干支/神煞/与原局关系/大运流年关系） ════════ -->
+<view class="zs-mask {{lnOpen ? 'zs-open' : ''}}" bindtap="onLnMaskTap" catchtouchmove="noop">
+  <view class="zs-sheet" catchtap="noop">
+    <view class="zs-grip"></view>
+    <view class="zs-head">
+      <view class="zs-seal"><text>年</text></view>
+      <text class="zs-kind">流年详解</text>
+      <text class="zs-name">{{lnSheet.gz}}</text>
+      <text class="zs-src" wx:if="{{lnSheet.src}}">{{lnSheet.src}}</text>
+      <view class="zs-close" hover-class="zs-close-active" hover-stay-time="0" bindtap="onLnClose">
+        <text>×</text>
+      </view>
+    </view>
+    <scroll-view class="zs-body" scroll-y>
+
+      <!-- 干支 · 纳音 -->
+      <view class="ln-info">
+        <view class="ln-info-item"><text class="ln-info-key">干支</text><text class="ln-info-val">{{lnSheet.gz}}</text></view>
+        <view class="ln-info-item"><text class="ln-info-key">纳音</text><text class="ln-info-val">{{lnSheet.nayin}}</text></view>
+        <view class="ln-info-item"><text class="ln-info-key">天干</text><text class="ln-info-val">{{lnSheet.gan}}</text></view>
+        <view class="ln-info-item"><text class="ln-info-key">地支</text><text class="ln-info-val">{{lnSheet.zhi}}</text></view>
+      </view>
+
+      <!-- 流年神煞 -->
+      <view class="ln-sec">
+        <view class="ln-sec-head">
+          <view class="ln-sec-seal"><text>煞</text></view>
+          <text class="ln-sec-title">流年神煞</text>
+          <view class="ln-legend">
+            <text><view class="lg-dot lg-ji"></view>吉</text>
+            <text><view class="lg-dot lg-zhong"></view>中性</text>
+            <text><view class="lg-dot lg-xiong"></view>凶</text>
+          </view>
+        </view>
+        <view class="ln-tags" wx:if="{{lnSheet.shenshaTags.length}}">
+          <view class="ss-tag {{s.cls}}" wx:for="{{lnSheet.shenshaTags}}" wx:key="name" wx:for-item="s">
+            <text>{{s.name}}</text>
+          </view>
+        </view>
+        <view class="ln-empty" wx:else>该年无显著流年神煞</view>
+      </view>
+
+      <!-- 与原局关系 -->
+      <view class="ln-sec">
+        <view class="ln-sec-head">
+          <view class="ln-sec-seal"><text>系</text></view>
+          <text class="ln-sec-title">与原局关系</text>
+        </view>
+        <view class="ln-badges" wx:if="{{lnSheet.relBadges.length}}">
+          <view class="rb-badge {{b.cls}}" wx:for="{{lnSheet.relBadges}}" wx:key="index" wx:for-item="b">
+            <text class="rb-name">{{b.name}}</text>
+            <text class="rb-where" wx:if="{{b.where}}">{{b.where}}</text>
+            <text class="rb-note" wx:if="{{b.note}}">{{b.note}}</text>
+          </view>
+        </view>
+        <view class="ln-empty" wx:else>该年与原局无显著干支关系</view>
+      </view>
+
+      <!-- 大运 · 流年 -->
+      <view class="ln-sec">
+        <view class="ln-sec-head">
+          <view class="ln-sec-seal"><text>运</text></view>
+          <text class="ln-sec-title">大运 · 流年</text>
+        </view>
+        <block wx:if="{{lnSheet.dayun.ganzhi}}">
+          <view class="ln-dayun-head">
+            <text class="ln-dayun-gz">{{lnSheet.dayun.ganzhi}}</text>
+            <text class="ln-dayun-sui">{{lnSheet.dayun.sui}} 岁起运</text>
+            <text class="ln-dayun-note">该年所在大运 · 流年与之作用关系</text>
+          </view>
+          <view class="ln-badges" wx:if="{{lnSheet.dayun.rel.length}}">
+            <view class="rb-badge {{b.cls}}" wx:for="{{lnSheet.dayun.rel}}" wx:key="index" wx:for-item="b">
+              <text class="rb-name">{{b.name}}</text>
+              <text class="rb-note" wx:if="{{b.note}}">{{b.note}}</text>
+            </view>
+          </view>
+          <view class="ln-empty" wx:else>该年与大运干支无显著作用关系</view>
+        </block>
+        <view class="ln-empty" wx:else>该年处于起运之前（小运阶段）</view>
+      </view>
+    </scroll-view>
+    <view class="zs-foot">内容整理自《三命通会》《渊海子平》等古籍 · 易理明灯知识库</view>
+  </view>
+</view>

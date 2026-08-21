@@ -88,7 +88,13 @@ def test_paipan_full_chart_anchors():
     # ── L1：流年表 / 流年关系 / 干支关系 ──
     ln = body["liunian_full"]
     assert len(ln) == 30
-    assert ln[0] == {"year": 1999, "age": 1, "ganzhi": "己卯", "nayin": "城头土"}
+    assert {k: ln[0][k] for k in ("year", "age", "ganzhi", "nayin")} == \
+        {"year": 1999, "age": 1, "ganzhi": "己卯", "nayin": "城头土"}
+    # 批1 流年详解：每项带 流年神煞/与原局关系/所在大运（含大运vs流年关系）
+    assert {"shensha", "rel", "dayun"} <= set(ln[0])
+    assert {"sui", "ganzhi", "rel"} == set(ln[0]["dayun"])
+    assert ln[27]["shensha"] and isinstance(ln[27]["rel"], list)
+    assert ln[27]["dayun"]["ganzhi"]  # 2026 虚岁 28 ≥ 起运 3 岁 → 有所在大运
     assert body["liunian_rel"]["ganzhi"] == "丙午"           # 2026 流年
     assert body["liunian_rel"]["year"] == 2026
     assert body["liuyue"]["months"][0] == "庚寅"             # 丙年正月庚寅（丙辛之年庚寅起）

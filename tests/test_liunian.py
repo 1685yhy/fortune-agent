@@ -7,13 +7,22 @@
   - 干支关系集成（rel_with 复用）：庚子 = 合日主+天克+地冲三例；丁未 = 地冲+天克两例
 
 回归：tests/test_bazi_qz_full.py 200 案例另行跑（排盘主链路四柱/大运/神煞等不受影响）。
+批1（流年详解）：liunian_full 每项另带 shensha（流年神煞）/ rel（与原局关系）/
+dayun（所在大运及大运vs流年关系）——见 test_integration_liunian_full_detail。
 """
 from src.engines.bazi import (BaziEngine, liunian_ganzhi, liunian_table,
                               liuyue, liushi)
+from src.engines.shensha import shensha_of_dayun
+from src.engines.ganzhi_rel import analyze_relations
 
 ANCHOR_BAZI = ["己卯", "己巳", "乙丑", "壬午"]
 ANCHOR_BIRTH = (1999, 5, 13, 11, 25, "北京", "男")
 ENGINE = BaziEngine()
+
+
+def _base(row):
+    """liunian_full 行 → 基础四键（批1 起每项另带 shensha/rel/dayun 详解字段）。"""
+    return {k: row[k] for k in ("year", "age", "ganzhi", "nayin")}
 
 
 # ───────────────────────── 1. 流年表（年柱 + 岁差） ─────────────────────────
@@ -100,13 +109,60 @@ def test_liushi_hour_zhi_fixed():
 # ───────────────────────── 4. BaziResult 集成 ─────────────────────────
 
 def test_integration_liunian_full():
-    """整盘集成：liunian_full = 出生年起 30 年流年表（与模块函数同源）。"""
+    """整盘集成：liunian_full = 出生年起 30 年流年表（基础四键与模块函数同源）。"""
     r = ENGINE.calculate(*ANCHOR_BIRTH)
     assert r.bazi == ANCHOR_BAZI
     assert len(r.liunian_full) == 30
-    assert r.liunian_full == liunian_table(1999, "己卯")
+    base = liunian_table(1999, "己卯")
+    for row, base_row in zip(r.liunian_full, base):
+        assert _base(row) == base_row
     assert r.liunian_full[1]["ganzhi"] == "庚辰"
     assert r.liunian_full[27]["ganzhi"] == "丙午"
+
+
+def test_integration_liunian_full_detail():
+    """批1 流年详解：liunian_full 30 年每项带 流年神煞/与原局关系/所在大运（含大运vs流年关系）。
+
+    锚点 1999-05-13 北京 男（己卯 己巳 乙丑 壬午）：
+    - 2020 庚子（虚岁 22）：流年神煞 7 种（shensha_of_dayun 问真口径同源）；
+      rel 含「庚合日主乙」；所在大运 = 虚岁定位步（sui 13 丁卯），大运vs流年关系含 合
+    - 起运前年份（1999 虚岁 1 < 3 岁起运）：dayun = {sui:0, ganzhi:'', rel:[]}
+    """
+    r = ENGINE.calculate(*ANCHOR_BIRTH)
+    for row in r.liunian_full:
+        assert set(row) == {"year", "age", "ganzhi", "nayin",
+                            "shensha", "rel", "dayun"}
+        assert set(row["dayun"]) == {"sui", "ganzhi", "rel"}
+        # 流年神煞与 shensha_of_dayun 直接调用同源（问真 dyshensha 同款口径）
+        assert row["shensha"] == shensha_of_dayun(
+            row["ganzhi"], r.bazi[0], r.bazi[1], r.bazi[2], "男")
+        # 与原局关系 = rel_with 同源
+        assert row["rel"] == r.rel_with(row["ganzhi"])
+        # 所在大运 rel = analyze_relations 直接调用同源（空步除外）
+        if row["dayun"]["ganzhi"]:
+            assert row["dayun"]["rel"] == [
+                {"type": it.type, "desc": it.desc}
+                for it in analyze_relations(row["dayun"]["ganzhi"],
+                                            row["ganzhi"], r.bazi)]
+
+    # 2020 庚子（虚岁 22，大运步 sui 13 丁卯）
+    row20 = next(x for x in r.liunian_full if x["year"] == 2020)
+    assert row20["ganzhi"] == "庚子" and row20["age"] == 22
+    assert row20["shensha"] == ["天乙贵人", "太极贵人", "桃花", "红鸾",
+                                "披麻", "月德贵人", "德秀贵人"]
+    assert any(x["type"] == "合" and x["desc"] == "庚合日主乙"
+               for x in row20["rel"])
+    assert {"between": "日柱", "type": "天克", "desc": "天干庚克乙"} in row20["rel"]
+    step = next((s, g) for s, g in r.dayun if s <= 22 <= s + 9)
+    assert row20["dayun"]["sui"] == step[0] == 13
+    assert row20["dayun"]["ganzhi"] == step[1] == "丁卯"
+    assert any(x["type"] == "合" for x in row20["dayun"]["rel"])
+    assert any(x["type"] == "天克" for x in row20["dayun"]["rel"])
+
+    # 起运前年份（虚岁 < 起运岁数 3）：无大运步
+    row0 = r.liunian_full[0]
+    assert row0["year"] == 1999 and row0["age"] == 1
+    assert row0["dayun"] == {"sui": 0, "ganzhi": "", "rel": []}
 
 
 def test_integration_liuyue():
@@ -177,10 +233,10 @@ def test_boundary_lichun_after_cny_before_table0():
     不得按农历年基数错位成 {1998, 己卯}（旧口径 bug：整表错位一年）。"""
     r = ENGINE.calculate(1999, 2, 10, 12, 0, "北京", "男")
     assert r.bazi[0] == "己卯"  # 年柱已按立春换年（口径前提）
-    assert r.liunian_full[0] == {"year": 1999, "age": 1,
-                                 "ganzhi": "己卯", "nayin": "城头土"}
-    assert r.liunian_full[1] == {"year": 2000, "age": 2,
-                                 "ganzhi": "庚辰", "nayin": "白蜡金"}
+    assert _base(r.liunian_full[0]) == {"year": 1999, "age": 1,
+                                        "ganzhi": "己卯", "nayin": "城头土"}
+    assert _base(r.liunian_full[1]) == {"year": 2000, "age": 2,
+                                        "ganzhi": "庚辰", "nayin": "白蜡金"}
     # 全表与干支年基数自洽
     for i, row in enumerate(r.liunian_full):
         assert row["ganzhi"] == liunian_ganzhi(1999, "己卯", 1999 + i)
@@ -204,10 +260,10 @@ def test_boundary_before_lichun_table0():
     流年表首项 {1998, 戊寅}（边界另一侧不受影响）。"""
     r = ENGINE.calculate(1999, 1, 20, 12, 0, "北京", "男")
     assert r.bazi[0] == "戊寅"
-    assert r.liunian_full[0] == {"year": 1998, "age": 1,
-                                 "ganzhi": "戊寅", "nayin": "城头土"}
-    assert r.liunian_full[1] == {"year": 1999, "age": 2,
-                                 "ganzhi": "己卯", "nayin": "城头土"}
+    assert _base(r.liunian_full[0]) == {"year": 1998, "age": 1,
+                                        "ganzhi": "戊寅", "nayin": "城头土"}
+    assert _base(r.liunian_full[1]) == {"year": 1999, "age": 2,
+                                        "ganzhi": "己卯", "nayin": "城头土"}
 
 
 def test_anchor_2026_liunian_rel_fixed():

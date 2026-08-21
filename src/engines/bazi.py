@@ -96,7 +96,9 @@ def liunian_table(birth_year: int, year_pillar: str, years: int = 30) -> List[di
     birth_year 须为年柱所在干支年（立春界定，与 year_pillar 同一干支年）——非农历年：
     农历年正月初一换年、年柱立春换年，[立春, 正月初一) 出生者两口径差 1，若传农历年
     则整表年份/干支错位一年（2026-08-20 修复）。
-    性能口径：全表不含神煞/干支关系（rel 只给当前年，见 BaziResult.liunian_rel）。
+    性能口径：本函数只出基础四键（year/age/ganzhi/nayin）；流年神煞/与原局关系/
+    大运流年关系由 BaziEngine.calculate 在 BaziResult 层全量补入（批1：30 年全量，
+    30×shensha_of_dayun + 30×rel_with ≈ 毫秒级）。
     例：liunian_table(1999, "己卯")[1] == {"year": 2000, "age": 2,
                                          "ganzhi": "庚辰", "nayin": "白蜡金"}。
     """
@@ -414,7 +416,10 @@ class BaziResult:
     # 供前端"五行进度条"等展示（L4 设计）
     wuxing_energy: dict = field(default_factory=dict)
     # 流年/流月/流时 + 干支关系集成（L2-4，问真方式：排盘结果带出流年表）
-    liunian_full: list = field(default_factory=list)  # 流年表（出生年起 30 年）[{year,age,ganzhi,nayin}]
+    # 批1（流年详解）起每项全量补入：shensha（流年神煞，shensha_of_dayun 问真口径）/
+    # rel（流年 vs 原局各柱，rel_with）/ dayun（该年所在大运 {sui,ganzhi,rel}：
+    # rel 为大运 vs 流年干支关系，起运前 sui=0/ganzhi=''/rel=[]）
+    liunian_full: list = field(default_factory=list)  # 流年表（出生年起 30 年）[{year,age,ganzhi,nayin,shensha,rel,dayun}]
     liunian_rel: dict = field(default_factory=dict)   # 当前流年 vs 原局各柱 {year, ganzhi, rel}（rel_with 结果）
     liuyue: dict = field(default_factory=dict)        # 当前流年 12 流月 {year, ganzhi, months}
     liushi: dict = field(default_factory=dict)        # 今日 12 流时 {day_pillar, hours}
@@ -759,10 +764,31 @@ class BaziEngine:
             xiaoyun=xiaoyun,
             dyshensha=dyshensha,
         )
-        # 干支关系集成（L2-4）：当前流年 + 各步大运 vs 原局各柱（复用 rel_with，
-        # 问真点大运/流年查关系同款入口）。流年 rel 只算当前年（30 年表全量 rel
-        # 性能不划算）；大运各步全量（12 步柱间判定开销可忽略，前端点每步即时可用）。
+        # 干支关系集成（L2-4）+ 流年详解（批1）：当前流年 + 各步大运 vs 原局各柱
+        # （复用 rel_with，问真点大运/流年查关系同款入口）。大运各步全量（12 步柱间
+        # 判定开销可忽略，前端点每步即时可用）。
         result.liunian_full = liunian_full
+        # 批1 流年详解：liunian_full 30 年全量逐项补入 流年神煞（shensha_of_dayun
+        # 问真 dyshensha 同款口径，流年干支作目标柱）+ 流年 vs 原局关系（rel_with）
+        # + 该年所在大运（虚岁定位，与 API 层 start_year 同源）及其大运 vs 流年
+        # 关系（analyze_relations）——30×(神煞+rel) ≈ 毫秒级可接受，做全量；
+        # 前端排盘页逐流年胶囊可点开底部弹层详析。
+        for item in result.liunian_full:
+            item["shensha"] = shensha_of_dayun(
+                item["ganzhi"], bazi_pillars[0], bazi_pillars[1], bazi_pillars[2],
+                calc_gender)
+            item["rel"] = result.rel_with(item["ganzhi"])
+            step = next(((s, g) for s, g in dayun if s <= item["age"] <= s + 9),
+                        None)
+            if step is not None:
+                item["dayun"] = {
+                    "sui": step[0], "ganzhi": step[1],
+                    "rel": [{"type": it.type, "desc": it.desc}
+                            for it in analyze_relations(step[1], item["ganzhi"],
+                                                         bazi_pillars)],
+                }
+            else:
+                item["dayun"] = {"sui": 0, "ganzhi": "", "rel": []}
         result.liunian_rel = {"year": current_ln_year, "ganzhi": current_ln_gz,
                               "rel": result.rel_with(current_ln_gz)}
         result.liuyue = liuyue_now
