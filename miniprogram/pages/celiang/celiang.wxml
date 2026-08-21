@@ -124,10 +124,11 @@
       </view>
     </view>
 
-    <!-- 进阶工具：万年历 + 名人命例（万年历 P1-1：确定性 0 成本；命例 L3-1） -->
+    <!-- 进阶工具：万年历 + 名人命例 + 多盘对比（万年历 P1-1：确定性 0 成本；
+         命例 L3-1；多盘对比 P1-2 前端：同一生辰不同时辰两盘差异） -->
     <view class="eg-head">
       <text>进阶工具</text>
-      <text class="eg-tag">历法 · 命例</text>
+      <text class="eg-tag">历法 · 命例 · 多盘</text>
     </view>
     <view class="papercard eg-card">
       <!-- 实入口：万年历 → 月历宫格 + 日详情（问真吉真万年历同款：日历+干支+宜忌） -->
@@ -147,6 +148,16 @@
         <view class="br-mid">
           <view class="br-title">名人命例</view>
           <view class="br-sub">2807 位历史人物 · 穷通宝鉴评注 · 免费试看 35 例</view>
+        </view>
+        <view class="br-page"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
+      <!-- 实入口：多盘对比 → 同一生辰不同时辰两盘差异（时辰不定 / 想选时辰必看） -->
+      <view class="book-row" hover-class="book-row-active" hover-stay-time="0"
+        data-url="/pages/duipan/duipan" bindtap="onEntryTap">
+        <view class="seal cl-seal"><text class="seal-char">盘</text></view>
+        <view class="br-mid">
+          <view class="br-title">多盘对比</view>
+          <view class="br-sub">同一生辰 · 两个时辰 · 四柱五行差异一览</view>
         </view>
         <view class="br-page"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
       </view>

@@ -1,7 +1,8 @@
 // 测算 — 问事入口台（dir_b 屏 3 · SUANCE_MAIN 分组克制排布：看我的 / 姻缘·命名·择日 / 问事 / 运势 / 进阶工具）
 // 已开发功能：八字排盘 → /pages/paipan/paipan（L4 主推第一位）、双人合盘 → /pages/hehun/hehun、
 // AI取名 → /pages/ming/ming、大事择吉日 → /pages/zeri_guide/zeri_guide、抽灵签 → /pages/qian/qian、
-// 名人命例 → /pages/mingren/mingren（L3-1：2807 例+穷通宝鉴评注，免费 35 例/高级会员全量）；
+// 名人命例 → /pages/mingren/mingren（L3-1：2807 例+穷通宝鉴评注，免费 35 例/高级会员全量）、
+// 多盘对比 → /pages/duipan/duipan（P1-2：同一生辰不同时辰两盘差异，时辰不定/选时辰必看）；
 // 未开发功能（解梦/人生时轴/运势曲线/水逆提醒）灰态占位「即将上线」，不可点（宁缺毋滥，不造假入口）。
 const theme = require('../../utils/theme');
 

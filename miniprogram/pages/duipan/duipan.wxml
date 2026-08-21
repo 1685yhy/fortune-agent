@@ -1,0 +1,253 @@
+<!-- 多盘对比（P1-2 前端）— 同一生辰不同时辰两盘差异对照
+     表单（birth-date/place-picker + 双时辰）→ 摘要 → 四柱并排（变化柱朱砂）
+     → 五行 / 用神·格局 / 大运 / 神煞（新增朱砂 · 消失墨灰）差异卡 -->
+
+<!-- ════════ ① 输入区 ════════ -->
+<view class="pp-input" wx:if="{{!submitted}}">
+  <view class="input-head">
+    <view class="input-seal"><text class="input-seal-char">盘</text></view>
+    <view class="input-mid">
+      <text class="input-title">多盘对比</text>
+      <text class="input-sub">同一生辰 · 两个时辰 · 差异一览</text>
+    </view>
+  </view>
+
+  <view class="form-card">
+    <view class="form-group">
+      <text class="form-label">出生年月日 <text class="form-req">必填</text> <text class="form-opt">公历 / 农历一次选完</text></text>
+      <birth-date value="{{bDate}}" calendar="{{bCal}}" placeholder="请选择出生年月日" bindchange="onDateChange" />
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">时辰 A <text class="form-req">必填</text> <text class="form-opt">对比基准盘</text></text>
+      <picker mode="selector" range="{{hourOptions}}" bindchange="onHourAChange" value="{{bHourAIdx}}">
+        <view class="form-picker {{!bHourASet ? 'form-picker-empty' : ''}}">
+          <text>{{hourOptions[bHourAIdx]}}</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">时辰 B <text class="form-req">必填</text> <text class="form-opt">选个不同时辰，对比更明显</text></text>
+      <picker mode="selector" range="{{hourOptions}}" bindchange="onHourBChange" value="{{bHourBIdx}}">
+        <view class="form-picker {{!bHourBSet ? 'form-picker-empty' : ''}}">
+          <text>{{hourOptions[bHourBIdx]}}</text>
+        </view>
+      </picker>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">出生地 <text class="form-opt">选填 · 用于真太阳时校准</text></text>
+      <place-picker value="{{bCity}}" placeholder="选择省 / 市" bindchange="onCityChange" />
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">性别</text>
+      <view class="form-radio-group">
+        <label class="form-radio {{bGender === 'male' ? 'active' : ''}}">
+          <radio value="male" checked="{{bGender === 'male'}}" bindchange="onGenderChange" color="#A93A2C" />
+          <text>男</text>
+        </label>
+        <label class="form-radio {{bGender === 'female' ? 'active' : ''}}">
+          <radio value="female" checked="{{bGender === 'female'}}" bindchange="onGenderChange" color="#A93A2C" />
+          <text>女</text>
+        </label>
+      </view>
+    </view>
+
+    <view class="form-error" wx:if="{{errorMsg}}">{{errorMsg}}</view>
+
+    <view class="pp-btn {{loading ? 'pp-btn-disabled' : ''}}" hover-class="pp-btn-active" hover-stay-time="0" bindtap="onCompare">
+      <text>{{loading ? '对比中…' : '对比两盘'}}</text>
+    </view>
+    <view class="input-privacy">生辰仅用于本次对比，不留存</view>
+  </view>
+</view>
+
+<!-- ════════ ② 结果区 ════════ -->
+<view class="pp-page" wx:if="{{chart}}">
+
+  <!-- ① 命主信息头 -->
+  <view class="master-head">
+    <view class="master-seal"><text>{{master.seal}}</text></view>
+    <view class="master-mid">
+      <view class="master-name"><text>{{master.title}}</text><text class="master-name-sub">{{master.time}}</text></view>
+      <view class="master-sub">{{master.sub}}</view>
+    </view>
+    <view class="master-right">
+      <view class="mr-tag">{{master.tag}}</view>
+    </view>
+  </view>
+
+  <!-- ② 对比摘要 -->
+  <view class="pp-card">
+    <view class="pp-head">
+      <view class="pp-seal"><text>摘</text></view>
+      <text class="pp-title">对比摘要</text>
+      <text class="pp-head-sub">规则要点 · 不调大模型</text>
+    </view>
+    <view class="dp-summary">
+      <view class="dp-sum-item {{s.key ? 'is-key' : ''}}" wx:for="{{summaryLines}}" wx:key="index" wx:for-item="s">
+        <view class="dp-sum-dot"></view>
+        <text class="dp-sum-txt">{{s.t}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ③ 四柱并排对照（变化柱朱砂高亮） -->
+  <view class="pp-card">
+    <view class="pp-head">
+      <view class="pp-seal"><text>柱</text></view>
+      <text class="pp-title">四柱对照</text>
+      <text class="pp-head-sub">变化柱朱砂高亮</text>
+    </view>
+    <view class="dp-pan-row">
+      <view class="dp-pan-label"><text class="dp-pan-char">A</text><text class="dp-pan-sh">{{master.shA}}</text></view>
+      <view class="dp-pillar {{p.changed ? 'is-changed' : ''}}" wx:for="{{panAView}}" wx:key="name" wx:for-item="p">
+        <view class="dp-pillar-mark" wx:if="{{p.changed}}">变</view>
+        <text class="dp-p-name">{{p.name}}</text>
+        <text class="dp-p-shishen">{{p.shishen}}</text>
+        <text class="dp-p-gz">{{p.ganzhi}}</text>
+        <text class="dp-p-nayin">{{p.nayin}}</text>
+      </view>
+    </view>
+    <view class="dp-pan-row dp-pan-b">
+      <view class="dp-pan-label"><text class="dp-pan-char">B</text><text class="dp-pan-sh">{{master.shB}}</text></view>
+      <view class="dp-pillar {{p.changed ? 'is-changed' : ''}}" wx:for="{{panBView}}" wx:key="name" wx:for-item="p">
+        <view class="dp-pillar-mark" wx:if="{{p.changed}}">变</view>
+        <text class="dp-p-name">{{p.name}}</text>
+        <text class="dp-p-shishen">{{p.shishen}}</text>
+        <text class="dp-p-gz">{{p.ganzhi}}</text>
+        <text class="dp-p-nayin">{{p.nayin}}</text>
+      </view>
+    </view>
+    <view class="pp-foot">
+      <text class="pp-foot-tag">变动</text>
+      <text class="pp-foot-txt">{{pillarNote}}</text>
+    </view>
+  </view>
+
+  <!-- ④ 五行差异 -->
+  <view class="pp-card">
+    <view class="pp-head">
+      <view class="pp-seal"><text>行</text></view>
+      <text class="pp-title">五行能量差异</text>
+      <text class="pp-head-sub">A → B 增减</text>
+    </view>
+    <view class="dp-wx-row" wx:for="{{wuxingRows}}" wx:key="char">
+      <view class="dp-wx-name">
+        <text class="dp-wx-char">{{item.char}}</text>
+        <view class="dp-wx-dot {{item.cls}}"></view>
+      </view>
+      <text class="dp-wx-num">{{item.a}}</text>
+      <view class="dp-wx-arrow"><text>{{item.changed ? '→' : '='}}</text></view>
+      <text class="dp-wx-num">{{item.b}}</text>
+      <view class="dp-wx-delta {{item.changed ? 'is-changed' : ''}}">
+        <text wx:if="{{item.changed}}">{{item.deltaText}}</text>
+        <text wx:else>持平</text>
+      </view>
+    </view>
+    <view class="pp-foot" wx:if="{{wuxingRows.length}}">
+      <text class="pp-foot-tag">强弱</text>
+      <text class="pp-foot-txt">{{strengthNote}}</text>
+    </view>
+  </view>
+
+  <!-- ⑤ 用神 · 格局 -->
+  <view class="pp-card">
+    <view class="pp-head">
+      <view class="pp-seal"><text>神</text></view>
+      <text class="pp-title">用神 · 格局</text>
+      <text class="pp-head-sub">喜忌基调</text>
+    </view>
+    <view class="dp-pair">
+      <view class="dp-pair-row">
+        <text class="dp-pair-key">用神 A</text>
+        <text class="dp-pair-val">{{ysView.a}}</text>
+        <text class="dp-pair-badge {{ysView.coreSame ? 'is-same' : 'is-diff'}}">{{ysView.coreSame ? '核心相同' : '核心改变'}}</text>
+      </view>
+      <view class="dp-pair-row">
+        <text class="dp-pair-key">用神 B</text>
+        <text class="dp-pair-val">{{ysView.b}}</text>
+      </view>
+      <view class="dp-pair-row">
+        <text class="dp-pair-key">格局 A</text>
+        <text class="dp-pair-val">{{gejuView.a}}</text>
+        <text class="dp-pair-badge {{gejuView.same ? 'is-same' : 'is-diff'}}">{{gejuView.same ? '相同' : '改变'}}</text>
+      </view>
+      <view class="dp-pair-row">
+        <text class="dp-pair-key">格局 B</text>
+        <text class="dp-pair-val">{{gejuView.b}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ⑥ 大运差异 -->
+  <view class="pp-card">
+    <view class="pp-head">
+      <view class="pp-seal"><text>运</text></view>
+      <text class="pp-title">大运差异</text>
+      <text class="pp-head-sub">起运岁数 · 序列</text>
+    </view>
+    <view class="dp-dy-row">
+      <view class="dp-dy-cell">
+        <text class="dp-dy-label">起运 A</text>
+        <text class="dp-dy-num">{{dayunView.aStart}}<text class="dp-dy-unit">岁</text></text>
+        <text class="dp-dy-qi">{{dayunView.aQiyun}}</text>
+      </view>
+      <view class="dp-dy-gap">
+        <text class="dp-dy-gap-badge {{dayunView.gap === 0 ? 'is-same' : 'is-diff'}}">{{dayunView.gapText}}</text>
+        <text class="dp-dy-seq">{{dayunView.seqSame ? '大运序列相同' : '大运序列不同'}}</text>
+      </view>
+      <view class="dp-dy-cell">
+        <text class="dp-dy-label">起运 B</text>
+        <text class="dp-dy-num">{{dayunView.bStart}}<text class="dp-dy-unit">岁</text></text>
+        <text class="dp-dy-qi">{{dayunView.bQiyun}}</text>
+      </view>
+    </view>
+    <view class="dp-dy-steps">
+      <view class="dp-dy-steps-row" wx:for="{{dayunView.aSteps}}" wx:key="sui" wx:for-item="st">
+        <text class="dp-dy-steps-side">A</text>
+        <text class="dp-dy-step {{st.sui === dayunView.aStart ? 'is-first' : ''}}">{{st.ganzhi}}<text class="dp-dy-step-sui">{{st.sui}}岁</text></text>
+      </view>
+      <view class="dp-dy-steps-row" wx:for="{{dayunView.bSteps}}" wx:key="sui" wx:for-item="st">
+        <text class="dp-dy-steps-side">B</text>
+        <text class="dp-dy-step {{st.sui === dayunView.bStart ? 'is-first' : ''}}">{{st.ganzhi}}<text class="dp-dy-step-sui">{{st.sui}}岁</text></text>
+      </view>
+    </view>
+  </view>
+
+  <!-- ⑦ 神煞差异 -->
+  <view class="pp-card">
+    <view class="pp-head">
+      <view class="pp-seal"><text>煞</text></view>
+      <text class="pp-title">神煞差异</text>
+      <text class="pp-head-sub">新增朱砂 · 消失墨灰</text>
+    </view>
+    <view class="dp-ss-group" wx:if="{{shenshaView.added.length}}">
+      <text class="dp-ss-gname">B 盘新增 <text class="dp-ss-count">{{shenshaView.added.length}}</text></text>
+      <view class="dp-ss-tags">
+        <view class="dp-ss-tag is-added" wx:for="{{shenshaView.added}}" wx:key="*this"><text>{{item}}</text></view>
+      </view>
+    </view>
+    <view class="dp-ss-group" wx:if="{{shenshaView.removed.length}}">
+      <text class="dp-ss-gname">A 盘消失 <text class="dp-ss-count">{{shenshaView.removed.length}}</text></text>
+      <view class="dp-ss-tags">
+        <view class="dp-ss-tag is-removed" wx:for="{{shenshaView.removed}}" wx:key="*this"><text>{{item}}</text></view>
+      </view>
+    </view>
+    <view class="dp-ss-empty" wx:if="{{!shenshaView.added.length && !shenshaView.removed.length}}">两盘神煞完全相同（{{shenshaView.common.length}} 种）</view>
+    <view class="dp-ss-common" wx:if="{{shenshaView.common.length}}">共有 <text class="dp-ss-common-b">{{shenshaView.common.length}}</text> 种神煞两盘皆备</view>
+  </view>
+
+  <!-- 页脚 -->
+  <view class="page-foot">
+    <view class="pf-line"></view>
+    <text class="pf-t1">同一生辰，时辰不同命局不同 · 时辰为用，知命修身</text>
+    <text class="pf-t2">易理明灯 · 墨韵对比 · {{footDate}}</text>
+  </view>
+
+  <view class="pp-repick" hover-class="pp-btn-active" hover-stay-time="0" bindtap="onReset">
+    <text>重新对比</text>
+  </view>
+</view>

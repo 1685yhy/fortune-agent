@@ -845,6 +845,27 @@ function paipan(payload) {
 }
 
 /**
+ * 多盘对比（POST /api/duipan，P1-2：同一生辰不同时辰两盘差异对照）
+ * 入参：{birthYear, birthMonth, birthDay, city, gender('male'|'female'),
+ *        hourA, hourB(0-11 时辰序号（子..亥，子=晚子时 23 点）或 12-23 时钟小时)}
+ * 响应：{pan_a: 排盘全字段, pan_b: 排盘全字段, diff: 差异对比, summary: 规则摘要}。
+ * 生辰只用于内存排盘，不落库。
+ */
+function duipan(payload) {
+  const p = payload || {};
+  const data = {
+    birthYear: parseInt(p.birthYear, 10),
+    birthMonth: parseInt(p.birthMonth, 10),
+    birthDay: parseInt(p.birthDay, 10),
+    hourA: parseInt(p.hourA, 10),
+    hourB: parseInt(p.hourB, 10),
+    gender: p.gender === 'female' ? 'female' : 'male',
+    city: p.city || '北京',
+  };
+  return request('/api/duipan', { method: 'POST', data, showLoading: true });
+}
+
+/**
  * 命理知识解析（GET /api/knowledge?category=&name=，排盘页点文字查解析）
  * category ∈ shishen / zhangsheng / nayin / shensha / tiangan / dizhi
  * 响应：{name, tip, gujue?, chafa?, ...}
@@ -1313,6 +1334,7 @@ module.exports = {
   // Four Arts
   hehun,
   paipan,
+  duipan,
   getKnowledge,
   union,
   unionHistory,
