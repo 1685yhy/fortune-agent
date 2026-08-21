@@ -31,6 +31,11 @@ Page({
     wx.navigateTo({ url });
   },
 
+  /* UX批1 M-12：灰态占位卡点击 → toast 反馈（避免用户误以为功能坏了） */
+  onComingSoon() {
+    wx.showToast({ title: '即将上线，敬请期待', icon: 'none' });
+  },
+
   /* 原型 TabBar onTab */
   onTab(e) {
     const t = e.currentTarget.dataset.tab;

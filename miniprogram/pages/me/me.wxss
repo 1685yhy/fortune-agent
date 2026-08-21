@@ -356,7 +356,7 @@
 }
 .md-close {
   margin-top: 34rpx;
-  padding: 10rpx 40rpx;
+  padding: 20rpx 48rpx;                   /* UX批1 M-14：热区 60→72rpx（10rpx→20rpx 竖向内边距） */
   font-family: var(--font-song);
   font-size: 22rpx;
   letter-spacing: .2em;
@@ -367,13 +367,34 @@
 .hs-profile-edit {
   align-self: flex-start;
   font-family: var(--font-song);
-  font-size: 19rpx;                      /* 10px */
-  letter-spacing: .14em;
+  font-size: 22rpx;                      /* UX批1 M-13：19→22rpx */
+  letter-spacing: .12em;
   color: var(--acc-deep);
-  border-bottom: 2rpx dotted var(--acc-soft);
-  padding-bottom: 2rpx;
+  border: 2rpx solid var(--acc-line);
+  border-radius: 8rpx;
+  padding: 12rpx 22rpx;                  /* UX批1 M-13：热区 ~30rpx → ~50rpx，成按钮形 */
+  background: transparent;
 }
-.hs-profile-edit-active { color: var(--acc); border-bottom-color: var(--acc); }
+.hs-profile-edit-active { color: var(--acc); border-color: var(--acc); background: var(--acc-soft); }
+
+/* ── UX批1 I-2：未设置命主信息占位（无虚构命盘时的中性引导，可点 → 档案页） ── */
+.hs-empty {
+  display: flex;
+  align-items: center;
+  gap: 13rpx;
+  margin-top: 3rpx;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .08em;
+}
+.hs-empty-t { color: var(--ink-soft); }
+.hs-empty-s {
+  color: var(--acc);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 6rpx;
+  padding: 6rpx 15rpx;
+}
+.hs-empty-active { opacity: .78; }
 
 /* 弹层（同 member-mask/member-dialog 同族：宣纸底 + 墨线 + 朱砂点缀） */
 .pp-mask {

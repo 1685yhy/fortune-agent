@@ -6,10 +6,8 @@ const theme = require('../../utils/theme');
 
 const HOUR_CN = ['子时', '丑时', '寅时', '卯时', '辰时', '巳时', '午时', '未时', '申时', '酉时', '戌时', '亥时'];
 
-/* 原型 PILLARS / ME_ROWS（dir_b.html 977-985 行） */
-const DEFAULT_PILLARS = [
-  { l: '年', c: '戊寅' }, { l: '月', c: '丁巳' }, { l: '日', c: '庚申' }, { l: '时', c: '己卯' },
-];
+/* UX批1 I-2：移除虚构命盘兜底（DEFAULT_PILLARS/「小晚」）——无档案一律展示
+   「未设置命主信息」占位，绝不让用户误认虚构八字为自己已保存的盘 */
 /* 基础行（val 由 _buildRows 按档案/会员状态动态填充） */
 const BASE_ROWS = [
   { icon: '/assets/images/ic-edit.png', label: '档案', action: 'persons' },
@@ -30,10 +28,11 @@ const ARCHIVE_KEY = 'ylm_chat_archives';
 Page({
   data: {
     navOff: 0,
-    displayName: '小晚',
-    birthdayText: '1998.05.12 卯时',
-    lunarBirthday: '戊寅年 · 四月十七',
-    pillars: DEFAULT_PILLARS,
+    displayName: '',          // UX批1 I-2：无真实昵称时渲染兜底「明灯友人」，不虚构
+    birthdayText: '',
+    lunarBirthday: '',
+    pillars: [],
+    hasBazi: false,           // UX批1 I-2：命盘是否就绪（决定生日/四柱区 vs 未设置占位）
     nights: 231,
     meRows: BASE_ROWS,
     memberStatus: '基础版',
@@ -60,7 +59,7 @@ Page({
     draftAvatar: '',            // 弹层头像临时路径预览（未保存前仅本地显示）
   },
 
-  onLoad() {
+  onLoad(options) {
     this._initNavOff();
     // 会员开通方案（L5-2：基础三档 + 高级一档，价格与后端 SUBSCRIBE_PLANS 对齐）
     const plans = ['monthly', 'quarterly', 'yearly', 'pro_monthly']
@@ -79,6 +78,11 @@ Page({
         };
       });
     this.setData({ memberPlans: plans });
+    /* UX批1 I-3：对话页额度条「开通会员」CTA → reLaunch me?openMember=1 →
+       自动打开会员弹层（原只 reLaunch 到页，用户看不到开通入口预期结果） */
+    if (options && String(options.openMember) === '1') {
+      this.setData({ memberDialogVisible: true });
+    }
     theme.bindTheme(this, () => this._buildRows());
   },
 
@@ -170,7 +174,7 @@ Page({
 
   /* 行 val 动态化（图标随暗黑模式换暗色变体；按 label 匹配，避免行序变更后索引错位） */
   _buildRows(hasBazi) {
-    const hb = hasBazi !== undefined ? hasBazi : !!this.data.birthdayText;
+    const hb = hasBazi !== undefined ? hasBazi : this.data.hasBazi;
     const rows = BASE_ROWS.map((r) => ({
       ...r,
       icon: r.icon,   // 夜间模式已移除：恒用白天图标
@@ -218,7 +222,10 @@ Page({
     api.getUserProfile()
       .then((profile) => {
         const info = (profile && profile.bazi_info) || null;
-        if (!info || !info.year) return;
+        if (!info || !info.year) {
+          this._resetBaziView();  // UX批1 I-2：确无档案 → 清残留展示，回「未设置」占位
+          return;
+        }
         const app = getApp();
         if (app && app.globalData) {
           app.globalData.hasBazi = true;
@@ -226,7 +233,14 @@ Page({
         }
         this._applyBaziToView(info);
       })
-      .catch(() => { /* 未登录/后端未就绪：保持原型默认 */ });
+      .catch(() => { /* 未登录/后端未就绪：保持中性占位（UX批1 I-2：不再回原型默认假数据） */ });
+  },
+
+  /* UX批1 I-2：无档案时清掉可能残留的命盘展示 → 「未设置命主信息」占位 */
+  _resetBaziView() {
+    if (!this.data.hasBazi) return;
+    this.setData({ hasBazi: false, pillars: [], birthdayText: '', lunarBirthday: '' });
+    this._buildRows();
   },
 
   _applyBaziToView(b) {
@@ -245,6 +259,7 @@ Page({
     if (vals.every((v) => !!v)) {
       patch.pillars = ['年', '月', '日', '时'].map((l, i) => ({ l, c: vals[i] }));
     }
+    patch.hasBazi = true;   // UX批1 I-2：真实命盘就绪 → 渲染生日/四柱区
     this.setData(patch);
     this._buildRows(true);
   },
@@ -311,14 +326,14 @@ Page({
         realLogin: true,
         loginTag: '微信登录',
         nicknameSet: !!cache.nickname,
-        displayName: cache.nickname || (u && u.nickName) || '小晚',
+        displayName: cache.nickname || (u && u.nickName) || '明灯友人',  // I-2：中性兜底，不虚构
         avatarUrl: cache.avatarUrl ? api.getBaseURL() + cache.avatarUrl : ((u && u.avatarUrl) || ''),
       });
       this._loadBackendProfile(); // 后端 profile（含 nickname/avatar_url）为准，异步覆盖缓存
       return;
     }
     // 体验模式（local_user）：无后端身份，昵称仍走本地，不发请求
-    this.setData({ loggedOut: false, displayName: '小晚', avatarUrl: '', loginTag: '体验用户', realLogin: false, nicknameSet: false });
+    this.setData({ loggedOut: false, displayName: '明灯友人', avatarUrl: '', loginTag: '体验用户', realLogin: false, nicknameSet: false });
   },
 
   /* ═══ 后端资料联动（Task4：GET /api/user/profile 返回 nickname/avatar_url 后优先后端值，
@@ -374,20 +389,24 @@ Page({
     });
   },
 
-  /* 头像/昵称区点击（未登录引导重新登录；体验用户提示去登录；已登录无操作——
-     资料编辑仍走 hs-profile-edit 行） */
+  /* 头像/昵称区点击（UX批1 I-5：已登录不再零反馈——与「编辑」行一致打开资料弹层；
+     未登录→设置页重登；体验用户→toast 引导登录） */
   onProfileAreaTap() {
-    if (this.data.loggedOut) {
-      wx.navigateTo({ url: '/pages/settings/settings' });
-      return;
-    }
-    if (!this.data.realLogin) {
-      wx.showToast({ title: '请先微信登录', icon: 'none' });
-    }
+    this.openProfileDialog();
   },
 
   closeProfileDialog() {
     this.setData({ profileDialogVisible: false });
+  },
+
+  /* UX批1 I-1：右上 kebab（nav-right）接设置页（与列表「设置」行同目标） */
+  onNavSettings() {
+    wx.navigateTo({ url: '/pages/settings/settings' });
+  },
+
+  /* UX批1 I-2：未设置命主信息占位「去设置」→ 档案页（与今日页提示条同口径） */
+  onGoArchive() {
+    wx.navigateTo({ url: '/pages/persons/persons', fail: () => {} });
   },
 
   /* chooseAvatar 回调：临时路径仅本地预览（保存时才上传） */
@@ -500,19 +519,24 @@ Page({
 
   noop() { /* 阻止遮罩点击穿透 */ },
 
-  /* 选择套餐 → 支付 → 刷新会员状态 */
+  /* 选择套餐 → 支付 → 刷新会员状态（UX批1 M-8：支付过程补 loading 反馈） */
   buyPlan(e) {
     const planId = e.currentTarget.dataset.plan;
     if (!planId || this._buying) return;
     this._buying = true;
+    wx.showLoading({ title: '正在开通…', mask: true });
     payment.subscribeMember(planId)
       .then((res) => {
+        wx.hideLoading();
         if (res && res.success) {
           this.setData({ memberDialogVisible: false });
           this._loadMember();
+        } else {
+          wx.showToast({ title: '支付未完成', icon: 'none' });
         }
       })
       .catch(() => {
+        wx.hideLoading();
         wx.showToast({ title: '支付异常，请稍后再试', icon: 'none' });
       })
       .finally(() => { this._buying = false; });

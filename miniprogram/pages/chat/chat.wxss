@@ -884,6 +884,8 @@
 }
 .send-btn image { width: 33rpx; height: 33rpx; }  /* 17px */
 .send-btn-active { transform: scale(.94); background: var(--acc-deep); }
+/* UX批1 M-1：空输入时发送钮置灰（点击仍有「先写一句再发」提示） */
+.send-btn-off { opacity: .4; background: var(--ink-faint); box-shadow: none; }
 
 /* v8 阶段 3：停止生成（发送钮变身，朱砂方块） */
 .stop-btn {
@@ -1581,6 +1583,8 @@
 }
 .lamp-btn-active { background: var(--acc-soft); }
 .lamp-btn-muted { color: var(--ink-faint); border-color: var(--line); }
+/* UX批1 M-7：语音插件未配置时 mic 入口置灰（点按即提示，不用等长按） */
+.mic-off { opacity: .35; }
 .lamp-btn-timer { color: var(--ink-soft); }
 
 /* ── 挽留条 / 0 点后劝睡（浮于输入条上方） ── */
@@ -1670,3 +1674,17 @@
   letter-spacing: .04em;
   color: var(--ink-mid);
 }
+/* UX批1 M-5：12356 心理援助卡 ✕ 关闭钮（右上角，避开正文） */
+.safety-x {
+  position: absolute;
+  top: 12rpx;
+  right: 16rpx;
+  width: 44rpx;
+  height: 44rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24rpx;
+  color: var(--ink-faint);
+}
+.safety-x-active { color: var(--acc); }

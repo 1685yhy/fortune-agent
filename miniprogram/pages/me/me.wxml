@@ -6,7 +6,8 @@
     <view class="nav-title">
       <text>我的</text>
     </view>
-    <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0">
+    <!-- UX批1 I-1：右上 kebab 原为死按钮（有 hover 无 handler）→ 接设置页跳转 -->
+    <view class="nav-right" hover-class="navrow-hover" hover-stay-time="0" bindtap="onNavSettings">
       <image class="nav-right-icon" src="/assets/images/ic-kebab.png"></image>
     </view>
   </view>
@@ -27,16 +28,23 @@
             </view>
             <view class="hs-info">
               <view class="hs-name-row" hover-class="hs-tap-hover" hover-stay-time="0" bindtap="onProfileAreaTap">
-                <view class="hs-name">{{displayName}}</view>
+                <view class="hs-name">{{displayName || '明灯友人'}}</view>
               </view>
               <!-- 未登录：引导去设置页重新登录；已登录：保持原行为（打开资料弹层） -->
               <view class="hs-profile-edit" hover-class="hs-profile-edit-active" hover-stay-time="0" bindtap="openProfileDialog">{{loggedOut ? '点击登录' : (nicknameSet ? '编辑' : '点击设置头像昵称')}}</view>
-              <view class="hs-sub">{{birthdayText}}</view>
-              <view class="hs-sub">{{lunarBirthday}}</view>
+              <!-- UX批1 I-2：无真实命盘时不再展示虚构生日/农历 —— 显示「未设置命主信息 · 去设置」占位 -->
+              <block wx:if="{{hasBazi}}">
+                <view class="hs-sub">{{birthdayText}}</view>
+                <view class="hs-sub">{{lunarBirthday}}</view>
+              </block>
+              <view wx:else class="hs-empty" hover-class="hs-empty-active" hover-stay-time="0" bindtap="onGoArchive">
+                <text class="hs-empty-t">未设置命主信息</text>
+                <text class="hs-empty-s">去设置</text>
+              </view>
             </view>
           </view>
-          <!-- 第二行：四柱横排（下移独占一行，不再挤压昵称） -->
-          <view class="hs-pillars">
+          <!-- 第二行：四柱横排（下移独占一行，不再挤压昵称）；UX批1 I-2：无档案不渲染 -->
+          <view class="hs-pillars" wx:if="{{hasBazi && pillars.length}}">
             <view wx:for="{{pillars}}" wx:key="index" class="hs-pillar {{index > 0 ? 'pillar-line' : ''}}">
               <text class="p-label">{{item.l}}</text>
               <text class="p-char">{{item.c}}</text>

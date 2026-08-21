@@ -76,8 +76,8 @@
       <text class="eg-tag">把心绪说出口</text>
     </view>
     <view class="entry-grid g2">
-      <!-- 占位灰态：解梦（对话内功能，即将上线，不可点） -->
-      <view class="entry-card cl-off">
+      <!-- 占位灰态：解梦（对话内功能，即将上线，不可点；UX批1 M-12：点击有 toast 反馈） -->
+      <view class="entry-card cl-off" catchtap="onComingSoon">
         <view class="seal ec-seal cl-seal-off"><text class="seal-char">梦</text></view>
         <view class="ec-t">解梦</view>
         <view class="ec-s">记一段梦 · 我来解</view>
@@ -98,8 +98,8 @@
       <text class="eg-tag">把一生画给你看</text>
     </view>
     <view class="papercard eg-card">
-      <!-- 占位灰态：人生时轴（即将上线，不可点） -->
-      <view class="book-row cl-off">
+      <!-- 占位灰态：人生时轴（即将上线，不可点；UX批1 M-12：点击有 toast 反馈） -->
+      <view class="book-row cl-off" catchtap="onComingSoon">
         <view class="seal cl-seal cl-seal-off"><text class="seal-char">轴</text></view>
         <view class="br-mid">
           <view class="br-title">人生时轴</view>
@@ -107,8 +107,8 @@
         </view>
         <view class="cl-tag">即将上线</view>
       </view>
-      <!-- 占位灰态：运势曲线（即将上线，不可点） -->
-      <view class="book-row cl-off">
+      <!-- 占位灰态：运势曲线（即将上线，不可点；UX批1 M-12：点击有 toast 反馈） -->
+      <view class="book-row cl-off" catchtap="onComingSoon">
         <view class="seal cl-seal cl-seal-off"><text class="seal-char">势</text></view>
         <view class="br-mid">
           <view class="br-title">人生运势曲线</view>
@@ -116,8 +116,8 @@
         </view>
         <view class="cl-tag">即将上线</view>
       </view>
-      <!-- 占位灰态：水逆提醒（即将上线，不可点） -->
-      <view class="book-row cl-off">
+      <!-- 占位灰态：水逆提醒（即将上线，不可点；UX批1 M-12：点击有 toast 反馈） -->
+      <view class="book-row cl-off" catchtap="onComingSoon">
         <view class="seal cl-seal cl-seal-off"><text class="seal-char">逆</text></view>
         <view class="br-mid">
           <view class="br-title">水逆提醒</view>

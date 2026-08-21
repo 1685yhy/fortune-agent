@@ -217,7 +217,7 @@
   color: var(--ink-soft);
   border: 2rpx solid var(--line);         /* 1px */
   border-radius: 12rpx;                   /* 6px */
-  padding: 15rpx 23rpx;                   /* 8px 12px */
+  padding: 18rpx 24rpx;                   /* UX批1 M-10：竖向内边距 15→18rpx，热区稳超 72rpx */
   background: var(--paper-card);
   min-height: 73rpx;                      /* 38px */
   display: flex;
@@ -274,6 +274,8 @@
   padding: 21rpx 25rpx 17rpx;             /* 11px 13px 9px */
 }
 .jian-quote-row { display: flex; align-items: center; gap: 10rpx; }
+/* UX批1 M-9：金句展开/收起按压反馈 */
+.jian-quote-active { background: var(--paper-deep); border-color: var(--line); }
 .jian-quote-text {
   flex: 1;
   min-width: 0;
@@ -491,6 +493,19 @@
   line-height: 1.95;
   letter-spacing: .03em;
   color: var(--ink-mid);
+}
+
+/* UX批1 M-11：四运/时辰均无数据时的占位文案（不再渲染空壳） */
+.df-empty {
+  margin-top: 23rpx;
+  padding: 27rpx 0;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .14em;
+  color: var(--ink-faint);
+  border: 2rpx dashed var(--line-soft);
+  border-radius: 12rpx;
 }
 
 /* 逐条详解入口（原型 .df-more） */

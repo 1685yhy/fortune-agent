@@ -46,7 +46,7 @@
        （nightHeadShow 控制；nightMode 仅 entry=night 或 21:00-01:00 时段进入） -->
   <view wx:if="{{nightMode && nightHeadShow}}" class="night-head {{lampLit ? 'lamp-fade' : ''}}">
     <image class="night-lantern" src="/assets/images/ic-lantern-on.png"></image>
-    <text>灯下漫谈 · 今夜说的话,天亮就忘</text>
+    <text>灯下漫谈 · 今夜说的话，天亮就忘</text>
     <text wx:if="{{notKeep}}" class="night-head-sub">倾诉不落记忆 · 要记住的要当面说</text>
     <view class="night-head-x" hover-class="night-head-x-active" hover-stay-time="0" catchtap="dismissNightHead" aria-label="关闭深夜提示">✕</view>
   </view>
@@ -56,9 +56,9 @@
     <view class="lamp-text">{{lamp.text}}</view>
     <view class="lamp-actions">
       <view wx:if="{{lamp.audioUrl}}" class="lamp-btn" hover-class="lamp-btn-active" hover-stay-time="0" bindtap="onLampPlay">{{lamp.playing ? '暂停' : '播放'}}</view>
-      <view wx:else class="lamp-btn lamp-btn-muted">语音会员</view>
+      <view wx:else class="lamp-btn lamp-btn-muted" hover-class="lamp-btn-active" hover-stay-time="0" bindtap="onLampPlay">语音会员</view>
       <view class="lamp-btn" hover-class="lamp-btn-active" hover-stay-time="0" bindtap="onLampFav">{{lamp.favorited ? '已收藏' : '收藏'}}</view>
-      <picker class="lamp-timer" range="{{[5,10,15,30]}}" value="2" bindchange="onLampTimerChange">
+      <picker class="lamp-timer" range="{{[5,10,15,30]}}" value="{{lampTimerIdx}}" bindchange="onLampTimerChange">
         <view class="lamp-btn lamp-btn-timer">定时关闭 {{lamp.timerMin}} 分钟 ▾</view>
       </picker>
     </view>
@@ -66,19 +66,20 @@
   <!-- 挽留条（静默 25-40 分钟，1 次/夜） -->
   <view wx:if="{{keepBar.show}}" class="night-keep">{{keepBar.text}}</view>
   <!-- 0 点后劝睡 -->
-  <view wx:if="{{sleepBar}}" class="night-keep">天都快亮了。我给你留一盏小灯,明天接着陪你聊。睡吧。</view>
+  <view wx:if="{{sleepBar}}" class="night-keep">天都快亮了。我给你留一盏小灯，明天接着陪你聊。睡吧。</view>
   <!-- 「要我记得吗」 -->
   <view wx:if="{{rememberPrompt.show}}" class="keep-prompt">
-    <text class="kp-q">这句,要帮你记住吗?</text>
+    <text class="kp-q">这句，要帮你记住吗？</text>
     <view class="kp-btns">
       <view class="kp-btn" hover-class="kp-btn-active" hover-stay-time="0" bindtap="onRememberYes">要记住</view>
       <view class="kp-btn kp-btn-no" hover-class="kp-btn-active" hover-stay-time="0" bindtap="onRememberNo">不用</view>
     </view>
   </view>
-  <!-- 12356 心理援助 -->
+  <!-- 12356 心理援助（UX批1 M-5：加 ✕ 关闭入口，用户读完可收起） -->
   <view wx:if="{{safetyCard.show}}" class="safety-card">
     <view class="safety-head">心理援助 · 请先联系专业人员</view>
     <text>{{safetyCard.text}}</text>
+    <view class="safety-x" hover-class="safety-x-active" hover-stay-time="0" catchtap="dismissSafetyCard" aria-label="关闭心理援助提示">✕</view>
   </view>
 
   <!-- 对话建档提示条：AI 回复含建档 key → 顶部提示（点按确认/取消，可关闭） -->
@@ -275,7 +276,7 @@
          语音模式 = 按住说话条（复用录音逻辑）+ 右侧键盘图标（点一下切回文字） -->
     <view class="input-row">
       <block wx:if="{{inputMode === 'voice'}}">
-        <view wx:if="{{!isRecording && !converting}}" class="voice-hold" hover-class="voice-hold-active" hover-stay-time="0"
+        <view wx:if="{{!isRecording && !converting}}" class="voice-hold {{micAvailable ? '' : 'mic-off'}}" hover-class="voice-hold-active" hover-stay-time="0"
           bindtouchstart="micTouchStart" bindtouchmove="micTouchMove" bindtouchend="micTouchEnd" bindtouchcancel="micTouchCancel">
           <image class="vh-mic" src="/assets/images/ic-mic.png"></image>
           <text class="vh-txt">按住 说话</text>
@@ -303,17 +304,17 @@
         </view>
       </block>
       <block wx:else>
-        <view class="mic-btn mode-mic" hover-class="mic-btn-active" hover-stay-time="0" data-mode="voice" bindtap="switchInputMode">
+        <view class="mic-btn mode-mic {{micAvailable ? '' : 'mic-off'}}" hover-class="mic-btn-active" hover-stay-time="0" data-mode="voice" bindtap="switchInputMode">
           <image src="/assets/images/ic-mic.png"></image>
         </view>
-        <input class="chat-input {{inputFocused ? 'input-focused' : ''}}" placeholder="{{nightMode ? '慢慢说,我听着。' : '写下一句心事…'}}"
+        <input class="chat-input {{inputFocused ? 'input-focused' : ''}}" placeholder="{{nightMode ? '慢慢说，我听着。' : '写下一句心事…'}}"
           placeholder-class="input-ph" value="{{inputText}}" focus="{{inputFocus}}" bindinput="onInput"
           bindfocus="onFocus" bindblur="onBlur" bindconfirm="onConfirm" confirm-type="send" />
         <!-- v8 阶段 3：生成中无输入 → 停止钮；正在打字 → 发送钮（点按=排队，豆包式） -->
         <view wx:if="{{streaming && !inputText}}" class="stop-btn" hover-class="stop-btn-active" hover-stay-time="0" bindtap="stopStream">
           <view class="stop-square"></view>
         </view>
-        <view wx:else class="send-btn" hover-class="send-btn-active" hover-stay-time="0" bindtap="sendMessage">
+        <view wx:else class="send-btn {{inputText ? '' : 'send-btn-off'}}" hover-class="send-btn-active" hover-stay-time="0" bindtap="sendMessage">
           <image src="/assets/images/ic-send.png"></image>
         </view>
       </block>

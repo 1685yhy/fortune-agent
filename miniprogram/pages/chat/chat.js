@@ -61,6 +61,8 @@ const REC_MIN_MS = 800;   // 短按 < 800ms → 「说话时间太短」
 const REC_MAX_S = 60;     // 最长录音 60s，到点自动发送
 const SWIPE_CANCEL_PX = 80; // 上滑 80px 进入「松开 取消」
 const WAVE_BAR_COUNT = 26;
+/* UX批1 M-4：灯语定时关闭档位（picker range 与 value 下标同步） */
+const LAMP_TIMER_OPTIONS = [5, 10, 15, 30];
 
 /* v8 阶段 3·过程体验（流式打字机）：滚动节流（生成推进由宿主 tick 驱动） */
 const SCROLL_MS = 100;      // 自动滚动节流
@@ -99,7 +101,8 @@ Page({
     lampLit: false,            // 灯笼动效本轮是否已播
     lamp: { show: false, date: '', text: '', audioUrl: '', favorited: false,
             timerMin: 15, playing: false },
-    keepBar: { show: false, text: '不用急着回。我就在这,灯给你留着。' },
+    lampTimerIdx: 2,          // UX批1 M-4：定时 picker 高亮下标（5/10/15/30 → 默认 15 档）
+    keepBar: { show: false, text: '不用急着回。我就在这，灯给你留着。' },
     sleepBar: false,
     rememberPrompt: { show: false, msgId: '', userText: '' },
     safetyCard: { show: false, text: '' },
@@ -117,6 +120,8 @@ Page({
     waveBars: [],
     /* 语音播报 */
     speakingId: '',
+    /* UX批1 M-7：WechatSI 语音插件可用性（未配置时 mic 入口置灰 + 点击即提示） */
+    micAvailable: true,
     /* 阶段 5·引用交互：底部抽屉（半屏↔全屏） */
     citeDrawer: { show: false, full: false, msgId: '', items: [] },
     /* v1.1 气泡长按操作菜单（墨韵弹层） */
@@ -307,11 +312,14 @@ Page({
       const l = (res && res.lamp) || {};
       if (!l || !l.text) return;
       const p = wx.getStorageSync('ylm_night_prefs') || {};
+      const tmin = Number(p.lamp_timer_min) || 15;
+      const tidx = LAMP_TIMER_OPTIONS.indexOf(tmin);
       this.setData({
         'lamp.show': true, 'lamp.date': l.date, 'lamp.text': l.text,
         'lamp.audioUrl': l.audio_url || '',
         'lamp.favorited': !!l.favorited,
-        'lamp.timerMin': p.lamp_timer_min || 15,
+        'lamp.timerMin': tmin,
+        'lampTimerIdx': tidx >= 0 ? tidx : 2,   // UX批1 M-4：picker 高亮与档位回显同步
       });
     } catch (e) { /* 静默 */ }
   },
@@ -340,11 +348,19 @@ Page({
   },
 
   onLampTimerChange(e) {
-    this.setData({ 'lamp.timerMin': Number(e.detail.value) });
+    /* UX批1 M-4：picker detail.value 是档位下标（0-3），换算成分钟数 */
+    const idx = Number(e.detail.value) || 0;
+    const min = LAMP_TIMER_OPTIONS[idx] || 15;
+    this.setData({ 'lamp.timerMin': min, lampTimerIdx: idx });
+    // 档位持久化：下次进入灯语卡 picker 高亮仍指向用户所选
+    try {
+      const p = wx.getStorageSync('ylm_night_prefs') || {};
+      wx.setStorageSync('ylm_night_prefs', Object.assign({}, p, { lamp_timer_min: min }));
+    } catch (err) { /* ignore */ }
     if (this._lampAudio && this.data.lamp.playing) { /* 重新计时 */
       if (this._lampTimer) clearTimeout(this._lampTimer);
       this._lampTimer = setTimeout(() => { this._lampAudio.stop(); this.setData({ 'lamp.playing': false }); },
-        this.data.lamp.timerMin * 60 * 1000);
+        min * 60 * 1000);
     }
   },
 
@@ -406,11 +422,16 @@ Page({
     if (/自杀|自伤|轻生|不想活|活不下去|想死|结束生命/.test(text)) {
       this.setData({ safetyCard: {
         show: true,
-        text: '我听到你了。请先拨打心理援助热线 12356(24 小时),白天我会陪你联系专业人士。你很重要。',
+        text: '我听到你了。请先拨打心理援助热线 12356（24 小时），白天我会陪你联系专业人士。你很重要。',
       } });
       return true;
     }
     return false;
+  },
+
+  /* UX批1 M-5：12356 心理援助卡关闭入口（✕）——用户读完可手动收起 */
+  dismissSafetyCard() {
+    this.setData({ safetyCard: { show: false, text: '' } });
   },
 
   /* ═══ v1.1 全局流式宿主接线（切 tab 对话不中断） ═══ */
@@ -457,9 +478,10 @@ Page({
       .catch(() => { /* 额度查询失败：静默隐藏（不打扰对话） */ });
   },
 
-  /* 降级引导 → 我的页会员入口（开通会员解锁完整版） */
+  /* 降级引导 → 我的页会员入口（开通会员解锁完整版）
+     UX批1 I-3：带 ?openMember=1 → me 页 onLoad 读参自动开会员弹层 */
   goMember() {
-    wx.reLaunch({ url: '/pages/me/me' });
+    wx.reLaunch({ url: '/pages/me/me?openMember=1' });
   },
 
   /* 宿主状态 → 页面镜像（segments 由页面重算，引用分段渲染在页面侧） */
@@ -838,6 +860,11 @@ Page({
   },
 
   _send(text) {
+    /* UX批1 M-1：空输入点击发送 → 明确提示（发送钮同时置灰，双保险） */
+    if (!String(text || '').trim()) {
+      wx.showToast({ title: '先写一句再发', icon: 'none' });
+      return;
+    }
     const r = streamHost.send(text, curatedFor(text).tag);
     if (r === 'queued') {
       wx.showToast({ title: '已排队，等我说完就回你', icon: 'none', duration: 1200 });
@@ -1462,6 +1489,11 @@ Page({
   switchInputMode(e) {
     const mode = e.currentTarget.dataset.mode;
     if (mode === this.data.inputMode) return;
+    if (mode === 'voice' && !this.data.micAvailable) {
+      // UX批1 M-7：语音插件未配置 → 入口置灰，点按即提示（不用等长按）
+      wx.showToast({ title: '语音输入未开启，请使用键盘输入', icon: 'none' });
+      return;
+    }
     if (mode === 'text' && (this.data.isRecording || this.data.converting)) {
       // 录音中切回键盘：取消本次录音
       this._finishRecording(false);
@@ -1484,8 +1516,10 @@ Page({
     if (!plugin || !plugin.getRecordRecognitionManager) {
       this._speechPlugin = null;
       this._recMgr = null;
+      this.setData({ micAvailable: false });  // UX批1 M-7：语音入口置灰
       return;
     }
+    this.setData({ micAvailable: true });
     this._speechPlugin = plugin;
     const manager = plugin.getRecordRecognitionManager();
     this._recMgr = manager;

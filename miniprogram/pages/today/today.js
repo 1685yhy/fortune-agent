@@ -117,6 +117,7 @@ Page({
     this._initNavOff();
     this._initDate();
     this._loadFortune();
+    this._fortuneLoadedAt = Date.now();   // UX批1 I-4：记录本次加载时刻（onShow 刷新判定基准）
     this._loadJian();
     this._loadNight();
     theme.bindTheme(this);
@@ -125,6 +126,21 @@ Page({
   /* 每次回页面刷新深夜态（21:00 后出现横幅，白天不出现） */
   onShow() {
     this._loadNight();
+    this._refreshArchiveHint();   // UX批1 I-4：建档返回后刷新档案提示条
+  },
+
+  /* ═══ UX批1 I-4：档案提示条 onShow 重算 ═══
+     点「去设置」→ persons 建档 → 返回：提示条仍显示旧值（onShow 原只刷深夜态）。
+     persons.hasLocalArchive() 本地判定成本低；本地已建档但提示条仍显示 → 重拉
+     _loadFortune（其 needsArchive 判定会清提示条，顺带把四运刷成真实档案数据）。
+     另：距上次加载超 5 分钟也重拉（Minor-11 跨时段/改档案后回页刷新） */
+  _refreshArchiveHint() {
+    const has = persons.hasLocalArchive();
+    const stale = !this._fortuneLoadedAt || Date.now() - this._fortuneLoadedAt > 5 * 60 * 1000;
+    if ((this.data.archiveHint && has) || stale) {
+      this._loadFortune();
+      this._fortuneLoadedAt = Date.now();
+    }
   },
 
   /* 状态栏高度适配：原型画板固定状态栏 47px，--nav-off 为差值。
