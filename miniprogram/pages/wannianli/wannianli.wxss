@@ -1,0 +1,219 @@
+/* ═══════════════════════════════════════════════════════════════
+   万年历（P1-1）— 月历宫格 + 日详情笺页
+   视觉基准同排盘/择日：宣纸 #F5EFE1 / 墨 #3A2C1E / 朱砂 #A93A2C / 金 #B08A4F
+   变量复用 app.wxss page 级 :root（--ink/--acc/--gold/--paper/--line/--font-*）
+   节气朱砂标注 · 黄道金 / 黑道淡墨 · 建除吉凶三色
+   ═══════════════════════════════════════════════════════════════ */
+
+.wn-page { padding: 0 0 40rpx; }
+
+.wn-scroll { height: calc(100vh - 88rpx - var(--nav-off, 0px)); }
+.wn-inner { padding: 8rpx 26rpx 48rpx; }
+
+/* ════════ 月切换条 ════════ */
+
+.wn-mbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14rpx 6rpx 18rpx;
+}
+.wn-nav-btn {
+  width: 64rpx; height: 64rpx; border-radius: 12rpx;
+  background: var(--paper-card); border: 2rpx solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-song); font-size: 40rpx; color: var(--ink-mid);
+}
+.wn-btn-active { background: var(--acc-soft); color: var(--acc); }
+.wn-mid { display: flex; align-items: center; gap: 14rpx; }
+.wn-month { font-family: var(--font-song); font-weight: 700; font-size: 38rpx; letter-spacing: .14em; color: var(--ink); }
+.wn-jinri {
+  width: 44rpx; height: 44rpx; border-radius: 50%;
+  background: var(--acc); color: #FBF6E8;
+  font-family: var(--font-kai); font-size: 24rpx;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 2rpx 6rpx rgba(60,30,20,.25);
+}
+
+/* ════════ 星期表头 ════════ */
+
+.wn-week {
+  display: flex;
+  padding: 10rpx 0 14rpx;
+  border-bottom: 2rpx solid var(--line-soft);
+}
+.wn-week-cell {
+  flex: 1; text-align: center;
+  font-family: var(--font-song); font-size: 22rpx; letter-spacing: .1em;
+  color: var(--ink-soft);
+}
+.wn-week-rest { color: var(--acc); }
+
+/* ════════ 宫格 ════════ */
+
+.wn-grid { display: flex; flex-wrap: wrap; padding-top: 14rpx; }
+
+.wn-cell {
+  width: calc((100% - 16rpx) / 7);   /* 7 列，间距 16rpx */
+  margin-right: 16rpx; margin-bottom: 16rpx;
+  box-sizing: border-box;
+  border-radius: 12rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-soft);
+  padding: 8rpx 4rpx 6rpx;
+  display: flex; flex-direction: column; align-items: center;
+}
+.wn-cell:nth-child(7n) { margin-right: 0; }
+.wn-cell-blank { background: transparent; border-color: transparent; }
+.wn-cell-active { background: var(--acc-soft); border-color: var(--acc-line); }
+.wn-cell-today {
+  border-color: var(--acc);
+  box-shadow: inset 0 0 0 2rpx rgba(169,58,44,.25), 0 6rpx 18rpx rgba(169,58,44,.16);
+}
+
+.wn-top { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 8rpx; }
+.wn-ganzhi { font-family: var(--font-song); font-size: 17rpx; color: var(--ink-faint); letter-spacing: .02em; }
+.wn-hd { font-family: var(--font-kai); font-size: 17rpx; line-height: 1.2; }
+.wn-hd-huang { color: var(--gold); }
+.wn-hd-hei { color: var(--ink-faint); }
+
+.wn-num {
+  margin-top: 2rpx;
+  font-family: var(--font-kai); font-size: 34rpx; line-height: 1.15;
+  color: var(--ink);
+}
+.wn-num-today { color: var(--acc); font-weight: 700; }
+
+.wn-lunar {
+  margin-top: 3rpx;
+  font-family: var(--font-kai); font-size: 18rpx; line-height: 1.2;
+  color: var(--ink-soft);
+}
+.wn-lunar-jieqi { color: var(--acc); font-weight: 700; }
+.wn-lunar-fest { color: var(--acc); }
+
+.wn-bot {
+  margin-top: 5rpx;
+  display: flex; align-items: center; justify-content: center; gap: 6rpx;
+  width: 100%;
+}
+.wn-dot {
+  font-family: var(--font-song); font-size: 16rpx; line-height: 1.2;
+  padding: 1rpx 5rpx; border-radius: 4rpx; white-space: nowrap;
+  max-width: 74rpx; overflow: hidden;
+}
+.wn-dot-yi { color: var(--acc); border: 1rpx solid var(--acc-line); background: var(--acc-soft); }
+.wn-dot-ji { color: var(--ink-soft); border: 1rpx solid var(--line); }
+
+.wn-foot { margin-top: 4rpx; display: flex; align-items: center; gap: 4rpx; }
+.wn-jc { font-family: var(--font-song); font-size: 17rpx; font-weight: 700; }
+.q-ji { color: var(--acc); }
+.q-ping { color: var(--ink-mid); }
+.q-xiong { color: var(--ink-faint); }
+
+/* ════════ 加载 / 底部 ════════ */
+
+.wn-loading { display: flex; justify-content: center; gap: 14rpx; padding: 80rpx 0; }
+
+.wn-note {
+  display: flex; align-items: center; justify-content: center; gap: 16rpx;
+  padding: 26rpx 0 10rpx;
+  font-family: var(--font-kai); font-size: 20rpx; letter-spacing: .14em; color: var(--ink-faint);
+}
+.wn-note .fg { width: 56rpx; height: 2rpx; background: var(--line-soft); }
+
+/* ════════ 日详情底部笺页 ════════ */
+
+.wn-mask {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(58,44,30,.42);
+  display: flex; align-items: flex-end;
+}
+.wn-sheet {
+  width: 100%;
+  background: var(--paper-card);
+  border-radius: 28rpx 28rpx 0 0;
+  padding: 34rpx 34rpx 46rpx;
+  box-sizing: border-box;
+  max-height: 82vh;
+  overflow-y: auto;
+  box-shadow: 0 -18rpx 60rpx rgba(58,44,30,.18);
+}
+.wn-sheet-loading { display: flex; justify-content: center; gap: 14rpx; padding: 90rpx 0; }
+
+/* 头 */
+.ws-head { display: flex; align-items: center; gap: 20rpx; padding-bottom: 24rpx; border-bottom: 2rpx solid var(--line-soft); }
+.ws-seal {
+  width: 72rpx; height: 72rpx; flex-shrink: 0; border-radius: 10rpx;
+  background: var(--acc);
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 4rpx 10rpx rgba(60,30,20,.25);
+}
+.ws-seal .seal-char { color: #FBF6E8; }
+.ws-titles { flex: 1; min-width: 0; }
+.ws-title-row { display: flex; align-items: baseline; gap: 14rpx; flex-wrap: wrap; }
+.ws-title { font-family: var(--font-kai); font-size: 46rpx; font-weight: 700; color: var(--ink); }
+.ws-lunar { font-family: var(--font-kai); font-size: 30rpx; color: var(--acc); }
+.ws-fest {
+  font-family: var(--font-song); font-size: 20rpx; color: var(--acc);
+  border: 2rpx solid var(--acc-line); border-radius: 6rpx; padding: 2rpx 10rpx;
+  background: var(--acc-soft);
+}
+.ws-sub { margin-top: 6rpx; font-family: var(--font-song); font-size: 20rpx; letter-spacing: .08em; color: var(--ink-soft); }
+.ws-close {
+  flex-shrink: 0;
+  width: 56rpx; height: 56rpx; border-radius: 50%;
+  border: 2rpx solid var(--line); color: var(--ink-mid);
+  font-family: var(--font-kai); font-size: 24rpx;
+  display: flex; align-items: center; justify-content: center;
+}
+.ws-close-active { background: var(--acc-soft); color: var(--acc); }
+
+/* 区块 */
+.ws-sec { padding: 20rpx 2rpx; }
+.ws-sec-line { border-bottom: 2rpx solid var(--line-soft); }
+.ws-sec-label {
+  font-family: var(--font-song); font-size: 21rpx; letter-spacing: .2em;
+  color: var(--ink-faint); margin-bottom: 12rpx;
+}
+
+/* 干支纳音 */
+.ws-ganzhi { display: flex; align-items: baseline; gap: 18rpx; flex-wrap: wrap; }
+.ws-gz { font-family: var(--font-kai); font-size: 30rpx; color: var(--ink-mid); }
+.ws-gz-hl { font-size: 36rpx; color: var(--ink); font-weight: 700; }
+.ws-nayin { font-family: var(--font-song); font-size: 22rpx; color: var(--gold); border: 2rpx solid var(--gold-soft); border-radius: 6rpx; padding: 2rpx 10rpx; }
+
+/* 值日/冲煞/方位 */
+.ws-zhirow { display: flex; align-items: center; gap: 22rpx; flex-wrap: wrap; }
+.ws-zhi { font-family: var(--font-song); font-size: 24rpx; color: var(--ink-mid); }
+.ws-zhi-huang { color: var(--gold); font-weight: 700; }
+.ws-zhi-hei { color: var(--ink-faint); }
+
+/* 宜忌 */
+.ws-yiji { display: flex; align-items: flex-start; gap: 16rpx; margin-bottom: 14rpx; }
+.ws-yiji:last-child { margin-bottom: 0; }
+.ws-yiji-label {
+  flex-shrink: 0;
+  font-family: var(--font-kai); font-size: 26rpx; font-weight: 700;
+  color: var(--acc); margin-top: 4rpx;
+}
+.ws-yiji-label-ji { color: var(--ink-soft); }
+.ws-chips { display: flex; flex-wrap: wrap; gap: 10rpx; flex: 1; }
+.ws-chip {
+  font-family: var(--font-song); font-size: 22rpx;
+  padding: 6rpx 14rpx; border-radius: 8rpx;
+}
+.ws-chip-yi { color: var(--acc); border: 2rpx solid var(--acc-line); background: var(--acc-soft); }
+.ws-chip-ji { color: var(--ink-soft); border: 2rpx solid var(--line); }
+
+/* 吉神凶煞 */
+.ws-sha { margin-bottom: 14rpx; }
+.ws-sha:last-child { margin-bottom: 0; }
+.ws-sha-label {
+  display: block;
+  font-family: var(--font-song); font-size: 20rpx; letter-spacing: .14em;
+  color: var(--ink-faint); margin-bottom: 8rpx;
+}
+.ws-sha-label-ji { color: var(--acc); }
+
+.ws-foot {
+  margin-top: 22rpx; text-align: center;
+  font-family: var(--font-kai); font-size: 20rpx; letter-spacing: .2em; color: var(--ink-faint);
+}

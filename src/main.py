@@ -1069,6 +1069,10 @@ app.include_router(night_router)             # /api/night/prefs|status
 from .api.zeri import router as zeri_router
 app.include_router(zeri_router)              # /api/zeri/*
 
+# 万年历 API（月视图/日详情，确定性 0 LLM，全接口 require_user，问真吉真万年历同款）
+from .api.wannianli import router as wannianli_router
+app.include_router(wannianli_router)         # /api/wannianli, /api/wannianli/day
+
 # 抽灵签 API（签文库/摇签/收藏/历史，全接口 require_user）
 from .api.qian import router as qian_router
 app.include_router(qian_router)              # /api/qian/*

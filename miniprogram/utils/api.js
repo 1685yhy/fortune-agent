@@ -1129,6 +1129,14 @@ function getZeriOptions(params = {}) {
 function getZeriPrefs() { return request('/api/zeri/prefs', { method: 'GET' }); }
 function putZeriPrefs(patch) { return request('/api/zeri/prefs', { method: 'PUT', data: patch }); }
 
+// Wannianli (万年历 · P1-1：月视图 + 日详情，确定性 0 LLM)
+function getWannianliMonth(year, month) {
+  return request(`/api/wannianli?year=${year}&month=${month}`, { method: 'GET' });
+}
+function getWannianliDay(date) {
+  return request(`/api/wannianli/day?date=${date}`, { method: 'GET' });
+}
+
 // Qian (抽灵签)
 function drawQian() { return request('/api/qian/draw', { method: 'POST' }); }
 function saveQian(data) { return request('/api/qian/save', { method: 'POST', data }); }
@@ -1344,6 +1352,10 @@ module.exports = {
   getZeriOptions,
   getZeriPrefs,
   putZeriPrefs,
+
+  // Wannianli (万年历)
+  getWannianliMonth,
+  getWannianliDay,
 
   // Qian (抽灵签)
   drawQian,

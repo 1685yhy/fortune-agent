@@ -1,0 +1,231 @@
+"""万年历引擎 — 日历 + 干支 + 宜忌（问真"吉真万年历"同款确定性功能，0 LLM）。
+
+数据基础（均为确定性纯规则，无任何随机/LLM 成分）:
+- lunar-python（Solar→Lunar）: 公历↔农历转换、年/月/日干支、节气、纳音、
+  黄黑道十二值神（getDayTianShen/Type/Luck）、吉神宜趋（getDayJiShen）、
+  凶煞宜忌（getDayXiongSha）、冲煞（getDayChongDesc/getDaySha）、
+  财神/喜神/福神/贵神方位（getDayPosition*）、旬空（八字的 DayXunKong）、节日、星期。
+- src/engines/zeri.py: 建除十二神（月支起建 _calc_jianchu）+ 建除宜忌表
+  （JIANCHU_YI_JI，传统通书《协纪辨方书》建除十二神宜忌规则）+ 建除吉凶
+  （JIANCHU_QUALITY）+ 二十八宿值日（ERSHIBA_XIU + 传统吉凶表）。
+
+宜忌规则（标准黄历，与择日引擎 zeri.py 同源口径，注释来源见上）:
+  宜 = 建除十二神宜（JIANCHU_YI_JI，建除在前） + lunar-python 当日黄历宜
+       （getDayYi，通胜逐日宜忌表）按序去重合并 —— 与 zeri.py _build_lucky_card
+       的合并口径完全一致（list(dict.fromkeys(r.yi + lunar.getDayYi()))）。
+  忌 = 同理（建除忌 + getDayJi 去重合并）。
+  黄黑道 = lunar-python 十二值神: 青龙/明堂/金匮/天德/玉堂/司命 为黄道（吉）；
+           天刑/朱雀/白虎/天牢/玄武/勾陈 为黑道（凶）。
+  值日吉凶 quality = 建除十二神吉凶（JIANCHU_QUALITY: 吉/平/凶）。
+"""
+import calendar as _cal
+import re
+from datetime import datetime, timezone, timedelta
+from typing import Any, Dict, List
+
+from lunar_python import Solar
+
+from src.engines.zeri import JIANCHU_QUALITY, JIANCHU_YI_JI, ZeriEngine
+
+BJT = timezone(timedelta(hours=8))
+MIN_YEAR, MAX_YEAR = 1900, 2100  # lunar-python 历法支持范围
+
+_zeri = ZeriEngine()  # 复用建除/二十八宿计算（纯函数，无副作用）
+
+
+def _month_range(year: int, month: int) -> int:
+    """当月天数（标准公历）。"""
+    return _cal.monthrange(year, month)[1]
+
+
+def _lunar_day_cn(day: int) -> str:
+    """农历日中文: 初一..初十 / 十一..十九 / 二十 / 廿一..廿九 / 三十（与 zeri 一致）。"""
+    _CN = {1: "一", 2: "二", 3: "三", 4: "四", 5: "五", 6: "六", 7: "七", 8: "八", 9: "九"}
+    if day == 10:
+        return "初十"
+    if day == 20:
+        return "二十"
+    if day == 30:
+        return "三十"
+    if day < 10:
+        return "初" + _CN[day]
+    if day < 20:
+        return "十" + _CN[day % 10]
+    if day < 30:
+        return "廿" + _CN[day % 10]
+    return str(day)
+
+
+def _chong_parse(desc: str) -> Dict[str, str]:
+    """解析冲煞描述 "(己未)羊" → {"ganzhi": "己未", "zodiac": "羊"}。"""
+    m = re.search(r"[（(]([一-鿿]{2})[)）]\s*([一-鿿]+)", desc or "")
+    if m:
+        return {"ganzhi": m.group(1), "zodiac": m.group(2)}
+    return {"ganzhi": "", "zodiac": desc or ""}
+
+
+def _merge_yi_ji(jianchu_yi: List[str], day_yi: List[str]) -> List[str]:
+    """宜/忌合并: 建除在前 + lunar-python 当日黄历，按序去重（与 zeri.py 同口径）。"""
+    return list(dict.fromkeys(list(jianchu_yi) + list(day_yi)))
+
+
+def _jieqi_and_festival(lunar) -> tuple:
+    """(当日节气名 or "", [节日列表])。节气当日返回节气名（立秋等），否则空串。"""
+    return (lunar.getJieQi() or ""), list(lunar.getFestivals() or [])
+
+
+class WannianliEngine:
+    """万年历引擎：月视图 + 日详情，全部确定性纯规则。"""
+
+    # ---------------------------------------------------------------- 月视图
+
+    def month_view(self, year: int, month: int) -> Dict[str, Any]:
+        """当月日历：每日 公历/农历/干支日/节气标记/宜忌简表/黄黑道/建除。
+
+        Returns:
+            {"year", "month", "days_in_month", "first_weekday"(0=周日, calendar.monthrange
+             口径，前端用于宫格偏移), "today"(北京时间 YYYY-MM-DD),
+             "days": [每日摘要 × 当月天数]}
+        """
+        if not (MIN_YEAR <= year <= MAX_YEAR):
+            raise ValueError(f"年份须在 {MIN_YEAR}-{MAX_YEAR} 之间: {year}")
+        if not (1 <= month <= 12):
+            raise ValueError(f"月份须在 1-12 之间: {month}")
+
+        total = _month_range(year, month)
+        first_weekday = _cal.monthrange(year, month)[0]
+        today = datetime.now(BJT).strftime("%Y-%m-%d")
+
+        days = []
+        for day in range(1, total + 1):
+            solar = Solar.fromYmd(year, month, day)
+            lunar = solar.getLunar()
+            jieqi, festivals = _jieqi_and_festival(lunar)
+            jianchu = _zeri._calc_jianchu(
+                lunar.getEightChar().getMonth()[1],
+                lunar.getEightChar().getDay()[1],
+            )
+            yi = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["yi"], list(lunar.getDayYi() or []))
+            ji = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["ji"], list(lunar.getDayJi() or []))
+
+            days.append({
+                "date": f"{year:04d}-{month:02d}-{day:02d}",
+                "day": day,
+                # 农历小字：节气日显示节气名（传统黄历口径），否则显示农历日
+                "cell_lunar": jieqi or _lunar_day_cn(lunar.getDay()),
+                "lunar_day": _lunar_day_cn(lunar.getDay()),
+                "jieqi": jieqi,
+                "festival": festivals[0] if festivals else "",
+                "day_ganzhi": lunar.getDayInGanZhi(),
+                # 宜忌简表：建除+黄历合并后前 3 项（含"诸事不宜"等原样保留）
+                "yi_short": yi[:3],
+                "ji_short": ji[:3],
+                "huanghedao": lunar.getDayTianShenType(),   # 黄道/黑道
+                "tianshen": lunar.getDayTianShen(),          # 值神（明堂/金匮…）
+                "jianchu": jianchu,                          # 建除十二神
+                "quality": JIANCHU_QUALITY[jianchu],         # 吉/平/凶（建除口径）
+                "is_today": f"{year:04d}-{month:02d}-{day:02d}" == today,
+            })
+
+        return {
+            "year": year,
+            "month": month,
+            "days_in_month": total,
+            "first_weekday": first_weekday,
+            "today": today,
+            "days": days,
+        }
+
+    # ---------------------------------------------------------------- 日详情
+
+    def day_detail(self, year: int, month: int, day: int) -> Dict[str, Any]:
+        """单日详情：干支/纳音/节气/宜/忌/吉神凶煞/冲煞/值神/建除/方位/旬空。
+
+        Args:
+            year/month/day: 公历日期。
+        Returns:
+            全字段详情 dict（见函数体内注释，字段名即前端契约）。
+        """
+        if not (MIN_YEAR <= year <= MAX_YEAR):
+            raise ValueError(f"年份须在 {MIN_YEAR}-{MAX_YEAR} 之间: {year}")
+        if not (1 <= month <= 12):
+            raise ValueError(f"月份须在 1-12 之间: {month}")
+        if not (1 <= day <= _month_range(year, month)):
+            raise ValueError(f"日期不存在: {year}-{month}-{day}")
+
+        solar = Solar.fromYmd(year, month, day)
+        lunar = solar.getLunar()
+        ec = lunar.getEightChar()
+
+        jieqi, festivals = _jieqi_and_festival(lunar)
+        day_zhi = ec.getDay()[1]
+        month_zhi = ec.getMonth()[1]
+        jianchu = _zeri._calc_jianchu(month_zhi, day_zhi)
+        yi = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["yi"], list(lunar.getDayYi() or []))
+        ji = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["ji"], list(lunar.getDayJi() or []))
+        chong_desc = lunar.getDayChongDesc() or ""
+        chong = _chong_parse(chong_desc)
+        chong["sha"] = lunar.getDaySha() or ""          # 煞方（东/南/西/北）
+        xiu_name, xiu_jixiong = _zeri._calc_ershibaxiu(year, month, day)
+        leap = lunar.getMonth() < 0                     # 闰月（2025 闰六月等）
+
+        return {
+            "date": f"{year:04d}-{month:02d}-{day:02d}",
+            "weekday": lunar.getWeekInChinese(),        # 三（星期）
+            "jieqi": jieqi,                             # 当日节气（立秋），无则空串
+            "festivals": festivals,                     # 传统节日（七夕节…）
+            # 农历
+            "lunar": {
+                "year": f"{lunar.getYearInGanZhi()}年",
+                "month": f"{lunar.getMonthInChinese()}月",   # 闰月自带"闰"前缀
+                "day": _lunar_day_cn(lunar.getDay()),
+                "leap": leap,
+                "full": f"{lunar.getYearInChinese()}年{lunar.getMonthInChinese()}月"
+                        f"{_lunar_day_cn(lunar.getDay())}",
+            },
+            # 干支（年月日）
+            "ganzhi": {"year": ec.getYear(), "month": ec.getMonth(), "day": ec.getDay()},
+            # 纳音（年月日）
+            "nayin": {
+                "year": lunar.getYearNaYin(),
+                "month": lunar.getMonthNaYin(),
+                "day": lunar.getDayNaYin(),
+            },
+            # 建除十二神（标准黄历值日）
+            "jianchu": {
+                "name": jianchu,
+                "quality": JIANCHU_QUALITY[jianchu],    # 吉/平/凶
+                "desc": JIANCHU_YI_JI[jianchu]["desc"],
+            },
+            # 黄黑道十二值神
+            "huanghedao": {
+                "type": lunar.getDayTianShenType(),     # 黄道/黑道
+                "tianshen": lunar.getDayTianShen(),     # 明堂/金匮…
+                "luck": lunar.getDayTianShenLuck(),     # 吉/凶
+            },
+            # 二十八宿值日（zeri 口径，基准 2000-01-01 虚宿）
+            "ershibaxiu": {"name": xiu_name, "jixiong": xiu_jixiong},
+            # 宜/忌（建除 + 当日黄历合并，去重）
+            "yi": yi,
+            "ji": ji,
+            # 吉神宜趋 / 凶煞宜忌（lunar-python 通胜口径）
+            "jishen": list(lunar.getDayJiShen() or []),
+            "xiongsha": list(lunar.getDayXiongSha() or []),
+            # 冲煞: 冲(己未)羊 · 煞东
+            "chong": {
+                "desc": chong_desc,
+                "zodiac": chong.get("zodiac", ""),
+                "ganzhi": chong.get("ganzhi", ""),
+                "sha": chong.get("sha", ""),
+            },
+            # 旬空（日柱旬空两支）
+            "xunkong": list(ec.getDayXunKong() or []),
+            # 财神/喜神/福神/阳贵/阴贵方位
+            "positions": {
+                "cai": lunar.getDayPositionCaiDesc(),        # 财神方位
+                "xi": lunar.getDayPositionXiDesc(),          # 喜神方位
+                "fu": lunar.getDayPositionFuDesc(),          # 福神方位
+                "yang_gui": lunar.getDayPositionYangGuiDesc(),  # 阳贵神方位
+                "yin_gui": lunar.getDayPositionYinGuiDesc(),    # 阴贵神方位
+            },
+        }

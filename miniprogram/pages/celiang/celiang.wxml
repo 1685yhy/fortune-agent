@@ -124,12 +124,22 @@
       </view>
     </view>
 
-    <!-- 进阶工具：名人命例（L3-1：2807 例+穷通宝鉴评注，免费 35 例/高级会员全量） -->
+    <!-- 进阶工具：万年历 + 名人命例（万年历 P1-1：确定性 0 成本；命例 L3-1） -->
     <view class="eg-head">
       <text>进阶工具</text>
-      <text class="eg-tag">以史为鉴</text>
+      <text class="eg-tag">历法 · 命例</text>
     </view>
     <view class="papercard eg-card">
+      <!-- 实入口：万年历 → 月历宫格 + 日详情（问真吉真万年历同款：日历+干支+宜忌） -->
+      <view class="book-row" hover-class="book-row-active" hover-stay-time="0"
+        data-url="/pages/wannianli/wannianli" bindtap="onEntryTap">
+        <view class="seal cl-seal"><text class="seal-char">历</text></view>
+        <view class="br-mid">
+          <view class="br-title">万年历</view>
+          <view class="br-sub">日历 · 干支 · 黄历宜忌 · 每日详情</view>
+        </view>
+        <view class="br-page"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
       <!-- 实入口：名人命例 → 命例库列表（免费试看前 35 · 高级会员全量 2807 位） -->
       <view class="book-row" hover-class="book-row-active" hover-stay-time="0"
         data-url="/pages/mingren/mingren" bindtap="onEntryTap">

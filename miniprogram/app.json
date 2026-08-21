@@ -31,7 +31,8 @@
     "pages/settings/settings",
     "pages/night_mark/night_mark",
     "pages/mingren/mingren",
-    "pages/mingren_detail/mingren_detail"
+    "pages/mingren_detail/mingren_detail",
+    "pages/wannianli/wannianli"
   ],
   "window": {
     "navigationBarBackgroundColor": "#F5EFE1",
