@@ -60,6 +60,21 @@ def _pillar_changes(a: BaziResult, b: BaziResult) -> list:
     return changes
 
 
+def _corrected_hour(r: BaziResult) -> int:
+    """引擎真太阳时修正后的小时（P1-2审查I1：晚子时判定须与引擎同口径）。
+
+    引擎按**修正后**小时判定归日（修正后 >=23 才按次日排盘），而输入时钟小时
+    可能经真太阳时修正后落到 23 点前（如北京 23:00 → 22:41，非晚子时、日柱当日）。
+    这里读 BaziResult.corrected_time（"HH:MM"）取修正后小时，避免用输入小时误判。
+    无修正信息时返回 -1 按非晚子时处理（BaziEngine.calculate 恒填充，正常不可达）。
+    """
+    ct = getattr(r, "corrected_time", "") or ""
+    try:
+        return int(ct.split(":", 1)[0])
+    except (ValueError, IndexError):
+        return -1
+
+
 def compare_summary(a: BaziResult, b: BaziResult,
                     hours: Optional[Tuple[int, int]] = None) -> str:
     """规则模板拼装两盘差异要点摘要（不调 LLM，确定性规则）。
@@ -69,8 +84,12 @@ def compare_summary(a: BaziResult, b: BaziResult,
     :return: 中文要点摘要字符串（"；"分隔要点列表，变化影响大的要点在前）
     """
     parts = []
-    if a.bazi == b.bazi:
+    # I2：早退须含起运分解（qiyun_desc）比较——四柱全同但起运分解不同（同一时辰
+    # 不同钟点，如 7:00 vs 8:00 差 5 天）时不得报"无差异"，须照常列出起运差异；
+    # 真正全同（含起运分解）才早退。
+    if a.bazi == b.bazi and a.qiyun_desc == b.qiyun_desc:
         return "两盘完全相同：同一生辰、同一时辰排出的两盘结果一致，无差异。"
+    bazi_same = a.bazi == b.bazi
 
     sh_a = sh_b = ""
     if hours is not None:
@@ -92,30 +111,39 @@ def compare_summary(a: BaziResult, b: BaziResult,
     if a.day_master == b.day_master:
         parts.append("两盘日主同为%s" % a.day_master)
     else:
+        # I1：晚子时判定用引擎修正后小时（与 _compare_results 同口径）——
+        # 输入同为 23:00 时修正后可能一盘在 23 点前（如北京 22:41）、一盘仍在
+        # 23 点后（如长春 23:17），归日差异由后者造成，不能按输入小时误报前者
         who = ""
         if hours is not None:
-            if hours[0] >= 23:
+            late_a, late_b = _corrected_hour(a) >= 23, _corrected_hour(b) >= 23
+            if late_a and not late_b:
                 who = "前者（%s）" % sh_a
-            elif hours[1] >= 23:
+            elif late_b and not late_a:
                 who = "后者（%s）" % sh_b
         late_txt = ("——%s处于晚子时（23点后），按次日排盘，日柱随之改变" % who) if who \
-            else "——晚子时（23点后）出生按次日排盘，日柱随之改变"
+            else "——日柱因真太阳时修正跨日而变，排盘按修正后日期"
         parts.append("两盘日主不同：前者为%s、后者为%s%s"
                      % (a.day_master, b.day_master, late_txt))
 
-    # 2 四柱变化（哪柱变、变什么；bazi 全同已提前返回，此处必有变化）
+    # 2 四柱变化（哪柱变、变什么；bazi 全同且起运分解同已提前返回——此处 bazi
+    # 全同仅剩「同一时辰不同钟点、起运分解不同」情形，I2：先说明四柱相同并置于
+    # 摘要开头，再照常列出起运差异）
     changes = _pillar_changes(a, b)
-    head = ("四柱中仅%s发生变化" % "、".join(c["pillar"] for c in changes)) \
-        if len(changes) == 1 \
-        else ("四柱中%s发生变化" % "、".join(c["pillar"] for c in changes))
-    descs = []
-    for c in changes:
-        t = ("%s→%s" % (c["a"], c["b"])) if len(changes) == 1 \
-            else ("%s%s→%s" % (c["pillar"], c["a"], c["b"]))
-        if c["a_shishen"] != c["b_shishen"]:
-            t += "（十神由%s变为%s）" % (c["a_shishen"], c["b_shishen"])
-        descs.append(t)
-    parts.append("%s：%s" % (head, "；".join(descs)))
+    if bazi_same:
+        parts.insert(0, "四柱完全相同（同一时辰不同钟点，四柱干支一致——差异仅在大运起运分解）")
+    else:
+        head = ("四柱中仅%s发生变化" % "、".join(c["pillar"] for c in changes)) \
+            if len(changes) == 1 \
+            else ("四柱中%s发生变化" % "、".join(c["pillar"] for c in changes))
+        descs = []
+        for c in changes:
+            t = ("%s→%s" % (c["a"], c["b"])) if len(changes) == 1 \
+                else ("%s%s→%s" % (c["pillar"], c["a"], c["b"]))
+            if c["a_shishen"] != c["b_shishen"]:
+                t += "（十神由%s变为%s）" % (c["a_shishen"], c["b_shishen"])
+            descs.append(t)
+        parts.append("%s：%s" % (head, "；".join(descs)))
 
     # 3 五行能量（counts 差）
     def _counts_txt(counts) -> str:
@@ -156,14 +184,27 @@ def compare_summary(a: BaziResult, b: BaziResult,
     else:
         parts.append("格局由%s变为%s" % (a.geju, b.geju))
 
-    # 7 大运（起运岁数 + 序列）
+    # 7 大运（起运岁数 + 序列 + 起运分解；I2：四柱全同时起运分解仍可能不同
+    # （同一时辰不同钟点距交节气时间差），须显式列出，不得以"无差异"掩盖）
     start_a = a.dayun[0][0] if a.dayun else 0
     start_b = b.dayun[0][0] if b.dayun else 0
     seq_same = [g for _, g in a.dayun] == [g for _, g in b.dayun]
+    qiyun_gap = None
+    if a.qiyun_detail and b.qiyun_detail and len(a.qiyun_detail) >= 3 \
+            and len(b.qiyun_detail) >= 3:
+        da = a.qiyun_detail[0] * 360 + a.qiyun_detail[1] * 30 + a.qiyun_detail[2]
+        db = b.qiyun_detail[0] * 360 + b.qiyun_detail[1] * 30 + b.qiyun_detail[2]
+        qiyun_gap = abs(db - da)
     if start_a == start_b:
         tail = "，大运序列相同（首步%s）" % (a.dayun[0][1] if a.dayun else "") \
             if seq_same else "，但大运序列不同"
-        parts.append("起运岁数同为%d岁%s" % (start_a, tail))
+        txt = "起运岁数同为%d岁%s" % (start_a, tail)
+        if a.qiyun_desc != b.qiyun_desc:
+            gap_txt = "相差%d天" % qiyun_gap if qiyun_gap is not None \
+                else "起运分解不同"
+            txt += "——但起运分解不同（%s：%s vs %s）" \
+                % (gap_txt, a.qiyun_desc, b.qiyun_desc)
+        parts.append(txt)
     else:
         parts.append("起运岁数由%d岁变为%d岁（相差%d岁）——出生时刻距交节气时间不同所致；"
                      "大运序列%s" % (start_a, start_b, abs(start_b - start_a),
@@ -191,18 +232,21 @@ def _compare_results(a: BaziResult, b: BaziResult, ha: int, hb: int,
     changes = _pillar_changes(a, b)
 
     # 日主（晚子时归日说明：日柱按次日排盘 —— 仅当日柱实际改变时才会发生，
-    # 此时必为时钟 23 点（晚子时）或真太阳时跨日所致）
+    # 此时必为修正后 23 点（晚子时）或真太阳时跨日所致）。
+    # I1：晚子时判定用引擎**修正后**小时（输入 23:00 修正后可能不足 23，如北京
+    # 22:41 → 非晚子时、日柱当日；若按输入小时会假报"晚子时/按次日排盘"）
+    late_a, late_b = _corrected_hour(a) >= 23, _corrected_hour(b) >= 23
     day_same = a.day_master == b.day_master
     if day_same:
-        if ha >= 23 and hb >= 23:
+        if late_a and late_b:
             day_note = "两盘均处晚子时（23:00-23:59），同按次日日期排盘，日柱不变"
         else:
-            day_note = "两时辰均非晚子时（23:00-23:59），日柱不受时辰影响——时辰只改时柱"
+            day_note = "两时辰修正后未达晚子时（23:00-23:59），日柱不受时辰影响——时辰只改时柱"
     else:
         who = ""
-        if ha >= 23 and hb < 23:
+        if late_a and not late_b:
             who = "前者（%s）" % shichen_a
-        elif hb >= 23 and ha < 23:
+        elif late_b and not late_a:
             who = "后者（%s）" % shichen_b
         if who:
             day_note = ("日柱随时辰改变：%s处于晚子时（23:00-23:59），排盘按次日日期，"

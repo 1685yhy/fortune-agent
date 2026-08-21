@@ -381,6 +381,8 @@ class BaziResult:
     kongwang_day: str = ""        # 日柱旬空亡（问真顶层 kongwang 口径）
     qiyun_detail: tuple = ()      # 起运时间分解 (年,月,日,时,分)（问真 qiyunarr 前5位口径）
     qiyun_desc: str = ""          # 起运描述 "出生后2年4月22天0时起运"（问真排盘页口径，P0-1）
+    corrected_time: str = ""      # 真太阳时修正后时间 "HH:MM"（P1-2审查I1：晚子时/归日判定与引擎同口径；
+                                  # 引擎按修正后小时判定归日，输出文案须用同一口径）
     jiaoyun: dict = field(default_factory=dict)  # 交运信息（问真口径，P0-1）：见 _calc_jiaoyun
     siling: str = ""              # 人元司令天干（问真排盘页"司令：X"口径，P0-1）
     siling_detail: dict = field(default_factory=dict)  # 司令分野明细 {gan,days,elapsed,remaining,...}
@@ -496,6 +498,9 @@ class BaziEngine:
         # 修正可能跨日（如 23:40 长春 → 次日 00:05），此时按修正后的日期排全部四柱。
         year, month, day, hour, minute = self._true_solar_time(
             year, month, day, hour, minute, city)
+        # 暴露修正后时间（P1-2审查I1）：晚子时/归日判定须与引擎同口径——
+        # 输入 23:00 修正后可能未达 23 点（如北京 22:41，非晚子时、日柱当日）
+        corrected_time = "%02d:%02d" % (hour, minute)
         # 处理晚子时 (23:00-23:59): 使用次日日期, 时柱仍为子时
         # 起运距离用真实出生时刻（真太阳时修正后）计算（与问真口径一致），故保留原始时间
         orig_birth = (year, month, day, hour, minute)
@@ -706,6 +711,7 @@ class BaziEngine:
             kongwang_day=kongwang[2] if len(kongwang) > 2 else "",
             qiyun_detail=qiyun_detail,
             qiyun_desc=qiyun_desc,
+            corrected_time=corrected_time,
             jiaoyun=jiaoyun,
             siling=siling,
             siling_detail=siling_detail,

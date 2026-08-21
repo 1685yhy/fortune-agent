@@ -90,7 +90,7 @@ def test_duipan_anchor_chen_vs_wu():
     # ── diff：日主（不变 + 非晚子时说明） ──
     dm = d["day_master"]
     assert dm["a"] == dm["b"] == "乙木" and dm["same"] is True
-    assert "非晚子时" in dm["note"]
+    assert "修正后未达晚子时" in dm["note"]
 
     # ── diff：五行能量 counts 差 ──
     wx = d["wuxing"]
@@ -261,3 +261,53 @@ def test_compare_summary_rule_templates():
     assert "日主强弱由偏弱转为偏旺" in s2
     s3 = compare_summary(r_a, r_a)
     assert s3 == "两盘完全相同：同一生辰、同一时辰排出的两盘结果一致，无差异。"
+
+
+# ---------------------------------------------------------------- P1-2审查 I1：晚子时按修正后小时判定
+def test_duipan_i1_note_no_false_late_zi_beijing():
+    """I1：北京 23:00 真太阳时修正后 22:4x（未达晚子时、日柱当日）——
+    note 输出"修正后未达晚子时"，不得假报晚子时/按次日排盘。"""
+    eng = BaziEngine()
+    r23 = eng.calculate(2026, 8, 16, 23, 0, "北京", "男")    # 输入 23 点（子时）
+    r11 = eng.calculate(2026, 8, 16, 11, 0, "北京", "男")    # 输入 11 点（午时）
+    assert r23.corrected_time.startswith("22:")               # 修正后未达晚子时
+    assert r23.bazi[2] == r11.bazi[2]                         # 日柱当日（与午时同日柱）
+
+    r = compare_pans((2026, 8, 16), 23, 6, "北京", "男")      # 23:00 vs 午时 11:00
+    note = r["diff"]["day_master"]["note"]
+    assert "修正后未达晚子时" in note
+    assert "次日" not in note
+
+
+def test_duipan_i1_note_late_zi_changchun():
+    """I1：长春 23:00 修正后 23:2x（仍处晚子时）→ 正常晚子时说明（归次日、日柱改变）。"""
+    eng = BaziEngine()
+    r23 = eng.calculate(2026, 8, 16, 23, 0, "长春", "男")
+    r11 = eng.calculate(2026, 8, 16, 11, 0, "长春", "男")
+    assert r23.corrected_time.startswith("23:")               # 修正后仍处晚子时
+    assert r23.bazi[2] != r11.bazi[2]                         # 归次日 → 日柱改变
+
+    r = compare_pans((2026, 8, 16), 23, 6, "长春", "男")
+    d = r["diff"]["day_master"]
+    assert d["same"] is False
+    assert "晚子时" in d["note"] and "次日" in d["note"]
+
+
+# ---------------------------------------------------------------- P1-2审查 I2：同时辰起运差异不掩盖
+def test_duipan_i2_same_shichen_qiyun_diff_not_masked():
+    """I2：同辰时不同钟点（7:00 vs 8:00，时钟小时——API 的 0-11 为时辰序号，
+    时钟 7/8 点同属辰时须走引擎级）四柱全同但起运分解差 5 天——
+    摘要不得早退"无差异"，须以"四柱完全相同"开头并照常列出起运差异。"""
+    eng = BaziEngine()
+    r7 = eng.calculate(1999, 5, 13, 7, 0, "长春", "男")     # 辰时 7:00
+    r8 = eng.calculate(1999, 5, 13, 8, 0, "长春", "男")     # 辰时 8:00
+    assert r7.bazi == r8.bazi == ["己卯", "己巳", "乙丑", "庚辰"]  # 四柱全同
+    assert r7.qiyun_desc == "出生后2年4月2天0时起运"
+    assert r8.qiyun_desc == "出生后2年4月7天0时起运"                 # 起运分解差 5 天
+    assert r7.dayun[0][0] == r8.dayun[0][0] == 3                    # 起运岁数仍同为 3 岁
+
+    s = compare_summary(r7, r8, (7, 8))
+    assert "四柱完全相同" in s                                      # 不再早退"无差异"
+    assert "无差异" not in s
+    assert "起运分解" in s and "相差5天" in s
+    assert "出生后2年4月2天0时起运" in s and "出生后2年4月7天0时起运" in s
