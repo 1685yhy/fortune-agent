@@ -78,30 +78,41 @@
 }
 
 /* ========================================
-   Radio Toggle
+   性别 — 男/女 大按钮（与 paipan 同款，金色选中态适配暖金主题）
    ======================================== */
-.form-radio-group {
+.gender-group {
   display: flex;
   gap: var(--space-lg);
 }
 
-.form-radio {
+.gender-btn {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 6rpx;
-  padding: var(--space-sm) var(--space-lg);
-  border-radius: var(--radius-pill);
+  justify-content: center;
+  padding: var(--space-md) 0;
+  border-radius: var(--radius-md);
   background: var(--bg-input);
   border: 1rpx solid rgba(255, 255, 255, 0.08);
-  font-size: var(--text-base);
-  color: var(--ink-secondary);
 }
 
-.form-radio.active {
-  border-color: var(--gold);
-  color: var(--gold);
-  background: rgba(212, 165, 116, 0.12);
+.gender-char {
+  font-family: var(--font-song);
+  font-size: var(--text-base);
+  letter-spacing: 0.3em;
+  color: var(--ink-primary);
+  text-indent: 0.3em;
 }
+
+.gender-btn-tap { transform: translateY(2rpx); }
+
+.gender-btn.is-on {
+  background: var(--gold);
+  border-color: var(--gold);
+  box-shadow: 0 6rpx 18rpx rgba(176, 138, 79, 0.28);
+}
+
+.gender-btn.is-on .gender-char { color: #FBF6E8; font-weight: 600; }
 
 /* ========================================
    Submit Button

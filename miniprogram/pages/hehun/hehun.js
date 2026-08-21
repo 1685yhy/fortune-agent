@@ -226,8 +226,9 @@ Page({
   onP1CityChange(e) {
     this.setData({ p1City: e.detail.full, p1CitySet: !!e.detail.full });
   },
-  onP1GenderChange(e) {
-    this.setData({ p1Gender: e.detail.value });
+  /* 性别：男/女 大按钮（点击切换，与 paipan 同款） */
+  onP1GenderTap(e) {
+    this.setData({ p1Gender: e.currentTarget.dataset.gender });
   },
 
   // ---- Person 2（TA）Handlers ----
@@ -241,8 +242,8 @@ Page({
   onP2CityChange(e) {
     this.setData({ p2City: e.detail.full, p2CitySet: !!e.detail.full, p2FromCache: false });
   },
-  onP2GenderChange(e) {
-    this.setData({ p2Gender: e.detail.value, p2FromCache: false });
+  onP2GenderTap(e) {
+    this.setData({ p2Gender: e.currentTarget.dataset.gender, p2FromCache: false });
   },
 
   // ---- 关系标签（5 chips 单选，再点取消） ----

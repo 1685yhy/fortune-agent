@@ -12,17 +12,20 @@
       <text>以命为据 · 以事为问</text>
     </view>
 
-    <!-- 看我的：八字排盘（L4 主推第一位——确定性功能，免费） -->
+    <!-- 看我的：八字排盘（L4 主推第一位——确定性功能，免费；行内「主推」标） -->
     <view class="eg-head">
       <text>看我的</text>
-      <text class="eg-tag">主推</text>
+      <text class="eg-tag">免费 · 先看这里</text>
     </view>
     <view class="papercard eg-card">
       <view class="book-row" hover-class="book-row-active" hover-stay-time="0"
         data-url="/pages/paipan/paipan" bindtap="onEntryTap">
         <view class="seal cl-seal"><text class="seal-char">排</text></view>
         <view class="br-mid">
-          <view class="br-title">八字排盘</view>
+          <view class="br-title-row">
+            <text class="br-title">八字排盘</text>
+            <text class="br-badge">主推</text>
+          </view>
           <view class="br-sub">四柱 · 大运 · 神煞 · 称骨</view>
         </view>
         <view class="br-page"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
@@ -51,7 +54,7 @@
         <view class="seal cl-seal"><text class="seal-char">名</text></view>
         <view class="br-mid">
           <view class="br-title">AI 取名</view>
-          <view class="br-sub">五维评分 · 免费 5 名 · 5 名 → 雷达 → 名笺</view>
+          <view class="br-sub">五维评分 · 免费 5 名 · 雷达 → 名笺</view>
         </view>
         <view class="br-page"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
       </view>

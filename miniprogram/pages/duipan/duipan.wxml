@@ -37,21 +37,23 @@
     </view>
 
     <view class="form-group">
-      <text class="form-label">出生地 <text class="form-opt">选填 · 用于真太阳时校准</text></text>
+      <text class="form-label">出生地 <text class="form-opt">选填 · 不选默认北京 · 用于真太阳时校准</text></text>
       <place-picker value="{{bCity}}" placeholder="选择省 / 市" bindchange="onCityChange" />
     </view>
 
     <view class="form-group">
       <text class="form-label">性别</text>
-      <view class="form-radio-group">
-        <label class="form-radio {{bGender === 'male' ? 'active' : ''}}">
-          <radio value="male" checked="{{bGender === 'male'}}" bindchange="onGenderChange" color="#A93A2C" />
-          <text>男</text>
-        </label>
-        <label class="form-radio {{bGender === 'female' ? 'active' : ''}}">
-          <radio value="female" checked="{{bGender === 'female'}}" bindchange="onGenderChange" color="#A93A2C" />
-          <text>女</text>
-        </label>
+      <view class="gender-group">
+        <view class="gender-btn {{bGender === 'male' ? 'is-on' : ''}}"
+          hover-class="gender-btn-tap" hover-stay-time="0"
+          data-gender="male" bindtap="onGenderTap">
+          <text class="gender-char">男</text>
+        </view>
+        <view class="gender-btn {{bGender === 'female' ? 'is-on' : ''}}"
+          hover-class="gender-btn-tap" hover-stay-time="0"
+          data-gender="female" bindtap="onGenderTap">
+          <text class="gender-char">女</text>
+        </view>
       </view>
     </view>
 

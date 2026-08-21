@@ -77,6 +77,19 @@
 .ec-seal { width: 52rpx; height: 52rpx; font-size: 30rpx; border-radius: 6rpx; }
 
 .br-mid { flex: 1; min-width: 0; }
+.br-title-row { display: flex; align-items: center; gap: 12rpx; }
+/* 主推角标（朱砂底白字，紧贴标题） */
+.br-badge {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 18rpx;                      /* 9.5px */
+  letter-spacing: .14em;
+  color: #FBF6E8;
+  background: var(--acc);
+  border-radius: 5rpx;
+  padding: 3rpx 13rpx;
+  transform: translateY(-1rpx);
+}
 .br-title {
   font-family: var(--font-song);
   font-weight: 600;

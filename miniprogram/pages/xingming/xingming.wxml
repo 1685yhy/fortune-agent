@@ -48,18 +48,20 @@
           />
         </view>
 
-        <!-- Gender Radio Toggle -->
+        <!-- Gender Toggle -->
         <view class="form-group">
           <text class="form-label">性别</text>
-          <view class="form-radio-group">
-            <label class="form-radio {{gender === 'male' ? 'active' : ''}}">
-              <radio value="male" checked="{{gender === 'male'}}" bindchange="onGenderChange" color="#D4A574" />
-              <text>男</text>
-            </label>
-            <label class="form-radio {{gender === 'female' ? 'active' : ''}}">
-              <radio value="female" checked="{{gender === 'female'}}" bindchange="onGenderChange" color="#D4A574" />
-              <text>女</text>
-            </label>
+          <view class="gender-group">
+            <view class="gender-btn {{gender === 'male' ? 'is-on' : ''}}"
+              hover-class="gender-btn-tap" hover-stay-time="0"
+              data-gender="male" bindtap="onGenderTap">
+              <text class="gender-char">男</text>
+            </view>
+            <view class="gender-btn {{gender === 'female' ? 'is-on' : ''}}"
+              hover-class="gender-btn-tap" hover-stay-time="0"
+              data-gender="female" bindtap="onGenderTap">
+              <text class="gender-char">女</text>
+            </view>
           </view>
         </view>
       </view>

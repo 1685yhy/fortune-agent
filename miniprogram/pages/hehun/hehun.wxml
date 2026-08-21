@@ -42,15 +42,17 @@
 
       <view class="form-group">
         <text class="form-label">性别</text>
-        <view class="form-radio-group">
-          <label class="form-radio {{p1Gender === 'male' ? 'active' : ''}}">
-            <radio value="male" checked="{{p1Gender === 'male'}}" bindchange="onP1GenderChange" color="#A93A2C" />
-            <text>男</text>
-          </label>
-          <label class="form-radio {{p1Gender === 'female' ? 'active' : ''}}">
-            <radio value="female" checked="{{p1Gender === 'female'}}" bindchange="onP1GenderChange" color="#A93A2C" />
-            <text>女</text>
-          </label>
+        <view class="gender-group">
+          <view class="gender-btn {{p1Gender === 'male' ? 'is-on' : ''}}"
+            hover-class="gender-btn-tap" hover-stay-time="0"
+            data-gender="male" bindtap="onP1GenderTap">
+            <text class="gender-char">男</text>
+          </view>
+          <view class="gender-btn {{p1Gender === 'female' ? 'is-on' : ''}}"
+            hover-class="gender-btn-tap" hover-stay-time="0"
+            data-gender="female" bindtap="onP1GenderTap">
+            <text class="gender-char">女</text>
+          </view>
         </view>
       </view>
     </view>
@@ -93,15 +95,17 @@
 
       <view class="form-group">
         <text class="form-label">性别</text>
-        <view class="form-radio-group">
-          <label class="form-radio {{p2Gender === 'male' ? 'active' : ''}}">
-            <radio value="male" checked="{{p2Gender === 'male'}}" bindchange="onP2GenderChange" color="#A93A2C" />
-            <text>男</text>
-          </label>
-          <label class="form-radio {{p2Gender === 'female' ? 'active' : ''}}">
-            <radio value="female" checked="{{p2Gender === 'female'}}" bindchange="onP2GenderChange" color="#A93A2C" />
-            <text>女</text>
-          </label>
+        <view class="gender-group">
+          <view class="gender-btn {{p2Gender === 'male' ? 'is-on' : ''}}"
+            hover-class="gender-btn-tap" hover-stay-time="0"
+            data-gender="male" bindtap="onP2GenderTap">
+            <text class="gender-char">男</text>
+          </view>
+          <view class="gender-btn {{p2Gender === 'female' ? 'is-on' : ''}}"
+            hover-class="gender-btn-tap" hover-stay-time="0"
+            data-gender="female" bindtap="onP2GenderTap">
+            <text class="gender-char">女</text>
+          </view>
         </view>
       </view>
     </view>

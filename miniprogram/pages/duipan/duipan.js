@@ -79,8 +79,9 @@ Page({
   onCityChange(e) {
     this.setData({ bCity: e.detail.full, bCityName: e.detail.city });
   },
-  onGenderChange(e) {
-    this.setData({ bGender: e.detail.value });
+  /* 性别：男/女 大按钮（点击切换，与 paipan 同款） */
+  onGenderTap(e) {
+    this.setData({ bGender: e.currentTarget.dataset.gender });
   },
 
   /* ════════ 对比 ════════ */

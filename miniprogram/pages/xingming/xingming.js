@@ -72,8 +72,9 @@ Page({
     this.setData({ givenName: e.detail.value });
   },
 
-  onGenderChange(e) {
-    this.setData({ gender: e.detail.value });
+  /* 性别：男/女 大按钮（点击切换，与 paipan 同款，金色选中态） */
+  onGenderTap(e) {
+    this.setData({ gender: e.currentTarget.dataset.gender });
   },
 
   // ---- 提交分析 ----

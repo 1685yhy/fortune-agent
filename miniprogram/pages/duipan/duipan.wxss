@@ -45,14 +45,21 @@ page {
   color: var(--ink-mid);
 }
 .form-picker-empty { color: var(--ink-faint); }
-.form-radio-group { display: flex; gap: 22rpx; }
-.form-radio {
-  display: flex; align-items: center; justify-content: center; gap: 6rpx;
-  padding: 20rpx 22rpx; border-radius: 22rpx;
-  background: var(--paper); border: 2rpx solid var(--line-input);
-  font-size: 28rpx; color: var(--ink-soft); flex: 1;
+/* 性别：男/女 并排大按钮（与 paipan 同款：选中朱砂底白字，未选宣纸墨框） */
+.gender-group { display: flex; gap: 22rpx; }
+.gender-btn {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 26rpx 0; border-radius: 14rpx;
+  background: var(--paper); border: 2rpx solid var(--line-btn);
+  box-shadow: inset 0 0 0 2rpx rgba(255,255,255,.35);
 }
-.form-radio.active { border-color: var(--acc-line); color: var(--acc); background: var(--acc-soft); }
+.gender-char { font-family: var(--font-song); font-size: 32rpx; letter-spacing: .3em; color: var(--ink); text-indent: .3em; }
+.gender-btn-tap { transform: translateY(2rpx); }
+.gender-btn.is-on {
+  background: var(--acc); border-color: var(--acc);
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 6rpx 18rpx rgba(169,58,44,.28);
+}
+.gender-btn.is-on .gender-char { color: #FBF6E8; font-weight: 600; }
 .form-error { margin-top: 22rpx; font-family: var(--font-song); font-size: 24rpx; color: var(--acc); letter-spacing: .06em; }
 
 .pp-btn {

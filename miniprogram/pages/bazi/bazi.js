@@ -409,8 +409,9 @@ Page({
   onHourChange(e) {
     this.setData({ hourIndex: parseInt(e.detail.value, 10) || 0 });
   },
-  onGenderChange(e) {
-    this.setData({ gender: e.detail.value });
+  /* 性别：男/女 大按钮（点击切换，与 paipan 同款） */
+  onGenderTap(e) {
+    this.setData({ gender: e.currentTarget.dataset.gender });
   },
   onCityChange(e) {
     this.setData({ city: e.detail.full });
