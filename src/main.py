@@ -799,6 +799,10 @@ async def lifespan(app: FastAPI):
     from .api.paipan import setup as setup_paipan
     setup_paipan(engine)
 
+    # Task: Setup duipan API（多盘对比，复用同一 bazi_engine；生辰内存排盘不落库）
+    from .api.duipan import setup as setup_duipan
+    setup_duipan(engine)
+
     # Phase: 双人合盘聚合 API（免费钩子 + 付费深度报告）
     from .api.union import setup as setup_union
     setup_union(hehun_engine, engine, llm=llm, retriever=retriever,
@@ -1088,6 +1092,10 @@ app.include_router(knowledge_router)         # /api/knowledge, /api/knowledge/ca
 # 排盘结果 API（BaziResult 全字段序列化，全接口 require_user，L4）
 from .api.paipan import router as paipan_router
 app.include_router(paipan_router)            # POST /api/paipan
+
+# 多盘对比 API（同一生日不同时辰两盘对比+规则摘要，全接口 require_user，P1-2）
+from .api.duipan import router as duipan_router
+app.include_router(duipan_router)            # POST /api/duipan
 
 # 专项论断 API（论财/论事业/论健康; 高级会员门控，全接口 require_user，L2-5）
 from .api.zhuanxiang import router as zhuanxiang_router
