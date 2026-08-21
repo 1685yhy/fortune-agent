@@ -5,9 +5,10 @@
   黄黑道十二值神（getDayTianShen/Type/Luck）、吉神宜趋（getDayJiShen）、
   凶煞宜忌（getDayXiongSha）、冲煞（getDayChongDesc/getDaySha）、
   财神/喜神/福神/贵神方位（getDayPosition*）、旬空（八字的 DayXunKong）、节日、星期。
-- src/engines/zeri.py: 建除十二神（月支起建 _calc_jianchu）+ 建除宜忌表
-  （JIANCHU_YI_JI，传统通书《协纪辨方书》建除十二神宜忌规则）+ 建除吉凶
-  （JIANCHU_QUALITY）+ 二十八宿值日（ERSHIBA_XIU + 传统吉凶表）。
+- src/engines/zeri.py: 建除十二神（月支起建 _calc_jianchu_with_jieqi，节气日
+  12 节交节即新月令顺推一位，对齐主流通书）+ 建除宜忌表（JIANCHU_YI_JI，传统
+  通书《协纪辨方书》建除十二神宜忌规则）+ 建除吉凶（JIANCHU_QUALITY）+
+  二十八宿值日（lunar-python getXiu + 传统吉凶表 ERSHIBA_XIU_JIXIONG）。
 
 宜忌规则（标准黄历，与择日引擎 zeri.py 同源口径，注释来源见上）:
   宜 = 建除十二神宜（JIANCHU_YI_JI，建除在前） + lunar-python 当日黄历宜
@@ -101,9 +102,10 @@ class WannianliEngine:
             solar = Solar.fromYmd(year, month, day)
             lunar = solar.getLunar()
             jieqi, festivals = _jieqi_and_festival(lunar)
-            jianchu = _zeri._calc_jianchu(
+            jianchu = _zeri._calc_jianchu_with_jieqi(
                 lunar.getEightChar().getMonth()[1],
                 lunar.getEightChar().getDay()[1],
+                jieqi,
             )
             yi = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["yi"], list(lunar.getDayYi() or []))
             ji = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["ji"], list(lunar.getDayJi() or []))
@@ -160,7 +162,7 @@ class WannianliEngine:
         jieqi, festivals = _jieqi_and_festival(lunar)
         day_zhi = ec.getDay()[1]
         month_zhi = ec.getMonth()[1]
-        jianchu = _zeri._calc_jianchu(month_zhi, day_zhi)
+        jianchu = _zeri._calc_jianchu_with_jieqi(month_zhi, day_zhi, jieqi)
         yi = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["yi"], list(lunar.getDayYi() or []))
         ji = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["ji"], list(lunar.getDayJi() or []))
         chong_desc = lunar.getDayChongDesc() or ""
@@ -203,7 +205,8 @@ class WannianliEngine:
                 "tianshen": lunar.getDayTianShen(),     # 明堂/金匮…
                 "luck": lunar.getDayTianShenLuck(),     # 吉/凶
             },
-            # 二十八宿值日（zeri 口径，基准 2000-01-01 虚宿）
+            # 二十八宿值日（lunar-python getXiu 口径，P1-1 审查 C1: 旧锚点 2000-01-01
+            # 错标虚宿(实为壁) → 全日期差 3 天，已统一为 getXiu，2000-01-01=胃）
             "ershibaxiu": {"name": xiu_name, "jixiong": xiu_jixiong},
             # 宜/忌（建除 + 当日黄历合并，去重）
             "yi": yi,

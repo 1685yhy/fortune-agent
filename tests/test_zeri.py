@@ -169,6 +169,24 @@ def test_zeri_known_case():
     assert result.ershibaxiu in ERSHIBA_XIU
 
 
+def test_zeri_ershibaxiu_anchors():
+    """二十八宿锚点（P1-1 审查 C1 修复: 旧锚点 2000-01-01 错差 3 天）:
+    2000-01-01 → 胃; 2026-08-19 → 轸; 2026-08-07 → 娄（lunar-python getXiu 口径）。"""
+    engine = ZeriEngine()
+    assert engine.select(2000, 1, 1).ershibaxiu == "胃"
+    assert engine.select(2026, 8, 19).ershibaxiu == "轸"
+    assert engine.select(2026, 8, 7).ershibaxiu == "娄"
+
+
+def test_zeri_jieqi_day_jianchu_anchor():
+    """节气日建除口径（P1-1 审查 I2, 交节日即新月令）:
+    2026-08-07 立秋 = 十二节 → 月支顺推一位（未月→申月）→ 执日;
+    2026-08-23 处暑 = 十二气 → 不换月令（收日）。"""
+    engine = ZeriEngine()
+    assert engine.select(2026, 8, 7).jianchu == "执"
+    assert engine.select(2026, 8, 23).jianchu == "收"
+
+
 # ============================================================
 # 择吉日 Task 1: 场景规则库 + 三层评分 + 多日 Top3 扫描
 # 确定性依据（2026-08 已用 lunar-python 核对）:

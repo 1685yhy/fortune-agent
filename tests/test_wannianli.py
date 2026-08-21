@@ -9,10 +9,13 @@
 """
 import os
 import sys
+from datetime import datetime, timezone, timedelta
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-32-bytes-long!!"
+
+BJT = timezone(timedelta(hours=8))
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -44,7 +47,8 @@ def test_month_view_complete():
     assert body["year"] == 2026 and body["month"] == 8
     assert body["days_in_month"] == 31
     assert body["first_weekday"] == 5              # 2026-08-01 是周六（0=周日）
-    assert body["today"] == "2026-08-21"
+    # P1-1 审查 I1: today 断言用相对时间（服务端"今日"随缓存 24h 过期，测试不可硬编码）
+    assert body["today"] == datetime.now(BJT).strftime("%Y-%m-%d")
 
     days = body["days"]
     assert len(days) == 31
@@ -152,6 +156,47 @@ def test_day_detail_anchors():
     assert body["positions"]["cai"] == "东北"
     assert body["positions"]["xi"] == "西北"
     assert body["positions"]["fu"] == "西南"
+
+
+# ---------------------------------------------------------------- 二十八宿锚点（P1-1 审查 C1）
+def test_day_detail_ershibaxiu_anchors():
+    """二十八宿值日（lunar-python getXiu 口径，三源验证）：
+    2026-08-19 → 轸（旧锚点错误实现出"星"，差 3 天）；2000-01-01 → 胃（基准锚点）。"""
+    for date, name, jixiong in [
+        ("2026-08-19", "轸", "吉"),
+        ("2000-01-01", "胃", "吉"),
+        ("2026-08-07", "娄", "吉"),
+    ]:
+        r = _client().get(f"/api/wannianli/day?date={date}", headers=_headers())
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ershibaxiu"]["name"] == name, \
+            f"{date} 二十八宿应为{name}, 实际{body['ershibaxiu']['name']}"
+        assert body["ershibaxiu"]["jixiong"] == jixiong
+
+
+# ---------------------------------------------------------------- 节气日建除锚点（P1-1 审查 I2）
+def test_jieqi_day_jianchu_anchor():
+    """节气日建除口径（交节日即新月令，对齐主流通书）：
+    2026-08-07 立秋 = 十二节 → 月支顺推一位（未月→申月）→ 执日
+    （旧口径未月起建为破日）；2026-08-23 处暑 = 十二气 → 不换月令（收日）。"""
+    # 月视图
+    mv = _client().get("/api/wannianli?year=2026&month=8", headers=_headers()).json()
+    by_date = {d["date"]: d for d in mv["days"]}
+    assert by_date["2026-08-07"]["jieqi"] == "立秋"
+    assert by_date["2026-08-07"]["jianchu"] == "执"
+    assert by_date["2026-08-23"]["jieqi"] == "处暑"
+    assert by_date["2026-08-23"]["jianchu"] == "收"
+
+    # 日详情（与月视图同一规则源）
+    d7 = _client().get("/api/wannianli/day?date=2026-08-07", headers=_headers()).json()
+    assert d7["jieqi"] == "立秋"
+    assert d7["jianchu"]["name"] == "执"
+    assert d7["jianchu"]["quality"] == "平"
+
+    # 非节气日不位移：2026-08-19（申月起建）执日不变
+    d19 = _client().get("/api/wannianli/day?date=2026-08-19", headers=_headers()).json()
+    assert d19["jianchu"]["name"] == "执"
 
 
 # ---------------------------------------------------------------- 宜忌规则确定性

@@ -150,12 +150,12 @@ PURPOSE_CATEGORIES = {
     "求医": ["求医", "看病", "治病", "手术"],
 }
 
-# 二十八宿参考日（以 2000-01-01 为基准，值房宿）
-# 2000-01-01 的二十八宿索引（0=角）
-# 通过已知历法推算
-ER_SH_BA_XIU_REFERENCE = {
-    # (year, month, day): xiu_index
-    (2000, 1, 1): 13,  # 虚宿
+# 十二节（交节日即新月令）: 节气日当天为 12 节之一时，建除按新月令起建
+# （对齐主流通书"交节日即新月令"口径，如 2026-08-07 立秋 → 申月起建 → 执日）。
+# 十二气（雨水/春分/…/大寒）不换月令。
+JIEQI_JIE = {
+    "立春", "惊蛰", "清明", "立夏", "芒种", "小暑",
+    "立秋", "白露", "寒露", "立冬", "大雪", "小寒",
 }
 
 
@@ -220,7 +220,7 @@ class ZeriEngine:
         lunar_day = lunar.getDay()
 
         # ---- 建除十二神 ----
-        jianchu = self._calc_jianchu(month_zhi, day_zhi)
+        jianchu = self._calc_jianchu_with_jieqi(month_zhi, day_zhi, lunar.getJieQi() or "")
         yi = list(JIANCHU_YI_JI[jianchu]["yi"])
         ji = list(JIANCHU_YI_JI[jianchu]["ji"])
 
@@ -278,52 +278,38 @@ class ZeriEngine:
         offset = (d_idx - m_idx) % 12
         return JIANCHU[offset]
 
+    def _calc_jianchu_with_jieqi(self, month_zhi: str, day_zhi: str, jieqi: str) -> str:
+        """建除十二神（月支起建），节气日按新月令顺推一位。
+
+        对齐主流通书"交节日即新月令"口径：当日为十二节之一（立春/惊蛰/…/小寒）
+        时，月令已交新月，建除月支顺推一位；十二气（雨水/春分/…/大寒）不换月令。
+        例: 2026-08-07 立秋 = 未月癸丑日（旧口径未月起建 → 破日），
+        交节新月令申月 → 执日（主流口径）。
+
+        Args:
+            month_zhi: 月地支（lunar-python 八字月支，节气日 0 点尚未交节 → 旧月支）
+            day_zhi: 日地支
+            jieqi: 当日节气名（lunar-python getJieQi，无节气为空串）
+        """
+        if jieqi in JIEQI_JIE:
+            month_zhi = DIZHI[(DIZHI.index(month_zhi) + 1) % 12]
+        return self._calc_jianchu(month_zhi, day_zhi)
+
     # ---- 二十八宿 ----
 
     def _calc_ershibaxiu(self, year: int, month: int, day: int) -> tuple:
-        """计算二十八宿值日星宿
+        """计算二十八宿值日星宿（lunar-python getXiu，与外部通书一致）。
 
-        使用基准日(2000-01-01 ~ 虚宿)推算偏移
+        P1-1 审查 C1 修复: 原实现用基准日 (2000-01-01) 锚点推算，锚点错误
+        （2000-01-01 实为胃宿，旧代码按 13=壁宿 起算）→ 全部日期差 3 天
+        （2026-08-19 应为轸，旧代码出星）。改用 lunar-python getXiu() 统一口径，
+        与万年历 day_detail 及外部通书三源验证一致。
+        吉凶仍取传统二十八宿吉凶表（与 lunar-python getXiuLuck 全 28 宿核对一致）。
         """
-        ref_year, ref_month, ref_day = 2000, 1, 1
-        ref_idx = ER_SH_BA_XIU_REFERENCE.get((ref_year, ref_month, ref_day), 13)
-
-        # 计算天数差
-        days_diff = self._days_between(ref_year, ref_month, ref_day, year, month, day)
-
-        # 二十八宿循环
-        xiu_idx = (ref_idx + days_diff) % 28
-        xiu_name = ERSHIBA_XIU[xiu_idx]
+        lunar = Solar.fromYmd(year, month, day).getLunar()
+        xiu_name = lunar.getXiu()
         xiu_jixiong = ERSHIBA_XIU_JIXIONG.get(xiu_name, "平")
-
         return xiu_name, xiu_jixiong
-
-    @staticmethod
-    def _days_between(y1: int, m1: int, d1: int, y2: int, m2: int, d2: int) -> int:
-        """计算两个日期之间的天数差（y2,m2,d2 - y1,m1,d1）"""
-        # 使用简单累加算法
-        def days_from_0(y, m, d):
-            days = 0
-            for yr in range(0, y):
-                days += 366 if (yr % 4 == 0 and yr % 100 != 0) or (yr % 400 == 0) else 365
-            month_days = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
-            if (y % 4 == 0 and y % 100 != 0) or (y % 400 == 0):
-                month_days[1] = 29
-            for i in range(m - 1):
-                days += month_days[i]
-            days += d
-            return days
-
-        # 处理负年份（公元前）
-        if y1 < 0 or y2 < 0:
-            return (y2 - y1) * 365 + (m2 - m1) * 30 + (d2 - d1)
-
-        # 对于正年份，只算相对差
-        # 使用差值计算以避免大数溢出
-        base_year = min(y1, y2)
-        d1_from_base = days_from_0(y1, m1, d1) - days_from_0(base_year, 1, 0)
-        d2_from_base = days_from_0(y2, m2, d2) - days_from_0(base_year, 1, 0)
-        return d2_from_base - d1_from_base
 
     # ---- 宜忌调整 ----
 

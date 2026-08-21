@@ -16,8 +16,8 @@ Page({
     monthText: '',
     weekHead: WEEK_HEAD,
     cells: [],              // 宫格（含前置空格 {blank:true} 与每日 {…}）
-    today: '',
-    todayMonth: '',         // 服务端今日年月（"今日"按钮高亮/跳转用）
+    todayDate: '',          // 设备时钟今日 YYYY-MM-DD（is_today/今日跳转以设备为准）
+    todayMonth: '',         // 设备时钟今日年月（"今日"按钮显示/跳转用）
     loading: true,
     // 日详情（底部笺页）
     detail: null,           // 后端 day_detail 全字段
@@ -28,10 +28,14 @@ Page({
   onLoad() {
     this._initNavOff();
     const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
     this.setData({
-      year: now.getFullYear(),
+      year: y,
       month: now.getMonth() + 1,
-      todayMonth: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`,
+      todayMonth: `${y}-${m}`,
+      todayDate: `${y}-${m}-${d}`,
     });
     this._loadMonth();
   },
@@ -74,12 +78,13 @@ Page({
         jianchu: d.jianchu,
         quality: d.quality,            // 吉/平/凶（建除口径）
         qCls: { 吉: 'q-ji', 平: 'q-ping', 凶: 'q-xiong' }[d.quality] || 'q-ping',
-        isToday: d.is_today,
+        // P1-1 审查 C2: is_today 以设备时钟自算为准（后端月视图缓存 24h，
+        // 服务端 is_today/today 可能过期——23:59 渲染的缓存次日会标错"今日"）
+        isToday: d.date === this.data.todayDate,
       });
     }
     this.setData({
       cells,
-      today: data.today,
       monthText: `${data.year}年${data.month}月`,
       loading: false,
     });
@@ -103,7 +108,8 @@ Page({
     this._loadMonth();
   },
   onJumpToday() {
-    const t = this.data.today || '';
+    // 今日跳转以设备时钟为准（服务端 today 随月视图缓存 24h 可能过期）
+    const t = this.data.todayDate || '';
     if (!t) return;
     const [y, m] = t.split('-').map(Number);
     this.setData({ year: y, month: m, detail: null });
