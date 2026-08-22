@@ -6,7 +6,7 @@
     </view>
   </view>
 
-  <scroll-view scroll-y class="mr-scroll">
+  <scroll-view scroll-y class="mr-scroll" lower-threshold="100" bindscrolltolower="onScrollLower">
     <!-- 头部: 题跋 -->
     <view class="mr-date">
       <text>穷通宝鉴 · 徐乐吾评注</text>
@@ -19,13 +19,19 @@
       <view class="mr-search-box">
         <text class="mr-search-ic">寻</text>
         <input class="mr-search-input" placeholder="搜历史人物，如 朱元璋" placeholder-class="mr-search-ph"
-          value="{{keyword}}" confirm-type="search" bindinput="onSearchInput" />
+          value="{{keyword}}" confirm-type="search" bindinput="onSearchInput" bindconfirm="onSearchConfirm" />
         <view class="mr-search-clear" wx:if="{{keyword}}" bindtap="onClearSearch">清</view>
       </view>
     </view>
 
+    <!-- 首载/搜索加载指示（否则首载列表区空白） -->
+    <view class="mr-loadmore" wx:if="{{loading}}">
+      <text>翻检命册中…</text>
+    </view>
+
     <!-- 统计行 -->
     <view class="mr-meta" wx:if="{{!loading}}">
+      <!-- 免费试看上限 35 与后端 FREE_LIMIT 耦合(src/api/mingren.py), 改库档位需同步 -->
       <text wx:if="{{keyword}}">「{{keyword}}」 命中 {{total}} 位</text>
       <text wx:else>{{isFull ? '全库' : '免费试看前 35 位'}} · 共 {{libraryTotal}} 位名人命例</text>
       <text class="mr-meta-tag" wx:if="{{!isFull}}">高级会员全量</text>
@@ -65,6 +71,7 @@
     <view class="mr-guide" wx:if="{{!isFull}}" hover-class="mr-guide-active" hover-stay-time="0" bindtap="openMemberDialog">
       <view class="seal mr-guide-seal"><text class="seal-char">全</text></view>
       <view class="mr-guide-mid">
+        <!-- "前 35 位"与后端 FREE_LIMIT 耦合, 改库档位需同步 -->
         <view class="mr-guide-t">已试看前 35 位</view>
         <view class="mr-guide-s">开通高级会员 · 解锁全部 {{libraryTotal || 2807}} 位名人命例与穷通宝鉴评注</view>
       </view>

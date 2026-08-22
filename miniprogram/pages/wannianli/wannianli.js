@@ -22,6 +22,7 @@ Page({
     // 日详情（底部笺页）
     detail: null,           // 后端 day_detail 全字段
     detailDate: '',         // 已选中日期（重复点击同一天不重复拉取）
+    detailVisible: false,   // 弹层显隐（detail 缓存保留, 关弹层重开同日不重复请求）
     detailLoading: false,
   },
 
@@ -49,12 +50,19 @@ Page({
 
   _loadMonth() {
     const { year, month } = this.data;
+    // 请求序号: 快速连点翻月时后到的旧响应丢弃, 不覆盖新月(UX批2 Important)
+    const token = (this._monthToken = (this._monthToken || 0) + 1);
     this.setData({ loading: true });
     api.getWannianliMonth(year, month)
-      .then((data) => this._renderMonth(data))
+      .then((data) => {
+        if (token !== this._monthToken) return; // 过期响应丢弃
+        this._renderMonth(data);
+      })
       .catch(() => {
+        if (token !== this._monthToken) return;
         wx.showToast({ title: '万年历加载失败', icon: 'none' });
-        this.setData({ loading: false });
+        // 失败时清空旧月宫格与标题, 避免"新月标题配旧月宫格"内容错配
+        this.setData({ loading: false, cells: [], monthText: '' });
       });
   },
 
@@ -96,7 +104,7 @@ Page({
     month -= 1;
     if (month < 1) { month = 12; year -= 1; }
     if (year < MIN_YEAR) { wx.showToast({ title: '历法仅支持 1900 年起', icon: 'none' }); return; }
-    this.setData({ year, month, detail: null });
+    this.setData({ year, month, detail: null, detailVisible: false, detailDate: '' });
     this._loadMonth();
   },
   onNextMonth() {
@@ -104,7 +112,7 @@ Page({
     month += 1;
     if (month > 12) { month = 1; year += 1; }
     if (year > MAX_YEAR) { wx.showToast({ title: '历法仅支持至 2100 年', icon: 'none' }); return; }
-    this.setData({ year, month, detail: null });
+    this.setData({ year, month, detail: null, detailVisible: false, detailDate: '' });
     this._loadMonth();
   },
   onJumpToday() {
@@ -112,7 +120,7 @@ Page({
     const t = this.data.todayDate || '';
     if (!t) return;
     const [y, m] = t.split('-').map(Number);
-    this.setData({ year: y, month: m, detail: null });
+    this.setData({ year: y, month: m, detail: null, detailVisible: false, detailDate: '' });
     this._loadMonth();
   },
 
@@ -124,8 +132,12 @@ Page({
   },
 
   _openDetail(date) {
-    if (this.data.detailDate === date && this.data.detail) return; // 已展开同一天
-    this.setData({ detailDate: date, detailLoading: true, detail: null });
+    if (this.data.detailDate === date && this.data.detail) {
+      // 同日重开: 仅重新展开, 不重复请求(UX批2 Minor)
+      this.setData({ detailVisible: true });
+      return;
+    }
+    this.setData({ detailDate: date, detailLoading: true, detail: null, detailVisible: true });
     api.getWannianliDay(date)
       .then((data) => {
         // WXML 不支持方法调用/复杂嵌套：旬空与建除颜色 class 预计算
@@ -141,7 +153,8 @@ Page({
   },
 
   onCloseDetail() {
-    this.setData({ detail: null });
+    // 仅藏弹层, 保留 detail 缓存供同日重开直达
+    this.setData({ detailVisible: false });
   },
   noop() {},
 

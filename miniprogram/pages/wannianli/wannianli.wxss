@@ -7,7 +7,15 @@
 
 .wn-page { padding: 0 0 40rpx; }
 
-.wn-scroll { height: calc(100vh - 88rpx - var(--nav-off, 0px)); }
+/* 自定义导航: 滚动区从 navrow(90rpx + 92rpx 高)之下起,
+   避让导航/状态栏, 写法同 mingren 已修好的 .mr-scroll(UX批2 Important) */
+.wn-scroll {
+  position: absolute;
+  top: calc(183rpx + var(--nav-off, 0px));
+  left: 0; right: 0;
+  bottom: 0;
+  height: auto;
+}
 .wn-inner { padding: 8rpx 26rpx 48rpx; }
 
 /* ════════ 月切换条 ════════ */
@@ -159,9 +167,9 @@
 .ws-sub { margin-top: 6rpx; font-family: var(--font-song); font-size: 20rpx; letter-spacing: .08em; color: var(--ink-soft); }
 .ws-close {
   flex-shrink: 0;
-  width: 56rpx; height: 56rpx; border-radius: 50%;
+  width: 72rpx; height: 72rpx; border-radius: 50%;   /* 触达 ≥44px 建议值, UX批2 Minor */
   border: 2rpx solid var(--line); color: var(--ink-mid);
-  font-family: var(--font-kai); font-size: 24rpx;
+  font-family: var(--font-kai); font-size: 26rpx;
   display: flex; align-items: center; justify-content: center;
 }
 .ws-close-active { background: var(--acc-soft); color: var(--acc); }

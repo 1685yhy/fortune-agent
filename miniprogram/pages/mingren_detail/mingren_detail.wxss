@@ -24,6 +24,15 @@
   align-items: center;
   gap: 20rpx;
 }
+
+/* ── 加载失败视图（重试路径, 同锁视图布局） ── */
+.mrd-failed {
+  padding: 200rpx 70rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20rpx;
+}
 .mrd-lock-seal {
   width: 110rpx;
   height: 110rpx;
@@ -395,7 +404,7 @@
 }
 .md-close {
   margin-top: 34rpx;
-  padding: 10rpx 40rpx;
+  padding: 18rpx 40rpx;   /* 触达 ~72rpx(≥44px 建议值), UX批2 Minor */
   font-family: var(--font-song);
   font-size: 22rpx;
   letter-spacing: .2em;

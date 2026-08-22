@@ -96,7 +96,9 @@
         <text class="pp-tg" data-cat="tiangan" data-name="{{p.gan}}" data-src="{{p.name}} · 天干" catchtap="onKnowTap">{{p.gan}}</text>
         <text class="pp-dz" data-cat="dizhi" data-name="{{p.zhi}}" data-src="{{p.name}} · 地支" catchtap="onKnowTap">{{p.zhi}}</text>
         <view class="pp-canggan">
-          <view class="pp-cg-item" wx:for="{{p.canggan}}" wx:key="gan" wx:for-item="cg">
+          <view class="pp-cg-item" wx:for="{{p.canggan}}" wx:key="gan" wx:for-item="cg"
+            hover-class="pp-tap" hover-stay-time="0"
+            data-cat="tiangan" data-name="{{cg.gan}}" data-src="{{p.name}} · 藏干" catchtap="onKnowTap">
             <text class="pp-cg-char">{{cg.gan}}</text>
             <text class="pp-cg-star">{{cg.shishen}}</text>
           </view>
@@ -107,6 +109,7 @@
             data-cat="zhangsheng" data-name="{{p.xingyun}}" data-src="{{p.name}} · 十二长生" catchtap="onKnowTap">{{p.xingyun}}</text>
         </view>
         <text class="pp-more-hint" wx:if="{{!p.expanded}}">展开</text>
+        <text class="pp-more-hint" wx:else>收起</text>
       </view>
     </view>
     <view class="pp-foot">
@@ -161,9 +164,10 @@
       <text class="dy-jy-seal">交运</text>
       <rich-text class="dy-jy-txt" nodes="{{jiaoyunLine}}"></rich-text>
     </view>
-    <scroll-view class="dy-scroll" scroll-x enhanced show-scrollbar="{{false}}">
+    <scroll-view class="dy-scroll" scroll-x enhanced show-scrollbar="{{false}}" scroll-into-view="{{dyScrollInto}}">
       <view class="dy-track">
         <view class="dy-step {{d.isCur ? 'is-current' : ''}}" hover-class="dy-step-tap" hover-stay-time="0"
+          id="dy-step-{{index}}"
           wx:for="{{dayunView}}" wx:key="ganzhi" wx:for-item="d"
           data-item="{{d}}" bindtap="onDayunTap">
           <text class="dy-qi" wx:if="{{d.isQi}}">起运</text>

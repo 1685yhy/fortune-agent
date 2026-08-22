@@ -63,13 +63,17 @@ Page({
     if (off !== 0) this.setData({ navOff: off });
   },
 
-  /* 拉取列表(门控由服务端强制: 免费用户 total ≤ 35) */
+  /* 拉取列表(门控由服务端强制: 免费用户 total ≤ 35)
+     请求序号: 新关键词/清空/开通后重载可打断在途请求, 过期响应丢弃——
+     避免旧关键词结果覆盖新查询(UX批2 Important) */
   _load(append = false) {
-    if (this.data.loading || (append && this.data.finished)) return;
+    if (append && (this.data.loading || this.data.finished)) return;
+    const token = (this._reqToken = (this._reqToken || 0) + 1);
     this.setData({ loading: !append, loadingMore: append });
     const page = append ? this.data.page + 1 : 1;
     return api.listMingren({ page, size: PAGE_SIZE, q: this.data.keyword })
       .then((res) => {
+        if (token !== this._reqToken) return; // 已有更新的查询, 丢弃过期响应
         const items = (res.items || []).map((it) => ({
           name: it.name,
           info: truncate(it.info, 60),
@@ -90,6 +94,7 @@ Page({
         });
       })
       .catch((err) => {
+        if (token !== this._reqToken) return;
         console.warn('[mingren] 列表加载失败:', err);
         if (!append) {
           this.setData({ items: [] });
@@ -97,6 +102,7 @@ Page({
         }
       })
       .finally(() => {
+        if (token !== this._reqToken) return;
         this.setData({ loading: false, loadingMore: false });
       });
   },
@@ -118,8 +124,22 @@ Page({
     this._load(false);
   },
 
+  /* 键盘"搜索"键直接触发查询（不等 500ms 防抖） */
+  onSearchConfirm() {
+    if (this._searchTimer) clearTimeout(this._searchTimer);
+    this.setData({ items: [], finished: false });
+    this._load(false);
+  },
+
   /* 触底加载更多 */
   onReachBottom() {
+    this._load(true);
+  },
+
+  /* scroll-view 触底加载：列表在固定高度滚动区内滚动,
+     页面级 onReachBottom 永不触发, 由 scrolltolower 驱动(UX批2 Critical) */
+  onScrollLower(e) {
+    if (e && e.detail && e.detail.direction && e.detail.direction !== 'bottom') return;
     this._load(true);
   },
 

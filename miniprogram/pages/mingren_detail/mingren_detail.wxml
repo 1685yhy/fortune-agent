@@ -6,6 +6,14 @@
     <text>翻检命册中…</text>
   </view>
 
+  <!-- 加载失败(重试路径) -->
+  <view class="mrd-failed" wx:elif="{{failed}}">
+    <view class="seal mrd-lock-seal"><text class="seal-char">叹</text></view>
+    <text class="mrd-lock-t">命例加载失败</text>
+    <text class="mrd-lock-s">网络开小差了，请稍后重试</text>
+    <view class="mrd-lock-btn" hover-class="mrd-lock-btn-active" hover-stay-time="0" bindtap="retryLoad">重试</view>
+  </view>
+
   <!-- 未解锁视图(403 VIP_REQUIRED) -->
   <view class="mrd-locked" wx:elif="{{locked}}">
     <view class="seal mrd-lock-seal"><text class="seal-char">锁</text></view>

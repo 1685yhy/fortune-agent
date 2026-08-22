@@ -148,10 +148,16 @@ Page({
       time: `排盘 ${now.getFullYear()}.${_pad(now.getMonth() + 1)}.${_pad(now.getDate())}`,
     };
 
-    /* 摘要：'；' 拆分 → 要点行；关键差异（首段）朱砂高亮 */
-    const summaryLines = String(c.summary || '')
-      .split('；').map((t) => t.trim()).filter(Boolean)
-      .map((t, i) => ({ t, key: i === 0 && t.indexOf('关键差异') === 0 }));
+    /* 摘要：'；' 拆分 → 要点行；首条要点朱砂高亮。
+       后端 compare_summary 的「关键差异：」前缀仅在有日主/用神/格局变化时出现,
+       否则首段为"四柱中仅…发生变化/两盘日主不同…"——原 `indexOf('关键差异')===0`
+       匹配在这些场景永假(死逻辑)。改为: 多条要点时对首行直接高亮
+       ("两盘完全相同"单条不标红), UX批2 Minor */
+    const lines = String(c.summary || '').split('；').map((t) => t.trim()).filter(Boolean);
+    const summaryLines = lines.map((t, i) => ({
+      t,
+      key: i === 0 && lines.length > 1,
+    }));
 
     /* 四柱变动说明（pp-foot）：如「仅时柱 庚辰→壬午（十神由正官变为正印）」 */
     const changes = (diff.four_pillars || {}).changes || [];

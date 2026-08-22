@@ -1,7 +1,5 @@
 {
-  "navigationBarTitleText": "名人命例",
+  "navigationStyle": "custom",
   "backgroundColor": "#F5EFE1",
-  "navigationBarBackgroundColor": "#F5EFE1",
-  "navigationBarTextStyle": "black",
   "enablePullDownRefresh": false
 }

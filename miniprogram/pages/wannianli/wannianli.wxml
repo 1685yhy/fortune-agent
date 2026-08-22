@@ -76,7 +76,7 @@
   </scroll-view>
 
   <!-- ===== 日详情（底部笺页） ===== -->
-  <view class="wn-mask" wx:if="{{detail || detailLoading}}" catchtouchmove="noop" bindtap="onCloseDetail">
+  <view class="wn-mask" wx:if="{{detailVisible || detailLoading}}" catchtouchmove="noop" bindtap="onCloseDetail">
     <view class="wn-sheet" catchtap="noop">
       <!-- 加载态 -->
       <view class="wn-sheet-loading" wx:if="{{detailLoading}}">

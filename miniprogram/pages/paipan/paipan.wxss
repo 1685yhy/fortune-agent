@@ -509,6 +509,8 @@ page {
   border-bottom: 4rpx solid transparent; padding: 14rpx 28rpx;
 }
 .zs-tab.is-on { color: var(--acc); border-bottom-color: var(--acc); font-weight: 600; }
+/* 按压反馈（wxml hover-class 引用, 原缺失 UX批2 Minor） */
+.zs-tab-active { color: var(--acc); border-bottom-color: var(--acc); }
 .zs-body { overflow-y: auto; margin-top: 28rpx; padding-right: 8rpx; max-height: 44vh; }
 .zs-para {
   display: block; font-family: var(--font-kai); font-size: 27rpx; line-height: 2.05; color: var(--ink-mid);

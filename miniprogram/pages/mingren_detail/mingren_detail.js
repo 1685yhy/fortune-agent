@@ -10,6 +10,7 @@ Page({
     dark: false,
     name: '',
     loading: true,
+    failed: false,          // 加载失败(非 403/未找到) → 重试入口
     locked: false,          // 未解锁(403 VIP_REQUIRED)
     lockMessage: '',
     detail: null,
@@ -38,11 +39,18 @@ Page({
         };
       });
     this.setData({ memberPlans: plans });
-    if (name) this._load();
+    if (name) {
+      this._load();
+    } else {
+      // 无 name 参数直入: 避免 loading 永真卡死, 提示后返回(UX批2 Minor)
+      this.setData({ loading: false });
+      wx.showToast({ title: '未指定命例', icon: 'none' });
+      setTimeout(() => wx.navigateBack({ fail: () => wx.reLaunch({ url: '/pages/mingren/mingren' }) }), 800);
+    }
   },
 
   _load() {
-    this.setData({ loading: true, locked: false });
+    this.setData({ loading: true, locked: false, failed: false });
     api.getMingrenDetail(this.data.name)
       .then((d) => {
         wx.setNavigationBarTitle({ title: d.name });
@@ -74,8 +82,14 @@ Page({
           return;
         }
         wx.showToast({ title: '命例加载失败，请稍后再试', icon: 'none' });
+        this.setData({ failed: true }); // 失败态提供重试路径(UX批2 Minor)
       })
       .finally(() => this.setData({ loading: false }));
+  },
+
+  /* 失败重试 */
+  retryLoad() {
+    this._load();
   },
 
   /* ── 未解锁: 开通高级会员 ── */

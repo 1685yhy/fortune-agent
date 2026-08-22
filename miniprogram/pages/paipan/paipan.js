@@ -72,6 +72,7 @@ Page({
     wuxingNote: '',       // 论断行
     yongshenChip: '',     // 用神 chip
     dayunView: [],        // 大运步 [{suiText,ganzhi,shishen,years,isCur,isQi}]
+    dyScrollInto: '',     // 大运时间线初始定位今运(UX批2 Minor)
     jiaoyunLine: '',      // 大运卡交运行
     liunianView: [],      // 流年胶囊 [{year,ganzhi,nayin,age,shensha,rel,dayun,isNow}]
     relGroups: [],        // 干支关系 [{name,badges:[{name,where,note,cls}]}]
@@ -237,6 +238,9 @@ Page({
       isQi: i === 0,
       isCur: curSui >= d.sui && curSui <= d.end_sui,
     }));
+    // 今运步横向可能屏外: scroll-into-view 初始定位到今运(UX批2 Minor)
+    const dyCurIdx = dayunView.findIndex((d) => d.isCur);
+    const dyScrollInto = dyCurIdx >= 0 ? `dy-step-${dyCurIdx}` : '';
     const jiaoyunLine = `逢<b>${jy.gan_pair || ''}</b>年 · <b>${jy.jie || ''}后 ${jy.days_after_jie || ''} 天</b>换运 · 司令${c.siling}${WUXING_TG[c.siling] || ''}当令`;
 
     /* 流年胶囊（批1：全量带 流年神煞/与原局关系/所在大运，点开即弹层详析） */
@@ -323,7 +327,7 @@ Page({
 
     this.setData({
       master, pillars, slChips, wuxingRows, wuxingNote, yongshenChip,
-      dayunView, jiaoyunLine, liunianView, relGroups, shenshaView,
+      dayunView, dyScrollInto, jiaoyunLine, liunianView, relGroups, shenshaView,
       chenggu, footDate: master.time.replace('排盘 ', ''),
     });
   },
@@ -332,9 +336,12 @@ Page({
 
   _openKnowledge(cat, name, src) {
     if (!name) return;
+    // 请求序号: 连点多个词时后到者为准, 先完成者不得提前关掉后者的 loading(UX批2 Minor)
+    const token = (this._knowToken = (this._knowToken || 0) + 1);
     wx.showLoading({ title: '解析中...', mask: true });
     api.getKnowledge(cat, name)
       .then((item) => {
+        if (token !== this._knowToken) return;
         wx.hideLoading();
         const tabs = [];
         if (item.tip) tabs.push({ t: '解析', body: item.tip });
@@ -351,6 +358,7 @@ Page({
         });
       })
       .catch(() => {
+        if (token !== this._knowToken) return;
         wx.hideLoading();
         wx.showToast({ title: '知识解析暂未收录', icon: 'none' });
       });
