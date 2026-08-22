@@ -217,13 +217,16 @@
   align-items: center;
   gap: 6rpx;
 }
+/* 锁定卡：分数紧跟名字后，锁标右对齐（nc-lock 自带 margin-left:auto） */
+.nc-score-muted { margin-left: 0; }
 .nc-body {
   display: flex;
   gap: 22rpx;
   margin-top: 16rpx;
   align-items: flex-start;
 }
-.nc-radar { width: 172rpx; height: 172rpx; flex-shrink: 0; }
+/* UX批3：344rpx≈172px 与 js 172 逻辑像素绘制 1:1，修复雷达轴标签 0.5× 缩小（需真机复核） */
+.nc-radar { width: 344rpx; height: 344rpx; flex-shrink: 0; }
 .nc-info { flex: 1; min-width: 0; }
 .nc-src {
   font-size: 23rpx;

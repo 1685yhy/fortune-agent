@@ -139,6 +139,7 @@ Page({
     scenes: SCENES,
     loading: false,       // 首次取卡中
     refreshing: false,    // 换一批中
+    failFlag: false,      // 取卡失败态（区别于「本窗口无合格吉日」空态，重试不扣额度）
     cards: [],            // 吉日卡（含展示派生字段）
     suggestReason: '',
     refreshRemaining: null, // 今日剩余换一批次数（免费档）
@@ -153,11 +154,15 @@ Page({
     options = options || {};
     theme.bindTheme(this);
     this._loadMember();
-    const scene = decodeURIComponent((options.scene || '').trim());
+    // UX批3：decodeURIComponent 加保护，畸形 % 序列不再抛 URIError 白屏
+    const dec = (s) => {
+      try { return decodeURIComponent((s || '').trim()); } catch (e) { return String(s || '').trim(); }
+    };
+    const scene = dec(options.scene);
     // 表单式三步入口（dir_b v7）：scene+period(+bazi) 进入；period 非法则忽略走默认窗口
-    const periodRaw = decodeURIComponent((options.period || '').trim());
+    const periodRaw = dec(options.period);
     const period = PERIODS.indexOf(periodRaw) !== -1 ? periodRaw : '';
-    const bazi = decodeURIComponent((options.bazi || '').trim());
+    const bazi = dec(options.bazi);
     if (scene) {
       this.setData({ scene, period, bazi });
       if (period) this._updateTitle(scene, period);
@@ -205,6 +210,7 @@ Page({
       this.setData({
         loading: false,
         refreshing: false,
+        failFlag: false,
         scene,
         cards: cards.map((c) => this._renderCard(c)),
         suggestReason: (res && res.reason) || '',
@@ -212,7 +218,8 @@ Page({
         expandedIdx: -1,
       });
     }).catch((err) => {
-      this.setData({ loading: false, refreshing: false });
+      // UX批3：失败态单独标记 failFlag，渲染「取卡失败+重试」而非「无合格吉日」空态
+      this.setData({ loading: false, refreshing: false, failFlag: true });
       // 请求层（utils/api.js doRequest）非 2xx 只 reject 响应体、不暴露 statusCode，
       // 429 无法按状态码判定 → 保留 detail 子串判据（fix-later；后端 429 detail 均为额度文案）
       const detail = (err && err.detail) || (err && err.message) || '';
@@ -222,6 +229,12 @@ Page({
         wx.showToast({ title: detail || '取卡失败，请重试', icon: 'none', duration: 2500 });
       }
     });
+  },
+
+  /* ═══ 失败态重试（UX批3）：走 GET options 免费路径，不调用扣额度的 POST /refresh ═══ */
+  onRetryLoad() {
+    if (this.data.loading || this.data.refreshing) return;
+    this._loadCards(this.data.scene, [], true);
   },
 
   /* 换一批跨轮去重（终审 M2）：每轮成功展示的日期追加进 excludeRounds，

@@ -454,6 +454,11 @@
   letter-spacing: 0.06em;
 }
 
+/* UX批3：取卡/换批在途时禁用态视觉（onRefresh 已有 in-flight 守卫） */
+.zr-refresh-dis {
+  opacity: .5;
+}
+
 .zr-btn-active { opacity: .8; transform: scale(.98); }
 
 .zr-foot {

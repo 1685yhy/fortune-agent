@@ -60,7 +60,7 @@
         <text class="gd-step-sub">选填</text>
       </view>
     </view>
-    <input class="gd-input" value="{{bazi}}" bindinput="onBaziInput"
+    <input class="gd-input" value="{{bazi}}" bindinput="onBaziInput" bindconfirm="goZeri"
       placeholder="例：1995-08-12 14:30 · 填了契合度更准"
       placeholder-class="gd-input-ph" maxlength="60" confirm-type="done" />
     <text class="gd-hint">不填也行——明灯按事择日，填入后按命择日。</text>

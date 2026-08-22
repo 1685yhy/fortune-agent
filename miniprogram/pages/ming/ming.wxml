@@ -96,10 +96,10 @@
         <view class="nc-head">
           <text class="nc-name">{{item.given}}</text>
           <text class="nc-full">{{item.full}}</text>
-          <block wx:if="{{item.locked}}">
-            <text class="nc-lock">契合推理已隐藏</text>
-          </block>
-          <text wx:else class="nc-score">{{item.score}}<text class="nc-score-u"> 分</text></text>
+          <!-- UX批3：按设计注释（第 4、5 名只给分数不露推理），锁定卡恢复显示分数，
+               仅隐藏推理（ping/buyi/src 后端已摘除）；若隐藏分数是刻意转化策略可回退 -->
+          <text class="nc-score {{item.locked ? 'nc-score-muted' : ''}}">{{item.score}}<text class="nc-score-u"> 分</text></text>
+          <text wx:if="{{item.locked}}" class="nc-lock">契合推理已隐藏</text>
         </view>
         <view class="nc-body">
           <canvas type="2d" id="radar-{{idx}}" class="nc-radar"></canvas>

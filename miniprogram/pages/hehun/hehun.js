@@ -5,6 +5,7 @@ const api = require('../../utils/api');
 const payment = require('../../utils/payment');
 const shareCard = require('../../utils/shareCard');
 const personUtil = require('../../utils/persons');
+const theme = require('../../utils/theme');
 
 const TA_STORAGE_KEY = 'yuan_ta_birth';
 
@@ -29,6 +30,7 @@ function lunarDateToSolar(dateStr) {
 
 Page({
   data: {
+    dark: false,           // 暗黑模式（theme.bindTheme）
     // 我方 (p1)
     p1Date: '',            // 'YYYY-MM-DD'（出生年月日，一次选完）
     p1Cal: 'solar',        // solar | lunar（出生历法）
@@ -58,6 +60,9 @@ Page({
     // 档案直选
     persons: [],
     personsLoaded: false,
+    // 档案选择弹层（自绘底部弹层，UX批3：showActionSheet 上限 6 项，档案多时后几位选不到）
+    showPersonPicker: false,
+    personPickerTarget: '',
 
     // 状态
     loading: false,
@@ -94,6 +99,7 @@ Page({
   },
 
   onLoad() {
+    theme.bindTheme(this);
     this.restoreTaCache();
     this.loadDefaultSelf();
   },
@@ -115,10 +121,14 @@ Page({
       p2Gender: c.gender === 'female' ? 'female' : 'male',
       p2FromCache: true,
     };
-    // 时辰/出生地为选填：有则回填
+    // 时辰/出生地为选填：有则回填；UX批3：缓存 hourIdx 缺失/非法（非 1-12）时置未填，
+    // 不再默认填「子时」误导用户以为是上次真实值
     if (c.hourSet) {
-      patch.p2HourIdx = Math.min(12, Math.max(1, parseInt(c.hourIdx, 10) || 1));
-      patch.p2HourSet = true;
+      const hi = parseInt(c.hourIdx, 10);
+      if (hi >= 1 && hi <= 12) {
+        patch.p2HourIdx = hi;
+        patch.p2HourSet = true;
+      }
     }
     if (c.city) {
       patch.p2City = String(c.city);
@@ -159,7 +169,8 @@ Page({
     });
   },
 
-  // ---- 从档案选择（showActionSheet 列姓名 → 点选填充） ----
+  // ---- 从档案选择（UX批3：自绘可滚动底部弹层——wx.showActionSheet 官方上限 6 项，
+  // 档案 >6 人时后几位静默截断选不到；弹层样式仿本页历史记录弹层） ----
   onPickPerson(e) {
     const target = e.currentTarget.dataset.target;
     const persons = this.data.persons;
@@ -167,13 +178,20 @@ Page({
       wx.showToast({ title: '暂无档案，可手动填写', icon: 'none' });
       return;
     }
-    wx.showActionSheet({
-      itemList: persons.map((p) => p.name),
-      success: (res) => {
-        const p = persons[res.tapIndex];
-        if (p) this._fillFromPerson(target, p);
-      },
-    });
+    this.setData({ showPersonPicker: true, personPickerTarget: target });
+  },
+
+  onClosePersonPicker() {
+    this.setData({ showPersonPicker: false, personPickerTarget: '' });
+  },
+
+  onPersonPick(e) {
+    const idx = Number(e.currentTarget.dataset.idx);
+    const p = this.data.persons[idx];
+    const target = this.data.personPickerTarget;
+    if (!p) return;
+    this.setData({ showPersonPicker: false, personPickerTarget: '' });
+    this._fillFromPerson(target, p);
   },
 
   _fillFromPerson(target, p) {
@@ -347,6 +365,9 @@ Page({
       const it = dims[key] || {};
       return { key, label, score: it.score || 0, max: it.max || 0, color: this._barColor(it.score, it.max) };
     };
+    const dimsArr = [mkDim('wuxing', '五行'), mkDim('shengxiao', '生肖'), mkDim('rizhu', '日柱')];
+    // UX批3：旧版本归档无 quoteParts/dimensions 时，不再渲染孤立「。」缘语卡与 0/0 得分条
+    const yuanParts = [main, qp.suffix].filter(Boolean);
     this.setData({
       showHistory: false,
       viewingHistory: true,
@@ -360,8 +381,8 @@ Page({
         yuan_card: c.yuan_card || null,
         transient: false,
       },
-      dims: [mkDim('wuxing', '五行'), mkDim('shengxiao', '生肖'), mkDim('rizhu', '日柱')],
-      yuanLine: [main, qp.suffix].filter(Boolean).join('，') + '。',
+      dims: dimsArr.some((d) => d.max > 0) ? dimsArr : [],
+      yuanLine: yuanParts.length ? yuanParts.join('，') + '。' : '',
       cliffhanger: qp.cliffhanger || '',
       hourNotSetNote: '',
       report: null,
@@ -384,10 +405,12 @@ Page({
     const qp = (result && result.quoteParts) || {};
     // 主句可能带句号结尾（LLM 润色），与后缀拼接前去重，避免「。，」
     const main = String(qp.main || '').replace(/。+$/, '');
+    // 与历史查看路径一致：quoteParts 缺失时缘语卡不渲染孤立「。」
+    const yuanParts = [main, qp.suffix].filter(Boolean);
     this.setData({
       result,
       dims: [mkDim('wuxing', '五行'), mkDim('shengxiao', '生肖'), mkDim('rizhu', '日柱')],
-      yuanLine: [main, qp.suffix].filter(Boolean).join('，') + '。',
+      yuanLine: yuanParts.length ? yuanParts.join('，') + '。' : '',
       cliffhanger: qp.cliffhanger || '',
       hourNotSetNote: (!this.data.p1HourSet || !this.data.p2HourSet)
         ? '时辰未填，仅供参考'

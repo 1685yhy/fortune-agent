@@ -220,6 +220,30 @@
     </scroll-view>
   </view>
 
+  <!-- ===== 档案选择弹层（自绘可滚动底部弹层：showActionSheet 上限 6 项，档案多时后几位选不到） ===== -->
+  <view wx:if="{{showPersonPicker}}" class="mask" bindtap="onClosePersonPicker"></view>
+  <view wx:if="{{showPersonPicker}}" class="hh-history-sheet" catchtouchmove="noop">
+    <view class="hh-history-head">
+      <text class="hh-history-title">从档案选择</text>
+      <text class="hh-history-x" hover-class="hh-x-active" hover-stay-time="0" bindtap="onClosePersonPicker">✕</text>
+    </view>
+    <scroll-view scroll-y class="hh-history-body">
+      <view wx:if="{{!persons.length}}" class="hh-history-empty">暂无档案，可手动填写</view>
+      <view wx:for="{{persons}}" wx:key="id"
+        class="hh-history-item" hover-class="hh-history-item-active" hover-stay-time="0"
+        data-idx="{{index}}" bindtap="onPersonPick">
+        <view class="hh-hi-left">
+          <view class="hh-hi-top">
+            <text class="hh-hi-level">{{item.name}}</text>
+            <text wx:if="{{item.is_default}}" class="hh-hi-rel">默认</text>
+          </view>
+          <text class="hh-hi-time">{{item.gender === 'female' ? '女' : '男'}} · {{item.birth_year}}年{{item.birth_month}}月{{item.birth_day}}日</text>
+        </view>
+        <view class="hh-hi-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
+      </view>
+    </scroll-view>
+  </view>
+
   <!-- ===== 付费墙弹层（悬念半句展开） ===== -->
   <view wx:if="{{showPaywall}}" class="mask" bindtap="onClosePaywall"></view>
   <view wx:if="{{showPaywall}}" class="paywall-sheet" catchtouchmove="noop">

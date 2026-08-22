@@ -38,6 +38,12 @@ Page({
     this._loadPlan(planId);
   },
 
+  /* ═══ 加载失败重试（UX批3） ═══ */
+  onRetryLoad() {
+    this.setData({ error: false });
+    this._loadPlan(this.data.planId);
+  },
+
   /* 拉取计划详情 → 分组渲染 */
   _loadPlan(planId) {
     api.getZeriPlan(planId).then((res) => {
@@ -71,15 +77,20 @@ Page({
   /* ═══ 勾选 ═══ */
   onToggleItem(e) {
     const idx = Number(e.currentTarget.dataset.idx);
-    if (this.data.itemBusy >= 0) return;
+    if (this.data.itemBusy >= 0) {
+      // UX批3：全局锁在途时给视觉反馈，不再静默吞点
+      wx.showToast({ title: '正在保存，请稍候', icon: 'none' });
+      return;
+    }
     const g = this.data.groups;
     const target = findItem(g, idx);
     if (!target) return;
     const prev = target.done;        // 乐观更新前先记旧值（失败回滚基准）
     const next = !prev;
-    this.setData({ itemBusy: idx });
     // 本地先行（体验优先），失败回滚到 prev
     applyItem(g, idx, { done: next });
+    // UX批3：乐观更新后必须 setData 渲染，慢网下勾选即时反馈；itemBusy 顺带视觉置灰
+    this.setData({ itemBusy: idx, groups: g });
     api.updateZeriItem(this.data.planId, { idx, done: next })
       .then((res) => {
         this.setData({ itemBusy: -1 });

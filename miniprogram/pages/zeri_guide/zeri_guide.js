@@ -8,6 +8,13 @@ const { SCENES } = require('../../utils/zeriMeta'); // 6 场景元数据唯一�
 const PERIODS = ['本周', '本月', '下个月', '三个月内'];
 const DEFAULT_PERIOD = '下个月';
 
+/* 八字预校验（UX批3）：后端 _parse_bazi_form（ISO 式 / 中文年+月+日式 / 农历语义式）
+   所有可解析格式都含 4 位出生年份 → 前端只挡「不含年份」的串，避免误拒语义式；
+   不含年份的串后端必然解析失败静默降级（用户以为按命择日实际未用），提前提示。 */
+function baziRecognizable(str) {
+  return /\d{4}/.test(str) || /[零一二三四五六七八九十\d]+年/.test(str);
+}
+
 Page({
   data: {
     dark: false,
@@ -48,11 +55,19 @@ Page({
       wx.showToast({ title: '请先选一件大事', icon: 'none' });
       return;
     }
+    const bazi = String(this.data.bazi || '').trim();
+    if (bazi && !baziRecognizable(bazi)) {
+      wx.showToast({
+        title: '八字未能识别 · 需含出生年份（如 1995-08-12 14:30），或留空',
+        icon: 'none',
+        duration: 2500,
+      });
+      return;
+    }
     const q = [
       'scene=' + encodeURIComponent(scene),
       'period=' + encodeURIComponent(this.data.period),
     ];
-    const bazi = String(this.data.bazi || '').trim();
     if (bazi) q.push('bazi=' + encodeURIComponent(bazi));
     wx.navigateTo({ url: '/pages/zeri/zeri?' + q.join('&') });
   },

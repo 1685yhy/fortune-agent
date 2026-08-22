@@ -629,12 +629,13 @@
 }
 
 .yuan-sheet-x {
-  width: 56rpx;
-  height: 56rpx;
+  /* UX批3：触达尺寸 56→72rpx（36px），接近 44px 建议 */
+  width: 72rpx;
+  height: 72rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 28rpx;
+  font-size: 32rpx;
   color: var(--ink-faint);
   border: 2rpx solid var(--line);
   border-radius: 50%;
@@ -902,10 +903,11 @@
   color: var(--ink);
 }
 .hh-history-x {
-  width: 60rpx; height: 60rpx;
-  line-height: 60rpx;
+  /* UX批3：触达尺寸 60→72rpx（36px），接近 44px 建议 */
+  width: 72rpx; height: 72rpx;
+  line-height: 72rpx;
   text-align: center;
-  font-size: 32rpx;
+  font-size: 34rpx;
   color: var(--ink-soft);
   border-radius: 50%;
 }

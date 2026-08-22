@@ -1,10 +1,11 @@
 <!-- 择吉日 · 清单页 — 选定吉日 + 分阶段勾选/备注 + 订阅提醒 + 分享给家人 -->
 <view class="page-plan">
 
-  <!-- 加载失败 -->
+  <!-- 加载失败（UX批3：加重试按钮，无需返回重进） -->
   <view wx:if="{{error}}" class="pl-error">
     <view class="seal pl-error-seal"><text class="seal-char">失</text></view>
-    <text class="pl-error-text">清单加载失败，请返回重试</text>
+    <text class="pl-error-text">清单加载失败，请重试</text>
+    <view class="pl-error-btn" hover-class="pl-btn-active" hover-stay-time="0" bindtap="onRetryLoad">重试</view>
   </view>
 
   <block wx:else>
@@ -33,7 +34,7 @@
 
         <view class="pl-group-card">
           <view wx:for="{{g.items}}" wx:key="idx" wx:for-item="it"
-            class="pl-item {{it.done ? 'pl-item-done' : ''}}"
+            class="pl-item {{it.done ? 'pl-item-done' : ''}} {{itemBusy === it.idx ? 'pl-item-busy' : ''}}"
             bindtap="onToggleItem" data-idx="{{it.idx}}">
             <view class="pl-check {{it.done ? 'pl-check-on' : ''}}">
               <text wx:if="{{it.done}}" class="pl-check-mark">✓</text>

@@ -8,7 +8,8 @@ const payment = require('../../utils/payment');
 const shareCard = require('../../utils/shareCard');
 
 const STYLE_CHIPS = ['文雅', '大气', '古典', '现代', '诗意'];
-const RADAR_LABELS = ['音形义', '五行', '数理', '笔画', '性别'];
+// 与后端引擎 DIM_KEYS 一致（engines/ming.py '性别匹配'）——key 错配会导致雷达该轴恒为 0
+const RADAR_LABELS = ['音形义', '五行', '数理', '笔画', '性别匹配'];
 const WX_COLORS = { 金: '#C8A15A', 木: '#5E7A63', 水: '#3F5A6B', 火: '#A93A2C', 土: '#9A8B71' };
 
 function bjDay() {
@@ -49,7 +50,6 @@ Page({
     names: [],               // 5 名卡
     styleNote: '',
     issues: [],              // 成人免费现名诊断(current_name_issues, ≤5 条)
-    genError: '',
     // 单名详情弹层
     detail: null,
     // 付费
@@ -57,10 +57,8 @@ Page({
     purchasing: false,
     // 名笺报告
     report: null,
-    reportErr: '',
     saving: false,
     sharing: false,
-    unlocked: false,         // 已解锁(本会话内报告已获取)
   },
 
   onLoad(opts) {
@@ -145,7 +143,7 @@ Page({
       wx.showToast({ title: '成人改名请填写现名', icon: 'none' });
       return;
     }
-    this.setData({ loading: true, genError: '' });
+    this.setData({ loading: true });
     api.genMing({
       surname,
       gender: this.data.gender,
@@ -199,7 +197,9 @@ Page({
         if (!res || !res[0] || !res[0].node) return;
         const canvas = res[0].node;
         const dpr = wx.getSystemInfoSync().pixelRatio || 2;
-        const size = 172;
+        // UX批3：以 canvas 实际显示尺寸（CSS px）为绘制尺寸，避免 172rpx≈86px 显示下
+        // 172 逻辑像素画布被 0.5× 缩放、轴标签缩小到不可读（需真机复核）
+        const size = Math.round(res[0].width) || 172;
         canvas.width = size * dpr;
         canvas.height = size * dpr;
         const ctx = canvas.getContext('2d');
@@ -314,7 +314,7 @@ Page({
   },
   _fetchReport() {
     if (this.data.purchasing) return Promise.resolve();
-    this.setData({ purchasing: true, reportErr: '' });
+    this.setData({ purchasing: true });
     const birth = parseBirth(this.data.birth);
     const surname = this.data.surname.trim();
     const name = this.data.detail || this.data.names[0] || {};
@@ -338,7 +338,7 @@ Page({
     })
       .then((res) => {
         const rep = this._decorateReport((res && res.report) || {});
-        this.setData({ purchasing: false, stage: 'report', report: rep, unlocked: true, paywall: false });
+        this.setData({ purchasing: false, stage: 'report', report: rep, paywall: false });
       })
       .catch((e) => {
         this.setData({ purchasing: false });
@@ -348,7 +348,8 @@ Page({
         } else {
           wx.showToast({ title: '报告生成失败，请重试', icon: 'none' });
         }
-        throw e;
+        // UX批3：不再 rethrow——原实现造成 onShowReport/onMemberFree 的 unhandled rejection，
+        // 且 onBuyNow 外层 catch 会叠加弹出误导性「报告生成失败」双 toast
       });
   },
 

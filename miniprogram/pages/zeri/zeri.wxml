@@ -34,8 +34,16 @@
         <view class="inkdot"></view><view class="inkdot"></view><view class="inkdot"></view>
       </view>
 
+      <!-- UX批3：失败态与空态分离——取卡失败显示「重试」（走 GET options 免费路径），
+           与「本窗口无合格吉日」区分开，避免用户误以为日子不好、误点扣额度的换窗口 -->
       <block wx:elif="{{!cards.length}}">
-        <view class="zr-empty">
+        <view wx:if="{{failFlag}}" class="zr-empty">
+          <view class="seal zr-empty-seal"><text class="seal-char">寻</text></view>
+          <text class="zr-empty-text">取卡失败，请检查网络后重试</text>
+          <text class="zr-empty-sub">重试不消耗「换一批」次数</text>
+          <view class="zr-empty-btn" hover-class="zr-btn-active" hover-stay-time="0" bindtap="onRetryLoad">重试</view>
+        </view>
+        <view wx:else class="zr-empty">
           <view class="seal zr-empty-seal"><text class="seal-char">寻</text></view>
           <text class="zr-empty-text">本窗口内没有选出合格吉日</text>
           <text class="zr-empty-sub">{{suggestReason || '建议扩大日期范围后再试'}}</text>
@@ -109,10 +117,11 @@
         </view>
       </view>
 
-      <!-- 换一批 -->
+      <!-- 换一批（取卡/换批在途时禁用态视觉，防连点静默吞点） -->
       <view class="zr-refresh-wrap">
-        <view class="zr-refresh" hover-class="zr-btn-active" hover-stay-time="0" bindtap="onRefresh">
+        <view class="zr-refresh {{loading || refreshing ? 'zr-refresh-dis' : ''}}" hover-class="{{loading || refreshing ? 'none' : 'zr-btn-active'}}" hover-stay-time="0" bindtap="onRefresh">
           <text wx:if="{{refreshing}}">正在换一批…</text>
+          <text wx:elif="{{loading}}">正在取卡…</text>
           <text wx:else>换一批</text>
         </view>
         <text wx:if="{{refreshRemaining !== null}}" class="zr-refresh-note">今日还可换 {{refreshRemaining}} 次 · 换一批会避开已展示的日期</text>

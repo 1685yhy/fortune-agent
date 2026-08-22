@@ -41,6 +41,15 @@ Page({
     theme.bindTheme(this);
   },
 
+  /* UX批3：揭卡延时与页面卸载竞态——返回上一页时清掉挂起的 setTimeout，
+     避免对已卸载页面 setData（微信仅告警，但属隐患） */
+  onUnload() {
+    if (this._drawTimer) {
+      clearTimeout(this._drawTimer);
+      this._drawTimer = null;
+    }
+  },
+
   /* 状态栏高度适配(同 celiang): 原型画板固定状态栏 47px,--nav-off 为差值 */
   _initNavOff() {
     const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
@@ -64,8 +73,12 @@ Page({
         const card = res.card || {};
         card.level = JX_LEVEL[card.jx] || 4;
         card.noChars = noChars(card.no);
-        setTimeout(() => {
-          this.setData({ stage: 'done', card, raisedIdx: (card.no || 1) % 5 });
+        // UX批3：签号→5 签枝按 (no*7+3)%5 分散——原 (no%5) 使 5/15/20 号都落 0 枝
+        const stickNo = (card.no || 1);
+        const raisedIdx = (stickNo * 7 + 3) % 5;
+        this._drawTimer = setTimeout(() => {
+          this._drawTimer = null;
+          this.setData({ stage: 'done', card, raisedIdx });
           this._firstDrawHint();
         }, SHAKE_MS);
       })

@@ -204,9 +204,13 @@
   color: var(--ink-soft);
   border: 1rpx solid var(--line-soft);
   border-radius: 6rpx;
-  padding: 6rpx 16rpx;
+  /* UX批3：触达 padding 6→14rpx（高约 48rpx=24px，接近建议） */
+  padding: 14rpx 16rpx;
   letter-spacing: 0.08em;
 }
+
+/* UX批3：条目保存中视觉置灰 */
+.pl-item-busy { opacity: .55; }
 
 .pl-item-edit-active { background: var(--acc-soft); }
 
@@ -429,6 +433,21 @@
   font-size: var(--text-base);
   color: var(--ink);
   letter-spacing: 0.1em;
+}
+
+.pl-error-btn {
+  height: 72rpx;
+  padding: 0 var(--space-xl);
+  border-radius: var(--radius-sm);
+  border: 2rpx solid var(--acc-line);
+  color: var(--acc);
+  font-family: var(--font-song);
+  font-size: var(--text-sm);
+  letter-spacing: 0.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-card);
 }
 
 .pl-canvas-off {
