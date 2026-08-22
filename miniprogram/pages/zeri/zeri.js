@@ -4,7 +4,7 @@
 // 免费档每日换一批 3 次（429 时 toast 后端文案）；会员/体验模式不限
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
-const { SCENES } = require('../../utils/zeriMeta'); // 6 场景元数据唯一来源（fix-later 去重）
+const { SCENES } = require('../../utils/zeriMeta'); // 7 场景元数据唯一来源（fix-later 去重）
 
 /* 办事清单模板前端展示副本（服务端权威：选日落库由后端按 Fix3 服务端重建清单，
    忽略客户端 items；此副本仅供选它前预览/兜底展示，改动以后端 zeri_checklist.py 为准） */
@@ -43,6 +43,17 @@ const CHECKLIST_TEMPLATES = {
     { stage: '当天', text: '吉时9-11点 揭牌开业', core: true },
     { stage: '当天', text: '开业优惠,首客迎宾', core: false },
     { stage: '当天', text: '财神位摆供,开市鸣炮', core: false },
+  ],
+  '晋升': [
+    { stage: '提前3天', text: '梳理业绩亮点,备齐述职/竞聘材料', core: true },
+    { stage: '提前3天', text: '了解竞聘岗位与评审标准', core: true },
+    { stage: '提前3天', text: '与领导沟通意向,争取支持', core: false },
+    { stage: '提前1天', text: '预演述职/面试,准备问题', core: true },
+    { stage: '提前1天', text: '备齐证明材料与证件', core: true },
+    { stage: '提前1天', text: '确认时间地点,整理着装', core: false },
+    { stage: '当天', text: '吉时9-11点 面试/述职/谈薪', core: true },
+    { stage: '当天', text: '复盘表现,记录要点', core: false },
+    { stage: '当天', text: '跟进结果,维护关系', core: false },
   ],
   '出行': [
     { stage: '提前3天', text: '确认行程,预订机酒门票', core: true },

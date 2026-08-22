@@ -390,7 +390,7 @@ class ZeriEngine:
         """择吉日: 窗口逐日扫描 + 场景规则命中 + 冲煞排除 + 三层评分, 返回 Top3 吉日
 
         Args:
-            scene: 场景名, 取 SCENES 的 key（嫁娶/搬家/开业/出行/提车/签约）
+            scene: 场景名, 取 SCENES 的 key（嫁娶/搬家/开业/晋升/出行/提车/签约）
             start_date/end_date: 公历日期窗口 "YYYY-MM-DD"（含首尾, 可跨月/跨年）
             user_bazi: 用户八字信息（可选, 全缺则跳过个人分与冲生肖判定）:
                 - shengxiao: 生肖, 如 "鼠" —— 冲生肖排除（搬家冲宅主/提车冲车主等）
@@ -658,7 +658,7 @@ SHENG_CYCLE = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "�
 #   avoid_chong:  冲 user_bazi 生肖排除（独立条目, 按场景开关: 搬家冲宅主/提车冲车主;
 #                 无生肖信息时跳过; 不混入 shensha_avoid）
 #   shensha_avoid: 神煞排除（三娘煞/杨公忌日/月破/月刑/空亡; 冲生肖已独立为 avoid_chong 条目）
-#   weekend_bonus: 周末加分开关（prefer_weekend 且 weekend_bonus 才加分; 当前 6 场景全开）
+#   weekend_bonus: 周末加分开关（prefer_weekend 且 weekend_bonus 才加分; 当前 7 场景全开）
 SCENES = {
     "嫁娶": {
         "label": "嫁娶",
@@ -682,6 +682,15 @@ SCENES = {
         "label": "开业",
         "yi_hits": ["开市", "交易", "纳财"],
         "ji_hits": ["开市", "纳财"],
+        "jianchu_avoid": ["破", "闭"],
+        "avoid_chong": False,
+        "shensha_avoid": ["月破", "月刑"],
+        "weekend_bonus": True,
+    },
+    "晋升": {
+        "label": "晋升",
+        "yi_hits": ["祈福", "会亲友", "出行", "入学"],   # 四词均已核实在宜词表存在（建除宜表+黄历宜）
+        "ji_hits": [],
         "jianchu_avoid": ["破", "闭"],
         "avoid_chong": False,
         "shensha_avoid": ["月破", "月刑"],

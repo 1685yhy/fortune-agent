@@ -1,7 +1,7 @@
 """Tests for bot message handling."""
 from unittest.mock import Mock, MagicMock, call
 
-from src.bot.handler import MessageHandler
+from src.bot.handler import MessageHandler, ZERI_SCENE_QUESTION
 from src.bot.tool_calls import parse_tool_calls, strip_tool_calls, MAX_TOOL_ITERATIONS
 from src.bot.formatter import split_long_message, format_greeting, format_error, format_loading
 
@@ -147,6 +147,7 @@ def make_mock_handler():
     mock_llm.chat.return_value = Mock(response="🔮 命理助手 返回的结果")
     mock_llm.chat_conversation.return_value = "🔮 命理助手 返回的结果"
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
     mock_dao.get_user_bazi.return_value = None
     mock_session = Mock()
     mock_session.get_context_for_llm.return_value = []
@@ -186,6 +187,7 @@ def test_process_bazi_missing_info_asks():
 def test_process_bazi_missing_info_uses_saved():
     """八字意图无信息，但有已保存数据"""
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
     mock_dao.get_user_bazi.return_value = {
         "year": 1990, "month": 5, "day": 20,
         "hour": 15, "minute": 0, "city": "北京", "gender": "男",
@@ -247,6 +249,7 @@ def test_process_bazi_with_extracted_info():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=mock_engine,
@@ -470,6 +473,7 @@ def test_process_ziwei_with_extracted_info():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -524,6 +528,7 @@ def test_process_liuyao():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -574,6 +579,7 @@ def test_process_fengshui_with_direction():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -625,6 +631,7 @@ def test_process_zeri_with_date():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -643,6 +650,17 @@ def test_process_zeri_with_date():
     mock_zeri.select.assert_called_once_with(2026, 8, 15, purpose="嫁娶")
     mock_retriever.search.assert_called_once()
     mock_llm.analyze.assert_called_once()
+
+
+def test_extract_zeri_scene_jinsheng():
+    """晋升场景意图提取: 升职/加薪/竞聘等命中 晋升; 旧场景不受影响; 澄清文案含晋升"""
+    handler = make_mock_handler()
+    assert handler._extract_zeri_scene("我想升职加薪选个好日子") == "晋升"
+    assert handler._extract_zeri_scene("竞聘岗位 想挑个吉日") == "晋升"
+    assert handler._extract_zeri_scene("入职面试 选个日子") == "晋升"
+    # 同义词不串场景: 开张仍归开业
+    assert handler._extract_zeri_scene("我想开张选日子") == "开业"
+    assert "晋升" in ZERI_SCENE_QUESTION
 
 
 # ── NEW: Mianxiang handler ────────────────────────────────────────────
@@ -676,6 +694,7 @@ def test_process_mianxiang_with_description():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -709,6 +728,7 @@ def test_process_qimen_uses_rag():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -941,6 +961,7 @@ def test_process_dream_with_text_and_engine():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -987,6 +1008,7 @@ def test_process_dream_rag_fallback():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
+    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),

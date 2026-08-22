@@ -199,8 +199,8 @@ def test_zeri_jieqi_day_jianchu_anchor():
 
 
 def test_scenes_config_complete():
-    """6 场景配置完整且字段齐全"""
-    assert set(SCENES.keys()) == {"嫁娶", "搬家", "开业", "出行", "提车", "签约"}
+    """7 场景配置完整且字段齐全"""
+    assert set(SCENES.keys()) == {"嫁娶", "搬家", "开业", "晋升", "出行", "提车", "签约"}
     for scene, cfg in SCENES.items():
         assert cfg["label"]
         assert isinstance(cfg["yi_hits"], list) and cfg["yi_hits"]
@@ -494,3 +494,20 @@ def test_select_lucky_days_tiche_scene():
     assert "2026-08-08" not in dates
     assert any(c.date == "2026-08-16" and c.practical_score == 10 for c in res["cards"])
     assert res["scanned"] == 11
+
+
+def test_select_lucky_days_jinsheng_scene():
+    """晋升场景: 祈福/会亲友/出行/入学命中; 破日+月破排除（08-08）; 每卡有 scene_score"""
+    engine = ZeriEngine()
+    res = engine.select_lucky_days("晋升", "2026-08-08", "2026-08-18")
+    dates = {c.date for c in res["cards"]}
+    assert "2026-08-08" not in dates
+    # 08-10 成日(入学/出行) / 08-12 开日(祈福/会亲友/出行/入学) → 合格
+    assert {"2026-08-10", "2026-08-12"} <= dates
+    for c in res["cards"]:
+        assert 0 <= c.scene_score <= 50
+        assert c.total == c.scene_score + c.personal_score + c.practical_score
+    assert res["scanned"] == 11
+    # 非法场景仍抛 ValueError（原 6 场景之外的词不混入）
+    with pytest.raises(ValueError):
+        engine.select_lucky_days("经商", "2026-08-08", "2026-08-18")
