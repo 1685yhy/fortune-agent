@@ -89,9 +89,46 @@ Page({
   onShow() {
     this._deriveIdentity();
     this._loadPhone(); // 手机号绑定态（Task 2：GET /api/user/phone 只回脱敏号）
+    this._loadPrefs();
+  },
+
+  /* 三路 prefs 并行水合（晨笺/择日/深夜）；全失败自动重试一轮，仍失败弹「重试」入口（UX批4） */
+  _loadPrefs() {
+    this._prefsFailCount = 0;
+    this._prefsRetried = false;
     this._loadJianPrefs();
     this._loadZeriPrefs(); // 择日提醒（与 jian prefs 并行水合）
     this._loadNightPrefs(); // 深夜陪伴（与 jian prefs 并行水合）
+  },
+
+  /* UX批4：三路 prefs 全部加载失败 → 静默重试一轮（2s）→ 仍失败弹「重试」入口。
+     未登录（含已退出）不打扰——该态下 prefs 失败属预期，本地默认值即可。 */
+  _onPrefsLoadFail() {
+    const gd = (getApp() && getApp().globalData) || {};
+    if (!gd.token) return;
+    this._prefsFailCount = (this._prefsFailCount || 0) + 1;
+    if (this._prefsFailCount < 3) return;
+    this._prefsFailCount = 0;
+    if (this._prefsRetried) {
+      wx.showModal({
+        title: '设置加载失败',
+        content: '消息订阅与深夜陪伴设置未能加载，请重试',
+        confirmText: '重试',
+        cancelText: '稍后',
+        success: (r) => {
+          if (r.confirm) {
+            this._prefsRetried = false;
+            this._loadPrefs();
+          }
+        },
+      });
+    } else {
+      this._prefsRetried = true;
+      setTimeout(() => {
+        this._prefsRetried = false;
+        this._loadPrefs();
+      }, 2000);
+    }
   },
 
   /* ═══ 手机号绑定（Task 2：GET /api/user/phone → {bound, phone_masked}） ═══
@@ -241,10 +278,13 @@ Page({
     api.getJianPrefs().then((res) => {
       this._prefsBusy = false;
       const p = (res && res.prefs) || {};
-      const morningTime = p.jian_time || MORNING_DEFAULT;
-      const nightTime = p.night_time || NIGHT_DEFAULT;
+      let morningTime = p.jian_time || MORNING_DEFAULT;
+      let nightTime = p.night_time || NIGHT_DEFAULT;
+      // UX批4 Minor-2：服务端时间不在选项内 → 连显示值一起回落默认，杜绝 picker 高亮与显示错位
       const mIdx = MORNING_OPTIONS.indexOf(morningTime);
       const nIdx = NIGHT_OPTIONS.indexOf(nightTime);
+      if (mIdx < 0) morningTime = MORNING_DEFAULT;
+      if (nIdx < 0) nightTime = NIGHT_DEFAULT;
       this.setData({
         jianLoading: false,
         jianEnabled: p.jian_enabled === 1 || p.jian_enabled === true,
@@ -260,6 +300,7 @@ Page({
     }).catch(() => {
       this._prefsBusy = false;
       this.setData({ jianLoading: false, whisper }); // 静默降级：保持默认关态
+      this._onPrefsLoadFail();
     });
   },
 
@@ -348,38 +389,61 @@ Page({
         whisperOn: p.whisper_enabled !== 0,
       });
       try { wx.setStorageSync('ylm_night_prefs', p); } catch (e) {}
-    } catch (e) { this.setData({ nightLoading: false }); }
+    } catch (e) {
+      this.setData({ nightLoading: false });
+      this._onPrefsLoadFail();
+    }
+  },
+
+  /* 深夜陪伴 4 开关（UX批4 Important-7）：统一「乐观更新 + 失败回滚 + toast」，对齐晨笺/择日开关 */
+  _rollbackNight(field, prev) {
+    this.setData({ [field]: prev });
+    wx.showToast({ title: '保存失败，请重试', icon: 'none' });
   },
 
   onNightPresetChange(e) {
     const nightMode = require('../../utils/nightMode');
     const labels = Object.keys(nightMode.PRESET_LABEL);
-    const preset = labels[Number(e.detail.value)] || 'standard';
-    this.setData({ nightPresetIdx: Number(e.detail.value) });
-    api.putNightPrefs({ preset }).catch(() => wx.showToast({ title: '保存失败', icon: 'none' }));
+    const idx = Number(e.detail.value);
+    const preset = labels[idx] || 'standard';
+    const prev = this.data.nightPresetIdx;
+    this.setData({ nightPresetIdx: idx });
+    api.putNightPrefs({ preset }).catch(() => this._rollbackNight('nightPresetIdx', prev));
   },
 
   onNightEffectSwitch(e) {
+    const prev = this.data.nightEffectOn;
     this.setData({ nightEffectOn: e.detail.value });
-    api.putNightPrefs({ effect_enabled: e.detail.value }).catch(() => {});
+    api.putNightPrefs({ effect_enabled: e.detail.value })
+      .catch(() => this._rollbackNight('nightEffectOn', prev));
   },
 
   onNightKeepSwitch(e) {
+    const prev = this.data.nightKeepOn;
     this.setData({ nightKeepOn: e.detail.value });
-    api.putNightPrefs({ keep_enabled: e.detail.value }).catch(() => {});
+    api.putNightPrefs({ keep_enabled: e.detail.value })
+      .catch(() => this._rollbackNight('nightKeepOn', prev));
   },
 
   onLampTimerChange(e) {
-    const min = [5, 10, 15, 30][Number(e.detail.value)] || 15;
-    this.setData({ lampTimerIdx: Number(e.detail.value) });
-    api.putNightPrefs({ lamp_timer_min: min }).catch(() => {});
+    const idx = Number(e.detail.value);
+    const prev = this.data.lampTimerIdx;
+    const min = [5, 10, 15, 30][idx] || 15;
+    this.setData({ lampTimerIdx: idx });
+    api.putNightPrefs({ lamp_timer_min: min })
+      .catch(() => this._rollbackNight('lampTimerIdx', prev));
   },
 
   onNightWhisperSwitch(e) {
     // 终审:与消息订阅区私语开关(whisper)同源互刷(本地键共用 ylm_jian_whisper)
+    const prev = this.data.whisperOn;
     this.setData({ whisperOn: e.detail.value, whisper: !!e.detail.value });
     try { wx.setStorageSync('ylm_jian_whisper', e.detail.value ? 'on' : 'off'); } catch (err) {}
-    api.putNightPrefs({ whisper_enabled: e.detail.value }).catch(() => {});
+    api.putNightPrefs({ whisper_enabled: e.detail.value })
+      .catch(() => {
+        try { wx.setStorageSync('ylm_jian_whisper', prev ? 'on' : 'off'); } catch (err) {}
+        this._rollbackNight('whisperOn', prev);
+      });
   },
 
   /* ═══ 择日提醒（大事择吉日：GET/PUT /api/zeri/prefs）
@@ -396,6 +460,7 @@ Page({
       });
     }).catch(() => {
       this.setData({ zeriLoading: false }); // 静默降级：保持默认关态
+      this._onPrefsLoadFail();
     });
   },
 
@@ -426,6 +491,8 @@ Page({
   },
 
   _loginAgain() {
+    // UX批4 Critical-1：显式登录即清除退出标记，恢复自动重登能力
+    api.setLoggedOut(false);
     wx.showLoading({ title: '登录中…', mask: true });
     Promise.resolve(getApp().wechatLogin())
       .catch(() => { /* wechatLogin 内部已降级到本地模式，不阻断 */ })
@@ -449,6 +516,9 @@ Page({
   },
 
   _logout() {
+    // UX批4 Critical-1（安全语义）：显式退出标记置位——此后 api.js 拒绝业务请求、
+    // 401 不再静默 wx.login 重登，退出承诺真正生效（借出设备场景）；下次显式登录清除。
+    api.setLoggedOut(true);
     this._clearIdentity();
     this._deriveIdentity();
     wx.showToast({ title: '已退出登录', icon: 'none' });
@@ -513,6 +583,11 @@ Page({
       wx.showToast({ title: '当前未登录，无需注销', icon: 'none' });
       return;
     }
+    // UX批4 Minor-5：体验用户（local_user 本地兜底）无真实账号，注销警示流语义错误
+    if (isLocal) {
+      wx.showToast({ title: '体验模式无账号可注销 · 先微信登录', icon: 'none', duration: 2200 });
+      return;
+    }
     this.setData({ deregDialogVisible: true, deregInput: '' });
   },
 
@@ -525,7 +600,11 @@ Page({
   },
 
   confirmDereg() {
-    if (String(this.data.deregInput || '').trim() !== DEREG_CONFIRM) return;
+    // UX批4 Minor-3：按钮伪禁用（仅 CSS 淡显）→ 点击给明确反馈，不做静默 return
+    if (String(this.data.deregInput || '').trim() !== DEREG_CONFIRM) {
+      wx.showToast({ title: '请输入「注销」二字', icon: 'none' });
+      return;
+    }
     if (this._deregSubmitting) return;
     this._deregSubmitting = true;
     wx.showLoading({ title: '注销中…', mask: true });
@@ -560,7 +639,8 @@ Page({
   },
 
   goBack() {
-    wx.navigateBack();
+    // UX批4 Minor-7：直接打开本页时无上一页 → reLaunch 兜底（同 history 页风格）
+    wx.navigateBack({ delta: 1, fail: () => wx.reLaunch({ url: '/pages/me/me' }) });
   },
 
   noop() { /* 阻止遮罩点击穿透 */ },

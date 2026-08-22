@@ -5,6 +5,7 @@
 // 渠道区（元宝式）：微信好友（onShareAppMessage 卡片带分享图）/ 朋友圈（onShareTimeline）/
 //                  生成分享图（wx.shareImageMessage，失败降级保存）/ 复制链接（落地页）
 const shareCard = require('../../utils/shareCard');
+const theme = require('../../utils/theme');
 
 Page({
   data: {
@@ -14,10 +15,12 @@ Page({
     dateText: '',
     imgPath: '',        // 生成的分享卡临时路径
     generating: true,
+    hasQr: false,       // 二维码是否就绪（决定说明文案，UX批4 Minor：无码不误导）
   },
 
   onLoad() {
     this._initNavOff();
+    theme.bindTheme(this); // UX批4 Minor：与其他页一致接入主题绑定
     try {
       this._msgs = wx.getStorageSync('ylm_share_msgs');
     } catch (e) {
@@ -120,13 +123,18 @@ Page({
     shareCard.shareCard(this.data.imgPath, '易理明灯 · 夜话拾笺');
   },
 
-  /* 复制链接：落地页 https://yilichat.com/share?id=<shareId>（服务端 id 未就绪用本地兜底，链接结构一致） */
+  /* 复制链接：落地页 https://yilichat.com/share?id=<shareId>（服务端 id 未就绪用本地兜底，链接结构一致）
+     UX批4 Minor：兜底 id 为死链接 → 复制时如实提示，网络恢复后可重新进入本页再复制生效链接 */
   onChannelLink() {
     const id = this._getShareId();
     const url = 'https://yilichat.com/share?id=' + encodeURIComponent(id);
     wx.setClipboardData({
       data: url,
-      success: () => wx.showToast({ title: '链接已复制', icon: 'none' }),
+      success: () => wx.showToast({
+        title: this._shareFromServer === false ? '已复制 · 网络恢复后链接才可访问' : '链接已复制',
+        icon: 'none',
+        duration: 2200,
+      }),
       fail: () => wx.showToast({ title: '复制失败，请重试', icon: 'none' }),
     });
   },
@@ -175,31 +183,51 @@ Page({
     this.setData({ pairs });
   },
 
-  /* Canvas 2d 绘制 → 预览（qrPath 为空则分享图不带二维码） */
+  /* Canvas 2d 绘制 → 预览（qrPath 为空则分享图不带二维码）。
+     UX批4 Important-4：主链路包 try/catch + 失败弹「重试」入口（长内容/字体测量等异常可重试） */
   _draw(qrPath) {
-    this.setData({ generating: true });
+    this.setData({ generating: true, hasQr: !!qrPath });
+    this._qrPath = qrPath || '';
     const query = wx.createSelectorQuery();
     query.select('#shareCanvas')
       .fields({ node: true, size: true })
       .exec((res) => {
         if (!res || !res[0] || !res[0].node) {
-          wx.showToast({ title: '生成失败，请重试', icon: 'none' });
-          this.setData({ generating: false });
+          this._onDrawFail();
           return;
         }
         const canvas = res[0].node;
-        shareCard.drawChatCard({
-          pairs: this.data.pairs,
-          dateText: this.data.dateText,
-        }, canvas, (tempFilePath) => {
-          this.setData({ generating: false });
-          if (tempFilePath) {
-            this.setData({ imgPath: tempFilePath });
-          } else {
-            wx.showToast({ title: '生成图片失败', icon: 'none' });
-          }
-        }, qrPath);
+        try {
+          shareCard.drawChatCard({
+            pairs: this.data.pairs,
+            dateText: this.data.dateText,
+          }, canvas, (tempFilePath) => {
+            this.setData({ generating: false });
+            if (tempFilePath) {
+              this.setData({ imgPath: tempFilePath });
+            } else {
+              this._onDrawFail();
+            }
+          }, qrPath);
+        } catch (e) {
+          console.error('[share] _draw 异常:', e && e.message);
+          this._onDrawFail();
+        }
       });
+  },
+
+  /* 出图失败：弹层带「重试」入口（不再只能返回重选消息） */
+  _onDrawFail() {
+    this.setData({ generating: false });
+    wx.showModal({
+      title: '生成图片失败',
+      content: '长对话内容可能超出分享卡上限，超限部分会自动节选。可重试一次',
+      confirmText: '重试',
+      cancelText: '取消',
+      success: (res) => {
+        if (res.confirm) this._draw(this._qrPath);
+      },
+    });
   },
 
   goBack() {

@@ -66,7 +66,7 @@
           <text class="ch-label">复制链接</text>
         </view>
       </view>
-      <view class="sh-note">长按图片也可保存 · 分享图含品牌二维码，可扫码继续对话</view>
+      <view class="sh-note">{{hasQr ? '长按图片也可保存 · 分享图含品牌二维码，可扫码继续对话' : '长按图片也可保存 · 当前未含品牌二维码，网络恢复后重新生成即可'}}</view>
     </block>
 
     <!-- 生成失败兜底 -->

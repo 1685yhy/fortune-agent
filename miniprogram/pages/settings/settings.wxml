@@ -122,7 +122,7 @@
           <view class="mr-ic"><image src="/assets/images/ic-seal.png"></image></view>
           <view class="stj-pick-col">
             <view class="mr-label">晚安送达时间</view>
-            <view class="stj-pick-range">21:00 - 24:00</view>
+            <view class="stj-pick-range">21:00 - 23:45</view>
           </view>
           <view class="stj-pick-hint">点按修改</view>
           <view class="stj-time">{{nightTime}}</view>
@@ -226,7 +226,8 @@
     <view class="acct-card" catchtap="noop">
       <view class="acct-card-title">更换账号</view>
       <view class="acct-card-body">
-        <text>将退出当前账号，重新登录其他微信。</text>
+        <text>将退出当前账号并刷新登录态。微信登录始终使用</text><text class="mb-strong">当前微信账号</text><text>——</text>
+        <text>如需其他微信，请先在微信内「我-设置-切换账号」，再回来继续。</text>
         <text>当前账号的灯油、命书与手记</text><text class="mb-strong">不会丢失</text><text>。</text>
       </view>
       <view class="acct-card-note">登录新账号后，本地数据按新账号重新建档</view>

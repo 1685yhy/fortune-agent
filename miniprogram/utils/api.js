@@ -113,6 +113,33 @@ function scheduleReprobe() {
 
 let authToken = null;
 
+// ---- 显式退出标记（UX批4 Critical-1 安全语义） ----
+// 用户主动「退出登录」时置位；置位后 request 拒绝发业务请求、relogin 拒绝
+// wx.login 静默重登——「退出登录」承诺的会话终止才真正成立（借出设备场景）。
+// 仅用户显式登录（settings._loginAgain → app.wechatLogin）清除标记。
+// 注意：普通会话过期（401 且无标记）仍走原自动重登，两者语义严格区分。
+const LOGGED_OUT_KEY = 'ylm_logged_out';
+let loggedOutCached = null; // null = 未读缓存（首次读取以 storage 为准）
+
+function isLoggedOut() {
+  if (loggedOutCached === null) {
+    try {
+      loggedOutCached = !!wx.getStorageSync(LOGGED_OUT_KEY);
+    } catch (e) {
+      loggedOutCached = false;
+    }
+  }
+  return loggedOutCached;
+}
+
+function setLoggedOut(v) {
+  loggedOutCached = !!v;
+  try {
+    if (loggedOutCached) wx.setStorageSync(LOGGED_OUT_KEY, 1);
+    else wx.removeStorageSync(LOGGED_OUT_KEY);
+  } catch (e) { /* ignore */ }
+}
+
 // ---- Token 管理 ----
 function setToken(token) {
   authToken = token;
@@ -145,6 +172,11 @@ function getToken() {
  * 等待会造成自锁（等自己）。
  */
 function request(url, options = {}) {
+  // UX批4 Critical-1：显式退出后拒绝一切业务请求（登录请求除外——用户必须能重新登录），
+  // 返回明确错误；页面据此提示「已退出登录，请重新登录」，而非触发 401 静默重登。
+  if (isLoggedOut() && !options._skipLoginWait) {
+    return Promise.reject(new Error('已退出登录，请重新登录'));
+  }
   if (options._skipLoginWait) {
     return ensureBaseURL().then(() => doRequest(url, options));
   }
@@ -188,6 +220,11 @@ function doRequest(url, options = {}) {
           // Token 过期：静默自动重登一次（不 toast），成功后重试原请求 1 次
           if (options._noAuthRetry || options._authRetried) {
             reject(new Error('Unauthorized'));
+            return;
+          }
+          // UX批4 Critical-1：用户已显式退出 → 401 不得触发静默重登
+          if (isLoggedOut()) {
+            reject(new Error('已退出登录，请重新登录'));
             return;
           }
           authToken = null;
@@ -257,6 +294,10 @@ let reloginPromise = null;
  * @returns {Promise<Object>}
  */
 function relogin() {
+  // UX批4 Critical-1：显式退出后禁止静默重登（防御在途请求的 401 兜底路径）
+  if (isLoggedOut()) {
+    return Promise.reject(new Error('已退出登录，请重新登录'));
+  }
   if (reloginPromise) return reloginPromise;
   reloginPromise = new Promise((resolve, reject) => {
     wx.login({
@@ -640,11 +681,14 @@ function getJianToday() {
  * 注销账号（账号中心）：POST /api/user/cancel
  * @param {string} confirmText - 确认文案（用户需输入「注销」二字）
  * @returns {Promise}
+ * UX批4 Critical-2：契约错配修复——后端 CancelRequest.confirm 是 bool，
+ * 中文确认串应走 code 字段（user.py: `if not req.confirm and req.code != "注销"` 拒绝），
+ * 旧负载 {confirm:'注销'} 被 Pydantic 拒为 422，注销链路整体不可用。
  */
 function cancelAccount(confirmText) {
   return request('/api/user/cancel', {
     method: 'POST',
-    data: { confirm: confirmText },
+    data: { code: confirmText },
   });
 }
 
@@ -1271,6 +1315,8 @@ module.exports = {
   setToken,
   getToken,
   applyAuth,
+  isLoggedOut,
+  setLoggedOut,
 
   // Calendar
   getTodayFortune,

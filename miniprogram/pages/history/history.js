@@ -133,10 +133,17 @@ Page({
       items.push(this._buildEntry('current', now, '', curMsgs, rawCur, true));
     }
 
+    /* UX批4 Critical-3：搜索过滤（按摘要+全部消息内容，大小写不敏感）。
+       空态可达：q 非空且无命中时 groups 为空 → wxml 展示「没有找到相关的夜话」 */
+    const q = String(this.data.q || '').trim().toLowerCase();
+    const filtered = q
+      ? items.filter((it) => String(it.searchText || '').toLowerCase().indexOf(q) >= 0)
+      : items;
+
     /* 分组（今天/昨天/更早 各按时间倒序） */
-    items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    filtered.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     const groups = ['今天', '昨天', '更早']
-      .map((g) => ({ g, items: items.filter((it) => it.group === g) }))
+      .map((g) => ({ g, items: filtered.filter((it) => it.group === g) }))
       .filter((x) => x.items.length);
 
     this.setData({ groups, loaded: true });
@@ -166,12 +173,16 @@ Page({
     };
   },
 
-  /* 搜索：按摘要 + 全部消息内容过滤（原型 搜索即滤） */
+  /* 搜索：按摘要 + 全部消息内容过滤（原型 搜索即滤；UX批4 Critical-3 修复：防抖 150ms 后重装配） */
   onSearchInput(e) {
     this.setData({ q: e.detail.value });
+    clearTimeout(this._searchTimer);
+    this._searchTimer = setTimeout(() => this._load(), 150);
   },
   clearSearch() {
     this.setData({ q: '' });
+    clearTimeout(this._searchTimer);
+    this._load();
   },
 
   /* ═══ 会话预览（原型 preview 屏） ═══ */
@@ -224,6 +235,16 @@ Page({
       if (streamHost.streaming) streamHost.stop();
       streamHost.setMessages(msgs.slice(-50));
       try { wx.setStorageSync(STORAGE_KEY, msgs.slice(-50)); } catch (e) { /* ignore */ }
+    }
+    /* UX批4 Important-5：续聊成功后清理源归档——同一批消息（同 id）不再二次归档，
+       否则新开对话再归档会产生重复会话，收藏页同 id kept 消息出现双卡片。 */
+    if (s.id && s.id !== 'current') {
+      try {
+        const arch = wx.getStorageSync(ARCHIVE_KEY);
+        if (Array.isArray(arch)) {
+          wx.setStorageSync(ARCHIVE_KEY, arch.filter((a) => !(a && a.id === s.id)));
+        }
+      } catch (e) { /* ignore */ }
     }
     wx.navigateTo({ url: '/pages/chat/chat' });
   },

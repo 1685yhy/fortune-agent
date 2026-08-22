@@ -113,6 +113,57 @@ function countLines(ctx, text, maxWidth) {
   return n;
 }
 
+/**
+ * 限行换行（wrapText 的节选版）：最多画 maxLines 行，内容超限时末行以「…」收束。
+ * 与 countLines 同口径换行；末行行宽预算扣除省略号宽度，保证收束不溢出。
+ * @returns {{y: number, truncated: boolean}} y=末行基线，truncated=是否发生节选
+ */
+function wrapTextLimit(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const ell = '…';
+  const ellW = ctx.measureText(ell).width;
+  const chars = String(text || '').split('');
+  let line = '';
+  let lineY = y;
+  let n = 1;
+  const ellipsis = () => {
+    ctx.fillText(ell, x + ctx.measureText(line).width + 2, lineY);
+    return true;
+  };
+  for (let i = 0; i < chars.length; i++) {
+    const char = chars[i];
+    const isFinalLine = n >= maxLines;
+    if (char === '\n') {
+      if (isFinalLine) {
+        if (i < chars.length - 1) { ellipsis(); return { y: lineY, truncated: true }; }
+        ctx.fillText(line, x, lineY);
+        return { y: lineY, truncated: false };
+      }
+      ctx.fillText(line, x, lineY);
+      line = '';
+      lineY += lineHeight;
+      n++;
+      continue;
+    }
+    const maxW = isFinalLine ? Math.max(0, maxWidth - ellW - 4) : maxWidth;
+    const testLine = line + char;
+    if (ctx.measureText(testLine).width > maxW && line !== '') {
+      if (isFinalLine) {
+        ellipsis();
+        return { y: lineY, truncated: true };
+      }
+      ctx.fillText(line, x, lineY);
+      line = char;
+      lineY += lineHeight;
+      n++;
+    } else {
+      line = testLine;
+    }
+  }
+  if (n > maxLines) { ellipsis(); return { y: lineY, truncated: true }; }
+  if (line) ctx.fillText(line, x, lineY);
+  return { y: lineY, truncated: false };
+}
+
 // ---- 墨韵骨架（全卡共用，保证层级与边框节奏一致） ----
 
 /**
@@ -530,21 +581,48 @@ function drawChatCard(data, canvas, callback, qrPath) {
   const pairs = ((data && data.pairs) || []).slice(0, 6);
   const dateText = (data && data.dateText) || '';
 
-  /* ── 高度预算：笺头 + 问答组 + 落款区（与绘制共用同一换行口径） ── */
+  /* ── 高度预算：笺头 + 问答组 + 落款区（与绘制共用同一换行口径） ──
+     UX批4 Important-4：画布高度设上限 MAX_H——6 组数百字回复时 2x 导出可超设备
+     canvas 纹理 4096px 上限导致出图失败。超限 → 贪心截断（保留的末组限答行数），
+     卡片注「内容已节选」，导出另按 H 比例降倍率兜底，保证长内容保底出图。 */
   ctx.font = '30px ' + FONT_KAI;
+  const MAX_H = 4000;   // 逻辑高上限（配合导出 scale 兜底，destHeight 恒 ≤4096）
   const headerH = 278;  // 笺印+标题+日期+分隔线 → 正文顶
   // 落款区：菱形+印章+品牌+口号 → 底部小字前；带二维码时增加 二维码笺块+说明小字
   // （修复原 326 偏紧：长内容时口号会顶到底部小字，预算增至 420）
   const footerH = qrPath ? 720 : 420;
-  let contentH = 0;
-  pairs.forEach((p) => {
-    let h = 30 + Math.max(countLines(ctx, p.u, W - 230) - 1, 0) * 42 + 26;   // 问行区
-    const aL = countLines(ctx, p.content, W - 240);
-    h += 88 + (aL - 1) * 46 + 34;                                            // 答块
-    h += 84;                                                                 // 组间距
-    contentH += h;
+  const availContent = MAX_H - headerH - footerH; // 内容区预算
+
+  /* 各组布局预算（uLines/aLines/h 与绘制共用同一换行口径） */
+  const layout = pairs.map((p) => {
+    const uLines = countLines(ctx, p.u, W - 230);
+    const aLines = countLines(ctx, p.content, W - 240);
+    let h = 30 + Math.max(uLines - 1, 0) * 42 + 26;   // 问行区
+    h += 88 + (aLines - 1) * 46 + 34;                  // 答块
+    h += 84;                                           // 组间距
+    return { p, uLines, aLines, h };
   });
-  const H = Math.max(1200, headerH + contentH + footerH);
+
+  /* 贪心装下：超预算 → 保留组截断（末组限答行数；组尾 84 + 节选注 44 占位），并标记 truncated */
+  let used = 0;
+  let truncated = false;
+  const kept = [];
+  for (let i = 0; i < layout.length; i++) {
+    const L = layout[i];
+    const remain = availContent - used;
+    if (L.h <= remain) { kept.push(L); used += L.h; continue; }
+    truncated = true;
+    const uH = 30 + Math.max(L.uLines - 1, 0) * 42 + 26;
+    const aRem = remain - uH - 84 - 44;               // 44 = 「内容已节选」注行
+    const maxAL = Math.floor((aRem - 122) / 46) + 1;  // aH = 88+(aL-1)*46+34 → 反解 aL（保证 aH ≤ aRem）
+    if (maxAL >= 1) {
+      const aL = Math.min(L.aLines, maxAL);
+      kept.push({ p: L.p, uLines: L.uLines, aLines: aL, partial: true });
+      used += uH + (88 + (aL - 1) * 46 + 34) + 84 + 44;
+    }
+    break;
+  }
+  const H = Math.max(1200, headerH + used + footerH);
   canvas.width = W;
   canvas.height = H;
 
@@ -568,9 +646,10 @@ function drawChatCard(data, canvas, callback, qrPath) {
   ctx.beginPath(); ctx.moveTo(W / 2 + dHalf, dcy); ctx.lineTo(W - 88, dcy); ctx.stroke();
   inkDiamond(ctx, W / 2, dcy, 8);
 
-  /* ── 4. 问答组（用户问 + 明灯答成组排版） ── */
+  /* ── 4. 问答组（用户问 + 明灯答成组排版；截断组答行限行并注「内容已节选」） ── */
   let y = headerH;
-  pairs.forEach((p) => {
+  kept.forEach((L) => {
+    const p = L.p;
     /* 问：朱砂「问」小印 + 楷体墨字（左对齐） */
     roundRect(ctx, 92, y, 30, 30, 4);
     ctx.fillStyle = CINNABAR;
@@ -588,9 +667,8 @@ function drawChatCard(data, canvas, callback, qrPath) {
     } else {
       y += 56;
     }
-    /* 答：纸白块 + 朱砂左条 + 朱砂描边小标签 + 楷体正文 */
-    const aL = countLines(ctx, p.content, W - 240);
-    const aH = 88 + (aL - 1) * 46 + 34;
+    /* 答：纸白块 + 朱砂左条 + 朱砂描边小标签 + 楷体正文（截断组限 L.aLines 行） */
+    const aH = 88 + (L.aLines - 1) * 46 + 34;
     roundRect(ctx, 90, y, W - 180, aH, 10);
     ctx.fillStyle = CARD;
     ctx.fill();
@@ -612,8 +690,20 @@ function drawChatCard(data, canvas, callback, qrPath) {
     ctx.textAlign = 'left';
     ctx.fillStyle = INK;
     ctx.font = '30px ' + FONT_KAI;
-    wrapText(ctx, String(p.content || ''), 124, y + 88, W - 240, 46);
+    if (L.partial) {
+      wrapTextLimit(ctx, String(p.content || ''), 124, y + 88, W - 240, 46, L.aLines);
+    } else {
+      wrapText(ctx, String(p.content || ''), 124, y + 88, W - 240, 46);
+    }
     y += aH + 84;                                // 下一组顶
+    if (L.partial) {
+      /* 节选注（落在该组预留的 44px 内，不占落款预算） */
+      ctx.fillStyle = FAINT;
+      ctx.font = '22px ' + FONT_SONG;
+      ctx.textAlign = 'left';
+      ctx.fillText('…内容已节选，完整对话见聊天记录', 124, y - 40);
+      y += 44;
+    }
   });
 
   /* ── 5. 落款：菱形分隔 + 朱砂「明灯」印 + 品牌 +（二维码笺块 + 说明小字） ── */
@@ -642,10 +732,14 @@ function drawChatCard(data, canvas, callback, qrPath) {
   };
   inkBottomNote(ctx, W, H);
 
-  /* ── 6. 导出 2x PNG（有二维码时先异步加载二维码图，加载失败跳过二维码不阻塞出图） ── */
+  /* ── 6. 导出 PNG（有二维码时先异步加载二维码图，加载失败跳过二维码不阻塞出图） ──
+     UX批4 Important-4：导出倍率按 H 自适应（H 高时降到 1x 附近），destHeight 恒 ≤4096，
+     不超设备 canvas 纹理上限——长内容卡不再因 2x 导出超限而失败。 */
   const exportCard = () => {
+    const scale = Math.min(2, 4096 / H);
     wx.canvasToTempFilePath({
-      canvas, width: W, height: H, destWidth: W * 2, destHeight: H * 2,
+      canvas, width: W, height: H,
+      destWidth: Math.round(W * scale), destHeight: Math.round(H * scale),
       fileType: 'png', quality: 1,
       success: (res) => { if (callback) callback(res.tempFilePath); },
       fail: (err) => { console.error('[ShareCard] chat card error:', err); if (callback) callback(null); },

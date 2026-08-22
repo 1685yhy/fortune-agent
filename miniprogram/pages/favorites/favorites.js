@@ -78,7 +78,7 @@ function mingCopy(m) {
 /* 后端 GET /api/ming/saved 条目 → 收藏页条目（isMing 标记；id 含 saved_at 保证稳定且唯一） */
 function mingItem(m, now) {
   if (!m || !m.full) return null;
-  const savedAt = m.saved_at ? m.saved_at * 1000 : now;
+  const savedAt = m.saved_at ? m.saved_at * 1000 : 0; // UX批4：缺 saved_at → 归「更早」，不再伪造当前时刻
   return {
     id: `ming_${m.surname}_${m.given}_${Math.round(savedAt)}`,
     content: mingCopy(m),
@@ -137,7 +137,7 @@ Page({
         content: String(m.content || ''),
         tag: m.tag || '明灯 · 夜话',
         time: m.time || '',
-        keptAt: m.keptAt || now,
+        keptAt: m.keptAt,
         isJian: jian,
         jian: jian ? (parseJianContent(m.content) || { fallback: true }) : null,
       });
@@ -151,7 +151,7 @@ Page({
     } catch (e) { /* ignore */ }
     items.sort((a, b) => (b.keptAt || 0) - (a.keptAt || 0));
     items.forEach((it) => {
-      it.keptLabel = formatTime(it.keptAt);
+      it.keptLabel = formatTime(it.keptAt) || '更早'; // UX批4：缺 keptAt 的旧收藏如实显示「更早」
     });
     this.setData({ items, loaded: true });
     this._applyCat(this.data.cat);
@@ -166,7 +166,7 @@ Page({
       const merged = this.data.items.filter((it) => !it.isMing).concat(mingItems);
       merged.sort((a, b) => (b.keptAt || 0) - (a.keptAt || 0));
       merged.forEach((it) => {
-        it.keptLabel = formatTime(it.keptAt);
+        it.keptLabel = formatTime(it.keptAt) || '更早';
       });
       this.setData({ items: merged });
       this._applyCat(this.data.cat);
@@ -235,14 +235,16 @@ Page({
       confirmColor: '#A93A2C',
       success: (res) => {
         if (!res.confirm) return;
-        this._unkeep(id);
+        const ok = this._unkeep(id);
         this._load();
-        wx.showToast({ title: '已移除', icon: 'none' });
+        wx.showToast({ title: ok ? '已移除' : '移除失败，请重试', icon: 'none' });
       },
     });
   },
 
+  /* UX批4：storage 写失败返回 false（长按移除时如实提示，不再无条件「已移除」） */
   _unkeep(id) {
+    let ok = true;
     const unkeepIn = (list) => {
       if (!Array.isArray(list)) return list;
       return list.map((m) => {
@@ -262,7 +264,7 @@ Page({
           return Object.assign({}, a, { messages: unkeepIn(a.messages) });
         }));
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { ok = false; }
     // 宿主内存同步（回到聊天页时现场一致）
     try {
       const streamHost = require('../../utils/streamHost');
@@ -270,6 +272,7 @@ Page({
         streamHost.patchMessage(id, { kept: false });
       }
     } catch (e) { /* ignore */ }
+    return ok;
   },
 
   goBack() {

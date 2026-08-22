@@ -17,8 +17,20 @@ App({
     // 结果缓存 ylm_baseurl 每天重探；业务请求会等待探测完成）
     api.probe();
 
-    // 微信登录流程；loginPromise 供页面等待登录定型（避免用兜底 user_id 发请求）
-    this.loginPromise = this.wechatLogin();
+    // UX批4 Critical-1：用户主动退出过（ylm_logged_out 标记）→ 本次启动不自动登录，
+    // 保持未登录态（本地 local_user 模式）直到用户在设置页显式登录，重启不复活会话。
+    // 正常会话过期（无标记）不受影响，仍由 api.js 401 自动重登兜底。
+    if (api.isLoggedOut()) {
+      api.setToken(null);
+      this.globalData.token = null;
+      this.globalData.userId = null;
+      this.globalData.userInfo = null;
+      this.globalData.isLoggedIn = false;
+      this.loginPromise = Promise.resolve();
+    } else {
+      // 微信登录流程；loginPromise 供页面等待登录定型（避免用兜底 user_id 发请求）
+      this.loginPromise = this.wechatLogin();
+    }
 
     // 新用户引导：无档案且无会话记录时 → onboarding（可跳过；跳过/完成后不再自动弹）
     this._maybeOnboard();

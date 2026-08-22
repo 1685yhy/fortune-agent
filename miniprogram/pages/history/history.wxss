@@ -91,7 +91,7 @@
 .s-clear {
   position: absolute;
   right: 19rpx; top: 50%;
-  width: 54rpx; height: 54rpx;
+  width: 72rpx; height: 72rpx;   /* UX批4：触达 ≥72rpx */
   transform: translateY(-50%);
   border-radius: 50%;
   background: var(--paper-deep);
@@ -100,7 +100,7 @@
   align-items: center;
   justify-content: center;
 }
-.s-clear-x { font-size: 22rpx; line-height: 1; }
+.s-clear-x { font-size: 28rpx; line-height: 1; }
 
 /* ── 日期分组（今天/昨天/更早） ── */
 .date-group { margin-top: 31rpx; }      /* 16px */
@@ -164,7 +164,7 @@
 .sess-meta .sm-dot { width: 6rpx; height: 6rpx; border-radius: 50%; background: var(--ink-faint); opacity: .6; }
 .sess-del {
   flex-shrink: 0;
-  width: 58rpx; height: 58rpx;
+  width: 72rpx; height: 72rpx;   /* UX批4：触达 ≥72rpx */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -366,7 +366,7 @@
   font-size: 21rpx;                     /* 11px */
   letter-spacing: .2em;
   color: var(--ink-faint);
-  padding: 6rpx 20rpx;
+  padding: 26rpx 20rpx;                 /* UX批4：热区加高至 ≥72rpx（21rpx×1.2 + 52rpx） */
 }
 
 /* ═══ 删除确认弹层（双线笺框 · 朱砂警示） ═══ */
