@@ -272,7 +272,8 @@ class UserDAO:
         """清理已注销满保留期的用户（启动时调用一次）。
 
         删除：users 行 + persons + consultations + sessions + session_summaries
-              + memberships + payments + push_log + 画像文件（data/memory/*.json）
+              + memberships + payments + push_log + chart_records + favorites
+              + jian_cards + 画像文件（data/memory/*.json）
         retention_days: 保留天数（默认 90），cancelled_at < now-90d 才清除。
         memory_dir: 画像文件目录（默认 UserMemory 默认目录；测试可注入临时目录）
         """
@@ -289,7 +290,8 @@ class UserDAO:
             removed, total_deleted = 0, 0
             for (user_id,) in rows:
                 for table in ("consultations", "sessions", "session_summaries",
-                              "memberships", "payments", "push_log", "persons"):
+                              "memberships", "payments", "push_log", "persons",
+                              "chart_records", "favorites", "jian_cards"):
                     try:
                         c = conn.execute(f"DELETE FROM {table} WHERE user_id = ?",
                                          (user_id,))
