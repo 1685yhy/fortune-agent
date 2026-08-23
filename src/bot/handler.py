@@ -2214,6 +2214,14 @@ class MessageHandler:
         if msg in ("👍", "👎", "好评", "差评", "准", "不准", "good", "bad") or msg.startswith("👍") or msg.startswith("👎"):
             return self._handle_feedback(msg, user_id, session_id=session_id)
 
+        # T5 重看盘直读（0 引擎 0 LLM）：问"我的盘/我的八字"等重看表述且
+        # chart_records 已有排盘结果 → 直接读库秒回。置于额度/意图分析/
+        # 引擎预生成（_start_pregen_instant）之前——命中即短路，不消耗额度、
+        # 引擎绝不计算、LLM 绝不调用。
+        reuse_text = self._try_reuse_chart(user_id, msg)
+        if reuse_text:
+            return reuse_text
+
         # Step 0.6: 额度检查（L5-2 I-2 新旧额度协调）——聊天消息不再走旧硬断：
         # 免费用户对话由 chat_quota（15 条/日）治理，超限降级续聊（downgraded=True），
         # 绝不 429 硬断（「免费用户永远能聊」）。旧额度（memberships.queries_used/
@@ -2825,9 +2833,45 @@ class MessageHandler:
             pass
         return None
 
+    # ── T5 重看盘直读（0 引擎 0 LLM）─────────────────────────────
+    # 用户问"我的盘/我的八字"等重看表述、且 chart_records 已有排盘结果时，
+    # 直接读库秒回——引擎绝不计算、LLM 绝不调用；未命中返回 None 走全流程。
+    REUSE_KEYWORDS = ("我的盘", "我的八字", "上次的盘", "我的命盘", "重新看", "再看")
+
+    def _try_reuse_chart(self, user_id: str, msg: str) -> str | None:
+        """重看盘直读：问'我的盘/我的八字'等且有已存结果 → 0 引擎 0 LLM 秒回。"""
+        if not msg or not any(kw in msg for kw in self.REUSE_KEYWORDS):
+            return None
+        if "排" in msg and ("一次" in msg or "重新排" in msg):
+            return None  # 明确要重新排盘 → 走全流程
+        chart = getattr(self, "chart_dao", None) and self.chart_dao.get_latest_chart(user_id)
+        if not chart:
+            return None
+        r = chart["bazi_json"]
+        b = chart["birth"]
+        bazi = r.get("bazi") or []
+        lines = [f"这是你最近排过的盘（{chart['created_at']}）："]
+        if bazi:
+            stems = ["年柱", "月柱", "日柱", "时柱"]
+            lines += [f"{stems[i]}：{g}" for i, g in enumerate(bazi[:4])]
+        lines.append(f"日主：{r.get('day_master','')} · 格局：{r.get('geju','') or '—'}")
+        if r.get("dayun"):
+            lines.append("大运：" + " → ".join(f"{a}岁{ganzhi}" for a, ganzhi in r["dayun"][:6]))
+        if r.get("liunian"):
+            lines.append("流年：" + "、".join(f"{y}年{g}" for y, g in list(r["liunian"].items())[:5]))
+        if r.get("shensha"):
+            lines.append("神煞：" + "、".join(r["shensha"][:8]))
+        lines.append("（直接看的已存结果；要重新详细分析就说'重新帮我分析'）")
+        return "\n".join(lines)
+
     def _handle_bazi(self, msg: str, user_id: str,
                      stream_cb: Optional[Callable] = None) -> str:
         """处理八字请求"""
+        # T5 重看盘直读兜底：任何直达 bazi 处理器的路径（含旧版直调入口）
+        # 同样命中即短路，绝不重跑引擎/LLM
+        reuse_text = self._try_reuse_chart(user_id, msg)
+        if reuse_text:
+            return reuse_text
         parsed = self._extract_bazi_info(msg)
         # L5-2 修复（降级成本）：降级用户的前置文案（复用档案确认/信息收集
         # 引导）不调 LLM，全部走固定文案（_do_bazi_analysis 内部同口径门控）。

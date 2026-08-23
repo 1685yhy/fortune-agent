@@ -14,7 +14,7 @@
       L2：wuxing_energy(counts/wangshuai/changsheng/strength/yongshen) /
           chenggu(weight_text/jieci/分项) / shensha_detail(59 种 name/source/luck) /
           knowledge_index(六类可点文字)
-    meta：命主信息头（公历/农历/生肖/时辰名，供前端渲染，不落库）
+    meta：命主信息头（公历/农历/生肖/时辰名，供前端渲染；随整体结果 AES 密文落库）
 
 隐私红线：生辰 AES 密文落库 chart_records（与档案同加密口径、按 uid 归属隔离），
 不入日志、不写其他 DAO。全接口 require_user 鉴权。
