@@ -83,6 +83,7 @@ _TOOL_EVENT_LABELS = {
     "解梦": "正在翻阅梦兆典籍…",
     "风水": "正在勘察风水…",
     "择日": "正在择吉日…",
+    "查记录": "正在查你的记录…",
 }
 
 # ============================================================
@@ -1229,6 +1230,9 @@ class MessageHandler:
             return self._tool_fengshui(params)
         if name == "择日":
             return self._tool_zeri(params, user_id)
+        # Task 7 查记录工具：LLM 主动查用户存量数据（name 兼容中英文）
+        if name in ("查记录", "records"):
+            return self._tool_query_records(params, user_id)
         return ToolResult(name, False, f"未知工具「{name}」，请直接和用户正常聊天。")
 
     def _tool_bazi(self, params: str, user_id: str) -> ToolResult:
@@ -1634,6 +1638,20 @@ class MessageHandler:
         except Exception as e:
             return ToolResult("择日", False, f"择日引擎执行失败：{str(e)[:100]}")
         return ToolResult("择日", True, "\n".join(lines))
+
+    def _tool_query_records(self, params: str, user_id: str) -> ToolResult:
+        """存量数据工具（Task 7）：RecordQuery 直读，无记录返回'未查到'（区别于'没查'）。"""
+        if not getattr(self, "record_query", None):
+            # record_query 未装配（无 db_path / 初始化失败）→ 与排盘引擎缺省同口径降级
+            return ToolResult("records", False, "「查记录」工具暂不可用，请直接与用户聊天。")
+        try:
+            out = self.record_query.direct_query(user_id, params)
+            if not out:
+                return ToolResult("records", False, "未查到相关记录，可建议用户先建档/使用功能")
+            return ToolResult("records", True, out)
+        except Exception as e:
+            logger.warning("查记录工具失败 %s", e)
+            return ToolResult("records", False, "查询失败，稍后再试")
 
     def _extract_zeri_exclude_dates(self, params) -> Optional[list]:
         """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。
