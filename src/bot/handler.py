@@ -53,6 +53,7 @@ from src.storage.preference_dao import PreferenceDAO, UserPreferences
 from src.storage.member_dao import MemberDAO
 from src.storage.member_dao import MemberDAO
 from src.storage.conversation_memory import ConversationMemory
+from src.storage.chart_dao import ChartDAO
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
 from src.memory.user_memory import UserMemory, format_birth_line
@@ -420,6 +421,9 @@ class MessageHandler:
         # F1: Preference learner — gets db_path from dao
         db_path = getattr(dao, 'db_path', '') if dao else ''
         self.preference_dao = PreferenceDAO(db_path) if db_path else None
+        # 对话数据复用：排盘结果落库 chart_records（重看 0 重跑，三写入点统一）
+        db_path = getattr(dao, 'db_path', '') if dao else ''
+        self.chart_dao = ChartDAO(db_path) if db_path else None
         # Multi-turn memory
         api_key = getattr(llm, 'api_key', '') if llm else ''
         self.memory = ConversationMemory(api_key) if api_key else None
@@ -1260,6 +1264,12 @@ class MessageHandler:
                 "city": city, "gender": gender,
             }, subject=_subject, facts=_facts_this)
             self.dao.save_consultation(user_id, params, result)
+            # 排盘结果落库 chart_records（与 _save_bazi_records 同口径）
+            self._persist_chart_result(user_id, result, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute,
+                "city": city, "gender": gender,
+            }, _subject)
         except Exception:
             pass
         # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人画像；
@@ -3211,6 +3221,47 @@ class MessageHandler:
 
         return reply
 
+    def _persist_chart_result(self, user_id: str, result, birth: dict,
+                              subject: str = "self") -> None:
+        """排盘结果落库 chart_records（重看 0 重跑，对话/工具排盘共用）。
+
+        - subject=self：默认命主（已建档）挂 person_id，供重看盘按命主取档
+        - subject=other：帮他人排盘也落库，但归属本人名下（person_id=None）
+        落库失败仅告警，不阻塞排盘主流程。
+        """
+        chart_dao = getattr(self, "chart_dao", None)
+        if not chart_dao:
+            return
+        try:
+            person = None
+            if subject != "other":
+                try:
+                    from src.storage.person_dao import PersonDAO
+                    person = PersonDAO(self.dao.db_path).get_default_person(user_id)
+                except Exception:
+                    person = None
+            self.chart_dao.save_chart(
+                user_id, (person or {}).get("id") if person else None,
+                {"year": birth["year"], "month": birth["month"],
+                 "day": birth["day"], "hour": birth["hour"],
+                 "minute": birth["minute"], "city": birth["city"],
+                 "gender": birth["gender"], "calendar": "solar"},
+                {"bazi": result.bazi,
+                 "day_master": getattr(result, "day_master", ""),
+                 "wuxing": getattr(result, "wuxing", {}),
+                 "shishen": getattr(result, "shishen", []),
+                 "dayun": getattr(result, "dayun", []),
+                 "liunian": getattr(result, "liunian", {}),
+                 "liunian_full": getattr(result, "liunian_full", []),
+                 "shensha": getattr(result, "shensha", []),
+                 "geju": getattr(result, "geju", ""),
+                 "yongshen": getattr(result, "yongshen", ""),
+                 "nayin": getattr(result, "nayin", []),
+                 "taiyuan": getattr(result, "taiyuan", ""),
+                 "qiyun_detail": getattr(result, "qiyun_detail", None)})
+        except Exception as e:
+            logger.warning("chart_records 落库失败 user=%s: %s", user_id, e)
+
     def _save_bazi_records(self, result, birth: dict, question: str,
                            user_id: str) -> None:
         """八字结果落库（主路径与降级路径共用）：dao 档案 / persons 多人档案 /
@@ -3234,6 +3285,8 @@ class MessageHandler:
             "city": city, "gender": gender,
         }, subject=_subject, facts=_facts_this)
         self.dao.save_consultation(user_id, question, result)
+        # 排盘结果落库 chart_records（重看 0 重跑；subject=other 也落库但归属本人名下）
+        self._persist_chart_result(user_id, result, birth, _subject)
 
         # Phase 3: Save to user memory system
         # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人画像

@@ -16,16 +16,19 @@
           knowledge_index(六类可点文字)
     meta：命主信息头（公历/农历/生肖/时辰名，供前端渲染，不落库）
 
-隐私红线：生辰只用于内存排盘（engine.calculate），不落库、不入日志、不写
-DAO —— 与合婚接口同口径。全接口 require_user 鉴权。
+隐私红线：生辰 AES 密文落库 chart_records（与档案同加密口径、按 uid 归属隔离），
+不入日志、不写其他 DAO。全接口 require_user 鉴权。
 错误：生辰缺失/越界/伪日期（如 2 月 30 日）→ 400；未登录 → 401。
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..engines.bazi import BaziEngine, BaziResult
 from ..security.auth import require_user
 from ..api.birth_contract import normalize_gender, normalize_hour
 from ..api.hehun import BaziInput, _resolve_person
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["paipan"])
 
@@ -59,6 +62,7 @@ SHICHEN_NAME = {
 # ── 全局依赖注入 ──────────────────────────────────────────────
 
 _bazi_engine: BaziEngine = None
+_db_path: str = None
 
 
 def setup(engine: BaziEngine):
@@ -67,11 +71,20 @@ def setup(engine: BaziEngine):
     _bazi_engine = engine
 
 
+def setup_db(path: str):
+    """注入 chart_records 落库 db 路径（主应用同一 fortune.db，同 setup(engine) 模式）。
+
+    未注入 → 不落库（只读路径下表单排盘零副作用；测试注入 tmp 路径隔离）。
+    """
+    global _db_path
+    _db_path = path
+
+
 # ── API 端点 ──────────────────────────────────────────────────
 
 @router.post("/api/paipan")
 async def paipan(req: BaziInput, uid: str = Depends(require_user)):
-    """排盘：生辰 → BaziResult 全字段 JSON（内存排盘，生辰不落库）。
+    """排盘：生辰 → BaziResult 全字段 JSON（结果 AES 密文落库 chart_records）。
 
     - 401：未登录（require_user 鉴权红线）
     - 400：生辰缺失 / 越界（年 1900-2100、月 1-12、日 1-31）/ 伪日期（2 月 30 日等）
@@ -83,7 +96,21 @@ async def paipan(req: BaziInput, uid: str = Depends(require_user)):
     result = _bazi_engine.calculate(
         person.year, person.month, person.day,
         person.hour, person.minute, person.city, person.gender)
-    return serialize_bazi(result, _bazi_engine, person)
+    body = serialize_bazi(result, _bazi_engine, person)
+    # 排盘结果落库 chart_records（重看 0 重跑；本人排盘，命主档案不强制绑定）
+    if _db_path:
+        try:
+            from src.storage.chart_dao import ChartDAO
+            ChartDAO(_db_path).save_chart(
+                uid, None,
+                {"year": person.year, "month": person.month, "day": person.day,
+                 "hour": person.hour, "minute": person.minute,
+                 "city": person.city, "gender": person.gender,
+                 "calendar": "solar"},
+                body)
+        except Exception as e:
+            logger.warning("paipan 落库失败 uid=%s: %s", uid, e)  # 不阻塞主流程
+    return body
 
 
 # ── BaziResult 全字段序列化 ────────────────────────────────────

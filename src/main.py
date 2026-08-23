@@ -795,9 +795,12 @@ async def lifespan(app: FastAPI):
     from .api.hehun import setup as setup_hehun
     setup_hehun(hehun_engine, engine, narrative_svc)
 
-    # Task: Setup paipan API（排盘结果，复用同一 bazi_engine；生辰内存排盘不落库）
+    # Task: Setup paipan API（排盘结果，复用同一 bazi_engine；生辰 AES 密文
+    # 落库 chart_records——重看 0 重跑，需注入与主应用同一 db 路径）
     from .api.paipan import setup as setup_paipan
+    from .api.paipan import setup_db as setup_paipan_db
     setup_paipan(engine)
+    setup_paipan_db(str(settings.db_path))
 
     # Task: Setup duipan API（多盘对比，复用同一 bazi_engine；生辰内存排盘不落库）
     from .api.duipan import setup as setup_duipan
