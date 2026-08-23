@@ -425,18 +425,32 @@ class MessageHandler:
         # 对话数据复用：排盘结果落库 chart_records（重看 0 重跑，三写入点统一）
         db_path = getattr(dao, 'db_path', '') if dao else ''
         self.chart_dao = ChartDAO(db_path) if db_path else None
-        # Task 6 存量数据直读（档案/解梦/历史/签/名笺/灯语/择吉/会员）：
+        # Task 6 存量数据直读（档案/解梦/历史/签/名笺/灯语/择吉/晨笺/收藏/会员）：
         # RecordQuery 注入 process() 主流程，问存量数据直接读库秒回。
-        # 轻量 DAO（qian/ming/lamp/zeri）由 API 装配层按需注入；未注入的
-        # 类别（晨笺 Task 8 / 收藏 Task 9）缺省 None 自然降级，不建表不伪造。
+        # Task 9 装配层统一注入（T8 审查 ⚠️ 项修复）：轻量 DAO（qian/ming/lamp/
+        # zeri/jian/fav）在装配处全部注入——线上 _q_晨笺/_q_收藏 不再恒 None；
+        # 无 db_path 的构造路径保持 None（_q_* None 守卫兜底，不建表不伪造）。
         self.record_query = None
         if db_path:
             try:
+                import sqlite3
                 from src.storage.person_dao import PersonDAO
+                from src.storage.qian_dao import QianDAO
+                from src.storage.ming_dao import MingDAO
+                from src.storage.lamp_dao import LampDAO
+                from src.storage.zeri_dao import ZeriDAO
+                from src.storage.jian_dao import JianPrefDAO
+                from src.storage.favorite_dao import FavoriteDAO
                 from src.bot.record_query import RecordQuery
+                # 轻量 DAO 共用一条同库连接（与 main.py _zeri_conn 复用惯例一致）；
+                # FavoriteDAO 构造入参为 db_path（Task 9 简报接口契约）
+                _lconn = sqlite3.connect(db_path, check_same_thread=False)
                 self.record_query = RecordQuery(
                     self.dao, PersonDAO(db_path), self.session_dao,
                     self.chart_dao, member_dao=self.member_dao,
+                    qian_dao=QianDAO(_lconn), ming_dao=MingDAO(_lconn),
+                    lamp_dao=LampDAO(_lconn), zeri_dao=ZeriDAO(_lconn),
+                    jian_dao=JianPrefDAO(_lconn), fav_dao=FavoriteDAO(db_path),
                 )
             except Exception as e:
                 logger.warning("RecordQuery 初始化失败（降级为全流程）: %s", e)

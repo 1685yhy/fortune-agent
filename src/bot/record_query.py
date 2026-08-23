@@ -25,7 +25,8 @@ CATEGORY_KEYWORDS = {
 class RecordQuery:
     def __init__(self, dao, person_dao, session_dao, chart_dao,
                  qian_dao=None, ming_dao=None, lamp_dao=None,
-                 zeri_dao=None, jian_dao=None, member_dao=None):
+                 zeri_dao=None, jian_dao=None, member_dao=None,
+                 fav_dao=None):
         self.dao, self.person_dao = dao, person_dao
         self.session_dao, self.chart_dao = session_dao, chart_dao
         # 轻量 DAO（Task 8/9 依赖）缺省 None —— 对应类别直读直接返回 None
@@ -36,6 +37,7 @@ class RecordQuery:
         self.zeri_dao = zeri_dao
         self.jian_dao = jian_dao
         self.member_dao = member_dao
+        self.fav_dao = fav_dao  # Task 9 收藏直读（favorites 表）
 
     def direct_query(self, user_id: str, msg: str) -> str | None:
         if not msg:

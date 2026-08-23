@@ -1,10 +1,15 @@
 // 我的收藏 — 收藏星笺（v1.1）+ 笺匣「笺」分类（Task 10）+ 名笺「名」分类
-// 数据源①（本地）：本机会话 ylm_chat_messages + 新开对话归档 ylm_chat_archives 中
-//         role==='ai' && kept===true 的回复（后端未持久化收藏，feedback 仅 positive/negative）
+// 数据源①（后端）：GET /api/favorites 对话收藏（Task 9 收藏后端化，favorites 表，
+//         type ∈ chat/jian/qian/ming/lamp；取消收藏走 DELETE /api/favorites）
 // 数据源②（后端）：GET /api/ming/saved 名笺收藏（ming_saves 表，isMing 标记，
 //         取消收藏走 DELETE /api/ming/delete）
+// 数据源③（本地兜底）：ylm_chat_messages / ylm_chat_archives 中
+//         role==='ai' && kept===true && !favImported 的回复——首启导入后端前的
+//         兼容展示；启动时未导入的 kept 条目调 POST /api/favorites/import 迁移
+//         （成功后打 favImported 标记，本地清标记为前端行为，后端 UNIQUE 幂等）。
 // 分类：全部 / 笺（type==='jian' 晨笺卡）/ 对话（普通回复）/ 名（AI 取名名笺）
-// 交互：点按复制；长按取消收藏（名笺走后端删除，本地收藏同步移除 kept 标记）
+// 交互：点按复制；长按取消收藏（后端条目走 DELETE /api/favorites，本地未导入
+//       条目移除 kept 标记；名笺走 DELETE /api/ming/delete）
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 
@@ -116,6 +121,7 @@ Page({
 
   onShow() {
     this._load();
+    this._tryImportLocal();  // Task 9：启动时把本地 kept 存量导入后端（幂等，失败静默下轮再试）
   },
 
   _initNavOff() {
@@ -124,13 +130,16 @@ Page({
     if (off !== 0) this.setData({ navOff: off });
   },
 
-  /* 扫描本机会话 + 归档 → kept 的 AI 回复（按收藏时间倒序），标注晨笺并解析卡片字段；
-     名笺收藏走后端（GET /api/ming/saved），并行拉取后合并且按收藏时间倒序 */
+  /* 数据装配（三源合并，均按收藏时间倒序）：
+     ① 后端对话收藏 GET /api/favorites（isRemote 标记，取消走 DELETE）；
+     ② 本地 kept && !favImported 回复（首启导入前的兼容兜底，导入后打标记不再重复展示）；
+     ③ 后端名笺 GET /api/ming/saved（isMing，取消走 DELETE /api/ming/delete）。
+     任一后端源失败静默降级，不影响其它源展示。 */
   _load() {
     const items = [];
     const now = Date.now();
     const push = (m) => {
-      if (!m || m.role !== 'ai' || !m.kept) return;
+      if (!m || m.role !== 'ai' || !m.kept || m.favImported) return;
       const jian = isJianEntry(m);
       items.push({
         id: m.id,
@@ -156,7 +165,24 @@ Page({
     this.setData({ items, loaded: true });
     this._applyCat(this.data.cat);
 
-    // 名笺（后端）：失败静默，不影响本地收藏展示；合并时先剔除旧名笺防重复
+    // ① 对话收藏（后端）：失败静默，本地兜底照常展示；后端条目与本地同 id 去重（后端优先）
+    api.favList().then((data) => {
+      const remoteItems = [];
+      ((data && data.items) || []).forEach((f) => {
+        const it = this._remoteItem(f);
+        if (it) remoteItems.push(it);
+      });
+      const remoteRefs = new Set(remoteItems.map((it) => `${it.favType}:${it.favRefId}`));
+      // 旧 remote/名笺条目剔除（防重复合并），后端已收且本地同 id → 剔除本地兜底条目
+      const merged = this.data.items.filter((it) => {
+        if (it.isMing || it.isRemote) return false;
+        const localM = this._localMessage(it.id);
+        return !(localM && remoteRefs.has(`${this._localType(localM)}:${it.id}`));
+      }).concat(remoteItems);
+      this._finishMerge(merged);
+    }).catch(() => { /* ignore */ });
+
+    // ③ 名笺（后端）：失败静默；合并时先剔除旧名笺防重复
     api.getMingSaved().then((data) => {
       const mingItems = [];
       ((data && data.items) || []).forEach((m) => {
@@ -164,13 +190,122 @@ Page({
         if (it) mingItems.push(it);
       });
       const merged = this.data.items.filter((it) => !it.isMing).concat(mingItems);
-      merged.sort((a, b) => (b.keptAt || 0) - (a.keptAt || 0));
-      merged.forEach((it) => {
-        it.keptLabel = formatTime(it.keptAt) || '更早';
-      });
-      this.setData({ items: merged });
-      this._applyCat(this.data.cat);
+      this._finishMerge(merged);
     }).catch(() => { /* ignore */ });
+  },
+
+  /* 合并后统一排序 + 收藏时间标签 + 分类过滤 */
+  _finishMerge(merged) {
+    merged.sort((a, b) => (b.keptAt || 0) - (a.keptAt || 0));
+    merged.forEach((it) => {
+      it.keptLabel = formatTime(it.keptAt) || '更早';
+    });
+    this.setData({ items: merged });
+    this._applyCat(this.data.cat);
+  },
+
+  /* 后端 favorites 条目 → 收藏页条目（isRemote 标记；id 稳定唯一供 wx:key/删除定位） */
+  _remoteItem(f) {
+    if (!f || !f.type || !f.ref_id) return null;
+    const TAG_CN = { chat: '明灯 · 夜话', jian: '晨笺', qian: '灵签', ming: '名笺', lamp: '灯语' };
+    let keptAt = 0;
+    if (f.created_at) {
+      const t = new Date(String(f.created_at).replace(' ', 'T')); // 'YYYY-MM-DD HH:MM:SS' → Date
+      if (!isNaN(t.getTime())) keptAt = t.getTime();
+    }
+    return {
+      id: `fav_${f.type}_${f.ref_id}`,
+      content: String(f.summary || ''),
+      tag: TAG_CN[f.type] || '明灯 · 夜话',
+      time: '',
+      keptAt,
+      isJian: f.type === 'jian',
+      jian: null,
+      isRemote: true,
+      favType: f.type,
+      favRefId: f.ref_id,
+    };
+  },
+
+  /* 本地存量 kept 条目 → 后端导入（Task 9）：type=晨笺判定→jian 否则 chat，
+     ref_id=消息 id（稳定且 UNIQUE 可幂等），summary 截 100 字。成功打 favImported
+     标记并刷新（本地清标记为前端行为；失败静默，kept 保留下轮再试）。 */
+  _tryImportLocal() {
+    if (this._importRan) return;
+    this._importRan = true;
+    const items = [];
+    const push = (m) => {
+      if (!m || m.role !== 'ai' || !m.kept || m.favImported || !m.id) return;
+      items.push({
+        type: isJianEntry(m) ? 'jian' : 'chat',
+        ref_id: String(m.id).slice(0, 128),
+        summary: String(m.content || '').slice(0, 100),
+      });
+    };
+    try {
+      (wx.getStorageSync(STORAGE_KEY) || []).forEach(push);
+      const arch = wx.getStorageSync(ARCHIVE_KEY);
+      (Array.isArray(arch) ? arch : []).forEach((a) => {
+        (a && a.messages ? a.messages : []).forEach(push);
+      });
+    } catch (e) { /* ignore */ }
+    if (!items.length) return;
+    api.favImport(items).then((res) => {
+      if (!res || !res.imported) return;
+      // 导入成功 → 本地打 favImported 标记（含归档），刷新列表（后端条目接管展示）
+      items.forEach((it) => this._markImported(it.ref_id));
+      this._load();
+    }).catch(() => { /* ignore */ });
+  },
+
+  /* 给本地消息打 favImported 标记（storage 双处 + 宿主内存，仿 _unkeep 写法） */
+  _markImported(id) {
+    const mark = (list) => {
+      if (!Array.isArray(list)) return list;
+      return list.map((m) => {
+        if (!m || m.id !== id || m.role !== 'ai') return m;
+        const copy = Object.assign({}, m);
+        copy.favImported = true;
+        return copy;
+      });
+    };
+    try {
+      wx.setStorageSync(STORAGE_KEY, mark(wx.getStorageSync(STORAGE_KEY)));
+      const arch = wx.getStorageSync(ARCHIVE_KEY);
+      if (Array.isArray(arch)) {
+        wx.setStorageSync(ARCHIVE_KEY, arch.map((a) => {
+          if (!a || !a.messages) return a;
+          return Object.assign({}, a, { messages: mark(a.messages) });
+        }));
+      }
+    } catch (e) { /* ignore */ }
+    try {
+      const streamHost = require('../../utils/streamHost');
+      if (streamHost && typeof streamHost.patchMessage === 'function') {
+        streamHost.patchMessage(id, { favImported: true });
+      }
+    } catch (e) { /* ignore */ }
+  },
+
+  /* 本地消息 id → 本地消息（去重/取消收藏同步本地标记用） */
+  _localMessage(id) {
+    try {
+      const found = (wx.getStorageSync(STORAGE_KEY) || []).find((m) => m && m.id === id);
+      if (found) return found;
+      const arch = wx.getStorageSync(ARCHIVE_KEY);
+      if (Array.isArray(arch)) {
+        for (const a of arch) {
+          const m = (a && a.messages || []).find((x) => x && x.id === id);
+          if (m) return m;
+        }
+      }
+    } catch (e) { /* ignore */ }
+    return null;
+  },
+
+  /* 本地消息 → 后端 type（晨笺→jian，其余对话→chat） */
+  _localType(m) {
+    return isJianEntry(m) ? 'jian' : 'chat';
   },
 
   /* 分类过滤（笺=isJian；对话=非笺非名笺；名=isMing；全部=所有） */
@@ -198,7 +333,8 @@ Page({
     });
   },
 
-  /* 长按 → 取消收藏（名笺走后端 DELETE /api/ming/delete；本地收藏同步移除 kept 标记） */
+  /* 长按 → 取消收藏（后端条目走 DELETE /api/favorites 或 /api/ming/delete；
+     本地未导入条目移除 kept 标记，后端条目删除后本地同 id 同步清标记） */
   onItemLongPress(e) {
     const { id } = e.currentTarget.dataset;
     const item = (this.data.items || []).find((it) => it.id === id);
@@ -228,6 +364,29 @@ Page({
       return;
     }
 
+    // 后端对话收藏：DELETE /api/favorites（幂等；成功后本地同 id 消息同步移除 kept 标记）
+    if (item.isRemote) {
+      wx.showModal({
+        title: '取消收藏',
+        content: '从收藏中移除这条回复？',
+        confirmText: '移除',
+        confirmColor: '#A93A2C',
+        success: (res) => {
+          if (!res.confirm) return;
+          api.favRemove(item.favType, item.favRefId).then(() => {
+            this._unkeep(item.favRefId); // 本地同 id 同步清标记（失败静默，不影响展示）
+            this.setData({ items: this.data.items.filter((it) => it.id !== id) });
+            this._applyCat(this.data.cat);
+            wx.showToast({ title: '已移除', icon: 'none' });
+          }).catch(() => {
+            wx.showToast({ title: '移除失败，请重试', icon: 'none' });
+          });
+        },
+      });
+      return;
+    }
+
+    // 本地未导入条目：移除 kept 标记（原逻辑）
     wx.showModal({
       title: '取消收藏',
       content: '从收藏中移除这条回复？',

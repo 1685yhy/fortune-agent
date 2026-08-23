@@ -1214,6 +1214,22 @@ function saveMing(data) { return request('/api/ming/save', { method: 'POST', dat
 function getMingSaved() { return request('/api/ming/saved', { method: 'GET' }); }
 function deleteMing(data) { return request('/api/ming/delete', { method: 'DELETE', data }); }
 
+// Favorites (Task 9 收藏后端化：收藏/取消/列表/本地存量导入；type ∈ chat/jian/qian/ming/lamp)
+/** 收藏一条：{type, ref_id, summary}；重复收藏 → {success, already:true} 不报错 */
+function favAdd(data) { return request('/api/favorites', { method: 'POST', data }); }
+/** 取消收藏：?type=&ref_id=（归属强制当前用户；幂等 deleted=false 视为本就不存在） */
+function favRemove(type, refId) {
+  return request(`/api/favorites?type=${encodeURIComponent(type || '')}&ref_id=${encodeURIComponent(refId || '')}`, {
+    method: 'DELETE',
+  });
+}
+/** 收藏列表（最新在前）→ {items:[{id,type,ref_id,summary,imported,created_at}], count} */
+function favList() { return request('/api/favorites', { method: 'GET' }); }
+/** 本地存量导入：{items:[{type,ref_id,summary}]}，UNIQUE 幂等 → {imported: N} */
+function favImport(items) {
+  return request('/api/favorites/import', { method: 'POST', data: { items } });
+}
+
 // Mingren (名人命例库 · L3-1：免费 35 例/高级会员全量)
 function listMingren(params) { return request('/api/mingren', { method: 'GET', data: params }); }
 function getMingrenDetail(name) { return request('/api/mingren/' + encodeURIComponent(name), { method: 'GET' }); }
@@ -1436,6 +1452,12 @@ module.exports = {
   saveMing,
   getMingSaved,
   deleteMing,
+
+  // Favorites (Task 9 收藏后端化)
+  favAdd,
+  favRemove,
+  favList,
+  favImport,
 
   // Mingren (名人命例库)
   listMingren,

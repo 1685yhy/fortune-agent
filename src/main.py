@@ -883,6 +883,11 @@ async def lifespan(app: FastAPI):
     setup_ming(llm=llm, retriever=retriever, member_dao=member_dao, dao=dao,
                bazi_engine=engine, ming_dao=MingDAO(_zeri_conn()))
 
+    # 收藏 API（Task 9 缺口②：favorites 表 + 增删查列 + 本地存量导入; 同库 db_path 实例化）
+    from src.storage.favorite_dao import FavoriteDAO
+    from .api.favorites import setup as setup_favorites
+    setup_favorites(FavoriteDAO(str(settings.db_path)))
+
     # 专项论断 API（论财/论事业/论健康; 高级会员门控, 全接口 require_user, L2-5）
     from .api.zhuanxiang import setup as setup_zhuanxiang
     setup_zhuanxiang(member_dao, engine)
@@ -1122,6 +1127,10 @@ app.include_router(zhuanxiang_router)        # POST /api/zhuanxiang
 # 名人命例库 API（2807 例+穷通宝鉴评注; 免费 35 例/高级会员全量，全接口 require_user，L3-1）
 from .api.mingren import router as mingren_router
 app.include_router(mingren_router)           # /api/mingren/*
+
+# 收藏 API（Task 9 缺口②：收藏后端化——增删查列 + 本地存量导入，全接口 require_user + 归属强制）
+from .api.favorites import router as favorites_router
+app.include_router(favorites_router)         # /api/favorites
 
 # ──────────────────────────────────────────
 # Reports list endpoint (mini program compatibility)
