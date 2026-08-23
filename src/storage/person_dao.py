@@ -28,8 +28,11 @@ def _birth_dict(**kw) -> dict:
     out = {}
     for k in BIRTH_KEYS:
         v = kw.get(k)
-        if k == "calendar" and not v:
-            v = "solar"
+        if k == "calendar":
+            # 历法为字符串（solar/lunar），缺省 solar；必须 continue，
+            # 否则落入下方 int() 归一分支把 "solar" 变成 None → 历法恒丢失
+            out[k] = v or "solar"
+            continue
         if k == "city":
             out[k] = str(v or "")
             continue

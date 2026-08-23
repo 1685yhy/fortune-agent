@@ -306,6 +306,19 @@ async def user_login(req: LoginRequest):
     if session_key:
         save_user_session_key(user_id, session_key)
 
+    # Task2 同源契约：登录响应补 bazi（默认命主出生信息 dict 或 null，供前端
+    # globalData 使用）。与 /api/user/profile 的 bazi_info 同源——persons 默认
+    # 命主（default_person_bazi_info）；老用户无命主时 auto_migrate 自动迁移
+    # users.bazi_info 旧单档案为「我/自己」命主；仍无 → null。
+    bazi = None
+    if _dao:
+        pdao = get_person_dao()
+        if pdao is not None:
+            try:
+                bazi = pdao.default_person_bazi_info(user_id)
+            except Exception as e:
+                logger.warning("登录读取默认命主出生信息失败 user=%s: %s", user_id, e)
+
     # 生成 JWT token（sub=user_id，openid 进 payload，7 天过期）
     token = ""
     if _auth_handler:
@@ -318,6 +331,7 @@ async def user_login(req: LoginRequest):
     return {
         "token": token,
         "dev_mode": dev_mode,
+        "bazi": bazi,
         "user": {
             "id": user_id,
             "has_bazi": has_bazi,
@@ -573,7 +587,14 @@ async def user_profile(uid: str = Depends(require_user), user_id: str = ""):
 
     chart = None
     if _dao:
-        # P2 兼容迁移：bazi_info 读默认命主（无档案时自动迁移 users.bazi_info 旧单档案）
+        # ── Task2 同源契约（对话数据复用体系）────────────────────────────
+        # 生日字段（bazi_info）事实源 = persons 默认命主（default_person_bazi_info；
+        # 无档案时自动迁移 users.bazi_info 旧单档案）；
+        # 四柱字段（chart/bazi_label）来源 = users.bazi_info（get_user_bazi）。
+        # 两者由同一保存路径写入（/api/user/bazi 与对话 _sync_person_profile
+        # 同时写 persons 默认命主 + users.bazi_info），故天然一致；契约由
+        # tests/test_profile_consistency.py 守护（改动任一读取源须同步更新测试）。
+        # 逻辑未变（本任务仅注释说明 + 测试守护）。
         pdao = get_person_dao()
         if pdao is not None:
             try:
