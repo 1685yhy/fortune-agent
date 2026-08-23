@@ -121,6 +121,8 @@ from src.rag.web_search import search_web, web_search_available
 # v2026-08-17：去 emoji（PM 反馈回复 emoji 过多显 low），反馈字词保留
 # （_handle_feedback 仍识别「准/不准」文本）
 _FEEDBACK_PROMPT = "———\n这个分析对你有帮助吗？可回复「准」或「不准」告诉我"
+# 旧版 emoji 反馈尾（_add_feedback_prompt 曾输出此格式；润色剥离/回接兼容）
+_FEEDBACK_PROMPT_EMOJI = "———\n💬 这个分析对你有帮助吗？👍 有帮助  👎 不太准"
 
 
 class _FaissChunk:
@@ -558,7 +560,7 @@ class MessageHandler:
 
     def _add_feedback_prompt(self, reply: str) -> str:
         """Append unified feedback prompt."""
-        return reply + "\n\n———\n💬 这个分析对你有帮助吗？👍 有帮助  👎 不太准"
+        return reply + "\n\n" + _FEEDBACK_PROMPT_EMOJI
 
     def _get_preference_hint(self, user_id: str) -> str:
         """Get preference hint for LLM prompt injection. Empty if not mature."""
@@ -1121,14 +1123,24 @@ class MessageHandler:
         # 1) 剥离系统尾巴（版本页脚/反馈提示），润色后原样回接
         body = draft
         tail = ""
-        footer = get_version_footer()
-        footer_block = f"---\n{footer}"
-        if footer and body.endswith(footer_block):
-            body = body[: -len(footer_block)].rstrip()
-            tail = f"\n\n{footer_block}"
-        if body.endswith(_FEEDBACK_PROMPT):
-            body = body[: -len(_FEEDBACK_PROMPT)].rstrip()
-            tail = f"\n\n{_FEEDBACK_PROMPT}" + tail
+        # D2 修复：页脚含实时时间戳（get_version_footer 每次调用取当前秒），
+        # 起草与润色跨秒时逐字 endswith 失配 → 页脚被当正文丢进 LLM、
+        # tail='' → 页脚永久丢失。改按格式正则剥离，跨秒/格式微差仍可回接。
+        m = re.search(
+            r'\n?---\n解读版本: v[\d.]+ \| 生成时间: [^\n]+'
+            r'(?:\n同一八字同一问题，结果始终一致)?$', body)
+        if m:
+            body = body[:m.start()].rstrip()
+            tail = "\n\n" + m.group(0).strip("\n")
+        # D2 修复：_FEEDBACK_PROMPT（「准」/「不准」）与 _add_feedback_prompt
+        # （💬👍👎）文案曾不一致，引擎草稿实际以 emoji 版结尾 → 原 endswith
+        # 只匹配纯文本版 → 反馈提示被当正文丢进 LLM、润色后丢失。按任一
+        # 版本剥离，润色后统一回接纯文本版（_handle_feedback 按「准/不准」识别）。
+        for fb in (_FEEDBACK_PROMPT, _FEEDBACK_PROMPT_EMOJI):
+            if body.endswith(fb):
+                body = body[: -len(fb)].rstrip()
+                tail = f"\n\n{_FEEDBACK_PROMPT}" + tail
+                break
 
         # 2) 命盘图片链接保底（LLM 润色可能丢弃链接）
         chart_url = ""
@@ -1165,7 +1177,9 @@ class MessageHandler:
                 "若搜索不可用，则明确告知用户「实时信息暂不可用，以下按命理知识分析」。\n")
                if search_hint else "")
             + "1. 保留全部实质性数据（四柱/十神/卦象/日期/评分/宜忌条目等），"
-            "可以调整表达结构，但不要删改、不要编造数据；\n"
+            "可以调整表达结构，但不要删改、不要编造数据；"
+            "【硬性要求】四柱干支（年月日时）必须与引擎结果逐字一致，"
+            "禁止自行推算、改写或替换任何干支；\n"
             "2. 像朋友聊天一样组织语言，不要提及「引擎」「草稿」「检索」「系统」"
             "等技术词汇；\n"
             f"3. 引用规则：本轮可用来源：{cite_hint}。回答中用到来源里的具体数据、"
@@ -2537,10 +2551,14 @@ class MessageHandler:
         # xuetang/advisor/confidant 为独立对话模式（早退分支），保持现状。
         # L5-2 修复（降级成本）：降级时禁用润色 LLM 调用（_do_bazi_lite 的
         # 精简文案已自成一体，无需二次生成）。
+        # D2 修复（数据正确性）：engine_draft 记录润色前的引擎原稿
+        # （四柱与已存盘一致，作为四柱终审冲突时的兜底回退稿）。
+        engine_draft = None
         if (analysis.intent not in ("xuetang", "advisor")
                 and not downgraded
                 and reply and not reply.startswith("⚠️")
                 and self._citations.get(user_id)):
+            engine_draft = reply
             try:
                 reply = self._polish_with_engine_draft(
                     msg, user_id, reply, stream_cb,
@@ -2552,6 +2570,14 @@ class MessageHandler:
         # AI 原生（Phase 1）：<tool_call> 工具调用循环
         reply = self._run_tool_loop(msg, user_id, reply, stream_cb=stream_cb,
                                     analysis=analysis, session_id=session_id)
+
+        # D2 修复（数据正确性·四柱终审）：润色/工具循环的 LLM 可能改写干支
+        # （QA 实测：已存盘 庚午 辛巳 乙酉 甲申 被答成 庚午 甲申 乙丑 丙子），
+        # 终审比对已存盘，冲突即回退引擎原稿；无原稿可回退时不写缓存，
+        # 防止错误结果被 0.78s 缓存固化。
+        reply, pillar_conflict = self._enforce_pillar_integrity(
+            reply, engine_draft, user_id)
+
         # 阶段 2：本轮工具调用日志 → 落库字段
         tool_log = self._pop_tool_log(user_id)
         # AI 原生（Phase 2）：长期记忆 — 会话开始（非首次）注入"欢迎回来"式开场
@@ -2585,7 +2611,9 @@ class MessageHandler:
         # D2: Cache the response for high-frequency queries
         # 终审：deepNight 不写缓存（见 Step -2 注释，夜里回复只属于当晚）
         # 会话隔离：缓存键掺入 session_id，与 Step -2 读取同口径
-        if is_cacheable(msg) and not deep:
+        # D2 修复：四柱终审冲突且无回退稿的错误结果禁止入缓存
+        # （0.78s 缓存固化错误盘面 → 用户长期看到错误盘，红线级）。
+        if is_cacheable(msg) and not deep and not pillar_conflict:
             self.cache.set(msg, reply, user_id, scope=session_id or "")
 
         return reply
@@ -2905,6 +2933,15 @@ class MessageHandler:
             return None  # 场景问句（事业/财运/合婚等）走全流程，不被直读劫持
         if ("排" in msg or "算" in msg) and ("重新" in msg or "再" in msg or "一次" in msg):
             return None  # 明确要重新排/算 → 走全流程
+        # D5 修复（意图识别过宽，QA EXT-005）：去掉重看关键词后剩余文本必须
+        # 为空或纯语气词，否则是"带着盘问具体问题"（如"结合我的八字，看看我
+        # 今年秋天的运势要点"），不得秒回盘面复述模板，交全流程分析。
+        rest = msg
+        for kw in self.REUSE_KEYWORDS:
+            rest = rest.replace(kw, "")
+        if re.sub(r'[\s，。？！!?、,.；;:：的了啊吧呢吗嘛这啥什么帮我看看是一下重新]',
+                  '', rest):
+            return None
         try:
             chart = getattr(self, "chart_dao", None) and self.chart_dao.get_latest_chart(user_id)
         except Exception:
@@ -2926,6 +2963,97 @@ class MessageHandler:
             lines.append("神煞：" + "、".join(r["shensha"][:8]))
         lines.append("（直接看的已存结果；要重新详细分析就说'重新帮我分析'）")
         return "\n".join(lines)
+
+    # ── D2 四柱终审（数据正确性防线，QA AC-CHAT-009）──────────────
+    # 润色/工具循环的 LLM 曾把已存盘 庚午 辛巳 乙酉 甲申 改写为
+    # 庚午 甲申 乙丑 丙子 并被 0.78s 缓存固化。终审在 process() 收尾处
+    # 比对回复中按序断言的四柱与已存盘，冲突即回退引擎原稿/禁入缓存。
+    _GANZHI_RE = re.compile(r'[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]')
+
+    def _latest_bazi(self, user_id: str) -> list:
+        """已存盘四柱（供 D2 终审比对）；无盘/异常返回空列表。"""
+        try:
+            chart = getattr(self, "chart_dao", None) and self.chart_dao.get_latest_chart(user_id)
+            if chart:
+                return (chart.get("bazi_json") or {}).get("bazi") or []
+        except Exception:
+            pass
+        return []
+
+    def _pillar_claims_conflict(self, reply: str, chart_bazi: list) -> bool:
+        """回复中按序断言了完整四柱、且与已存盘不一致 → 冲突。
+
+        - 只取回复正文按序出现的前 4 个干支（正文先讲四柱，大运/流年干支在后）；
+        - 不足 4 个干支（非排盘类回复）无从断言四柱 → 不判冲突；
+        - 顺序敏感：'庚午 甲申 乙丑 丙子' vs 已存 '庚午 辛巳 乙酉 甲申' → 冲突。
+        """
+        if not reply or not chart_bazi or len(chart_bazi) < 4:
+            return False
+        found = self._GANZHI_RE.findall(reply)
+        if len(found) < 4:
+            return False
+        return list(found[:4]) != list(chart_bazi[:4])
+
+    def _liunian_claims_conflict(self, reply: str, user_id: str) -> bool:
+        """回复中断言了带明确年份（今年/YYYY年）的流年干支且与已存盘
+        不一致 → 冲突。
+
+        D2 延伸（QA 复测观察）：润色 LLM 曾把 2026 年说成「丙子年」（已存盘
+        2026=丙午）——四柱之外的流年数据同样不得被改写。只校验带明确年份
+        的干支断言；无断言/年份不在已存流年表/无法比对的 → 一律放行
+        （fail-open，绝不误伤）。
+        """
+        if not reply or not re.search(r'(?:今年|\d{4}\s*年)', reply):
+            return False
+        try:
+            chart = getattr(self, "chart_dao", None) and self.chart_dao.get_latest_chart(user_id)
+            if not chart:
+                return False
+            liunian = (chart.get("bazi_json") or {}).get("liunian") or {}
+        except Exception:
+            return False
+        if not liunian:
+            return False
+        import datetime
+        year_now = datetime.datetime.now().year
+        for m in re.finditer(
+                r'(?:今年|(\d{4})\s*年)[^，。！？!?；;]{0,6}?'
+                r'([甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥])年',
+                reply):
+            year = int(m.group(1)) if m.group(1) else year_now
+            stored = liunian.get(str(year))
+            if stored and stored != m.group(2):
+                return True
+        return False
+
+    def _enforce_pillar_integrity(self, reply: str, engine_draft: str | None,
+                                  user_id: str) -> tuple:
+        """D2 数据一致性终审执行器：返回 (最终回复, 是否禁入缓存)。
+
+        - 回复断言了 ≥4 个干支且与已存盘四柱顺序不一致 → 数据错误；
+        - 回复断言了年份流年干支且与已存盘不一致（如 2026=丙子 实为 丙午）
+          → 数据错误；
+        - 有引擎原稿（数据与已存盘一致）→ 回退原稿（正确性优先于润色语气），
+          回退后内容一致 → 可正常入缓存（顺带把错误缓存路径换成正确值）；
+        - 无原稿可回退 → 保留回复但标记禁入缓存（不固化错误）。
+        """
+        if not reply or len(self._GANZHI_RE.findall(reply)) < 4:
+            return reply, False
+        bazi_stored = self._latest_bazi(user_id)
+        pillar_conflict = bool(bazi_stored) and self._pillar_claims_conflict(
+            reply, bazi_stored)
+        liunian_conflict = self._liunian_claims_conflict(reply, user_id)
+        if not (pillar_conflict or liunian_conflict):
+            return reply, False
+        if engine_draft:
+            logger.warning("D2 数据冲突回退引擎原稿 user=%s "
+                           "四柱冲突=%s 流年冲突=%s 存档=%s",
+                           user_id, pillar_conflict, liunian_conflict, bazi_stored)
+            return engine_draft, False
+        logger.warning("D2 数据冲突且无引擎原稿可回退 user=%s "
+                       "四柱冲突=%s 流年冲突=%s 本次不写缓存",
+                       user_id, pillar_conflict, liunian_conflict)
+        return reply, True
 
     def _handle_bazi(self, msg: str, user_id: str,
                      stream_cb: Optional[Callable] = None) -> str:

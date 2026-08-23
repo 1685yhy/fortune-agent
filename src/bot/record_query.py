@@ -13,12 +13,23 @@ CATEGORY_KEYWORDS = {
     "排盘": ["排过", "排的盘"],
     "解梦": ["解过什么梦", "以前.*梦", "梦的解读", "上次那个梦"],
     "历史": ["之前聊过", "以前说过", "历史对话", "上次聊", "之前说过什么"],
-    "灵签": ["摇过什么签", "抽过什么签", "我的签"],
-    "名笺": ["取过什么名", "起过什么名", "我的名字"],
+    # D4 修复：原 ['摇过什么签','抽过什么签','我的签'] 漏掉"抽的灵签/哪一支"
+    # 等口语问法 → 直读 miss 走 LLM 凭空编造。扩词全部用"已发生"口径
+    # （抽的/抽过/求的），不收录祈使式（抽/摇/求签）——"帮我抽一支灵签"
+    # 等抽取动作请求不得被直读劫持。
+    "灵签": ["摇过什么签", "抽过什么签", "我的签", "抽的签", "抽的灵签",
+             "抽的什么签", "哪支签", "签是哪", "求的什么签", "求的签"],
+    # D4 修复：原 ['取过什么名','起过什么名','我的名字'] 漏掉"保存过的名笺"；
+    # 不收录祈使式"起个名/取个名"（取名动作请求不得被直读劫持）。
+    "名笺": ["取过什么名", "起过什么名", "我的名字", "保存过的名笺",
+             "取的名笺", "哪张名笺", "名笺是", "名笺叫"],
     "灯语": ["灯语", "昨晚的灯"],
     "择吉": ["选的日子", "吉日", "择吉计划", "办事清单"],
     "晨笺": ["晨笺", "今早的", "早上的运势"],
-    "收藏": ["收藏过", "我收藏的"],
+    # D1 修复：原 ['收藏过','我收藏的'] 漏掉"我收藏了什么"（QA AC-CHAT-011
+    # 原句）→ 直读 miss 走 LLM 答"收藏夹是空的"。
+    "收藏": ["收藏过", "我收藏的", "我的收藏", "收藏了什么", "收藏了啥",
+             "收藏夹", "收藏内容", "收藏的东西", "收藏的"],
     "会员": ["会员", "我花了多少", "充值", "额度"],
 }
 
@@ -100,8 +111,27 @@ class RecordQuery:
         if not self.qian_dao: return None
         try:
             saves = self.qian_dao.list_history(user_id, limit=10)
-            # 行格式访问一并 fail-open（缺键/畸形行 → None，不抛给直接调用者）
-            return f"收藏的签：{len(saves)} 支（签号 {[s['no'] for s in saves[:10]]}）" if saves else None
+            if not saves:
+                return None
+            # D4 修复：qian_saves 只存 (no, drawn_at)，签诗/吉凶须从签文库
+            # QIAN_BY_NO 按 no 反查（与 /api/qian/history 同口径，防编造）。
+            try:
+                from src.api.qian import QIAN_BY_NO
+            except Exception:
+                QIAN_BY_NO = {}
+            parts = [f"收藏的签：{len(saves)} 支"]
+            for s in saves[:10]:
+                no = s.get("no")
+                entry = QIAN_BY_NO.get(no) if no is not None else None
+                head = f"第{no}签"
+                if entry:
+                    if entry.get("jx"):
+                        head += f"（{entry['jx']}）"
+                    poem = "".join(entry.get("poem", []))
+                    if poem:
+                        head += f"「{poem}」"
+                parts.append("· " + head)
+            return "\n".join(parts)
         except Exception:
             return None
 
@@ -140,13 +170,65 @@ class RecordQuery:
 
     def _q_晨笺(self, user_id):
         if not self.jian_dao: return None
-        card = self.jian_dao.get_card(user_id)  # Task 8 实现
-        return f"今早的晨笺：{card['card_json']['day_ganzhi']} 宜{'/'.join(card['card_json'].get('suitable',[]))}" if card else None
+        try:
+            card = self.jian_dao.get_card(user_id)
+            if not card:
+                # D3 修复：jian_cards 仅在推送时刻落库（本机无推送 → 空表）。
+                # 空表时按当日确定性内容现算现存（与 _send_jian_batch 同一
+                # 生成源 _precompute_jian_for + generate_private_line，落库键
+                # 结构一致），保证对话直读与 /api/jian/today 逐字一致、且此后
+                # 任何路径都能读到同一张卡（AC-CHAT-010）。
+                try:
+                    import datetime
+                    from src.main import _precompute_jian_for
+                    from src.engines.jian_private import generate_private_line
+                    today = datetime.datetime.now().strftime("%Y-%m-%d")
+                    content = _precompute_jian_for(today) or {}
+                    card_json = {
+                        "date": today,
+                        "day_ganzhi": content.get("day_ganzhi", ""),
+                        "suitable": content.get("suitable", []),
+                        "unsuitable": content.get("unsuitable", []),
+                        "quote": content.get("quote", ""),
+                        "book": content.get("book", ""),
+                        "private_line": generate_private_line(user_id),
+                    }
+                    self.jian_dao.save_card(user_id, today, card_json)
+                    card = {"date": today, "card_json": card_json}
+                except Exception:
+                    return None
+            cj = card["card_json"] or {}
+            parts = [f"今日晨笺（{cj.get('day_ganzhi','')}）："]
+            if cj.get("suitable"):
+                parts.append("宜：" + "、".join(cj["suitable"]))
+            if cj.get("unsuitable"):
+                parts.append("忌：" + "、".join(cj["unsuitable"]))
+            if cj.get("private_line"):
+                parts.append(f"私语：{cj['private_line']}")
+            if cj.get("quote"):
+                book = f"（{cj['book']}）" if cj.get("book") else ""
+                parts.append(f"金句：{cj['quote']}{book}")
+            return "\n".join(parts)
+        except Exception:
+            return None
 
     def _q_收藏(self, user_id):
         if not hasattr(self, "fav_dao") or not self.fav_dao: return None
-        favs = self.fav_dao.list_favorites(user_id, limit=10)  # Task 9 实现
-        return "\n".join(f"· {f['type']}: {f['summary'][:40]}" for f in favs) if favs else None
+        try:
+            favs = self.fav_dao.list_favorites(user_id, limit=10)  # Task 9 实现
+        except Exception:
+            return None
+        if not favs:
+            return None
+        # D1 修复：type 英文键 → 中文标签，直读列表可读（AC-CHAT-011 期望
+        # "可列出已存收藏"）。
+        _TYPE_LABEL = {"chat": "对话", "jian": "晨笺", "qian": "灵签",
+                       "ming": "名笺", "lamp": "灯语"}
+        parts = [f"你收藏了 {len(favs)} 条内容："]
+        for f in favs:
+            label = _TYPE_LABEL.get(f["type"], f["type"])
+            parts.append(f"· {label}: {f['summary'][:40]}")
+        return "\n".join(parts)
 
     def _q_会员(self, user_id):
         if not self.member_dao: return None
