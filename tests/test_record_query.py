@@ -53,6 +53,38 @@ def test_query_history(tmp_path):
     assert out and "财运" in out
 
 
+def _save_chart(chart_dao, user_id="u1"):
+    chart_dao.save_chart(user_id, 1,
+        {"year": 1990, "month": 5, "day": 20, "hour": 15, "minute": 0,
+         "city": "北京", "gender": "男"},
+        {"bazi": ["庚午", "辛巳", "甲申", "壬申"], "day_master": "甲",
+         "dayun": [["0", "庚辰"]], "liunian": {"2026": "丙午"},
+         "shensha": ["天乙贵人"], "geju": "正官格"})
+
+
+def test_query_chart_scenario_question_not_hijacked(tmp_path):
+    """防回归（审查缺陷）：'我的盘/上次的盘' 已从排盘直读关键词移除。
+
+    有已存盘 + 场景问句（事业/财运）→ direct_query 返回 None，不把 chart dump
+    直读文本回给用户。纯重看 → T5 直读、场景问句 → T5 排除走全流程的完整契约
+    由 tests/test_chart_reuse.py test_reuse_excludes_scenario_question 覆盖。
+    """
+    rq = _rq(tmp_path)
+    _save_chart(rq.chart_dao)
+    assert rq.direct_query("u1", "我的盘适合什么事业") is None
+    assert rq.direct_query("u1", "上次的盘看我的财运怎么样") is None
+
+
+def test_query_chart_unique_phrases_still_direct(tmp_path):
+    """防回归：排盘独有问法（排过/排的盘）不受关键词收窄误伤，仍直读秒回。"""
+    rq = _rq(tmp_path)
+    _save_chart(rq.chart_dao)
+    out = rq.direct_query("u1", "我排过什么盘")
+    assert out and "最近排过的盘" in out and "庚午" in out
+    out = rq.direct_query("u1", "上次排的盘")
+    assert out and "最近排过的盘" in out and "庚午" in out
+
+
 def test_query_qian_lamp_zeri(tmp_path):
     rq = _rq(tmp_path)
     # 灵签（QianDAO 构造入参为连接；写入 save(user_id, no)）

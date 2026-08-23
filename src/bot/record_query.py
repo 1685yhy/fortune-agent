@@ -1,5 +1,5 @@
 """存量数据直读：对话问'我的档案/解梦/历史/收藏…' → 直读秒回，不重走全流程。"""
-import json, logging
+import logging
 from src.storage.dao import _decrypt_or_plain
 
 logger = logging.getLogger(__name__)
@@ -7,7 +7,10 @@ logger = logging.getLogger(__name__)
 # 类别 → 触发关键词（命中即直读）
 CATEGORY_KEYWORDS = {
     "档案": ["档案", "生辰", "出生信息", "我的八字信息", "什么时辰"],
-    "排盘": ["排过", "排的盘", "我的盘", "上次的盘"],
+    # 注：'我的盘'/'上次的盘' 由 T5 重看盘直读全权处理（纯重看→T5 直读富文本；
+    # 场景问句→T5 _route_by_scenario 排除走全流程），此处保留会导致场景问句
+    # 被 _q_排盘 的 chart dump 短路，故不收录（审查 Task 6 缺陷，commit 见修复节）。
+    "排盘": ["排过", "排的盘"],
     "解梦": ["解过什么梦", "以前.*梦", "梦的解读", "上次那个梦"],
     "历史": ["之前聊过", "以前说过", "历史对话", "上次聊", "之前说过什么"],
     "灵签": ["摇过什么签", "抽过什么签", "我的签"],
@@ -53,9 +56,12 @@ class RecordQuery:
         p = self.person_dao.get_default_person(user_id)
         if not p:
             return "还没有档案，告诉我出生年月日时我帮你建档。"
+        gender = p.get('gender')
+        if not gender or gender == "unknown":
+            gender = "性别未知"  # 'unknown' 是 truthy，'or' 会被绕过，需显式判断
         return (f"你的档案（命主：{p.get('name')}）："
                 f"{p.get('birth_year')}年{p.get('birth_month')}月{p.get('birth_day')}日"
-                f"{p.get('birth_hour')}时 · 出生地{p.get('city') or '未填'} · {p.get('gender') or '性别未知'}")
+                f"{p.get('birth_hour')}时 · 出生地{p.get('city') or '未填'} · {gender}")
 
     def _q_排盘(self, user_id):
         if not self.chart_dao:
@@ -92,9 +98,10 @@ class RecordQuery:
         if not self.qian_dao: return None
         try:
             saves = self.qian_dao.list_history(user_id, limit=10)
+            # 行格式访问一并 fail-open（缺键/畸形行 → None，不抛给直接调用者）
+            return f"收藏的签：{len(saves)} 支（签号 {[s['no'] for s in saves[:10]]}）" if saves else None
         except Exception:
             return None
-        return f"收藏的签：{len(saves)} 支（签号 {[s['no'] for s in saves[:10]]}）" if saves else None
 
     def _q_名笺(self, user_id):
         if not self.ming_dao: return None
@@ -114,12 +121,12 @@ class RecordQuery:
         if not self.lamp_dao: return None
         try:
             rows = self.lamp_dao.list_history(user_id, limit=1)
+            if not rows:
+                return None
+            l = rows[0]
+            return f"最近一条灯语（{l['date']}）：{l['text']}"
         except Exception:
             return None
-        if not rows:
-            return None
-        l = rows[0]
-        return f"最近一条灯语（{l['date']}）：{l['text']}"
 
     def _q_择吉(self, user_id):
         if not self.zeri_dao: return None
