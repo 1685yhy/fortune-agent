@@ -139,3 +139,34 @@ def test_query_member_pure_query_still_direct(tmp_path):
     assert out and "会员档位" in out and "额度 2/" in out
     out = rq.direct_query("u1", "我花了多少钱")
     assert out and "会员档位" in out
+
+
+def test_query_member_pay_verb_not_hijacked(tmp_path):
+    """防回归（复审缺口）：裸购买动词/问法——'我想买会员''成为会员'
+    '办个会员''开会员''会员卡怎么办'等自然支付句式，handler 会员精确词
+    分支（整句等值）不覆盖，守卫词表补裸动词兜底——有会员记录时
+    direct_query 仍返回 None（走支付引导全流程，不被 _q_会员 档位 dump 劫持）。"""
+    rq = _rq_with_member(tmp_path)
+    for pay_sent in ("我想买会员", "成为会员", "办个会员", "开会员",
+                     "会员卡怎么办"):
+        assert rq.direct_query("u1", pay_sent) is None, pay_sent
+
+
+def test_query_member_pay_verb_ask_family(tmp_path):
+    """防回归（复审缺口·顺带审计）：'怎么买/怎么开/怎么办/怎么续' 问法
+    家族与口语祈使（续/弄/搞）——'怎么买'原表已有，'怎么开/怎么办/怎么续'
+    由 开/办/续 子串覆盖，'弄个会员''搞个会员''会员卡怎么弄' 由 弄/搞
+    覆盖；均不劫持。"""
+    rq = _rq_with_member(tmp_path)
+    for pay_sent in ("怎么开会员", "怎么续会员", "续会员", "弄个会员",
+                     "搞个会员", "怎么弄会员"):
+        assert rq.direct_query("u1", pay_sent) is None, pay_sent
+
+
+def test_query_member_bought_account_query_degraded_not_hijacked(tmp_path):
+    """记录已买想查的账务查询（'我买了会员怎么查'）命中'买'→ 返回 None
+    降级 LLM 处理——可接受（降级不劫持，不吞支付引导）；反向豁免
+    （'买了/已经买'放行直读）会重新打开祈使式劫持面，刻意不做，
+    本用例锁定此取舍。"""
+    rq = _rq_with_member(tmp_path)
+    assert rq.direct_query("u1", "我买了会员怎么查") is None
