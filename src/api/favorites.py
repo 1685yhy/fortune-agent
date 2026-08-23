@@ -12,7 +12,6 @@
 - summary strip 后截 100 字；
 - DAO 未装配（setup 未注入）→ 503，绝不假 200（fail-closed）。
 """
-import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,7 +20,6 @@ from pydantic import BaseModel, Field
 from src.security.auth import require_user
 from src.storage.favorite_dao import FavoriteDAO
 
-logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/favorites", tags=["favorites"])
 
 # type 白名单：chat(对话)/jian(晨笺)/qian(灵签)/ming(名笺)/lamp(灯语)
@@ -37,14 +35,6 @@ def setup(dao: FavoriteDAO):
     """在主应用生命周期中注入 DAO（仿 zeri.py/qian.py setup 模式）。"""
     global _dao
     _dao = dao
-
-
-def _fdao() -> FavoriteDAO:
-    global _dao
-    if _dao is None:
-        from src.config import load_settings
-        _dao = FavoriteDAO(str(load_settings().db_path))
-    return _dao
 
 
 def _validate(type_: str, ref_id: str, summary: str = "") -> str:

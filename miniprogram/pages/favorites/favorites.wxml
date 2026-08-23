@@ -94,7 +94,7 @@
           <text class="fc-hint">点按复制 · 长按移除</text>
         </view>
       </view>
-      <view class="fav-note">{{cat === 'ming' ? '名笺收藏随账号云端保存' : '收藏存于本机 · 换设备不随行'}}</view>
+      <view class="fav-note">{{cat === 'ming' ? '名笺收藏随账号云端保存' : '收藏已同步至云端 · 换设备不丢失'}}</view>
     </view>
   </scroll-view>
 </view>

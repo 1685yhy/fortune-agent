@@ -220,7 +220,11 @@ Page({
       time: '',
       keptAt,
       isJian: f.type === 'jian',
-      jian: null,
+      // 远程条目无本地晨笺卡的分行解析结构 → fallback 标记（wxml 分支
+      // `!item.jian.fallback` 为假 → 走摘要卡片分支渲染 content=summary）。
+      // 注意不可置 null：null.fallback 为 undefined，!undefined=true 会误命中
+      // 解析版晨笺卡分支 → 渲染出全空卡片（宜:无/忌:无/无日期）。
+      jian: { fallback: true },
       isRemote: true,
       favType: f.type,
       favRefId: f.ref_id,
