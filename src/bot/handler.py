@@ -424,6 +424,22 @@ class MessageHandler:
         # 对话数据复用：排盘结果落库 chart_records（重看 0 重跑，三写入点统一）
         db_path = getattr(dao, 'db_path', '') if dao else ''
         self.chart_dao = ChartDAO(db_path) if db_path else None
+        # Task 6 存量数据直读（档案/解梦/历史/签/名笺/灯语/择吉/会员）：
+        # RecordQuery 注入 process() 主流程，问存量数据直接读库秒回。
+        # 轻量 DAO（qian/ming/lamp/zeri）由 API 装配层按需注入；未注入的
+        # 类别（晨笺 Task 8 / 收藏 Task 9）缺省 None 自然降级，不建表不伪造。
+        self.record_query = None
+        if db_path:
+            try:
+                from src.storage.person_dao import PersonDAO
+                from src.bot.record_query import RecordQuery
+                self.record_query = RecordQuery(
+                    self.dao, PersonDAO(db_path), self.session_dao,
+                    self.chart_dao, member_dao=self.member_dao,
+                )
+            except Exception as e:
+                logger.warning("RecordQuery 初始化失败（降级为全流程）: %s", e)
+                self.record_query = None
         # Multi-turn memory
         api_key = getattr(llm, 'api_key', '') if llm else ''
         self.memory = ConversationMemory(api_key) if api_key else None
@@ -2247,6 +2263,17 @@ class MessageHandler:
                 self.session_dao.add_message(user_id, "assistant", upgrade_msg,
                                              temp=deep, session_id=session_id)
             return upgrade_msg
+
+        # Task 6 存量数据直读（0 引擎 0 LLM）：问"我的档案/解梦/历史/签/灯语/
+        # 择吉/会员额度"等 → 直接读库秒回。置于意图分析/预生成之前——
+        # 命中即短路（不消耗额度、LLM 绝不调用）；未命中返回 None 走全流程。
+        if hasattr(self, "record_query") and self.record_query:
+            try:
+                direct = self.record_query.direct_query(user_id, msg)
+            except Exception:
+                direct = None  # DB 异常 fail-open，不阻塞 process 入口
+            if direct:
+                return direct
 
         # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
         # Task 2 等待时长优化：消息含完整出生信息时，把「排盘 + 秒回安抚」提交到

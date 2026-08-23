@@ -421,17 +421,26 @@ class UserDAO:
         conn.commit()
         conn.close()
 
-    def get_user_consultations(self, user_id: str, limit: int = 20) -> list:
-        """获取用户最近咨询历史（question/analysis 自动解密）"""
+    def get_user_consultations(self, user_id: str, intent: Optional[str] = None,
+                               limit: int = 20) -> list:
+        """获取用户最近咨询历史（question/analysis 自动解密）。
+
+        Task 6 扩展：intent 过滤（如 intent="dream" 只看解梦记录）——
+        向后兼容：intent=None（缺省）不过滤，行为与旧版完全一致。
+        """
         conn = self._connect()
-        rows = conn.execute(
+        sql = (
             """SELECT id, question, intent, analysis, feedback, created_at
                FROM consultations
-               WHERE user_id = ?
-               ORDER BY created_at DESC
-               LIMIT ?""",
-            (user_id, limit),
-        ).fetchall()
+               WHERE user_id = ?"""
+        )
+        params: list = [user_id]
+        if intent is not None:
+            sql += " AND intent = ?"
+            params.append(intent)
+        sql += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, tuple(params)).fetchall()
         conn.close()
         return [
             {
