@@ -113,3 +113,41 @@ def test_reuse_excludes_explicit_repaipan(tmp_path):
     h.chart_dao = _chart_dao(tmp_path)
     h.chart_dao.save_chart("u1", 1, _BIRTH, _BAZI)
     assert h._try_reuse_chart("u1", "重新排一下我的盘") is None
+
+
+# ------------------------------------------------------------ 防回归（T5 审查修复）
+def test_reuse_excludes_scenario_question(tmp_path):
+    """场景问句（事业等）→ 不直读，返回 None 走全流程。
+
+    防回归：'根据我的八字分析事业' 曾因裸子串'我的八字'被劫持为
+    '这是你最近排过的盘'回放；现在关键词命中后先经 _route_by_scenario
+    （纯关键词零 LLM）排除场景问句。有已存盘 + 真实场景词双条件。
+    """
+    h = object.__new__(MessageHandler)
+    h.chart_dao = _chart_dao(tmp_path)
+    h.chart_dao.save_chart("u1", 1, _BIRTH, _BAZI)
+    # 真实 _route_by_scenario：'事业' 命中 career 场景 → 返回 dict
+    assert h._route_by_scenario("根据我的八字分析事业", "u1") is not None
+    assert h._try_reuse_chart("u1", "根据我的八字分析事业") is None
+
+
+def test_reuse_excludes_repaipan_helper_phrasing(tmp_path):
+    """'重新帮我排一下我的盘'（重排意图，'重新排'不连续）→ 不直读，返回 None。
+
+    防回归：原排除条件 ('重新排'/'一次' 连续子串) 漏掉'重新帮我排…'句式，
+    被'我的盘'劫持回放；收紧为 排/算 + 重新/再/一次 即可覆盖。
+    """
+    h = object.__new__(MessageHandler)
+    h.chart_dao = _chart_dao(tmp_path)
+    h.chart_dao.save_chart("u1", 1, _BIRTH, _BAZI)
+    assert h._try_reuse_chart("u1", "重新帮我排一下我的盘") is None
+
+
+def test_reuse_plain_lookup_still_hits(tmp_path):
+    """'看看我的盘'（无场景词、无重排词）→ 仍直读秒回（防过度修复）。"""
+    h = object.__new__(MessageHandler)
+    h.chart_dao = _chart_dao(tmp_path)
+    h.chart_dao.save_chart("u1", 1, _BIRTH, _BAZI)
+    text = h._try_reuse_chart("u1", "看看我的盘")
+    assert text is not None
+    assert "最近排过的盘" in text

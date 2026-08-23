@@ -2836,19 +2836,23 @@ class MessageHandler:
     # ── T5 重看盘直读（0 引擎 0 LLM）─────────────────────────────
     # 用户问"我的盘/我的八字"等重看表述、且 chart_records 已有排盘结果时，
     # 直接读库秒回——引擎绝不计算、LLM 绝不调用；未命中返回 None 走全流程。
-    REUSE_KEYWORDS = ("我的盘", "我的八字", "上次的盘", "我的命盘", "重新看", "再看")
+    REUSE_KEYWORDS = ("我的盘", "我的八字", "上次的盘", "我的命盘", "重新看")
 
     def _try_reuse_chart(self, user_id: str, msg: str) -> str | None:
         """重看盘直读：问'我的盘/我的八字'等且有已存结果 → 0 引擎 0 LLM 秒回。"""
         if not msg or not any(kw in msg for kw in self.REUSE_KEYWORDS):
             return None
-        if "排" in msg and ("一次" in msg or "重新排" in msg):
-            return None  # 明确要重新排盘 → 走全流程
-        chart = getattr(self, "chart_dao", None) and self.chart_dao.get_latest_chart(user_id)
+        if self._route_by_scenario(msg, user_id):
+            return None  # 场景问句（事业/财运/合婚等）走全流程，不被直读劫持
+        if ("排" in msg or "算" in msg) and ("重新" in msg or "再" in msg or "一次" in msg):
+            return None  # 明确要重新排/算 → 走全流程
+        try:
+            chart = getattr(self, "chart_dao", None) and self.chart_dao.get_latest_chart(user_id)
+        except Exception:
+            chart = None  # DB 异常 fail-open，不阻塞 process 入口
         if not chart:
             return None
         r = chart["bazi_json"]
-        b = chart["birth"]
         bazi = r.get("bazi") or []
         lines = [f"这是你最近排过的盘（{chart['created_at']}）："]
         if bazi:
