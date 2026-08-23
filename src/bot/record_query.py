@@ -4,6 +4,14 @@ from src.storage.dao import _decrypt_or_plain
 
 logger = logging.getLogger(__name__)
 
+# 会员直读支付词守卫（终审缺陷修复）：命中任一支付/引导意图词时，即使消息
+# 含"会员"关键词也不直读档位——支付引导全流程（handler 会员精确词分支 +
+# LLM 意图路由）不得被 _q_会员 档位 dump 短路（真机必现缺陷）。
+# 仅拦"会员"关键词："我花了多少"是纯账户查询词（"我花了多少钱"含"多少钱"
+# 但不能被误伤），不受守卫影响。
+_MEMBER_PAY_WORDS = ("充值", "开通", "升级", "购买", "续费", "付费",
+                     "套餐", "价格", "多少钱", "优惠", "怎么买", "便宜")
+
 # 类别 → 触发关键词（命中即直读）
 CATEGORY_KEYWORDS = {
     "档案": ["档案", "生辰", "出生信息", "我的八字信息", "什么时辰"],
@@ -30,7 +38,13 @@ CATEGORY_KEYWORDS = {
     # 原句）→ 直读 miss 走 LLM 答"收藏夹是空的"。
     "收藏": ["收藏过", "我收藏的", "我的收藏", "收藏了什么", "收藏了啥",
              "收藏夹", "收藏内容", "收藏的东西", "收藏的"],
-    "会员": ["会员", "我花了多少", "充值", "额度"],
+    # 终审修复（支付入口被吞）：原 ["会员","我花了多少","充值","额度"]——
+    # "充值"/"额度"是支付/引导意图词（"怎么充值"/"额度用完了怎么办"）会被
+    # _q_会员 档位 dump 短路，吞掉支付引导全流程（handler 会员精确词分支在
+    # 直读之前，但仅精确词命中）。故从关键词移除"充值"/"额度"；"会员"关键词
+    # 另由 _MEMBER_PAY_WORDS 守卫——"充值会员/开通会员/会员多少钱"等支付意图
+    # 即使含"会员"也不直读。纯账户查询（"我的会员是什么"/"我花了多少钱"）不受影响。
+    "会员": ["会员", "我花了多少"],
 }
 
 class RecordQuery:
@@ -57,6 +71,9 @@ class RecordQuery:
         for cat, kws in CATEGORY_KEYWORDS.items():
             for kw in kws:
                 if re.search(kw, msg):
+                    # 支付/引导词守卫：会员直读不劫持支付意图（见 _MEMBER_PAY_WORDS）
+                    if kw == "会员" and any(w in msg for w in _MEMBER_PAY_WORDS):
+                        continue
                     handler = getattr(self, f"_q_{cat}", None)
                     if handler:
                         out = handler(user_id)

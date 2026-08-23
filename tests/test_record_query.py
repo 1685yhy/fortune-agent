@@ -106,3 +106,36 @@ def test_query_qian_lamp_zeri(tmp_path):
                   [{"item": "登记"}], "free")
     rq.zeri_dao = z
     assert rq.direct_query("u1", "我选的吉日") is not None
+
+
+def _rq_with_member(tmp_path, plan="basic"):
+    """RecordQuery + 已开档位会员（u1 为 basic 会员，queries_used=2）。"""
+    from src.storage.member_dao import MemberDAO
+    m = MemberDAO(str(tmp_path / "m.db"))
+    m.create_membership("u1", plan, queries_limit=999)
+    conn = sqlite3.connect(str(tmp_path / "m.db"))
+    conn.execute("UPDATE memberships SET queries_used = 2 WHERE user_id = 'u1'")
+    conn.commit()
+    conn.close()
+    rq = _rq(tmp_path, member_dao=m)
+    return rq
+
+
+def test_query_member_pay_intent_not_hijacked(tmp_path):
+    """防回归（终审缺陷）：'充值'/'额度' 是支付/引导意图词，已从会员
+    直读关键词移除——支付引导全流程（handler 会员精确词分支 + LLM 意图
+    路由）不得被 _q_会员 档位 dump 短路。有会员记录时也不直读。"""
+    rq = _rq_with_member(tmp_path)
+    assert rq.direct_query("u1", "怎么充值会员") is None
+    assert rq.direct_query("u1", "充值会员多少钱") is None
+    assert rq.direct_query("u1", "会员多少钱") is None  # 支付词守卫（多少钱）
+    assert rq.direct_query("u1", "额度用完了怎么办") is None
+
+
+def test_query_member_pure_query_still_direct(tmp_path):
+    """防回归：'会员'/'我花了多少' 是纯账户信息查询词，仍直读档位信息。"""
+    rq = _rq_with_member(tmp_path)
+    out = rq.direct_query("u1", "我的会员是什么")
+    assert out and "会员档位" in out and "额度 2/" in out
+    out = rq.direct_query("u1", "我花了多少钱")
+    assert out and "会员档位" in out
