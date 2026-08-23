@@ -170,3 +170,44 @@ def test_query_member_bought_account_query_degraded_not_hijacked(tmp_path):
     本用例锁定此取舍。"""
     rq = _rq_with_member(tmp_path)
     assert rq.direct_query("u1", "我买了会员怎么查") is None
+
+
+def test_query_member_pay_penetration_matrix_final_seal(tmp_path):
+    """防回归（终审二次封口·穿透矩阵）：两字词拦不住单字——'充个会员'/
+    '怎么充会员'（'充值'含'充'但'充个/怎么充'不落两字词）→ 档位 dump 劫持
+    实锤；同族'领个会员'/'会员卡怎么领'同理。补 '充/领' 及支付动词全集
+    （冲/收费/花钱/要钱/缴费/缴/交/订/申请/兑换/购/付/延期/激活/会员费/
+    会员卡）后，支付意图穿透矩阵全锁 None（有会员记录也不直读，走支付
+    引导全流程）——覆盖：单字穿透（充个/怎么充/冲个/领个/会员卡怎么领/
+    缴个/订个/购个）、前几轮已锁句（买/成为/办/开/怎么充值/多少钱/弄/搞/
+    续）、候选动词句（收费吗/多少钱一年/要钱吗/怎么交/兑换/申请/订阅/付/
+    激活/延期）。"""
+    rq = _rq_with_member(tmp_path)
+    for pay_sent in (
+            # 单字穿透（本次封口核心）
+            "充个会员", "怎么充会员", "冲个会员", "领个会员",
+            "会员卡怎么领", "怎么领会员", "缴个会员费", "怎么订会员",
+            "怎么兑换会员", "购个会员",
+            # 前几轮已锁句（回归锁定）
+            "我想买会员", "成为会员", "办个会员", "开会员",
+            "会员卡怎么办", "怎么充值会员", "充值会员多少钱", "会员多少钱",
+            "额度用完了怎么办", "弄个会员", "搞个会员", "怎么续会员",
+            # 本轮候选动词句（评估后补词）
+            "会员收费吗", "会员多少钱一年", "会员要钱吗", "怎么交会员费",
+            "申请开通会员", "会员怎么订阅", "怎么付会员", "怎么激活会员",
+            "会员续期延期怎么弄", "会员卡怎么办理",
+    ):
+        assert rq.direct_query("u1", pay_sent) is None, pay_sent
+
+
+def test_query_member_pure_query_still_direct_final_seal(tmp_path):
+    """防回归（终审二次封口·纯查询仍直读）：'我的会员是什么'/'我花了多少
+    钱'/'我的会员等级是啥'不落任何新增支付词（'等级'未触新词，无需评估
+    豁免）——扩词后纯账户查询仍直读档位秒回，扩词不误伤查询面。"""
+    rq = _rq_with_member(tmp_path)
+    out = rq.direct_query("u1", "我的会员是什么")
+    assert out and "会员档位" in out and "额度 2/" in out
+    out = rq.direct_query("u1", "我花了多少钱")
+    assert out and "会员档位" in out
+    out = rq.direct_query("u1", "我的会员等级是啥")
+    assert out and "会员档位" in out
