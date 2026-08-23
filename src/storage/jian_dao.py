@@ -1,5 +1,7 @@
-"""晨笺订阅偏好存储。表 jian_prefs: user_id 主键; 开关/时间/绑定状态/连续失败计数。"""
-import time, threading
+"""晨笺订阅偏好存储。表 jian_prefs: user_id 主键; 开关/时间/绑定状态/连续失败计数。
+Task 8: 晨笺内容落库表 jian_cards(user_id+date 唯一),对话'我的晨笺'可直读。"""
+import time, threading, json
+from .dao import _encrypt_text, _decrypt_or_plain
 
 class JianPrefDAO:
     def __init__(self, conn):
@@ -22,6 +24,15 @@ class JianPrefDAO:
         cols = [d[1] for d in self.conn.execute("PRAGMA table_info(jian_prefs)")]
         if "fail_count" not in cols:
             self.conn.execute("ALTER TABLE jian_prefs ADD COLUMN fail_count INTEGER DEFAULT 0")
+        # Task 8 晨笺内容落库(缺口①:原内存缓存 TTL 26h,重启即失,对话不可直读)
+        self.conn.execute("""CREATE TABLE IF NOT EXISTS jian_cards (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            date TEXT NOT NULL,
+            card_enc TEXT NOT NULL,      -- AES: {date, day_ganzhi, suitable, unsuitable, quote, book, private_line}
+            created_at REAL,
+            UNIQUE(user_id, date)
+        )""")
         self.conn.commit()
 
     def get_pref(self, user_id: str):
@@ -79,3 +90,29 @@ class JianPrefDAO:
     def count_enabled(self) -> int:
         row = self.conn.execute("SELECT COUNT(*) FROM jian_prefs WHERE jian_enabled=1 OR night_enabled=1").fetchone()
         return row[0]
+
+    # ── Task 8: 晨笺内容落库（缺口①——对话"我的晨笺"可直读）────────────
+    def save_card(self, user_id: str, date: str, card: dict):
+        """晨笺内容密文落库;同 user_id+date 重复发送覆盖更新(单条语句原子,锁内写)。"""
+        enc = _encrypt_text(json.dumps(card, ensure_ascii=False))
+        with self._lock:
+            self.conn.execute(
+                "INSERT INTO jian_cards (user_id, date, card_enc, created_at) "
+                "VALUES (?,?,?,?) ON CONFLICT(user_id, date) DO UPDATE SET "
+                "card_enc=excluded.card_enc, created_at=excluded.created_at",
+                (user_id, date, enc, time.time()))
+            self.conn.commit()
+
+    def get_card(self, user_id: str, date=None):
+        """读晨笺卡片(自动解密);date 缺省取最近一张(RecordQuery._q_晨笺 直读用)。"""
+        if date:
+            row = self.conn.execute(
+                "SELECT card_enc, date FROM jian_cards WHERE user_id=? AND date=?",
+                (user_id, date)).fetchone()
+        else:
+            row = self.conn.execute(
+                "SELECT card_enc, date FROM jian_cards WHERE user_id=? "
+                "ORDER BY date DESC LIMIT 1", (user_id,)).fetchone()
+        if not row:
+            return None
+        return {"date": row[1], "card_json": json.loads(_decrypt_or_plain(row[0]) or "{}")}

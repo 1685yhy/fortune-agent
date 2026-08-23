@@ -384,6 +384,21 @@ def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
                 url = "pages/chat/chat?entry=night"
             send_template(openid, tpl_id, data, url=f"https://yilichat.com/{url}")
             stats["pushed"] += 1
+            if kind == "jian":
+                # Task 8: 晨笺内容落库 jian_cards(缺口①,对话"我的晨笺"可直读;
+                # 失败仅告警不阻塞发送,不计入发送失败计数)
+                try:
+                    dao.save_card(uid, date_str, {
+                        "date": date_str,
+                        "day_ganzhi": content.get("day_ganzhi", ""),
+                        "suitable": content.get("suitable", []),
+                        "unsuitable": content.get("unsuitable", []),
+                        "quote": content.get("quote", ""),
+                        "book": content.get("book", ""),
+                        "private_line": line,
+                    })
+                except Exception as e:
+                    logger.warning("晨笺落库失败 uid=%s: %s", uid, e)
         except Exception as e:
             logger.warning("晨笺发送失败 uid=%s: %s", uid, e)
             stats["errors"] += 1
