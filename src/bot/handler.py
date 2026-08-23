@@ -3089,6 +3089,32 @@ class MessageHandler:
         except Exception:
             pass
 
+    def _should_fastpath(self, user_id: str, birth: dict) -> bool:
+        """快路径门控：有已存排盘结果（同生辰）或档案时跳过 RAG 预检索。
+
+        契约（Task 10）：
+        - 仅在主分析路径内生效（降级路径在其之前 return，不经过本方法）
+        - fail-open：任何异常回落 False，走原检索路径，绝不因门控错误
+          让用户拿到空引用
+        - chart 比对 year/month/day（get_latest_chart 已解密 birth 键；
+          语义与 _persist_chart_result 落库的 birth 一致）
+        """
+        try:
+            chart_dao = getattr(self, "chart_dao", None)
+            if chart_dao:
+                chart = chart_dao.get_latest_chart(user_id)
+                if chart and chart.get("birth"):
+                    b = chart["birth"]
+                    if (b.get("year") == birth.get("year")
+                            and b.get("month") == birth.get("month")
+                            and b.get("day") == birth.get("day")):
+                        return True
+            if self.dao.get_user_bazi(user_id):
+                return True
+        except Exception:
+            pass
+        return False
+
     def _do_bazi_analysis(
         self, year, month, day, hour, minute, city, gender, question, user_id,
         stream_cb: Optional[Callable] = None,
@@ -3131,10 +3157,17 @@ class MessageHandler:
         else:
             question_with_gender = question
 
-        # 4. 检索古籍
+        # 4. 检索古籍（Task 10 快路径：已建档/已存盘 → 跳过 RAG 预检索，
+        #    LLM 需要古籍时经 tool_loop 的 search 工具兜底；引擎重排毫秒级保证新鲜）
         self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
         search_query = f"{result.day_master} {question}"
-        refs = self.retriever.search(search_query, category="bazi", top_k=15)
+        if self._should_fastpath(user_id, {"year": year, "month": month, "day": day,
+                                           "hour": hour, "minute": minute,
+                                           "city": city, "gender": gender}):
+            refs = []
+            logger.info("fastpath: 用户 %s 有存量数据，跳过预检索", user_id)
+        else:
+            refs = self.retriever.search(search_query, category="bazi", top_k=15)
 
         # 4.5 并行启动「行动建议」生成（不依赖 analyze 输出，与深度分析并行，
         #     大幅降低整条请求延迟；LLM 调用在 worker 线程中执行，线程安全）
@@ -3161,6 +3194,29 @@ class MessageHandler:
         # 5. P3: Build personalized preference context for LLM injection
         pref_extra = self._get_personalized_context(user_id)
 
+        # Task 10 快路径配套：注入用户已存排盘结果（防矛盾）。
+        # 本步刚经 _save_bazi_records 落库，latest chart 即本次排盘；
+        # 字段缺失不注入该字段（.get 兜底，不编造）；任何异常忽略不阻塞主流程。
+        _chart_inject = ""
+        try:
+            _cd = getattr(self, "chart_dao", None)
+            if _cd:
+                _chart = _cd.get_latest_chart(user_id)
+                if _chart and _chart.get("bazi_json"):
+                    _b = _chart["bazi_json"]
+                    _parts = []
+                    if _b.get("day_master"):
+                        _parts.append(f"{_b['day_master']}日主")
+                    if _b.get("geju"):
+                        _parts.append(f"格局{_b['geju']}")
+                    if _b.get("yongshen"):
+                        _parts.append(f"用神{_b['yongshen']}")
+                    if _parts:
+                        _chart_inject = ("【用户已存排盘结果】" + "，".join(_parts)
+                                         + "。回答须与此一致，不矛盾。")
+        except Exception as e:
+            logger.warning("fastpath 已存结果注入失败（忽略）: %s", e)
+
         # Phase 2: Scenario-aware structured report
         scenario_info = self._route_by_scenario(question_with_gender, user_id)
         # Task 2 计时覆盖异常路径：analyze 抛异常也要有 stage=main_analysis 输出
@@ -3175,6 +3231,8 @@ class MessageHandler:
                 cat = scenario_info.get("category", "")
                 if cat in SCENARIO_FOCUS_PROMPTS:
                     extra_prompt += "\n\n" + SCENARIO_FOCUS_PROMPTS[cat]
+                if _chart_inject:
+                    extra_prompt += "\n\n" + _chart_inject
                 # Inject scenario prompt template into the question
                 enhanced_question = (
                     scenario_info["prompt_template"]
@@ -3188,9 +3246,12 @@ class MessageHandler:
                 )
             else:
                 self._emit_stream_event(stream_cb, "thinking", "正在推演五行流年…")
+                _extra = pref_extra if pref_extra else ""
+                if _chart_inject:
+                    _extra = (_extra + "\n\n" + _chart_inject) if _extra else _chart_inject
                 analysis = self.llm.analyze(
                     result, refs, question_with_gender,
-                    extra_system_prompt=pref_extra if pref_extra else None,
+                    extra_system_prompt=_extra if _extra else None,
                 )
         finally:
             logger.info("[timing] stage=main_analysis duration=%.1fs",
