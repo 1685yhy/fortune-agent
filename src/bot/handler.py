@@ -2033,8 +2033,8 @@ class MessageHandler:
                              facts: Optional[dict] = None) -> None:
         """P2 多人档案：排盘后同步建档（对话建档，方案 v5）。
 
-        - subject=self：默认 person 与本次排盘年份不一致（年份不同）→
-          新建 person（name="命主N"）；一致 → 更新默认 person 出生信息；
+        - subject=self：默认命主为唯一事实源——出生信息以最新排盘为准
+          （年份不同也更新默认命主，不新建"命主N"）；
           无档案 → 建档 name="我" relation="自己"（含旧单档案自动迁移）
         - subject=other：按 facts 关系/姓名建 person；已存在同生日 person 则复用。
         先有先用保护照旧（gender 冲突不覆盖逻辑仍在 save_bazi_info / users.bazi_info 层）。
@@ -2059,13 +2059,8 @@ class MessageHandler:
             }
             if subject != "other":
                 default = pdao.get_default_person(user_id)
-                if default and default.get("birth_year") and \
-                        default["birth_year"] != birth.get("year"):
-                    # 默认命主与本次排盘年份不一致 → 新建"命主N"（默认不变）
-                    pdao.create_person(
-                        user_id, name=f"命主{pdao.count_persons(user_id) + 1}",
-                        relation="其他", birth=b)
-                elif default:
+                if default:
+                    # 单一事实源：默认命主唯一，出生信息以最新排盘为准（年份不同也更新）
                     pdao.update_person(user_id, default["id"], birth=b)
                 else:
                     pdao.create_person(user_id, name="我", relation="自己",
