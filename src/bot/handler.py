@@ -2891,7 +2891,10 @@ class MessageHandler:
            （updated_at 降序）的有出生数据的档案（Brief 要求）。
            把 birth_year/birth_month/birth_day/birth_hour/birth_minute/gender/city
            映射为 {year, month, day, hour, minute, city, gender}；
-        ③ 都没有 → None。
+        ③ D8（2026-08-24 生产实测）：persons/bazi_info 均无出生数据时，
+           查 chart_records 最近一次排盘结果（birth 字段 + 四柱 bazi）——
+           排盘成功已落库的 user 问事不得再被判"无档案"引导建档；
+        ④ 都没有 → None。
 
         不回写 persons、不新增写路径（单向打通）。
         """
@@ -2908,24 +2911,45 @@ class MessageHandler:
             from src.storage.person_dao import PersonDAO
             pdao = PersonDAO(self.dao.db_path)
             persons = pdao.list_persons(user_id)
-            default = next((p for p in persons if p.get("is_default")), None)
-            if default and default.get("birth_year"):
-                pick = default
-            else:
-                candidates = [p for p in persons if p.get("birth_year")]
-                if not candidates:
-                    return None
-                # 选最近更新的有出生数据的档案（updated_at 降序取最大者）
-                pick = max(candidates, key=lambda p: p.get("updated_at") or "")
-            return {
-                "year": pick.get("birth_year"),
-                "month": pick.get("birth_month"),
-                "day": pick.get("birth_day"),
-                "hour": pick.get("birth_hour"),
-                "minute": pick.get("birth_minute"),
-                "city": pick.get("city") or "",
-                "gender": pick.get("gender") or "unknown",
-            }
+            if persons:
+                default = next((p for p in persons if p.get("is_default")), None)
+                if default and default.get("birth_year"):
+                    pick = default
+                else:
+                    candidates = [p for p in persons if p.get("birth_year")]
+                    if not candidates:
+                        candidates = []
+                        pick = None
+                    else:
+                        # 选最近更新的有出生数据的档案（updated_at 降序取最大者）
+                        pick = max(candidates, key=lambda p: p.get("updated_at") or "")
+                if pick:
+                    return {
+                        "year": pick.get("birth_year"),
+                        "month": pick.get("birth_month"),
+                        "day": pick.get("birth_day"),
+                        "hour": pick.get("birth_hour"),
+                        "minute": pick.get("birth_minute"),
+                        "city": pick.get("city") or "",
+                        "gender": pick.get("gender") or "unknown",
+                    }
+        except Exception:
+            pass
+        # ③ chart_records 排盘结果兜底（D8 修复）：已排盘落库（重看 0 重跑
+        # 数据）即视为有档案，问事直接走档案快路径，不再引导建档。
+        try:
+            chart_dao = getattr(self, "chart_dao", None)
+            if chart_dao:
+                chart = chart_dao.get_latest_chart(user_id)
+                if chart and chart.get("birth") and chart["birth"].get("year"):
+                    b = chart["birth"]
+                    out = {k: b.get(k) for k in
+                           ("year", "month", "day", "hour", "minute",
+                            "city", "gender")}
+                    bazi = (chart.get("bazi_json") or {}).get("bazi") or []
+                    if bazi:
+                        out["bazi"] = bazi
+                    return out
         except Exception:
             pass
         return None
@@ -3079,7 +3103,8 @@ class MessageHandler:
         _dg = self._downgraded.get(user_id, False)
 
         if parsed is None:
-            # 检查是否有已保存的信息 — 自动复用（bazi_info + persons 档案兜底）
+            # 检查是否有已保存的信息 — 自动复用（bazi_info + persons +
+            # chart_records 排盘档案兜底，D8 修复）
             saved = self._get_user_birth_profile(user_id)
             if saved and saved.get("year") and saved.get("month") and saved.get("day"):
                 # AI generates a brief acknowledgment that we're using saved info
