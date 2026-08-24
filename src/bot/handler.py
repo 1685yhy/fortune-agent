@@ -321,9 +321,14 @@ def _parse_cn_num(s):
 
 def _parse_cn_month_day(text):
     """Try to parse Chinese lunar date like 三月初三, 六月十八, 冬月十一, 腊月廿五.
-    Returns (month, day) or None."""
+
+    D7（2026-08-24 生产实测）：口语长句"阴历三月28出生"——中文数字月 +
+    阿拉伯数字日——此前不命中 → 排盘整体放弃。现支持：
+    - 阿拉伯数字日：三月28、三月初3、三月28日
+    - 闰月：闰三月28 → 返回负月（-3），调用方按 lunar-python 闰月口径转阳历
+    Returns (month, day) or None；month 为负表示闰月。"""
     m = re.search(
-        r'(正月|一月|二月|三月|四月|五月|六月|七月|八月|九月|十月|'
+        r'(闰)?(正月|一月|二月|三月|四月|五月|六月|七月|八月|九月|十月|'
         r'冬月|十一月|腊月|十二月|'
         r'正|一|二|三|四|五|六|七|八|九|十|冬|腊)'
         r'\s*月\s*'
@@ -331,26 +336,30 @@ def _parse_cn_month_day(text):
         r'[一二二两三三四四五五六六七七八八九九]?十[一二三四五六七八九]?|'
         r'二十|廿[一二三四五六七八九]?|三十|卅十?|'
         r'零[一二三四五六七八九]|'
-        r'[一二三四五六七八九])'
+        r'[一二三四五六七八九]|\d{1,2})'
         r'\s*[日号]?',
         text
     )
     if m:
-        month_str = m.group(1)
-        day_str = m.group(2)
-        # Parse month
+        month_str = m.group(2)
+        day_str = m.group(3)
+        # Parse month（闰月 → 负值，lunar-python 闰月口径）
         month_map = {"正": 1, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
                      "六": 6, "七": 7, "八": 8, "九": 9, "十": 10,
                      "冬": 11, "腊": 12}
         month = month_map.get(month_str[0])
         if month is None:
             month = month_map.get(month_str.replace("月",""))
-        # Parse day
-        if "初" in day_str:
+        if m.group(1):
+            month = -month
+        # Parse day（阿拉伯数字日：直接 int；中文数字走 _parse_cn_num）
+        if day_str.isdigit():
+            day = int(day_str)
+        elif "初" in day_str:
             day = _parse_cn_num(day_str.replace("初", ""))
         else:
             day = _parse_cn_num(day_str)
-        if month and day and 1 <= month <= 12 and 1 <= day <= 31:
+        if month and day and abs(month) <= 12 and 1 <= day <= 31:
             return month, day
     return None
 
@@ -739,7 +748,8 @@ class MessageHandler:
                 pass
         # Graceful fallback（与 MessageAnalyzer fast path 同规则：纯生日陈述才判 bazi，
         # 含意图词时兜底为 free_chat 走 LLM 自然对话，避免掐死"生日+公司适配"类问题）
-        if (re.search(r'\d{4}\s*[年/-]\s*\d{1,2}\s*[月/-]\s*\d{1,2}', msg)
+        # D7：口语长句生辰（阴历/农历 + 中文数字月）同样命中 BIRTH_DATE_PATTERN
+        if (MessageAnalyzer.BIRTH_DATE_PATTERN.search(msg)
                 and not MessageAnalyzer.INTENT_HINT_PATTERN.search(msg)):
             return MessageAnalysis(needs_soothe=False, soothe_text="",
                                    emotion_label=None, intent="bazi")
@@ -3124,7 +3134,18 @@ class MessageHandler:
         return cleaned
 
     def _extract_bazi_info(self, msg: str) -> Optional[Tuple]:
-        """从消息中提取八字信息 — 支持农历中文数字、时间描述、多种格式."""
+        """从消息中提取八字信息 — 支持农历中文数字、时间描述、多种格式.
+
+        D7（2026-08-24 生产实测 8767 真实链路）修复三项口语长句短板：
+        ① 阴历/农历 + 中文数字月 + 阿拉伯数字日（"阴历三月28"）——
+           _parse_cn_month_day 支持后，本函数标记 is_lunar 并经 lunar-python
+           转阳历（引擎口径为阳历输入）；
+        ② 模糊时辰（"接近11点"）→ 按边界取（"接近/将近/临近/快到/快" →
+           anchor-1:55，即 10:55 优先；"大约/大概/约" → anchor:00），
+           宁可先按边界排盘也不放弃解析（用户可在回复后确认）；
+        ③ 嵌套城市（"吉林省长春市榆树市"）→ 取最内层"XX市"（榆树市），
+           不再误取省名。
+        """
         # Step 1: Extract year
         year = None
         ym = re.search(r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})', msg)
@@ -3136,18 +3157,44 @@ class MessageHandler:
 
         # Step 2: Extract month and day — try Chinese lunar first
         month = day = None
+        is_lunar = False
         cn_md = _parse_cn_month_day(msg)
         if cn_md:
             month, day = cn_md
+            is_lunar = True  # 中文数字月日（三月初三/三月28）→ 农历口径
         else:
             # Try numeric date: 8月15日, 8-15, 10月10日, 11.20
             md = re.search(r'(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
             if md:
                 month = int(md.group(1))
                 day = int(md.group(2))
+                # 阿拉伯数字 + 显式农历/阴历前缀（"农历1999年3月28"）→ 农历
+                if re.search(r'农历|阴历', msg):
+                    is_lunar = True
 
-        if not month or not day or month < 1 or month > 12 or day < 1 or day > 31:
-            return None
+        if not month or not day or abs(month) > 12 or day < 1 or day > 31:
+            return None  # month=0/None 或超界 → 放弃本提取（不误传引擎）
+
+        # 农历 → 阳历（lunar-python，闰月用负月）。转换失败不放弃：
+        # ① 闰月在该年不存在（如"闰三月"实无闰三月）→ 按平月近似；
+        # ② 仍失败 → 按原值（近似阳历）继续——宁可多步确认也不放弃解析。
+        if is_lunar:
+            try:
+                from lunar_python import Lunar
+                _solar = Lunar.fromYmd(year, month, day).getSolar()
+                year, month, day = (_solar.getYear(),
+                                    _solar.getMonth(), _solar.getDay())
+            except Exception:
+                if month < 0:
+                    try:
+                        from lunar_python import Lunar
+                        _solar = Lunar.fromYmd(year, abs(month), day).getSolar()
+                        year, month, day = (_solar.getYear(),
+                                            _solar.getMonth(), _solar.getDay())
+                    except Exception:
+                        month = abs(month)  # 平月近似，绝不传负月给引擎
+                else:
+                    month = abs(month)
 
         # Step 3: Extract time
         hour = 0
@@ -3177,6 +3224,21 @@ class MessageHandler:
             if shichen:
                 hour = CHINESE_HOUR_MAP.get(shichen.group(1), 0)
 
+        # D7 模糊时辰："接近11点"→10:55（先边界排盘，回复后由用户确认）；
+        # "大约/大概/约11点"→11:00
+        if hour == 0:
+            fuzzy = re.search(
+                r'(接近|将近|临近|快到|快|大约|大概|约)\s*(\d{1,2})\s*点', msg)
+            if fuzzy:
+                anchor = int(fuzzy.group(2))
+                if fuzzy.group(1) in ("接近", "将近", "临近", "快到", "快"):
+                    # 接近整点 → 前一小时 55 分（"接近11点"→10:55 优先）
+                    hour = anchor - 1 if anchor >= 1 else 23
+                    minute = 55
+                else:
+                    hour = anchor
+                    minute = 0
+
         # Also try numeric time: 15:30, 15点30, 23:00
         if hour == 0:
             tm_num = re.search(r'(\d{1,2})\s*[点时:：]\s*(\d{0,2})', msg)
@@ -3195,11 +3257,12 @@ class MessageHandler:
         elif "男" in msg:
             gender = "男"
 
-        # Step 5: Extract city
+        # Step 5: Extract city — D7 嵌套城市取最内层"XX市"
+        # （"吉林省长春市榆树市"→ 榆树市，不再误取省名）
         city = "北京"
-        city_match = re.search(r'([一-鿿]{2,4}(?:市|省))', msg)
-        if city_match:
-            city = city_match.group(1)
+        city_matches = re.findall(r'([一-鿿]{2,5}?市)', msg)
+        if city_matches:
+            city = city_matches[-1]
         else:
             city_match = re.search(r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
             if city_match:

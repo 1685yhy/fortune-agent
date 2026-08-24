@@ -101,7 +101,14 @@ class MessageAnalyzer:
     """Single-pass message analyzer: emotion + intent in one Flash call."""
 
     # Fast path: 纯生日陈述（不含任何意图词）→ bazi 立即返回
-    BIRTH_DATE_PATTERN = re.compile(r'\d{4}\s*[年/-]\s*\d{1,2}\s*[月/-]\s*\d{1,2}')
+    # D7（2026-08-24 生产实测）：口语长句生辰（阴历/农历 + 中文数字月 +
+    # 阿拉伯数字日，如"1999年阴历三月28"）也必须命中，否则降级/无 LLM 链路
+    # 把完整出生信息误判为自由聊天。INTENT_HINT_PATTERN 门控不变。
+    BIRTH_DATE_PATTERN = re.compile(
+        r'\d{4}\s*[年/-]\s*(?:农历|阴历|闰)?\s*'
+        r'(?:\d{1,2}|[一二三四五六七八九十冬腊正])\s*[月/-]\s*'
+        r'(?:\d{1,2}|初?[一二三四五六七八九十廿卅]+)'
+    )
     # 意图提示词（fast path 陷阱修复）：消息含这些词说明不只是报生日
     # （可能问事业/公司适配等），即使有生日也必须走 AI 分类，
     # 否则"1990年5月20日…哪个公司最配"会被掐成纯排盘 bazi
