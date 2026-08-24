@@ -38,6 +38,15 @@ def test_true_solar_changchun():
     assert ENGINE._true_solar_time(1999, 5, 13, 10, 56, "长春市") == (1999, 5, 13, 11, 21)
 
 
+def test_true_solar_yushu():
+    """榆树 126.53°E → 1999-05-13 10:55 → +29.9 分（经度 +26.1，均时差 +3.75）→ 11:24 午时。
+    与吉林市（126.55°E，经度差 0.02°）修正后分钟数一致。"""
+    assert ENGINE._true_solar_time(1999, 5, 13, 10, 55, "榆树") == (1999, 5, 13, 11, 24)
+    # 带「市」后缀同样可查
+    assert ENGINE._true_solar_time(1999, 5, 13, 10, 55, "榆树市") == (1999, 5, 13, 11, 24)
+    assert ENGINE._true_solar_time(1999, 5, 13, 10, 55, "吉林市") == (1999, 5, 13, 11, 24)
+
+
 def test_true_solar_beijing():
     """北京 1999-05-13 10:56 → -10.6 分 → 10:45，仍在巳时（时柱不变）。"""
     assert ENGINE._true_solar_time(1999, 5, 13, 10, 56, "北京") == (1999, 5, 13, 10, 45)
@@ -68,6 +77,16 @@ def test_changchun_wenzhen_anchor():
     r = ENGINE.calculate(1999, 5, 13, 10, 56, "长春", "男")
     assert r.bazi == ["己卯", "己巳", "乙丑", "壬午"], r.bazi
     assert r.dayun[0][0] == 3  # 起运虚岁与问真一致（修正后起运距离）
+
+
+def test_yushu_matches_jilin_city():
+    """榆树 1999-05-13 10:55 男 → 修正 11:24 午时 → 时柱壬午；
+    与吉林市（经度差 0.02°）同输入全盘完全一致。"""
+    a = ENGINE.calculate(1999, 5, 13, 10, 55, "榆树", "男")
+    b = ENGINE.calculate(1999, 5, 13, 10, 55, "吉林市", "男")
+    assert a.corrected_time == "11:24"
+    assert a.corrected_time == b.corrected_time
+    assert a.bazi == b.bazi == ["己卯", "己巳", "乙丑", "壬午"]
 
 
 def test_beijing_unchanged():
