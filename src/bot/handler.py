@@ -76,6 +76,9 @@ from .tool_calls import (
     RETRIEVAL_UNAVAILABLE_HINT,
 )
 
+# E2-1 对话消息卡片化：卡片标记生成与判定（纯函数，见 task-e2-server-brief）
+from .card_mark import detect_card_type, wrap_card
+
 # v8 阶段 3（过程体验）：工具调用事件文案（思考路径逐步点亮）
 _TOOL_EVENT_LABELS = {
     "排盘": "正在排盘…",
@@ -568,6 +571,9 @@ class MessageHandler:
         self.compactor = MemoryCompactor(api_key, model=getattr(llm, 'model', 'deepseek-v4-flash')) if api_key else None
         # L1/L2/L3 运行时状态：工具调用日志（本轮 <tool_call> 记录，落库用）
         self._tool_logs: dict = {}
+        # E2-1 对话消息卡片化：本轮卡片判定上下文（user_id → {scenario, paipan,
+        # zeri, data_read}），process() 入口重置、引擎/直读路径记录、出口消费
+        self._card_turn: dict = {}
         # 阶段 5：本轮引用来源注册表（user_id → [{index,type,title,text,url}]），
         # 工具执行时注册，_run_tool_loop 校验后由 API 层 pop_citations 取走
         self._citations: dict = {}
@@ -2338,6 +2344,46 @@ class MessageHandler:
         """取走并清除该用户本轮的工具调用日志（落库用）。"""
         return self._tool_logs.pop(user_id, None)
 
+    def _mark_card_turn(self, user_id: str, **marks) -> None:
+        """E2-1 卡片化：记录本轮卡片判定上下文（引擎/直读路径调用）。
+
+        记录仅用于 process() 出口的卡片包装；object.__new__ 装配的测试实例
+        无 _card_turn 属性时静默跳过（不影响任何回复内容）。
+        """
+        turn = getattr(self, "_card_turn", None)
+        if turn is None:
+            return
+        ctx = turn.setdefault(user_id, {})
+        for k, v in marks.items():
+            ctx[k] = v
+
+    def _maybe_wrap_card(self, reply: str, user_id: str, *,
+                         tool_calls: Optional[list] = None) -> str:
+        """E2-1 对话消息卡片化：process() 出口统一包卡片标记。
+
+        判定见 src.bot.card_mark.detect_card_type（纯函数，输入=回复文本+本轮
+        上下文）。只作用于最终回复字符串（流式输出不受影响）；未命中/包装
+        异常 → 原样返回（宁可漏包不可误包，绝不破坏回复）。
+        """
+        if not reply:
+            return reply
+        ctx = (getattr(self, "_card_turn", None) or {}).get(user_id) or {}
+        try:
+            card_type = detect_card_type(
+                reply,
+                tool_calls=tool_calls,
+                scenario=(ctx.get("scenario") or "").strip() or None,
+                direct_read=bool(ctx.get("data_read")),
+                ran_paipan=bool(ctx.get("paipan")),
+                ran_zeri=bool(ctx.get("zeri")),
+            )
+            if not card_type:
+                return reply
+            return wrap_card(reply, card_type)
+        except Exception as e:  # noqa: BLE001 — 判定/包装异常 → 保持原文
+            logger.warning("卡片化失败（保持原文）user=%s: %s", user_id, e)
+            return reply
+
     def process(self, message: str, user_id: str,
                 stream_cb: Optional[Callable] = None, deep_night: bool = False,
                 session_id: Optional[str] = None,
@@ -2363,6 +2409,12 @@ class MessageHandler:
         self._downgraded[user_id] = bool(downgraded)
         # 清理上一轮残留的工具日志（xuetang/advisor/confidant 等早退分支不消费）
         self._pop_tool_log(user_id)
+        # E2-1 卡片化：重置本轮卡片判定上下文（引擎/直读路径会写入记录；
+        # object.__new__ 装配的测试实例无该属性时跳过——卡片化纯增量，不阻断主流程）
+        _turn = getattr(self, "_card_turn", None)
+        if _turn is not None:
+            _turn[user_id] = {
+                "scenario": "", "paipan": False, "zeri": False, "data_read": False}
         # 阶段 5：清理上一轮残留的引用来源（早退分支不注册，防泄漏）
         self._citations.pop(user_id, None)
 
@@ -2387,7 +2439,7 @@ class MessageHandler:
         # 引擎绝不计算、LLM 绝不调用。
         reuse_text = self._try_reuse_chart(user_id, msg)
         if reuse_text:
-            return reuse_text
+            return self._maybe_wrap_card(reuse_text, user_id)
 
         # Step 0.6: 额度检查（L5-2 I-2 新旧额度协调）——聊天消息不再走旧硬断：
         # 免费用户对话由 chat_quota（15 条/日）治理，超限降级续聊（downgraded=True），
@@ -2424,7 +2476,9 @@ class MessageHandler:
             except Exception:
                 direct = None  # DB 异常 fail-open，不阻塞 process 入口
             if direct:
-                return direct
+                # E2-1 卡片化：存量直读 → data 卡片
+                self._mark_card_turn(user_id, data_read=True)
+                return self._maybe_wrap_card(direct, user_id)
 
         # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
         # Task 2 等待时长优化：消息含完整出生信息时，把「排盘 + 秒回安抚」提交到
@@ -2587,6 +2641,10 @@ class MessageHandler:
                                         analysis=analysis, session_id=session_id)
             # 阶段 2：本轮工具调用日志 → 落库字段
             tool_log = self._pop_tool_log(user_id)
+            # E2-1 卡片化：统一出口包装（只作用于最终回复字符串；开场白/引导语
+            # 留在卡片外；未命中 → 原样返回）
+            reply = self._maybe_wrap_card(reply, user_id,
+                                          tool_calls=(tool_log or {}).get("calls"))
             # AI 原生（Phase 2）：长期记忆 — 会话开始（非首次）注入"欢迎回来"式开场
             # （流式模式下开场已提前流出，不再拼接，避免重复）
             if stream_cb is None:
@@ -2685,6 +2743,10 @@ class MessageHandler:
 
         # 阶段 2：本轮工具调用日志 → 落库字段
         tool_log = self._pop_tool_log(user_id)
+        # E2-1 卡片化：统一出口包装（落库/缓存/返回值一致携带卡片标记；
+        # 开场白/引导语留在卡片外；未命中 → 原样返回）
+        reply = self._maybe_wrap_card(reply, user_id,
+                                      tool_calls=(tool_log or {}).get("calls"))
         # AI 原生（Phase 2）：长期记忆 — 会话开始（非首次）注入"欢迎回来"式开场
         # （流式模式下开场已提前流出，不再拼接，避免重复）
         if stream_cb is None:
@@ -3091,6 +3153,8 @@ class MessageHandler:
         if r.get("shensha"):
             lines.append("神煞：" + "、".join(r["shensha"][:8]))
         lines.append("（直接看的已存结果；要重新详细分析就说'重新帮我分析'）")
+        # E2-1 卡片化：重看盘直读 → 存量档案直读（data 卡片判定依据）
+        self._mark_card_turn(user_id, data_read=True)
         return "\n".join(lines)
 
     # ── D2 四柱终审（数据正确性防线，QA AC-CHAT-009）──────────────
@@ -3500,6 +3564,8 @@ class MessageHandler:
         # 1. 排盘（流式模式先发进度事件，避免引擎阶段长沉默触发看门狗）
         self._emit_stream_event(stream_cb, "thinking", "正在排盘…")
         result = self.engine.calculate(year, month, day, hour, minute, city, gender)
+        # E2-1 卡片化：完成引擎排盘（paipan 卡片判定依据，含降级精简路径）
+        self._mark_card_turn(user_id, paipan=True)
 
         # L5-2 修复（降级成本漏洞）：降级时 bazi 走「引擎排盘 + 精简文案」——
         # 排盘为确定性 0 成本（BaziEngine 本地计算）；RAG 检索 / AdaptiveAdvisor
@@ -3596,6 +3662,11 @@ class MessageHandler:
 
         # Phase 2: Scenario-aware structured report
         scenario_info = self._route_by_scenario(question_with_gender, user_id)
+        # E2-1 卡片化：记录本轮实际使用的分析场景（yunshi 卡片判定依据——
+        # 依赖"实际路由记录"而非关键词扫描，含"财运"的闲聊无记录不误判）
+        if scenario_info:
+            self._mark_card_turn(
+                user_id, scenario=scenario_info.get("category", ""))
         # Task 2 计时覆盖异常路径：analyze 抛异常也要有 stage=main_analysis 输出
         # （宁多勿缺）——try/finally 保证成败都记录耗时
         _t0 = time.monotonic()
@@ -4572,6 +4643,8 @@ class MessageHandler:
         # 1. 择日
         self._emit_stream_event(stream_cb, "thinking", "我在翻黄历择吉…")
         result = self.zeri_engine.select(year, month, day, purpose=purpose)
+        # E2-1 卡片化：完成择日引擎分析（zeri 卡片判定依据）
+        self._mark_card_turn(user_id, zeri=True)
 
         # 2. 保存
         self.dao.save_consultation(user_id, question, result, intent="zeri")
