@@ -12,6 +12,7 @@ const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const streamHost = require('../../utils/streamHost');
 const md = require('../../utils/md');
+const cardUtil = require('../../utils/card');   // E2-2 对话卡片化：卡片标记解析
 
 /* 原型 aiComplete 精选文案（dir_b.html 532-537 行 CURATED，后端不可用时兜底） */
 const CURATED = {
@@ -614,6 +615,9 @@ Page({
     };
   },
 
+  /* E2-2 对话卡片化：卡片渲染视图构建（解析 + 流式规则，纯逻辑）
+     实现在 utils/card.js buildCardView（node 可单测）；本页只接线：
+     正文/尾部/降级均复用 md.parseMd 渲染。 */
   _mirror(messages) {
     const vis = (Array.isArray(messages) ? messages : []).filter((m) => !isJianEntry(m));
     const out = new Array(vis.length);
@@ -634,12 +638,33 @@ Page({
           thinkLabel: tv.thinkLabel,
           thinkSeconds: tv.thinkSeconds,
           thinkCollapsed: tv.thinkCollapsed,
+          card: cached.card,
+          cardNodes: cached.cardNodes,
+          cardTailNodes: cached.cardTailNodes,
+          cardPrefixNodes: cached.cardPrefixNodes,
+          cardTitle: cached.cardTitle,
+          cardTypeLabel: cached.cardTypeLabel,
+          cardFinal: cached.cardFinal,
         });
         continue;
       }
-      const mdNodes = md.parseMd(c);
+      const cv = (m.role === 'ai')
+        ? cardUtil.buildCardView(c, { streaming: !!m.streaming, error: !!m.error }, md.parseMd)
+        : null;
+      const isCard = !!(cv && cv.card);
+      const mdNodes = isCard ? [] : (cv && cv.mdNodes) ? cv.mdNodes : md.parseMd(c);
       const nav = (m.role === 'ai' && !m.error) ? navFor(c) : null;
-      this._segCache = { id: m.id, content: c, mdNodes, navPath: nav && nav.path, navLabel: nav && nav.label };
+      this._segCache = {
+        id: m.id, content: c, mdNodes,
+        navPath: nav && nav.path, navLabel: nav && nav.label,
+        card: isCard ? cv.card : null,
+        cardNodes: (cv && cv.cardNodes) || null,
+        cardTailNodes: (cv && cv.cardTailNodes) || null,
+        cardPrefixNodes: (cv && cv.cardPrefixNodes) || null,
+        cardTitle: (cv && cv.cardTitle) || '',
+        cardTypeLabel: (cv && cv.cardTypeLabel) || '',
+        cardFinal: !!(cv && cv.cardFinal),
+      };
       out[i] = Object.assign({}, m, {
         mdNodes,
         reactions: reactions[m.id] || [],
@@ -650,6 +675,13 @@ Page({
         thinkLabel: tv.thinkLabel,
         thinkSeconds: tv.thinkSeconds,
         thinkCollapsed: tv.thinkCollapsed,
+        card: isCard ? cv.card : null,
+        cardNodes: (cv && cv.cardNodes) || null,
+        cardTailNodes: (cv && cv.cardTailNodes) || null,
+        cardPrefixNodes: (cv && cv.cardPrefixNodes) || null,
+        cardTitle: (cv && cv.cardTitle) || '',
+        cardTypeLabel: (cv && cv.cardTypeLabel) || '',
+        cardFinal: !!(cv && cv.cardFinal),
       });
     }
     return out;
@@ -989,7 +1021,8 @@ Page({
     try { wx.vibrateShort({}); } catch (err) { /* 模拟器无振动能力，静默 */ }
     const msg = this._findMessage(id);
     // 分享目标在开菜单时锁定（分享按钮 open-type=share 会在菜单关闭后读取）
-    this._shareTarget = msg ? String(msg.content || '') : '';
+    // E2-2：分享标题走剥标记后的纯文本（卡片标记不暴露给用户）
+    this._shareTarget = msg ? cardUtil.stripCardMarkers(msg.content) : '';
     this.setData({ actionMenu: { show: true, msgId: id, role, kept: !!(msg && msg.kept) } });
   },
 
@@ -1015,7 +1048,8 @@ Page({
       this.setData({ selectMsgId: msgId });
       wx.showToast({ title: '长按文字即可选取', icon: 'none', duration: 2000 });
     } else if (k === 'copy') {
-      wx.setClipboardData({ data: msg.content || '' });
+      // E2-2：复制走剥标记后的纯文本（卡片标记不暴露给用户）
+      wx.setClipboardData({ data: cardUtil.stripCardMarkers(msg.content) });
     } else if (k === 'emoji') {
       // v1.2 表情反应：打开 emoji 选择弹层
       this._openEmojiFor(msgId);
@@ -1745,13 +1779,14 @@ Page({
     });
   },
 
-  /* 点朗读：合成并播放该消息语音；再次点击停止 */
+  /* 点朗读：合成并播放该消息语音；再次点击停止
+     E2-2：朗读走剥标记后的纯文本（卡片标记不该被读出来） */
   speakMessage(e) {
     if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const id = e.currentTarget.dataset.id;
     const msg = this._findMessage(id);
     if (!msg || !this._audioCtx) return;
-    this._playWithTts(id, msg.content || '', true);
+    this._playWithTts(id, cardUtil.stripCardMarkers(msg.content), true);
   },
 
   /* 播放 TTS 语音；_speakSeq 让新播放请求使进行中的请求失效（播新停旧） */

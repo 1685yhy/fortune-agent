@@ -167,12 +167,38 @@
           </view>
           <!-- v1.2 正文：Markdown 节点树渲染（md-block 模板逐节点 view/text，墨韵样式）；
                引用 [n]/🔗 由 utils/md.js 解析为 cite 节点（代码内不解析）；流式增量重解析。
-               v1.2 图片消息预留：msg.image → 圆角墨框图片 -->
+               v1.2 图片消息预留：msg.image → 圆角墨框图片
+               E2-2 对话卡片化：item.card 非空 → 卡片壳渲染（标题条 + 正文区 + 收藏按钮
+               + 卡外引导语）；无标记/降级 → 保持原 md-block 渲染（零回归） -->
           <view class="jz-body">
             <image wx:if="{{item.image && item.image.url}}" class="msg-img"
               src="{{item.image.url}}" mode="widthFix"
               style="{{item.image.width ? 'max-width:' + item.image.width + 'rpx;' : ''}}"></image>
-            <template is="md-block" data="{{nodes: item.mdNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
+            <block wx:if="{{item.card}}">
+              <!-- 前置内容（流式重发重复前缀已由镜像丢弃；此处仅兜底非重复前置） -->
+              <view wx:if="{{item.cardPrefixNodes && item.cardPrefixNodes.length}}" class="card-prefix">
+                <template is="md-block" data="{{nodes: item.cardPrefixNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
+              </view>
+              <view class="card-shell">
+                <view class="card-head">
+                  <text class="card-type">{{item.cardTypeLabel}}</text>
+                  <text class="card-title">{{item.cardTitle}}</text>
+                </view>
+                <view class="card-body">
+                  <template is="md-block" data="{{nodes: item.cardNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
+                </view>
+                <!-- E2-2 收藏按钮（仅卡片定格后；复用现有收藏逻辑：data-k=keep → toggleFb） -->
+                <view wx:if="{{item.cardFinal}}" class="card-fav" hover-class="card-fav-active" hover-stay-time="0"
+                  data-id="{{item.id}}" data-k="keep" bindtap="toggleFb">
+                  <text class="card-fav-txt">{{item.kept ? '已收藏' : '收藏'}}</text>
+                </view>
+              </view>
+              <!-- 卡外引导语（"还想了解…"等，渲染在卡片容器外） -->
+              <view wx:if="{{item.cardTailNodes && item.cardTailNodes.length}}" class="card-tail">
+                <template is="md-block" data="{{nodes: item.cardTailNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
+              </view>
+            </block>
+            <template wx:else is="md-block" data="{{nodes: item.mdNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
             <text wx:if="{{item.streaming && item.content}}" class="jz-cursor"></text>
           </view>
           <!-- 2026-08-18 生成中断分级：网络中断/超时/失败 → 气泡底部浅色小字（正文保留，不覆盖为失败） -->
