@@ -12,7 +12,9 @@
   页脚）留在卡片外；正文是纯 markdown 字符串，不做二次转换
 
 判定规则（brief §判定规则，按优先级，可单测的纯函数）：
-1. 工具调用记录：本轮 <tool_call> 执行过「排盘」→ paipan、「择日」→ zeri
+1. 工具调用记录：本轮 <tool_call> 实际执行过且成功（hit=True）的「排盘」→
+   paipan、「择日」→ zeri；hit=False 的失败调用不计（"「排盘」工具暂不可用"
+   等错误文案绝不能判卡）
 2. 意图/路由：本轮实际使用过 career/wealth/love/health 分析场景 → yunshi
    （依赖"实际路由记录"而非关键词扫描——含"财运"的闲聊无记录不误判）
 3. 引擎直跑（意图路径）：_do_bazi_analysis 完成排盘 → paipan、
@@ -23,6 +25,7 @@
 6. 都不命中 → None（普通对话保持原样）
 
 判定原则：宁可漏包不可误包；拆不出尾部就整体包（宁整勿碎）。
+错误/失败文案（⚠️/暂不可用/引擎执行失败）一律不包装（wrap_card 防御层）。
 """
 import re
 from typing import Optional, Sequence, Tuple
@@ -42,6 +45,11 @@ _YUNSHI_SCENARIOS = frozenset({"career", "wealth", "love", "health"})
 # D9 无档案知识兜底的确定性签名（_BAZI_GENERAL_KNOWLEDGE 条目的固定开头）
 _KNOWLEDGE_SIG_RE = re.compile(
     r'关于「[^」]{1,16}」的(?:通用命理常识|基本常识)|关于八字命理的基本常识')
+# 错误/失败文案签名（服务端降级与工具失败回复的确定性片段）——出现任一即不
+# 包装卡片（宁可漏包不可误包）："⚠️ 服务暂时不可用：…"（handler 流程异常降级）、
+# "「排盘/解梦/风水/择日/查记录」工具暂不可用…"（工具注册失败）、
+# "XX引擎执行失败：…"（引擎抛异常）等均由此覆盖
+_ERROR_SIGS = ("⚠️", "暂不可用", "引擎执行失败")
 
 # ── 尾部引导语/反馈语拆分 ──────────────────────────────────────
 # 已知尾部模式（均为服务端代码拼接的固定结构，出现在回复末尾且可叠加）：
@@ -90,10 +98,13 @@ def detect_card_type(
     """
     if not reply:
         return None
-    # 1. 工具调用记录（<tool_call> 实际执行过的工具）
+    # 1. 工具调用记录（<tool_call> 实际执行过的工具；hit=False 的失败调用不计——
+    #    工具"暂不可用/引擎执行失败"等错误文案绝不能包成命盘/择日卡片）
     names = set()
     for c in (tool_calls or ()):
         if isinstance(c, dict):
+            if c.get("hit") is False:
+                continue  # 执行失败（hit=False）→ 不视为本轮实际使用
             t = c.get("type")
         elif isinstance(c, str):
             t = c
@@ -147,9 +158,13 @@ def wrap_card(reply: str, card_type: str, title: str = "") -> str:
     - title 缺省时按类型默认标题（data/knowledge 无默认则省略属性，端上回退）
     - 正文含 [card: / [/card] 字样（防结构破坏）或回复已含卡片标记
       （防重复包装/缓存回环）→ 原样返回，宁可漏包
+    - 错误/失败文案（"⚠️"、"暂不可用"、"引擎执行失败"签名）→ 原样返回，
+      绝不包成卡片（宁可漏包不可误包）
     - 未知卡片类型 → 原样返回
     """
     if not reply or card_type not in CARD_TYPES:
+        return reply
+    if any(sig in reply for sig in _ERROR_SIGS):
         return reply
     if "[card:" in reply or "[/card]" in reply:
         return reply

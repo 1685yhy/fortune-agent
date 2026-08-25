@@ -33,6 +33,27 @@ def test_detect_tool_zeri():
     assert detect_card_type("这是择日结果…", tool_calls=[{"type": "择日", "hit": True}]) == "zeri"
 
 
+def test_detect_tool_failed_not_card():
+    """失败的排盘/择日调用（hit=False，如「排盘」工具暂不可用）→ 不得判卡
+
+    工具执行失败（_run_tool_loop 无条件记录 hit=False）后的降级文案
+    （"「排盘」工具暂不可用，请直接与用户聊天。"）绝不能包成命盘卡片——
+    宁可漏包不可误包。
+    """
+    assert detect_card_type(
+        "「排盘」工具暂不可用，请直接与用户聊天。",
+        tool_calls=[{"type": "排盘", "hit": False}]) is None
+    assert detect_card_type(
+        "「择日」工具暂不可用，请直接与用户聊天。",
+        tool_calls=[{"type": "择日", "hit": False}]) is None
+    # 失败排盘 + 成功择日混跑 → 只算成功调用（zeri）
+    assert detect_card_type("正文…", tool_calls=[
+        {"type": "排盘", "hit": False}, {"type": "择日", "hit": True}]) == "zeri"
+    # 兼容性：dict 记录无 hit 键 / 纯字符串记录 → 维持原行为（视为已执行）
+    assert detect_card_type("x", tool_calls=[{"type": "排盘"}]) == "paipan"
+    assert detect_card_type("x", tool_calls=["排盘"]) == "paipan"
+
+
 def test_detect_scenario_yunshi():
     """分析意图场景（career/wealth/love/health）→ yunshi"""
     for s in ("career", "wealth", "love", "health"):
@@ -148,6 +169,22 @@ def test_wrap_card_already_marked_skips():
 def test_wrap_card_unknown_type_skips():
     """未知卡片类型 → 原样返回"""
     assert wrap_card("正文", "unknown_type") == "正文"
+
+
+def test_wrap_card_skips_error_copy():
+    """错误/失败文案（⚠️ / 暂不可用 / 引擎执行失败）→ 不包装，原样返回
+
+    覆盖流程异常降级（"⚠️ 服务暂时不可用…"）与工具失败（"「排盘」工具暂不可用"、
+    "排盘引擎执行失败"）两类误包面——宁可漏包不可误包。
+    """
+    degrade = "⚠️ 服务暂时不可用：Object of type Mock is not JSON serializable\n\n请稍后再试或换一种命理方式。"
+    assert wrap_card(degrade, "paipan") == degrade
+    tool_down = "「排盘」工具暂不可用，请直接与用户聊天。"
+    assert wrap_card(tool_down, "paipan") == tool_down
+    engine_fail = "排盘引擎执行失败：connect timeout"
+    assert wrap_card(engine_fail, "paipan") == engine_fail
+    zeri_fail = "择日引擎执行失败：internal error"
+    assert wrap_card(zeri_fail, "zeri") == zeri_fail
 
 
 # ── 尾部引导语拆分 ──────────────────────────────────────────────
