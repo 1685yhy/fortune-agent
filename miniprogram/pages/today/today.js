@@ -7,6 +7,7 @@ const theme = require('../../utils/theme');
 const lunar = require('../../utils/lunar');
 const streamHost = require('../../utils/streamHost'); // 收藏同步宿主用（见 _syncHostJian）
 const persons = require('../../utils/persons'); // 命主档案本地判定（未设置提示条用）
+const guide = require('../../utils/guide');     // E1：未建档提示条标记与判定
 
 /* 收藏复用现有收藏机制：ylm_chat_messages 中 role==='ai' && kept===true（favorites 页数据源）。
    type:'jian' 为笺匣分类标记（Task 10 收藏页「笺」分类）。 */
@@ -81,6 +82,10 @@ Page({
     night: { mode: false, banner: true },
     /* 未设置命主档案 → 通用运势提示条（true 时显示「去设置」跳档案页） */
     archiveHint: false,
+    /* E1 未建档提示条：本地无档案且未关闭 → 显示（点击跳排盘，× 关闭落
+       ylm_noarch_tip_closed=1；noarchClosed 为本次会话内存态） */
+    noarchHint: false,
+    noarchClosed: false,
     /* 晨笺卡：show=已开启且有数据；notEnabled=未开启（显示「开启晨笺」入口） */
     jian: {
       show: false,
@@ -121,12 +126,17 @@ Page({
     this._loadJian();
     this._loadNight();
     theme.bindTheme(this);
+    /* E1：读取提示条关闭标记（仅本会话用；关闭标记在「无档案」前提下永久生效） */
+    let closed = false;
+    try { closed = !!wx.getStorageSync(guide.NOARCH_CLOSED_KEY); } catch (e) { /* ignore */ }
+    this.setData({ noarchClosed: closed }, () => this._refreshNoarchHint());
   },
 
   /* 每次回页面刷新深夜态（21:00 后出现横幅，白天不出现） */
   onShow() {
     this._loadNight();
     this._refreshArchiveHint();   // UX批1 I-4：建档返回后刷新档案提示条
+    this._refreshNoarchHint();    // E1：排盘建档返回后未建档提示条消失/保持
   },
 
   /* ═══ UX批1 I-4：档案提示条 onShow 重算 ═══
@@ -457,6 +467,26 @@ Page({
   /* 未设置命主信息提示条 → 档案页（添加命主） */
   onGoArchive() {
     wx.navigateTo({ url: '/pages/persons/persons', fail: () => {} });
+  },
+
+  /* ═══ E1：未建档提示条（本地无档案 → 显示；× 关闭后本会话+后续启动都不显示；
+     重新建档成功自动消失）。判定走纯逻辑 guide.shouldShowNoarchTip（node 已单测）。
+     与 archiveHint 的取舍：E1 条优先——两者同真时（无档案 + 后端通用日历）只显示
+     E1 条（wxml 条件 archiveHint && !noarchHint），关闭 E1 后原「去设置」条接管 */
+  _refreshNoarchHint() {
+    const show = guide.shouldShowNoarchTip(persons.hasLocalArchive(), this.data.noarchClosed);
+    if (this.data.noarchHint !== show) this.setData({ noarchHint: show });
+  },
+
+  /* 关闭 × → 落 ylm_noarch_tip_closed=1（本次不显示；重新建档成功自动消失） */
+  onCloseNoarchTip() {
+    try { wx.setStorageSync(guide.NOARCH_CLOSED_KEY, 1); } catch (e) { /* ignore */ }
+    this.setData({ noarchClosed: true, noarchHint: false });
+  },
+
+  /* 点击提示条 → 排盘页（无档案用户的首个建档入口，paipan 页自带生辰表单） */
+  onGoNoarchTip() {
+    wx.navigateTo({ url: '/pages/paipan/paipan', fail: () => {} });
   },
 
   /* 原型 onTalk：进入夜话 */

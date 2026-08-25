@@ -1,0 +1,41 @@
+// 易理明灯 E1 — 首访功能导览 & 未建档提示条：storage 标记契约 + 纯判定逻辑
+//
+// 本模块零 wx/小程序 API 依赖 → 可直接 node 单测（miniprogram/tests/guide.test.js，
+// 运行：cd miniprogram && node --test tests/）。
+//
+// ── 标记契约 ──
+// 1) 功能导览（onboarding 页 phase==='tour' 尾链，3 卡：排盘→今日→问明灯）：
+//    ylm_tour_done / ylm_tour_skipped 二选一——
+//    「开始使用」（第 3 卡看完）→ ylm_tour_done=1；「跳过」→ ylm_tour_skipped=1。
+//    导览卡去向按钮（去排盘/去今日/去对话）不落标记：中途离开未做「完成/跳过」
+//    决定，保持二选一不变量；导览每次由建档流程尾链进入，标记不做进入门槛。
+//    ⚠ 不影响现有 ylm_onboard_done / ylm_onboard_skipped 判定——app.js
+//    _maybeOnboard 只读 onboard 两键，导览标记与其互不读写（见 guide.test.js
+//    的键隔离断言），onboarding 不再自动弹出的逻辑保持不变。
+// 2) 未建档提示条（today 页）：ylm_noarch_tip_closed=1 —— 关闭后本会话+后续
+//    启动都不显示；重新建档成功（本地有档案）自动消失。取舍：关闭标记在
+//    「无档案」前提下永久生效（不按日重置——简单且不打扰）；一旦有档案，
+//    提示条跟随「有无档案」走，已关闭的标记不再拦截（用户已见过并关过，
+//    不重复打扰；将来删档后也不再弹出）。
+
+const TOUR_DONE_KEY = 'ylm_tour_done';
+const TOUR_SKIP_KEY = 'ylm_tour_skipped';
+const NOARCH_CLOSED_KEY = 'ylm_noarch_tip_closed';
+
+/* 未建档提示条是否显示：本地无档案 且 未被用户关闭 */
+function shouldShowNoarchTip(hasArchive, tipClosed) {
+  return !hasArchive && !tipClosed;
+}
+
+/* 导览卡是否还有下一张（tourIdx 非最后一张 → 显示「下一步」而非「开始使用」） */
+function tourHasNext(idx, total) {
+  return idx < total - 1;
+}
+
+module.exports = {
+  TOUR_DONE_KEY,
+  TOUR_SKIP_KEY,
+  NOARCH_CLOSED_KEY,
+  shouldShowNoarchTip,
+  tourHasNext,
+};

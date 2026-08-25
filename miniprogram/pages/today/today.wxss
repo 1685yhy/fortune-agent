@@ -658,3 +658,63 @@
   display: flex;
   align-items: center;
 }
+
+/* ═══ E1 未建档提示条（本地无档案 → 显示；× 关闭；点击跳排盘）
+     样式跟随 arch-hint/夜间横幅：宣纸卡底 + 墨色变量（设计系统 token，暗色随动） ═══ */
+.noarch-tip {
+  width: 100%;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  margin-top: 34rpx;                      /* 18px */
+  border: 2rpx solid var(--line);         /* 1px */
+  border-radius: 12rpx;                   /* 6px */
+  padding: 23rpx 24rpx;                   /* 12px */
+  display: flex;
+  align-items: center;
+  gap: 21rpx;                             /* 11px */
+  background: var(--paper-card);
+  box-shadow: 0 8rpx 23rpx var(--shadow-sm);
+}
+.noarch-tip-active { background: var(--acc-soft); }
+.noarch-tip-seal {
+  width: 62rpx;
+  height: 62rpx;
+  font-size: 36rpx;
+  border-radius: 6rpx;
+  transform: rotate(-2deg);
+}
+.noarch-tip-mid { flex: 1; min-width: 0; }
+.noarch-tip-t {
+  font-family: var(--font-song);
+  font-size: 25rpx;                       /* 13px */
+  color: var(--ink);
+  letter-spacing: .05em;
+  line-height: 1.5;
+}
+.noarch-tip-s {
+  margin-top: 6rpx;                       /* 3px */
+  font-family: var(--font-song);
+  font-size: 22rpx;                       /* 11.5px */
+  letter-spacing: .08em;
+  color: var(--ink-faint);
+}
+.noarch-tip-arrow {
+  flex-shrink: 0;
+  font-family: var(--font-song);
+  font-size: 30rpx;
+  color: var(--acc);
+  padding: 0 4rpx;
+}
+.noarch-tip-close {
+  flex-shrink: 0;
+  width: 52rpx;
+  height: 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-song);
+  font-size: 30rpx;
+  color: var(--ink-faint);
+  border-radius: 50%;
+}
+.noarch-tip-close-active { color: var(--acc); background: var(--acc-soft); }

@@ -4,18 +4,29 @@
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const persons = require('../../utils/persons');
+const guide = require('../../utils/guide');
 
 const STEP_LABELS = ['为何需要', '填写生辰', '建档完成'];
 const DONE_KEY = 'ylm_onboard_done';
 const SKIP_KEY = 'ylm_onboard_skipped';
 
+/* E1 功能导览 3 卡（首访尾链：排盘 → 今日 → 问明灯；tab=true 为底栏页 → switchTab
+   失败回退 reLaunch——本项目无原生 tabBar 注册，见 onTourGo 注释） */
+const TOUR_CARDS = [
+  { seal: '排', title: '排一次盘', sub: '生辰八字，一生脉络', cta: '去排盘', url: '/pages/paipan/paipan', tab: false },
+  { seal: '今', title: '看看今天运势', sub: '每日宜忌 · 流日四运 · 时辰择时', cta: '去今日', url: '/pages/today/today', tab: true },
+  { seal: '问', title: '有问题问明灯', sub: '命理 · 运势 · 择吉 · 随时可问', cta: '去对话', url: '/pages/chat/chat', tab: true },
+];
+
 Page({
   data: {
     navOff: 0,
     dark: false,
-    phase: 'welcome',          // welcome | why | form | done | skipped
+    phase: 'welcome',          // welcome | why | form | done | skipped | tour
     stepLabels: STEP_LABELS,
     stepCur: 0,                // 1=为何需要 2=填写生辰 3=建档完成
+    tourCards: TOUR_CARDS,
+    tourIdx: 0,                // 功能导览当前卡（0-2）
 
     // 表单（原型 BirthForm 字段）
     cal: 'solar',              // solar | lunar
@@ -172,25 +183,55 @@ Page({
     });
   },
 
-  /* 完成页：开始排盘 → bazi 页（选命主/直接排盘） */
-  startPaipan() {
-    wx.navigateTo({
-      url: '/pages/bazi/bazi',
-      fail: () => wx.reLaunch({ url: '/pages/bazi/bazi' }),
-    });
+  /* E1：完成页/跳过页 → 功能导览（首访尾链 3 卡，可跳过）。
+     导览只在建档流程尾链出现——me 页「重新看引导」入口仍走本页 welcome 起，
+     经流程走到此处也会看到尾链（与「重新看引导」语义一致） */
+  goTour() {
+    this.setData({ phase: 'tour', stepCur: 0, tourIdx: 0 });
   },
 
-  /* 跳过页：演示排盘 → 提示需要出生信息 → 回到「为何需要」 */
-  demoPaipan() {
-    wx.showModal({
-      title: '排盘需要出生信息',
-      content: '八字排盘需要准确的出生年月日时\n现在去填写，只需约 1 分钟',
-      confirmText: '现在去填写',
-      cancelText: '暂不填写',
-      confirmColor: '#A93A2C',
-      success: (res) => {
-        if (res.confirm) this.goWhy();
-      },
+  /* 导览「下一步」：卡 1/卡 2 → 下一张 */
+  onTourNext() {
+    if (guide.tourHasNext(this.data.tourIdx, this.data.tourCards.length)) {
+      this.setData({ tourIdx: this.data.tourIdx + 1 });
+    }
+  },
+
+  /* 导览「跳过」→ ylm_tour_skipped（保持跳过语义）→ 离开引导 */
+  onTourSkip() {
+    try { wx.setStorageSync(guide.TOUR_SKIP_KEY, 1); } catch (e) { /* ignore */ }
+    this._leaveOnboarding();
+  },
+
+  /* 3 卡看完「开始使用」→ ylm_tour_done → 离开引导 */
+  onTourDone() {
+    try { wx.setStorageSync(guide.TOUR_DONE_KEY, 1); } catch (e) { /* ignore */ }
+    this._leaveOnboarding();
+  },
+
+  /* 导览卡去向：卡1 排盘 navigateTo（失败静默，契约）；卡2/3 为底栏页 →
+     契约用 wx.switchTab——本项目无原生 tabBar 注册（app.json 无 tabBar 配置，
+     底栏为各页自绘），switchTab 必失败 → 回退 wx.reLaunch（与今日页 goChat/
+     onTab 同套路）。去向按钮不落 tour 标记：中途离开未做「完成/跳过」决定，
+     保持 ylm_tour_done/ylm_tour_skipped 二选一不变量 */
+  onTourGo(e) {
+    const card = this.data.tourCards[Number(e.currentTarget.dataset.idx)] || null;
+    if (!card) return;
+    if (card.tab) {
+      wx.switchTab({
+        url: card.url,
+        fail: () => wx.reLaunch({ url: card.url, fail: () => {} }),
+      });
+    } else {
+      wx.navigateTo({ url: card.url, fail: () => { /* 契约：失败静默 */ } });
+    }
+  },
+
+  /* 离开引导：正常情况 onboarding 由 navigateTo 进入 → navigateBack 回上一页
+     （首启即 tab 首页）；页面栈异常（分享直达等）→ reLaunch 今日兜底 */
+  _leaveOnboarding() {
+    wx.navigateBack({
+      fail: () => wx.reLaunch({ url: '/pages/today/today', fail: () => {} }),
     });
   },
 

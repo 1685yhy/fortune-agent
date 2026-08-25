@@ -390,3 +390,116 @@ button::after { border: none; }
 }
 .replay-active { color: var(--acc); }
 .replay-ic { width: 25rpx; height: 25rpx; }
+
+/* ── 功能导览（E1：首访尾链 3 卡，点击切换 + 小点指示器） ── */
+.tour-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: calc(120rpx + var(--nav-off)) 62rpx 76rpx;
+  box-sizing: border-box;
+}
+.tour-head {
+  text-align: center;
+  margin-bottom: 42rpx;
+}
+.tour-brand {
+  font-family: var(--font-brush);
+  font-size: 40rpx;
+  letter-spacing: .18em;
+  color: var(--ink);
+}
+.tour-head-sub {
+  margin-top: 16rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+}
+.tour-card {
+  position: relative;
+  width: 100%;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line);
+  border-radius: 10rpx;
+  box-shadow: 0 6rpx 19rpx var(--shadow-sm);
+  padding: 53rpx 47rpx 46rpx;
+  box-sizing: border-box;
+}
+.tour-card::before {
+  content: '';
+  position: absolute;
+  inset: 8rpx;
+  border: 2rpx solid rgba(58,44,30,.14);
+  border-radius: 4rpx;
+  pointer-events: none;
+}
+.tour-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+.tour-seal {
+  width: 92rpx;
+  height: 92rpx;
+  font-size: 56rpx;
+  border-radius: 8rpx;
+  transform: rotate(-2deg);
+}
+.tour-title {
+  margin-top: 35rpx;
+  font-family: var(--font-brush);
+  font-size: 45rpx;
+  letter-spacing: .16em;
+  color: var(--ink);
+}
+.tour-sub {
+  margin-top: 18rpx;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  letter-spacing: .1em;
+  line-height: 1.9;
+  color: var(--ink-soft);
+}
+.tour-line {
+  margin: 34rpx 0 37rpx;
+  width: 288rpx;
+  height: 2rpx;
+  background: linear-gradient(90deg, transparent, var(--ink-faint), transparent);
+}
+.tour-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 15rpx;
+  margin-top: 38rpx;
+}
+.tour-dot {
+  width: 13rpx;
+  height: 13rpx;
+  border-radius: 50%;
+  border: 2rpx solid var(--line);
+  background: transparent;
+  transition: background .2s;
+}
+.tour-dot.on { background: var(--acc); border-color: var(--acc); }
+.tour-foot {
+  margin-top: 45rpx;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 44rpx;
+}
+.tour-skip {
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .2em;
+  color: var(--ink-faint);
+  padding: 12rpx 19rpx;
+}
+.tour-next { width: 290rpx; }

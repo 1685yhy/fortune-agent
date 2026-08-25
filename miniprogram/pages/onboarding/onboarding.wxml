@@ -154,7 +154,7 @@
     <view class="d-line"></view>
     <view class="d-poem">命盘既定 · 灯已为你亮起</view>
     <view class="d-cta">
-      <button class="btn btn-acc btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="startPaipan">开始排盘</button>
+      <button class="btn btn-acc btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="goTour">完成</button>
       <view class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="replay">
         <image class="replay-ic" src="/assets/images/ic-lantern.png"></image>
         <text>重新看引导</text>
@@ -176,11 +176,46 @@
     </view>
     <view class="d-line"></view>
     <view class="d-cta">
-      <button class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="demoPaipan">演示：开始排盘</button>
+      <button class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="goTour">继续看看</button>
       <view class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="replay">
         <image class="replay-ic" src="/assets/images/ic-lantern.png"></image>
         <text>重新看引导</text>
       </view>
+    </view>
+  </view>
+
+  <!-- ═══ ⑥ 功能导览（首访尾链 3 卡：排盘 → 今日 → 问明灯；可跳过） ═══ -->
+  <view wx:if="{{phase === 'tour'}}" class="tour-wrap">
+    <view class="tour-head">
+      <view class="tour-brand">三处灯火 · 先看看能做什么</view>
+      <view class="tour-head-sub">每处均可直接进入 · 也可随时跳过</view>
+    </view>
+
+    <view class="tour-card">
+      <block wx:for="{{tourCards}}" wx:key="title">
+        <view wx:if="{{tourIdx === index}}" class="tour-item">
+          <view class="seal tour-seal"><text class="seal-char">{{item.seal}}</text></view>
+          <view class="tour-title">{{item.title}}</view>
+          <view class="tour-sub">{{item.sub}}</view>
+          <view class="tour-line"></view>
+          <button class="btn btn-acc btn-wide" hover-class="btn-active" hover-stay-time="0"
+            data-idx="{{index}}" bindtap="onTourGo">{{item.cta}}</button>
+        </view>
+      </block>
+    </view>
+
+    <view class="tour-dots">
+      <view wx:for="{{tourCards}}" wx:key="title" class="tour-dot {{tourIdx === index ? 'on' : ''}}"></view>
+    </view>
+
+    <view class="tour-foot">
+      <view class="tour-skip" hover-class="replay-active" hover-stay-time="0" bindtap="onTourSkip">跳过</view>
+      <block wx:if="{{tourIdx < tourCards.length - 1}}">
+        <button class="btn btn-ink tour-next" hover-class="btn-active" hover-stay-time="0" bindtap="onTourNext">下一步</button>
+      </block>
+      <block wx:else>
+        <button class="btn btn-ink tour-next" hover-class="btn-active" hover-stay-time="0" bindtap="onTourDone">开始使用</button>
+      </block>
     </view>
   </view>
 

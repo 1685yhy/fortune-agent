@@ -24,8 +24,20 @@
       </view>
     </view>
 
-    <!-- 未设置命主档案：通用运势提示条 + 去设置（跳档案页） -->
-    <view class="arch-hint" wx:if="{{archiveHint}}" hover-class="arch-hint-active" hover-stay-time="0" bindtap="onGoArchive">
+    <!-- E1 未建档提示条：本地无档案才显示；点击跳排盘；× 关闭落 ylm_noarch_tip_closed=1。
+         与下方 archiveHint 互斥（E1 优先：同真时只显示本条；× 关闭后原「去设置」条接管） -->
+    <view class="noarch-tip" wx:if="{{noarchHint}}" hover-class="noarch-tip-active" hover-stay-time="0" bindtap="onGoNoarchTip">
+      <view class="seal noarch-tip-seal"><text class="seal-char">卷</text></view>
+      <view class="noarch-tip-mid">
+        <view class="noarch-tip-t">还没建档？排一次盘，所有测算更准</view>
+        <view class="noarch-tip-s">今日仅为通用运势 · 建档后解读更贴合自己</view>
+      </view>
+      <view class="noarch-tip-arrow">→</view>
+      <view class="noarch-tip-close" hover-class="noarch-tip-close-active" hover-stay-time="0" catchtap="onCloseNoarchTip">×</view>
+    </view>
+
+    <!-- 未设置命主档案：通用运势提示条 + 去设置（跳档案页）（E1 条可见时隐藏，避免双条） -->
+    <view class="arch-hint" wx:if="{{archiveHint && !noarchHint}}" hover-class="arch-hint-active" hover-stay-time="0" bindtap="onGoArchive">
       <view class="seal arch-hint-seal"><text class="seal-char">命</text></view>
       <view class="arch-hint-mid">
         <view class="arch-hint-t">尚未设置命主信息</view>
