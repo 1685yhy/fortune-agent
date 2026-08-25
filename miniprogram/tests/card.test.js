@@ -212,3 +212,57 @@ test('空文本 → 非卡片；空 body 卡片 → 壳可渲染', () => {
   assert.ok(v.card);
   assert.equal(v.cardNodes.length, 0);
 });
+
+/* ═══ E2-2-FIX：复审 2 项 Important 回归 ═══ */
+
+/* I-1：长按菜单「朗读」（chat.js actItem k==='speak'）与气泡直接朗读同口径，
+   先 stripCardMarkers 再交 TTS —— 朗读文本不得含 [card: 字样 */
+test('E2-2-FIX I-1：朗读出口剥标记——TTS 文本不含 [card: 字样，正文/引导语保留', () => {
+  const content = '[card:paipan title="我的命盘"]\n日主甲木，身强。\n[/card]\n\n💬 还想了解：事业运势';
+  const ttsText = stripCardMarkers(content);   // actItem speak 路径同款
+  assert.ok(ttsText.indexOf('[card:') === -1);
+  assert.ok(ttsText.indexOf('[/card]') === -1);
+  assert.ok(ttsText.indexOf('日主甲木') !== -1);    // 正文保留可朗读
+  assert.ok(ttsText.indexOf('还想了解') !== -1);    // 卡外引导语照常朗读
+});
+
+/* I-2：_segCache 缓存键必须含 streaming/error——同一 content 下标志变更视图必切换
+   （chat.js _mirror 单测，直接测页面内缓存逻辑：流式中断 → 降级纯文本而非过期卡片壳） */
+test('E2-2-FIX I-2：_mirror 缓存含流式标志——中断（content 不变仅标志变更）→ 降级纯文本', () => {
+  const savedPage = global.Page;
+  let pageCfg = null;
+  global.Page = (c) => { pageCfg = c; };
+  try {
+    require('../pages/chat/chat');
+  } finally {
+    global.Page = savedPage;
+  }
+  assert.ok(pageCfg && typeof pageCfg._mirror === 'function', 'chat.js 页面配置应可加载');
+  const ctx = {
+    data: { reactions: {} },
+    _segCache: null,
+    _thinkView: pageCfg._thinkView,
+    _mirror: pageCfg._mirror,
+  };
+  const content = '[card:paipan title="我的命盘"]\n## 八字\n日主甲';   // 未闭合（引擎路径：标记开头）
+  const mk = (streaming, error) => [{
+    id: 'm1', role: 'ai', content, streaming, error,
+    thinking: [], thinkSeconds: 0, thinkCollapsed: false,
+  }];
+  // 1) 流式中 → 卡片壳（未定格）
+  const shell = ctx._mirror(mk(true, false))[0];
+  assert.ok(shell.card);
+  assert.equal(shell.cardFinal, false);
+  // 2) 同 id+content 中断（_onError：streaming 停止 + error）→ 必须降级纯文本而非卡片壳
+  //    （修复前缓存键仅 id+content → 命中过期卡片壳，本条即回归断言）
+  const degraded = ctx._mirror(mk(false, true))[0];
+  assert.equal(degraded.card, null);            // 不再是卡片壳
+  assert.ok(Array.isArray(degraded.mdNodes) && degraded.mdNodes.length >= 1);
+  const flat = JSON.stringify(degraded.mdNodes);
+  assert.ok(flat.indexOf('[card:') === -1);     // 标记不暴露
+  // 3) 同 id+content 用户停止（_onAbort：非 error）→ 定格卡片壳（final:true），
+  //    同样不得停留在流式「未定格」壳
+  const stopped = ctx._mirror(mk(false, false))[0];
+  assert.ok(stopped.card);
+  assert.equal(stopped.cardFinal, true);
+});

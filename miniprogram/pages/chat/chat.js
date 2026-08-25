@@ -626,8 +626,16 @@ Page({
       const m = vis[i];
       const tv = this._thinkView(m);
       const c = String(m.content || '');
+      /* E2-2-FIX：缓存键含 streaming/error——buildCardView 的 pending 分支输出
+         依赖流式标志（流式中=卡片壳 / 中断=降级纯文本 / 停止=定格壳），而
+         _onAbort/_onError 在无增量时 content 不变、仅标志变更（streamHost.js
+         _flushAccum 无增量场景）→ 键缺标志会命中过期视图（停留未定格卡片壳，
+         而非中断→降级纯文本 / 停止→定格壳） */
+      const streamingFlag = !!m.streaming;
+      const errorFlag = !!m.error;
       const cached = this._segCache;
-      if (cached && cached.id === m.id && cached.content === c) {
+      if (cached && cached.id === m.id && cached.content === c
+          && cached.streaming === streamingFlag && cached.error === errorFlag) {
         out[i] = Object.assign({}, m, {
           mdNodes: cached.mdNodes,
           reactions: reactions[m.id] || [],
@@ -655,7 +663,7 @@ Page({
       const mdNodes = isCard ? [] : (cv && cv.mdNodes) ? cv.mdNodes : md.parseMd(c);
       const nav = (m.role === 'ai' && !m.error) ? navFor(c) : null;
       this._segCache = {
-        id: m.id, content: c, mdNodes,
+        id: m.id, content: c, streaming: streamingFlag, error: errorFlag, mdNodes,
         navPath: nav && nav.path, navLabel: nav && nav.label,
         card: isCard ? cv.card : null,
         cardNodes: (cv && cv.cardNodes) || null,
@@ -1058,7 +1066,9 @@ Page({
       this._enterMulti();
       return;   // 已由 _enterMulti 关闭菜单
     } else if (k === 'speak') {
-      this._playWithTts(msgId, msg.content || '', true);
+      // E2-2-FIX：长按菜单朗读与气泡直接朗读（speakMessage）同口径——
+      // 走剥标记后的纯文本，[card:…] 标记不被 TTS 读出（标记不暴露三出口之一）
+      this._playWithTts(msgId, cardUtil.stripCardMarkers(msg.content), true);
     } else if (k === 'feedback') {
       this.setData({ fbMenu: { show: true, msgId } });
     } else if (k === 'delete') {
