@@ -39,9 +39,45 @@ _MEMBER_PAY_WORDS = ("充值", "开通", "升级", "购买", "续费", "付费",
                      "缴", "交", "订", "申请", "兑换", "购", "付",
                      "延期", "激活", "会员费", "会员卡")
 
+# F1 动作词守卫：档案直读不得劫持 排盘/建档/更新 动作意图（PM 真机反馈：
+# "我的出生年月日是啥"曾答非所问——扩关键词后若不做守卫，"我生日是1999年
+# 5月13日帮我排盘"/"更正我的生日"等动作句会被 _q_档案 档位 dump 短路）。
+# 命中动作词即跳过档案直读（宁漏勿误：直读漏了只是慢，误读劫持才是答非所问）。
+# 简报原单：排盘|排一下|排个|重排|重新排|建档|更新|修改|更正|改生日|保存|
+# 新档案|登记。补单字（参考 _MEMBER_PAY_WORDS 单字封口先例——两字词拦不住
+# "排下盘/改下生日/建个档/存一下"）：
+#   "排"——"帮我排下盘"（排盘/排一下 均不落）；
+#   "算"——"帮我算生辰八字"（"生辰"关键词真实穿透：排盘请求被档案 dump 劫持）；
+#   "测"——"测测我的生辰"（同族穿透）；
+#   "改"——"改下生日/改一下生日"（"改生日"不落）；
+#   "建"——"建个档"（"建档"不落）；
+#   "存/写/填/记/录/设置"——"存下生日/写上生日/填一下/记一下/补录/设置生日"；
+#   "快乐/蛋糕"——"生日快乐/生日蛋糕" 是问候/名词而非档案查询（"生日"关键词
+#     的误伤面，无守卫会被档位 dump 答非所问）。
+# 误伤评估：守卫仅拦 同时含档案关键词+动作词 的消息；纯查询（"我的出生年月日
+# 是啥"/"我生日是哪天"/"什么时候出生"）不落任何动作词，仍直读秒回；误伤面
+# = 含动作词的查询句（"我的生日改过了吗"）→ 降级 LLM，可接受（降级不劫持）。
+_ARCHIVE_ACTION_WORDS = ("排盘", "排一下", "排个", "重排", "重新排",
+                         "建档", "更新", "修改", "更正", "改生日",
+                         "保存", "新档案", "登记",
+                         "排", "算", "测", "改", "建", "存", "写",
+                         "填", "记", "录", "设置",
+                         "快乐", "蛋糕")
+
+# 农历月名（与 src/api/paipan.py LUNAR_MONTH_CN 同口径：冬月/腊月）——
+# 仅 _q_档案 农历问法追加用，本地定义避免重 import 拉入 FastAPI 路由链。
+_LUNAR_MONTH_CN = ("正月", "二月", "三月", "四月", "五月", "六月",
+                   "七月", "八月", "九月", "十月", "冬月", "腊月")
+
 # 类别 → 触发关键词（命中即直读）
 CATEGORY_KEYWORDS = {
-    "档案": ["档案", "生辰", "出生信息", "我的八字信息", "什么时辰"],
+    "档案": ["档案", "生辰", "出生信息", "我的八字信息", "什么时辰",
+             # F1 修复：日常说法全部漏网 → "我的出生年月日是啥/什么时候出生"
+             # 等走 LLM 全流程答非所问。扩词全部用"已发生/询问"口径（不收录
+             # 祈使式——"帮我排盘/建档/改生日"由 _ARCHIVE_ACTION_WORDS 守卫
+             # 跳过直读走全流程，见 direct_query 守卫）。
+             "出生年月日", "出生日期", "生日", "哪天出生", "什么时候出生",
+             "哪年出生", "何时出生", "阴历生日", "农历生日", "阳历生日"],
     # 注：'我的盘'/'上次的盘' 由 T5 重看盘直读全权处理（纯重看→T5 直读富文本；
     # 场景问句→T5 _route_by_scenario 排除走全流程），此处保留会导致场景问句
     # 被 _q_排盘 的 chart dump 短路，故不收录（审查 Task 6 缺陷，commit 见修复节）。
@@ -101,24 +137,84 @@ class RecordQuery:
                     # 支付/引导词守卫：会员直读不劫持支付意图（见 _MEMBER_PAY_WORDS）
                     if kw == "会员" and any(w in msg for w in _MEMBER_PAY_WORDS):
                         continue
+                    # F1 动作词守卫：档案直读不劫持 排盘/建档/更新 动作意图
+                    # （见 _ARCHIVE_ACTION_WORDS；命中动作词即跳过，宁漏勿误）
+                    if cat == "档案" and any(w in msg for w in _ARCHIVE_ACTION_WORDS):
+                        continue
                     handler = getattr(self, f"_q_{cat}", None)
                     if handler:
-                        out = handler(user_id)
+                        # 仅 _q_档案 需要 msg（农历/阴历问法判定），其余 _q_* 签名不变
+                        out = handler(user_id, msg) if cat == "档案" else handler(user_id)
                         if out:
                             return out
         return None
 
     # —— 各类直读（解密仅服务端内存）——
-    def _q_档案(self, user_id):
+    def _q_档案(self, user_id, msg=""):
+        """档案直读：公历（或农历）出生信息 + 农历/阴历问法追加农历日期。
+
+        F1 增强：
+        - 分钟：birth_minute 非空 → 1999年5月13日10:55（并入时分，小时不丢）；
+          仅小时 → 1999年5月13日10时；均无 → 1999年5月13日。
+        - 农历/阴历问法（msg 含 农历/阴历）：公历档案用 lunar-python 转换
+          出生日期为农历追加（同 src/engines/bazi.py 排盘引擎同库同口径）；
+          农历档案（calendar=lunar）存的就是农历，主日期直接标注"农历"。
+        - 干支不引入：公历/农历 + 时辰即可（PM 非技术背景，干支=绕弯）。
+        - 无档案：明确答"查不到"并引导建档，不绕弯。
+        """
         p = self.person_dao.get_default_person(user_id)
         if not p:
-            return "还没有档案，告诉我出生年月日时我帮你建档。"
+            return ("还没有你的档案，告诉我出生年月日时（精确到几点几分）、"
+                    "出生地和性别，我帮你建档。")
         gender = p.get('gender')
         if not gender or gender == "unknown":
             gender = "性别未知"  # 'unknown' 是 truthy，'or' 会被绕过，需显式判断
-        return (f"你的档案（命主：{p.get('name')}）："
-                f"{p.get('birth_year')}年{p.get('birth_month')}月{p.get('birth_day')}日"
-                f"{p.get('birth_hour')}时 · 出生地{p.get('city') or '未填'} · {gender}")
+        y, m, d = p.get('birth_year'), p.get('birth_month'), p.get('birth_day')
+        if not (y and m and d):
+            return ("你的档案里还没有完整出生信息，告诉我出生年月日时"
+                    "（精确到几点几分）、出生地和性别，我帮你建档。")
+        hour, minute = p.get('birth_hour'), p.get('birth_minute')
+        if minute is not None:  # 分钟非空 → 并入时分（10:55）
+            time_part = f"{hour}:{minute:02d}" if hour is not None else f"{minute}分"
+        elif hour is not None:
+            time_part = f"{hour}时"
+        else:
+            time_part = ""
+        is_lunar_archive = p.get("calendar") == "lunar"
+        date_part = f"{'农历' if is_lunar_archive else ''}{y}年{m}月{d}日{time_part}"
+        body = f"你的档案（命主：{p.get('name')}）：{date_part}"
+        # 农历/阴历问法 → 追加农历日期；农历档案主日期已标注"农历"，不重复追加
+        if ("农历" in msg or "阴历" in msg) and not is_lunar_archive:
+            lunar_txt = self._lunar_birth_text(p)
+            if lunar_txt:
+                body += f" · {lunar_txt}"
+        body += f" · 出生地{p.get('city') or '未填'} · {gender}"
+        return body
+
+    def _lunar_birth_text(self, p):
+        """公历出生日期 → 农历文本（如 农历三月廿八；闰月 → 闰四月）。
+
+        与排盘引擎同用 lunar-python（Solar.fromYmdHms(...).getLunar()，
+        src/engines/bazi.py:537 同款调用），晚子时/真太阳时不涉及（出生日期
+        不跨日）。农历月名用 _LUNAR_MONTH_CN（冬月/腊月口径与 paipan 一致）。
+        """
+        y, m, d = p.get('birth_year'), p.get('birth_month'), p.get('birth_day')
+        if not (y and m and d):
+            return None
+        try:
+            from lunar_python import Solar
+            lunar = Solar.fromYmdHms(int(y), int(m), int(d),
+                                     p.get('birth_hour') or 0,
+                                     p.get('birth_minute') or 0, 0).getLunar()
+        except Exception:
+            logger.warning("农历转换失败 user birth=%s-%s-%s", y, m, d)
+            return None
+        month = lunar.getMonth()  # 闰月为负（lunar-python 口径）
+        if month < 0:
+            month_text = "闰" + _LUNAR_MONTH_CN[abs(month) - 1]
+        else:
+            month_text = _LUNAR_MONTH_CN[month - 1]
+        return f"农历{month_text}{lunar.getDayInChinese()}"
 
     def _q_排盘(self, user_id):
         if not self.chart_dao:

@@ -211,3 +211,105 @@ def test_query_member_pure_query_still_direct_final_seal(tmp_path):
     assert out and "会员档位" in out
     out = rq.direct_query("u1", "我的会员等级是啥")
     assert out and "会员档位" in out
+
+
+# ──────────────────────────────── F1 出生信息直读增强 ────────────────────────────────
+
+def _rq_with_person(tmp_path, birth=None, sub="p"):
+    """建档（users.bazi_info → 迁移为默认 person）并返回 RecordQuery。
+
+    birth 缺省：1999年5月13日 10:55 出生地榆树 男（与 PM 反馈同型数据）。
+    sub 隔离不同建档场景的 db（同 tmp_path 复用会命中已建 person）。
+    """
+    rq = _rq(tmp_path / sub)
+    if birth is None:
+        birth = {"year": 1999, "month": 5, "day": 13, "hour": 10,
+                 "minute": 55, "city": "榆树", "gender": "男"}
+    rq.dao.save_user_bazi("u1", birth)
+    return rq
+
+
+def test_archive_birth_phrase_direct_read(tmp_path):
+    """PM 真机反馈原句：'我的出生年月日是啥' → 直读档案（含分钟+出生地+性别）。
+
+    直读命中即短路（0 LLM 0 引擎），回答 公历+时分，不强行展示干支。
+    """
+    rq = _rq_with_person(tmp_path)
+    out = rq.direct_query("u1", "我的出生年月日是啥")
+    assert out and "你的档案" in out
+    assert "1999年5月13日10:55" in out   # 分钟并入时分（birth_minute 字段）
+    assert "出生地榆树" in out and "男" in out
+
+
+def test_archive_birth_variant_matrix(tmp_path):
+    """变体矩阵：什么时候出生/哪年出生/出生日期/生日 各至少 1 例命中直读。"""
+    rq = _rq_with_person(tmp_path)
+    for q in ("我是什么时候出生的", "我是哪年出生的", "我的出生日期是什么",
+              "我的生日是哪天", "我是哪天出生的", "我何时出生的"):
+        out = rq.direct_query("u1", q)
+        assert out and "1999年5月13日10:55" in out, f"miss: {q}"
+
+
+def test_archive_lunar_birth_question(tmp_path):
+    """农历/阴历问法：'我农历生日是哪天' → 追加农历日期。
+
+    1999-05-13（公历）→ 农历三月廿八（lunar-python 转换，与排盘引擎同库）。
+    """
+    rq = _rq_with_person(tmp_path)
+    out = rq.direct_query("u1", "我农历生日是哪天")
+    assert out and "农历三月廿八" in out
+    out = rq.direct_query("u1", "我阴历生日是哪天")
+    assert out and "农历三月廿八" in out
+
+
+def test_archive_hour_only_and_no_time(tmp_path):
+    """时分取舍：仅小时 → 10时；无小时无分钟 → 不带时/分（信息不丢不造假）。"""
+    rq = _rq_with_person(tmp_path, sub="h",
+                         birth={"year": 1990, "month": 5, "day": 20, "hour": 15,
+                                "city": "北京", "gender": "男"})
+    out = rq.direct_query("u1", "我的出生日期")
+    assert out and "1990年5月20日15时" in out
+    rq2 = _rq_with_person(tmp_path, sub="n",
+                          birth={"year": 1990, "month": 5, "day": 20,
+                                 "city": "北京", "gender": "男"})
+    out2 = rq2.direct_query("u1", "我的出生日期")
+    assert "1990年5月20日" in out2 and "时" not in out2 and "分" not in out2
+
+
+def test_archive_stored_lunar_labeled(tmp_path):
+    """农历建档（calendar=lunar）→ 主日期标注'农历'（存的就是农历，不转换）。"""
+    rq = _rq_with_person(tmp_path, sub="l",
+                         birth={"year": 1999, "month": 5, "day": 13, "hour": 10,
+                                "minute": 55, "calendar": "lunar", "gender": "女"})
+    out = rq.direct_query("u1", "我的出生年月日")
+    assert out and "农历1999年5月13日10:55" in out and "女" in out
+
+
+def test_archive_no_person_clear_answer(tmp_path):
+    """无档案 → 明确答'还没有你的档案'（查不到就是查不到，不绕弯不 LLM 兜底）。"""
+    rq = _rq(tmp_path)
+    out = rq.direct_query("u1", "我的出生年月日是啥")
+    assert out and "还没有你的档案" in out and "帮你建档" in out
+
+
+def test_archive_action_intent_not_hijacked(tmp_path):
+    """防误伤（F1 守卫）：排盘/更正/建档 等动作意图即使含生日关键词也不直读。
+
+    命中动作词即跳过档案直读返回 None（走全流程）——宁漏勿误：直读漏了只是
+    慢，误读劫持才是答非所问（PM 反馈的正是劫持/绕弯）。
+    """
+    rq = _rq_with_person(tmp_path)
+    for act in ("我生日是1999年5月13日，帮我排盘",   # 简报例 1：排盘
+                "更正我的生日",                       # 简报例 2：更正
+                "帮我重新排一下我的生辰八字",          # 重排 + 生辰关键词
+                "改下我的出生日期",                    # 改生日单字穿透
+                "帮我算我的生辰八字"):                 # 算（排盘请求穿透）
+        assert rq.direct_query("u1", act) is None, act
+
+
+def test_archive_greeting_not_hijacked(tmp_path):
+    """防误伤：'生日'关键词的词面碰撞——生日快乐/生日蛋糕 是问候/名词，
+    不落档案直读（否则问候也会被档位 dump 答非所问）。"""
+    rq = _rq_with_person(tmp_path)
+    assert rq.direct_query("u1", "生日快乐") is None
+    assert rq.direct_query("u1", "我想订个生日蛋糕") is None
