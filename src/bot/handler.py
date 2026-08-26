@@ -67,6 +67,7 @@ from src.llm.prompts import _web_tool_guide_line
 # 意图识别已完全由 LLM 承担（_analyze_message），不再有任何硬编码关键词表。
 from .tool_calls import (
     parse_tool_calls,
+    parse_native_tool_use_blocks,
     strip_tool_calls,
     ToolCall,
     ToolResult,
@@ -1177,7 +1178,97 @@ class MessageHandler:
         # 阶段 5：本轮引用来源（user_id → list）由工具/处理器注册；
         # 不在本方法清空（处理器注册的引用要保留到本方法末尾统一校验）
 
+        # Task 3B（批次 1）：deepseek 原生 tool_use 优先，JSON 工单兜底（双协议并存）。
+        # 原生链状态：
+        #   native_messages：原生链累积消息（含 assistant tool_use content + tool_result），
+        #                     None = 未进入原生链
+        #   native_pending：待执行的原生 tool_use 块（已解析为 ToolCall 列表）
+        # 原生路径任何一步异常 → 立即降级走下方 JSON 工单路径（try/except 包住原生链）
+        from src.bot.capability_registry import build_tool_schema_list
+        from src.llm.client import (deepseek_anthropic_completion,
+                                    deepseek_anthropic_messages)
+        from src.utils.text_clean import strip_emoji
+        use_native = bool(getattr(self.llm, 'provider', 'deepseek') == 'deepseek')
+        native_messages: Optional[list] = None
+        native_pending: list = []
+        _llm_model = self.llm.model or "deepseek-v4-flash"
+        if not isinstance(_llm_model, str):
+            _llm_model = "deepseek-v4-flash"
+
+        def _extract_native_text(data: dict) -> str:
+            """从完整响应 dict 提取首段 text（与 deepseek_anthropic_completion 同规则）。"""
+            for b in data.get("content") or []:
+                if isinstance(b, dict) and b.get("type") == "text":
+                    return strip_emoji(b.get("text", "").strip())
+            return ""
+
         for _ in range(MAX_TOOL_ITERATIONS):
+            # ---- 原生 tool_use 链（Task 3B）：执行上轮块 → tool_result 回传 → 再调 LLM ----
+            native_chain_ran = False
+            native_reply_updated = False
+            if native_messages is not None:
+                native_chain_ran = True
+                try:
+                    if native_pending:
+                        for c in native_pending:
+                            # 与下方 JSON 工单路径完全一致的执行/事件/落库语义
+                            if stream_cb is not None:
+                                try:
+                                    stream_cb("tool", {"text": _TOOL_EVENT_LABELS.get(
+                                        c.name, f"正在{c.name}…")})
+                                except Exception:
+                                    pass
+                            r = self._execute_tool_call(
+                                c.name,
+                                c.params_obj if c.params_obj is not None else c.params,
+                                user_id, user_question=msg)
+                            executed_calls.append({
+                                "type": r.name,
+                                "params": (json.dumps(c.params_obj, ensure_ascii=False)
+                                           if c.params_obj is not None
+                                           else (c.params or ""))[:200],
+                                "hit": bool(r.ok),
+                            })
+                            if r.name in ("检索", "搜索"):
+                                retrieval_hit = "hit" if r.ok else "miss"
+                            native_messages.append({
+                                "role": "user",
+                                "content": [{
+                                    "type": "tool_result",
+                                    "tool_use_id": c.tool_use_id,
+                                    "content": r.text,
+                                }],
+                            })
+                        native_pending = []
+                    data = deepseek_anthropic_messages(
+                        api_key, native_messages, model=_llm_model,
+                        max_tokens=2000, temperature=0.7, timeout=60.0,
+                        tools=build_tool_schema_list())
+                    blocks = [b for b in (data.get("content") or [])
+                              if isinstance(b, dict) and b.get("type") == "tool_use"]
+                    pending = parse_native_tool_use_blocks(blocks) if blocks else []
+                    if pending:
+                        native_pending = pending
+                        # assistant 消息必须带完整 content（含 tool_use 块），
+                        # 协议要求 tool_result 匹配同一 tool_use_id
+                        native_messages.append({"role": "assistant",
+                                                "content": data.get("content")})
+                        continue  # 下一轮开头执行块
+                    native_text = _extract_native_text(data)
+                    if native_text:
+                        reply = native_text
+                        native_reply_updated = True
+                    native_messages = None  # 原生链结束 → 落入 JSON 工单解析（双协议并存）
+                except Exception as e:  # noqa: BLE001 — 原生链任何一步异常 → 降级 JSON 工单
+                    logger.warning("原生 tool_use 链异常，降级 JSON 工单: user=%s err=%s",
+                                   user_id, str(e)[:200])
+                    native_messages = None
+                    native_pending = []
+            # 原生链无新文本（异常/空响应）：原工单已执行过，不再重放 → 静默返回原文
+            if native_chain_ran and not native_reply_updated:
+                break
+
+            # ---- 现有 JSON 工单路径（兜底，Task 3 协议完好）----
             calls = parse_tool_calls(reply)
             if not calls:
                 break
@@ -1248,12 +1339,29 @@ class MessageHandler:
                     merged.append(m)
             messages = merged
             try:
-                from src.llm.client import deepseek_anthropic_completion
-                new_reply = deepseek_anthropic_completion(
-                    api_key, messages, model=self.llm.model or "deepseek-v4-flash",
-                    max_tokens=2000, temperature=0.7, timeout=60.0,
-                    stream_cb=stream_cb,
-                )
+                if use_native:
+                    # deepseek provider：带 tools 拿完整响应 dict，原生块优先执行
+                    data = deepseek_anthropic_messages(
+                        api_key, messages, model=_llm_model,
+                        max_tokens=2000, temperature=0.7, timeout=60.0,
+                        tools=build_tool_schema_list())
+                    blocks = [b for b in (data.get("content") or [])
+                              if isinstance(b, dict) and b.get("type") == "tool_use"]
+                    pending = parse_native_tool_use_blocks(blocks) if blocks else []
+                    if pending:
+                        # 转原生链：assistant 消息带 tool_use 块，下一轮执行
+                        native_pending = pending
+                        native_messages = messages + [
+                            {"role": "assistant", "content": data.get("content")}]
+                        continue
+                    new_reply = _extract_native_text(data)
+                else:
+                    # GLM/其他 provider：保持现状（流式文本路径）
+                    new_reply = deepseek_anthropic_completion(
+                        api_key, messages, model=_llm_model,
+                        max_tokens=2000, temperature=0.7, timeout=60.0,
+                        stream_cb=stream_cb,
+                    )
             except Exception:
                 break  # LLM 调用失败 → 静默降级返回原文
             if not new_reply:

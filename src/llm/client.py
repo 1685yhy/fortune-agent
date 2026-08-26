@@ -46,8 +46,10 @@ def _anthropic_headers(api_key: str) -> dict:
 
 
 def _anthropic_payload(messages: list, model: str, max_tokens: int,
-                       temperature: float, stream: bool = False) -> dict:
-    return {
+                       temperature: float, stream: bool = False,
+                       tools: Optional[list] = None,
+                       tool_choice: Optional[dict] = None) -> dict:
+    payload = {
         "model": _anthropic_model_name(model),
         "max_tokens": max_tokens,
         "thinking": {"type": "disabled"},
@@ -55,6 +57,12 @@ def _anthropic_payload(messages: list, model: str, max_tokens: int,
         "messages": messages,
         "stream": stream,
     }
+    # Task 3B：原生 tool_use 透传（不传时行为与现状完全一致）
+    if tools is not None:
+        payload["tools"] = tools
+    if tool_choice is not None:
+        payload["tool_choice"] = tool_choice
+    return payload
 
 
 async def deepseek_anthropic_completion_stream(
@@ -157,17 +165,21 @@ def deepseek_anthropic_completion(
     timeout: float = 60.0,
     client: Optional[httpx.Client] = None,
     stream_cb: StreamCallback = None,
+    tools: Optional[list] = None,
+    tool_choice: Optional[dict] = None,
 ) -> str:
     """调用 DeepSeek Anthropic 兼容端点（thinking disabled），返回文本内容。
 
     响应为空 / 解析失败 / 上游错误时抛异常，由调用方决定重试或降级。
     stream_cb 提供时走真实流式：增量实时回调（"chunk" 事件），返回完整文本。
+    tools/tool_choice（Task 3B）：透传原生 tool_use 参数；不传时行为与现状完全一致。
     """
     if stream_cb is not None:
         return _run_stream_feed_callback(
             api_key, messages, model, max_tokens, temperature, timeout, stream_cb)
 
-    payload = _anthropic_payload(messages, model, max_tokens, temperature)
+    payload = _anthropic_payload(messages, model, max_tokens, temperature,
+                                 tools=tools, tool_choice=tool_choice)
     headers = _anthropic_headers(api_key)
     if client is not None:
         resp = client.post(ANTHROPIC_MESSAGES_URL, headers=headers, json=payload)
@@ -184,6 +196,37 @@ def deepseek_anthropic_completion(
     if not text:
         raise ValueError(f"Empty content from LLM (stop_reason={data.get('stop_reason')})")
     return strip_emoji(text)
+
+
+def deepseek_anthropic_messages(
+    api_key: str,
+    messages: list,
+    model: str = "deepseek-v4-flash",
+    max_tokens: int = 1000,
+    temperature: float = 0.7,
+    timeout: float = 60.0,
+    client: Optional[httpx.Client] = None,
+    tools: Optional[list] = None,
+    tool_choice: Optional[dict] = None,
+) -> dict:
+    """调用 DeepSeek Anthropic 兼容端点，返回完整响应 dict（不抽取文本）。
+
+    Task 3B：供原生 tool_use 循环使用（需读取 content 中的 tool_use 块与
+    stop_reason）。复用同一 payload/headers 构造（tools 透传）。
+    错误响应抛异常，由调用方决定重试或降级。
+    """
+    payload = _anthropic_payload(messages, model, max_tokens, temperature,
+                                 tools=tools, tool_choice=tool_choice)
+    headers = _anthropic_headers(api_key)
+    if client is not None:
+        resp = client.post(ANTHROPIC_MESSAGES_URL, headers=headers, json=payload)
+    else:
+        resp = httpx.post(ANTHROPIC_MESSAGES_URL, headers=headers, json=payload,
+                          timeout=timeout)
+    data = resp.json()
+    if "error" in data or data.get("type") == "error":
+        raise RuntimeError(str(data.get("error") or data)[:200])
+    return data
 
 
 def _anthropic_model_name(model: str) -> str:

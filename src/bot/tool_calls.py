@@ -72,10 +72,12 @@ class ToolCall:
 
     - 结构化工单（JSON 工单块）：params_obj 有值，params 为空串，执行前需校验+序列化
     - 文本标签（正则兜底）：params 有值，params_obj 为 None（旧行为，不校验直接执行）
+    - 原生 tool_use 块（Task 3B）：params_obj 有值 + tool_use_id 携带块 id（回传 tool_result 用）
     """
     name: str
     params: str = ""
     params_obj: Optional[dict] = None
+    tool_use_id: str = ""
 
 
 @dataclass
@@ -147,6 +149,32 @@ def serialize_params(params: dict) -> str:
         if isinstance(v, (str, int, float)):
             return str(v).strip()
     return "\n".join(f"{k}: {v}" for k, v in params.items())
+
+
+def parse_native_tool_use_blocks(content: list) -> List[ToolCall]:
+    """解析 Anthropic 协议原生 tool_use 块（content 列表）。
+
+    name 接受英文工具名或中文名，统一归一为注册表中文名；
+    若模型输出的工具名不在注册表 → 跳过不执行（程序确认原则）。
+    input 为 str → 包装为 {"text": ...}（与 JSON 工单路径一致）；
+    非 dict/非 str → 兜底 {}。
+    """
+    calls = []
+    for b in content:
+        if not isinstance(b, dict) or b.get("type") != "tool_use":
+            continue
+        name = str(b.get("name", "")).strip()
+        name = TOOL_NAME_BY_ID.get(name, name)
+        if name not in TOOL_REGISTRY:
+            continue
+        params = b.get("input") or {}
+        if isinstance(params, str):
+            params = {"text": params}
+        elif not isinstance(params, dict):
+            params = {}
+        calls.append(ToolCall(name=name, params_obj=params,
+                              tool_use_id=str(b.get("id", ""))))
+    return calls
 
 
 def parse_tool_calls(text: str) -> List[ToolCall]:

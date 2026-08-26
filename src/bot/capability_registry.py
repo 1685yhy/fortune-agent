@@ -177,3 +177,20 @@ def build_tool_description() -> str:
         lines.append(f"- {c.name}（{c.cap_id}）：{c.description}。参数：{c.requires}。"
                      f"超时{c.timeout_s:.0f}s，失败自动重试{c.retries}次")
     return "\n".join(lines)
+
+
+def build_tool_schema_list() -> list:
+    """Anthropic 风格 tools schema（Task 3B 原生 tool_use）：与 build_tool_description 同源。
+
+    从 _TOOL_CAPS 单一事实源投影：name=cap_id，description 原文复用，
+    input_schema 用注册表 params_schema（无参数工具给空 object schema）。
+    供 deepseek_anthropic_messages 的 tools 参数使用。
+    """
+    return [
+        {
+            "name": c.cap_id,
+            "description": c.description,
+            "input_schema": c.params_schema or {"type": "object", "properties": {}},
+        }
+        for c in _TOOL_CAPS
+    ]
