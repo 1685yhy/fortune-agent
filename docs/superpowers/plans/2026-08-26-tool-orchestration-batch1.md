@@ -1028,6 +1028,8 @@ cd /mnt/e/fortune-agent-deploy && git add src/engines/message_analyzer.py src/bo
 
 **Files:** 无代码改动，纯验证。
 
+> **模型约束（PM 指令 2026-08-26）**：全量回归验证一律不用 deepseek。pytest 全量测试网络全 mock（不调任何模型 API，天然零成本）；本任务及 Task 7 中任何真实模型调用（如集成验证），一律用免费模型 `glm-4-flash`（`GLM_DEFAULT_MODEL`，client.py 已有 `glm_openai_completion`/`glm_openai_completion_stream` 同步异步通路），验证完不残留 deepseek 调用。
+
 - [ ] **Step 1: 全量跑基线命令**
 
 ```bash
@@ -1052,6 +1054,8 @@ git add -A && git commit -m "fix: batch1 regression fixes"
 ### Task 7: 生产灰度上线 + 复测
 
 **Files:** 无代码改动，纯部署验证（红线流程）。
+
+> **模型约束（PM 指令 2026-08-26）**：复测验证用免费模型 `glm-4-flash` 代替 deepseek。执行时先确认生产服务模型配置位置（.env / 启动参数 / app 配置），把生产服务临时切换为 glm-4-flash 完成复测（验证工具链行为，不烧 deepseek 配额），**复测完成后恢复原配置**。
 
 - [ ] **Step 1: rsync 到生产（禁 --delete）**
 
