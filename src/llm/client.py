@@ -434,16 +434,22 @@ class FortuneLLM:
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
         )
 
-    def chat(self, user_message: str, lite: bool = False) -> AnalysisResult:
+    def chat(self, user_message: str, lite: bool = False,
+             system_prompt: str = None) -> AnalysisResult:
         """自由对话 - 用快速模型（V4 Flash），轻量人设提示。
 
-        lite=True（降级链路）：GLM-4-Flash + CHAT_PROMPT_LITE 精简回复。
+        system_prompt（B2-11）：非降级路径自定义系统提示——None 时兜底
+        CHAT_PROMPT（_call_deepseek_model 默认）；主链无会话存储时 handler
+        注入 [可用工具清单] + CHAT_PROMPT，与主链首轮同口径。
+        lite=True（降级链路）：GLM-4-Flash + CHAT_PROMPT_LITE 精简回复，
+        忽略 system_prompt。
         """
         if lite:
             return AnalysisResult(
                 response=self._chat_lite(user_message=user_message, max_tokens=400),
                 tokens_used=0, model=GLM_DEFAULT_MODEL)
-        return self._call_deepseek_model(user_message, self.model, max_tokens=1000)
+        return self._call_deepseek_model(user_message, self.model, max_tokens=1000,
+                                         system_prompt=system_prompt)
 
     def chat_conversation(self, history: list, stream_cb: StreamCallback = None,
                           lite: bool = False) -> str:

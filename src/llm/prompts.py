@@ -1,59 +1,65 @@
 """System prompts for fortune telling agent — single unified personality.
 
 AI 原生对话系统改造（Phase 1，按《AI 原生对话系统完整设计》实施）：
-- SYSTEM_PROMPT: 方案完整版 — 人设/工具箱/说话方式/自己判断/底线/上下文/<tool_call> 机制
-- CHAT_PROMPT: 轻量变体（日常快聊），保留人格核心 + 底线 + 精简版 <tool_call> 说明
+- SYSTEM_PROMPT: 方案完整版 — 人设/工具箱/说话方式/自己判断/底线/上下文/<tool_calls> JSON 工单机制
+- CHAT_PROMPT: 轻量变体（日常快聊），保留人格核心 + 底线 + 精简版 <tool_calls> JSON 工单说明
 - 完整版与轻量版都保留"你是易理明灯"人设
+- 批次 2 B2（P1 #2 残留）：工具教学统一 JSON 工单（英文 cap_id + 注册表参数键），
+  旧 <tool_call>中文标签: 教学全部移除
 """
 
 # ============================================================
-# <tool_call> 机制说明 — 方案 3.1 prompt 原文（阶段 5：检索升级 + 网络工具）
+# <tool_calls> JSON 工单机制说明 — 方案 3.1 prompt 原文（阶段 5：检索升级 + 网络工具）
+# 批次 2 B2：教学统一 JSON 工单（旧 <tool_call>中文标签: 版本已移除）
 # ============================================================
 
 # 网络检索工具行：智谱 Web Search 可用时才宣传（不可用时 prompt 不宣传）
 # 阶段 5（方案 §3.2）：古籍（专业）→ 记忆（个性）→ 网络（补充）按需组合
-def _web_tool_guide_line() -> str:
+# B2-16：_web_tool_guide_line_json 并入本函数（带参选格式），JSON 为默认。
+def _web_tool_guide_line(json_format: bool = True) -> str:
+    """网络检索工具宣传行（web_search_available 可用时才宣传）。
+
+    json_format=True（默认）：JSON 工单块（<tool_calls>[{"tool":
+    "web_search", ...}]</tool_calls>），CHAT_PROMPT / TOOL_CALL_GUIDE
+    统一教学；False：旧文本标签行（<tool_call>搜索: …），兼容期保留——
+    B2-12 统一后无消费方，仅作格式切换开关（TOOL_CALL_RE 兜底解析仍认
+    旧标签），待后续清理。
+    """
     try:
         from src.rag.web_search import web_search_available
-        if web_search_available():
-            return (
-                "<tool_call>搜索: 需要联网查证的关键词</tool_call>\n"
-                "用户会看到：「我上网查一下…」\n"
-                "然后你收到网络搜索结果（带来源 URL），继续分析。"
-                "只引用与问题直接相关的内容，不相关的不要引用。"
-            )
+        if not web_search_available():
+            return ""
     except Exception:
-        pass
-    return ""
-
-
-# P1 #2：JSON 工单版 web 行（CHAT_PROMPT 用）。_web_tool_guide_line 本体不动——
-# TOOL_CALL_GUIDE/SYSTEM_PROMPT（引擎路径模板）仍引用旧标签版，批次 2 再统一。
-def _web_tool_guide_line_json() -> str:
-    try:
-        from src.rag.web_search import web_search_available
-        if web_search_available():
-            return (
-                "<tool_calls>[{\"tool\": \"web_search\", \"params\": "
-                "{\"query\": \"需要联网查证的关键词\"}}]</tool_calls>\n"
-                "用户会看到：「我上网查一下…」\n"
-                "然后你收到网络搜索结果（带来源 URL），继续分析。"
-                "只引用与问题直接相关的内容，不相关的不要引用。"
-            )
-    except Exception:
-        pass
-    return ""
+        return ""
+    if not json_format:
+        return (
+            "<tool_call>搜索: 需要联网查证的关键词</tool_call>\n"
+            "用户会看到：「我上网查一下…」\n"
+            "然后你收到网络搜索结果（带来源 URL），继续分析。"
+            "只引用与问题直接相关的内容，不相关的不要引用。"
+        )
+    return (
+        "<tool_calls>[{\"tool\": \"web_search\", \"params\": "
+        "{\"query\": \"需要联网查证的关键词\"}}]</tool_calls>\n"
+        "用户会看到：「我上网查一下…」\n"
+        "然后你收到网络搜索结果（带来源 URL），继续分析。"
+        "只引用与问题直接相关的内容，不相关的不要引用。"
+    )
 
 
 def _build_tool_call_guide() -> str:
+    # B2-12：引擎路径模板（SYSTEM_PROMPT）教学统一 JSON 工单——英文 cap_id
+    # + 注册表参数键（text/query），与 CHAT_PROMPT 同口径；旧 <tool_call>
+    # 中文标签教学全部移除（风险评估：引擎路径输出必经 _run_tool_loop 末尾
+    # strip_tool_calls，工单文本不会泄漏给用户，故统一格式而非移除宣传）。
     lines = [
         "当你想用工具时，在思考中说：",
         "",
-        "<tool_call>排盘: 1990年5月20日 午时 北京 男</tool_call>",
+        "<tool_calls>[{\"tool\": \"bazi_chart\", \"params\": {\"text\": \"1990年5月20日 午时 北京 男\"}}]</tool_calls>",
         "用户会看到：「我帮你排个盘看看...」",
         "然后你收到排盘结果，继续自然地分析。",
         "",
-        "<tool_call>检索: 梦见蛇 解梦 征兆</tool_call>",
+        "<tool_calls>[{\"tool\": \"quote_rag\", \"params\": {\"query\": \"梦见蛇 解梦 征兆\"}}]</tool_calls>",
         "用户会看到：「我查一下古籍怎么说...」",
         "然后你收到检索结果，继续分析。查不到时不要生硬地说\"没查到\"，",
         "像朋友聊天一样自然地继续对话（可询问更多细节、共情、换个角度聊），",
@@ -61,13 +67,13 @@ def _build_tool_call_guide() -> str:
         "检索结果带编号 [n]，引用时**只引用与用户问题直接相关的内容**，",
         "并在相关陈述后标注编号（如「古籍《X》载：…[1]」）；不相关的内容忽略。",
         "",
-        "<tool_call>解梦: 梦见大海 淋雨 吵架</tool_call>",
+        "<tool_calls>[{\"tool\": \"dream\", \"params\": {\"text\": \"梦见大海 淋雨 吵架\"}}]</tool_calls>",
         "",
-        "<tool_call>风水: 坐北朝南的房子</tool_call>",
+        "<tool_calls>[{\"tool\": \"fengshui\", \"params\": {\"text\": \"坐北朝南的房子\"}}]</tool_calls>",
         "",
-        "<tool_call>择日: 2026年8月15日 搬家</tool_call>",
+        "<tool_calls>[{\"tool\": \"zeri\", \"params\": {\"text\": \"2026年8月15日 搬家\"}}]</tool_calls>",
         "",
-        "<tool_call>查记录: 我的档案</tool_call>",
+        "<tool_calls>[{\"tool\": \"record_lookup\", \"params\": {\"query\": \"我的档案\"}}]</tool_calls>",
         "用户问自己已有的档案、解梦记录、历史对话、收藏等存量数据时，",
         "主动调用查记录，基于用户本人数据回答。",
     ]
@@ -77,7 +83,7 @@ def _build_tool_call_guide() -> str:
         lines.append(web_line)
     lines.append("")
     lines.append("不需要工具时，直接回复，不要说「让我想想」之类的。")
-    lines.append("工具参数写成自然语言描述即可，不用结构化格式。")
+    lines.append("标签内参数写自然语言描述即可（params 的 text/query 字段）。")
     return "\n".join(lines)
 
 
@@ -280,8 +286,8 @@ CHAT_PROMPT = """你是易理明灯，一个懂命理的 AI 助手。说话方�
 择日支持 7 种场景：嫁娶、搬家、开业、晋升、出行、提车、签约（用户说结婚/婚礼、乔迁、开张、升职/加薪/竞聘/面试、旅游/出差、买车、签合同等同义表述都算）。
 择日参数里要带上「场景 + 大概时间」（如"下个月"/"下周"/"8月20日"/具体日期）和选日意图（如"帮我选个日子""挑个时间"），
 没有明确时间就只说场景+意图，如：<tool_calls>[{"tool": "zeri", "params": {"text": "搬家 想选个好日子"}}]</tool_calls>。
-用户要求"换一批/重新选/还有别的日子吗"时，把已展示过的日期放入 exclude_dates 参数，避免重复推荐（如：<tool_calls>[{"tool": "zeri", "params": {"text": "下个月搬家 换一批 exclude_dates: 2026-09-03,2026-09-06"}}]</tool_calls>）。
-用户只问今日宜忌或日常闲聊（如"今天适合干嘛"）时，不要调用择日工具，直接回复即可。""" + _web_tool_guide_line_json() + """
+用户要求"换一批/重新选/还有别的日子吗"时，把已展示过的日期放入 params 的 exclude_dates 键（日期数组），避免重复推荐（如：<tool_calls>[{"tool": "zeri", "params": {"text": "下个月搬家 换一批", "exclude_dates": ["2026-09-03", "2026-09-06"]}}]</tool_calls>）。
+用户只问今日宜忌或日常闲聊（如"今天适合干嘛"）时，不要调用择日工具，直接回复即可。""" + _web_tool_guide_line() + """
 
 标签内参数写自然语言描述。不需要工具就直接回复，不要说「让我想想」之类的话。
 如果检索工具返回"未命中古籍库"，不要生硬地说"没查到"，像朋友聊天一样

@@ -60,8 +60,10 @@ from src.memory.user_memory import UserMemory, format_birth_line
 # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除，见 src/engines/similarity.py 注释）
 from .formatter import split_long_message, format_error, format_loading
 from src.reading_version import get_version_footer
-# 阶段 3（方案 v5）：<tool_call>搜索: 引导按搜索可用性注入（不可用时返回空串不宣传）
-from src.llm.prompts import _web_tool_guide_line
+# B2-11（P1 #2 残留）：单消息降级分支（无 session_dao）的 system 提示——
+# CHAT_PROMPT（JSON 工单教学）+ [可用工具清单]，与主链首轮同口径
+# （B2-13：旧 _web_tool_guide_line 死导入已清理，无任何消费方）
+from src.llm.prompts import CHAT_PROMPT
 
 # AI 原生对话系统（Phase 1）— <tool_call> 标签解析与工具执行
 # 意图识别已完全由 LLM 承担（_analyze_message），不再有任何硬编码关键词表。
@@ -6465,7 +6467,14 @@ class MessageHandler:
             chat_msg = msg
             if combined_hint:
                 chat_msg = msg + f"\n\n{combined_hint}"
-            result = self.llm.chat(chat_msg, lite=downgraded)
+            # P1 #2（B2-11）：单消息分支与主链首轮同口径——CHAT_PROMPT
+            # （JSON 工单教学）+ [可用工具清单]，否则无会话存储配置下模型
+            # 首轮同样不知道有真实工具可调（工具链触发率 0% 根因复现）。
+            # lite 降级链（_chat_lite/CHAT_PROMPT_LITE 不调工具）忽略该参数。
+            result = self.llm.chat(
+                chat_msg, lite=downgraded,
+                system_prompt=("[可用工具清单]\n" + build_tool_description()
+                               + "\n\n" + CHAT_PROMPT))
             return result.response
         except Exception:
             return '我在这里。有什么想问的尽管说。若要看八字，请告知您的出生年月日时。'
