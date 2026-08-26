@@ -23,8 +23,14 @@ def analyzer():
     return MessageAnalyzer(api_key="test-key", model="test-model")
 
 
-def _mock_completion(intent):
-    """mock LLM 响应：返回指定 intent 的 JSON（json.dumps 双引号），并计数调用次数。"""
+def _mock_completion(intent, monkeypatch):
+    """mock LLM 响应：返回指定 intent 的 JSON（json.dumps 双引号），并计数调用次数。
+
+    B1 附带修复（B1-12）：改用 monkeypatch.setattr 自动还原——原实现直接给两个
+    模块属性赋值且永不还原，假函数泄漏到本文件之后的所有测试：test_bot.py 在本
+    文件之后运行时，其 process() 内 _analyze_message 的每个消息都会被残留的
+    hehun 假响应劫持成合婚引导卡片（基线可复现 4 失败，见 task-B1-report）。
+    """
     import json
 
     import src.llm.client as llm_client_mod
@@ -40,38 +46,42 @@ def _mock_completion(intent):
         calls["n"] += 1
         return json.dumps(payload, ensure_ascii=False)
 
-    llm_client_mod.deepseek_anthropic_completion = fake
-    analyzer_mod.deepseek_anthropic_completion = fake
+    monkeypatch.setattr(llm_client_mod, "deepseek_anthropic_completion", fake)
+    # analyzer_mod 侧：analyze() 内是函数级局部 import（每次从 llm.client 实时读
+    # 属性），message_analyzer 模块本身无此属性——raising=False 兼容两种形态，
+    # 保留原"双模块都盖"意图且同样自动还原
+    monkeypatch.setattr(analyzer_mod, "deepseek_anthropic_completion", fake,
+                        raising=False)
     return calls
 
 
-def test_pure_birth_date_fast_path_bazi(analyzer):
+def test_pure_birth_date_fast_path_bazi(analyzer, monkeypatch):
     """纯生日陈述：fast path 直接返回 bazi，不触发 LLM 调用。"""
-    calls = _mock_completion("free_chat")  # 若误走 LLM 会得到 free_chat
+    calls = _mock_completion("free_chat", monkeypatch)  # 若误走 LLM 会得到 free_chat
     result = analyzer.analyze("1990年5月20日 下午3点 北京 男")
     assert result.intent == "bazi"
     assert calls["n"] == 0  # fast path 无 LLM 调用
 
 
-def test_birth_plus_company_question_goes_to_ai(analyzer):
+def test_birth_plus_company_question_goes_to_ai(analyzer, monkeypatch):
     """含生日 + 公司适配问题：不再 fast path 掐成 bazi，走 AI 分类返回 career。"""
-    calls = _mock_completion("career")
+    calls = _mock_completion("career", monkeypatch)
     result = analyzer.analyze("我的八字1990年5月20日生的，跟哪个互联网公司最配")
     assert result.intent == "career"
     assert calls["n"] == 1  # 确实走了 AI 分类
 
 
-def test_birth_plus_career_question_career(analyzer):
+def test_birth_plus_career_question_career(analyzer, monkeypatch):
     """含生日 + 适合什么工作：AI 分类为 career。"""
-    calls = _mock_completion("career")
+    calls = _mock_completion("career", monkeypatch)
     result = analyzer.analyze("1990年5月20日出生，适合做什么工作")
     assert result.intent == "career"
     assert calls["n"] == 1
 
 
-def test_birth_plus_similar_hint_goes_to_ai(analyzer):
+def test_birth_plus_similar_hint_goes_to_ai(analyzer, monkeypatch):
     """含生日 + 像谁/相似词：也走 AI 分类（不再被 fast path 掐成纯排盘 bazi）。"""
-    calls = _mock_completion("bazi")
+    calls = _mock_completion("bazi", monkeypatch)
     result = analyzer.analyze("1990年5月20日，我像谁")
     assert calls["n"] == 1
     assert result.intent == "bazi"
@@ -129,25 +139,25 @@ def test_intent_hint_pattern_coverage():
 
 # ── Task 8 双人合盘 hehun 意图扩展（触发词 + 两人语义规则） ──
 
-def test_birth_plus_hehun_words_goes_to_ai(analyzer):
+def test_birth_plus_hehun_words_goes_to_ai(analyzer, monkeypatch):
     """含生日 + 婚恋配对词（我和TA合不合）：不走 fast path 纯排盘，走 AI 分类返回 hehun。"""
-    calls = _mock_completion("hehun")
+    calls = _mock_completion("hehun", monkeypatch)
     result = analyzer.analyze("1990年5月20日 男，我和TA合不合")
     assert result.intent == "hehun"
     assert calls["n"] == 1  # 确实走了 AI 分类
 
 
-def test_couple_match_question_hehun(analyzer):
+def test_couple_match_question_hehun(analyzer, monkeypatch):
     """「我们俩配不配/合不合」类两人消息 → hehun（mock LLM 返回 hehun）。"""
-    calls = _mock_completion("hehun")
+    calls = _mock_completion("hehun", monkeypatch)
     result = analyzer.analyze("看看我们配不配")
     assert result.intent == "hehun"
     assert calls["n"] == 1
 
 
-def test_hepan_word_hehun(analyzer):
+def test_hepan_word_hehun(analyzer, monkeypatch):
     """「合盘」触发词 → hehun。"""
-    calls = _mock_completion("hehun")
+    calls = _mock_completion("hehun", monkeypatch)
     result = analyzer.analyze("帮我合盘，我和她")
     assert result.intent == "hehun"
     assert calls["n"] == 1
