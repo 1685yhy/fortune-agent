@@ -366,6 +366,88 @@ def _parse_cn_month_day(text):
             return month, day
     return None
 
+# ── F2 渐进式出生信息累积：中文数字年 + 年龄→年份推算 ──────────────
+# 中文数字年份逐字转阿拉伯（"一九七六"→1976，"七六"→76；〇/零 均可）
+_CN_YEAR_DIGITS = {"〇": 0, "零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
+                   "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+
+def _cn_year_to_int(s: str) -> Optional[int]:
+    """逐字转换中文数字年份字符串（不含十/百/千位字，个位"十"不出现）。"""
+    n = 0
+    for ch in s:
+        if ch not in _CN_YEAR_DIGITS:
+            return None
+        n = n * 10 + _CN_YEAR_DIGITS[ch]
+    return n
+
+# 年龄命中：① 前缀词（今年/现在/已经/都/满/虚岁）引导 → "岁" 可省（"现在50"）；
+# ② 无前缀 → 必须带 "岁"（"50岁"）。数字后紧跟时间/日期单位词的排除——
+# "现在3点""都已经3点了"是时间不是年龄（"今年是几几年"无数字不命中）。
+_AGE_PATTERNS = (
+    re.compile(r'(?:今年|现在|已经|都|满|虚岁)\s*(\d{1,3})(?:\s*岁)?'),
+    re.compile(r'(\d{1,3})\s*岁'),
+)
+_AGE_UNIT_GUARD = set("点时：:分月日年个天周万")
+
+def _extract_age(msg: str) -> Optional[int]:
+    """提取消息中的年龄（仅阿拉伯数字，如"50岁"；不支持"五十岁"中文数字）。
+
+    范围校验 1-130，超界不取；多条年龄命中取最后一条（最新者胜，与合并语义一致）。
+    """
+    best = None
+    for pat in _AGE_PATTERNS:
+        for m in pat.finditer(msg):
+            age = int(m.group(1))
+            if not (1 <= age <= 130):
+                continue
+            j = m.end()
+            while j < len(msg) and msg[j].isspace():
+                j += 1
+            if j < len(msg) and msg[j] in _AGE_UNIT_GUARD:
+                continue  # 数字后跟时间/日期单位 → 非年龄（"3点""2个小时"）
+            if best is None or m.start() >= best[0]:
+                best = (m.start(), age)
+    return best[1] if best else None
+
+def _format_partial_echo(known: dict, msg: str) -> str:
+    """F2：把已确认的部分出生信息拼成回显一句（信息不丢即可）。
+
+    - year → "出生于1976年（按50岁周岁推算）"（年龄推算带说明；直接报年份的不加）
+    - month+day → "5月13日"（农历闰月 → "闰3月28日"）
+    - hour+minute → "10点以后"（原文含 以后/之后/过后 保留"以后"，否则"10点"；
+      时辰字 → "子时"）
+    - city/gender → "榆树市" / "男"
+    """
+    parts: list = []
+    if known.get("year"):
+        y = known["year"]
+        if known.get("_age_used"):
+            parts.append(f"出生于{y}年（按{known['_age_used']}岁周岁推算）")
+        else:
+            parts.append(f"出生于{y}年")
+    if known.get("month") and known.get("day"):
+        m, d = known["month"], known["day"]
+        if m < 0:
+            parts.append(f"闰{abs(m)}月{d}日")
+        else:
+            parts.append(f"{m}月{d}日")
+    if "hour" in known:
+        shichen = re.search(r'([子丑寅卯辰巳午未申酉戌亥])时', msg)
+        if shichen:
+            parts.append(f"{shichen.group(1)}时")
+        else:
+            t = f"{known['hour']}点"
+            if known.get("minute"):
+                t += f"{known['minute']}分"
+            if re.search(r'以后|之后|过后', msg):
+                t += "以后"
+            parts.append(t)
+    if known.get("city"):
+        parts.append(known["city"])
+    if known.get("gender"):
+        parts.append(known["gender"])
+    return "、".join(parts)
+
 # 时间描述 → 小时：凌晨3点→3, 早上6点→6, 中午12点→12, 下午3点→15, 晚上8点→20, 夜里23点→23
 _TIME_ADJUST = {
     "凌晨": 0, "早上": 0, "早晨": 0, "上午": 0,
@@ -3249,7 +3331,8 @@ class MessageHandler:
         return reply, True
 
     def _handle_bazi(self, msg: str, user_id: str,
-                     stream_cb: Optional[Callable] = None) -> str:
+                     stream_cb: Optional[Callable] = None,
+                     session_id: Optional[str] = None) -> str:
         """处理八字请求"""
         # T5 重看盘直读兜底：任何直达 bazi 处理器的路径（含旧版直调入口）
         # 同样命中即短路，绝不重跑引擎/LLM
@@ -3262,6 +3345,27 @@ class MessageHandler:
         _dg = self._downgraded.get(user_id, False)
 
         if parsed is None:
+            # F2 渐进式累积（2026-08-26）：当前消息含部分出生信息 →
+            # 与"会话历史+当前消息"累积合并（最新者胜，不读档案基线）——
+            # 当前消息部分信息优先于档案（用户本轮新给的信息最大）：
+            # 年/月/日齐全 → 直接 _do_bazi_analysis（hour/minute 缺省 0、
+            # gender 缺省 unknown、city 缺省空串，沿用 _do_bazi_analysis
+            # 参数约定与 1384 语义；排盘后 P2 对话建档自动落库，不新增）；
+            # 不全 → 回显已确认项 + 缺什么要什么（_gen_info_collection_prompt）。
+            if self._extract_partial_birth(msg):
+                known, missing = self._collect_partial_birth(
+                    user_id, session_id, msg)
+                if known.get("year") and known.get("month") and known.get("day"):
+                    return self._do_bazi_analysis(
+                        known["year"], known["month"], known["day"],
+                        known.get("hour") if known.get("hour") is not None else 0,
+                        known.get("minute") if known.get("minute") is not None else 0,
+                        known.get("city") or "",
+                        known.get("gender") or "unknown",
+                        msg, user_id, stream_cb=stream_cb)
+                return self._gen_info_collection_prompt(
+                    msg, lite=_dg, known=known, missing=missing)
+
             # 检查是否有已保存的信息 — 自动复用（bazi_info + persons +
             # chart_records 排盘档案兜底，D8 修复）
             saved = self._get_user_birth_profile(user_id)
@@ -3519,6 +3623,194 @@ class MessageHandler:
                 city = city_match.group(1)
 
         return (year, month, day, hour, minute, city, gender)
+
+    # ── F2 渐进式出生信息累积（2026-08-26）────────────────────────────
+    def _extract_partial_birth(self, msg: str,
+                               current_year: Optional[int] = None) -> dict:
+        """F2：从单条消息中提取"部分出生信息"——任意命中的键即可，不要求齐全。
+
+        返回 dict 只含命中的键：year/month/day/hour/minute/city/gender 的
+        任意非空子集；无任何命中 → {}。**不改 _extract_bazi_info 既有行为**
+        （可抽共用正则，返回值语义不动）。
+
+        - year：阿拉伯 4 位年（1900-2100，与 _extract_bazi_info 同口径）→
+          中文数字年（"一九七六"→1976；两位"七六"→1976、"零六"→2006，
+          27-99→19xx，00-26→20xx）→ 年龄推算（"50岁"→current_year-50，
+          含"虚岁"→+1，仅阿拉伯数字，1-130 超界不取，多条取最后一条）。
+          年份来自年龄推算时带 _age_used（回显"按X岁推算"说明用）
+        - month/day：中文农历月日（_parse_cn_month_day）或阿拉伯数字月日——
+          不做农历→阳历转换、不做月日齐全校验，保持原文口径
+        - hour/minute：时间段词/时辰/模糊点/数字时间——只记数值不做校验
+        - city/gender：最内层"XX市"；独立出现的男/女（防"渣男/美女"误取）
+        """
+        if not msg:
+            return {}
+        out: dict = {}
+        cy = current_year if current_year is not None else date.today().year
+
+        # ── year（优先级：阿拉伯 4 位 > 中文 4 位 > 中文 2 位 > 年龄推算）──
+        year = None
+        age_used = None
+        ym = re.search(r'(\d{4})\s*年', msg)
+        if ym:
+            y = int(ym.group(1))
+            if 1900 <= y <= 2100:
+                year = y
+        if year is None:
+            ym_cn4 = re.search(r'([〇零一二三四五六七八九]{4})年', msg)
+            if ym_cn4:
+                y = _cn_year_to_int(ym_cn4.group(1))
+                if y is not None and 1900 <= y <= 2100:
+                    year = y
+        if year is None:
+            ym_cn2 = re.search(r'([〇零一二三四五六七八九]{2})年', msg)
+            if ym_cn2:
+                y = _cn_year_to_int(ym_cn2.group(1))
+                if y is not None and y <= 99:
+                    year = 2000 + y if y < 27 else 1900 + y
+        if year is None:
+            age = _extract_age(msg)
+            if age is not None:
+                _y = cy - age + (1 if "虚岁" in msg else 0)
+                if 1900 <= _y <= 2100:
+                    year = _y
+                    age_used = age
+        if year is not None:
+            out["year"] = year
+            if age_used is not None:
+                out["_age_used"] = age_used
+
+        # ── month/day（农历口径在齐全时由 _extract_bazi_info/_do_bazi_analysis
+        #    现有链路处理；部分信息阶段保持原文即可）──
+        month = day = None
+        cn_md = _parse_cn_month_day(msg)
+        if cn_md:
+            month, day = cn_md
+        else:
+            md = re.search(r'(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
+            if md:
+                month = int(md.group(1))
+                day = int(md.group(2))
+        if month and day and abs(month) <= 12 and 1 <= day <= 31:
+            out["month"] = month
+            out["day"] = day
+
+        # ── hour/minute（复用 _extract_bazi_info 三段口径，只记数值不做校验）──
+        hour = minute = None
+        # 时间段词（凌晨/上午…）：必须带数字才取（"晚上出生"无具体时间不取）
+        tm_desc = re.search(
+            r'(凌晨|早上|早晨|上午|中午|正午|下午|傍晚|黄昏|晚上|夜里|夜间|半夜)'
+            r'\s*(\d{1,2})?\s*[点时]?\s*(\d{0,2})?\s*[分]?',
+            msg)
+        if tm_desc and (tm_desc.group(2) or tm_desc.group(3)):
+            desc = tm_desc.group(1)
+            h_val = int(tm_desc.group(2) or 0)
+            m_val = int(tm_desc.group(3) or 0)
+            adj = _TIME_ADJUST.get(desc, 0)
+            hour = h_val if h_val >= 13 else h_val + adj
+            minute = m_val
+        # 时辰字
+        if hour is None:
+            shichen = re.search(r'([子丑寅卯辰巳午未申酉戌亥])时', msg)
+            if shichen:
+                hour = CHINESE_HOUR_MAP.get(shichen.group(1), 0)
+                minute = 0
+        # 模糊点（"接近11点"→10:55；"大约11点"→11:00）
+        if hour is None:
+            fuzzy = re.search(
+                r'(接近|将近|临近|快到|快|大约|大概|约)\s*(\d{1,2})\s*点', msg)
+            if fuzzy:
+                anchor = int(fuzzy.group(2))
+                if fuzzy.group(1) in ("接近", "将近", "临近", "快到", "快"):
+                    hour = anchor - 1 if anchor >= 1 else 23
+                    minute = 55
+                else:
+                    hour = anchor
+                    minute = 0
+        # 数字时间（"15:30"/"10点"/"10点以后"→10:00）
+        if hour is None:
+            tm_num = re.search(r'(\d{1,2})\s*[点时:：]\s*(\d{0,2})', msg)
+            if tm_num:
+                hour = int(tm_num.group(1))
+                minute = int(tm_num.group(2) or 0)
+                if re.search(r'(下午|晚上|傍晚|夜间|夜里)', msg):
+                    if 1 <= hour <= 12:
+                        hour += 12
+        if hour is not None:
+            out["hour"] = hour
+            out["minute"] = minute
+
+        # ── city/gender ──
+        city_matches = re.findall(r'([一-鿿]{2,5}?市)', msg)
+        if city_matches:
+            out["city"] = city_matches[-1]  # 最内层（"吉林省长春市榆树市"→榆树市）
+        else:
+            city_match = re.search(r'({})'.format('|'.join(self.COMMON_CITIES)),
+                                   msg)
+            if city_match:
+                out["city"] = city_match.group(1)
+        # 独立出现的男/女才取（防"渣男/美女"）；"性别男"显式带性别词也可取
+        if re.search(r'(?:^|[^\w])女(?:$|[^\w])|性别女', msg):
+            out["gender"] = "女"
+        elif re.search(r'(?:^|[^\w])男(?:$|[^\w])|性别男', msg):
+            out["gender"] = "男"
+        return out
+
+    def _collect_partial_birth(self, user_id: str,
+                               session_id: Optional[str] = None,
+                               msg: str = "",
+                               history: Optional[list] = None
+                               ) -> Tuple[dict, list]:
+        """F2：累积合并"会话历史 user 消息 + 当前 msg"中的部分出生信息。
+
+        - history=None 时：session_dao.get_context_for_llm(user_id,
+          history_limit=8, session_id=session_id)（session_id 可 None=用户级历史，
+          现有行为）；只取 role=="user" 的消息
+        - 合并顺序：历史（旧→新）→ 当前 msg，最新者胜（后写覆盖）
+        - 不读档案基线（档案复用走 _handle_bazi 既有 saved 分支）；不落库（无状态）
+
+        返回 (known, missing)：
+        - known：合并后的 dict（只含至少命中一次的键，含 _age_used 推算说明）
+        - missing：缺失项固定顺序 ["出生年份"(缺时首位), "出生月日", "出生时辰",
+          "出生城市", "性别"]；hour/minute 任一缺 → "出生时辰" 进 missing
+          （时辰缺失不阻塞排盘，沿用 hour/minute 缺省 0 语义，但引导仍要问）；
+          known 为空 → missing 为全量列表
+        """
+        merged: dict = {}
+        if history is None and self.session_dao is not None:
+            try:
+                history = self.session_dao.get_context_for_llm(
+                    user_id, history_limit=8, session_id=session_id)
+            except Exception:
+                history = None
+        messages: list = []
+        if history:
+            messages.extend(
+                h.get("content") for h in history
+                if h.get("role") == "user" and h.get("content"))
+        if msg:
+            messages.append(msg)
+        for m in messages:
+            part = self._extract_partial_birth(m)
+            for k, v in part.items():
+                merged[k] = v
+            # 最新一条直接报出年份 → 清除此前年龄推算的"按X岁推算"说明
+            if "year" in part and "_age_used" not in part:
+                merged.pop("_age_used", None)
+        if not merged:
+            return {}, ["出生年份", "出生月日", "出生时辰", "出生城市", "性别"]
+        missing: list = []
+        if "year" not in merged:
+            missing.append("出生年份")
+        if not (merged.get("month") and merged.get("day")):
+            missing.append("出生月日")
+        if "hour" not in merged or "minute" not in merged:
+            missing.append("出生时辰")
+        if "city" not in merged:
+            missing.append("出生城市")
+        if "gender" not in merged:
+            missing.append("性别")
+        return merged, missing
 
     @staticmethod
     def _emit_stream_event(stream_cb, evt_type: str, text: str) -> None:
@@ -4129,11 +4421,21 @@ class MessageHandler:
         )
         return self._quick_flash(prompt, max_tokens=60)
 
-    def _gen_info_collection_prompt(self, msg: str, lite: bool = False) -> str:
+    def _gen_info_collection_prompt(self, msg: str, lite: bool = False,
+                                    known: Optional[dict] = None,
+                                    missing: Optional[list] = None) -> str:
         """AI generates contextual info-collection prompt based on what user said.
 
+        F2（2026-08-26）：known 非空 → 固定模板（零 LLM 调用）——先回显已
+        确认项，再只问缺失项（回显是机械拼接，不需要创造性；降级路径同构）。
+        known 为空/None → 原 prompt 与 lite 文案一字不改（LLM 引导同现有口径）。
         lite（L5-2 修复·降级成本）：降级链路不调 LLM，直接返回固定引导文案。
         """
+        if known:
+            _missing = missing or ["出生年份", "出生月日", "出生时辰",
+                                   "出生城市", "性别"]
+            return (f"好的，已记下：{_format_partial_echo(known, msg)}。"
+                    f"再告诉我{'、'.join(_missing)}，就能给你排盘。")
         if lite:
             return ("好的，想帮你看看八字～请告诉我：\n"
                     "📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n"
@@ -5616,6 +5918,17 @@ class MessageHandler:
         has_gender = bool(re.search(r'(?:^|[^\w])[男女](?:$|[^\w])', msg))
         saved_bazi = self.dao.get_user_bazi(user_id) if self.dao else None
         if (has_year or has_gender) and not saved_bazi:
+            # F2（2026-08-26）：先看是否已在会话中累积部分出生信息——有则
+            # 渐进引导（回显已确认项 + 只问缺失项，不要求完整格式）；无则
+            # 保持原固定格式引导（行为不变）。
+            try:
+                _pknown, _pmissing = self._collect_partial_birth(
+                    user_id, session_id, msg)
+            except Exception:
+                _pknown = None
+            if _pknown:
+                return self._gen_info_collection_prompt(
+                    msg, lite=downgraded, known=_pknown, missing=_pmissing)
             return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
         if saved_bazi and (has_year or has_gender):
             # 用户已有八字，但提供了新的出生信息，可能想更新或已有信息
@@ -5626,7 +5939,26 @@ class MessageHandler:
                 intent_result = self._analyze_message(msg, user_id,
                                                       session_id=session_id)
             if intent_result.intent == "bazi":
-                return self._handle_bazi(msg, user_id)
+                return self._handle_bazi(msg, user_id, session_id=session_id)
+
+        # F2（2026-08-26）：无档案 + 非情绪消息 + 会话已累积部分出生信息 →
+        # 注入渐进引导 hint（LLM 先复述确认已给信息，再只问缺失项，
+        # 不要要求完整格式，不要问今年是哪一年）。仅影响 LLM 提示词，
+        # 无额外 LLM 调用；历史获取为 DAO 读，降级路径同样注入。
+        partial_hint = ""
+        if not saved_bazi and not emotion_label:
+            try:
+                _pknown, _pmissing = self._collect_partial_birth(
+                    user_id, session_id, msg)
+                if _pknown:
+                    partial_hint = (
+                        f"【重要】用户正在分步提供出生信息，目前已确认："
+                        f"{_format_partial_echo(_pknown, msg)}。"
+                        f"请先复述确认这些信息，然后只询问缺失项："
+                        f"{'、'.join(_pmissing)}。"
+                        "不要要求完整格式，不要问今年是哪一年。")
+            except Exception:
+                partial_hint = ""
 
         # 所有其他消息 → 用 LLM 自然对话（总是带完整会话历史）
         try:
@@ -5657,6 +5989,8 @@ class MessageHandler:
                 combined_hint = combined_hint + "\n" + emotion_hint if combined_hint else emotion_hint
             if extra_hint:
                 combined_hint = combined_hint + "\n" + extra_hint if combined_hint else extra_hint
+            if partial_hint:
+                combined_hint = combined_hint + "\n" + partial_hint if combined_hint else partial_hint
 
             # L1 滚动窗口（方案 §5.3）+ L2 增量摘要（方案 §5.4）：
             # 1) L2 触发检查（超阈值 → 分块滚动摘要，摘要存 session_summaries）
