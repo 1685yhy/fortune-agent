@@ -215,7 +215,9 @@ def make_mock_handler():
 def test_process_no_intent_returns_help():
     """无意图时返回帮助信息"""
     handler = make_mock_handler()
-    result = handler.process("你好", "user123")
+    # A4：问候"你好"已由简单意图快通道承接（0 LLM 直通）——改中性无意图
+    # 闲聊验证 free_chat 帮助回复链路不受影响
+    result = handler.process("今天天气不错", "user123")
     assert "命理助手" in result
 
 
@@ -1001,7 +1003,9 @@ def test_image_message_type_routing():
 def test_text_message_type_default_behavior():
     """验证text类型的默认处理行为不变"""
     handler = make_mock_handler()
-    result = handler.process("你好", "user123")
+    # A4：问候"你好"已由简单意图快通道承接（0 LLM 直通）——改中性无意图
+    # 闲聊验证 text 消息默认链路（free_chat）不受影响
+    result = handler.process("今天天气不错", "user123")
     assert "命理助手" in result
 
 

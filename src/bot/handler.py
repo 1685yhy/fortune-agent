@@ -1033,6 +1033,143 @@ class MessageHandler:
             pass
         return None
 
+    # ============================================================
+    # Task A4: 意图分级路由（轻量路由器，预算感知）— 0 LLM 纯正则
+    # ============================================================
+    # 模型矩阵（现状盘点 2026-08-27，未新增模型/key）：
+    #   - 主链-快聊：deepseek-v4-flash（FortuneLLM.model，Anthropic 兼容端点）
+    #     → 自由对话 / 意图分析(MessageAnalyzer) / 润色 / 秒回安抚 / 工具循环
+    #   - 主链-深度：deepseek-v4-flash（FortuneLLM.deep_model，当前与快聊同款）
+    #     → 命理深度分析（use_pro）
+    #   - 降级链：glm-4-flash（ZHIPU_API_KEY 免费，OpenAI 兼容端点），失败
+    #     回退 deepseek → 降级用户精简对话（chat_lite，L5-1）
+    #   - 零成本层（无模型）：入口缓存 / 反馈 / T5 重看盘直读 / 存量直读 /
+    #     _quick_intent 预生成门控 / _rule_analyze 降级快判 / A4 简单意图直通
+    # 红线对齐（调研结论）：hunyuan-lite 类轻模型不能承担工具路由决策 →
+    # 不引入轻模型承担简单任务；"简单意图不经过 AI 慢推理"即本任务预算感知
+    # 核心价值。多级模型选择（complex 档换更强模型）文档化为未来挂载点——
+    # _score_intent_complexity 返回档位即路由决策输入，届时按档选模型即可。
+
+    SIMPLE_GREETING_RE = re.compile(
+        r'^(?:您好|你好|你好呀|哈喽|嗨|hello|hi|早上好|中午好|下午好|晚上好|早安)'
+        r'[!！。.~～了啦\s]*$', re.IGNORECASE)
+    SIMPLE_THANKS_RE = re.compile(
+        r'^(?:谢谢|谢谢啦|感谢|多谢|辛苦了)[!！。.~～你了呀啦\s]*$')
+    SIMPLE_BYE_RE = re.compile(
+        r'^(?:再见|拜拜|晚安)[!！。.~～了啦\s]*$')
+    SIMPLE_DATETIME_RE = re.compile(
+        r'^(?:今天|现在|请问)?(?:几月几号|今天几号|几号了|现在几点|几点了|'
+        r'几点钟|几点|现在时间|什么时间|今天星期几|星期几|今天周几|周几)'
+        r'[!！。.~～?？呢啊了\s]*$')
+    # 守卫词表（防御纵深）：锚定正则已保证整句为纯简单意图，这里再排除
+    # 命理/场景意图词——防未来正则放宽时"你好，帮我算八字"被误掐为简单档
+    SIMPLE_GUARD_WORDS = (
+        "八字", "紫微", "斗数", "占卜", "命理", "排盘", "塔罗", "看相",
+        "生肖", "运势", "解梦", "算", "测", "看", "帮", "怎么", "怎样",
+        "如何", "建议", "应该",
+    ) + tuple(kw for kws in SCENARIO_KEYWORDS.values() for kw in kws)
+
+    def _simple_intent_guard_ok(self, msg: str) -> bool:
+        """简单意图守卫：不含量化/意图提示词/场景/命理词（防误掐真意图）。"""
+        try:
+            if MessageAnalyzer.BIRTH_DATE_PATTERN.search(msg):
+                return False
+            if MessageAnalyzer.INTENT_HINT_PATTERN.search(msg):
+                return False
+            if any(w in msg for w in self.SIMPLE_GUARD_WORDS):
+                return False
+        except Exception:
+            pass
+        return True
+
+    def _score_intent_complexity(self, msg: str) -> str:
+        """意图复杂度评分（A4 轻量路由器）：返回 'simple' / 'normal' / 'complex'。
+
+        规则（关键词/长度/意图类型三档映射）：
+        - complex：长度 > 80（长文倾诉/多要求）；或长度 > 40 且命中 ≥2 个
+          场景类别关键词（多意图叠加，如财运+感情+工作）；
+        - simple：整句锚定命中问候/感谢/再见/日期时间之一，且守卫通过
+          （不含生日陈述/意图提示词/场景关键词/命理词——"你好，帮我算八字"
+          这类问候前缀+真意图不被误掐）；
+        - normal：其余（生日陈述 / 单意图问题 / 自由聊天）。
+        纯正则零 LLM 调用；档位只用于路由决策，不改变消息语义与内容。
+        """
+        try:
+            msg = (msg or "").strip()
+            if not msg:
+                return "normal"
+            if len(msg) > 80:
+                return "complex"
+            if len(msg) > 40:
+                cats = {c for c, kws in self.SCENARIO_KEYWORDS.items()
+                        if any(kw in msg for kw in kws)}
+                if len(cats) >= 2:
+                    return "complex"
+            if (self.SIMPLE_GREETING_RE.match(msg)
+                    or self.SIMPLE_THANKS_RE.match(msg)
+                    or self.SIMPLE_BYE_RE.match(msg)
+                    or self.SIMPLE_DATETIME_RE.match(msg)):
+                if self._simple_intent_guard_ok(msg):
+                    return "simple"
+            return "normal"
+        except Exception:
+            return "normal"  # 评分异常 fail-open → 主链（宁多走一步不误掐）
+
+    def _reply_datetime(self, msg: str) -> str:
+        """日期时间确定性回答（A4 simple 档）：纯 datetime，不查农历。"""
+        today = date.today()
+        parts = [f"今天是 {today.year}年{today.month}月{today.day}日，星期"
+                 + "一二三四五六日"[today.weekday()]]
+        if re.search(r"几点|时间", msg):
+            tm = time.localtime()
+            parts.append(f"现在是 {tm.tm_hour:02d}:{tm.tm_min:02d}")
+        return "。".join(parts) + "。"
+
+    def _greeting_reply(self, user_id: str) -> str:
+        """开场白（0 LLM）：欢迎回来（有记忆）/ 已建档引导 / 默认引导。
+
+        A4 从 _free_chat 空消息分支抽取，简单意图快通道复用（行为不变）；
+        fail-open：记忆/档案任何异常 → 回落默认文案，绝不冒泡丢回复。
+        """
+        try:
+            if self.memory_system and self.memory_system.has_memory(user_id):
+                greeting = self.memory_system.get_greeting(user_id)
+                if greeting:
+                    return f"欢迎回来！{greeting}"
+        except Exception:
+            pass
+        try:
+            saved = self.dao.get_user_bazi(user_id) if self.dao else None
+            if saved:
+                return '欢迎回来！您的八字信息已保存，有什么想了解的可以直接问～'
+        except Exception:
+            pass
+        return '您好！我是易理明灯AI命理顾问。直接告诉我您的出生日期，我帮您看八字。'
+
+    def _route_simple_intent(self, msg: str, user_id: str = "") -> Optional[str]:
+        """简单意图直通快通道（A4，0 LLM）：评分=simple → 确定性回复。
+
+        - 问候 → _greeting_reply(user_id)（个性化开场，0 LLM）
+        - 感谢/再见 → 固定礼貌文案；日期时间 → datetime 确定性回答
+        fail-open：评分异常/未命中/任何失败 → None 走主链慢推理，
+        绝不因路由器错误让用户拿不到回复。
+        """
+        try:
+            if self._score_intent_complexity(msg) != "simple":
+                return None
+            if self.SIMPLE_DATETIME_RE.match(msg):
+                return self._reply_datetime(msg)
+            if self.SIMPLE_GREETING_RE.match(msg):
+                return self._greeting_reply(user_id)
+            if self.SIMPLE_THANKS_RE.match(msg):
+                return "不客气～有任何命理问题都可以随时问我。"
+            if self.SIMPLE_BYE_RE.match(msg):
+                return ("晚安，好梦～有需要随时找我。" if "晚安" in msg
+                        else "再见！祝您一切顺利，有需要随时找我。")
+        except Exception:
+            pass
+        return None
+
     def _start_pregen_instant(self, msg: str):
         """消息含完整出生信息且意图为排盘（bazi）→ 排盘 + 秒回安抚提交后台线程。
 
@@ -2812,6 +2949,15 @@ class MessageHandler:
                 # E2-1 卡片化：存量直读 → data 卡片
                 self._mark_card_turn(user_id, data_read=True)
                 return self._maybe_wrap_card(direct, user_id)
+
+        # Step 0.4: A4 意图分级路由——简单意图直通快通道（0 LLM，预算感知）。
+        # 问候/感谢/再见/日期时间等简单意图不再经过 AI 慢推理（意图分析 +
+        # 回复生成 LLM 均省）；命中即短路：不扣额度、不写会话历史（与 T10
+        # 快路径裁决一致）；未命中/异常 → None 走主链（fail-open）。
+        # 普通/复杂档走现状主链不变（模型矩阵见 _score_intent_complexity）。
+        simple_reply = self._route_simple_intent(msg, user_id)
+        if simple_reply is not None:
+            return simple_reply
 
         # Step 0.5: AI 分析 — 情绪 + 意图 in ONE call (no keywords, no two calls)
         # Task 2 等待时长优化：消息含完整出生信息时，把「排盘 + 秒回安抚」提交到
@@ -6155,15 +6301,8 @@ class MessageHandler:
         """
         if msg.strip() in ('',' ','?','？'):
             # Phase 3: Mood-aware greeting for returning users
-            if self.memory_system and self.memory_system.has_memory(user_id):
-                greeting = self.memory_system.get_greeting(user_id)
-                if greeting:
-                    return f"欢迎回来！{greeting}"
-            # 检查是否有已保存的八字 — 如果有，直接引导到八字分析而非要求重新提供
-            saved = self.dao.get_user_bazi(user_id) if self.dao else None
-            if saved:
-                return '欢迎回来！您的八字信息已保存，有什么想了解的可以直接问～'
-            return '您好！我是易理明灯AI命理顾问。直接告诉我您的出生日期，我帮您看八字。'
+            # A4：抽取为 _greeting_reply（简单意图快通道复用，行为不变）
+            return self._greeting_reply(user_id)
 
         # 如果消息含数字或年份且用户已有八字，直接路由到八字分析
         # 注意: "男"/"女" 必须是独立出现(性别标记)，不能是 "渣男"/"美女" 等词的一部分

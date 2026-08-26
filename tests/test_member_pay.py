@@ -452,7 +452,9 @@ class TestDowngradePrecalls:
             return orig_analyze(*a, **kw)
 
         h._analyze_message = spy_analyze
-        reply = h.process("你好呀", "d1", downgraded=True)
+        # A4：问候"你好呀"已由简单意图快通道承接（0 LLM 直通）——改中性
+        # 消息验证降级链路跳过意图分析的目的不变
+        reply = h.process("随便聊聊", "d1", downgraded=True)
         assert calls == []  # 未发起 LLM 意图分析
         assert reply  # 自由对话正常回复
 
@@ -481,7 +483,9 @@ class TestDowngradePrecalls:
             return orig(*a, **kw)
 
         h._analyze_message = spy
-        h.process("你好呀", "n1", downgraded=False)
+        # A4：问候"你好呀"已由简单意图快通道承接（0 LLM 直通）——改中性
+        # 消息验证正常链路仍走意图分析的目的不变
+        h.process("随便聊聊", "n1", downgraded=False)
         assert calls  # 正常链路仍走 LLM 意图分析
 
     def test_gen_suggestions_disabled_when_downgraded(self):

@@ -286,6 +286,6 @@ def test_process_welcome_fail_open(monkeypatch):
     def collect(evt, data):
         chunks.append((evt, data))
 
-    reply = h.process("你好呀", "w1", stream_cb=collect)
+    reply = h.process("随便聊聊", "w1", stream_cb=collect)
     assert reply  # 主回复照常，开场白失败不影响交付
     assert reply == "🔮 精简回复"
