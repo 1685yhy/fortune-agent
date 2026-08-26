@@ -31,7 +31,10 @@ TOOL_CALL_RE = re.compile(
     r'(?P<params>[^<\n]*)(?i:</tool_call>)?',
 )
 # 结构化工单块：<tool_calls>[{"tool": "...", "params": {...}}]</tool_calls>
-_TOOL_CALLS_BLOCK_RE = re.compile(r'<tool_calls>(.*?)</tool_calls>', re.S)
+# (?i) 覆盖大写完整对 <TOOL_CALLS>...</TOOL_CALLS>（Task 3 复查）
+_TOOL_CALLS_BLOCK_RE = re.compile(r'(?i)<tool_calls>(.*?)</tool_calls>', re.S)
+# 未闭合块兜底（截断场景）：剥到行尾，JSON 载荷（含用户查询参数）绝不泄漏
+_TOOL_CALLS_LINE_RE = re.compile(r'(?i)<tool_calls>[^\n]*')
 
 # 裸标签残留（开口/悬挂闭合符）：strip 时兜底清掉（单复数 + 大小写全覆盖）
 _TOOL_RESIDUE_RE = re.compile(r'</?tool_calls?>', re.I)
@@ -177,6 +180,7 @@ def strip_tool_calls(text: str) -> str:
     if not text:
         return text
     s = _TOOL_CALLS_BLOCK_RE.sub("", text)
+    s = _TOOL_CALLS_LINE_RE.sub("", s)
     s = TOOL_CALL_RE.sub("", s)
     s = _TOOL_RESIDUE_RE.sub("", s)
     return s.strip()

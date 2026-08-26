@@ -130,13 +130,19 @@ def test_strip_tool_calls_workorder_layer():
 
 
 def test_strip_workorder_residue():
-    """复数工单标签单边残留（未闭合块/孤立闭合符/大写）必须剥净，JSON 不得泄漏。"""
+    """复数工单标签残留必须剥净，JSON 载荷（含用户查询参数）绝不泄漏到可见文本。"""
     from src.bot.tool_calls import strip_tool_calls
-    assert "tool_calls" not in strip_tool_calls(
-        '好的。<tool_calls>[{"tool": "web_search", "params": {"query": "1990年出生信息"}}]以下是正文')
-    assert "tool_calls" not in strip_tool_calls('正文</tool_calls>尾')
-    assert "TOOL_CALLS" not in strip_tool_calls(
-        '正文<TOOL_CALLS>[{"tool": "web_search"}]尾</TOOL_CALLS>')
-    # 完整合法工单块仍整块剥离，正文保留
+    # 未闭合块：JSON 载荷+同行正文剥到行尾（防泄漏优先）
+    assert strip_tool_calls(
+        '好的。<tool_calls>[{"tool": "web_search", "params": {"query": "1990年出生信息"}}]以下是正文'
+    ) == "好的。"
+    # 孤立闭合符
+    assert strip_tool_calls('正文</tool_calls>尾') == "正文尾"
+    # 大写完整块：整块剥离，正文保留
+    assert strip_tool_calls(
+        '正文<TOOL_CALLS>[{"tool": "web_search"}]</TOOL_CALLS>尾') == "正文尾"
+    # 完整合法小写块：整块剥离，正文保留
     assert strip_tool_calls(
         '<tool_calls>[{"tool": "web_search", "params": {"query": "北京天气"}}]</tool_calls>你好') == "你好"
+    # 单数标签残留回归（旧协议真机修复）
+    assert strip_tool_calls('正文<tool_call>搜索: 北京</tool_call>尾') == "正文尾"
