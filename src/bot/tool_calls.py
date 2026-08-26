@@ -75,45 +75,18 @@ class ToolResult:
     needs_info: bool = False  # True = 参数不全，应由 LLM 自然追问
 
 
-# 工具注册表：name → 描述。引擎不可用时由 handler 运行时标注 unavailable
-# （执行时返回"暂不可用"错误注入，prompt 层面不宣传不可用工具）。
+# 工具注册表：从 capability_registry 投影（唯一事实源，消费方签名不变）。
+# name → {key, desc, requires}；key 保留历史值（bazi/search/web/dream/fengshui/zeri/records）。
+from src.bot.capability_registry import CAPABILITIES, TOOL_NAME_BY_ID  # noqa: E402
+
+_TOOL_KEYS = {
+    "排盘": "bazi", "检索": "search", "搜索": "web", "解梦": "dream",
+    "风水": "fengshui", "择日": "zeri", "查记录": "records",
+}
 TOOL_REGISTRY = {
-    "排盘": {
-        "key": "bazi",
-        "desc": "输入出生信息（年月日时、地点、性别）的自然语言描述，输出四柱十神大运流年",
-        "requires": "出生年月日时、出生地点、性别",
-    },
-    "检索": {
-        "key": "search",
-        "desc": "输入搜索关键词，输出古籍原文 Top5。只引用与用户问题直接相关的内容，不相关忽略",
-        "requires": "搜索关键词",
-    },
-    "搜索": {
-        "key": "web",
-        "desc": "输入关键词，输出网络搜索结果（带来源 URL，Top 3-5，补充最新/社会信息）",
-        "requires": "搜索关键词",
-    },
-    "解梦": {
-        "key": "dream",
-        "desc": "输入梦境描述，输出象征分析+古籍匹配",
-        "requires": "梦境描述",
-    },
-    "风水": {
-        "key": "fengshui",
-        "desc": "输入房屋坐向/布局描述，输出吉凶判断+化解建议",
-        "requires": "房屋坐向（如：坐北朝南）",
-    },
-    "择日": {
-        "key": "zeri",
-        "desc": "输入场景+时间范围，输出3个推荐吉日（宜忌/吉时/方位/一句理由）。"
-               "场景支持：嫁娶/搬家/开业/晋升/出行/提车/签约；时间可写下个月、下周、具体日期",
-        "requires": "场景（嫁娶/搬家/开业/晋升/出行/提车/签约）+ 时间范围（下个月/下周/具体日期）",
-    },
-    "查记录": {
-        "key": "records",
-        "desc": "查用户自己的存量数据（档案/解梦/历史对话/签/名笺/灯语/择吉/晨笺/收藏/会员）。输入想查的内容描述，如'我的档案''以前解过什么梦'",
-        "requires": "用户本人数据",
-    },
+    c.name: {"key": _TOOL_KEYS[c.name], "desc": c.description,
+             "requires": c.requires}
+    for c in CAPABILITIES if c.cap_type == "tool"
 }
 
 
