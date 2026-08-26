@@ -3967,14 +3967,18 @@ class MessageHandler:
 
         # 农历 → 阳历（lunar-python，闰月用负月）。转换失败不放弃：
         # ① 闰月在该年不存在（如"闰三月"实无闰三月）→ 按平月近似；
-        # ② 仍失败 → 按原值（近似阳历）继续——宁可多步确认也不放弃解析。
-        # 口径固化（批次 2 B3-21，2026-08-27 实测确认与库行为一致）：
-        #   - 小月无效日（如 2024 农历二月三十——二月仅 29 天）→ lunar-python
-        #     自身顺延到下一日/下月（不抛异常），即"库口径"顺延，本块回退
-        #     分支只处理闰月不存在场景；
+        # ② 小月无效日（如 2024 农历三月三十——三月仅 29 天）→ 库抛异常
+        #    → 下方 except 回退分支按近似阳历继续（abs(month)）；
+        # ③ 仍失败 → 按原值（近似阳历）继续——宁可多步确认也不放弃解析。
+        # 口径固化（批次 2 B3-21，2026-08-27 reviewer 实测修正，库行为复核一致）：
+        #   - 30 天月是合法日（如 2024 农历二月实有 30 天：二月初一=solar 3-10、
+        #     二月三十=solar 4-8、三月初一=4-9），Lunar.fromYmd(2024,2,30) 返回
+        #     2024-04-08 是正确换算而非"顺延"；库对真无效日抛异常（"only 29 days
+        #     in lunar year 2024 month 3"）→ 本块 except 按近似阳历回退——
+        #     "库口径顺延"说不存在；
         #   - 与 record_query._lunar_birth_text（阳历→农历展示，反向）各自独立
         #     fail-open，互不影响。
-        # 测试见 tests/test_partial_birth.py::test_extract_lunar_*（三类场景固化）。
+        # 测试见 tests/test_partial_birth.py::test_extract_lunar_*（四类场景固化）。
         if is_lunar:
             try:
                 from lunar_python import Lunar
