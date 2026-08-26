@@ -524,6 +524,7 @@ def test_native_dedup_two_blocks_same_params_run_once():
     orig_executor = cap.executor
     orig_ex = reg._tool_executors.get("web_search")
     called: list = []
+    seen_round2: list = []
 
     def spy(params, user_id="", user_question=""):
         called.append(params)
@@ -558,6 +559,10 @@ def test_native_dedup_two_blocks_same_params_run_once():
                      "input": {"query": "北京天气"}},
                 ],
             }
+        if fake_messages.turn >= 2:
+            seen_round2.append(messages[-1])
+            return {"stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "两地天气都查到了。"}]}
         return {"stop_reason": "end_turn",
                 "content": [{"type": "text", "text": "两地天气都查到了。"}]}
 
@@ -574,6 +579,94 @@ def test_native_dedup_two_blocks_same_params_run_once():
         assert called == ["上海天气", "北京天气"]
         assert fake_messages.turn == 2
         assert "两地天气都查到了" in out
+        # 协议修复（真实 API 冒烟发现）：单轮多原生块必须合并为一条 user 消息回传
+        last = seen_round2[0]
+        assert last["role"] == "user"
+        results = last["content"]
+        assert [r["type"] for r in results] == ["tool_result", "tool_result"]
+        assert [r["tool_use_id"] for r in results] == ["tu_1", "tu_2"]
+        assert [r["content"] for r in results] == ["北京：晴 25℃", "北京：晴 25℃"]  # 首块执行结果 + 次块复用去重结果
+    finally:
+        cap.__dict__["executor"] = orig_executor
+        if orig_ex is None:
+            reg._tool_executors.pop("web_search", None)
+        else:
+            reg._tool_executors["web_search"] = orig_ex
+
+
+def test_native_two_blocks_diff_params_run_once_messages():
+    """异参数双原生块（并行双查询）→ 执行两次，且合并为一条 user 消息回传全部
+    tool_result（Anthropic 协议：每个 tool_use 都要有匹配 tool_result，必须同消息回传）。
+    真实 API 冒烟曾 400：逐块回传 'ids were found without tool_result blocks immediately after'。"""
+    from unittest.mock import Mock, patch
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import bind_executors, CAPABILITY_BY_NAME
+
+    cap = CAPABILITY_BY_NAME["搜索"]
+    orig_executor = cap.executor
+    orig_ex = reg._tool_executors.get("web_search")
+    called: list = []
+    seen_round2: list = []
+
+    def spy(params, user_id="", user_question=""):
+        called.append(params)
+        return ToolResult("搜索", True, f"结果:{params}")
+
+    bot = MessageHandler.__new__(MessageHandler)
+    llm = Mock()
+    llm.api_key = "test-key"
+    llm.model = "deepseek-v4-flash"
+    llm.provider = "deepseek"
+    bot.llm = llm
+    bot.session_dao = None
+    bot._downgraded = {}
+    bot._tool_logs = {}
+    bot._citations = {}
+    bot._analysis_facts = {}
+
+    def fake_messages(api_key, messages, model=None, max_tokens=0,
+                      temperature=0.0, timeout=0.0, tools=None,
+                      tool_choice=None, **kwargs):
+        if not hasattr(fake_messages, "turn"):
+            fake_messages.turn = 0
+        fake_messages.turn += 1
+        if fake_messages.turn == 1:
+            # 转换调用：返回两个异参数原生块（deepseek 并行双查询高频行为）
+            return {
+                "stop_reason": "tool_use",
+                "content": [
+                    {"type": "tool_use", "id": "tu_a", "name": "web_search",
+                     "input": {"query": "2026教育政策"}},
+                    {"type": "tool_use", "id": "tu_b", "name": "web_search",
+                     "input": {"query": "2026教育现状"}},
+                ],
+            }
+        # 原生链续调：末条必须是合并回传的单条 user 消息
+        seen_round2.append(messages[-1])
+        return {"stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "两个查询都完成了。"}]}
+
+    try:
+        bind_executors({"web_search": spy}, {})
+        with patch("src.llm.client.deepseek_anthropic_messages",
+                   side_effect=fake_messages):
+            out = bot._run_tool_loop(
+                "查一下教育行业", "u1",
+                '好的。<tool_calls>'
+                '[{"tool": "web_search", "params": {"query": "先看看"}}]'
+                '</tool_calls>')
+        # 异参数 → 两个原生块都执行
+        assert called == ["先看看", "2026教育政策", "2026教育现状"]
+        assert fake_messages.turn == 2
+        assert "两个查询都完成了" in out
+        # 协议修复：单条 user 消息含全部 tool_result（同消息回传）
+        last = seen_round2[0]
+        assert last["role"] == "user"
+        results = last["content"]
+        assert [r["type"] for r in results] == ["tool_result", "tool_result"]
+        assert [r["tool_use_id"] for r in results] == ["tu_a", "tu_b"]
+        assert [r["content"] for r in results] == ["结果:2026教育政策", "结果:2026教育现状"]
     finally:
         cap.__dict__["executor"] = orig_executor
         if orig_ex is None:

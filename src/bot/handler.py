@@ -1233,6 +1233,13 @@ class MessageHandler:
                 native_chain_ran = True
                 try:
                     if native_pending:
+                        # 协议（Anthropic）：assistant 消息中所有 tool_use 块必须在其后
+                        # 紧邻的同一条 user 消息中全部回传匹配 tool_result（不允许逐块
+                        # 各发一条 user 消息）。单轮多原生块（deepseek 并行双查询高频）
+                        # 若逐块回传 → 真实 API 400 "ids were found without tool_result
+                        # blocks immediately after" → 整链降级。故循环内仅累积，循环后
+                        # 一次性 append 单条 user 消息（content = 全部 tool_result 数组）。
+                        tool_results = []
                         for c in native_pending:
                             ckey = _exec_key(c)
                             if ckey in executed_keys:
@@ -1240,13 +1247,10 @@ class MessageHandler:
                                 # 原生块）→ 跳过重复执行（写型工具不重复落库/不双分配
                                 # 引用编号）；但 tool_use 必须回传匹配 tool_result →
                                 # 复用上次结果文本（幂等语义），不发"正在…"事件、不落库
-                                native_messages.append({
-                                    "role": "user",
-                                    "content": [{
-                                        "type": "tool_result",
-                                        "tool_use_id": c.tool_use_id,
-                                        "content": executed_keys[ckey],
-                                    }],
+                                tool_results.append({
+                                    "type": "tool_result",
+                                    "tool_use_id": c.tool_use_id,
+                                    "content": executed_keys[ckey],
                                 })
                                 continue
                             # 与下方 JSON 工单路径完全一致的执行/事件/落库语义
@@ -1270,14 +1274,13 @@ class MessageHandler:
                             })
                             if r.name in ("检索", "搜索"):
                                 retrieval_hit = "hit" if r.ok else "miss"
-                            native_messages.append({
-                                "role": "user",
-                                "content": [{
-                                    "type": "tool_result",
-                                    "tool_use_id": c.tool_use_id,
-                                    "content": r.text,
-                                }],
+                            tool_results.append({
+                                "type": "tool_result",
+                                "tool_use_id": c.tool_use_id,
+                                "content": r.text,
                             })
+                        native_messages.append({"role": "user",
+                                                "content": tool_results})
                         native_pending = []
                     data = deepseek_anthropic_messages(
                         api_key, native_messages, model=_llm_model,
