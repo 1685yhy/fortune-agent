@@ -14,6 +14,10 @@ from typing import Dict, Optional, Tuple
 
 import httpx
 
+# Task 5（批次 1）：意图枚举行同源——build_intent_enum_line()（注册表）为唯一事实源，
+# COMBINED_PROMPT 中占位符在模块加载时替换。capability_registry 不 import 本模块，无循环。
+from src.bot.capability_registry import build_intent_enum_line
+
 
 @dataclass
 class MessageAnalysis:
@@ -50,7 +54,7 @@ Analyze and return BOTH:
 - If NOT needs_soothe: soothe_text = ""
 
 ## 2. Intent Classification
-Classify into EXACTLY ONE: bazi, ziwei, liuyao, fengshui, zeri, mianxiang, qimen, xingming, hehun, dream, calendar, advisor, career, free_chat
+__INTENT_ENUM__
 
 Rules:
 - Pure birth statement (year-month-day, NO question/intent words) = "bazi"
@@ -95,6 +99,10 @@ Return ONLY JSON:
  "intent": "意图分类", "is_sharing": bool, "secondary_needs": ["附加需求"],
  "facts": {"gender": "男/女", "subject": "self/other", "...": "..."},
  "missing_info": ["缺失信息"], "needs_search": bool}"""
+
+# Task 5（批次 1）：模块加载时把枚举行占位符替换为注册表生成行（生成结果与原文
+# 一字不差，由 tests/test_capability_registry.py::test_combined_prompt_enum_same_source 锚定）
+COMBINED_PROMPT = COMBINED_PROMPT.replace("__INTENT_ENUM__", build_intent_enum_line())
 
 
 class MessageAnalyzer:

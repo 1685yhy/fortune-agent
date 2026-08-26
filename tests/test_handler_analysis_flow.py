@@ -41,14 +41,14 @@ def test_tool_loop_analysis_hint_secondary_needs(handler):
 
 
 def test_tool_loop_analysis_hint_needs_search(handler, monkeypatch):
-    """needs_search=True 且搜索可用 → 注入 <tool_call>搜索 引导。"""
+    """needs_search=True 且搜索可用 → 注入 web_search JSON 工单引导（Task 5 改版）。"""
     import src.rag.web_search as ws
     monkeypatch.setattr(ws, "web_search_available", lambda force=False: True)
     a = MessageAnalysis(needs_soothe=False, soothe_text="", emotion_label=None,
                         intent="career", needs_search=True)
     hint = handler._tool_loop_analysis_hint(a)
     assert "实时信息" in hint
-    assert "<tool_call>搜索:" in hint
+    assert '<tool_calls>[{"tool": "web_search"' in hint
 
 
 def test_tool_loop_analysis_hint_search_unavailable(handler, monkeypatch):

@@ -83,6 +83,7 @@ from src.bot.capability_registry import (
     CAPABILITY_BY_NAME,
     CAPABILITIES,
     validate_params,
+    build_tool_description,
 )
 
 # E2-1 对话消息卡片化：卡片标记生成与判定（纯函数，见 task-e2-server-brief）
@@ -1100,7 +1101,7 @@ class MessageHandler:
         """阶段 2/3 最小实现：把理解 JSON（附加需求/联网需求）转成注入下一轮 LLM 的提示。
 
         - secondary_needs：要求逐项覆盖（多需求不遗漏）
-        - needs_search 且搜索工具可用：引导 LLM 按需输出 <tool_call>搜索: 标签查证
+        - needs_search 且搜索工具可用：引导 LLM 按需输出 web_search JSON 工单查证（Task 5）
         """
         if not analysis:
             return ""
@@ -1117,8 +1118,9 @@ class MessageHandler:
                 if web_search_available():
                     hints.append(
                         "【实时信息】此问题依赖实时信息（公司/行业/时事/最新数据）。"
-                        "请先输出一次 <tool_call>搜索: 具体关键词</tool_call> 获取实时信息，"
-                        "再基于搜索结果继续回答，不要凭记忆编造行业现状数据；"
+                        "请先输出一次 <tool_calls>[{\"tool\": \"web_search\", "
+                        "\"params\": {\"query\": \"具体关键词\"}}]</tool_calls> "
+                        "获取实时信息，再基于搜索结果继续回答，不要凭记忆编造行业现状数据；"
                         "若搜索不可用，则明确告知用户"
                         "「实时信息暂不可用，以下按命理知识分析」。"
                     )
@@ -1138,7 +1140,7 @@ class MessageHandler:
 
         阶段 2/3 最小实现（方案 v5）：
         - analysis.secondary_needs → 注入"附加需求逐项覆盖"（多需求不遗漏）
-        - analysis.needs_search 且搜索可用 → 注入联网搜索引导（LLM 决定是否 <tool_call>搜索:）
+        - analysis.needs_search 且搜索可用 → 注入联网搜索引导（LLM 决定是否输出 web_search JSON 工单）
 
         stream_cb（v8 阶段 3）：工具执行前回调 ("tool", {"text": ...}) 事件
         （前端思考路径逐步点亮），后续 LLM 调用走真实流式。
@@ -1344,7 +1346,8 @@ class MessageHandler:
                 "你是易理明灯，请基于工具执行结果继续自然地完成你的回复。"
                 "回答纪律：直接专业作答，禁止油滑/套近乎开场白；"
                 "严格紧扣用户问题，用户没问的（名人相似、旁支话题）不得主动展开。"
-                + self._tool_loop_analysis_hint(analysis)}]
+                + self._tool_loop_analysis_hint(analysis)
+                + "\n\n" + build_tool_description()}]
             if history:
                 messages.extend(history)
             else:

@@ -39,6 +39,25 @@ def test_intent_enum_line_unchanged():
     )
 
 
+def test_combined_prompt_enum_same_source():
+    """COMBINED_PROMPT 枚举行由注册表生成，且与原文一致、无占位符残留。"""
+    from src.engines.message_analyzer import COMBINED_PROMPT
+    assert "__INTENT_ENUM__" not in COMBINED_PROMPT
+    assert ("Classify into EXACTLY ONE: bazi, ziwei, liuyao, fengshui, zeri, "
+            "mianxiang, qimen, xingming, hehun, dream, calendar, "
+            "advisor, career, free_chat") in COMBINED_PROMPT
+
+
+def test_tool_description_built():
+    """工具说明书生成：7 工具齐、含 cap_id 与超时参数。"""
+    from src.bot.capability_registry import build_tool_description
+    d = build_tool_description()
+    for cid in ("bazi_chart", "web_search", "quote_rag", "dream",
+                "fengshui", "zeri", "record_lookup"):
+        assert cid in d
+    assert "8s" in d and "重试1次" in d
+
+
 def test_validate_params():
     """参数校验：缺必填/类型错 → 错误串；合法 → None。"""
     err = reg.validate_params("web_search", {"query": "北京天气"})
