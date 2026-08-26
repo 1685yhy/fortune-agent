@@ -59,6 +59,99 @@ RESULT_CACHE_MAX = 256
 # 搜索关键词长度上限
 QUERY_MAX_CHARS = 70
 
+# ---------------------------------------------------------------------------
+# C-3 搜索质量：长 query 关键词精简（2026-08-27，web_search.py 首次改动）
+# ---------------------------------------------------------------------------
+# 长中文 query（如「2026年教育行业政策 最新动向 双减 职业教育」）整段提交
+# Bing 常返回垃圾结果——堆叠修饰词稀释相关性。精简策略（纯规则、无新依赖）：
+#   ① 剥句首请求/语气前缀（请问/帮我查…）
+#   ② 剥当前年份前缀/整段（2026-08-27 真实抓取复现：Bing 对含当前年份的
+#      query 返回「年份专题」垃圾块——百科/日历/节假日通知，实质忽略其他
+#      检索词；'2026年教育行业政策' 的 top3 全是 2026 百科/节假日/日历表。
+#      剥离后 '教育行业政策 双减' 正常返回教育部/双减真结果。仅当前年份；
+#      历史年份（1999年…）无此问题且是真实内容词，保留；纯年份 query 保留）
+#   ③ 剥句尾问句尾巴（…是什么/…怎么样/…怎么办，可多重叠加剥离）
+#   ④ 按空白/标点切段
+#   ⑤ 移除修饰性堆叠段（整段匹配，绝不误删内容词——「怎么看八字」单段整体保留）
+#   ⑥ 同义改写「人工智能」→「AI」（2026-08-27 冒烟复现：Bing CN 对含
+#      「人工智能」的 query 返回「人工」词典释义垃圾块——百科/读音/组词，
+#      引擎侧分词缺陷，任何长度精简都绕不开；改写后实测绕过，仅多段 query）
+#   ⑦ 保留前 2-3 个内容段
+# 短 query（≤1 段）原样返回——精简只针对长句堆叠场景。
+# 误伤评估：精简丢失的只有高频修饰词与当前年份（内容词全部保留）；若 LLM
+# 意图本就查年份本身（「2026年」），年份保留。宁简勿繁。
+_QUERY_JUNK_PREFIXES = (
+    "请问", "帮我查一下", "帮我搜一下", "帮我查查", "帮我找找",
+    "帮我查", "帮我搜", "帮我找", "查一下", "搜一下", "查查",
+    "搜搜", "帮我", "请",
+)
+_QUERY_JUNK_TAILS = (
+    "的最新动向", "的最新动态", "的最新消息", "的最新情况",
+    "怎么样", "怎么办", "是怎样", "怎样", "如何", "为什么",
+    "是什么", "是啥", "咋样", "怎么看", "怎么分析", "怎么弄",
+    "吗", "呢", "呀", "吧",
+)
+# 单独成段的修饰性堆叠词（整段匹配删除）
+_QUERY_STOP_SEGMENTS = frozenset({
+    "最新动向", "最新动态", "最新消息", "最新情况", "最新",
+    "最近", "近期", "现在", "目前", "今年", "今天",
+    "怎么样", "怎么办", "怎样", "如何", "为什么", "是啥",
+    "是什么", "有没有", "有什么", "有哪些", "有啥", "哪些", "哪里",
+    "情况", "消息", "动向", "动态",
+})
+_QUERY_SEG_SPLIT_RE = re.compile(r"[\s,，、;；。.!！?？:：|/]+")
+
+
+def _strip_query_tail(q: str) -> str:
+    """剥句尾问句尾巴（多重叠加：…怎么样吗 → 吗 → 怎么样）。"""
+    while q:
+        for t in _QUERY_JUNK_TAILS:
+            if q.endswith(t):
+                q = q[: -len(t)].rstrip("。？！!? ")
+                break
+        else:
+            return q
+    return q
+
+
+def _simplify_query(keywords: str, max_keep: int = 3) -> str:
+    """C-3 搜索质量：长 query 精简为最多 max_keep 个内容关键词段。
+
+    策略见 _QUERY_STOP_SEGMENTS 等模块注释；短 query（≤1 段）原样返回。
+    纯字符串规则，无网络/无新依赖；调用方（_search_bing）在 query 构造处接入。
+    """
+    from datetime import date
+
+    q = (keywords or "").strip()
+    if not q:
+        return ""
+    for pref in _QUERY_JUNK_PREFIXES:
+        if q.startswith(pref):
+            q = q[len(pref):].strip()
+            break
+    # 当前年份剥离（句首前缀，含粘连形态「2026年教育行业政策」）：
+    # Bing「年份专题」垃圾块根因（见模块注释②）。剥离后为空（纯年份 query）
+    # → 保留原值（本就查询年份本身，绝不产出空 query）。
+    year_prefix_re = re.compile(rf"^{date.today().year}年?")
+    stripped = year_prefix_re.sub("", q, count=1)
+    if stripped.strip():
+        q = stripped
+    q = _strip_query_tail(q)
+    segs = [s for s in _QUERY_SEG_SPLIT_RE.split(q) if s]
+    if len(segs) <= 1:
+        return q
+    # 多段 query：「人工智能」→「AI」（绕过 Bing CN『人工』词典释义缺陷，见模块注释⑥）
+    segs = [s.replace("人工智能", "AI") for s in segs]
+    kept = [s for s in segs if s not in _QUERY_STOP_SEGMENTS]
+    # 整段年份剥离（「教育政策 2026年」句尾/句中形态；仅当前年份）
+    year_seg_re = re.compile(rf"^{date.today().year}年?$")
+    if len(kept) > 1:
+        kept = [s for s in kept if not year_seg_re.match(s)]
+    if not kept:
+        kept = segs[:1]  # 极端：全为修饰段 → 保第一段，绝不为空
+    return " ".join(kept[:max_keep])
+
+
 _avail: Optional[bool] = None
 _avail_at: float = 0.0
 # 缓存: {cache_key: (expire_at, results)}
@@ -187,9 +280,13 @@ def _search_bing(keywords: str, limit: int = 5,
     返回 [{title, url, text, site_name}]（site_name 留空字符串）；
     失败/解析不到 → 返回 []（不抛异常）。
     """
-    query = (keywords or "").strip()[:QUERY_MAX_CHARS]
-    if not query:
+    raw = (keywords or "").strip()
+    if not raw:
         return []
+    # C-3 搜索质量（2026-08-27）：长 query 精简为 2-3 个内容关键词段
+    # （详见 _simplify_query）。精简只影响实际提交的 query；缓存键与日志
+    # 仍用原始 keywords（结果与原始查询一一对应，行为对调用方透明）。
+    query = _simplify_query(raw)[:QUERY_MAX_CHARS]
     url = f"{BING_SEARCH_URL}?q={quote(query)}&mkt=zh-CN"
     try:
         r = httpx.get(url, headers=BING_HEADERS, timeout=timeout,
@@ -199,7 +296,8 @@ def _search_bing(keywords: str, limit: int = 5,
         parser.feed(r.text)
         results = parser.results[:limit]
         if results:
-            logger.debug("Bing 检索 '%s' → %d 条", query[:40], len(results))
+            logger.debug("Bing 检索 '%s'（精简自 '%s'）→ %d 条",
+                         query[:40], raw[:40], len(results))
         return results
     except Exception as e:  # noqa: BLE001 — 抓取/解析失败 → 返回 [] 不崩
         logger.warning("Bing 检索 '%s' 失败: %s", query[:40], str(e)[:120])
