@@ -33,8 +33,8 @@ TOOL_CALL_RE = re.compile(
 # 结构化工单块：<tool_calls>[{"tool": "...", "params": {...}}]</tool_calls>
 _TOOL_CALLS_BLOCK_RE = re.compile(r'<tool_calls>(.*?)</tool_calls>', re.S)
 
-# 裸标签残留（开口/悬挂闭合符）：strip 时兜底清掉
-_TOOL_RESIDUE_RE = re.compile(r'</?tool_call>', re.I)
+# 裸标签残留（开口/悬挂闭合符）：strip 时兜底清掉（单复数 + 大小写全覆盖）
+_TOOL_RESIDUE_RE = re.compile(r'</?tool_calls?>', re.I)
 
 # 搜索类工具同义词 → 归一为注册表名「搜索」（LLM 偶尔写 联网/网络）
 _TOOL_SYNONYMS = {

@@ -127,3 +127,16 @@ def test_strip_tool_calls_workorder_layer():
         '好的。<tool_calls>[{"tool": "web_search", "params": {"query": "x"}}]'
         '</tool_calls><tool_call>搜索: 天气</tool_call>以下是正文</tool_call>')
     assert s == "好的。以下是正文"
+
+
+def test_strip_workorder_residue():
+    """复数工单标签单边残留（未闭合块/孤立闭合符/大写）必须剥净，JSON 不得泄漏。"""
+    from src.bot.tool_calls import strip_tool_calls
+    assert "tool_calls" not in strip_tool_calls(
+        '好的。<tool_calls>[{"tool": "web_search", "params": {"query": "1990年出生信息"}}]以下是正文')
+    assert "tool_calls" not in strip_tool_calls('正文</tool_calls>尾')
+    assert "TOOL_CALLS" not in strip_tool_calls(
+        '正文<TOOL_CALLS>[{"tool": "web_search"}]尾</TOOL_CALLS>')
+    # 完整合法工单块仍整块剥离，正文保留
+    assert strip_tool_calls(
+        '<tool_calls>[{"tool": "web_search", "params": {"query": "北京天气"}}]</tool_calls>你好') == "你好"
