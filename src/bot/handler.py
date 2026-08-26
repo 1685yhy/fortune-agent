@@ -3503,10 +3503,14 @@ class MessageHandler:
            不再误取省名。
         """
         # Step 1: Extract year
+        # D9（2026-08-26 回归修复）：旧版 BAZI_EXTRACT_PATTERNS 支持 dash/slash
+        # 年份（"1990-05-20 15:00 深圳 女"），AI 原生重写（2da3396）时丢失。
+        # 追加 `(\d{4})\s*[-/]\s*\d{1,2}` 替代项（group 5）恢复该格式，
+        # 不触碰现有 年/公历/阳历/公元 各格式。
         year = None
-        ym = re.search(r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})', msg)
+        ym = re.search(r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})|(\d{4})\s*[-/]\s*\d{1,2}', msg)
         if ym:
-            year = int(ym.group(1) or ym.group(2) or ym.group(3) or ym.group(4))
+            year = int(ym.group(1) or ym.group(2) or ym.group(3) or ym.group(4) or ym.group(5))
 
         if not year or year < 1900 or year > 2100:
             return None
@@ -3520,7 +3524,8 @@ class MessageHandler:
             is_lunar = True  # 中文数字月日（三月初三/三月28）→ 农历口径
         else:
             # Try numeric date: 8月15日, 8-15, 10月10日, 11.20
-            md = re.search(r'(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
+            # (?<!\d) 防止 dash 年份被误拆（"1990-05-20" 不能匹配成 "90-05"）
+            md = re.search(r'(?<!\d)(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
             if md:
                 month = int(md.group(1))
                 day = int(md.group(2))
