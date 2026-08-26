@@ -115,4 +115,10 @@ class JianPrefDAO:
                 "ORDER BY date DESC LIMIT 1", (user_id,)).fetchone()
         if not row:
             return None
-        return {"date": row[1], "card_json": json.loads(_decrypt_or_plain(row[0]) or "{}")}
+        # T8 修复（照 dao.py get_user_bazi 先例）：解密后脏数据/非 JSON → 空卡，
+        # 单卡损坏只影响该卡，不得把整条直读/晨笺链路打成异常。
+        try:
+            card_json = json.loads(_decrypt_or_plain(row[0]) or "{}")
+        except (ValueError, TypeError):
+            card_json = {}
+        return {"date": row[1], "card_json": card_json}

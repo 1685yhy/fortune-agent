@@ -266,3 +266,58 @@ test('E2-2-FIX I-2：_mirror 缓存含流式标志——中断（content 不变�
   assert.ok(stopped.card);
   assert.equal(stopped.cardFinal, true);
 });
+
+/* ═══ E2-2 补漏（批次 2 B3-22）：未闭合标签缺 ] 剥不掉 ═══
+   流式截断/长标题截断 → `[card:type title="…` 缺闭合 ] → 旧实现两个 replace 都
+   要求闭合 ] → 半截标签原样残留进 TTS/复制/分享。追加行尾兜底。 */
+
+test('B3-22：缺 ] 的半截标签在串尾 → 剥掉（修复前残留）', () => {
+  assert.equal(stripCardMarkers('正文[card:paipan title="我的命盘"'), '正文');
+  assert.equal(stripCardMarkers('[card:paipan title="我的命盘"'), '');
+  assert.equal(stripCardMarkers('正文[card:paipan title="我的命'), '正文');
+  assert.equal(stripCardMarkers('[card:paipan'), '');
+});
+
+test('B3-22：半截标签行 + 后随正文行 → 只剥标签行，正文行保留', () => {
+  assert.equal(
+    stripCardMarkers('[card:paipan title="我的命盘"\n你是庚金日主。'),
+    '你是庚金日主。');
+});
+
+test('B3-22：完整卡 + 尾部半截卡 → 完整卡剥净、半截剥掉、正文保留', () => {
+  const s = stripCardMarkers('[card:data]\n资料一\n[/card]\n\n尾部[card:paipan title="我的命');
+  assert.equal(s, '资料一\n\n尾部');
+  assert.ok(s.indexOf('[card:') === -1 && s.indexOf('[/card]') === -1);
+});
+
+test('B3-22：完整标记剥离零回归（旧行为不变）', () => {
+  assert.equal(
+    stripCardMarkers('[card:paipan title="我的命盘"]\n日主甲木，身强。\n[/card]\n\n💬 还想了解：事业运势'),
+    '日主甲木，身强。\n\n💬 还想了解：事业运势');
+  assert.equal(stripCardMarkers('普通文本，无标记'), '普通文本，无标记');
+  assert.equal(stripCardMarkers(''), '');
+});
+
+/* ═══ E2-2 补漏（批次 2 B3-23）：折叠代码块空行 ═══
+   旧 \n{3,}→\n\n 无差别折叠会破坏代码围栏内空行（md.js 只认 ``` 围栏）。 */
+
+test('B3-23：围栏外连续空行折叠为 1 行（语义与旧 \n{3,}→\n\n 一致）', () => {
+  assert.equal(stripCardMarkers('a\n\n\n\nb'), 'a\n\nb');
+  assert.equal(stripCardMarkers('a\n\nb'), 'a\n\nb');   // 单空行不动
+  assert.equal(stripCardMarkers('a\n\n\n\n\nb'), 'a\n\nb');
+});
+
+test('B3-23：代码围栏内空行原样保留（修复前被折叠破坏）', () => {
+  const s = stripCardMarkers('```js\na\n\n\n\nb\n```');
+  assert.equal(s, '```js\na\n\n\n\nb\n```');
+});
+
+test('B3-23：围栏内空行保留 + 围栏外空行折叠 + 卡片标记剥离 三者并存', () => {
+  const s = stripCardMarkers('[card:data]\n```\nx\n\n\n\n```\n\n\n\n尾部\n[/card]');
+  assert.equal(s, '```\nx\n\n\n\n```\n\n尾部');
+});
+
+test('B3-23：未闭合围栏（单 ```）→ 其后的空行按围栏内保留（同 md.js 语义）', () => {
+  const s = stripCardMarkers('```js\na\n\n\nb');
+  assert.equal(s, '```js\na\n\n\nb');
+});

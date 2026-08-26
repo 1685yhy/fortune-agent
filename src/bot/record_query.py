@@ -53,15 +53,18 @@ _MEMBER_PAY_WORDS = ("充值", "开通", "升级", "购买", "续费", "付费",
 #   "建"——"建个档"（"建档"不落）；
 #   "存/写/填/记/录/设置"——"存下生日/写上生日/填一下/记一下/补录/设置生日"；
 #   "快乐/蛋糕"——"生日快乐/生日蛋糕" 是问候/名词而非档案查询（"生日"关键词
-#     的误伤面，无守卫会被档位 dump 答非所问）。
+#     的误伤面，无守卫会被档位 dump 答非所问）；
+#   "弄/搞"（批次 2 B3-26 补）——"帮我弄下生日档案/搞一份档案/把生日弄上" 同族
+#     动作穿透（_MEMBER_PAY_WORDS 早已封口 弄/搞，本表补齐同口径）。
 # 误伤评估：守卫仅拦 同时含档案关键词+动作词 的消息；纯查询（"我的出生年月日
 # 是啥"/"我生日是哪天"/"什么时候出生"）不落任何动作词，仍直读秒回；误伤面
-# = 含动作词的查询句（"我的生日改过了吗"）→ 降级 LLM，可接受（降级不劫持）。
+# = 含动作词的查询句（"我的生日改过了吗"/"生日弄错了吗"）→ 降级 LLM，可接受
+# （降级不劫持：守卫只会让直读漏判走 LLM，绝不会把查询句档位 dump 答非所问）。
 _ARCHIVE_ACTION_WORDS = ("排盘", "排一下", "排个", "重排", "重新排",
                          "建档", "更新", "修改", "更正", "改生日",
                          "保存", "新档案", "登记",
                          "排", "算", "测", "改", "建", "存", "写",
-                         "填", "记", "录", "设置",
+                         "填", "记", "录", "设置", "弄", "搞",
                          "快乐", "蛋糕")
 
 # 农历月名（与 src/api/paipan.py LUNAR_MONTH_CN 同口径：冬月/腊月）——
@@ -173,6 +176,20 @@ class RecordQuery:
         if not (y and m and d):
             return ("你的档案里还没有完整出生信息，告诉我出生年月日时"
                     "（精确到几点几分）、出生地和性别，我帮你建档。")
+        # F1 补强（批次 2 B3-27）：birth_hour/birth_minute 假定 int——DB 脏数据
+        # （"5" 字符串 / None / "未知"）会让下方 :02d 抛 TypeError；异常冒泡到
+        # direct_query 的大 try 会把 所有类目直读 一并禁用（异常兜底连坐）。
+        # 归一化为 int 并写回 p（fail-open：非数字/缺失 → None，按「无时分」展示）；
+        # _lunar_birth_text(p) 复用归一化后的值，str 时分不再拖垮农历转换。
+        for k in ("birth_hour", "birth_minute"):
+            v = p.get(k)
+            if v is None or isinstance(v, int):
+                continue
+            try:
+                v = int(v)
+            except (TypeError, ValueError):
+                v = None
+            p[k] = v
         hour, minute = p.get('birth_hour'), p.get('birth_minute')
         if minute is not None:  # 分钟非空 → 并入时分（10:55）
             time_part = f"{hour}:{minute:02d}" if hour is not None else f"{minute}分"

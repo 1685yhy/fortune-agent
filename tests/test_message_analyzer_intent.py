@@ -128,6 +128,44 @@ def test_parse_response_phase1_fallback():
     assert r.needs_search is False
 
 
+def test_birth_date_pattern_covers_lunar_month_11_12():
+    """D7 修复：快判 BIRTH_DATE_PATTERN 覆盖 十一月/十二月（中文数字两位数月）。
+
+    修前月名交替是单字符类 [一…十冬腊正]，'十一月'取'十'后 [月/-] 匹配
+    '一' 失败 → 整句 miss → 降级链路把完整出生信息误判为自由聊天。
+    十月（单字符）不受影响；冬月/腊月同族保留。
+    """
+    p = MessageAnalyzer.BIRTH_DATE_PATTERN
+    assert p.search("1999年十一月28"), "十一月+阿拉伯日"
+    assert p.search("1999年十二月28"), "十二月+阿拉伯日"
+    assert p.search("1999年十一月二十八"), "十一月+中文数字日"
+    assert p.search("农历1999年十一月28出生"), "农历前缀+十一月"
+    assert p.search("1999年十月28"), "十月不回归"
+    assert p.search("1999年冬月28") and p.search("1999年腊月28"), "冬月/腊月不回归"
+    assert not p.search("1999年十一月"), "无日不误判"  # 只有月没有日，非完整出生信息
+
+
+def test_fast_path_bazi_with_lunar_month_11_12(analyzer, monkeypatch):
+    """快判 fast path：农历十一月/十二月生日 → 直接判 bazi，不触发 LLM 调用。"""
+    calls = _mock_completion("free_chat", monkeypatch)  # 若误走 LLM 会得到 free_chat
+    for msg in ("1999年阴历十一月28", "1999年农历十二月28出生"):
+        result = analyzer.analyze(msg)
+        assert result.intent == "bazi", msg
+    assert calls["n"] == 0
+
+
+def test_downgrade_rule_analyze_lunar_month_11_12():
+    """降级链路（_rule_analyze → _quick_intent，L5-2 零 LLM 快判）同覆盖十一月/十二月。"""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from src.bot.handler import MessageHandler
+    h = object.__new__(MessageHandler)
+    for msg in ("1999年十一月28", "1999年十二月28", "1999年阴历十一月28"):
+        assert h._rule_analyze(msg).intent == "bazi", msg
+    assert h._rule_analyze("1999年十一月").intent is None  # 无日不判 bazi
+
+
 def test_intent_hint_pattern_coverage():
     """INTENT_HINT_PATTERN 覆盖任务要求的全部意图词。"""
     p = MessageAnalyzer.INTENT_HINT_PATTERN

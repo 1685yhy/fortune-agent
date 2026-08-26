@@ -170,3 +170,82 @@ def test_ming_create_request_not_hijacked(tmp_path):
     rq = _rq(tmp_path, ming_dao=m)
     for create in ("帮我起个名字", "帮我取个名"):
         assert rq.direct_query("u1", create) is None, create
+
+
+# ──────────────────── 批次 2 B3-26/27：档案守卫补词 + 时分 int 归一 ────────────────────
+
+def _rq_with_person(tmp_path, birth):
+    """建好默认命主（birth 键名 birth_year/birth_month/…，与原存档路径同口径）的 _rq。"""
+    rq = _rq(tmp_path)
+    rq.person_dao.create_person("u1", "测试", "自己", birth=birth)
+    return rq
+
+
+def test_archive_guard_new_words_nong_gao(tmp_path):
+    """B3-26：'弄/搞' 补入档案动作守卫——祈使式建档/改档句不得被 _q_档案 档位 dump 劫持。
+
+    修前"帮我弄下生日档案/搞一份档案"等口语动作句（_MEMBER_PAY_WORDS 早已封口
+    弄/搞，本表未补）会命中"档案/生日"关键词 → 档位 dump 短路答非所问。
+    """
+    rq = _rq_with_person(tmp_path, {"birth_year": 1990, "birth_month": 5,
+                                    "birth_day": 20, "gender": "男"})
+    for q in ("帮我弄下生日档案", "帮我搞个档案", "把生日弄到档案里",
+              "搞一份我的出生档案", "我的生日弄错了，帮我改下"):
+        assert rq.direct_query("u1", q) is None, f"被档案直读劫持: {q}"
+
+
+def test_archive_guard_new_words_pure_query_unaffected(tmp_path):
+    """B3-26：纯查询句不落 弄/搞 → 档案直读照常秒回（守卫误伤面为 0）。"""
+    rq = _rq_with_person(tmp_path, {"birth_year": 1990, "birth_month": 5,
+                                    "birth_day": 20, "birth_hour": 15,
+                                    "birth_minute": 0, "city": "北京", "gender": "男"})
+    for q in ("我的生日是哪天", "我的出生年月日", "什么时候出生"):
+        out = rq.direct_query("u1", q)
+        assert out is not None and "1990年5月20日" in out, q
+
+
+def _insert_dirty_person(tmp_path, birth_json: str):
+    """绕过 DAO 归一（写路径必转 int），直插脏 birth_enc 模拟历史/手工脏库。"""
+    import json as _json
+    import sqlite3 as _sqlite3
+    conn = _sqlite3.connect(str(tmp_path / "r.db"))
+    conn.execute(
+        "INSERT INTO persons (user_id, name, relation, is_default, birth_enc,"
+        " created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+        ("u1", "测试", "自己", 1, birth_json, "2026-08-01", "2026-08-01"))
+    conn.commit()
+    conn.close()
+
+
+def test_q_archive_dirty_minute_str_fail_open_formats(tmp_path):
+    """B3-27：DB 脏数据（birth_hour='15'/birth_minute='5' 字符串）→ 归一 int 照常格式化。
+
+    修前 f"{minute:02d}" 对 str 炸 TypeError，异常冒泡到 direct_query 的大 try
+    把所有类目直读一并禁用（连坐）；农历问法追加也因 str 时分被 lunar-python
+    拒掉（丢农历日期）。
+    """
+    import json as _json
+    rq = _rq(tmp_path)
+    _insert_dirty_person(tmp_path, _json.dumps(
+        {"gender": "男", "birth_year": 1990, "birth_month": 5, "birth_day": 20,
+         "birth_hour": "15", "birth_minute": "5", "calendar": "solar", "city": "北京"},
+        ensure_ascii=False))
+    out = rq._q_档案("u1")
+    assert out is not None
+    assert "1990年5月20日15:05" in out      # '5' → int 5 → :02d '05'
+    # 农历问法：归一后的 int 时分让 lunar-python 转换成功（1990-05-20 → 四月廿六）
+    out2 = rq._q_档案("u1", "农历")
+    assert "· 农历四月廿六" in out2
+
+
+def test_q_archive_dirty_garbage_minute_fail_open_none(tmp_path):
+    """B3-27：分钟/小时为不可转数字脏数据（'未知'）→ fail-open 按「无时分」展示，不崩。"""
+    import json as _json
+    rq = _rq(tmp_path)
+    _insert_dirty_person(tmp_path, _json.dumps(
+        {"gender": "女", "birth_year": 2000, "birth_month": 1, "birth_day": 2,
+         "birth_hour": "未知", "birth_minute": "未知", "calendar": "solar", "city": ""},
+        ensure_ascii=False))
+    out = rq._q_档案("u1")
+    assert out is not None
+    assert "2000年1月2日" in out and "时" not in out   # 无时分段，不炸

@@ -488,3 +488,37 @@ def test_extract_bazi_info_incomplete_still_none():
     h = make_handler()
     assert h._extract_bazi_info("我1976年生的") is None
     assert h._extract_bazi_info("5月13日出生") is None
+
+
+# ------------------------------------------------------- 农历无效日/闰月回退
+# D7 固化（批次 2 B3-21）：农历转换口径 = lunar-python 自身行为 + 本地 fail-open：
+#   ① 小月无效日（如 2024 二月三十）→ lunar-python 顺延到下一日/下月
+#      （库口径，不抛异常、不放弃解析——与"近似继续"口径一致）
+#   ② 不存在的闰月（如 2000 闰三月）→ 抛异常 → 按平月近似（abs(month)）
+#   ③ 有效闰月（2023 闰二月）→ 正常转阳历（对照组）
+# 三者都不得让排盘放弃（宁可近似也不丢用户出生信息）。
+
+
+def test_extract_lunar_short_month_invalid_day_rolls_forward():
+    """小月无效日（2024 农历二月仅 29 天，三十不存在）→ 库顺延 2024-04-08。"""
+    h = make_handler()
+    r = h._extract_bazi_info("农历2024年二月三十出生")
+    assert r is not None, "小月无效日不得放弃解析"
+    assert r[0:3] == (2024, 4, 8), f"应顺延到 2024-04-08，实际 {r[0:3]}"
+    assert r[3:5] == (0, 0)  # 无时辰
+
+
+def test_extract_lunar_nonexistent_leap_month_flat_approx():
+    """不存在闰月（2000 无闰三月）→ 平月近似 abs(month)=3，继续转阳历。"""
+    h = make_handler()
+    r = h._extract_bazi_info("农历2000年闰三月28出生")
+    assert r is not None, "闰月不存在不得放弃解析"
+    assert r[0:3] == (2000, 5, 2), f"平月近似 2000-03-28 转阳历应 2000-05-02，实际 {r[0:3]}"
+
+
+def test_extract_lunar_valid_leap_month_converts():
+    """对照组：有效闰月（2023 闰二月）→ 正常转阳历 2023-04-05。"""
+    h = make_handler()
+    r = h._extract_bazi_info("农历2023年闰二月15出生")
+    assert r is not None
+    assert r[0:3] == (2023, 4, 5)

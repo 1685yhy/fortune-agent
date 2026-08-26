@@ -159,9 +159,7 @@ def test_integration_fastpath_skips_presearch(monkeypatch, caplog):
 
 def test_integration_no_archive_still_searches(monkeypatch):
     """红线 2 实证：无档案/无已存盘 → retriever.search 照跑（category=bazi, top_k=15）。"""
-    h = make_handler()
-    h.chart_dao = Mock()
-    h.chart_dao.get_latest_chart.return_value = None
+    h = make_handler()  # 无 chart_dao：门控/注入都无数据源（生产无 db_path 配置同款）
     h.dao.get_user_bazi.return_value = None
     _run_analysis(h, monkeypatch)
 
@@ -169,9 +167,51 @@ def test_integration_no_archive_still_searches(monkeypatch):
     _, kwargs = h.retriever.search.call_args
     assert kwargs.get("category") == "bazi"
     assert kwargs.get("top_k") == 15
-    # 无存量 → 不注入已存结果
+    # 无 chart_dao → 注入门控不触发（T10 M-4 合并后门控仍是 chart_dao 存在性）
     a_kwargs = h.llm.analyze.call_args.kwargs
     assert a_kwargs["extra_system_prompt"] is None
+
+
+def test_integration_chart_read_merged_single_call(monkeypatch):
+    """T10 M-4 修复：_chart_inject 不再第二次 get_latest_chart（仅门控一次读）。
+
+    _save_bazi_records 先落库 → _persist_chart_result 写的就是本次 result 的
+    day_master/geju/yongshen —— 注入直接取 result 属性，DB 二次读整段删除。
+    回归红线：注入内容、门控语义（无 chart_dao → 不注入）都不变。
+    """
+    h = make_handler()
+    h.chart_dao = Mock()
+    h.chart_dao.get_latest_chart.return_value = CHART_ROW
+    h.dao.get_user_bazi.return_value = {"year": 1990, "bazi": ["庚午"]}
+    _run_analysis(h, monkeypatch)
+
+    h.chart_dao.get_latest_chart.assert_called_once()  # 修前 2 次（门控+注入），修后 1 次
+    kwargs = h.llm.analyze.call_args.kwargs
+    extra = kwargs["extra_system_prompt"]
+    assert "庚金日主" in extra and "伤官佩印" in extra and "用神水" in extra
+
+
+def test_integration_chart_inject_uses_result_not_db_row(monkeypatch):
+    """M-4 语义实证：注入内容绑定本次 result（刚落库值），而非 DB 行内容。
+
+    门控读到陈旧行（bazi_json 与本次 result 不同）时，修前注入的是 DB 陈旧值，
+    修后注入的是本次排盘 result 值——落库后两者等价，但直接取 result 消除了
+    中间态（并发/落库失败时 DB 行可能不是本次结果）。
+    """
+    h = make_handler()
+    h.chart_dao = Mock()
+    h.chart_dao.get_latest_chart.return_value = {
+        "id": 9, "birth": {"year": 1990, "month": 5, "day": 20, "calendar": "solar"},
+        "bazi_json": {"day_master": "甲木", "geju": "正官格", "yongshen": "火"},
+        "created_at": "2026-08-01"}
+    h.dao.get_user_bazi.return_value = {"year": 1990, "bazi": ["庚午"]}
+    _run_analysis(h, monkeypatch)
+
+    kwargs = h.llm.analyze.call_args.kwargs
+    extra = kwargs["extra_system_prompt"]
+    assert "庚金日主" in extra        # 本次 result 的日主（非 DB 行的 甲木）
+    assert "甲木" not in extra
+    assert "伤官佩印" in extra and "用神水" in extra
 
 
 def test_integration_downgrade_path_unaffected(monkeypatch):

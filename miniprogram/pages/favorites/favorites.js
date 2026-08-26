@@ -12,6 +12,7 @@
 //       条目移除 kept 标记；名笺走 DELETE /api/ming/delete）
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
+const cardUtil = require('../../utils/card');   // B3-24：收藏页展示剥卡片标记
 
 const STORAGE_KEY = 'ylm_chat_messages';
 const ARCHIVE_KEY = 'ylm_chat_archives';
@@ -143,7 +144,9 @@ Page({
       const jian = isJianEntry(m);
       items.push({
         id: m.id,
-        content: String(m.content || ''),
+        // B3-24：content 是列表/复制出口的展示文本，卡片标记剥掉；
+        // 晨笺解析走原始 m.content（晨笺本就无标记，不受影响）
+        content: cardUtil.stripCardMarkers(String(m.content || '')),
         tag: m.tag || '明灯 · 夜话',
         time: m.time || '',
         keptAt: m.keptAt,
@@ -215,7 +218,9 @@ Page({
     }
     return {
       id: `fav_${f.type}_${f.ref_id}`,
-      content: String(f.summary || ''),
+      // B3-24：后端 summary 是导入时的原始内容切片（含 [card:…] 标记）——
+      // 展示层剥掉，标记不暴露（存储原样，勿动导入侧）
+      content: cardUtil.stripCardMarkers(String(f.summary || '')),
       tag: TAG_CN[f.type] || '明灯 · 夜话',
       time: '',
       keptAt,

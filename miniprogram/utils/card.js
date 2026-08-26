@@ -104,15 +104,52 @@ function parseCard(text) {
   };
 }
 
+/* E2-2 补漏（批次 2 B3-22）：未闭合标签缺 ] 剥不掉。流式截断/长标题截断会留下
+   `[card:type title="…`（缺闭合 ]），上面两个 replace 都要求闭合的 ] → 半截标签
+   原样残留进 TTS/复制/分享出口。追加行尾兜底：匹配 `[card:` 起、缺 ] 的残缺标签，
+   [^\n]* 只吃到本行行尾（(?=\n|$) 锚定：串尾截断 或 标签行后还有正文行）——行内
+   其它内容同标签行一并视为残缺产物剥掉；只吃一行，绝不吞后续正文行。 */
+const _TRUNCATED_TAG_RE = /\n?\[card:[a-z]+(?:\s+title="(?:[^"\\]|\\.)*")?[^\n]*(?=\n|$)/g;
+
+/* E2-2 补漏（批次 2 B3-23）：折叠连续空行需识别代码围栏（```）。原 \n{3,}→\n\n
+   是无差别折叠——代码块内的空行是代码内容，被折叠会破坏代码块（md.js 只认 ```
+   围栏，~~~ 不做围栏处理，口径一致）。实现：逐行扫描，围栏外连续空行折叠为
+   1 行（语义与原 \n{3,}→\n\n 完全一致），围栏内空行原样保留。 */
+function _foldBlankLines(text) {
+  const lines = String(text || '').split('\n');
+  const out = [];
+  let inFence = false;
+  let blankRun = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const s = raw.trim();
+    if (s.indexOf('```') === 0) {           // 围栏开关（同 md.js 判定：行首 ```）
+      inFence = !inFence;
+      out.push(raw);
+      blankRun = 0;
+    } else if (s === '') {
+      if (!inFence) {
+        blankRun += 1;
+        if (blankRun > 1) continue;          // 围栏外连续空行只留 1 行
+      }
+      out.push(raw);                         // 围栏内空行原样保留
+    } else {
+      blankRun = 0;
+      out.push(raw);
+    }
+  }
+  return out.join('\n');
+}
+
 /* 剥离卡片标记 → 纯文本（TTS 朗读 / 复制 / 分享标题等用户可见出口使用，
    标记本身不暴露给用户）。只删 [card:…] 标签行与 [/card] 行，正文原样保留。
    注意不做行首锚定：流式重发场景下 [card: 可能紧贴在前文正文之后。 */
 function stripCardMarkers(text) {
   const src = String(text || '');
-  return src
+  return _foldBlankLines(src
     .replace(/\[card:[a-z]+(?:\s+title="(?:[^"\\]|\\.)*")?\]\s*\n?/g, '')
     .replace(/\n?\[\/card\]/g, '')
-    .replace(/\n{3,}/g, '\n\n')
+    .replace(_TRUNCATED_TAG_RE, ''))
     .trim();
 }
 

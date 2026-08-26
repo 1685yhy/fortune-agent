@@ -3968,6 +3968,13 @@ class MessageHandler:
         # 农历 → 阳历（lunar-python，闰月用负月）。转换失败不放弃：
         # ① 闰月在该年不存在（如"闰三月"实无闰三月）→ 按平月近似；
         # ② 仍失败 → 按原值（近似阳历）继续——宁可多步确认也不放弃解析。
+        # 口径固化（批次 2 B3-21，2026-08-27 实测确认与库行为一致）：
+        #   - 小月无效日（如 2024 农历二月三十——二月仅 29 天）→ lunar-python
+        #     自身顺延到下一日/下月（不抛异常），即"库口径"顺延，本块回退
+        #     分支只处理闰月不存在场景；
+        #   - 与 record_query._lunar_birth_text（阳历→农历展示，反向）各自独立
+        #     fail-open，互不影响。
+        # 测试见 tests/test_partial_birth.py::test_extract_lunar_*（三类场景固化）。
         if is_lunar:
             try:
                 from lunar_python import Lunar
@@ -4366,25 +4373,26 @@ class MessageHandler:
         pref_extra = self._get_personalized_context(user_id)
 
         # Task 10 快路径配套：注入用户已存排盘结果（防矛盾）。
-        # 本步刚经 _save_bazi_records 落库，latest chart 即本次排盘；
-        # 字段缺失不注入该字段（.get 兜底，不编造）；任何异常忽略不阻塞主流程。
+        # 本步刚经 _save_bazi_records 落库，latest chart 即本次排盘；且
+        # _persist_chart_result 写入的正是 result.day_master/geju/yongshen——
+        # 故 T10 M-4（批次 2 B3）合并：不再二次 get_latest_chart，直接取
+        # result 属性（消除一次 DB 读；门控 _should_fastpath 的读取保留，
+        # 其语义是"排盘前"比对，与落库后的注入不共享状态）。
+        # 字段缺失不注入该字段（getattr 兜底，不编造）；任何异常忽略不阻塞主流程。
         _chart_inject = ""
         try:
             _cd = getattr(self, "chart_dao", None)
             if _cd:
-                _chart = _cd.get_latest_chart(user_id)
-                if _chart and _chart.get("bazi_json"):
-                    _b = _chart["bazi_json"]
-                    _parts = []
-                    if _b.get("day_master"):
-                        _parts.append(f"{_b['day_master']}日主")
-                    if _b.get("geju"):
-                        _parts.append(f"格局{_b['geju']}")
-                    if _b.get("yongshen"):
-                        _parts.append(f"用神{_b['yongshen']}")
-                    if _parts:
-                        _chart_inject = ("【用户已存排盘结果】" + "，".join(_parts)
-                                         + "。回答须与此一致，不矛盾。")
+                _parts = []
+                if getattr(result, "day_master", None):
+                    _parts.append(f"{result.day_master}日主")
+                if getattr(result, "geju", None):
+                    _parts.append(f"格局{result.geju}")
+                if getattr(result, "yongshen", None):
+                    _parts.append(f"用神{result.yongshen}")
+                if _parts:
+                    _chart_inject = ("【用户已存排盘结果】" + "，".join(_parts)
+                                     + "。回答须与此一致，不矛盾。")
         except Exception as e:
             logger.warning("fastpath 已存结果注入失败（忽略）: %s", e)
 

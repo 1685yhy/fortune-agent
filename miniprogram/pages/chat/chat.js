@@ -1093,6 +1093,32 @@ Page({
     }
   },
 
+  /* T9 兜底（批次 2 B3-25）：长按收藏/取消收藏直连后端。
+     原实现收藏只打本地 kept 标记——收藏页首启导入（_tryImportLocal）是兜底，
+     覆盖不到「一直没打开收藏页」的用户 → 收藏永远只存本地。这里 best-effort
+     同步：type=晨笺判定→jian 否则 chat、ref_id=消息 id、summary 截 100 字
+     （与收藏页 _tryImportLocal 完全同口径，后端 UNIQUE 幂等，重复收藏
+     already:true 不报错）。
+     - keep 成功 → 打 favImported：后端条目接管展示，收藏页本地兜底不再重复展示
+       （不打标记则收藏页「本地 kept 条目 + 后端条目」双份显示，造成重复）
+     - 失败静默：本地 kept 保留，收藏页首启导入仍可兜底，绝不影响收藏体验 */
+  _syncKeepBackend(msg, on) {
+    if (!msg || !msg.id) return;
+    const type = isJianEntry(msg) ? 'jian' : 'chat';
+    const refId = String(msg.id).slice(0, 128);
+    if (on) {
+      api.favAdd({
+        type,
+        ref_id: refId,
+        summary: String(msg.content || '').slice(0, 100),
+      }).then(() => {
+        streamHost.patchMessage(msg.id, { favImported: true });
+      }).catch(() => { /* 静默：本地收藏体验不受影响 */ });
+    } else {
+      api.favRemove(type, refId).catch(() => { /* 静默：deleted=false 视为本就不存在 */ });
+    }
+  },
+
   /* 菜单反馈项：点赞/点踩（复用反馈回路）/收藏（持久化 kept） */
   actFeedback(e) {
     const k = e.currentTarget.dataset.k;
@@ -1103,6 +1129,9 @@ Page({
       if (!msg) return;
       const on = !msg.kept;
       streamHost.patchMessage(msgId, { kept: on, keptAt: on ? Date.now() : 0 });
+      // B3-25：本地标记之外直连后端（仅 AI 回复同步——收藏页/后端本就只收纳
+      // AI 回复，用户消息的本地 kept 行为保持不变）
+      if (msg.role === 'ai') this._syncKeepBackend(msg, on);
       wx.showToast({ title: on ? '已收藏 · 我的页可查看' : '已取消收藏', icon: 'none' });
       return;
     }
@@ -1168,6 +1197,7 @@ Page({
       const msg = this._findMessage(id);
       if (msg && !msg.kept) {
         streamHost.patchMessage(id, { kept: true, keptAt: Date.now() });
+        this._syncKeepBackend(msg, true);   // B3-25：批量收藏同样直连后端
       }
     });
     this.exitMulti();

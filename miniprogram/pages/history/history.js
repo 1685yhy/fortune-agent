@@ -5,6 +5,7 @@
 const theme = require('../../utils/theme');
 const lunar = require('../../utils/lunar');
 const streamHost = require('../../utils/streamHost');
+const cardUtil = require('../../utils/card');   // B3-24：预览展示剥卡片标记
 
 const STORAGE_KEY = 'ylm_chat_messages';
 const ARCHIVE_KEY = 'ylm_chat_archives';
@@ -196,7 +197,9 @@ Page({
     const msgs = (s._msgs || []).map((m) => ({
       role: m.role,
       tag: m.tag || '',
-      content: String(m.content || ''),
+      // B3-24：预览为展示出口，卡片标记剥掉（[card:…]/[/card] 不暴露给用户）。
+      // 纯展示映射：storage 原消息不落回、续聊写回走 _rawMsgs 不受影响。
+      content: cardUtil.stripCardMarkers(String(m.content || '')),
       time: m.time || '',
     }));
     const truncated = msgs.length > PREVIEW_MAX;
