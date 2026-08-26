@@ -717,16 +717,16 @@ class MessageHandler:
         from src.bot.capability_registry import bind_executors
         bind_executors(
             {
-                "bazi_chart": lambda p, uid="", uq="": self._tool_bazi(p, uid),
-                "quote_rag": lambda p, uid="", uq="": self._tool_search(
-                    p, user_id=uid, user_question=uq),
-                "web_search": lambda p, uid="", uq="": self._tool_web_search(
-                    p, user_id=uid),
-                "dream": lambda p, uid="", uq="": self._tool_dream(p, uid),
-                "fengshui": lambda p, uid="", uq="": self._tool_fengshui(p),
-                "zeri": lambda p, uid="", uq="": self._tool_zeri(p, uid),
-                "record_lookup": lambda p, uid="", uq="": self._tool_query_records(
-                    p, uid),
+                "bazi_chart": lambda p, user_id="", user_question="": self._tool_bazi(p, user_id),
+                "quote_rag": lambda p, user_id="", user_question="": self._tool_search(
+                    p, user_id=user_id, user_question=user_question),
+                "web_search": lambda p, user_id="", user_question="": self._tool_web_search(
+                    p, user_id=user_id),
+                "dream": lambda p, user_id="", user_question="": self._tool_dream(p, user_id),
+                "fengshui": lambda p, user_id="", user_question="": self._tool_fengshui(p),
+                "zeri": lambda p, user_id="", user_question="": self._tool_zeri(p, user_id),
+                "record_lookup": lambda p, user_id="", user_question="": self._tool_query_records(
+                    p, user_id),
             },
             {
                 "bazi": self._handle_bazi, "ziwei": self._handle_ziwei,

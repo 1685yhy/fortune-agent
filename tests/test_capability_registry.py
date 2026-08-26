@@ -810,6 +810,186 @@ def test_native_tool_use_loop_chain_failure_no_replay():
             reg._tool_executors["web_search"] = orig_ex
 
 
+# ---- Task 4 review C-1/I-1：真实 executor 绑定签名 + 超时重试（生产回归） ----
+
+
+def test_real_lambda_signature_matches_submit():
+    """C-1 回归：__init__ 真实绑定 lambda 形参必须接受 _run_with_timeout 的 submit 关键字。
+
+    最终审查实证的生产 bug：__init__ 绑定 lambda 形参是 uid/uq，而
+    _run_with_timeout 的 ex.submit(cap.executor, params, user_id=...,
+    user_question=...) 传关键字 user_id/user_question → TypeError →
+    except Exception: pass 吞掉 → 重试同败 → 兜底文案。此前全部测试用自造 spy
+    （签名恰好匹配 submit kwargs），真实绑定路径零覆盖。
+
+    两层锁死，防止盲区复发：
+    (a) AST 提取 __init__ 源码里 bind_executors 的 7 个 tool lambda 真实形参名，
+        必须为 user_id/user_question（代码若回退 uid/uq 立即红，直锁真实 __init__）；
+    (b) 按 __init__ 逐字形态的 lambda 绑定后，经 _run_with_timeout 真实提交路径
+        执行：不抛 TypeError、结果正确、无兜底文案；inspect.signature.bind
+        锁死约定（绑定签名必须接受 submit 的 kwargs）。
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import bind_executors, CAPABILITY_BY_ID
+
+    # (a) 真实 __init__ 绑定签名守卫（直读源码，不经 mock）
+    tree = ast.parse(textwrap.dedent(inspect.getsource(MessageHandler.__init__)))
+    bind_calls = [n for n in ast.walk(tree)
+                  if isinstance(n, ast.Call)
+                  and getattr(n.func, "id", None) == "bind_executors"]
+    assert len(bind_calls) == 1, "handler.py __init__ 应恰有一次 bind_executors 调用"
+    tool_dict = bind_calls[0].args[0]
+    assert isinstance(tool_dict, ast.Dict)
+    real_params: dict = {}
+    for key_node, val_node in zip(tool_dict.keys, tool_dict.values):
+        if isinstance(key_node, ast.Constant) and isinstance(val_node, ast.Lambda):
+            real_params[key_node.value] = [a.arg for a in val_node.args.args]
+    assert set(real_params) == {"bazi_chart", "quote_rag", "web_search", "dream",
+                                "fengshui", "zeri", "record_lookup"}
+    assert len(real_params) == 7
+    for cid, params in real_params.items():
+        assert "user_id" in params, f"{cid} lambda 缺 user_id 形参: {params}"
+        assert "user_question" in params, f"{cid} lambda 缺 user_question 形参: {params}"
+        assert "uid" not in params and "uq" not in params, \
+            f"{cid} lambda 仍用旧形参名 uid/uq: {params}"
+
+    # (b) 逐字形态 lambda + 真实提交路径（覆盖 review 点名的零覆盖路径）
+    bot = MessageHandler.__new__(MessageHandler)
+    # 实例级 spy 工具实现（转发参数逐字与 __init__ 内部一致）
+    bot._tool_bazi = lambda p, user_id: ToolResult("排盘", True, f"bazi:{user_id}:{p}")
+    bot._tool_search = lambda p, user_id="", user_question="": ToolResult(
+        "检索", True, f"search:{user_id}:{user_question}:{p}")
+    bot._tool_web_search = lambda p, user_id="": ToolResult(
+        "搜索", True, f"web:{user_id}:{p}")
+    bot._tool_dream = lambda p, user_id="": ToolResult("解梦", True, f"dream:{user_id}:{p}")
+    bot._tool_fengshui = lambda p: ToolResult("风水", True, f"fs:{p}")
+    bot._tool_zeri = lambda p, user_id="": ToolResult("择日", True, f"zeri:{user_id}:{p}")
+    bot._tool_query_records = lambda p, user_id="": ToolResult(
+        "查记录", True, f"rec:{user_id}:{p}")
+
+    # 与 handler.py __init__（bind_executors 块）逐字一致的 lambda 形态：
+    # 形参名 user_id/user_question（修复后的约定），内部转发不变
+    executors = {
+        "bazi_chart": lambda p, user_id="", user_question="": bot._tool_bazi(p, user_id),
+        "quote_rag": lambda p, user_id="", user_question="": bot._tool_search(
+            p, user_id=user_id, user_question=user_question),
+        "web_search": lambda p, user_id="", user_question="": bot._tool_web_search(
+            p, user_id=user_id),
+        "dream": lambda p, user_id="", user_question="": bot._tool_dream(p, user_id),
+        "fengshui": lambda p, user_id="", user_question="": bot._tool_fengshui(p),
+        "zeri": lambda p, user_id="", user_question="": bot._tool_zeri(p, user_id),
+        "record_lookup": lambda p, user_id="", user_question="": bot._tool_query_records(
+            p, user_id),
+    }
+    expected = {
+        "bazi_chart": "bazi:u1:P",
+        "quote_rag": "search:u1:q1:P",
+        "web_search": "web:u1:P",
+        "dream": "dream:u1:P",
+        "fengshui": "fs:P",
+        "zeri": "zeri:u1:P",
+        "record_lookup": "rec:u1:P",
+    }
+    orig_exec = {cid: CAPABILITY_BY_ID[cid].executor for cid in executors}
+    orig_ex = {cid: reg._tool_executors.get(cid) for cid in executors}
+    try:
+        bind_executors(executors, {})
+        for cid, want in expected.items():
+            cap = CAPABILITY_BY_ID[cid]
+            # 锁死约定：绑定签名必须 bind 住 submit 的关键字（user_id/user_question）
+            inspect.signature(cap.executor).bind("P", user_id="u1", user_question="q1")
+            # 真实提交路径：submit(cap.executor, params, user_id=..., user_question=...)
+            r = bot._run_with_timeout(cap, "P", "u1", "q1")
+            assert r.ok is True, f"{cid} 执行失败: {r.text!r}"
+            assert "执行超时/异常" not in r.text   # 无兜底文案
+            assert r.text == want, f"{cid} 结果错误: {r.text!r} != {want!r}"
+    finally:
+        # 恢复原绑定，避免污染后续测试
+        for cid in executors:
+            CAPABILITY_BY_ID[cid].__dict__["executor"] = orig_exec[cid]
+            if orig_ex[cid] is None:
+                reg._tool_executors.pop(cid, None)
+            else:
+                reg._tool_executors[cid] = orig_ex[cid]
+
+
+def test_timeout_retry_fallback():
+    """I-1：慢工具超时 → 非阻塞重试 1 次 → 兜底文案（spec 1.4 第 4 条）。
+
+    dataclasses.replace 造 timeout_s=0.2/retries=1 的 cap（不动全局注册表），
+    桩 executor sleep 模拟慢工具：总耗时 < 1.5s（证明非阻塞重试，不等僵尸线程）、
+    executor 被调 2 次（首次超时 + 重试 1 次）、兜底文案含「执行超时/异常（已重试1次）」。
+    """
+    import dataclasses
+    import time
+
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import CAPABILITY_BY_NAME
+
+    calls: list = []
+
+    def slow(params, user_id="", user_question=""):
+        calls.append((params, user_id, user_question))
+        time.sleep(1.0)  # 模拟慢工具（生产 LLM/网络 60s/15s，这里 1s 足够超时）
+        return ToolResult("搜索", True, "不应到达")
+
+    bot = MessageHandler.__new__(MessageHandler)
+    cap = dataclasses.replace(
+        CAPABILITY_BY_NAME["搜索"], executor=slow, timeout_s=0.2, retries=1)
+    t0 = time.monotonic()
+    r = bot._run_with_timeout(cap, "北京天气", "u1", "今天天气？")
+    elapsed = time.monotonic() - t0
+    assert elapsed < 1.5, f"重试应非阻塞（不等慢工具线程），实际 {elapsed:.2f}s"
+    assert r.ok is False
+    assert "执行超时/异常（已重试1次）" in r.text
+    assert len(calls) == 2                       # 首次超时 + 重试 1 次
+    assert all(a[1:] == ("u1", "今天天气？") for a in calls)  # 关键字正确透传
+
+
+def test_exception_retry_fallback():
+    """I-1：异常重试 → 重试 1 次成功即恢复；两次全败 → 兜底文案。"""
+    import dataclasses
+
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import CAPABILITY_BY_NAME
+
+    bot = MessageHandler.__new__(MessageHandler)
+
+    # 先抛后成：重试后恢复成功结果（证明确实重调 executor，非一次定生死）
+    calls: list = []
+
+    def flaky(params, user_id="", user_question=""):
+        calls.append(1)
+        if len(calls) == 1:
+            raise RuntimeError("首次内部故障")
+        return ToolResult("搜索", True, "恢复成功")
+
+    cap = dataclasses.replace(CAPABILITY_BY_NAME["搜索"], executor=flaky, retries=1)
+    r = bot._run_with_timeout(cap, "北京天气", "u1", "")
+    assert r.ok is True and r.text == "恢复成功"
+    assert len(calls) == 2
+
+    # 两次全败：兜底文案
+    calls2: list = []
+
+    def always_boom(params, user_id="", user_question=""):
+        calls2.append(1)
+        raise RuntimeError("永远失败")
+
+    cap2 = dataclasses.replace(CAPABILITY_BY_NAME["搜索"], executor=always_boom, retries=1)
+    r2 = bot._run_with_timeout(cap2, "北京天气", "u1", "")
+    assert r2.ok is False
+    assert "执行超时/异常（已重试1次）" in r2.text
+    assert len(calls2) == 2
+
+
 def test_native_tool_use_loop_exception_falls_back_to_json():
     """原生路径异常（LLM 抛错）→ 立即降级：不执行原生块，走 JSON 工单文本路径。"""
     from unittest.mock import Mock, patch
