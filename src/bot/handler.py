@@ -1579,7 +1579,9 @@ class MessageHandler:
             "【引擎分析结果结束】\n\n"
             "请把以上结果润色成一段发给用户的自然回复。要求：\n"
             + (("0. 【硬性要求·实时信息】此题依赖实时信息（行业/公司/时事/最新数据）。"
-                "你必须先输出一次 <tool_call>搜索: 具体关键词</tool_call> 让系统联网查证，"
+                "你必须先输出一次 "
+                "<tool_calls>[{\"tool\": \"web_search\", \"params\": "
+                "{\"query\": \"具体关键词\"}}]</tool_calls> 让系统联网查证，"
                 "收到搜索结果后再完成最终回复；不要凭记忆编造行业现状数据；"
                 "若搜索不可用，则明确告知用户「实时信息暂不可用，以下按命理知识分析」。\n")
                if search_hint else "")
@@ -1594,8 +1596,9 @@ class MessageHandler:
             "（如「古籍《X》载：…[1]」「你的命盘：庚午年…[1]」），"
             "且至少标注 1 个实际使用到的编号（全部内容均与来源无关时才可不标）；"
             "只标注与用户问题直接相关的内容，不相关不标注；\n"
-            "4. 如果还缺少依据，可以输出一次 <tool_call>检索: 关键词</tool_call>"
-            + _web_tool_guide_line() + "\n"
+            "4. 如果还缺少依据，可以输出一次 "
+            "<tool_calls>[{\"tool\": \"web_search\", \"params\": "
+            "{\"query\": \"需要联网查证的关键词\"}}]</tool_calls> 联网查证，"
             "系统会执行后把结果交回，你再继续完成回复；\n"
             "5. 若原结果本身已是清晰的列表/卡片格式（如宜忌、时辰表、排盘卡片），"
             "宜忌/时辰表等表格用 markdown 表格格式呈现、不要用代码块包裹，"
@@ -1604,6 +1607,7 @@ class MessageHandler:
             "7. 【硬性要求】回复中禁止使用任何 emoji 表情符号"
             "（表情图标、颜文字、装饰符号都不用），只用文字与中文标点表达语气。"
             + (("\n\n" + extra_hint) if extra_hint else "")
+            + "\n\n[可用工具清单]\n" + build_tool_description()
         )
 
         logger.info("引擎润色注入 user=%s search_hint=%s extra_hint=%s",
@@ -1621,8 +1625,9 @@ class MessageHandler:
             messages.extend(history)
             if search_hint:
                 messages.append({"role": "user", "content":
-                    "（请按上面的硬性要求先输出 <tool_call>搜索: 关键词</tool_call>"
-                    " 联网查证后再继续）"})
+                    "（请按上面的硬性要求先输出 "
+                    "<tool_calls>[{\"tool\": \"web_search\", \"params\": "
+                    "{\"query\": \"具体关键词\"}}]</tool_calls> 联网查证后再继续）"})
         else:
             messages.append({"role": "user", "content": msg})
         _t0 = time.monotonic()
@@ -6254,6 +6259,13 @@ class MessageHandler:
                     current=msg, key_facts=tuple(key_facts),
                 )
                 if messages:
+                    # P1 #2（批次 1 部署后暴露）：主链首轮 SYSTEM 必须带真实工具
+                    # 清单，否则模型第一轮不知道有工具可调 → 工具链触发率 0%
+                    # （CHAT_PROMPT 只有教学示例，清单在 _run_tool_loop 第二轮
+                    # 才注入，形成"先有鸡还是先有蛋"死锁）
+                    messages.insert(0, {"role": "system",
+                                        "content": "[可用工具清单]\n"
+                                        + build_tool_description()})
                     if combined_hint:
                         messages[-1] = {
                             "role": messages[-1]["role"],

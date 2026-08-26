@@ -207,3 +207,47 @@ def test_polish_footer_plain_feedback_variant(tmp_path):
         out = h._polish_with_engine_draft("今年财运怎么样", "u1", draft)
     assert out.count("有帮助吗") == 1
     assert out.endswith("告诉我")
+
+
+# ───────────── P1 #2：润色路径教学统一 JSON 工单 + 注入工具清单 ─────────────
+
+def test_polish_system_search_hint_json_workorder():
+    """P1 #2 Fix 2：search_hint 分支教学改 JSON 工单（web_search），
+    system 注入 [可用工具清单]，旧 <tool_call> 单标签教学不再出现。"""
+    from unittest.mock import Mock
+    h = _polish_harness()
+    h.session_dao = Mock()
+    h.session_dao.get_context_for_llm.return_value = []
+    draft = "你的四柱：庚午 辛巳 乙酉 甲申"
+    with patch("src.llm.client.deepseek_anthropic_completion") as m:
+        m.return_value = "润色正文"
+        h._polish_with_engine_draft("今年财运怎么样", "u1", draft,
+                                    search_hint=True, session_id="s1")
+    msgs = m.call_args[0][1]  # (api_key, messages, ...)
+    system = msgs[0]["content"]
+    assert "<tool_calls>" in system
+    assert "web_search" in system
+    assert '[{"tool": "web_search", "params": {"query": "具体关键词"}}]' in system
+    assert "[可用工具清单]" in system
+    assert "<tool_call>搜索:" not in system
+    assert "<tool_call>检索:" not in system
+
+
+def test_polish_history_user_hint_json_workorder():
+    """P1 #2 Fix 2：history 分支末尾 user 提示同步改 JSON 工单。"""
+    from unittest.mock import Mock
+    h = _polish_harness()
+    h.session_dao = Mock()
+    h.session_dao.get_context_for_llm.return_value = [
+        {"role": "user", "content": "今年财运怎么样"}]
+    draft = "你的四柱：庚午 辛巳 乙酉 甲申"
+    with patch("src.llm.client.deepseek_anthropic_completion") as m:
+        m.return_value = "润色正文"
+        h._polish_with_engine_draft("今年财运怎么样", "u1", draft,
+                                    search_hint=True, session_id="s1")
+    msgs = m.call_args[0][1]
+    last = msgs[-1]
+    assert last["role"] == "user"
+    assert "<tool_calls>" in last["content"]
+    assert "web_search" in last["content"]
+    assert "<tool_call>搜索:" not in last["content"]

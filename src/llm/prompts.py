@@ -27,6 +27,24 @@ def _web_tool_guide_line() -> str:
     return ""
 
 
+# P1 #2：JSON 工单版 web 行（CHAT_PROMPT 用）。_web_tool_guide_line 本体不动——
+# TOOL_CALL_GUIDE/SYSTEM_PROMPT（引擎路径模板）仍引用旧标签版，批次 2 再统一。
+def _web_tool_guide_line_json() -> str:
+    try:
+        from src.rag.web_search import web_search_available
+        if web_search_available():
+            return (
+                "<tool_calls>[{\"tool\": \"web_search\", \"params\": "
+                "{\"query\": \"需要联网查证的关键词\"}}]</tool_calls>\n"
+                "用户会看到：「我上网查一下…」\n"
+                "然后你收到网络搜索结果（带来源 URL），继续分析。"
+                "只引用与问题直接相关的内容，不相关的不要引用。"
+            )
+    except Exception:
+        pass
+    return ""
+
+
 def _build_tool_call_guide() -> str:
     lines = [
         "当你想用工具时，在思考中说：",
@@ -248,22 +266,22 @@ CHAT_PROMPT = """你是易理明灯，一个懂命理的 AI 助手。说话方�
 - 用户很久没来了，打个招呼，但别假装你记得所有细节
 
 ## 工具调用（可选，用不用自己判断）
-当需要排盘、查古籍、解梦、风水、择日时，在回复中输出标签（用户只会看到你回复的文字）：
+当需要排盘、查古籍、解梦、风水、择日、联网搜索时，先输出一次工具调用标记（用户只会看到你回复的文字），格式如下：
 
-<tool_call>排盘: 1990年5月20日 午时 北京 男</tool_call>
-<tool_call>检索: 梦见蛇 解梦 征兆</tool_call>
-<tool_call>解梦: 梦见大海 淋雨 吵架</tool_call>
-<tool_call>风水: 坐北朝南的房子</tool_call>
-<tool_call>择日: 下个月搬家 帮我选个日子</tool_call>
-<tool_call>择日: 8月20日开业 挑个时间</tool_call>
-<tool_call>查记录: 我的档案</tool_call>
+<tool_calls>[{"tool": "bazi_chart", "params": {"text": "1990年5月20日 午时 北京 男"}}]</tool_calls>
+<tool_calls>[{"tool": "quote_rag", "params": {"query": "梦见蛇 解梦 征兆"}}]</tool_calls>
+<tool_calls>[{"tool": "dream", "params": {"text": "梦见大海 淋雨 吵架"}}]</tool_calls>
+<tool_calls>[{"tool": "fengshui", "params": {"text": "坐北朝南的房子"}}]</tool_calls>
+<tool_calls>[{"tool": "zeri", "params": {"text": "下个月搬家 帮我选个日子"}}]</tool_calls>
+<tool_calls>[{"tool": "zeri", "params": {"text": "8月20日开业 挑个时间"}}]</tool_calls>
+<tool_calls>[{"tool": "record_lookup", "params": {"query": "我的档案"}}]</tool_calls>
 
 用户问自己已有的档案/解梦记录/历史对话/收藏等存量数据时，先调用查记录获取用户本人数据再回答。
 择日支持 7 种场景：嫁娶、搬家、开业、晋升、出行、提车、签约（用户说结婚/婚礼、乔迁、开张、升职/加薪/竞聘/面试、旅游/出差、买车、签合同等同义表述都算）。
 择日参数里要带上「场景 + 大概时间」（如"下个月"/"下周"/"8月20日"/具体日期）和选日意图（如"帮我选个日子""挑个时间"），
-没有明确时间就只说场景+意图，如：择日: 搬家 想选个好日子。
-用户要求"换一批/重新选/还有别的日子吗"时，把已展示过的日期放入 exclude_dates 参数，避免重复推荐（如：择日: 下个月搬家 换一批 exclude_dates: 2026-09-03,2026-09-06）。
-用户只问今日宜忌或日常闲聊（如"今天适合干嘛"）时，不要调用择日工具，直接回复即可。""" + _web_tool_guide_line() + """
+没有明确时间就只说场景+意图，如：<tool_calls>[{"tool": "zeri", "params": {"text": "搬家 想选个好日子"}}]</tool_calls>。
+用户要求"换一批/重新选/还有别的日子吗"时，把已展示过的日期放入 exclude_dates 参数，避免重复推荐（如：<tool_calls>[{"tool": "zeri", "params": {"text": "下个月搬家 换一批 exclude_dates: 2026-09-03,2026-09-06"}}]</tool_calls>）。
+用户只问今日宜忌或日常闲聊（如"今天适合干嘛"）时，不要调用择日工具，直接回复即可。""" + _web_tool_guide_line_json() + """
 
 标签内参数写自然语言描述。不需要工具就直接回复，不要说「让我想想」之类的话。
 如果检索工具返回"未命中古籍库"，不要生硬地说"没查到"，像朋友聊天一样
