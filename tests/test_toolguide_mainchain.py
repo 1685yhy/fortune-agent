@@ -6,7 +6,6 @@
 test_handler_qa_fix.py（同函数既有测试文件）。
 """
 import sys
-import time
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -69,30 +68,37 @@ def test_free_chat_first_round_system_has_tool_list():
 # ------------------------------------------------------------ Fix 3
 
 
-def test_chat_prompt_json_workorder_teaching():
+def test_chat_prompt_json_workorder_teaching(monkeypatch):
     """CHAT_PROMPT 工具教学统一 JSON 工单：<tool_calls> 块 + 英文 cap_id，
     参数键与注册表 params_schema 一致；旧 <tool_call> 单标签教学全部移除。
 
-    web_search 行沿用「可用时才宣传」门（web_search_available 可达性探测），
-    测试锁定可用缓存后重载模块（CHAT_PROMPT 为模块级常量，导入时求值）。
+    web_search 行沿用「可用时才宣传」门（web_search_available 可达性探测）。
+    CHAT_PROMPT 为模块级常量（导入时求值），故先 monkeypatch 把
+    web_search_available 锁定为 True 再重载模块拿到「带 web 行」版本；
+    monkeypatch 自动还原函数，不再直接篡改 _avail/_avail_at，避免污染
+    同一 pytest 进程内其它测试的 60s 可达性缓存；重载前的 CHAT_PROMPT
+    原值在 finally 中恢复，避免进程内后导入代码拿到不一致版本。
     """
     import importlib
 
     import src.rag.web_search as ws
     from src.llm import prompts as prompts_mod
 
-    ws._avail = True
-    ws._avail_at = time.time() + 60
+    monkeypatch.setattr(ws, "web_search_available", lambda force=False: True)
+    original_chat_prompt = prompts_mod.CHAT_PROMPT
     importlib.reload(prompts_mod)
-    cp = prompts_mod.CHAT_PROMPT
-    assert "<tool_calls>" in cp
-    for cap_id in ("bazi_chart", "quote_rag", "dream", "fengshui", "zeri",
-                   "record_lookup", "web_search"):
-        assert cap_id in cp
-    assert ('{"tool": "web_search", "params": '
-            '{"query": "需要联网查证的关键词"}}') in cp
-    # 旧文本单标签教学（<tool_call>xx: ...）不再出现
-    assert "<tool_call>搜索:" not in cp
-    assert "<tool_call>排盘:" not in cp
-    assert "<tool_call>检索:" not in cp
-    assert "<tool_call>查记录:" not in cp
+    try:
+        cp = prompts_mod.CHAT_PROMPT
+        assert "<tool_calls>" in cp
+        for cap_id in ("bazi_chart", "quote_rag", "dream", "fengshui", "zeri",
+                       "record_lookup", "web_search"):
+            assert cap_id in cp
+        assert ('{"tool": "web_search", "params": '
+                '{"query": "需要联网查证的关键词"}}') in cp
+        # 旧文本单标签教学（<tool_call>xx: ...）不再出现
+        assert "<tool_call>搜索:" not in cp
+        assert "<tool_call>排盘:" not in cp
+        assert "<tool_call>检索:" not in cp
+        assert "<tool_call>查记录:" not in cp
+    finally:
+        prompts_mod.CHAT_PROMPT = original_chat_prompt
