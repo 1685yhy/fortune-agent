@@ -152,10 +152,89 @@ def test_strip_workorder_residue():
 
 
 def test_execute_invalid_params_not_executed():
-    """参数非法 → 不执行 executor，回 ok:false 参数不合法。"""
-    from src.bot.capability_registry import validate_params, CAPABILITY_BY_ID
-    assert validate_params("web_search", {}) is not None
-    assert CAPABILITY_BY_ID["web_search"].cap_type == "tool"
+    """参数非法 → 不执行 executor，回 ok:false 参数不合法（Task 4 review I-1 重写）。
+
+    纯静态层测试：MessageHandler.__new__ 避开 __init__（不装配引擎/不连网），
+    bind_executors 注入 spy 记录 executor 是否被调用。
+    """
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import bind_executors, CAPABILITY_BY_NAME
+
+    cap = CAPABILITY_BY_NAME["搜索"]
+    orig_executor = cap.executor
+    orig_ex = reg._tool_executors.get("web_search")
+    called: list = []
+
+    def spy(params, user_id="", user_question=""):
+        called.append(params)
+        return ToolResult("搜索", True, "不应被执行")
+
+    bot = MessageHandler.__new__(MessageHandler)
+    try:
+        bind_executors({"web_search": spy}, {})
+        # 非法参数（缺必填 query）：校验失败 → 不执行 executor，不计重试
+        r = bot._execute_tool_call("搜索", {"bad": 1}, "u1")
+        assert r.ok is False
+        assert "参数不合法" in r.text
+        assert called == []
+        # 正控：合法参数必须命中 spy（证明断言链路有效，spy 确实会被调用）
+        r2 = bot._execute_tool_call("搜索", {"query": "北京天气"}, "u1")
+        assert r2.ok is True and r2.text == "不应被执行"
+        assert called == ["北京天气"]
+    finally:
+        # 恢复原绑定，避免污染后续测试（bind 进 _tool_executors + cap.__dict__）
+        cap.__dict__["executor"] = orig_executor
+        if orig_ex is None:
+            reg._tool_executors.pop("web_search", None)
+        else:
+            reg._tool_executors["web_search"] = orig_ex
+
+
+def test_bind_executors_typed_split():
+    """M-3 回归（Task 4 review）：同 cap_id 的 tool/intent 双记录分型绑定互不覆盖。
+
+    fengshui/zeri/dream 在 _TOOL_CAPS 与 _INTENT_CAPS 各有一条同 cap_id 记录，
+    单 map 后写覆盖会把 tool lambda 顶掉——双参数分型绑定后按 cap_type 各取各的。
+    """
+    from src.bot.capability_registry import bind_executors
+
+    tool_cap = next(c for c in reg.CAPABILITIES
+                    if c.cap_type == "tool" and c.cap_id == "fengshui")
+    intent_cap = next(c for c in reg.CAPABILITIES
+                      if c.cap_type == "intent" and c.cap_id == "fengshui")
+    orig_tool_exec, orig_intent_exec = tool_cap.executor, intent_cap.executor
+    orig_tool_ex = reg._tool_executors.get("fengshui")
+    orig_intent_ex = reg._intent_executors.get("fengshui")
+
+    def tool_spy(params, user_id="", user_question=""):
+        return "tool-spy"
+
+    def intent_spy(*args, **kwargs):
+        return "intent-spy"
+
+    try:
+        bind_executors({"fengshui": tool_spy}, {"fengshui": intent_spy})
+        # 分型绑定：tool cap 拿 tool spy，intent cap 拿 intent spy，互不覆盖
+        assert tool_cap.executor is tool_spy
+        assert intent_cap.executor is intent_spy
+        assert tool_cap.executor is not intent_cap.executor
+        # 名字/ID 查表走 tool 条目（工单校验语义），executor 也应是 tool spy
+        assert reg.CAPABILITY_BY_NAME["风水"].executor is tool_spy
+        assert reg.CAPABILITY_BY_ID["fengshui"].executor is tool_spy
+    finally:
+        # 恢复原绑定（executor 可能为 None 或真执行器，bind_executors 的
+        # `src.get(id) or c.executor` 语义无法显式解绑为 None，故直接写 __dict__）
+        tool_cap.__dict__["executor"] = orig_tool_exec
+        intent_cap.__dict__["executor"] = orig_intent_exec
+        if orig_tool_ex is None:
+            reg._tool_executors.pop("fengshui", None)
+        else:
+            reg._tool_executors["fengshui"] = orig_tool_ex
+        if orig_intent_ex is None:
+            reg._intent_executors.pop("fengshui", None)
+        else:
+            reg._intent_executors["fengshui"] = orig_intent_ex
 
 
 def test_result_json_wrapper():

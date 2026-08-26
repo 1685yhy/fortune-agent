@@ -5,7 +5,7 @@ import os
 import re
 from datetime import date, timedelta
 import time
-from typing import Optional, Tuple, Any, Callable
+from typing import Optional, Tuple, Any, Callable, Union
 
 logger = logging.getLogger(__name__)
 
@@ -1202,7 +1202,10 @@ class MessageHandler:
                 results.append(r)
                 executed_calls.append({
                     "type": r.name,
-                    "params": (c.params or "")[:200],
+                    # M-1（Task 4 review）：结构化工单 params_obj 也要落库（JSON 序列化），
+                    # 否则 DB tool_calls 字段只记空串丢失参数详情
+                    "params": (json.dumps(c.params_obj, ensure_ascii=False)
+                               if c.params_obj is not None else (c.params or ""))[:200],
                     "hit": bool(r.ok),
                 })
                 if r.name in ("检索", "搜索"):
@@ -1494,13 +1497,13 @@ class MessageHandler:
             polished = polished + "\n\n" + chart_url
         return polished + tail
 
-    def _execute_tool_call(self, name: str, params: str, user_id: str,
+    def _execute_tool_call(self, name: str, params: Union[str, dict], user_id: str,
                            user_question: str = "") -> ToolResult:
         """执行单个工具调用，返回可注入对话的结果文本。
 
         批次 1（spec 1.2）：注册表分派 + 参数校验 + 超时重试。
-        - params_obj 有值（结构化工单）：先校验（非法不执行）→ 序列化回文本
-        - params 有值（文本标签兜底）：不校验直接执行（旧行为，兼容期）
+        - params 为 dict（结构化工单 params_obj）：先校验（非法不执行）→ 序列化回文本
+        - params 为 str（文本标签兜底）：不校验直接执行（旧行为，兼容期）
         - 超时/异常按 retries 重试，耗尽 → 兜底文案
         """
         cap = CAPABILITY_BY_NAME.get(name)
@@ -1515,18 +1518,26 @@ class MessageHandler:
 
     def _run_with_timeout(self, cap, params: str, user_id: str,
                           user_question: str = "") -> ToolResult:
-        """带超时重试执行注册表 executor（线程池包装，不阻塞事件循环）。"""
+        """带超时重试执行注册表 executor（线程池包装，不阻塞事件循环）。
+
+        Task 4 review I-2：超时/异常后 shutdown(wait=False, cancel_futures=True)，
+        不等待被超时的线程结束（旧 with 块默认 wait=True，重试要等前一线程跑完
+        才开始）；僵尸线程靠工具内部超时终会结束（LLM 60s / 网络 15s），
+        进程长驻兜底。成功路径线程已结束，shutdown 即刻返回。
+        """
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
         for attempt in range(max(1, cap.retries + 1)):
+            ex = ThreadPoolExecutor(max_workers=1)
             try:
-                with ThreadPoolExecutor(max_workers=1) as ex:
-                    fut = ex.submit(cap.executor, params, user_id=user_id,
-                                    user_question=user_question)
-                    return fut.result(timeout=cap.timeout_s)
+                fut = ex.submit(cap.executor, params, user_id=user_id,
+                                user_question=user_question)
+                return fut.result(timeout=cap.timeout_s)
             except FutTimeout:
-                continue  # 超时 → 重试（最后一次循环走失败兜底）
+                pass  # 超时 → 重试（最后一次循环走失败兜底）
             except Exception:  # noqa: BLE001 — 工具异常重试后兜底
-                continue
+                pass
+            finally:
+                ex.shutdown(wait=False, cancel_futures=True)
         return ToolResult(
             cap.name, False,
             f"「{cap.name}」执行超时/异常（已重试{cap.retries}次），"

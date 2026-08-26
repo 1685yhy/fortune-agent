@@ -59,30 +59,46 @@ class Capability:
 
 
 # ---- tool 类（7 个）：desc/requires 原文迁移自 tool_calls.py TOOL_REGISTRY ----
+# timeout_s 按执行器性质显式标注（Task 4 review I-2：8s 默认 < LLM 内部 60s 超时，
+# 慢而成功的调用会被误判失败）：
+# - LLM 支撑（走 client.py 60s 超时链）→ ≥70s（60s + 余量）
+#   · quote_rag：LLM 查询扩展（query_expansion LLM_TIMEOUT=12s）+ bge-reranker 本地
+#     模型冷加载，完整管线实测单次 17~94s（src/engines/dream.py 性能注）
+#   · dream：engine.analyze 不调 LLM（api_key 未用），但 FAISS 276 万索引冷加载
+#     可达数十秒——放 70s 防冷启动误杀（reviewer 点名）
+# - 网络类（web_search，Bing SEARCH_TIMEOUT=15s）→ 15s
+# - 本地 DB/计算类（bazi_chart/fengshui/zeri/record_lookup）→ 保持 8s
 _TOOL_CAPS = [
     Capability("bazi_chart", "排盘",
                "输入出生信息（年月日时、地点、性别）的自然语言描述，输出四柱十神大运流年",
-               _TOOL_PARAMS_SCHEMAS["bazi_chart"], requires="出生年月日时、出生地点、性别"),
+               _TOOL_PARAMS_SCHEMAS["bazi_chart"], timeout_s=8.0,
+               requires="出生年月日时、出生地点、性别"),
     Capability("quote_rag", "检索",
                "输入搜索关键词，输出古籍原文 Top5。只引用与用户问题直接相关的内容，不相关忽略",
-               _TOOL_PARAMS_SCHEMAS["quote_rag"], requires="搜索关键词"),
+               _TOOL_PARAMS_SCHEMAS["quote_rag"], timeout_s=70.0,
+               requires="搜索关键词"),
     Capability("web_search", "搜索",
                "输入关键词，输出网络搜索结果（带来源 URL，Top 3-5，补充最新/社会信息）",
-               _TOOL_PARAMS_SCHEMAS["web_search"], requires="搜索关键词"),
+               _TOOL_PARAMS_SCHEMAS["web_search"], timeout_s=15.0,
+               requires="搜索关键词"),
     Capability("dream", "解梦",
                "输入梦境描述，输出象征分析+古籍匹配",
-               _TOOL_PARAMS_SCHEMAS["dream"], requires="梦境描述"),
+               _TOOL_PARAMS_SCHEMAS["dream"], timeout_s=70.0,
+               requires="梦境描述"),
     Capability("fengshui", "风水",
                "输入房屋坐向/布局描述，输出吉凶判断+化解建议",
-               _TOOL_PARAMS_SCHEMAS["fengshui"], requires="房屋坐向（如：坐北朝南）"),
+               _TOOL_PARAMS_SCHEMAS["fengshui"], timeout_s=8.0,
+               requires="房屋坐向（如：坐北朝南）"),
     Capability("zeri", "择日",
                "输入场景+时间范围，输出3个推荐吉日（宜忌/吉时/方位/一句理由）。"
                "场景支持：嫁娶/搬家/开业/晋升/出行/提车/签约；时间可写下个月、下周、具体日期",
-               _TOOL_PARAMS_SCHEMAS["zeri"], requires="场景（嫁娶/搬家/开业/晋升/出行/提车/签约）+ 时间范围（下个月/下周/具体日期）"),
+               _TOOL_PARAMS_SCHEMAS["zeri"], timeout_s=8.0,
+               requires="场景（嫁娶/搬家/开业/晋升/出行/提车/签约）+ 时间范围（下个月/下周/具体日期）"),
     Capability("record_lookup", "查记录",
                "查用户自己的存量数据（档案/解梦/历史对话/签/名笺/灯语/择吉/晨笺/收藏/会员）。"
                "输入想查的内容描述，如'我的档案''以前解过什么梦'",
-               _TOOL_PARAMS_SCHEMAS["record_lookup"], requires="用户本人数据"),
+               _TOOL_PARAMS_SCHEMAS["record_lookup"], timeout_s=8.0,
+               requires="用户本人数据"),
 ]
 
 # ---- intent 类（15 个）：handler_map（handler.py:2758-2774）全量快照 ----
