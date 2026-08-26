@@ -1,0 +1,3 @@
+{"id": "ssg_0001", "source": "合成样例", "source_lines": "-", "pills": ["庚午", "辛巳", "甲午", "丁卯"], "gender": "", "expected": {"shishen": ["伤官见官", "官杀混杂"]}, "prose": "", "quality": "unit", "audit": "2026-08-15 合成：甲日庚七杀/辛正官/丁伤官并见→伤官见官+官杀混杂"}
+{"id": "ssg_0002", "source": "合成样例", "source_lines": "-", "pills": ["甲子", "己巳", "甲午", "乙卯"], "gender": "", "expected": {"shishen": ["比劫夺财"]}, "prose": "", "quality": "unit", "audit": "2026-08-15 合成：甲日比肩2+劫财1+正财1→比劫夺财"}
+{"id": "ssg_0003", "source": "合成样例", "source_lines": "-", "pills": ["戊午", "庚申", "庚午", "壬辰"], "gender": "", "expected": {"shishen": ["枭神夺食"]}, "prose": "", "quality": "unit", "audit": "2026-08-15 合成：庚日戊偏印+壬食神并见→枭神夺食"}
