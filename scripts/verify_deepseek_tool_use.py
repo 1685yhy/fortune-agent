@@ -3,7 +3,7 @@
 
 用法: FORTUNE_API_KEY=<key> python scripts/verify_deepseek_tool_use.py [model]
 默认模型与生产一致: deepseek-v4-flash；也可传 deepseek-chat / deepseek-reasoner。
-退出码: 0=原生支持 1=不支持/被忽略 2=缺 key 3=网络/协议错误 4=未知
+退出码: 0=原生支持 1=无工具调用（纯文本回复） 2=缺 key 3=网络/协议错误 4=未知
 """
 import json
 import os
@@ -61,7 +61,9 @@ def main() -> int:
         print(json.dumps(data, ensure_ascii=False)[:500])
         return 1
     stop = data.get("stop_reason", "")
-    content = data.get("content", [])
+    # B1-1：content 为 None（deepseek 偶发空 content）→ or [] 防御，
+    # 否则 [b for b in content ...] 直接 TypeError 崩溃无结论
+    content = data.get("content") or []
     tool_blocks = [b for b in content
                    if isinstance(b, dict) and b.get("type") == "tool_use"]
     text_blocks = [b for b in content
@@ -73,7 +75,10 @@ def main() -> int:
         print(json.dumps(tool_blocks[0], ensure_ascii=False)[:400])
         return 0
     if text_blocks:
-        print("RESULT=IGNORED_TOOLS (纯文本，tools 被忽略)")
+        # B1-2 语义澄清：tool_choice=auto 下纯文本回复 ≠ 工具被忽略——
+        # 是模型在给定 tools 的情况下选择不用工具。旧标签 IGNORED_TOOLS
+        # 误导为"端点忽略 tools 参数"，改名 NO_TOOL_USE（退出码 1 不变）。
+        print("RESULT=NO_TOOL_USE (纯文本回复：模型选择不用工具，非端点忽略 tools)")
         print(json.dumps(text_blocks[0], ensure_ascii=False)[:300])
         return 1
     print("RESULT=UNKNOWN")

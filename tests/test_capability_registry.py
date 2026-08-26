@@ -46,6 +46,9 @@ def test_combined_prompt_enum_same_source():
     assert ("Classify into EXACTLY ONE: bazi, ziwei, liuyao, fengshui, zeri, "
             "mianxiang, qimen, xingming, hehun, dream, calendar, "
             "advisor, career, free_chat") in COMBINED_PROMPT
+    # B1-7（护栏盲区）：前缀必须恰出现一次——子串断言抓不住前缀翻倍
+    # （"Classify into EXACTLY ONE: " 重复两行仍能过 in 检查）
+    assert COMBINED_PROMPT.count("Classify into EXACTLY ONE:") == 1
 
 
 def test_tool_description_built():
@@ -802,6 +805,347 @@ def test_native_tool_use_loop_chain_failure_no_replay():
         assert called == ["北京天气"]
         assert fake_messages.turn == 2
         assert out == "好的，我来查。"                   # 静默降级返回原文（去标签）
+    finally:
+        cap.__dict__["executor"] = orig_executor
+        if orig_ex is None:
+            reg._tool_executors.pop("web_search", None)
+        else:
+            reg._tool_executors["web_search"] = orig_ex
+
+
+# ---- 批次 2 B1：批次 1 Minor 收尾（JSON 路径去重 / 超时边界 / 护栏固化） ----
+
+
+def test_json_workorder_round_duplicate_dedup():
+    """B1-4：同一轮 reply 内相同 JSON 工单重复 → 只执行一次，次份复用首次结果文本。
+
+    修复前 JSON 路径只写 executed_keys 不查（去重仅原生链生效），同轮相同工单
+    双执行（写型工具重复落库/双分配引用编号）。修复后与原生链同语义：跳过重复
+    执行、不发"正在…"事件、不重复落库；结果以两条同文本注入 LLM。
+    """
+    from unittest.mock import Mock, patch
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import bind_executors, CAPABILITY_BY_NAME
+
+    cap = CAPABILITY_BY_NAME["搜索"]
+    orig_executor = cap.executor
+    orig_ex = reg._tool_executors.get("web_search")
+    called: list = []
+    seen_msgs: list = []
+
+    def spy(params, user_id="", user_question=""):
+        called.append(params)
+        return ToolResult("搜索", True, "北京：晴 25℃")
+
+    bot = MessageHandler.__new__(MessageHandler)
+    llm = Mock()
+    llm.api_key = "test-key"
+    llm.model = "deepseek-v4-flash"
+    llm.provider = "deepseek"
+    bot.llm = llm
+    bot.session_dao = None
+    bot._downgraded = {}
+    bot._tool_logs = {}
+    bot._citations = {}
+    bot._analysis_facts = {}
+
+    def fake_messages(api_key, messages, model=None, max_tokens=0,
+                      temperature=0.0, timeout=0.0, tools=None,
+                      tool_choice=None, **kwargs):
+        seen_msgs.append(messages)
+        return {"stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "北京今天晴 25℃。"}]}
+
+    try:
+        bind_executors({"web_search": spy}, {})
+        with patch("src.llm.client.deepseek_anthropic_messages",
+                   side_effect=fake_messages):
+            out = bot._run_tool_loop(
+                "北京天气怎么样", "u1",
+                '好的，我来查。<tool_calls>'
+                '[{"tool": "web_search", "params": {"query": "北京天气"}}, '
+                '{"tool": "web_search", "params": {"query": "北京天气"}}]'
+                '</tool_calls>')
+        # 同参工单只执行一次；次份复用首次结果文本注入 LLM
+        assert called == ["北京天气"]
+        assert out == "北京今天晴 25℃。"
+        # 工具结果以两条同文本 JSON 注入（{"ok": true, "data": ...} ×2）
+        tail = seen_msgs[0][-1]["content"]
+        assert tail.count('{"tool": "搜索", "ok": true, "data": "北京：晴 25℃"}') == 2
+        # 落库只记一次（去重不重复落库）
+        assert bot._tool_logs["u1"]["calls"] == [
+            {"type": "搜索", "params": '{"query": "北京天气"}', "hit": True}]
+    finally:
+        cap.__dict__["executor"] = orig_executor
+        if orig_ex is None:
+            reg._tool_executors.pop("web_search", None)
+        else:
+            reg._tool_executors["web_search"] = orig_ex
+
+
+def test_text_tag_json_params_cross_protocol_dedup():
+    """B1-3：legacy 文本标签带 JSON 参数（`搜索: {"query": ...}`）→ 参数归一为
+    dict 键参与跨协议去重：后续同参原生块跳过执行（复用结果回传 tool_result）。
+
+    修复前 legacy 文本路径键形是原始字符串（含空格/键序原样）、原生块键形是
+    sort_keys 归一 JSON dict——非规范书写的 JSON 文本标签（如内嵌空格）键形
+    不同 → 跨协议同参双执行。修复后解析归一统一键形。纯文本参数（如"北京天气"）
+    与结构化 dict 语义归一不可行（legacy 正在淘汰），按设计固化不跨协议去重。
+    """
+    from unittest.mock import Mock, patch
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import bind_executors, CAPABILITY_BY_NAME
+
+    cap = CAPABILITY_BY_NAME["搜索"]
+    orig_executor = cap.executor
+    orig_ex = reg._tool_executors.get("web_search")
+    called: list = []
+    seen_round2: list = []
+
+    def spy(params, user_id="", user_question=""):
+        called.append(params)
+        return ToolResult("搜索", True, "北京：晴 25℃")
+
+    bot = MessageHandler.__new__(MessageHandler)
+    llm = Mock()
+    llm.api_key = "test-key"
+    llm.model = "deepseek-v4-flash"
+    llm.provider = "deepseek"
+    bot.llm = llm
+    bot.session_dao = None
+    bot._downgraded = {}
+    bot._tool_logs = {}
+    bot._citations = {}
+    bot._analysis_facts = {}
+
+    def fake_messages(api_key, messages, model=None, max_tokens=0,
+                      temperature=0.0, timeout=0.0, tools=None,
+                      tool_choice=None, **kwargs):
+        if not hasattr(fake_messages, "turn"):
+            fake_messages.turn = 0
+        fake_messages.turn += 1
+        if fake_messages.turn == 1:
+            # 转换调用返回与 legacy 文本标签同参（结构化）的原生块
+            return {"stop_reason": "tool_use",
+                    "content": [{"type": "tool_use", "id": "tu_1",
+                                 "name": "web_search",
+                                 "input": {"query": "北京天气"}}]}
+        seen_round2.append(messages[-1])
+        return {"stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "北京今天晴 25℃。"}]}
+
+    try:
+        bind_executors({"web_search": spy}, {})
+        with patch("src.llm.client.deepseek_anthropic_messages",
+                   side_effect=fake_messages):
+            out = bot._run_tool_loop(
+                "北京天气怎么样", "u1",
+                # 非规范 JSON 书写（冒号后双空格）：原始串键形 ≠ sort_keys dict 键形
+                '好的，我来查。<tool_call>搜索: {"query":  "北京天气"}</tool_call>')
+        # legacy 文本标签执行 1 次；同参原生块被跨协议去重跳过（不再执行）
+        assert called == ['{"query":  "北京天气"}']
+        assert fake_messages.turn == 2
+        assert out == "北京今天晴 25℃。"
+        last = seen_round2[0]
+        assert last["role"] == "user"
+        assert last["content"] == [{
+            "type": "tool_result", "tool_use_id": "tu_1",
+            "content": "北京：晴 25℃"}]          # 复用 legacy 执行结果回传（幂等）
+        assert bot._tool_logs["u1"]["calls"] == [
+            {"type": "搜索", "params": '{"query":  "北京天气"}', "hit": True}]
+    finally:
+        cap.__dict__["executor"] = orig_executor
+        if orig_ex is None:
+            reg._tool_executors.pop("web_search", None)
+        else:
+            reg._tool_executors["web_search"] = orig_ex
+
+
+def test_web_search_timeout_margin_over_internal():
+    """B1-5：web_search 外层超时 > Bing 内部 SEARCH_TIMEOUT（15s）→ 边界竞态消除。
+
+    15=15 时外层 fut.result(timeout) 与内部 httpx 超时同刻竞争：外层先触发 →
+    误判超时 → 白重试一次（最坏 ~30s + 双请求）。余量对齐 70s/60s 原则（Task 4
+    I-2）：内部超时确定性先触发（正常返回失败结果，不触发重试），外层仅兜底。
+    """
+    from src.rag.web_search import SEARCH_TIMEOUT
+    cap = reg.CAPABILITY_BY_ID["web_search"]
+    assert cap.timeout_s > SEARCH_TIMEOUT, \
+        f"web_search 外层 {cap.timeout_s}s 必须大于内部 {SEARCH_TIMEOUT}s（边界竞态）"
+    assert cap.timeout_s - SEARCH_TIMEOUT >= 5.0, "余量应 ≥5s（对齐 70s/60s 余量原则）"
+
+
+def test_real_timeout_executor_actual_timeout():
+    """B1-10：真超时用例——executor 内部真实网络超时（本地 HTTP 只接不答 →
+    真实 httpx.ReadTimeout），而非 sleep 假超时。
+
+    关键区分：旧用例 sleep 1.0s 由 wrapper 掐表（fut.result timeout）杀死；
+    本例 executor 自身发起真实请求并在内部 0.3s 处超时抛出（ReadTimeout 实测
+    捕获），wrapper 按工具异常重试 → 兜底文案。总耗时 ≈ 2×0.3s << 外层 20s，
+    证明内部超时先于外层触发（B1-5 边界修复的行为侧）。
+    """
+    import dataclasses
+    import socket
+    import threading
+    import time
+
+    import httpx
+
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import CAPABILITY_BY_NAME
+
+    # 本地真实超时源：监听套接字接受连接但永不写响应（确定性 ReadTimeout）
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(5)
+    port = srv.getsockname()[1]
+    caught = []
+
+    def acceptor():
+        try:
+            conn, _ = srv.accept()
+            time.sleep(2.0)          # 只收连接不响应 → 客户端 0.3s 超时
+            conn.close()
+        except OSError:
+            pass
+
+    threading.Thread(target=acceptor, daemon=True).start()
+    calls: list = []
+
+    def real_slow_executor(params, user_id="", user_question=""):
+        calls.append(params)
+        try:
+            httpx.get(f"http://127.0.0.1:{port}/", timeout=0.3)
+        except httpx.TimeoutException as e:   # 真实网络超时（非 sleep 模拟）
+            caught.append(type(e).__name__)
+            raise
+        return ToolResult("搜索", True, "不应到达")
+
+    bot = MessageHandler.__new__(MessageHandler)
+    cap = dataclasses.replace(
+        CAPABILITY_BY_NAME["搜索"], executor=real_slow_executor,
+        timeout_s=20.0, retries=1)
+    try:
+        t0 = time.monotonic()
+        r = bot._run_with_timeout(cap, "北京天气", "u1", "今天天气？")
+        elapsed = time.monotonic() - t0
+    finally:
+        srv.close()
+    assert caught == ["ReadTimeout", "ReadTimeout"]   # 两次尝试都是真实网络超时
+    assert len(calls) == 2                            # 首次 + 重试 1 次
+    assert r.ok is False
+    assert "执行超时/异常（已重试1次）" in r.text
+    assert elapsed < 5.0, \
+        f"内部超时应先于外层 20s 触发（真实耗时 {elapsed:.2f}s ≈ 2×0.3s）"
+
+
+def test_timeout_zombie_thread_self_terminates_bounded():
+    """B1-6：wrapper 超时后不等待僵尸线程（非阻塞），线程靠自身内部超时自然结束
+    ——解释器 atexit 对非 daemon 线程的 join 阻塞上界 = 工具内部超时（有界不卡死）。
+
+    修复前 shutdown(wait=True) 每次重试都要等被超时线程跑完；wait=False 已缓解，
+    本测试固化该机制（生产 LLM 60s / 网络 15s 同理有界）。
+    """
+    import dataclasses
+    import threading
+    import time
+
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import CAPABILITY_BY_NAME
+
+    captured: dict = {"finished": False}
+
+    def slow(params, user_id="", user_question=""):
+        captured["thread"] = threading.current_thread()
+        time.sleep(0.4)          # 模拟内部超时 0.4s 后自终止（生产 60s/15s）
+        captured["finished"] = True
+        return ToolResult("搜索", True, "迟到的成功")
+
+    bot = MessageHandler.__new__(MessageHandler)
+    cap = dataclasses.replace(
+        CAPABILITY_BY_NAME["搜索"], executor=slow, timeout_s=0.1, retries=0)
+    r = bot._run_with_timeout(cap, "北京天气", "u1", "")
+    # B1-6 强化（全量回归 1 次偶发失败排查后）：改用「完成标志」证明非阻塞——
+    # 原 elapsed<0.3 墙钟断言在重负载（全量套件 3.7GB RSS）下偶发超 0.3s 误报。
+    # 标志断言与负载无关且语义更直接：wrapper 返回时僵尸线程必然尚未跑完
+    # （旧 wait=True 行为会等它跑完 → finished=True，被本断言抓住）。
+    assert r.ok is False
+    assert captured["finished"] is False, "wrapper 不应等僵尸线程跑完（旧 wait=True 会等 0.4s+）"
+    th = captured["thread"]
+    assert th.is_alive(), "僵尸线程此刻仍在运行（未被 join 等死）"
+    assert th.join(timeout=1.0) is None, "内部超时(0.4s)后线程自然结束 → atexit join 有界"
+
+
+def test_max_iterations_2_guard_drops_iteration2_blocks():
+    """B1-9：MAX_TOOL_ITERATIONS=2 护栏语义固化——迭代 2 再出 tool_use 块 →
+    不执行、不提取文本，循环耗尽静默丢弃（用户看到迭代 1 引导句）。
+
+    设计护栏（Task 7 台账）：真实搜索一轮收敛为常态；迭代 2 的新块是 LLM
+    幻觉/失控信号，丢弃是红线设计而非缺陷。本测试锁死该语义防回潮。
+    """
+    from unittest.mock import Mock, patch
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import bind_executors, CAPABILITY_BY_NAME
+
+    cap = CAPABILITY_BY_NAME["搜索"]
+    orig_executor = cap.executor
+    orig_ex = reg._tool_executors.get("web_search")
+    called: list = []
+
+    def spy(params, user_id="", user_question=""):
+        called.append(params)
+        return ToolResult("搜索", True, f"结果:{params}")
+
+    bot = MessageHandler.__new__(MessageHandler)
+    llm = Mock()
+    llm.api_key = "test-key"
+    llm.model = "deepseek-v4-flash"
+    llm.provider = "deepseek"
+    bot.llm = llm
+    bot.session_dao = None
+    bot._downgraded = {}
+    bot._tool_logs = {}
+    bot._citations = {}
+    bot._analysis_facts = {}
+
+    def fake_messages(api_key, messages, model=None, max_tokens=0,
+                      temperature=0.0, timeout=0.0, tools=None,
+                      tool_choice=None, **kwargs):
+        if not hasattr(fake_messages, "turn"):
+            fake_messages.turn = 0
+        fake_messages.turn += 1
+        if fake_messages.turn == 1:
+            return {"stop_reason": "tool_use",
+                    "content": [{"type": "tool_use", "id": "tu_1",
+                                 "name": "web_search",
+                                 "input": {"query": "北京天气"}}]}
+        # 迭代 2 再出新工具块（幻觉/失控信号）→ 护栏应静默丢弃
+        return {"stop_reason": "tool_use",
+                "content": [{"type": "tool_use", "id": "tu_2",
+                             "name": "web_search",
+                             "input": {"query": "广州天气"}}]}
+
+    try:
+        bind_executors({"web_search": spy}, {})
+        with patch("src.llm.client.deepseek_anthropic_messages",
+                   side_effect=fake_messages):
+            out = bot._run_tool_loop(
+                "北京天气怎么样", "u1",
+                '好的，我来查。<tool_calls>'
+                '[{"tool": "web_search", "params": {"query": "上海天气"}}]'
+                '</tool_calls>')
+        # 迭代 1：JSON 工单(上海) + 转换调用块(北京) 各执行一次
+        # 迭代 2：执行北京块后 LLM 又出新块(广州) → 循环耗尽，广州不执行
+        assert called == ["上海天气", "北京天气"]
+        assert fake_messages.turn == 2            # 恰 2 轮，无第三轮
+        assert "广州天气" not in "".join(called)  # 迭代 2 新块未执行
+        assert out == "好的，我来查。"            # 用户看到迭代 1 引导句，无标签残留
     finally:
         cap.__dict__["executor"] = orig_executor
         if orig_ex is None:

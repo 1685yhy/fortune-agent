@@ -66,7 +66,10 @@ class Capability:
 #     模型冷加载，完整管线实测单次 17~94s（src/engines/dream.py 性能注）
 #   · dream：engine.analyze 不调 LLM（api_key 未用），但 FAISS 276 万索引冷加载
 #     可达数十秒——放 70s 防冷启动误杀（reviewer 点名）
-# - 网络类（web_search，Bing SEARCH_TIMEOUT=15s）→ 15s
+# - 网络类（web_search，Bing SEARCH_TIMEOUT=15s）→ 20s（15s 内部 + 5s 余量，B1-5：
+#   15=15 边界竞态——外层 fut.result 与内部 httpx 超时同刻竞争，外层先触发会误判
+#   超时白重试（最坏 ~30s 双请求）；余量保证内部超时确定性先触发（正常返回失败
+#   结果不触发重试），外层仅兜底，对齐 70s/60s 余量原则）
 # - 本地 DB/计算类（bazi_chart/fengshui/zeri/record_lookup）→ 保持 8s
 _TOOL_CAPS = [
     Capability("bazi_chart", "排盘",
@@ -79,7 +82,7 @@ _TOOL_CAPS = [
                requires="搜索关键词"),
     Capability("web_search", "搜索",
                "输入关键词，输出网络搜索结果（带来源 URL，Top 3-5，补充最新/社会信息）",
-               _TOOL_PARAMS_SCHEMAS["web_search"], timeout_s=15.0,
+               _TOOL_PARAMS_SCHEMAS["web_search"], timeout_s=20.0,
                requires="搜索关键词"),
     Capability("dream", "解梦",
                "输入梦境描述，输出象征分析+古籍匹配",

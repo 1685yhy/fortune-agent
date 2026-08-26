@@ -1313,12 +1313,16 @@ class MessageHandler:
 
         # 阶段 2（方案 §7.2）：本轮工具调用日志（落库：tool_calls / retrieval_hit）
         executed_calls: list = []
-        # Task 3B review I-1：双协议并存 → 同参数重复执行防护。
-        # executed_keys：本轮已执行 (name, 结构化 params) 去重表，值 = 该次执行结果文本
-        # （原生块被去重跳过时复用此文本回传 tool_result，保证协议完整：
-        # Anthropic 协议要求每个 tool_use 必须有匹配的 tool_result）。
+        # Task 3B review I-1 + B1-3/B1-4：双协议并存 → 同参数重复执行防护。
+        # executed_keys：本轮已执行 (name, 结构化 params) 去重表，值 = 该次执行的
+        # ToolResult（原生块被去重跳过时复用其 text 回传 tool_result，保证协议完整：
+        # Anthropic 协议要求每个 tool_use 必须有匹配的 tool_result；JSON 工单路径
+        # 被去重跳过时复用整份结果注入 LLM，幂等语义）。
         # 去重键用结构化 params（sort_keys 序列化归一，避免字段顺序差异误判）；
-        # 文本标签调用（无 params_obj）用原始参数字符串。不同参数 → 重新调用合法，不误杀。
+        # 文本标签调用（无 params_obj）若参数本身是 JSON 则解析归一为 dict 键
+        # （B1-3：非规范书写也能跨协议去重）；纯文本参数与结构化 dict 形不同、
+        # 语义归一不可行（legacy 文本标签正在淘汰），按设计固化不跨协议去重。
+        # 不同参数 → 重新调用合法，不误杀。
         executed_keys: dict = {}
         retrieval_hit = "unused"
 
@@ -1327,6 +1331,15 @@ class MessageHandler:
             if c.params_obj is not None:
                 return (c.name, json.dumps(c.params_obj, sort_keys=True,
                                            ensure_ascii=False))
+            p = (c.params or "").strip()
+            if p.startswith("{"):
+                try:
+                    obj = json.loads(p)
+                except json.JSONDecodeError:
+                    obj = None
+                if isinstance(obj, dict):
+                    return (c.name, json.dumps(obj, sort_keys=True,
+                                               ensure_ascii=False))
             return (c.name, c.params)
         # 阶段 5：本轮引用来源（user_id → list）由工具/处理器注册；
         # 不在本方法清空（处理器注册的引用要保留到本方法末尾统一校验）
@@ -1363,7 +1376,9 @@ class MessageHandler:
             # MAX_TOOL_ITERATIONS=2 语义：迭代 1 = JSON 工单执行 + 带 tools 的转换调用；
             # 迭代 2 = 原生块执行/tool_result 回传；迭代 2 若再出 tool_use 块
             # （native_pending 非空）→ continue 后循环即耗尽，新块被静默丢弃
-            # （不执行、不落库、不回传），与 GLM 路径行为无关
+            # （不执行、不落库、不回传），与 GLM 路径行为无关。
+            # B1-9 设计护栏固化：真实搜索一轮收敛为常态，迭代 2 的新块是幻觉/
+            # 失控信号，丢弃是红线设计而非缺陷（测试锁死防回潮）。
             native_chain_ran = False
             native_reply_updated = False
             if native_messages is not None:
@@ -1387,7 +1402,7 @@ class MessageHandler:
                                 tool_results.append({
                                     "type": "tool_result",
                                     "tool_use_id": c.tool_use_id,
-                                    "content": executed_keys[ckey],
+                                    "content": executed_keys[ckey].text,
                                 })
                                 continue
                             # 与下方 JSON 工单路径完全一致的执行/事件/落库语义
@@ -1401,7 +1416,7 @@ class MessageHandler:
                                 c.name,
                                 c.params_obj if c.params_obj is not None else c.params,
                                 user_id, user_question=msg)
-                            executed_keys[ckey] = r.text  # 供后续同参数原生块去重
+                            executed_keys[ckey] = r  # 供后续同参数原生块/工单去重
                             executed_calls.append({
                                 "type": r.name,
                                 "params": (json.dumps(c.params_obj, ensure_ascii=False)
@@ -1456,6 +1471,14 @@ class MessageHandler:
             visible = strip_tool_calls(reply)
             results = []
             for c in calls:
+                ckey = _exec_key(c)
+                if ckey in executed_keys:
+                    # B1-4：JSON 工单轮内自重复（同一轮 reply 内相同工单）/与更早
+                    # 执行（原生块或同轮工单）同参数 → 跳过重复执行（写型工具不
+                    # 重复落库/不双分配引用编号），复用首次结果整份注入 LLM
+                    # （幂等语义，与原生链去重一致：不发"正在…"事件、不落库）
+                    results.append(executed_keys[ckey])
+                    continue
                 # v8 阶段 3：工具调用前先发"思考路径"事件（前端点亮 ● → ✓）
                 if stream_cb is not None:
                     try:
@@ -1469,7 +1492,7 @@ class MessageHandler:
                     c.name,
                     c.params_obj if c.params_obj is not None else c.params,
                     user_id, user_question=msg)
-                executed_keys[_exec_key(c)] = r.text  # 供原生块同参数去重（review I-1）
+                executed_keys[ckey] = r  # 供原生块/后续工单同参数去重（review I-1/B1-4）
                 results.append(r)
                 executed_calls.append({
                     "type": r.name,
@@ -1818,6 +1841,8 @@ class MessageHandler:
         不等待被超时的线程结束（旧 with 块默认 wait=True，重试要等前一线程跑完
         才开始）；僵尸线程靠工具内部超时终会结束（LLM 60s / 网络 15s），
         进程长驻兜底。成功路径线程已结束，shutdown 即刻返回。
+        B1-6：解释器 atexit 对非 daemon 线程的 join 阻塞上界 = 工具内部超时
+        （有界不卡死），测试固化于 test_timeout_zombie_thread_self_terminates_bounded。
         """
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
         for attempt in range(max(1, cap.retries + 1)):
@@ -2484,8 +2509,12 @@ class MessageHandler:
                     welcome = ""
             cache[user_id] = welcome
             return welcome
-        except Exception:
-            return ""  # 开场白任何失败 → 放弃，不阻塞主回复
+        except Exception as e:
+            # A3 Minor ①（B1-11）：fail-open 兜底留观测日志——开场白任何失败 →
+            # 放弃，不阻塞主回复（行为不变，仅加可观测性）
+            logger.warning("欢迎回来开场白生成失败，已放弃: user=%s err=%s",
+                           user_id, str(e)[:200])
+            return ""
 
     def _compress_history(self, user_id: str, history: list, max_rounds: int = 7) -> list:
         """上下文压缩（方案 2.3）：会话超长时保留最近 3 轮完整 + 八字 + 关键事实摘要。
@@ -3627,10 +3656,13 @@ class MessageHandler:
             # E2-1 卡片化：重看盘直读 → 存量档案直读（data 卡片判定依据）
             self._mark_card_turn(user_id, data_read=True)
             return "\n".join(lines)
-        except Exception:
+        except Exception as e:
             # A3-1（批次 2 审查结论）：T5 直读 fail-open 语义覆盖整函数——
             # 原实现只保护 get_latest_chart 调用，字段解析/组装（缺键/脏数据）
             # 异常会冒泡丢整条回复；现统一回落 None 走全流程，不阻塞 process 入口。
+            # A3 Minor ①（B1-11）：fail-open 兜底留观测日志（行为不变，仅加可观测性）
+            logger.warning("重看盘直读异常，回落全流程: user=%s err=%s",
+                           user_id, str(e)[:200])
             return None
 
     # ── D2 四柱终审（数据正确性防线，QA AC-CHAT-009）──────────────

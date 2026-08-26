@@ -58,7 +58,11 @@ def test_tool_loop_analysis_hint_search_unavailable(handler, monkeypatch):
     a = MessageAnalysis(needs_soothe=False, soothe_text="", emotion_label=None,
                         intent="career", needs_search=True)
     hint = handler._tool_loop_analysis_hint(a)
-    assert "<tool_call>搜索:" not in hint
+    assert "<tool_call>搜索:" not in hint          # 旧文本标签教学不注入
+    # B1-8（姊妹用例断言补强）：新 JSON 工单教学同样不注入（原断言只防旧格式回潮，
+    # 若教学改成 JSON 工单仍会漏注入——一并对新旧两种形态锁死）
+    assert "web_search" not in hint
+    assert "<tool_calls>" not in hint
 
 
 @pytest.fixture
@@ -102,6 +106,55 @@ def test_save_bazi_info_subject_other(memory):
     assert r == {}
     assert memory._load("u4").get("bazi_info") == {"gender": "女", "year": 1995}
     assert memory._load("u4").get("consultation_count", 0) == 1  # 未新增计数
+
+
+# ------------------------------------------------------------ 批次 2 B1-11
+# A3 审查 Minor ①：fail-open 路径观测性——_try_reuse_chart / _get_welcome_back
+# 兜底时补 logger.warning（只加日志，不改任何行为逻辑）
+
+
+def test_welcome_back_outer_fallback_logs_warning(handler, caplog):
+    """B1-11a：_get_welcome_back 外层兜底触发（任意一步异常 → 放弃开场白）→
+    logger.warning 记录；行为不变（返回 ""，不阻塞主回复）。"""
+    import logging
+    from unittest.mock import Mock
+
+    handler.session_dao = object()          # truthy → 走到 has_memory 一步
+    ms = Mock()
+    ms.has_memory.side_effect = RuntimeError("记忆层故障")   # 外层 try 内冒泡
+    handler.memory_system = ms
+    with caplog.at_level(logging.WARNING, logger="src.bot.handler"):
+        assert handler._get_welcome_back("u1") == ""        # 行为不变：放弃开场白
+    assert any("欢迎" in r.message for r in caplog.records), \
+        "fail-open 兜底必须留 warning 日志（观测性）"
+
+
+def test_try_reuse_chart_fail_open_logs_warning(handler, caplog):
+    """B1-11b：_try_reuse_chart 整函数 fail-open（图数据层/组装异常 → None 回落
+    全流程）→ logger.warning 记录；行为不变（返回 None，不阻塞 process 入口）。"""
+    import logging
+    from unittest.mock import Mock
+
+    dao = Mock()
+    dao.get_latest_chart.side_effect = RuntimeError("chart 层故障")
+    handler.chart_dao = dao
+    handler._analysis_facts = {}
+    with caplog.at_level(logging.WARNING, logger="src.bot.handler"):
+        assert handler._try_reuse_chart("u1", "我的盘") is None
+    assert any("重看盘" in r.message for r in caplog.records), \
+        "fail-open 兜底必须留 warning 日志（观测性）"
+
+
+def test_try_reuse_chart_normal_path_no_warning(handler, caplog):
+    """B1-11 邻域：fail-open 未触发（关键词不匹配早退）→ 不产生多余 warning 日志。"""
+    import logging
+    from unittest.mock import Mock
+
+    handler.chart_dao = Mock()              # get_latest_chart 返回 None（无盘）
+    handler._analysis_facts = {}
+    with caplog.at_level(logging.WARNING, logger="src.bot.handler"):
+        assert handler._try_reuse_chart("u1", "今天天气怎么样") is None  # 无关消息早退
+    assert not [r for r in caplog.records if "重看盘" in r.message]
 
 
 def test_handle_hehun_incomplete_info_returns_guide_card(handler):
