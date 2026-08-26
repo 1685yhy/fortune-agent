@@ -2779,7 +2779,7 @@ class MessageHandler:
                 self._consume_quota(user_id)
                 # 会话隔离：解梦需读会话历史（P0-1 已有梦境免重复描述），
                 # 仅 dream 处理器感知 session_id；其余引擎处理器不读历史
-                if analysis.intent == "dream":
+                if analysis.intent in ("dream", "bazi", "career"):
                     reply = handler(msg, user_id, stream_cb=stream_cb,
                                     session_id=session_id)
                 else:
@@ -3111,7 +3111,8 @@ class MessageHandler:
     # ============================================================
 
     def _handle_career(self, msg: str, user_id: str,
-                       stream_cb: Optional[Callable] = None) -> str:
+                       stream_cb: Optional[Callable] = None,
+                       session_id: Optional[str] = None) -> str:
         """处理事业适配请求（career 意图）：排盘 + LLM 自主分析十神/五行与行业适配。
 
         与 _handle_bazi 同一分析管线；消息命中 career 场景关键词时，
@@ -3119,7 +3120,8 @@ class MessageHandler:
         （行业五行适配/跳槽转型节点/职场贵人运）。
         不注入名人相似对照（名人库停用方案见 similarity 移除清单，未确认前不落笔）。
         """
-        return self._handle_bazi(msg, user_id, stream_cb=stream_cb)
+        return self._handle_bazi(msg, user_id, stream_cb=stream_cb,
+                                 session_id=session_id)
 
     def _get_user_birth_profile(self, user_id: str) -> Optional[dict]:
         """获取用户出生信息档案（Task 1 排盘档案打通，单向只读）。
