@@ -68,3 +68,62 @@ def test_tool_intent_name_collision():
     assert reg.validate_params("fengshui", {}) is not None
     assert reg.validate_params("zeri", {}) is not None
     assert reg.validate_params("dream", {}) is not None
+
+
+# ---- Task 3：结构化工单协议（JSON 工单解析 + 参数序列化桥接） ----
+
+
+def test_json_workorder_parse():
+    """JSON 工单块解析：合法工单 → ToolCall 带 params_obj。"""
+    from src.bot.tool_calls import ToolCall, parse_tool_calls
+    calls = parse_tool_calls(
+        '好的，我来查。<tool_calls>'
+        '[{"tool": "web_search", "params": {"query": "北京天气"}}, '
+        '{"tool": "bazi_chart", "params": {"text": "1990年5月20日 北京 男"}}]'
+        '</tool_calls>'
+    )
+    assert [c.name for c in calls] == ["搜索", "排盘"]
+    assert calls[0].params_obj == {"query": "北京天气"}
+    assert calls[1].params_obj == {"text": "1990年5月20日 北京 男"}
+
+
+def test_json_workorder_bad_json_falls_back():
+    """非法 JSON 工单块 → 正则兜底（旧协议仍工作）。"""
+    from src.bot.tool_calls import parse_tool_calls
+    calls = parse_tool_calls("<tool_calls>这不是JSON</tool_calls>\n<tool_call>搜索: 北京天气</tool_call>")
+    assert [c.name for c in calls] == ["搜索"]
+    assert calls[0].params_obj is None
+    assert calls[0].params == "北京天气"
+
+
+def test_json_workorder_unknown_tool_skipped():
+    """工单里未知工具 → 跳过不执行。"""
+    from src.bot.tool_calls import parse_tool_calls
+    calls = parse_tool_calls(
+        '<tool_calls>[{"tool": "no_such_tool", "params": {"q": "x"}}]</tool_calls>')
+    assert calls == []
+
+
+def test_serialize_params():
+    """结构化参数 → 执行器文本：单键直接取值，多键 k: v 拼接。"""
+    from src.bot.tool_calls import serialize_params
+    assert serialize_params({"query": "北京天气"}) == "北京天气"
+    assert serialize_params({"text": "1990年5月20日"}) == "1990年5月20日"
+    assert serialize_params({"query": 123}) == "123"
+    assert serialize_params({"a": "1", "b": "2"}) == "a: 1\nb: 2"
+    assert serialize_params({}) == ""
+
+
+def test_no_tool_call_no_workorder():
+    """无工单无标签 → 空列表（不误判）。"""
+    from src.bot.tool_calls import parse_tool_calls
+    assert parse_tool_calls("今天天气不错") == []
+
+
+def test_strip_tool_calls_workorder_layer():
+    """strip 三层清理：JSON 工单块 → 文本标签 → 裸标签符全移除，保留正文。"""
+    from src.bot.tool_calls import strip_tool_calls
+    s = strip_tool_calls(
+        '好的。<tool_calls>[{"tool": "web_search", "params": {"query": "x"}}]'
+        '</tool_calls><tool_call>搜索: 天气</tool_call>以下是正文</tool_call>')
+    assert s == "好的。以下是正文"

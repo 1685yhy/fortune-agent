@@ -10,9 +10,10 @@ LLM 在回复中以自然语言输出工具需求，例如：
 - 解析失败：静默降级（直接返回原文）
 - 工具调用失败：错误信息注入 system 提示，不影响对话
 """
+import json
 import re
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 # 支持的工具体系（方案 3.3 工具表 + 阶段 5 网络检索）
 # 格式放宽（2026-08-17 真机修复·TOOL 标签残留）：
@@ -29,6 +30,9 @@ TOOL_CALL_RE = re.compile(
     r'(?P<sep>\s*[:：]\s*|\s+)'
     r'(?P<params>[^<\n]*)(?i:</tool_call>)?',
 )
+# 结构化工单块：<tool_calls>[{"tool": "...", "params": {...}}]</tool_calls>
+_TOOL_CALLS_BLOCK_RE = re.compile(r'<tool_calls>(.*?)</tool_calls>', re.S)
+
 # 裸标签残留（开口/悬挂闭合符）：strip 时兜底清掉
 _TOOL_RESIDUE_RE = re.compile(r'</?tool_call>', re.I)
 
@@ -61,9 +65,14 @@ RETRIEVAL_UNAVAILABLE_HINT = (
 
 @dataclass
 class ToolCall:
-    """一条解析出的工具调用。"""
+    """一条解析出的工具调用。
+
+    - 结构化工单（JSON 工单块）：params_obj 有值，params 为空串，执行前需校验+序列化
+    - 文本标签（正则兜底）：params 有值，params_obj 为 None（旧行为，不校验直接执行）
+    """
     name: str
-    params: str
+    params: str = ""
+    params_obj: Optional[dict] = None
 
 
 @dataclass
@@ -90,15 +99,65 @@ TOOL_REGISTRY = {
 }
 
 
-def parse_tool_calls(text: str) -> List[ToolCall]:
-    """解析回复中的全部 <tool_call> 标签。
+def _parse_json_workorder(text: str) -> List[ToolCall]:
+    """解析 JSON 工单块（JSON 优先，失败返回 [] 由正则兜底）。
 
-    解析失败（无标签/格式错误）返回空列表，调用方静默降级。
-    放宽后的正则会匹配到未知工具名（标签内任意名）——只把注册表内
-    可执行的工具返回（未知名会被 strip 掉但不执行，防无意义迭代）。
+    tool 字段接受英文 cap_id（如 "web_search"）或中文名（如 "搜索"），
+    统一归一为注册表中文名（与文本标签路径的 ToolCall.name 一致）。
+    """
+    m = _TOOL_CALLS_BLOCK_RE.search(text)
+    if not m:
+        return []
+    try:
+        data = json.loads(m.group(1))
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(data, list):
+        return []
+    calls = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("tool", "")).strip()
+        name = _TOOL_SYNONYMS.get(name, name)
+        name = TOOL_NAME_BY_ID.get(name, name)  # 英文 cap_id → 中文名
+        if name not in TOOL_REGISTRY:
+            continue  # 未知工具：不执行（strip 路径仍会移除）
+        params = item.get("params", {})
+        if isinstance(params, str):
+            params = {"text": params}
+        elif not isinstance(params, dict):
+            params = {}
+        calls.append(ToolCall(name=name, params_obj=params))
+    return calls
+
+
+def serialize_params(params: dict) -> str:
+    """结构化工单参数 → 执行器文本桥接（执行器全部吃自然语言文本）。
+
+    单键直接取值；多键 "k: v" 换行拼接（通用兜底，够用即可）。
+    """
+    if not params:
+        return ""
+    if len(params) == 1:
+        v = next(iter(params.values()))
+        if isinstance(v, (str, int, float)):
+            return str(v).strip()
+    return "\n".join(f"{k}: {v}" for k, v in params.items())
+
+
+def parse_tool_calls(text: str) -> List[ToolCall]:
+    """解析回复中的工具调用。JSON 工单优先，正则文本标签兜底。
+
+    - JSON 工单：<tool_calls>[{"tool": "web_search", "params": {"query": "..."}}]</tool_calls>
+    - 文本标签（兼容期保留）：<tool_call>搜索: 关键词</tool_call> / TOOL: 关键词
+    - 两者都失败/都没有 → 返回空列表，调用方静默降级
     """
     if not text:
         return []
+    calls = _parse_json_workorder(text)
+    if calls:
+        return calls
     calls = []
     for m in TOOL_CALL_RE.finditer(text):
         name = (m.group("name1") or m.group("name2") or "").strip()
@@ -111,14 +170,13 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
 
 
 def strip_tool_calls(text: str) -> str:
-    """去掉回复中的 <tool_call> 标签，保留其余文字（用户可见部分）。
+    """去掉回复中的工具调用标记，保留其余文字（用户可见部分）。
 
-    兜底两层：
-      1) TOOL_CALL_RE 匹配完整调用/截断残留（<tool_call> / TOOL: 前缀均可）；
-      2) 裸标签符（<tool_call> / </tool_call> 悬挂残留）单独清除。
+    兜底三层：JSON 工单块 → 文本标签/截断残留 → 裸标签符。
     """
     if not text:
         return text
-    s = TOOL_CALL_RE.sub("", text)
+    s = _TOOL_CALLS_BLOCK_RE.sub("", text)
+    s = TOOL_CALL_RE.sub("", s)
     s = _TOOL_RESIDUE_RE.sub("", s)
     return s.strip()
