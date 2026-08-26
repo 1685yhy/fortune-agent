@@ -48,3 +48,23 @@ def test_validate_params():
     err = reg.validate_params("web_search", {"query": 123})
     assert err is not None
     assert reg.validate_params("no_such_cap", {"query": "x"}) is not None
+
+
+def test_tool_intent_name_collision():
+    """同名 cap_id（fengshui/zeri/dream）：tool 条目优先于 intent 条目（工单校验走 tool）。
+
+    注：_TOOL_CAPS(7) + _INTENT_CAPS(15) = 22 项列表，但 fengshui/zeri/dream 的
+    cap_id 与中文名在两类中完全相同，去重后唯一键为 19（修复前后一致）。
+    """
+    assert reg.CAPABILITY_BY_ID["fengshui"].cap_type == "tool"
+    assert reg.CAPABILITY_BY_ID["zeri"].cap_type == "tool"
+    assert reg.CAPABILITY_BY_ID["dream"].cap_type == "tool"
+    assert reg.CAPABILITY_BY_NAME["风水"].cap_type == "tool"
+    assert reg.CAPABILITY_BY_NAME["择日"].cap_type == "tool"
+    assert reg.CAPABILITY_BY_NAME["解梦"].cap_type == "tool"
+    assert len(reg.CAPABILITY_BY_ID) == 19
+    assert len(reg.CAPABILITY_BY_NAME) == 19
+    # 回归点：intent 覆盖 tool 时，tool 必填校验静默失效（validate_params 返回 None）
+    assert reg.validate_params("fengshui", {}) is not None
+    assert reg.validate_params("zeri", {}) is not None
+    assert reg.validate_params("dream", {}) is not None

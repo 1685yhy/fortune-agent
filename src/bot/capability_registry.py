@@ -107,8 +107,10 @@ _INTENT_CAPS = [
 CAPABILITIES: list = _TOOL_CAPS + _INTENT_CAPS
 
 TOOL_NAME_BY_ID: dict = {c.cap_id: c.name for c in _TOOL_CAPS}
-CAPABILITY_BY_NAME: dict = {c.name: c for c in CAPABILITIES}
-CAPABILITY_BY_ID: dict = {c.cap_id: c for c in CAPABILITIES}
+CAPABILITY_BY_NAME: dict = {c.name: c for c in _INTENT_CAPS}
+CAPABILITY_BY_NAME.update({c.name: c for c in _TOOL_CAPS})
+CAPABILITY_BY_ID: dict = {c.cap_id: c for c in _INTENT_CAPS}
+CAPABILITY_BY_ID.update({c.cap_id: c for c in _TOOL_CAPS})
 
 # COMBINED_PROMPT 现枚举原文（14 个，无 xuetang/hourly，含 free_chat）——顺序不可改
 INTENT_ENUM_ORDER = ["bazi", "ziwei", "liuyao", "fengshui", "zeri", "mianxiang",
