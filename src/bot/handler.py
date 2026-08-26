@@ -2305,43 +2305,50 @@ class MessageHandler:
         - 仅当：用户有持久记忆 且 本次会话还没有任何消息
         - 进程内缓存，单次请求只生成一次；LLM 失败时兜底用记忆模板
         """
-        if not self.session_dao or not self.memory_system:
-            return ""
-        if not self.memory_system.has_memory(user_id):
-            return ""
         try:
-            # 当前用户消息在 process 中先于本方法保存：只有 1 条（仅当前消息）才算会话开始
-            history = self.session_dao.get_history(user_id, limit=3)
-            if len(history) > 1:
-                return ""  # 会话已有历史消息，不算会话开始
-        except Exception:
-            return ""
-        cache = getattr(self, "_welcome_cache", None)
-        if cache is None:
-            cache = {}
-            self._welcome_cache = cache
-        if user_id in cache:
-            return cache[user_id]
-        try:
-            profile = self.memory_system.get_profile_summary(user_id)
-        except Exception:
-            profile = ""
-        welcome = ""
-        if profile:
-            prompt = (
-                f"用户是「易理明灯」的回头客。用户画像：\n{profile}\n"
-                "请生成一句自然、温暖的欢迎回来开场白（30字以内，直接返回文本，"
-                "不要引号、不要JSON）。可以自然提及上次聊过的话题或最近的关心点，"
-                "像朋友打招呼一样。如果画像信息很少，就简单打个招呼。"
-            )
-            welcome = self._quick_flash(prompt, max_tokens=80, temperature=0.9)
-        if not welcome:
+            # A3-3（批次 2 审查结论）：开场白是快通道前置装饰——原实现仅逐段
+            # try/except，has_memory（记忆层 DB）等未覆盖调用异常会冒泡，导致
+            # 3 个调用点（流式首块/两条非流式拼接）整条回复丢失；外层兜底保证
+            # 任何一步失败都只放弃开场白，主回复照常生成。
+            if not self.session_dao or not self.memory_system:
+                return ""
+            if not self.memory_system.has_memory(user_id):
+                return ""
             try:
-                welcome = self.memory_system.get_greeting(user_id)  # 兜底模板
+                # 当前用户消息在 process 中先于本方法保存：只有 1 条（仅当前消息）才算会话开始
+                history = self.session_dao.get_history(user_id, limit=3)
+                if len(history) > 1:
+                    return ""  # 会话已有历史消息，不算会话开始
             except Exception:
-                welcome = ""
-        cache[user_id] = welcome
-        return welcome
+                return ""
+            cache = getattr(self, "_welcome_cache", None)
+            if cache is None:
+                cache = {}
+                self._welcome_cache = cache
+            if user_id in cache:
+                return cache[user_id]
+            try:
+                profile = self.memory_system.get_profile_summary(user_id)
+            except Exception:
+                profile = ""
+            welcome = ""
+            if profile:
+                prompt = (
+                    f"用户是「易理明灯」的回头客。用户画像：\n{profile}\n"
+                    "请生成一句自然、温暖的欢迎回来开场白（30字以内，直接返回文本，"
+                    "不要引号、不要JSON）。可以自然提及上次聊过的话题或最近的关心点，"
+                    "像朋友打招呼一样。如果画像信息很少，就简单打个招呼。"
+                )
+                welcome = self._quick_flash(prompt, max_tokens=80, temperature=0.9)
+            if not welcome:
+                try:
+                    welcome = self.memory_system.get_greeting(user_id)  # 兜底模板
+                except Exception:
+                    welcome = ""
+            cache[user_id] = welcome
+            return welcome
+        except Exception:
+            return ""  # 开场白任何失败 → 放弃，不阻塞主回复
 
     def _compress_history(self, user_id: str, history: list, max_rounds: int = 7) -> list:
         """上下文压缩（方案 2.3）：会话超长时保留最近 3 轮完整 + 八字 + 关键事实摘要。
@@ -3092,7 +3099,14 @@ class MessageHandler:
         # D2 修复：四柱终审冲突且无回退稿的错误结果禁止入缓存
         # （0.78s 缓存固化错误盘面 → 用户长期看到错误盘，红线级）。
         if is_cacheable(msg) and not deep and not pillar_conflict:
-            self.cache.set(msg, reply, user_id, scope=session_id or "")
+            try:
+                self.cache.set(msg, reply, user_id, scope=session_id or "")
+            except Exception:
+                # A3-2（批次 2 审查结论）：写缓存是旁路优化——失败仅放弃本次
+                # 缓存（下次仍走慢通道重算），已算好的回复照常返回；
+                # 原实现异常冒泡会让用户拿不到已算好的回复。
+                logger.warning("出口缓存写入失败（放弃缓存，回复照常返回）user=%s",
+                               user_id, exc_info=True)
 
         return reply
 
@@ -3448,27 +3462,30 @@ class MessageHandler:
             return None
         try:
             chart = getattr(self, "chart_dao", None) and self.chart_dao.get_latest_chart(user_id)
+            if not chart:
+                return None
+            r = chart["bazi_json"]
+            bazi = r.get("bazi") or []
+            lines = [f"这是你最近排过的盘（{chart['created_at']}）："]
+            if bazi:
+                stems = ["年柱", "月柱", "日柱", "时柱"]
+                lines += [f"{stems[i]}：{g}" for i, g in enumerate(bazi[:4])]
+            lines.append(f"日主：{r.get('day_master','')} · 格局：{r.get('geju','') or '—'}")
+            if r.get("dayun"):
+                lines.append("大运：" + " → ".join(f"{a}岁{ganzhi}" for a, ganzhi in r["dayun"][:6]))
+            if r.get("liunian"):
+                lines.append("流年：" + "、".join(f"{y}年{g}" for y, g in list(r["liunian"].items())[:5]))
+            if r.get("shensha"):
+                lines.append("神煞：" + "、".join(r["shensha"][:8]))
+            lines.append("（直接看的已存结果；要重新详细分析就说'重新帮我分析'）")
+            # E2-1 卡片化：重看盘直读 → 存量档案直读（data 卡片判定依据）
+            self._mark_card_turn(user_id, data_read=True)
+            return "\n".join(lines)
         except Exception:
-            chart = None  # DB 异常 fail-open，不阻塞 process 入口
-        if not chart:
+            # A3-1（批次 2 审查结论）：T5 直读 fail-open 语义覆盖整函数——
+            # 原实现只保护 get_latest_chart 调用，字段解析/组装（缺键/脏数据）
+            # 异常会冒泡丢整条回复；现统一回落 None 走全流程，不阻塞 process 入口。
             return None
-        r = chart["bazi_json"]
-        bazi = r.get("bazi") or []
-        lines = [f"这是你最近排过的盘（{chart['created_at']}）："]
-        if bazi:
-            stems = ["年柱", "月柱", "日柱", "时柱"]
-            lines += [f"{stems[i]}：{g}" for i, g in enumerate(bazi[:4])]
-        lines.append(f"日主：{r.get('day_master','')} · 格局：{r.get('geju','') or '—'}")
-        if r.get("dayun"):
-            lines.append("大运：" + " → ".join(f"{a}岁{ganzhi}" for a, ganzhi in r["dayun"][:6]))
-        if r.get("liunian"):
-            lines.append("流年：" + "、".join(f"{y}年{g}" for y, g in list(r["liunian"].items())[:5]))
-        if r.get("shensha"):
-            lines.append("神煞：" + "、".join(r["shensha"][:8]))
-        lines.append("（直接看的已存结果；要重新详细分析就说'重新帮我分析'）")
-        # E2-1 卡片化：重看盘直读 → 存量档案直读（data 卡片判定依据）
-        self._mark_card_turn(user_id, data_read=True)
-        return "\n".join(lines)
 
     # ── D2 四柱终审（数据正确性防线，QA AC-CHAT-009）──────────────
     # 润色/工具循环的 LLM 曾把已存盘 庚午 辛巳 乙酉 甲申 改写为
