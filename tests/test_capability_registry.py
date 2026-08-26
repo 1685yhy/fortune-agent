@@ -146,3 +146,24 @@ def test_strip_workorder_residue():
         '<tool_calls>[{"tool": "web_search", "params": {"query": "北京天气"}}]</tool_calls>你好') == "你好"
     # 单数标签残留回归（旧协议真机修复）
     assert strip_tool_calls('正文<tool_call>搜索: 北京</tool_call>尾') == "正文尾"
+
+
+# ---- Task 4：执行层改造（注册表分派 + 超时重试 + JSON 回喂） ----
+
+
+def test_execute_invalid_params_not_executed():
+    """参数非法 → 不执行 executor，回 ok:false 参数不合法。"""
+    from src.bot.capability_registry import validate_params, CAPABILITY_BY_ID
+    assert validate_params("web_search", {}) is not None
+    assert CAPABILITY_BY_ID["web_search"].cap_type == "tool"
+
+
+def test_result_json_wrapper():
+    """回喂格式：统一 {"tool","ok","data"/"error"} JSON。"""
+    from src.bot.tool_calls import ToolResult
+    from src.bot.handler import format_tool_results_json
+    ok = ToolResult("搜索", True, "北京：晴 25℃")
+    err = ToolResult("排盘", False, "缺少出生信息，请询问", needs_info=True)
+    out = format_tool_results_json([ok, err])
+    assert '"ok": true' in out and '"data": "北京：晴 25℃"' in out
+    assert '"ok": false' in out and '"needs_info": true' in out

@@ -117,14 +117,22 @@ INTENT_ENUM_ORDER = ["bazi", "ziwei", "liuyao", "fengshui", "zeri", "mianxiang",
                      "qimen", "xingming", "hehun", "dream", "calendar",
                      "advisor", "career", "free_chat"]
 
-_executors: dict = {}
+_tool_executors: dict = {}
+_intent_executors: dict = {}
 
 
-def bind_executors(mapping: dict) -> None:
-    """handler 侧注入执行器（tool 类 lambda + intent 类 _handle_*），防循环 import。"""
-    _executors.update(mapping)
+def bind_executors(tool_executors: dict, intent_executors: dict) -> None:
+    """handler 侧注入执行器：tool 与 intent 分开绑定（cap_id 同名时互不覆盖）。
+
+    Task 2 review M-1 修复：fengshui/zeri/dream 在 _TOOL_CAPS 与 _INTENT_CAPS
+    各有一条同 cap_id 记录，单 map 后写覆盖会把 tool lambda 顶掉；
+    双参数分型绑定后按 cap_type 各取各的执行器。
+    """
+    _tool_executors.update(tool_executors)
+    _intent_executors.update(intent_executors)
     for c in CAPABILITIES:
-        c.__dict__["executor"] = _executors.get(c.cap_id) or c.executor
+        src = _tool_executors if c.cap_type == "tool" else _intent_executors
+        c.__dict__["executor"] = src.get(c.cap_id) or c.executor
 
 
 def validate_params(cap_id: str, params: dict) -> Optional[str]:

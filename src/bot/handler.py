@@ -74,6 +74,14 @@ from .tool_calls import (
     MAX_TOOL_ITERATIONS,
     SEARCH_UNAVAILABLE_HINT,
     RETRIEVAL_UNAVAILABLE_HINT,
+    serialize_params,
+)
+
+# 批次 1（spec 1.1/1.2）：统一能力注册表分派（单一事实源）
+from src.bot.capability_registry import (
+    CAPABILITY_BY_NAME,
+    CAPABILITIES,
+    validate_params,
 )
 
 # E2-1 对话消息卡片化：卡片标记生成与判定（纯函数，见 task-e2-server-brief）
@@ -572,6 +580,24 @@ _BAZI_GENERAL_KNOWLEDGE_FALLBACK = (
 )
 
 
+def format_tool_results_json(results: list) -> str:
+    """工具结果统一 JSON 包装（spec 1.2）：{"tool","ok","data"/"error","needs_info"}。
+
+    以 JSON 行序列化注入 system，LLM 结构化消化（豆包式标准结果回喂）。
+    """
+    lines = []
+    for r in results:
+        body = {"tool": r.name, "ok": bool(r.ok)}
+        if r.ok:
+            body["data"] = r.text
+        else:
+            body["error"] = r.text
+            if r.needs_info:
+                body["needs_info"] = True
+        lines.append(json.dumps(body, ensure_ascii=False))
+    return "\n".join(lines)
+
+
 class MessageHandler:
     """消息处理器"""
 
@@ -681,6 +707,36 @@ class MessageHandler:
         # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除）：
         # 不再初始化 SimilarityEngine（原 data/wenzhen_charts.db 44k 命例对照），
         # 未问"像谁"不再输出命例/名人对照
+
+        # 批次 1（spec 1.1）：统一能力注册表注入执行器。tool 与 intent 分开绑定
+        # （cap_id 同名如 fengshui/zeri/dream 互不覆盖，Task 2 review M-1 修复）；
+        # lambda 统一签名 (params, user_id="", user_question="") -> ToolResult，
+        # 执行器实现零改动（红线）。
+        from src.bot.capability_registry import bind_executors
+        bind_executors(
+            {
+                "bazi_chart": lambda p, uid="", uq="": self._tool_bazi(p, uid),
+                "quote_rag": lambda p, uid="", uq="": self._tool_search(
+                    p, user_id=uid, user_question=uq),
+                "web_search": lambda p, uid="", uq="": self._tool_web_search(
+                    p, user_id=uid),
+                "dream": lambda p, uid="", uq="": self._tool_dream(p, uid),
+                "fengshui": lambda p, uid="", uq="": self._tool_fengshui(p),
+                "zeri": lambda p, uid="", uq="": self._tool_zeri(p, uid),
+                "record_lookup": lambda p, uid="", uq="": self._tool_query_records(
+                    p, uid),
+            },
+            {
+                "bazi": self._handle_bazi, "ziwei": self._handle_ziwei,
+                "liuyao": self._handle_liuyao, "fengshui": self._handle_fengshui,
+                "mianxiang": self._handle_mianxiang, "zeri": self._handle_zeri,
+                "qimen": self._handle_qimen, "xingming": self._handle_xingming,
+                "hehun": self._handle_hehun, "dream": self._handle_dream,
+                "calendar": self._handle_calendar, "hourly": self._handle_hourly,
+                "xuetang": self._handle_xuetang, "advisor": self._handle_advisor,
+                "career": self._handle_career,
+            },
+        )
 
     # ============================================================
     # Feedback Learning (F1-F3)
@@ -1137,8 +1193,12 @@ class MessageHandler:
                             c.name, f"正在{c.name}…")})
                     except Exception:
                         pass
-                r = self._execute_tool_call(c.name, c.params, user_id,
-                                            user_question=msg)
+                # 批次 1（spec 1.2）：结构化工单的 dict 参数必须传进执行层，
+                # 否则校验/序列化永远不会触发（文本标签兜底保持原样）
+                r = self._execute_tool_call(
+                    c.name,
+                    c.params_obj if c.params_obj is not None else c.params,
+                    user_id, user_question=msg)
                 results.append(r)
                 executed_calls.append({
                     "type": r.name,
@@ -1159,9 +1219,7 @@ class MessageHandler:
                 messages.append({"role": "user", "content": msg})
             if visible:
                 messages.append({"role": "assistant", "content": visible})
-            results_text = "\n\n".join(
-                f"【工具：{r.name}】\n{r.text}" for r in results
-            )
+            results_text = format_tool_results_json(results)
             messages.append({
                 "role": "system",
                 "content": (
@@ -1173,7 +1231,8 @@ class MessageHandler:
                     "（如「古籍《X》载：…[1]」）；"
                     "不相关的内容忽略，不要引用、不要编造出处。\n"
                     "如果工具提示缺少信息，就自然地向用户询问缺失的信息。"
-                    "不要再次输出 <tool_call> 标签。"
+                    "不要再输出任何工具调用标记（如确有新工具需要，"
+                    "按 <tool_calls> JSON 工单格式输出）。"
                 ),
             })
             # 合并相邻 system 消息（回复无可见文字时会产生连续 system，部分端点不兼容）
@@ -1437,24 +1496,41 @@ class MessageHandler:
 
     def _execute_tool_call(self, name: str, params: str, user_id: str,
                            user_question: str = "") -> ToolResult:
-        """执行单个工具调用，返回可注入对话的结果文本。"""
-        if name == "排盘":
-            return self._tool_bazi(params, user_id)
-        if name == "检索":
-            return self._tool_search(params, user_id=user_id,
-                                     user_question=user_question)
-        if name == "搜索":
-            return self._tool_web_search(params, user_id=user_id)
-        if name == "解梦":
-            return self._tool_dream(params, user_id)
-        if name == "风水":
-            return self._tool_fengshui(params)
-        if name == "择日":
-            return self._tool_zeri(params, user_id)
-        # Task 7 查记录工具：LLM 主动查用户存量数据（name 兼容中英文）
-        if name in ("查记录", "records"):
-            return self._tool_query_records(params, user_id)
-        return ToolResult(name, False, f"未知工具「{name}」，请直接和用户正常聊天。")
+        """执行单个工具调用，返回可注入对话的结果文本。
+
+        批次 1（spec 1.2）：注册表分派 + 参数校验 + 超时重试。
+        - params_obj 有值（结构化工单）：先校验（非法不执行）→ 序列化回文本
+        - params 有值（文本标签兜底）：不校验直接执行（旧行为，兼容期）
+        - 超时/异常按 retries 重试，耗尽 → 兜底文案
+        """
+        cap = CAPABILITY_BY_NAME.get(name)
+        if cap is None or cap.executor is None:
+            return ToolResult(name, False, f"未知工具「{name}」，请直接和用户正常聊天。")
+        if isinstance(params, dict):
+            err = validate_params(cap.cap_id, params)
+            if err:
+                return ToolResult(name, False, err)  # 参数不合法：不执行、不计重试
+            params = serialize_params(params)
+        return self._run_with_timeout(cap, params, user_id, user_question)
+
+    def _run_with_timeout(self, cap, params: str, user_id: str,
+                          user_question: str = "") -> ToolResult:
+        """带超时重试执行注册表 executor（线程池包装，不阻塞事件循环）。"""
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutTimeout
+        for attempt in range(max(1, cap.retries + 1)):
+            try:
+                with ThreadPoolExecutor(max_workers=1) as ex:
+                    fut = ex.submit(cap.executor, params, user_id=user_id,
+                                    user_question=user_question)
+                    return fut.result(timeout=cap.timeout_s)
+            except FutTimeout:
+                continue  # 超时 → 重试（最后一次循环走失败兜底）
+            except Exception:  # noqa: BLE001 — 工具异常重试后兜底
+                continue
+        return ToolResult(
+            cap.name, False,
+            f"「{cap.name}」执行超时/异常（已重试{cap.retries}次），"
+            "请基于已有信息继续回答，或明确告知用户该能力暂不可用。")
 
     def _tool_bazi(self, params: str, user_id: str) -> ToolResult:
         """工具「排盘」：解析出生信息（文本描述）→ BaziEngine.calculate。"""
@@ -2754,24 +2830,9 @@ class MessageHandler:
                 self._record_evolution(user_id, topic, reply)
             return reply
 
-        # Step 2: 路由到对应处理器
-        handler_map = {
-            "bazi": self._handle_bazi,
-            "ziwei": self._handle_ziwei,
-            "liuyao": self._handle_liuyao,
-            "fengshui": self._handle_fengshui,
-            "mianxiang": self._handle_mianxiang,
-            "zeri": self._handle_zeri,
-            "qimen": self._handle_qimen,
-            "xingming": self._handle_xingming,
-            "hehun": self._handle_hehun,
-            "dream": self._handle_dream,
-            "calendar": self._handle_calendar,
-            "hourly": self._handle_hourly,
-            "xuetang": self._handle_xuetang,
-            "advisor": self._handle_advisor,
-            "career": self._handle_career,
-        }
+        # Step 2: 路由到对应处理器（批次 1：从能力注册表投影，单一事实源）
+        handler_map = {c.cap_id: c.executor for c in CAPABILITIES
+                       if c.cap_type == "intent" and c.executor}
 
         handler = handler_map.get(analysis.intent)
         if handler:
