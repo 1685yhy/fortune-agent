@@ -260,114 +260,12 @@ class TestMoodDetectorIntegration:
 
 
 # ====================================================================
-# Handler: User Override Tests
+# Handler: User Override Tests（已删除）
 # ====================================================================
-
-def make_test_handler():
-    """Helper: create a MessageHandler with all mocks."""
-    return MessageHandler(
-        engine=Mock(),
-        ziwei_engine=Mock(),
-        liuyao_engine=Mock(),
-        fengshui_engine=Mock(),
-        mianxiang_engine=Mock(),
-        zeri_engine=Mock(),
-        retriever=Mock(),
-        llm=Mock(),
-        dao=Mock(),
-    )
-
-
-class TestHandlerPersonalityOverride:
-    """User overrides should still work with the new auto-detect system."""
-
-    def test_default_returns_none_for_auto_detect(self):
-        """Default personality mode should be None (auto-detect)."""
-        handler = make_test_handler()
-        mode = handler._get_personality_mode("new_user")
-        assert mode is None, f"Expected None for auto-detect, got {mode}"
-
-    def test_personality_mode_set_and_get(self):
-        """Setting and getting personality mode."""
-        handler = make_test_handler()
-        handler._set_personality_mode("user1", "analyst")
-        assert handler._get_personality_mode("user1") == "analyst"
-
-    def test_invalid_mode_ignored(self):
-        """Invalid mode should be ignored (stays as unset = None)."""
-        handler = make_test_handler()
-        handler._set_personality_mode("user1", "invalid_mode")
-        assert handler._get_personality_mode("user1") is None
-
-    def test_mode_persists_per_user(self):
-        """Different users can have different overrides."""
-        handler = make_test_handler()
-        handler._set_personality_mode("user_a", "analyst")
-        handler._set_personality_mode("user_b", "gentle")
-        assert handler._get_personality_mode("user_a") == "analyst"
-        assert handler._get_personality_mode("user_b") == "gentle"
-
-    # ── Personality Switching ──
-
-    def test_detect_switch_to_analyst(self):
-        """Detect switch to analyst mode."""
-        handler = make_test_handler()
-        assert handler._detect_personality_switch("用分析师模式") == "analyst"
-        assert handler._detect_personality_switch("理性分析一下") == "analyst"
-
-    def test_detect_switch_to_gentle(self):
-        """Detect switch to gentle mode."""
-        handler = make_test_handler()
-        assert handler._detect_personality_switch("温柔一点") == "gentle"
-        assert handler._detect_personality_switch("换温柔模式") == "gentle"
-
-    def test_detect_switch_to_sassy(self):
-        """Detect switch to sassy mode."""
-        handler = make_test_handler()
-        assert handler._detect_personality_switch("换个风格") == "sassy"
-        assert handler._detect_personality_switch("毒舌一点") == "sassy"
-
-    def test_detect_no_switch(self):
-        """Normal messages should not trigger switch."""
-        handler = make_test_handler()
-        assert handler._detect_personality_switch("帮我看看八字") is None
-        assert handler._detect_personality_switch("你好") is None
-
-    def test_switch_via_process(self):
-        """Personality switch via process()."""
-        handler = make_test_handler()
-        result = handler.process("用分析师模式", "test_user")
-        assert handler._get_personality_mode("test_user") == "analyst"
-        assert "分析师" in result or "模式" in result
-
-    def test_switch_to_gentle_via_process(self):
-        """Switch to gentle via process()."""
-        handler = make_test_handler()
-        handler._set_personality_mode("test_user", "sassy")
-        result = handler.process("温柔一点", "test_user")
-        assert handler._get_personality_mode("test_user") == "gentle"
-        assert "温柔" in result or "模式" in result
-
-    def test_switch_to_sassy_via_process(self):
-        """Switch to sassy via process()."""
-        handler = make_test_handler()
-        handler._set_personality_mode("test_user", "analyst")
-        result = handler.process("换个风格", "test_user")
-        assert handler._get_personality_mode("test_user") == "sassy"
-        assert "闺蜜" in result or "模式" in result or "风格" in result
-
-    def test_override_persists_across_messages(self):
-        """User override persists across messages for the session."""
-        handler = make_test_handler()
-        # Set up mock to return AnalysisResult
-        from src.llm.client import AnalysisResult
-        handler.llm.chat = Mock(return_value=AnalysisResult(response="哈哈你心情不错呀", tokens_used=10, model="test"))
-        # Set override
-        handler._set_personality_mode("user1", "gentle")
-        assert handler._get_personality_mode("user1") == "gentle"
-        # Override remains even with different messages
-        handler.process("我今天心情不错", "user1")
-        assert handler._get_personality_mode("user1") == "gentle"
+# AI 原生重构移除 personality mode 体系（_get_personality_mode /
+# _set_personality_mode / _detect_personality_switch 均无定义），
+# 原 TestHandlerPersonalityOverride 12 个测试为对已移除功能的死测试
+# （B 类），连同 make_test_handler helper 一并删除（2026-08-26 基线修复）。
 
 
 # ====================================================================

@@ -1,13 +1,10 @@
 """Tests for chart image generation - verify images are generated, not content."""
 import os
-from pathlib import Path
 
 from src.engines.bazi import BaziEngine
 from src.engines.ziwei import ZiweiEngine
 from src.engines.fengshui import FengshuiEngine
 from src.images import BaziChartGenerator, ZiweiChartGenerator, FengshuiChartGenerator
-
-CHARTS_DIR = Path("/mnt/d/fortune-data/charts")
 
 
 def _cleanup(path: str):
@@ -34,8 +31,13 @@ def test_bazi_chart_generation():
         _cleanup(tmp_path)
 
 
-def test_bazi_chart_auto_path():
-    """Test that BaziChartGenerator auto-generates path when output_path is None."""
+def test_bazi_chart_auto_path(tmp_path, monkeypatch):
+    """Test that BaziChartGenerator auto-generates path when output_path is None.
+
+    CHARTS_DIR 是模块级常量（import 时求值），monkeypatch.setenv 无效，
+    直接 patch 模块属性到 pytest tmp_path，消除对 /opt/fortune-data/charts 的写入依赖。
+    """
+    monkeypatch.setattr("src.images.bazi_chart.CHARTS_DIR", tmp_path)
     engine = BaziEngine()
     result = engine.calculate(1990, 5, 20, 15, 0, "北京", "男")
 
@@ -43,7 +45,7 @@ def test_bazi_chart_auto_path():
     output = gen.generate(result, output_path=None)
     try:
         assert output is not None
-        assert output.startswith(str(CHARTS_DIR)), f"Expected charts dir, got {output}"
+        assert output.startswith(str(tmp_path)), f"Expected charts dir, got {output}"
         assert output.endswith(".png"), f"Expected .png, got {output}"
         assert os.path.exists(output), "PNG file was not created"
         assert os.path.getsize(output) > 1000, "PNG file is too small"
@@ -69,8 +71,13 @@ def test_ziwei_chart_generation():
         _cleanup(tmp_path)
 
 
-def test_ziwei_chart_auto_path():
-    """Test that ZiweiChartGenerator auto-generates path."""
+def test_ziwei_chart_auto_path(tmp_path, monkeypatch):
+    """Test that ZiweiChartGenerator auto-generates path.
+
+    CHARTS_DIR 是模块级常量（import 时求值），monkeypatch.setenv 无效，
+    直接 patch 模块属性到 pytest tmp_path，消除对 /opt/fortune-data/charts 的写入依赖。
+    """
+    monkeypatch.setattr("src.images.ziwei_chart.CHARTS_DIR", tmp_path)
     engine = ZiweiEngine()
     result = engine.calculate(1990, 5, 20, 15, 0, "北京", "男")
 
@@ -78,7 +85,7 @@ def test_ziwei_chart_auto_path():
     output = gen.generate(result, output_path=None)
     try:
         assert output is not None
-        assert output.startswith(str(CHARTS_DIR)), f"Expected charts dir, got {output}"
+        assert output.startswith(str(tmp_path)), f"Expected charts dir, got {output}"
         assert output.endswith(".png"), f"Expected .png, got {output}"
         assert os.path.exists(output), "PNG file was not created"
         assert os.path.getsize(output) > 1000, "PNG file is too small"
@@ -104,8 +111,13 @@ def test_fengshui_chart_generation():
         _cleanup(tmp_path)
 
 
-def test_fengshui_chart_auto_path():
-    """Test that FengshuiChartGenerator auto-generates path."""
+def test_fengshui_chart_auto_path(tmp_path, monkeypatch):
+    """Test that FengshuiChartGenerator auto-generates path.
+
+    CHARTS_DIR 是模块级常量（import 时求值），monkeypatch.setenv 无效，
+    直接 patch 模块属性到 pytest tmp_path，消除对 /opt/fortune-data/charts 的写入依赖。
+    """
+    monkeypatch.setattr("src.images.fengshui_chart.CHARTS_DIR", tmp_path)
     engine = FengshuiEngine()
     result = engine.analyze(direction="子", year_built=2024)
 
@@ -113,7 +125,7 @@ def test_fengshui_chart_auto_path():
     output = gen.generate(result, output_path=None)
     try:
         assert output is not None
-        assert output.startswith(str(CHARTS_DIR)), f"Expected charts dir, got {output}"
+        assert output.startswith(str(tmp_path)), f"Expected charts dir, got {output}"
         assert output.endswith(".png"), f"Expected .png, got {output}"
         assert os.path.exists(output), "PNG file was not created"
         assert os.path.getsize(output) > 1000, "PNG file is too small"

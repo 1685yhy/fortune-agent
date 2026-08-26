@@ -1,9 +1,52 @@
 """Tests for bot message handling."""
+import atexit
+import os
+import shutil
+import tempfile
 from unittest.mock import Mock, MagicMock, call
 
 from src.bot.handler import MessageHandler, ZERI_SCENE_QUESTION
 from src.bot.tool_calls import parse_tool_calls, strip_tool_calls, MAX_TOOL_ITERATIONS
 from src.bot.formatter import split_long_message, format_greeting, format_error, format_loading
+from src.engines.message_analyzer import MessageAnalysis
+from src.storage.models import init_db
+
+# 临时 DB 目录注册表（退出时清理）
+_tmp_dirs = set()
+
+
+def _cleanup_tmp_dirs():
+    for d in _tmp_dirs:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+atexit.register(_cleanup_tmp_dirs)
+
+
+def _make_test_db_path():
+    """创建带全量 schema 的真实临时 SQLite 文件。
+
+    PreferenceDAO/ChartDAO 等通过 db_connect 各自新建连接——":memory:"
+    每连接都是独立空库（无表），必须用 init_db 初始化过的真实文件，
+    否则 preference_dao 读写出 no such table: user_preferences。
+    """
+    tmpdir = tempfile.mkdtemp(prefix="fortune_test_")
+    db_path = os.path.join(tmpdir, "test.db")
+    init_db(db_path)
+    _tmp_dirs.add(tmpdir)
+    return db_path
+
+
+def _analysis(intent, **kwargs):
+    """构造指定 intent 的 MessageAnalysis（模拟 LLM 意图分析结果）。"""
+    return MessageAnalysis(needs_soothe=False, soothe_text="",
+                           emotion_label=None, intent=intent, **kwargs)
+
+
+def _patch_intent(handler, intent):
+    """把 _analyze_message 替换为固定意图（测试不发起真实 LLM 调用）。"""
+    handler._analyze_message = (
+        lambda msg, user_id="", session_id=None: _analysis(intent))
 
 
 # ── AI 原生对话系统（Phase 1）— <tool_call> 标签解析 ─────────────────
@@ -147,7 +190,7 @@ def make_mock_handler():
     mock_llm.chat.return_value = Mock(response="🔮 命理助手 返回的结果")
     mock_llm.chat_conversation.return_value = "🔮 命理助手 返回的结果"
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
     mock_dao.get_user_bazi.return_value = None
     mock_session = Mock()
     mock_session.get_context_for_llm.return_value = []
@@ -179,6 +222,7 @@ def test_process_no_intent_returns_help():
 def test_process_bazi_missing_info_asks():
     """八字意图但无出生信息 - 询问提供信息"""
     handler = make_mock_handler()
+    _patch_intent(handler, "bazi")
     handler.dao.get_user_bazi.return_value = None  # No saved data
     result = handler.process("帮我看看八字", "user123")
     assert "出生" in result or "示例" in result
@@ -187,7 +231,7 @@ def test_process_bazi_missing_info_asks():
 def test_process_bazi_missing_info_uses_saved():
     """八字意图无信息，但有已保存数据"""
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
     mock_dao.get_user_bazi.return_value = {
         "year": 1990, "month": 5, "day": 20,
         "hour": 15, "minute": 0, "city": "北京", "gender": "男",
@@ -219,6 +263,7 @@ def test_process_bazi_missing_info_uses_saved():
         llm=mock_llm,
         dao=mock_dao,
     )
+    _patch_intent(handler, "bazi")
     result = handler.process("我的运势如何", "user123")
 
     assert "八字分析结果" in result
@@ -227,7 +272,8 @@ def test_process_bazi_missing_info_uses_saved():
     )
     mock_dao.save_user_bazi.assert_called_once()
     mock_dao.save_consultation.assert_called_once()
-    mock_retriever.search.assert_called_once()
+    # Task 10 快路径：已存盘 → 跳过 RAG 预检索（LLM 需要古籍时经 tool_loop 兜底）
+    mock_retriever.search.assert_not_called()
     mock_llm.analyze.assert_called_once()
 
 
@@ -249,7 +295,8 @@ def test_process_bazi_with_extracted_info():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.get_user_bazi.return_value = None  # 无存量档案 → 不走快路径，验证 RAG 预检索
 
     handler = MessageHandler(
         engine=mock_engine,
@@ -262,6 +309,10 @@ def test_process_bazi_with_extracted_info():
         llm=mock_llm,
         dao=mock_dao,
     )
+    _patch_intent(handler, "bazi")
+    # 禁用秒回预生成：消息含完整出生信息会触发后台 pregen worker 重复
+    # engine.calculate + llm.analyze（本测试只验证主流程，禁用避免竞态）
+    handler._start_pregen_instant = lambda msg: None
     result = handler.process("帮我看看八字 1990年5月20日15点 北京 男", "user123")
 
     assert "八字分析结果" in result
@@ -270,19 +321,23 @@ def test_process_bazi_with_extracted_info():
     )
     mock_dao.save_user_bazi.assert_called_once()
     mock_dao.save_consultation.assert_called_once()
-    mock_retriever.search.assert_called_once()
+    # Task 10 快路径：_save_bazi_records 已先落 chart_records →
+    # 后续 _should_fastpath 命中同生辰 → 跳过 RAG 预检索（LLM 需要时经 tool_loop 兜底）
+    mock_retriever.search.assert_not_called()
     mock_llm.analyze.assert_called_once()
 
 
 def test_detailed_bazi_intent_method():
-    """测试 MessageHandler._detect_intent 方法"""
+    """AI 原生（Phase 1）：_detect_intent 已移除，意图由 LLM _analyze_message 判定。
+
+    _rule_analyze（降级链路规则快判）仅对纯生日陈述返回 bazi，其余 None。
+    """
+    assert not hasattr(MessageHandler, "_detect_intent")
     handler = make_mock_handler()
-    assert handler._detect_intent("帮我算八字") == "bazi"
-    assert handler._detect_intent("看运势") == "bazi"
-    assert handler._detect_intent("起一卦看看") == "liuyao"
-    assert handler._detect_intent("奇门遁甲") == "qimen"
-    assert handler._detect_intent("帮我改名字") == "xingming"
-    assert handler._detect_intent("hello world") is None
+    assert handler._rule_analyze("1990年5月20日 午时 北京 男").intent == "bazi"
+    assert handler._rule_analyze("帮我算八字").intent is None
+    assert handler._rule_analyze("看运势").intent is None
+    assert handler._rule_analyze("hello world").intent is None
 
 
 # ── Issue 1: PM/AM 转换 ─────────────────────────────────────────────────
@@ -364,6 +419,10 @@ def test_extract_bazi_info_city_shenzhen():
     assert city == "深圳", f"应识别'深圳'，但得到{city}"
 
 
+# dash/slash 年份回归测试已移至 tests/test_bazi_dash_format_regression.py
+# （与 handler.py D 类修复同 commit，保持 commit 边界干净）
+
+
 def test_extract_bazi_info_city_with_suffix():
     """带市后缀的城市优先匹配"""
     handler = make_mock_handler()
@@ -429,9 +488,13 @@ def test_format_greeting_has_checkmarks():
 
 
 def test_help_message_all_categories():
-    """_help_message 应包含全部10个分类"""
-    handler = make_mock_handler()
-    help_text = handler._help_message()
+    """AI 原生（Phase 1）：_help_message 已移除，欢迎文案统一走 _get_welcome_message。
+
+    模块级 _get_welcome_message 应包含全部10个分类。
+    """
+    from src.bot.handler import _get_welcome_message
+    assert not hasattr(MessageHandler, "_help_message")
+    help_text = _get_welcome_message()
     categories = ["八字", "紫微", "占卜", "风水", "择日", "面相",
                   "奇门", "姓名", "合婚", "解梦"]
     for cat in categories:
@@ -443,6 +506,7 @@ def test_help_message_all_categories():
 def test_process_ziwei_missing_info_asks():
     """紫微斗数无出生信息 - 询问提供信息"""
     handler = make_mock_handler()
+    _patch_intent(handler, "ziwei")
     result = handler.process("帮我看看紫微斗数", "user123")
     assert "出生" in result
 
@@ -473,7 +537,7 @@ def test_process_ziwei_with_extracted_info():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -486,13 +550,15 @@ def test_process_ziwei_with_extracted_info():
         llm=mock_llm,
         dao=mock_dao,
     )
+    _patch_intent(handler, "ziwei")
     result = handler.process(
         "帮我看看紫微斗数 1990年5月20日15点 北京 男", "user123"
     )
 
     assert "紫微斗数分析" in result
     mock_ziwei.calculate.assert_called_once_with(1990, 5, 20, 15, 0, "北京", "男")
-    mock_retriever.search.assert_called_once()
+    # 空召回时实现会走一次 fallback 检索（共 2 次），只断言发生过检索
+    mock_retriever.search.assert_called()
     mock_llm.analyze.assert_called_once()
     mock_dao.save_consultation.assert_called_once()
 
@@ -528,7 +594,7 @@ def test_process_liuyao():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -541,11 +607,13 @@ def test_process_liuyao():
         llm=mock_llm,
         dao=mock_dao,
     )
+    _patch_intent(handler, "liuyao")
     result = handler.process("起一卦看看财运", "user123")
 
     assert "天地否" in result or "本卦天地否" in result
     mock_liuyao.cast.assert_called_once()
-    mock_retriever.search.assert_called_once()
+    # 空召回时实现会走一次 fallback 检索（共 2 次），只断言发生过检索
+    mock_retriever.search.assert_called()
     mock_llm.analyze.assert_called_once()
 
 
@@ -554,6 +622,7 @@ def test_process_liuyao():
 def test_process_fengshui_missing_info_asks():
     """风水分析无方向信息 - 询问提供信息"""
     handler = make_mock_handler()
+    _patch_intent(handler, "fengshui")
     result = handler.process("看看我家风水", "user123")
     assert "坐向" in result or "朝向" in result
 
@@ -579,7 +648,7 @@ def test_process_fengshui_with_direction():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -592,6 +661,7 @@ def test_process_fengshui_with_direction():
         llm=mock_llm,
         dao=mock_dao,
     )
+    _patch_intent(handler, "fengshui")
     result = handler.process("坐北朝南的房子风水如何", "user123")
 
     assert "风水分析" in result
@@ -605,6 +675,7 @@ def test_process_fengshui_with_direction():
 def test_process_zeri_missing_date_asks():
     """择日分析无日期 - 询问提供信息"""
     handler = make_mock_handler()
+    _patch_intent(handler, "zeri")
     result = handler.process("看看吉日", "user123")
     assert "日期" in result
 
@@ -631,7 +702,7 @@ def test_process_zeri_with_date():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -644,6 +715,7 @@ def test_process_zeri_with_date():
         llm=mock_llm,
         dao=mock_dao,
     )
+    _patch_intent(handler, "zeri")
     result = handler.process("2026年8月15日是吉日吗 结婚", "user123")
 
     assert "择日" in result
@@ -668,6 +740,7 @@ def test_extract_zeri_scene_jinsheng():
 def test_process_mianxiang_missing_desc_asks():
     """面相分析无描述 - 询问提供信息"""
     handler = make_mock_handler()
+    _patch_intent(handler, "mianxiang")
     result = handler.process("帮我看面相", "user123")
     assert "脸型" in result or "描述" in result
 
@@ -694,7 +767,7 @@ def test_process_mianxiang_with_description():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -707,6 +780,7 @@ def test_process_mianxiang_with_description():
         llm=mock_llm,
         dao=mock_dao,
     )
+    _patch_intent(handler, "mianxiang")
     result = handler.process("我是方脸额头饱满鼻梁高挺，帮我看看面相", "user123")
 
     assert "面相" in result
@@ -719,6 +793,9 @@ def test_process_mianxiang_with_description():
 
 def test_process_qimen_uses_rag():
     """奇门遁甲 - 使用RAG+LLM"""
+    mock_qimen = Mock()
+    mock_qimen.print_chart.return_value = "奇门遁甲盘面（测试）"
+
     mock_retriever = Mock()
     mock_retriever.search.return_value = []
 
@@ -728,7 +805,7 @@ def test_process_qimen_uses_rag():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -737,38 +814,34 @@ def test_process_qimen_uses_rag():
         fengshui_engine=Mock(),
         mianxiang_engine=Mock(),
         zeri_engine=Mock(),
+        qimen_engine=mock_qimen,  # 未注入引擎 → 提前返回"暂不可用"，RAG 流程不会执行
         retriever=mock_retriever,
         llm=mock_llm,
         dao=mock_dao,
     )
+    _patch_intent(handler, "qimen")
     result = handler.process("奇门遁甲择时", "user123")
 
     assert "奇门" in result
-    mock_retriever.search.assert_called_once()
+    # 空召回时实现会走一次 fallback 检索（共 2 次），只断言发生过检索
+    mock_retriever.search.assert_called()
     mock_llm.analyze.assert_called_once()
 
 
 # ── NEW: No more "开发中" for any intent ──────────────────────────────
 
 def test_all_intents_have_handlers():
-    """所有10种意图都有处理逻辑（不返回'开发中'）"""
+    """AI 原生（Phase 1）：_detect_intent 已移除，改为验证 handler_map 全覆盖。
+
+    每个意图都有对应 _handle_* 处理器（不返回'开发中'）。
+    """
     handler = make_mock_handler()
-    # Test all intent keywords — none should return "开发中"
-    test_cases = [
-        ("八字", "八字"),
-        ("紫微斗数", "紫微"),
-        ("六爻起卦", "六爻"),
-        ("看看风水", "看看"),
-        ("选个吉日", "选日子"),
-        ("看看面相", "看看"),
-        ("奇门遁甲", "奇门"),
-        ("取名字", "起名"),
-        ("婚姻配对", "配对"),
-        ("周公解梦", "解梦"),
-    ]
-    for msg, _ in test_cases:
-        intent = handler._detect_intent(msg)
-        assert intent is not None, f"未识别意图: {msg}"
+    intents = ["bazi", "ziwei", "liuyao", "fengshui", "zeri", "mianxiang",
+               "qimen", "xingming", "hehun", "dream", "calendar",
+               "xuetang", "advisor", "career"]
+    for intent in intents:
+        assert callable(getattr(handler, f"_handle_{intent}", None)), \
+            f"缺少处理器: _handle_{intent}"
 
 
 # ── Task 20: Voice input support ──────────────────────────────────────
@@ -779,7 +852,8 @@ def test_handle_voice_with_text_routes_through_process():
     # Mock process to verify it's called
     original_process = handler.process
     call_tracker = []
-    def tracking_process(msg, user_id):
+    def tracking_process(msg, user_id, **kwargs):
+        # _handle_voice 现以 process(voice_text, "", downgraded=downgraded) 调用
         call_tracker.append((msg, user_id))
         return original_process(msg, user_id)
     handler.process = tracking_process
@@ -852,11 +926,11 @@ def test_handle_image_fengshui_with_direction():
 
 
 def test_handle_image_mianxiang_keyword():
-    """图片含面相/手相关键词"""
+    """图片含面相/手相关键词（手相/看相/手掌 命中白名单路由）"""
     handler = make_mock_handler()
     result = handler._handle_image(
         image_url="http://example.com/face.jpg",
-        user_text="帮我看看面相",
+        user_text="帮我看看手相",
     )
 
     assert "面部特征" in result or "脸型" in result or "眼睛" in result
@@ -936,6 +1010,7 @@ def test_text_message_type_default_behavior():
 def test_process_dream_missing_desc_asks():
     """解梦无梦境描述 - 询问提供信息"""
     handler = make_mock_handler()
+    _patch_intent(handler, "dream")
     result = handler.process("解梦", "user123")
     assert "请描述" in result or "梦见" in result
 
@@ -944,13 +1019,14 @@ def test_process_dream_with_text_and_engine():
     """解梦带梦境描述 - engine + RAG + LLM 完整流程"""
     mock_dream = Mock()
     mock_result = Mock()
-    mock_result.dream_keywords = ["蛇", "咬"]
+    mock_result.dream_type = "动物类"  # AI 原生改造：handler 调 analyze 而非 interpret
+    mock_result.keywords = ["蛇", "咬"]
     mock_result.interpretations = [
         "梦见被蛇咬，主得大财。蛇在梦中象征智慧与财富...",
         "梦见蛇咬自己，表示要交好运...",
     ]
     mock_result.source = "周公解梦"
-    mock_dream.interpret.return_value = mock_result
+    mock_dream.analyze.return_value = mock_result
 
     mock_retriever = Mock()
     mock_retriever.search.return_value = []
@@ -961,7 +1037,7 @@ def test_process_dream_with_text_and_engine():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -975,27 +1051,28 @@ def test_process_dream_with_text_and_engine():
         dao=mock_dao,
         dream_engine=mock_dream,
     )
+    # 避免加载真实 FAISS 索引（bge-m3 权重，~12s）
+    handler._get_dream_retriever = lambda: mock_retriever
+    _patch_intent(handler, "dream")
     result = handler.process("梦见被蛇咬了", "user123")
 
     assert "周公解梦" in result
-    assert "您梦见了" in result
+    assert "梦境" in result
     assert "古籍记载" in result
     assert "AI解读" in result
     assert "被蛇咬了" in result
     assert "此梦预示" in result
-    mock_dream.interpret.assert_called_once()
+    mock_dream.analyze.assert_called_once()
     mock_retriever.search.assert_not_called()  # engine provided interpretations
     mock_llm.analyze.assert_called_once()
 
 
 def test_process_dream_rag_fallback():
-    """解梦 - engine无结果时回退到RAG全文搜索"""
-    mock_dream = Mock()
-    mock_result = Mock()
-    mock_result.dream_keywords = []
-    mock_result.interpretations = []
-    mock_result.source = ""
-    mock_dream.interpret.return_value = mock_result
+    """解梦 - 真实 DreamEngine 通过 RAG 检索古籍"""
+    from src.engines.dream import DreamEngine
+    # 真实引擎（纯规则 + 策略化 RAG 检索，无 LLM 调用），
+    # 检索结果来自 mock retriever（避免加载真实 FAISS 索引）
+    mock_dream = DreamEngine()
 
     mock_retriever = Mock()
     mock_retriever.search.return_value = [
@@ -1008,7 +1085,7 @@ def test_process_dream_rag_fallback():
     mock_llm.analyze.return_value = mock_analysis
 
     mock_dao = Mock()
-    mock_dao.db_path = ":memory:"  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
+    mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
 
     handler = MessageHandler(
         engine=Mock(),
@@ -1022,10 +1099,14 @@ def test_process_dream_rag_fallback():
         dao=mock_dao,
         dream_engine=mock_dream,
     )
+    # 避免加载真实 FAISS 索引（bge-m3 权重，~12s）
+    handler._get_dream_retriever = lambda: mock_retriever
+    _patch_intent(handler, "dream")
     result = handler.process("梦见掉牙齿", "user123")
 
     assert "掉牙齿的梦境分析" in result
-    mock_retriever.search.assert_called_once()
+    # 策略化检索（高频梦境路 + 关键词多路）多次调用 search
+    mock_retriever.search.assert_called()
     mock_llm.analyze.assert_called_once()
 
 
