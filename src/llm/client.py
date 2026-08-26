@@ -171,7 +171,9 @@ def deepseek_anthropic_completion(
     """调用 DeepSeek Anthropic 兼容端点（thinking disabled），返回文本内容。
 
     响应为空 / 解析失败 / 上游错误时抛异常，由调用方决定重试或降级。
-    stream_cb 提供时走真实流式：增量实时回调（"chunk" 事件），返回完整文本。
+    stream_cb 提供时走真实流式：增量实时回调（"chunk" 事件），返回完整文本；
+    注意：流式分支（_run_stream_feed_callback）不透传 tools/tool_choice，
+    传入会被静默丢弃——需要解析 tool_use 块时请改用 deepseek_anthropic_messages。
     tools/tool_choice（Task 3B）：透传原生 tool_use 参数；不传时行为与现状完全一致。
     """
     if stream_cb is not None:

@@ -1174,7 +1174,21 @@ class MessageHandler:
 
         # 阶段 2（方案 §7.2）：本轮工具调用日志（落库：tool_calls / retrieval_hit）
         executed_calls: list = []
+        # Task 3B review I-1：双协议并存 → 同参数重复执行防护。
+        # executed_keys：本轮已执行 (name, 结构化 params) 去重表，值 = 该次执行结果文本
+        # （原生块被去重跳过时复用此文本回传 tool_result，保证协议完整：
+        # Anthropic 协议要求每个 tool_use 必须有匹配的 tool_result）。
+        # 去重键用结构化 params（sort_keys 序列化归一，避免字段顺序差异误判）；
+        # 文本标签调用（无 params_obj）用原始参数字符串。不同参数 → 重新调用合法，不误杀。
+        executed_keys: dict = {}
         retrieval_hit = "unused"
+
+        def _exec_key(c: ToolCall) -> tuple:
+            """本轮执行去重键：name + 结构化 params（params_obj 优先）。"""
+            if c.params_obj is not None:
+                return (c.name, json.dumps(c.params_obj, sort_keys=True,
+                                           ensure_ascii=False))
+            return (c.name, c.params)
         # 阶段 5：本轮引用来源（user_id → list）由工具/处理器注册；
         # 不在本方法清空（处理器注册的引用要保留到本方法末尾统一校验）
 
@@ -1188,7 +1202,10 @@ class MessageHandler:
         from src.llm.client import (deepseek_anthropic_completion,
                                     deepseek_anthropic_messages)
         from src.utils.text_clean import strip_emoji
-        use_native = bool(getattr(self.llm, 'provider', 'deepseek') == 'deepseek')
+        # review M-1：显式门控——仅 provider == "deepseek" 走原生 tool_use 链；
+        # 其余（含未设置 provider 的 GLM 主模型）一律走 JSON 工单路径，
+        # 避免拿 GLM key 打 deepseek 端点（原"缺省即 deepseek"是隐患）
+        use_native = getattr(self.llm, 'provider', None) == 'deepseek'
         native_messages: Optional[list] = None
         native_pending: list = []
         _llm_model = self.llm.model or "deepseek-v4-flash"
@@ -1204,6 +1221,10 @@ class MessageHandler:
 
         for _ in range(MAX_TOOL_ITERATIONS):
             # ---- 原生 tool_use 链（Task 3B）：执行上轮块 → tool_result 回传 → 再调 LLM ----
+            # MAX_TOOL_ITERATIONS=2 语义：迭代 1 = JSON 工单执行 + 带 tools 的转换调用；
+            # 迭代 2 = 原生块执行/tool_result 回传；迭代 2 若再出 tool_use 块
+            # （native_pending 非空）→ continue 后循环即耗尽，新块被静默丢弃
+            # （不执行、不落库、不回传），与 GLM 路径行为无关
             native_chain_ran = False
             native_reply_updated = False
             if native_messages is not None:
@@ -1211,6 +1232,21 @@ class MessageHandler:
                 try:
                     if native_pending:
                         for c in native_pending:
+                            ckey = _exec_key(c)
+                            if ckey in executed_keys:
+                                # review I-1：同参数本轮已执行过（JSON 工单或更早的
+                                # 原生块）→ 跳过重复执行（写型工具不重复落库/不双分配
+                                # 引用编号）；但 tool_use 必须回传匹配 tool_result →
+                                # 复用上次结果文本（幂等语义），不发"正在…"事件、不落库
+                                native_messages.append({
+                                    "role": "user",
+                                    "content": [{
+                                        "type": "tool_result",
+                                        "tool_use_id": c.tool_use_id,
+                                        "content": executed_keys[ckey],
+                                    }],
+                                })
+                                continue
                             # 与下方 JSON 工单路径完全一致的执行/事件/落库语义
                             if stream_cb is not None:
                                 try:
@@ -1222,6 +1258,7 @@ class MessageHandler:
                                 c.name,
                                 c.params_obj if c.params_obj is not None else c.params,
                                 user_id, user_question=msg)
+                            executed_keys[ckey] = r.text  # 供后续同参数原生块去重
                             executed_calls.append({
                                 "type": r.name,
                                 "params": (json.dumps(c.params_obj, ensure_ascii=False)
@@ -1290,6 +1327,7 @@ class MessageHandler:
                     c.name,
                     c.params_obj if c.params_obj is not None else c.params,
                     user_id, user_question=msg)
+                executed_keys[_exec_key(c)] = r.text  # 供原生块同参数去重（review I-1）
                 results.append(r)
                 executed_calls.append({
                     "type": r.name,

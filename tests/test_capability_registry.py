@@ -413,7 +413,8 @@ def test_deepseek_anthropic_completion_tools_passthrough():
 
 def test_native_tool_use_loop_end_to_end():
     """原生循环端到端（mock client）：JSON 工单 → LLM 带 tools 返回 tool_use 块 →
-    执行（params_obj 传入）→ tool_result 回传 → 最终文本回复。"""
+    同参数原生块被去重跳过（review I-1，不重复执行）→ tool_result 复用上次结果
+    回传 → 最终文本回复。"""
     from unittest.mock import Mock, patch
     from src.bot.handler import MessageHandler
     from src.bot.tool_calls import ToolResult
@@ -474,18 +475,155 @@ def test_native_tool_use_loop_end_to_end():
                 '好的，我来查。<tool_calls>'
                 '[{"tool": "web_search", "params": {"query": "北京天气"}}]'
                 '</tool_calls>')
-        # 两次执行：JSON 工单 1 次 + 原生 tool_use 块 1 次（params_obj 均传入执行器）
-        assert called == ["北京天气", "北京天气"]
+        # review I-1：原生块与已执行工单同参数 → 去重跳过，仅执行一次
+        assert called == ["北京天气"]
         assert fake_messages.turn == 2                    # 恰两轮（JSON 首轮 + 原生链）
         assert "北京今天晴 25℃" in out                    # 最终文本回复
         last = seen_round2[0]
         assert last["role"] == "user"
         assert last["content"] == [{
             "type": "tool_result", "tool_use_id": "tu_1",
-            "content": "北京：晴 25℃"}]
+            "content": "北京：晴 25℃"}]                    # 复用首轮执行的结果文本回传
         assert bot._tool_logs["u1"]["calls"] == [
-            {"type": "搜索", "params": '{"query": "北京天气"}', "hit": True},
             {"type": "搜索", "params": '{"query": "北京天气"}', "hit": True}]
+    finally:
+        cap.__dict__["executor"] = orig_executor
+        if orig_ex is None:
+            reg._tool_executors.pop("web_search", None)
+        else:
+            reg._tool_executors["web_search"] = orig_ex
+
+
+def test_native_dedup_two_blocks_same_params_run_once():
+    """同参数两次原生块 → 只执行一次（首块执行，次块被去重跳过，工具不重放）。"""
+    from unittest.mock import Mock, patch
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import bind_executors, CAPABILITY_BY_NAME
+
+    cap = CAPABILITY_BY_NAME["搜索"]
+    orig_executor = cap.executor
+    orig_ex = reg._tool_executors.get("web_search")
+    called: list = []
+
+    def spy(params, user_id="", user_question=""):
+        called.append(params)
+        return ToolResult("搜索", True, "北京：晴 25℃")
+
+    bot = MessageHandler.__new__(MessageHandler)
+    llm = Mock()
+    llm.api_key = "test-key"
+    llm.model = "deepseek-v4-flash"
+    llm.provider = "deepseek"
+    bot.llm = llm
+    bot.session_dao = None
+    bot._downgraded = {}
+    bot._tool_logs = {}
+    bot._citations = {}
+    bot._analysis_facts = {}
+
+    def fake_messages(api_key, messages, model=None, max_tokens=0,
+                      temperature=0.0, timeout=0.0, tools=None,
+                      tool_choice=None, **kwargs):
+        if not hasattr(fake_messages, "turn"):
+            fake_messages.turn = 0
+        fake_messages.turn += 1
+        if fake_messages.turn == 1:
+            # 转换调用：返回两个同参数原生块（与工单参数不同 → 去重只发生在块之间）
+            return {
+                "stop_reason": "tool_use",
+                "content": [
+                    {"type": "tool_use", "id": "tu_1", "name": "web_search",
+                     "input": {"query": "北京天气"}},
+                    {"type": "tool_use", "id": "tu_2", "name": "web_search",
+                     "input": {"query": "北京天气"}},
+                ],
+            }
+        return {"stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "两地天气都查到了。"}]}
+
+    try:
+        bind_executors({"web_search": spy}, {})
+        with patch("src.llm.client.deepseek_anthropic_messages",
+                   side_effect=fake_messages):
+            out = bot._run_tool_loop(
+                "上海和北京天气", "u1",
+                '好的。<tool_calls>'
+                '[{"tool": "web_search", "params": {"query": "上海天气"}}]'
+                '</tool_calls>')
+        # 工单 1 次 + 同参数原生块仅 1 次（第二个被去重跳过）= 共 2 次执行
+        assert called == ["上海天气", "北京天气"]
+        assert fake_messages.turn == 2
+        assert "两地天气都查到了" in out
+    finally:
+        cap.__dict__["executor"] = orig_executor
+        if orig_ex is None:
+            reg._tool_executors.pop("web_search", None)
+        else:
+            reg._tool_executors["web_search"] = orig_ex
+
+
+def test_native_dedup_blocks_different_params_both_run():
+    """不同参数原生块 → 都执行（去重不误杀，仅同参数才算重复）。"""
+    from unittest.mock import Mock, patch
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import bind_executors, CAPABILITY_BY_NAME
+
+    cap = CAPABILITY_BY_NAME["搜索"]
+    orig_executor = cap.executor
+    orig_ex = reg._tool_executors.get("web_search")
+    called: list = []
+
+    def spy(params, user_id="", user_question=""):
+        called.append(params)
+        return ToolResult("搜索", True, "北京：晴 25℃")
+
+    bot = MessageHandler.__new__(MessageHandler)
+    llm = Mock()
+    llm.api_key = "test-key"
+    llm.model = "deepseek-v4-flash"
+    llm.provider = "deepseek"
+    bot.llm = llm
+    bot.session_dao = None
+    bot._downgraded = {}
+    bot._tool_logs = {}
+    bot._citations = {}
+    bot._analysis_facts = {}
+
+    def fake_messages(api_key, messages, model=None, max_tokens=0,
+                      temperature=0.0, timeout=0.0, tools=None,
+                      tool_choice=None, **kwargs):
+        if not hasattr(fake_messages, "turn"):
+            fake_messages.turn = 0
+        fake_messages.turn += 1
+        if fake_messages.turn == 1:
+            # 转换调用：两个不同参数的原生块（均与工单参数不同）
+            return {
+                "stop_reason": "tool_use",
+                "content": [
+                    {"type": "tool_use", "id": "tu_1", "name": "web_search",
+                     "input": {"query": "北京天气"}},
+                    {"type": "tool_use", "id": "tu_2", "name": "web_search",
+                     "input": {"query": "广州天气"}},
+                ],
+            }
+        return {"stop_reason": "end_turn",
+                "content": [{"type": "text", "text": "多地天气都查到了。"}]}
+
+    try:
+        bind_executors({"web_search": spy}, {})
+        with patch("src.llm.client.deepseek_anthropic_messages",
+                   side_effect=fake_messages):
+            out = bot._run_tool_loop(
+                "三个城市天气", "u1",
+                '好的。<tool_calls>'
+                '[{"tool": "web_search", "params": {"query": "上海天气"}}]'
+                '</tool_calls>')
+        # 工单 1 次 + 两个不同参数原生块各 1 次 = 共 3 次执行（全部执行）
+        assert called == ["上海天气", "北京天气", "广州天气"]
+        assert fake_messages.turn == 2
+        assert "多地天气都查到了" in out
     finally:
         cap.__dict__["executor"] = orig_executor
         if orig_ex is None:
@@ -547,8 +685,9 @@ def test_native_tool_use_loop_chain_failure_no_replay():
                 '好的，我来查。<tool_calls>'
                 '[{"tool": "web_search", "params": {"query": "北京天气"}}]'
                 '</tool_calls>')
-        # 恰好 2 次执行（工单 1 + 原生块 1），失败后不重放原工单
-        assert called == ["北京天气", "北京天气"]
+        # review I-1 后：仅工单 1 次执行（原生块同参数被去重跳过），
+        # 失败后不重放原工单
+        assert called == ["北京天气"]
         assert fake_messages.turn == 2
         assert out == "好的，我来查。"                   # 静默降级返回原文（去标签）
     finally:
