@@ -133,9 +133,9 @@ if __name__ == "__main__":
 - [ ] **Step 2: 跑验证（真实 API，三个模型全测）**
 
 ```bash
-cd /mnt/e/fortune-agent-deploy && FORTUNE_API_KEY=dd2b3b17feae1dc0093cde4a45e8d3a2 /home/a/fortune-agent/.venv/bin/python scripts/verify_deepseek_tool_use.py deepseek-v4-flash
-FORTUNE_API_KEY=dd2b3b17feae1dc0093cde4a45e8d3a2 /home/a/fortune-agent/.venv/bin/python scripts/verify_deepseek_tool_use.py deepseek-chat
-FORTUNE_API_KEY=dd2b3b17feae1dc0093cde4a45e8d3a2 /home/a/fortune-agent/.venv/bin/python scripts/verify_deepseek_tool_use.py deepseek-reasoner
+cd /mnt/e/fortune-agent-deploy && FORTUNE_API_KEY="${FORTUNE_API_KEY:?先 export FORTUNE_API_KEY（服务鉴权 key，勿明文入库）}" /home/a/fortune-agent/.venv/bin/python scripts/verify_deepseek_tool_use.py deepseek-v4-flash
+FORTUNE_API_KEY="${FORTUNE_API_KEY:?先 export FORTUNE_API_KEY（服务鉴权 key，勿明文入库）}" /home/a/fortune-agent/.venv/bin/python scripts/verify_deepseek_tool_use.py deepseek-chat
+FORTUNE_API_KEY="${FORTUNE_API_KEY:?先 export FORTUNE_API_KEY（服务鉴权 key，勿明文入库）}" /home/a/fortune-agent/.venv/bin/python scripts/verify_deepseek_tool_use.py deepseek-reasoner
 ```
 
 Expected: 每行输出 `RESULT=...` 三选一。任何 HTTP 非 200 或异常都如实记录，不重试、不改参（结论按事实写）。
@@ -1082,11 +1082,11 @@ cd /home/a/fortune-run && nohup /home/a/fortune-agent/.venv/bin/python -m uvicor
 ```bash
 sleep 150 && curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8767/health
 # 旧协议文本标签（兼容期必须仍工作）
-/tmp/chat_test.sh "dd2b3b17feae1dc0093cde4a45e8d3a2" "帮我查一下我的档案里有什么" "batch1-t1" "probe_user_xyz"
+/tmp/chat_test.sh "$FORTUNE_API_KEY" "帮我查一下我的档案里有什么" "batch1-t1" "probe_user_xyz"
 # 排盘主链（F2 回归）
-/tmp/chat_test.sh "dd2b3b17feae1dc0093cde4a45e8d3a2" "1999年5月13日 10:55 北京 男 帮我排个盘" "batch1-t2" "qa_v2_user"
+/tmp/chat_test.sh "$FORTUNE_API_KEY" "1999年5月13日 10:55 北京 男 帮我排个盘" "batch1-t2" "qa_v2_user"
 # 需要搜索的行业问题（工具链）
-/tmp/chat_test.sh "dd2b3b17feae1dc0093cde4a45e8d3a2" "教育行业现在怎么样？适合我发展吗？" "batch1-t3" "probe_user_xyz"
+/tmp/chat_test.sh "$FORTUNE_API_KEY" "教育行业现在怎么样？适合我发展吗？" "batch1-t3" "probe_user_xyz"
 ```
 
 Expected: health 200；三条复测均正常出稿、无 `<tool_call>`/`<tool_calls>` 标签残留、排盘正确。
