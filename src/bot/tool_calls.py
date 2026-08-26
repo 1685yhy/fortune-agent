@@ -177,12 +177,71 @@ def parse_native_tool_use_blocks(content: list) -> List[ToolCall]:
     return calls
 
 
+# ---- Task A1: GLM 免费模型裸格式（OpenAI 风格降级输出） ----
+# glm-4-flash（glm_openai_completion 降级链）不输出 <tool_calls> JSON 工单，
+# 而是 OpenAI 风格裸格式：`web_search\n{"query": "..."}`（工具名 + JSON 参数）。
+# 冒烟已验证形态（Task 7）：`(web_search|搜索)\s*\n?\s*(\{.*?\})`，此处一般化为
+# 任意工具名 + 平衡大括号 JSON（一层嵌套不截断）。只增不改：TOOL_CALL_RE /
+# JSON 工单解析逻辑一行未动，纯加兜底分支。
+_GLM_BARE_RE = re.compile(
+    r'(?P<name>[^\s<>{}\[\]:：]+)'      # 工具名（英文 cap_id / 中文名）
+    r'(?:\s*\n?\s*'                     # 与参数块间的空白/换行
+    r'(\{(?:[^{}]|\{[^{}]*\})*\})'      # JSON 参数块（支持一层嵌套）
+    r'|\s*\n?(?=\s*$))',                # 或裸名字独占文末（截断场景，无参数）
+    re.S,
+)
+# 剥离层同形正则：仅要求 name + JSON 块（裸名是正文单词，不得剥离）
+_GLM_BARE_STRIP_RE = re.compile(
+    r'(?P<name>[^\s<>{}\[\]:：]+)'
+    r'\s*\n?\s*'
+    r'(\{(?:[^{}]|\{[^{}]*\})*\})',
+    re.S,
+)
+
+
+def parse_glm_bare_format(text: str) -> List[ToolCall]:
+    """GLM 裸格式适配（Task A1）：`工具名\n{JSON 参数}` → ToolCall。
+
+    - 工具名英文 cap_id（web_search）或中文名（搜索），经 _TOOL_SYNONYMS /
+      TOOL_NAME_BY_ID 归一化命中注册表（与 JSON 工单同路径）；未知工具跳过
+    - JSON 参数：json.loads 得 params_obj（解析失败 → 空 dict，params 空串，
+      与 JSON 工单行为一致）；裸名字独占文末（截断场景）→ params_obj={}
+    - 句中工具名（后随正文）不触发：防纯文本误判
+    """
+    calls = []
+    for m in _GLM_BARE_RE.finditer(text):
+        name = m.group("name").strip()
+        name = _TOOL_SYNONYMS.get(name, name)
+        name = TOOL_NAME_BY_ID.get(name, name)  # 英文 cap_id → 中文名
+        if name not in TOOL_REGISTRY:
+            continue  # 未知工具：不执行（与 JSON 工单同策略）
+        try:
+            params = json.loads(m.group(2) or "")
+        except json.JSONDecodeError:
+            params = {}
+        if not isinstance(params, dict):
+            params = {}
+        calls.append(ToolCall(name=name, params_obj=params))
+    return calls
+
+
+def _bare_strip_cb(m: re.Match) -> str:
+    """裸格式剥离回调：仅剥注册工具调用块，纯文本中的 {JSON} 原样保留。"""
+    name = m.group("name").strip()
+    name = _TOOL_SYNONYMS.get(name, name)
+    name = TOOL_NAME_BY_ID.get(name, name)
+    if name in TOOL_REGISTRY:
+        return ""  # 工具调用块整块剥除（含 JSON 载荷，防泄漏到可见文本）
+    return m.group(0)
+
+
 def parse_tool_calls(text: str) -> List[ToolCall]:
     """解析回复中的工具调用。JSON 工单优先，正则文本标签兜底。
 
     - JSON 工单：<tool_calls>[{"tool": "web_search", "params": {"query": "..."}}]</tool_calls>
     - 文本标签（兼容期保留）：<tool_call>搜索: 关键词</tool_call> / TOOL: 关键词
-    - 两者都失败/都没有 → 返回空列表，调用方静默降级
+    - GLM 裸格式（Task A1）：`工具名\n{JSON 参数}`（glm-4-flash 降级链）
+    - 都没有 → 返回空列表，调用方静默降级
     """
     if not text:
         return []
@@ -197,18 +256,23 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
         if name not in TOOL_REGISTRY:
             continue  # 未知工具：不执行（strip 路径仍会移除）
         calls.append(ToolCall(name=name, params=params))
+    if not calls:
+        # Task A1: GLM 裸格式兜底（降级链无 <tool_calls> 包裹，最后一道）
+        calls = parse_glm_bare_format(text)
     return calls
 
 
 def strip_tool_calls(text: str) -> str:
     """去掉回复中的工具调用标记，保留其余文字（用户可见部分）。
 
-    兜底三层：JSON 工单块 → 文本标签/截断残留 → 裸标签符。
+    兜底四层：JSON 工单块 → 文本标签/截断残留 → GLM 裸格式 → 裸标签符。
     """
     if not text:
         return text
     s = _TOOL_CALLS_BLOCK_RE.sub("", text)
     s = _TOOL_CALLS_LINE_RE.sub("", s)
     s = TOOL_CALL_RE.sub("", s)
+    # Task A1: GLM 裸格式（name+JSON 参数块）剥离——仅剥注册工具，纯文本 JSON 保留
+    s = _GLM_BARE_STRIP_RE.sub(_bare_strip_cb, s)
     s = _TOOL_RESIDUE_RE.sub("", s)
     return s.strip()
