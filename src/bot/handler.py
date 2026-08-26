@@ -3131,6 +3131,9 @@ class MessageHandler:
                 self._consume_quota(user_id)
                 reply = self._handle_confidant(msg, user_id, analysis,
                                                session_id=session_id)
+                # B2 reviewer Important：confidant 早退不经 _run_tool_loop——
+                # 兜底剥离工单残留（_handle_confidant 内部已剥，双剥幂等）
+                reply = strip_tool_calls(reply) or reply
                 if self.session_dao:
                     self.session_dao.add_message(user_id, "assistant", reply,
                                                  temp=deep, session_id=session_id)
@@ -6193,8 +6196,11 @@ class MessageHandler:
 
             api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
             if not api_key:
-                return self._free_chat(msg, user_id, emotion_label="sadness",
-                                       session_id=session_id)
+                # B2 reviewer Important：回退 _free_chat 结果不经 _run_tool_loop，
+                # 剥离 B2-11 工单教学诱导的 JSON 工单残留（无会话存储单消息分支）
+                _fallback = self._free_chat(msg, user_id, emotion_label="sadness",
+                                            session_id=session_id)
+                return strip_tool_calls(_fallback) or _fallback
 
             import httpx
             headers = {
@@ -6241,10 +6247,15 @@ class MessageHandler:
                     key_data={"needs_followup": True, "topic": analysis.emotion_label or "倾诉"}
                 )
 
-            return reply
+            # B2 reviewer Important：confidant 主路径直出同样不经
+            # _run_tool_loop——剥离任何工具调用残留（出口纪律一致，防御性）
+            return strip_tool_calls(reply) or reply
         except Exception:
-            return self._free_chat(msg, user_id, emotion_label="sadness",
-                                   session_id=session_id)
+            # B2 reviewer Important：异常回退 _free_chat 结果同样不经
+            # _run_tool_loop——剥离工单残留后再交给用户
+            _fallback = self._free_chat(msg, user_id, emotion_label="sadness",
+                                        session_id=session_id)
+            return strip_tool_calls(_fallback) or _fallback
 
     def _get_listening_turns(self, user_id: str) -> int:
         """Track how many consecutive listening turns a user has had."""

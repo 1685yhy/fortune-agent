@@ -225,3 +225,69 @@ def test_handler_no_dead_web_tool_guide_import():
     """
     import src.bot.handler as handler_mod
     assert not hasattr(handler_mod, "_web_tool_guide_line")
+
+
+# ------------------------------------------------------------ B2 reviewer Important fix
+
+def test_confidant_fallback_no_apikey_strips_workorder():
+    """B2 reviewer Important：confidant 早退（llm 无 api_key → 回退 _free_chat）
+    不经 _run_tool_loop——无 session_dao 单消息分支（B2-11 注入 JSON 工单教学）
+    诱导出的模型工单输出必须剥离后才交给用户，不得原样暴露。
+    """
+    h = _free_chat_harness(session_dao=None)
+    h.llm.api_key = ""  # confidant → _free_chat 回退的触发条件
+    h.llm.chat.return_value = Mock(response=(
+        "我理解你现在很难过。\n\n"
+        '<tool_calls>[{"tool": "quote_rag", "params": '
+        '{"query": "宽心"}}]</tool_calls>'))
+    analysis = Mock(needs_soothe=False, soothe_text="", emotion_label="sadness")
+    out = h._handle_confidant("我最近很难过", "u1", analysis, session_id="s1")
+    assert "我理解你现在很难过" in out
+    assert "<tool_calls>" not in out
+    assert "quote_rag" not in out
+    assert "params" not in out
+
+
+def test_confidant_exception_fallback_strips_workorder(monkeypatch):
+    """B2 reviewer Important：confidant 主路径异常 → 回退 _free_chat（6246）
+    同样不经 _run_tool_loop，工单残留必须剥离。
+    """
+    import src.llm.client as llm_client
+
+    h = _free_chat_harness(session_dao=None)
+    h.llm.api_key = "sk-test"
+    h.llm.chat.return_value = Mock(response=(
+        "别难过。\n\n"
+        '<tool_calls>[{"tool": "quote_rag", "params": '
+        '{"query": "陪伴"}}]</tool_calls>'))
+
+    def _boom(*a, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(llm_client, "deepseek_anthropic_completion", _boom)
+    analysis = Mock(needs_soothe=False, soothe_text="", emotion_label="sadness")
+    out = h._handle_confidant("我很难过", "u1", analysis, session_id="s1")
+    assert "别难过" in out
+    assert "<tool_calls>" not in out
+    assert "quote_rag" not in out
+
+
+def test_confidant_direct_reply_strips_workorder(monkeypatch):
+    """confidant 主路径直出（deepseek 回复）同样不经 _run_tool_loop——
+    模型若输出工单残留必须剥离（出口纪律一致，防御性）。
+    """
+    import src.llm.client as llm_client
+
+    h = _free_chat_harness()
+    h.llm.api_key = "sk-test"
+    h.llm.chat.return_value = Mock(response="兜底")
+    monkeypatch.setattr(
+        llm_client, "deepseek_anthropic_completion",
+        lambda *a, **kw: "我陪你聊聊。\n\n"
+        '<tool_calls>[{"tool": "web_search", "params": '
+        '{"query": "x"}}]</tool_calls>')
+    analysis = Mock(needs_soothe=False, soothe_text="", emotion_label="sadness")
+    out = h._handle_confidant("我很难过", "u1", analysis, session_id="s1")
+    assert "我陪你聊聊" in out
+    assert "<tool_calls>" not in out
+    assert "web_search" not in out
