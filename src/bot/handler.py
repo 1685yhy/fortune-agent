@@ -2973,6 +2973,14 @@ class MessageHandler:
                 "开通会员解锁完整版。\n"
                 "回复「开通会员」或在「我的」页选择套餐即可升级！"
             )
+            # 批次 2 P2（Task C2）拍板：会员升级/续费回复与其他付费动作一致
+            # 包卡片。类型判据：会员域回复归 data 卡（E2-1 契约规则 3——
+            # RecordQuery 会员直读同为 data）；升级信息为服务端确定性文案
+            # （无 ⚠️/暂不可用/引擎执行失败 错误签名），直接判定可包。
+            # 出口统一走 _maybe_wrap_card：错误签名拒包/防重复包装等防御
+            # 双闭环对确定性文案天然生效；包装后落库，历史消息可回渲染。
+            self._mark_card_turn(user_id, data_read=True)
+            upgrade_msg = self._maybe_wrap_card(upgrade_msg, user_id)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", upgrade_msg,
                                              temp=deep, session_id=session_id)

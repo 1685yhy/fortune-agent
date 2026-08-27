@@ -922,3 +922,54 @@ class TestBaziDowngradeLite:
         reply = h.process("最近工作压力好大，每天都快撑不住了", "c1", downgraded=True)
         assert called == []  # 规则快判 is_sharing=False + 显式门控兜底
         assert reply == "🔮 精简回复"
+
+
+# ───────────────────────── 会员升级/续费回复包卡片（批次 2 P2 / Task C2） ─────────────────────────
+
+class TestMemberUpgradeCard:
+    """P2 拍板：会员升级/续费回复与其他付费动作一致包卡片。
+
+    卡片类型判据：会员域回复归 `data` 卡——E2-1 契约规则 3 将"会员"直读归
+    data（RecordQuery _q_会员 同为 data 卡）；升级信息为服务端确定性文案
+    （无错误签名），直接判定可包。
+    """
+
+    def test_member_keyword_reply_wrapped_as_data_card(self):
+        """「会员」→ 回复包 data 卡片（标题/正文保留）。"""
+        h = _make_handler_with_llm()
+        reply = h.process("会员", "member_card_1")
+        assert reply.startswith("[card:data"), reply[:100]
+        assert "[/card]" in reply
+        assert "会员计划" in reply
+
+    def test_upgrade_renew_keywords_all_wrapped(self):
+        """升级/续费同族关键词（升级/付费/套餐/价格/多少钱）→ 全部包 data 卡。"""
+        h = _make_handler_with_llm()
+        for kw in ("升级", "付费", "套餐", "价格", "多少钱"):
+            reply = h.process(kw, "member_card_2")
+            assert reply.startswith("[card:data"), (kw, reply[:100])
+            assert "[/card]" in reply, (kw, reply[:100])
+
+    def test_member_reply_stored_wrapped_with_session(self):
+        """E2-1 契约：落库与返回值一致携带卡片标记（历史消息可回渲染）。"""
+        h = _make_handler_with_llm()
+        reply = h.process("会员", "member_card_3")
+        calls = h.session_dao.add_message.call_args_list
+        assert calls, "会员分支应写会话"
+        assert calls[-1][0][2] == reply  # 落库内容 = 返回内容（含卡片标记）
+        assert "[/card]" in calls[-1][0][2]
+
+    def test_member_reply_whole_body_in_card(self):
+        """宁整勿碎：引导语不在已知尾部模式内 → 整体包（不丢内容）。"""
+        h = _make_handler_with_llm()
+        reply = h.process("会员", "member_card_4")
+        assert "开通会员解锁完整版" in reply
+        assert "选择套餐即可升级" in reply
+
+    def test_member_card_not_breaking_error_double_loop(self):
+        """E2-1 双闭环不受影响：普通闲聊不误包；错误签名回复仍拒包。"""
+        h = _make_handler_with_llm()
+        plain = h.process("随便聊聊", "member_card_5")
+        assert "[card:" not in plain
+        from src.bot.card_mark import wrap_card
+        assert wrap_card("⚠️ 服务暂时不可用：x", "data") == "⚠️ 服务暂时不可用：x"
