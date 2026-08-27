@@ -175,6 +175,74 @@ def test_intent_hint_pattern_coverage():
         assert p.search(f"1990年5月20日{kw}"), f"缺少意图词: {kw}"
 
 
+# ── 批次 2 D5：择日工具链对话可达性（择日场景词门控快路径） ──
+
+def test_intent_hint_pattern_zeri_words_coverage():
+    """D5：INTENT_HINT_PATTERN 覆盖择日场景/意图词（产品词表同源：
+    ZERI_SCENE_SYNONYMS / ZERI_INTENT_WORDS / _extract_purpose 择日词表）。"""
+    p = MessageAnalyzer.INTENT_HINT_PATTERN
+    for kw in ["搬家", "开业", "择日", "选个日子", "挑个时间", "挑个日子",
+               "结婚", "出行", "开工", "乔迁", "动土", "嫁娶", "吉日",
+               "入宅", "开张", "婚礼", "订婚", "旅游", "出差", "选日子",
+               "好日子", "哪天", "换一批", "重新选", "择吉", "开店", "提车",
+               "买车", "签约", "签合同", "过户", "迁居", "旅行", "开市",
+               "建房", "破土", "奠基", "晋升", "升职"]:
+        assert p.search(f"1990年5月20日{kw}"), f"缺少择日词: {kw}"
+
+
+def test_birth_plus_zeri_words_goes_to_ai(analyzer, monkeypatch):
+    """D5 核心：含 4 位年份日期 + 择日场景词（『2026年9月15日搬家 帮我选个日子』）
+    不再被 BIRTH_DATE_PATTERN 快路径确定性掐成 bazi（0 LLM → 排盘卡片），
+    必须落入 LLM 意图分类（deepseek 输出 zeri）→ _handle_zeri 引擎产出具体日期。"""
+    calls = _mock_completion("zeri", monkeypatch)
+    result = analyzer.analyze("2026年9月15日搬家 帮我选个日子")
+    assert result.intent == "zeri"
+    assert calls["n"] == 1  # 确实走了 AI 分类，未被快路径截断
+
+
+def test_birth_plus_zeri_scene_word_alone_goes_to_ai(analyzer, monkeypatch):
+    """D5：含日期 + 单个择日场景词（无显式『选日子』字样）同样不被快路径截断。"""
+    calls = _mock_completion("zeri", monkeypatch)
+    result = analyzer.analyze("2026年9月15日搬家")
+    assert result.intent == "zeri"
+    assert calls["n"] == 1
+
+
+def test_birth_plus_paipan_word_still_fast_path_bazi(analyzer, monkeypatch):
+    """回归保护：含日期 + 排盘类词（非择日词）仍走 bazi 快路径（0 LLM），
+    择日词门控不得误伤排盘类请求（『排盘』『八字』不在择日词表）。"""
+    calls = _mock_completion("free_chat", monkeypatch)
+    for msg in ("1990年5月20日 男 排盘", "1990年5月20日 男 八字",
+                "1990年5月20日 下午3点 北京 男"):
+        result = analyzer.analyze(msg)
+        assert result.intent == "bazi", msg
+    assert calls["n"] == 0
+
+
+def test_zeri_words_without_date_goes_to_ai(analyzer, monkeypatch):
+    """D5：择日词无日期（『下个月搬家 帮我选个日子』）不经快路径，
+    正常走 LLM 分类（mock 返回 zeri）。"""
+    calls = _mock_completion("zeri", monkeypatch)
+    result = analyzer.analyze("下个月搬家 帮我选个日子")
+    assert result.intent == "zeri"
+    assert calls["n"] == 1
+
+
+def test_rule_analyze_zeri_request_not_bazi():
+    """降级链路（_rule_analyze → _quick_intent）与快路径同口径：
+    含日期+择日词不再判 bazi（否则降级用户同样拿到错误排盘卡片）；
+    纯生日陈述仍判 bazi。"""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from src.bot.handler import MessageHandler
+    h = object.__new__(MessageHandler)
+    for msg in ("2026年9月15日搬家 帮我选个日子", "2026年9月15日开业"):
+        assert h._rule_analyze(msg).intent is None, msg
+    assert h._rule_analyze("1990年5月20日 男 排盘").intent == "bazi"  # 排盘类不受影响
+    assert h._rule_analyze("1990年5月20日 下午3点 北京 男").intent == "bazi"
+
+
 # ── Task 8 双人合盘 hehun 意图扩展（触发词 + 两人语义规则） ──
 
 def test_birth_plus_hehun_words_goes_to_ai(analyzer, monkeypatch):
