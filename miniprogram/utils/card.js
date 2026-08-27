@@ -4,7 +4,8 @@
 //   [card:类型 title="标题"]
 //   <markdown 正文>
 //   [/card]
-//   - 类型枚举：paipan / yunshi / zeri / data / knowledge（服务端只产这五种）
+//   - 类型枚举：paipan / yunshi / zeri / data / knowledge / ziwei / liuyao /
+//     fengshui / mianxiang / qimen / dream（批次 2 P1：6 类引擎结果卡片）
 //   - title 可缺省（data/knowledge 无默认 → 服务端省略属性，端上回退类型默认标题）
 //   - 标题转义：\"  \\  \n（端上解析后还原）
 //   - 正文后的卡外引导语/反馈语（"还想了解…"/"可回复「准」"）在 [/card] 之外
@@ -21,7 +22,8 @@
 //
 // 纯逻辑，无小程序 API 依赖 → 可直接 node 单测（miniprogram/tests/card.test.js）。
 
-const CARD_TYPES = ['paipan', 'yunshi', 'zeri', 'data', 'knowledge'];
+const CARD_TYPES = ['paipan', 'yunshi', 'zeri', 'data', 'knowledge',
+  'ziwei', 'liuyao', 'fengshui', 'mianxiang', 'qimen', 'dream'];
 
 /* 类型小标签文案（卡片标题条左侧 tag） */
 const CARD_TYPE_LABELS = {
@@ -30,15 +32,27 @@ const CARD_TYPE_LABELS = {
   zeri: '择吉',
   data: '档案',
   knowledge: '知识',
+  ziwei: '紫微',
+  liuyao: '六爻',
+  fengshui: '风水',
+  mianxiang: '面相',
+  qimen: '奇门',
+  dream: '解梦',
 };
 
-/* 类型默认标题（title 属性缺省时的端上回退） */
+/* 类型默认标题（title 属性缺省时的端上回退；与服务端 _DEFAULT_TITLES 同步） */
 const CARD_DEFAULT_TITLES = {
   paipan: '我的命盘',
   yunshi: '运势分析',
   zeri: '择吉结果',
   data: '档案查阅',
   knowledge: '命理知识',
+  ziwei: '紫微命盘',
+  liuyao: '六爻卦象',
+  fengshui: '风水分析',
+  mianxiang: '面相分析',
+  qimen: '奇门遁甲局',
+  dream: '解梦结果',
 };
 
 /* 标题转义还原：\" → "  \\ → \  \n → 换行 */

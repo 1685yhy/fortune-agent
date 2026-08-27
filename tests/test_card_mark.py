@@ -113,6 +113,57 @@ def test_detect_engine_path_zeri():
     assert detect_card_type("正文…", ran_zeri=True) == "zeri"
 
 
+# ── 批次 2 P1（Task C1）：6 类引擎结果卡片 ──────────────────────
+
+def test_detect_engine_path_ziwei():
+    """意图路径引擎直跑：紫微斗数排盘 → ziwei"""
+    assert detect_card_type("正文…", ran_ziwei=True) == "ziwei"
+
+
+def test_detect_engine_path_liuyao():
+    """意图路径引擎直跑：六爻起卦 → liuyao"""
+    assert detect_card_type("正文…", ran_liuyao=True) == "liuyao"
+
+
+def test_detect_engine_path_fengshui():
+    """意图路径引擎直跑：风水分析 → fengshui"""
+    assert detect_card_type("正文…", ran_fengshui=True) == "fengshui"
+
+
+def test_detect_engine_path_mianxiang():
+    """意图路径引擎直跑：面相分析 → mianxiang"""
+    assert detect_card_type("正文…", ran_mianxiang=True) == "mianxiang"
+
+
+def test_detect_engine_path_qimen():
+    """意图路径引擎直跑：奇门遁甲排盘 → qimen"""
+    assert detect_card_type("正文…", ran_qimen=True) == "qimen"
+
+
+def test_detect_engine_path_dream():
+    """意图路径引擎直跑：解梦 → dream"""
+    assert detect_card_type("正文…", ran_dream=True) == "dream"
+
+
+def test_detect_tool_dream_fengshui():
+    """工具调用记录：解梦/风水工具实际执行（hit=True）→ dream/fengshui"""
+    assert detect_card_type("这是解梦结果…", tool_calls=[{"type": "解梦", "hit": True}]) == "dream"
+    assert detect_card_type("这是风水结果…", tool_calls=[{"type": "风水", "hit": True}]) == "fengshui"
+
+
+def test_detect_tool_failed_not_card_six():
+    """解梦/风水工具失败（hit=False，工具暂不可用）→ 不得判卡（宁漏勿误）"""
+    assert detect_card_type(
+        "「解梦」工具暂不可用，请直接与用户聊天。",
+        tool_calls=[{"type": "解梦", "hit": False}]) is None
+    assert detect_card_type(
+        "「风水」工具暂不可用，请直接与用户聊天。",
+        tool_calls=[{"type": "风水", "hit": False}]) is None
+    # 失败解梦 + 成功择日混跑 → 只算成功调用（zeri）
+    assert detect_card_type("正文…", tool_calls=[
+        {"type": "解梦", "hit": False}, {"type": "择日", "hit": True}]) == "zeri"
+
+
 def test_detect_engine_scenario_wins_over_ran_paipan():
     """场景问句（今年财运）回复以分析为主体 → yunshi 优先于 ran_paipan"""
     assert detect_card_type("正文…", ran_paipan=True, scenario="wealth") == "yunshi"
@@ -150,6 +201,28 @@ def test_wrap_card_omit_title():
     """data/knowledge 无默认标题 → 省略 title 属性（端上回退默认）"""
     assert wrap_card("你的档案：…", "data") == "[card:data]\n你的档案：…\n[/card]"
     assert wrap_card("常识正文", "knowledge") == "[card:knowledge]\n常识正文\n[/card]"
+
+
+def test_wrap_card_six_engine_default_titles():
+    """6 类引擎卡片默认标题契约：[card:类型 title="默认标题"]"""
+    cases = [
+        ("ziwei", "紫微命盘"), ("liuyao", "六爻卦象"), ("fengshui", "风水分析"),
+        ("mianxiang", "面相分析"), ("qimen", "奇门遁甲局"), ("dream", "解梦结果"),
+    ]
+    for t, title in cases:
+        wrapped = wrap_card("正文…", t)
+        assert wrapped == f'[card:{t} title="{title}"]\n正文…\n[/card]', t
+    # 显式 title 覆盖默认
+    assert 'title="我的紫微盘"' in wrap_card("正文…", "ziwei", title="我的紫微盘")
+
+
+def test_wrap_card_six_engine_skips_error_copy():
+    """6 类引擎错误/失败文案 → 不包装，原样返回（宁漏勿误）"""
+    for t in ("ziwei", "liuyao", "fengshui", "mianxiang", "qimen", "dream"):
+        err = f"⚠️ {t} 引擎执行失败：connect timeout"
+        assert wrap_card(err, t) == err, t
+        degrade = f"⚠️ {t} 服务暂时不可用：boom\n\n请稍后重试。"
+        assert wrap_card(degrade, t) == degrade, t
 
 
 def test_wrap_card_body_with_closing_marker_skips():
@@ -240,5 +313,8 @@ def test_wrap_card_empty_skips():
 # ── 类型枚举契约（E2-2 端上依赖）───────────────────────────────
 
 def test_card_types_enum():
-    """类型枚举契约：paipan/yunshi/zeri/data/knowledge"""
-    assert set(CARD_TYPES) == {"paipan", "yunshi", "zeri", "data", "knowledge"}
+    """类型枚举契约：paipan/yunshi/zeri/data/knowledge + 6 类引擎类型"""
+    assert set(CARD_TYPES) == {
+        "paipan", "yunshi", "zeri", "data", "knowledge",
+        "ziwei", "liuyao", "fengshui", "mianxiang", "qimen", "dream",
+    }

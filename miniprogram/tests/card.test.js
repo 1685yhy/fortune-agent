@@ -184,12 +184,42 @@ test('提取第一个 [card: 块；尾随文本全部归 tail', () => {
 });
 
 /* ── 类型枚举契约 ── */
-test('类型枚举：五种类型均可解析', () => {
+test('类型枚举：五种基础类型均可解析', () => {
   ['paipan', 'yunshi', 'zeri', 'data', 'knowledge'].forEach((t) => {
     const r = parseCard('[card:' + t + ']\n正文\n[/card]');
     assert.equal(r.card.type, t);
   });
-  assert.deepEqual(card.CARD_TYPES, ['paipan', 'yunshi', 'zeri', 'data', 'knowledge']);
+});
+
+/* ── 批次 2 P1：6 类引擎结果卡片 ── */
+test('类型枚举：6 类引擎类型可解析 + 标签/默认标题回退', () => {
+  assert.deepEqual(card.CARD_TYPES, [
+    'paipan', 'yunshi', 'zeri', 'data', 'knowledge',
+    'ziwei', 'liuyao', 'fengshui', 'mianxiang', 'qimen', 'dream',
+  ]);
+  const cases = [
+    ['ziwei', '紫微', '紫微命盘'],
+    ['liuyao', '六爻', '六爻卦象'],
+    ['fengshui', '风水', '风水分析'],
+    ['mianxiang', '面相', '面相分析'],
+    ['qimen', '奇门', '奇门遁甲局'],
+    ['dream', '解梦', '解梦结果'],
+  ];
+  cases.forEach(([t, label, title]) => {
+    const r = parseCard('[card:' + t + ']\n正文\n[/card]');
+    assert.equal(r.card.type, t);
+    const v = view('[card:' + t + ']\n正文\n[/card]', {});
+    assert.equal(v.cardTypeLabel, label);
+    assert.equal(v.cardTitle, title);          // 缺省标题 → 端上默认
+    assert.equal(v.cardNodes.length, 1);
+  });
+  // 显式 title 优先于默认标题
+  const v2 = view('[card:qimen title="今日局"]\n正文\n[/card]', {});
+  assert.equal(v2.cardTitle, '今日局');
+  // 流式卡片壳同样支持新类型
+  const v3 = view('[card:dream title="解梦"]\n正在解读…', { streaming: true });
+  assert.equal(v3.card.type, 'dream');
+  assert.equal(v3.cardFinal, false);
 });
 
 /* ── 剥标记纯文本（TTS/复制/分享出口）── */

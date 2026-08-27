@@ -2877,6 +2877,13 @@ class MessageHandler:
                 direct_read=bool(ctx.get("data_read")),
                 ran_paipan=bool(ctx.get("paipan")),
                 ran_zeri=bool(ctx.get("zeri")),
+                # 批次 2 P1（Task C1）：6 类引擎直跑标记
+                ran_ziwei=bool(ctx.get("ziwei")),
+                ran_liuyao=bool(ctx.get("liuyao")),
+                ran_fengshui=bool(ctx.get("fengshui")),
+                ran_mianxiang=bool(ctx.get("mianxiang")),
+                ran_qimen=bool(ctx.get("qimen")),
+                ran_dream=bool(ctx.get("dream")),
             )
             if not card_type:
                 return reply
@@ -2915,7 +2922,10 @@ class MessageHandler:
         _turn = getattr(self, "_card_turn", None)
         if _turn is not None:
             _turn[user_id] = {
-                "scenario": "", "paipan": False, "zeri": False, "data_read": False}
+                "scenario": "", "paipan": False, "zeri": False, "data_read": False,
+                # 批次 2 P1（Task C1）：6 类引擎直跑标记
+                "ziwei": False, "liuyao": False, "fengshui": False,
+                "mianxiang": False, "qimen": False, "dream": False}
         # 阶段 5：清理上一轮残留的引用来源（早退分支不注册，防泄漏）
         self._citations.pop(user_id, None)
 
@@ -5036,6 +5046,9 @@ class MessageHandler:
             # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
             self._emit_stream_event(stream_cb, "thinking", "我在排紫微斗数盘…")
             result = self.ziwei_engine.calculate(year, month, day, hour, minute, city, gender)
+            # E2-1 卡片化（批次 2 P1）：紫微引擎完成排盘（ziwei 卡片判定依据；
+            # 引擎异常走 except 不落标记 → 宁漏勿误）
+            self._mark_card_turn(user_id, ziwei=True)
             self.dao.save_consultation(user_id, question, result, intent="ziwei")
             search_query = f"紫微斗数 {result.ming_gong} {question}"
             self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
@@ -5123,6 +5136,8 @@ class MessageHandler:
             # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）
             self._emit_stream_event(stream_cb, "thinking", "我在起卦…")
             result = self.liuyao_engine.cast(method="random", question=question)
+            # E2-1 卡片化（批次 2 P1）：六爻引擎完成起卦（liuyao 卡片判定依据）
+            self._mark_card_turn(user_id, liuyao=True)
             self.dao.save_consultation(user_id, original_msg, result, intent="liuyao")
             self._emit_stream_event(stream_cb, "thinking", "正在查阅古籍…")
             refs = self.retriever.search(
@@ -5214,6 +5229,9 @@ class MessageHandler:
             birth_year=birth_year,
             gender=gender,
         )
+        # E2-1 卡片化（批次 2 P1）：风水引擎完成分析（fengshui 卡片判定依据；
+        # 引擎异常向上冒泡 → process 出口 ⚠️ 降级文案，不落标记 → 宁漏勿误）
+        self._mark_card_turn(user_id, fengshui=True)
 
         # 2. 保存
         self.dao.save_consultation(user_id, question, result, intent="fengshui")
@@ -5315,6 +5333,9 @@ class MessageHandler:
         # 1. 面相分析
         self._emit_stream_event(stream_cb, "thinking", "我在端详你的面相…")
         result = self.mianxiang_engine.analyze(description=description)
+        # E2-1 卡片化（批次 2 P1）：面相引擎完成分析（mianxiang 卡片判定依据；
+        # 引擎异常向上冒泡 → ⚠️ 降级文案，不落标记 → 宁漏勿误）
+        self._mark_card_turn(user_id, mianxiang=True)
 
         # 2. 保存
         self.dao.save_consultation(user_id, original_msg, result, intent="mianxiang")
@@ -5482,6 +5503,9 @@ class MessageHandler:
         # 2. 排盘
         self._emit_stream_event(stream_cb, "thinking", "我在起奇门局…")
         result = self.qimen_engine.calculate(year, month, day, hour)
+        # E2-1 卡片化（批次 2 P1）：奇门引擎完成排盘（qimen 卡片判定依据；
+        # 引擎异常向上冒泡 → ⚠️ 降级文案，不落标记 → 宁漏勿误）
+        self._mark_card_turn(user_id, qimen=True)
 
         # 3. 格式化命盘
         chart_str = self.qimen_engine.print_chart(result)
@@ -5764,6 +5788,9 @@ class MessageHandler:
             result = self.dream_engine.analyze(
                 dream_text, self._get_dream_retriever(), api_key,
                 user_context, bazi_info)
+            # E2-1 卡片化（批次 2 P1）：解梦引擎完成分析（dream 卡片判定依据；
+            # 引擎未注入走空壳兜底 → 不落标记 → 宁漏勿误）
+            self._mark_card_turn(user_id, dream=True)
         else:
             result = DreamResult()
 

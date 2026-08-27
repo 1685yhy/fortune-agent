@@ -6,7 +6,9 @@
     [/card]
 
 - 类型枚举：paipan（排盘结果）/ yunshi（运势分析：事业/财运/感情/健康类）/
-  zeri（择吉结果）/ data（收藏/档案/记录直读）/ knowledge（无档案知识兜底）
+  zeri（择吉结果）/ data（收藏/档案/记录直读）/ knowledge（无档案知识兜底）/
+  ziwei（紫微斗数）/ liuyao（六爻占卜）/ fengshui（风水分析）/ mianxiang（面相分析）/
+  qimen（奇门遁甲）/ dream（解梦结果）——后 6 类为批次 2 P1 引擎结果卡片
 - title 可缺省（端上回退"易理明灯"或类型默认标题）
 - 只包第一段结构化主体，末尾引导语/反馈语（"还想了解…"/"可回复「准」"/版本
   页脚）留在卡片外；正文是纯 markdown 字符串，不做二次转换
@@ -19,7 +21,9 @@
    （依赖"实际路由记录"而非关键词扫描——含"财运"的闲聊无记录不误判）
 3. 引擎直跑（意图路径）：_do_bazi_analysis 完成排盘 → paipan、
    _do_zeri_analysis 完成择日 → zeri（与规则 1 同质但无 <tool_call> 记录；
-   scenario 优先于它——场景问句回复以分析为主体 → yunshi）
+   scenario 优先于它——场景问句回复以分析为主体 → yunshi）；批次 2 P1：
+   紫微/六爻/风水/面相/奇门/解梦引擎完成计算 → 对应类型（标记仅在引擎
+   成功返回后写入，异常/未注入无标记 → 漏包）
 4. 存量直读（RecordQuery/重看盘直读）→ data
 5. 无档案知识兜底（D9 路径确定性签名文案）→ knowledge
 6. 都不命中 → None（普通对话保持原样）
@@ -31,13 +35,17 @@ import re
 from typing import Optional, Sequence, Tuple
 
 # ── 卡片类型枚举（E2-2 端上依赖）────────────────────────────────
-CARD_TYPES = ("paipan", "yunshi", "zeri", "data", "knowledge")
+# 基础 5 类 + 批次 2 P1（Task C1）：6 类引擎（紫微/六爻/风水/面相/奇门/解梦）
+CARD_TYPES = ("paipan", "yunshi", "zeri", "data", "knowledge",
+              "ziwei", "liuyao", "fengshui", "mianxiang", "qimen", "dream")
 
 # ── 判定常量 ────────────────────────────────────────────────────
 # 工具调用记录 → 卡片类型（tool_log["calls"] 的 "type" 字段，即 ToolResult.name）
 _TOOL_CARD_TYPES = {
     "排盘": "paipan",
     "择日": "zeri",
+    "解梦": "dream",
+    "风水": "fengshui",
 }
 # 场景路由 → 运势分析卡片（与 handler SCENARIO_KEYWORDS/MAP 的 category 口径一致；
 # 仅事业/财运/感情/健康四类分析场景；property/compatibility 等不包——宁可漏包）
@@ -66,6 +74,13 @@ _DEFAULT_TITLES = {
     "paipan": "我的命盘",
     "yunshi": "运势分析",
     "zeri": "择吉结果",
+    # 批次 2 P1（Task C1）：6 类引擎默认标题（端上 CARD_DEFAULT_TITLES 同步）
+    "ziwei": "紫微命盘",
+    "liuyao": "六爻卦象",
+    "fengshui": "风水分析",
+    "mianxiang": "面相分析",
+    "qimen": "奇门遁甲局",
+    "dream": "解梦结果",
 }
 
 
@@ -87,6 +102,12 @@ def detect_card_type(
     direct_read: bool = False,
     ran_paipan: bool = False,
     ran_zeri: bool = False,
+    ran_ziwei: bool = False,
+    ran_liuyao: bool = False,
+    ran_fengshui: bool = False,
+    ran_mianxiang: bool = False,
+    ran_qimen: bool = False,
+    ran_dream: bool = False,
 ) -> Optional[str]:
     """判定回复应包的卡片类型（按优先级），都不命中返回 None。
 
@@ -118,11 +139,24 @@ def detect_card_type(
     # 2. 场景路由（本次实际使用，非关键词扫描）
     if scenario in _YUNSHI_SCENARIOS:
         return "yunshi"
-    # 3. 引擎直跑（意图路径排盘/择日，无 <tool_call> 记录）
+    # 3. 引擎直跑（意图路径排盘/择日，无 <tool_call> 记录；批次 2 P1 扩展：
+    #    6 类引擎——标记仅在引擎真实完成计算后写入，失败/未注入无标记 → 漏包）
     if ran_zeri:
         return "zeri"
     if ran_paipan:
         return "paipan"
+    if ran_ziwei:
+        return "ziwei"
+    if ran_liuyao:
+        return "liuyao"
+    if ran_fengshui:
+        return "fengshui"
+    if ran_mianxiang:
+        return "mianxiang"
+    if ran_qimen:
+        return "qimen"
+    if ran_dream:
+        return "dream"
     # 4. 存量直读
     if direct_read:
         return "data"
