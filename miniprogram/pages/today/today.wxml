@@ -29,7 +29,7 @@
     <view class="noarch-tip" wx:if="{{noarchHint}}" hover-class="noarch-tip-active" hover-stay-time="0" bindtap="onGoNoarchTip">
       <view class="seal noarch-tip-seal"><text class="seal-char">卷</text></view>
       <view class="noarch-tip-mid">
-        <view class="noarch-tip-t">还没建档？排一次盘，所有测算更准</view>
+        <view class="noarch-tip-t">还没建档？排一次盘，会生成专属分析</view>
         <view class="noarch-tip-s">今日仅为通用运势 · 建档后解读更贴合自己</view>
       </view>
       <view class="noarch-tip-arrow">→</view>
