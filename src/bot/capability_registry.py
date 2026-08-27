@@ -1,7 +1,7 @@
 """统一能力注册表（批次 1，spec 1.1）：唯一能力事实源。
 
 两类能力：
-- cap_type="tool"：可被 <tool_calls> 工单调用的工具（8 个，批次 2 E1 起含合婚），executor 由
+- cap_type="tool"：可被 <tool_calls> 工单调用的工具（9 个，批次 2 E2 起含起名），executor 由
   handler 启动时 bind_executors() 注入（防循环 import）
 - cap_type="intent"：意图分发分支（15 个），executor 指向 _handle_*
 
@@ -15,10 +15,12 @@ from typing import Callable, Optional
 
 import jsonschema
 
-# 8 个工具的 params_schema：7 个单文本键（执行器吃自然语言文本），
+# 9 个工具的 params_schema：7 个单文本键（执行器吃自然语言文本），
 # 结构化工单经 serialize_params 序列化回文本桥接（spec 红线：执行器零改动）；
 # hehun（批次 2 E1）双键 birth_a/birth_b（多键序列化为 "k: v" 换行拼接，
-# 执行器侧 split_birth_pair 解析）
+# 执行器侧 split_birth_pair 解析）；
+# naming（批次 2 E2 起名）三键 surname/gender/birth（后键可选），执行器侧
+# split_naming_params 解析
 _TOOL_PARAMS_SCHEMAS = {
     "bazi_chart": {"type": "object",
                    "properties": {"text": {"type": "string",
@@ -55,6 +57,19 @@ _TOOL_PARAMS_SCHEMAS = {
                               "description": "birth_b：第二方出生信息自然语言描述，如：1992年8月15日 巳时 上海 女"},
               },
               "required": ["birth_a", "birth_b"]},
+    # 批次 2 E2 起名工具：三键（surname/gender 必填，birth 可选）。
+    # 注意：description/requires 里的参数键与 schema 必填键必须一致
+    # （批次 1 P1 #2 教训：教学示例/工具描述键 ≠ schema 键 → 参数校验永不通过）
+    "naming": {"type": "object",
+               "properties": {
+                   "surname": {"type": "string",
+                               "description": "surname：姓氏，如：张"},
+                   "gender": {"type": "string",
+                              "description": "gender：性别，男或女"},
+                   "birth": {"type": "string",
+                             "description": "birth：出生信息（可选，有则按八字五行补益推荐用字），如：2019年3月15日 午时 北京"},
+               },
+               "required": ["surname", "gender"]},
 }
 
 
@@ -71,7 +86,7 @@ class Capability:
     cap_type: str = "tool"      # "tool" | "intent"
 
 
-# ---- tool 类（8 个）：desc/requires 原文迁移自 tool_calls.py TOOL_REGISTRY ----
+# ---- tool 类（9 个）：desc/requires 原文迁移自 tool_calls.py TOOL_REGISTRY ----
 # timeout_s 按执行器性质显式标注（Task 4 review I-2：8s 默认 < LLM 内部 60s 超时，
 # 慢而成功的调用会被误判失败）：
 # - LLM 支撑（走 client.py 60s 超时链）→ ≥70s（60s + 余量）
@@ -122,6 +137,14 @@ _TOOL_CAPS = [
                _TOOL_PARAMS_SCHEMAS["hehun"], timeout_s=8.0,
                requires="双方出生信息：birth_a=第一人出生描述（如1990年5月20日 午时 北京 男）、"
                         "birth_b=第二人出生描述（如1992年8月15日 巳时 上海 女）"),
+    Capability("naming", "起名",
+               "输入姓氏与性别（参数键 surname/gender）及出生信息（可选，参数键 birth，"
+               "如2019年3月15日 午时 北京），输出五行补益结论（命局缺/弱五行→推荐用字五行）"
+               "+3-5个候选名（字+五格评分+寓意）",
+               _TOOL_PARAMS_SCHEMAS["naming"], timeout_s=8.0,
+               requires="姓氏 surname=如「张」、性别 gender=男或女；出生信息 birth 可选"
+                        "（有则按八字五行补益推荐用字，如 birth=2019年3月15日 午时 北京；"
+                        "无则仅按五格数理均衡推荐）"),
 ]
 
 # ---- intent 类（15 个）：handler_map（handler.py:2758-2774）全量快照 ----

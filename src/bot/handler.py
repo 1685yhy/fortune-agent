@@ -19,7 +19,9 @@ from src.engines.dream import DreamEngine, DreamResult
 from src.engines.hehun import HehunEngine
 from src.tools.hehun import format_hehun_card, split_birth_pair  # 批次 2 E1 合婚工具规则层
 from src.engines.qimen import QimenEngine
-from src.engines.xingming import XingmingEngine
+from src.engines.xingming import XingmingEngine, get_stroke_count
+from src.tools.naming import (format_naming_card, generate_candidates,  # 批次 2 E2 起名工具规则层
+                              split_naming_params, target_elements)
 from src.engines.message_analyzer import MessageAnalyzer, MessageAnalysis
 try:
     from src.engines.advisor_v2 import AdaptiveAdvisor
@@ -101,6 +103,7 @@ _TOOL_EVENT_LABELS = {
     "择日": "正在择吉日…",
     "查记录": "正在查你的记录…",
     "合婚": "正在合婚配对…",
+    "起名": "正在斟酌名字…",
 }
 
 # ============================================================
@@ -733,6 +736,8 @@ class MessageHandler:
                     p, user_id),
                 # 批次 2 E1 合婚工具：新增绑定只做加法（既有 7 个零改动）
                 "hehun": lambda p, user_id="", user_question="": self._tool_hehun(p, user_id),
+                # 批次 2 E2 起名工具：新增绑定只做加法（既有 8 个零改动）
+                "naming": lambda p, user_id="", user_question="": self._tool_naming(p, user_id),
             },
             {
                 "bazi": self._handle_bazi, "ziwei": self._handle_ziwei,
@@ -2346,6 +2351,81 @@ class MessageHandler:
         except Exception as e:
             return ToolResult("合婚", False, f"合婚引擎执行失败：{str(e)[:100]}")
         return ToolResult("合婚", True, format_hehun_card(result_a, result_b, hehun_result))
+
+    def _tool_naming(self, params, user_id: str) -> ToolResult:
+        """工具「起名」（批次 2 E2）：姓氏+性别+出生信息（可选）→ 补益五行 + 候选名卡片。
+
+        params 支持两种形式（与 _tool_hehun 同型）：
+        - dict（原生 tool_use / JSON 工单已序列化为字符串；防御性兼容 dict）
+        - 自然语言字符串：
+          ① 结构化键 "surname: 张\ngender: 男\nbirth: 2019年3月15日 午时 北京"
+             （JSON 工单 serialize_params 产物；birth 键可选）
+          ② 文本标签兜底 "姓张，男孩，2019年3月15日 午时出生"（split_naming_params）
+
+        流程（复用既有引擎，不新起）：
+        ① split_naming_params 解析 → 缺姓氏/性别 → needs_info 点名缺项
+        ② 出生信息（可选）：_extract_bazi_info 解析 → 失败 → needs_info 点名 birth；
+           成功 → BaziEngine.calculate 取五行计数/用神 → target_elements 定补益集合
+        ③ 无出生信息 → 降级：仅按五格数理均衡推荐（elements=None）
+        ④ generate_candidates（确定性，字库=ming.CHAR_LIB，五格=xingming 引擎）
+           → format_naming_card 紧凑卡片
+        """
+        if self.engine is None:
+            return ToolResult("起名", False, "「起名」工具暂不可用，请直接与用户聊天。")
+        text = params.get("text") if isinstance(params, dict) else params
+        info = split_naming_params(text or "")
+        missing = []
+        if not info or not info.get("surname"):
+            missing.append("姓氏（surname，如：张）")
+        if not info or not info.get("gender"):
+            missing.append("性别（gender，男/女）")
+        if missing:
+            return ToolResult(
+                "起名", False,
+                f"请提供{'、'.join(missing)}，我就为你推荐候选名。"
+                "出生信息（birth）可选，提供后可按八字五行补益推荐用字；"
+                "如：surname: 张、gender: 男、birth: 2019年3月15日 午时 北京",
+                needs_info=True,
+            )
+        surname = info["surname"].strip()
+        gender = info["gender"].strip()
+        if not surname or len(surname) > 2:
+            return ToolResult(
+                "起名", False, "姓氏请用 1-2 个汉字（如：张、欧阳）。", needs_info=True)
+        # 姓氏笔画未知 → 五格数理不可算（数据缺口，非参数缺失）
+        if not all(get_stroke_count(c) > 0 for c in surname):
+            return ToolResult(
+                "起名", False,
+                f"姓氏「{surname}」的笔画暂不在常用字库中，无法计算五格数理。"
+                "请换常见姓氏，或直接告诉我姓氏笔画数。")
+        birth = (info.get("birth") or "").strip()
+        elements = None
+        elements_desc = ""
+        if birth:
+            parsed = self._extract_bazi_info(birth)
+            if parsed is None:
+                return ToolResult(
+                    "起名", False,
+                    f"出生信息没看懂：「{birth[:50]}」。请提供完整的出生年月日时、出生地点"
+                    "（如 birth: 2019年3月15日 午时 北京）。",
+                    needs_info=True,
+                )
+            try:
+                year, month, day, hour, minute, city, b_gender = parsed
+                result = self.engine.calculate(
+                    year, month, day, hour, minute, city, b_gender)
+            except Exception as e:
+                return ToolResult("起名", False, f"排盘引擎执行失败：{str(e)[:100]}")
+            elements, elements_desc = target_elements(result.wuxing, result.yongshen)
+        candidates = generate_candidates(surname, gender, elements, limit=5)
+        if not candidates:
+            return ToolResult(
+                "起名", False,
+                "暂无可推荐的候选名（当前条件下的可用字不足），请放宽条件"
+                "（如去掉出生信息、或换其他性别）。")
+        return ToolResult(
+            "起名", True,
+            format_naming_card(surname, gender, elements_desc, candidates))
 
     def _extract_zeri_exclude_dates(self, params) -> Optional[list]:
         """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。

@@ -98,6 +98,7 @@ from src.bot.capability_registry import CAPABILITIES, TOOL_NAME_BY_ID  # noqa: E
 _TOOL_KEYS = {
     "排盘": "bazi", "检索": "search", "搜索": "web", "解梦": "dream",
     "风水": "fengshui", "择日": "zeri", "查记录": "records", "合婚": "hehun",
+    "起名": "naming",
 }
 TOOL_REGISTRY = {
     c.name: {"key": _TOOL_KEYS[c.name], "desc": c.description,
