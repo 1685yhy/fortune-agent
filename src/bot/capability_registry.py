@@ -1,7 +1,7 @@
 """统一能力注册表（批次 1，spec 1.1）：唯一能力事实源。
 
 两类能力：
-- cap_type="tool"：可被 <tool_calls> 工单调用的工具（10 个，批次 2 E3 起含流月流年），executor 由
+- cap_type="tool"：可被 <tool_calls> 工单调用的工具（11 个，批次 2 E4 起含择业/方位），executor 由
   handler 启动时 bind_executors() 注入（防循环 import）
 - cap_type="intent"：意图分发分支（15 个），executor 指向 _handle_*
 
@@ -22,7 +22,9 @@ import jsonschema
 # naming（批次 2 E2 起名）三键 surname/gender/birth（后键可选），执行器侧
 # split_naming_params 解析；
 # fortune_cycle（批次 2 E3 流月流年）四键 birth 必填 + year/month/focus 可选
-# （默认今年/本月/不限维度），执行器侧 parse_cycle_params 解析
+# （默认今年/本月/不限维度），执行器侧 parse_cycle_params 解析；
+# career_dir（批次 2 E4 择业/方位）两键 birth 必填 + industry 可选（当前考虑
+# 行业，无则按喜用神五行全量推荐），执行器侧 parse_career_params 解析
 _TOOL_PARAMS_SCHEMAS = {
     "bazi_chart": {"type": "object",
                    "properties": {"text": {"type": "string",
@@ -87,6 +89,17 @@ _TOOL_PARAMS_SCHEMAS = {
                                     "description": "focus：关注维度（可选，事业/财运/感情，可逗号分隔多选），如：事业,财运"},
                       },
                       "required": ["birth"]},
+    # 批次 2 E4 择业/方位工具：两键（birth 必填，industry 可选——当前考虑行业）。
+    # 注意：description/requires 里的参数键与 schema 必填键必须一致
+    # （批次 1 P1 #2 教训：教学示例/工具描述键 ≠ schema 键 → 参数校验永不通过）
+    "career_dir": {"type": "object",
+                   "properties": {
+                       "birth": {"type": "string",
+                                 "description": "birth：出生信息自然语言描述，如：1990年5月20日 午时 北京 男"},
+                       "industry": {"type": "string",
+                                    "description": "industry：当前考虑行业（可选，无则按喜用神五行全量推荐适合行业），如：金融"},
+                   },
+                   "required": ["birth"]},
 }
 
 
@@ -103,7 +116,7 @@ class Capability:
     cap_type: str = "tool"      # "tool" | "intent"
 
 
-# ---- tool 类（10 个）：desc/requires 原文迁移自 tool_calls.py TOOL_REGISTRY ----
+# ---- tool 类（11 个）：desc/requires 原文迁移自 tool_calls.py TOOL_REGISTRY ----
 # timeout_s 按执行器性质显式标注（Task 4 review I-2：8s 默认 < LLM 内部 60s 超时，
 # 慢而成功的调用会被误判失败）：
 # - LLM 支撑（走 client.py 60s 超时链）→ ≥70s（60s + 余量）
@@ -171,6 +184,14 @@ _TOOL_CAPS = [
                         "目标年份 year 可选（如2027，默认今年）、目标月份 month 可选"
                         "（1-12，默认本月）、关注维度 focus 可选（事业/财运/感情，"
                         "可逗号分隔多选，默认不限）"),
+    Capability("career_dir", "择业",
+               "输入出生信息（参数键 birth）及当前考虑行业（可选，参数键 industry，"
+               "如：金融），输出喜用神结论+适合行业（按行业五行属性分类，金木水火土"
+               "各配行业清单）+吉利方位（喜用五行方位）+禁忌行业（命局忌神五行对应行业）",
+               _TOOL_PARAMS_SCHEMAS["career_dir"], timeout_s=8.0,
+               requires="出生信息 birth=出生年月日时/地点/性别描述（如1990年5月20日 午时 北京 男）；"
+                        "当前考虑行业 industry 可选（如：金融，无则按喜用神五行全量推荐"
+                        "适合行业）"),
 ]
 
 # ---- intent 类（15 个）：handler_map（handler.py:2758-2774）全量快照 ----

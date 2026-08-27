@@ -24,6 +24,7 @@ from src.tools.naming import (format_naming_card, generate_candidates,  # 批次
                               split_naming_params, target_elements)
 from src.tools.fortune_cycle import (format_cycle_card, parse_cycle_params,  # 批次 2 E3 流月流年工具规则层
                                      parse_target_month, parse_target_year)
+from src.tools.career_dir import format_career_card, parse_career_params  # 批次 2 E4 择业/方位匹配工具规则层
 from src.engines.message_analyzer import MessageAnalyzer, MessageAnalysis
 try:
     from src.engines.advisor_v2 import AdaptiveAdvisor
@@ -107,6 +108,7 @@ _TOOL_EVENT_LABELS = {
     "合婚": "正在合婚配对…",
     "起名": "正在斟酌名字…",
     "流月流年": "正在推演流月流年…",
+    "择业": "正在分析适配行业…",
 }
 
 # ============================================================
@@ -743,6 +745,9 @@ class MessageHandler:
                 "naming": lambda p, user_id="", user_question="": self._tool_naming(p, user_id),
                 # 批次 2 E3 流月流年工具：新增绑定只做加法（既有 9 个零改动）
                 "fortune_cycle": lambda p, user_id="", user_question="": self._tool_fortune_cycle(
+                    p, user_id),
+                # 批次 2 E4 择业/方位匹配工具：新增绑定只做加法（既有 10 个零改动）
+                "career_dir": lambda p, user_id="", user_question="": self._tool_career_dir(
                     p, user_id),
             },
             {
@@ -2507,6 +2512,53 @@ class MessageHandler:
         return ToolResult(
             "流月流年", True,
             format_cycle_card(result, year, month, focus_list))
+
+    def _tool_career_dir(self, params, user_id: str) -> ToolResult:
+        """工具「择业」（批次 2 E4）：出生信息 + 当前考虑行业（可选）→
+        喜用神 + 适合行业（五行分类）+ 吉利方位 + 禁忌行业卡片。
+
+        params 支持两种形式（与 _tool_fortune_cycle 同型）：
+        - dict（原生 tool_use / JSON 工单已序列化为字符串；防御性兼容 dict）
+        - 自然语言字符串：
+          ① 结构化键 "birth: 1990年5月20日 午时 北京 男\nindustry: 金融"
+             （JSON 工单 serialize_params 产物；industry 键可选）
+          ② 文本标签兜底 "我考虑做金融，1990年5月20日 午时 北京 男"
+             （parse_career_params：行业关键词命中 + 出生年起始截取）
+
+        流程（复用既有引擎，不新起）：
+        ① parse_career_params 解析 → 缺出生信息 → 澄清追问（不调引擎）
+        ② _extract_bazi_info 解析出生 → 失败 → 点名 birth
+        ③ self.engine.calculate → 喜用神（引擎 yongshen 口径）→ 适合行业
+           （喜用五行行业清单）+ 吉利方位（喜用五行方位）+ 禁忌行业
+           （忌神五行行业，日主强弱判定）→ format_career_card 紧凑卡片
+        """
+        if self.engine is None:
+            return ToolResult("择业", False, "「择业」工具暂不可用，请直接与用户聊天。")
+        text = params.get("text") if isinstance(params, dict) else params
+        info = parse_career_params(text or "")
+        if not info or not info.get("birth"):
+            return ToolResult(
+                "择业", False,
+                "请提供出生信息（出生年月日时、地点、性别），我就为你匹配适合行业与吉利方位。"
+                "可选提供当前考虑行业（industry，如：金融），没有则按喜用神五行全量推荐。"
+                "如：birth: 1990年5月20日 午时 北京 男、industry: 金融",
+                needs_info=True,
+            )
+        birth = info["birth"].strip()
+        parsed = self._extract_bazi_info(birth)
+        if parsed is None:
+            return ToolResult(
+                "择业", False,
+                f"出生信息没看懂：「{birth[:50]}」。请提供完整的出生年月日时、出生地点、性别。",
+                needs_info=True,
+            )
+        try:
+            y, m, d, h, mi, city, b_gender = parsed
+            result = self.engine.calculate(y, m, d, h, mi, city, b_gender)
+        except Exception as e:
+            return ToolResult("择业", False, f"排盘引擎执行失败：{str(e)[:100]}")
+        industry = (info.get("industry") or "").strip() or None
+        return ToolResult("择业", True, format_career_card(result, industry))
 
     def _extract_zeri_exclude_dates(self, params) -> Optional[list]:
         """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。
