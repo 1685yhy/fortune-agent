@@ -17,6 +17,7 @@ from src.engines.mianxiang import MianxiangEngine, MianxiangResult
 from src.engines.zeri import ZeriEngine, ZeriResult, ZODIAC_MAP
 from src.engines.dream import DreamEngine, DreamResult
 from src.engines.hehun import HehunEngine
+from src.tools.hehun import format_hehun_card, split_birth_pair  # 批次 2 E1 合婚工具规则层
 from src.engines.qimen import QimenEngine
 from src.engines.xingming import XingmingEngine
 from src.engines.message_analyzer import MessageAnalyzer, MessageAnalysis
@@ -99,6 +100,7 @@ _TOOL_EVENT_LABELS = {
     "风水": "正在勘察风水…",
     "择日": "正在择吉日…",
     "查记录": "正在查你的记录…",
+    "合婚": "正在合婚配对…",
 }
 
 # ============================================================
@@ -729,6 +731,8 @@ class MessageHandler:
                 "zeri": lambda p, user_id="", user_question="": self._tool_zeri(p, user_id),
                 "record_lookup": lambda p, user_id="", user_question="": self._tool_query_records(
                     p, user_id),
+                # 批次 2 E1 合婚工具：新增绑定只做加法（既有 7 个零改动）
+                "hehun": lambda p, user_id="", user_question="": self._tool_hehun(p, user_id),
             },
             {
                 "bazi": self._handle_bazi, "ziwei": self._handle_ziwei,
@@ -2281,6 +2285,67 @@ class MessageHandler:
         except Exception as e:
             logger.warning("查记录工具失败 %s", e)
             return ToolResult("records", False, "查询失败，稍后再试")
+
+    def _tool_hehun(self, params, user_id: str) -> ToolResult:
+        """工具「合婚」（批次 2 E1）：双方出生信息 → 双排盘 → 合婚评分卡片。
+
+        params 支持两种形式（与 _tool_zeri 同型）：
+        - dict（原生 tool_use / JSON 工单已序列化为字符串；防御性兼容 dict）
+        - 自然语言字符串：
+          ① 结构化键 "birth_a: X\nbirth_b: Y"（JSON 工单 serialize_params 产物）
+          ② 文本标签兜底 "男X，女Y"（split_birth_pair 分隔符拆两段）
+
+        流程（复用既有引擎，不新起）：
+        ① split_birth_pair 拆双方 → 缺/拆不开 → 澄清追问（不调引擎）
+        ② _extract_bazi_info 逐方解析 → 任一方失败 → 指明哪方需补
+        ③ self.engine.calculate ×2 取双方四柱（与 _tool_bazi 同口径）
+        ④ self.hehun_engine.match → format_hehun_card 紧凑卡片
+        """
+        if self.engine is None or self.hehun_engine is None:
+            return ToolResult("合婚", False, "「合婚」工具暂不可用，请直接与用户聊天。")
+        text = params.get("text") if isinstance(params, dict) else params
+        text = (text or "").strip()
+        pair = split_birth_pair(text)
+        if pair is None:
+            if self._extract_bazi_info(text):
+                return ToolResult(
+                    "合婚", False,
+                    "已收到一方的出生信息，还需要另一方的出生年月日时、出生地点、性别。",
+                    needs_info=True,
+                )
+            return ToolResult(
+                "合婚", False,
+                "请提供双方出生信息（各含出生年月日时、地点、性别），我就为你们做合婚分析。"
+                "如：birth_a=1990年5月20日 午时 北京 男、birth_b=1992年8月15日 巳时 上海 女",
+                needs_info=True,
+            )
+        info_a = self._extract_bazi_info(pair[0])
+        if info_a is None:
+            return ToolResult(
+                "合婚", False,
+                f"第一方（birth_a）出生信息没看懂：「{pair[0][:50]}」。"
+                "请提供完整的出生年月日时、出生地点、性别。",
+                needs_info=True,
+            )
+        info_b = self._extract_bazi_info(pair[1])
+        if info_b is None:
+            return ToolResult(
+                "合婚", False,
+                f"第二方（birth_b）出生信息没看懂：「{pair[1][:50]}」。"
+                "请提供完整的出生年月日时、出生地点、性别。",
+                needs_info=True,
+            )
+        try:
+            year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a = info_a
+            year_b, month_b, day_b, hour_b, minute_b, city_b, gender_b = info_b
+            result_a = self.engine.calculate(
+                year_a, month_a, day_a, hour_a, minute_a, city_a, gender_a)
+            result_b = self.engine.calculate(
+                year_b, month_b, day_b, hour_b, minute_b, city_b, gender_b)
+            hehun_result = self.hehun_engine.match(result_a, result_b)
+        except Exception as e:
+            return ToolResult("合婚", False, f"合婚引擎执行失败：{str(e)[:100]}")
+        return ToolResult("合婚", True, format_hehun_card(result_a, result_b, hehun_result))
 
     def _extract_zeri_exclude_dates(self, params) -> Optional[list]:
         """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。

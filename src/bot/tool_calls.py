@@ -90,12 +90,14 @@ class ToolResult:
 
 
 # 工具注册表：从 capability_registry 投影（唯一事实源，消费方签名不变）。
-# name → {key, desc, requires}；key 保留历史值（bazi/search/web/dream/fengshui/zeri/records）。
+# name → {key, desc, requires}；key 保留历史值（bazi/search/web/dream/fengshui/zeri/records/hehun）。
+# 批次 2 E1：新增工具须在此补 name→key 数据键（TOOL_REGISTRY 投影硬依赖，
+# 与批次 1 Task 7 加「查记录」同款加法；主链解析/分派逻辑零改动）。
 from src.bot.capability_registry import CAPABILITIES, TOOL_NAME_BY_ID  # noqa: E402
 
 _TOOL_KEYS = {
     "排盘": "bazi", "检索": "search", "搜索": "web", "解梦": "dream",
-    "风水": "fengshui", "择日": "zeri", "查记录": "records",
+    "风水": "fengshui", "择日": "zeri", "查记录": "records", "合婚": "hehun",
 }
 TOOL_REGISTRY = {
     c.name: {"key": _TOOL_KEYS[c.name], "desc": c.description,
