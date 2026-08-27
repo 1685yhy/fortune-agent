@@ -8,8 +8,12 @@ tests/standard_answers/paipan_answers.jsonl.
 Sampling strategy (deterministic, rerunnable):
   * Universe: rows with complete anchors (minggong/taiyuan/lunar/jiaoyun all
     non-empty) AND gender text consistent with gender_code (女->0, 男->1).
-    8,658 rows qualify (the 35,835 incomplete rows are exactly the rows whose
-    gender_code disagrees with gender text — a crawl artifact).
+    8,658 rows qualify (女 4,325 + 男 4,333). The 35,835 incomplete rows are
+    NOT the same set as the gender-mismatched rows: 17,911 are 男/0 rows
+    (gender inconsistent — 100% of 男/0 rows lack anchors) and the other
+    17,924 are 女/0 rows (gender consistent, anchors still missing). The
+    universe query filters on BOTH complete anchors AND gender consistency;
+    filtering on gender alone would admit 17,924 anchor-less 女 rows.
   * All 60 day pillars are covered (each gets >= 1 entry).
   * The 12 (gender x hour_branch) combos are spread evenly: a fixed seed
     shuffles a priority list of the 12 combos, then each pillar (sorted index
@@ -262,9 +266,12 @@ def coverage_report(entries):
         "## Data-source notes (44,493 rows in charts table)",
         "- 8,658 rows have complete anchors (minggong/taiyuan/lunar/jiaoyun non-empty);",
         "  the other 35,835 rows lack those anchors and were excluded.",
-        "- The 35,835 incomplete rows are exactly the rows whose gender_code",
-        "  disagrees with gender text (男/0 crawl artifact); the sample universe",
-        "  is therefore gender-consistent by construction.",
+        "- The 35,835 incomplete rows are not identical to the gender-mismatched",
+        "  (男/0) rows: 17,911 are 男/0 (gender inconsistent — 100% of 男/0 rows",
+        "  lack anchors) and 17,924 are 女/0 (gender consistent but anchors",
+        "  missing). The universe filter requires BOTH complete anchors AND",
+        "  gender consistency; filtering on gender alone would admit 17,924",
+        "  anchor-less 女 rows.",
         "- Hour branches present in data: 子(00:00/23:00) 卯(06:00) 辰(08:00)",
         "  午(12:00) 申(16:00) 酉(18:00); 丑寅巳未戌亥 absent.",
     ]
