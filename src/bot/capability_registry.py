@@ -1,7 +1,7 @@
 """统一能力注册表（批次 1，spec 1.1）：唯一能力事实源。
 
 两类能力：
-- cap_type="tool"：可被 <tool_calls> 工单调用的工具（11 个，批次 2 E4 起含择业/方位），executor 由
+- cap_type="tool"：可被 <tool_calls> 工单调用的工具（12 个，批次 2 E5 起含数字吉凶），executor 由
   handler 启动时 bind_executors() 注入（防循环 import）
 - cap_type="intent"：意图分发分支（15 个），executor 指向 _handle_*
 
@@ -24,7 +24,9 @@ import jsonschema
 # fortune_cycle（批次 2 E3 流月流年）四键 birth 必填 + year/month/focus 可选
 # （默认今年/本月/不限维度），执行器侧 parse_cycle_params 解析；
 # career_dir（批次 2 E4 择业/方位）两键 birth 必填 + industry 可选（当前考虑
-# 行业，无则按喜用神五行全量推荐），执行器侧 parse_career_params 解析
+# 行业，无则按喜用神五行全量推荐），执行器侧 parse_career_params 解析；
+# num_omen（批次 2 E5 数字吉凶）两键 number 必填 + context 可选（使用场景，
+# 不填按位数自动识别手机号/车牌/楼层/门牌），执行器侧 parse_num_params 解析
 _TOOL_PARAMS_SCHEMAS = {
     "bazi_chart": {"type": "object",
                    "properties": {"text": {"type": "string",
@@ -100,6 +102,18 @@ _TOOL_PARAMS_SCHEMAS = {
                                     "description": "industry：当前考虑行业（可选，无则按喜用神五行全量推荐适合行业），如：金融"},
                    },
                    "required": ["birth"]},
+    # 批次 2 E5 数字吉凶工具：两键（number 必填，context 可选——使用场景，
+    # 不填按位数自动识别手机号/车牌/楼层/门牌）。
+    # 注意：description/requires 里的参数键与 schema 必填键必须一致
+    # （批次 1 P1 #2 教训：教学示例/工具描述键 ≠ schema 键 → 参数校验永不通过）
+    "num_omen": {"type": "object",
+                 "properties": {
+                     "number": {"type": "string",
+                               "description": "number：数字串（手机号/车牌/楼层/门牌等，自动识别位数场景），如：13812345678"},
+                     "context": {"type": "string",
+                                "description": "context：使用场景（可选，手机号/车牌/楼层/门牌；不填按位数自动识别），如：手机号"},
+                 },
+                 "required": ["number"]},
 }
 
 
@@ -116,7 +130,7 @@ class Capability:
     cap_type: str = "tool"      # "tool" | "intent"
 
 
-# ---- tool 类（11 个）：desc/requires 原文迁移自 tool_calls.py TOOL_REGISTRY ----
+# ---- tool 类（12 个）：desc/requires 原文迁移自 tool_calls.py TOOL_REGISTRY ----
 # timeout_s 按执行器性质显式标注（Task 4 review I-2：8s 默认 < LLM 内部 60s 超时，
 # 慢而成功的调用会被误判失败）：
 # - LLM 支撑（走 client.py 60s 超时链）→ ≥70s（60s + 余量）
@@ -192,6 +206,14 @@ _TOOL_CAPS = [
                requires="出生信息 birth=出生年月日时/地点/性别描述（如1990年5月20日 午时 北京 男）；"
                         "当前考虑行业 industry 可选（如：金融，无则按喜用神五行全量推荐"
                         "适合行业）"),
+    Capability("num_omen", "数字吉凶",
+               "输入数字串（参数键 number，手机号/车牌/楼层/门牌等，自动识别位数场景；"
+               "使用场景可选，参数键 context，如：手机号），输出尾号/整体数理吉凶"
+               "（81 数理表：吉凶+运势+性格事业含义）+改善建议（如避开 4 连、改选大吉数理尾号）",
+               _TOOL_PARAMS_SCHEMAS["num_omen"], timeout_s=8.0,
+               requires="数字串 number=手机号/车牌/楼层/门牌等（如 13812345678、88888、8楼、404室）；"
+                        "使用场景 context 可选（手机号/车牌/楼层/门牌，不填则按位数"
+                        "自动识别）"),
 ]
 
 # ---- intent 类（15 个）：handler_map（handler.py:2758-2774）全量快照 ----

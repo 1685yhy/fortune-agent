@@ -99,6 +99,7 @@ _TOOL_KEYS = {
     "排盘": "bazi", "检索": "search", "搜索": "web", "解梦": "dream",
     "风水": "fengshui", "择日": "zeri", "查记录": "records", "合婚": "hehun",
     "起名": "naming", "流月流年": "fortune_cycle", "择业": "career_dir",
+    "数字吉凶": "num_omen",
 }
 TOOL_REGISTRY = {
     c.name: {"key": _TOOL_KEYS[c.name], "desc": c.description,

@@ -25,6 +25,8 @@ from src.tools.naming import (format_naming_card, generate_candidates,  # 批次
 from src.tools.fortune_cycle import (format_cycle_card, parse_cycle_params,  # 批次 2 E3 流月流年工具规则层
                                      parse_target_month, parse_target_year)
 from src.tools.career_dir import format_career_card, parse_career_params  # 批次 2 E4 择业/方位匹配工具规则层
+from src.tools.num_omen import (analyze_number, format_num_card,  # 批次 2 E5 数字吉凶工具规则层
+                                parse_num_params)
 from src.engines.message_analyzer import MessageAnalyzer, MessageAnalysis
 try:
     from src.engines.advisor_v2 import AdaptiveAdvisor
@@ -109,6 +111,7 @@ _TOOL_EVENT_LABELS = {
     "起名": "正在斟酌名字…",
     "流月流年": "正在推演流月流年…",
     "择业": "正在分析适配行业…",
+    "数字吉凶": "正在查看数字吉凶…",
 }
 
 # ============================================================
@@ -748,6 +751,9 @@ class MessageHandler:
                     p, user_id),
                 # 批次 2 E4 择业/方位匹配工具：新增绑定只做加法（既有 10 个零改动）
                 "career_dir": lambda p, user_id="", user_question="": self._tool_career_dir(
+                    p, user_id),
+                # 批次 2 E5 数字吉凶工具：新增绑定只做加法（既有 11 个零改动）
+                "num_omen": lambda p, user_id="", user_question="": self._tool_num_omen(
                     p, user_id),
             },
             {
@@ -2559,6 +2565,45 @@ class MessageHandler:
             return ToolResult("择业", False, f"排盘引擎执行失败：{str(e)[:100]}")
         industry = (info.get("industry") or "").strip() or None
         return ToolResult("择业", True, format_career_card(result, industry))
+
+    def _tool_num_omen(self, params, user_id: str) -> ToolResult:
+        """工具「数字吉凶」（批次 2 E5）：数字串（手机号/车牌/楼层/门牌）→
+        尾号/整体 81 数理吉凶 + 数理含义 + 改善建议卡片。最轻量（纯查表，无引擎调用）。
+
+        params 支持两种形式（与 _tool_career_dir 同型）：
+        - dict（原生 tool_use / JSON 工单已序列化为字符串；防御性兼容 dict）
+        - 自然语言字符串：
+          ① 结构化键 "number: 13812345678\ncontext: 手机号"（JSON 工单
+             serialize_params 产物；context 键可选，不填按位数自动识别）
+          ② 文本标签兜底 "帮我看看 138-1234-5678 这个手机号吉不吉"
+             （parse_num_params：非数字字符剔除 + 场景关键词/位数识别）
+
+        流程（纯查表，不调引擎）：
+        ① parse_num_params 解析 → 无数字 → 澄清追问（点名 number 键示例）
+        ② 位数 > 20 → 提示过长（非实际号码）
+        ③ analyze_number 查 NUMEROLOGY_81（与起名工具同源同表）→ format_num_card
+        """
+        text = params.get("text") if isinstance(params, dict) else params
+        info = parse_num_params(text or "")
+        if not info or not info.get("number"):
+            return ToolResult(
+                "数字吉凶", False,
+                "请提供要看的数字（手机号/车牌/楼层/门牌等），我就为你查 81 数理吉凶。"
+                "如：number: 13812345678；可选提供使用场景（context：手机号/车牌/楼层/"
+                "门牌），不填则按位数自动识别。",
+                needs_info=True,
+            )
+        number = info["number"]
+        if len(number) > 20:
+            return ToolResult(
+                "数字吉凶", False,
+                f"数字串过长（{len(number)} 位），请提供手机号/车牌/楼层/门牌等实际号码。",
+                needs_info=True,
+            )
+        context = (info.get("context") or "").strip()
+        return ToolResult(
+            "数字吉凶", True,
+            format_num_card(analyze_number(number, context), number, context))
 
     def _extract_zeri_exclude_dates(self, params) -> Optional[list]:
         """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。
