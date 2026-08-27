@@ -1,7 +1,7 @@
 """统一能力注册表（批次 1，spec 1.1）：唯一能力事实源。
 
 两类能力：
-- cap_type="tool"：可被 <tool_calls> 工单调用的工具（9 个，批次 2 E2 起含起名），executor 由
+- cap_type="tool"：可被 <tool_calls> 工单调用的工具（10 个，批次 2 E3 起含流月流年），executor 由
   handler 启动时 bind_executors() 注入（防循环 import）
 - cap_type="intent"：意图分发分支（15 个），executor 指向 _handle_*
 
@@ -15,12 +15,14 @@ from typing import Callable, Optional
 
 import jsonschema
 
-# 9 个工具的 params_schema：7 个单文本键（执行器吃自然语言文本），
+# 10 个工具的 params_schema：7 个单文本键（执行器吃自然语言文本），
 # 结构化工单经 serialize_params 序列化回文本桥接（spec 红线：执行器零改动）；
 # hehun（批次 2 E1）双键 birth_a/birth_b（多键序列化为 "k: v" 换行拼接，
 # 执行器侧 split_birth_pair 解析）；
 # naming（批次 2 E2 起名）三键 surname/gender/birth（后键可选），执行器侧
-# split_naming_params 解析
+# split_naming_params 解析；
+# fortune_cycle（批次 2 E3 流月流年）四键 birth 必填 + year/month/focus 可选
+# （默认今年/本月/不限维度），执行器侧 parse_cycle_params 解析
 _TOOL_PARAMS_SCHEMAS = {
     "bazi_chart": {"type": "object",
                    "properties": {"text": {"type": "string",
@@ -70,6 +72,21 @@ _TOOL_PARAMS_SCHEMAS = {
                              "description": "birth：出生信息（可选，有则按八字五行补益推荐用字），如：2019年3月15日 午时 北京"},
                },
                "required": ["surname", "gender"]},
+    # 批次 2 E3 流月流年工具：四键（birth 必填，year/month/focus 可选，均默认）。
+    # 注意：description/requires 里的参数键与 schema 必填键必须一致
+    # （批次 1 P1 #2 教训：教学示例/工具描述键 ≠ schema 键 → 参数校验永不通过）
+    "fortune_cycle": {"type": "object",
+                      "properties": {
+                          "birth": {"type": "string",
+                                    "description": "birth：出生信息自然语言描述，如：1990年5月20日 午时 北京 男"},
+                          "year": {"type": "string",
+                                   "description": "year：目标年份（可选，默认今年），如：2027"},
+                          "month": {"type": "string",
+                                    "description": "month：目标月份（可选，默认本月，1-12），如：6"},
+                          "focus": {"type": "string",
+                                    "description": "focus：关注维度（可选，事业/财运/感情，可逗号分隔多选），如：事业,财运"},
+                      },
+                      "required": ["birth"]},
 }
 
 
@@ -86,7 +103,7 @@ class Capability:
     cap_type: str = "tool"      # "tool" | "intent"
 
 
-# ---- tool 类（9 个）：desc/requires 原文迁移自 tool_calls.py TOOL_REGISTRY ----
+# ---- tool 类（10 个）：desc/requires 原文迁移自 tool_calls.py TOOL_REGISTRY ----
 # timeout_s 按执行器性质显式标注（Task 4 review I-2：8s 默认 < LLM 内部 60s 超时，
 # 慢而成功的调用会被误判失败）：
 # - LLM 支撑（走 client.py 60s 超时链）→ ≥70s（60s + 余量）
@@ -145,6 +162,15 @@ _TOOL_CAPS = [
                requires="姓氏 surname=如「张」、性别 gender=男或女；出生信息 birth 可选"
                         "（有则按八字五行补益推荐用字，如 birth=2019年3月15日 午时 北京；"
                         "无则仅按五格数理均衡推荐）"),
+    Capability("fortune_cycle", "流月流年",
+               "输入出生信息（参数键 birth）及可选的目标年份 year/月份 month/关注维度 focus，"
+               "输出目标年份流年干支+十神解读+流月十二干支+关注维度（事业/财运/感情）"
+               "运势要点+吉凶月份提示",
+               _TOOL_PARAMS_SCHEMAS["fortune_cycle"], timeout_s=8.0,
+               requires="出生信息 birth=出生年月日时/地点/性别描述（如1990年5月20日 午时 北京 男）；"
+                        "目标年份 year 可选（如2027，默认今年）、目标月份 month 可选"
+                        "（1-12，默认本月）、关注维度 focus 可选（事业/财运/感情，"
+                        "可逗号分隔多选，默认不限）"),
 ]
 
 # ---- intent 类（15 个）：handler_map（handler.py:2758-2774）全量快照 ----

@@ -22,6 +22,8 @@ from src.engines.qimen import QimenEngine
 from src.engines.xingming import XingmingEngine, get_stroke_count
 from src.tools.naming import (format_naming_card, generate_candidates,  # 批次 2 E2 起名工具规则层
                               split_naming_params, target_elements)
+from src.tools.fortune_cycle import (format_cycle_card, parse_cycle_params,  # 批次 2 E3 流月流年工具规则层
+                                     parse_target_month, parse_target_year)
 from src.engines.message_analyzer import MessageAnalyzer, MessageAnalysis
 try:
     from src.engines.advisor_v2 import AdaptiveAdvisor
@@ -104,6 +106,7 @@ _TOOL_EVENT_LABELS = {
     "查记录": "正在查你的记录…",
     "合婚": "正在合婚配对…",
     "起名": "正在斟酌名字…",
+    "流月流年": "正在推演流月流年…",
 }
 
 # ============================================================
@@ -738,6 +741,9 @@ class MessageHandler:
                 "hehun": lambda p, user_id="", user_question="": self._tool_hehun(p, user_id),
                 # 批次 2 E2 起名工具：新增绑定只做加法（既有 8 个零改动）
                 "naming": lambda p, user_id="", user_question="": self._tool_naming(p, user_id),
+                # 批次 2 E3 流月流年工具：新增绑定只做加法（既有 9 个零改动）
+                "fortune_cycle": lambda p, user_id="", user_question="": self._tool_fortune_cycle(
+                    p, user_id),
             },
             {
                 "bazi": self._handle_bazi, "ziwei": self._handle_ziwei,
@@ -2426,6 +2432,81 @@ class MessageHandler:
         return ToolResult(
             "起名", True,
             format_naming_card(surname, gender, elements_desc, candidates))
+
+    def _tool_fortune_cycle(self, params, user_id: str) -> ToolResult:
+        """工具「流月流年」（批次 2 E3）：出生信息 + 目标年份/月份/关注维度 →
+        流年流月干支 + 十神解读 + 吉凶月提示卡片。
+
+        params 支持两种形式（与 _tool_hehun/_tool_naming 同型）：
+        - dict（原生 tool_use / JSON 工单已序列化为字符串；防御性兼容 dict）
+        - 自然语言字符串：
+          ① 结构化键 "birth: X\nyear: 2027\nmonth: 6\nfocus: 财运"
+             （JSON 工单 serialize_params 产物；year/month/focus 可选）
+          ② 文本标签兜底 "1990年5月20日 午时 北京 男 2027年 看财运"
+             （parse_cycle_params 日期感知拆分）
+
+        流程（复用既有引擎，不新起）：
+        ① parse_cycle_params 解析 → 缺出生信息 → 澄清追问（不调引擎）
+        ② _extract_bazi_info 解析出生 → 失败 → 点名 birth
+        ③ 目标年份/月份：给但非法 → 点名 year/month；缺省 → 今年/本月
+           （标准库 datetime，与规则层 default_targets 同口径）
+        ④ self.engine.calculate → format_cycle_card 紧凑卡片
+           （流年/流月干支 + 十神 + 关注维度要点 + 吉凶月提示）
+        """
+        if self.engine is None:
+            return ToolResult("流月流年", False, "「流月流年」工具暂不可用，请直接与用户聊天。")
+        text = params.get("text") if isinstance(params, dict) else params
+        info = parse_cycle_params(text or "")
+        if not info or not info.get("birth"):
+            return ToolResult(
+                "流月流年", False,
+                "请提供出生信息（出生年月日时、地点、性别），我就为你推演流年流月运势。"
+                "可选指定目标年份（year）、月份（month）与关注维度（focus：事业/财运/感情）。"
+                "如：birth: 1990年5月20日 午时 北京 男、year: 2027、focus: 财运",
+                needs_info=True,
+            )
+        birth = info["birth"].strip()
+        parsed = self._extract_bazi_info(birth)
+        if parsed is None:
+            return ToolResult(
+                "流月流年", False,
+                f"出生信息没看懂：「{birth[:50]}」。请提供完整的出生年月日时、出生地点、性别。",
+                needs_info=True,
+            )
+        # 目标年份/月份：给但非法 → 点名（不默认静默纠正）；缺省 → 今年/本月
+        year = month = None
+        if info.get("year"):
+            year = parse_target_year(info["year"])
+            if year is None:
+                return ToolResult(
+                    "流月流年", False,
+                    f"目标年份没看懂：「{info['year'][:20]}」。请用 1900-2300 的四位年份"
+                    "（如 year: 2027），不填则默认今年。",
+                    needs_info=True,
+                )
+        if info.get("month"):
+            month = parse_target_month(info["month"])
+            if month is None:
+                return ToolResult(
+                    "流月流年", False,
+                    f"目标月份没看懂：「{info['month'][:20]}」。请用 1-12 的月份"
+                    "（如 month: 6），不填则默认本月。",
+                    needs_info=True,
+                )
+        from src.tools.fortune_cycle import default_targets, parse_focus
+        if year is None or month is None:
+            d_year, d_month = default_targets()
+            year = year if year is not None else d_year
+            month = month if month is not None else d_month
+        focus_list = parse_focus(info.get("focus"))
+        try:
+            y, m, d, h, mi, city, b_gender = parsed
+            result = self.engine.calculate(y, m, d, h, mi, city, b_gender)
+        except Exception as e:
+            return ToolResult("流月流年", False, f"排盘引擎执行失败：{str(e)[:100]}")
+        return ToolResult(
+            "流月流年", True,
+            format_cycle_card(result, year, month, focus_list))
 
     def _extract_zeri_exclude_dates(self, params) -> Optional[list]:
         """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。

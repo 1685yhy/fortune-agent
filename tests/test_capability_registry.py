@@ -8,16 +8,16 @@ from src.bot.tool_calls import TOOL_REGISTRY  # noqa: E402
 
 
 def test_tool_coverage():
-    """9 个工具全注册：排盘/检索/搜索/解梦/风水/择日/查记录/合婚/起名（批次 2 E2）。"""
+    """10 个工具全注册：排盘/检索/搜索/解梦/风水/择日/查记录/合婚/起名/流月流年（批次 2 E3）。"""
     names = {c.name for c in reg.CAPABILITIES if c.cap_type == "tool"}
     assert names == {"排盘", "检索", "搜索", "解梦", "风水", "择日", "查记录",
-                     "合婚", "起名"}
+                     "合婚", "起名", "流月流年"}
 
 
 def test_tool_registry_projection():
-    """TOOL_REGISTRY 从注册表投影：9 键，desc/requires 与注册表一致。"""
+    """TOOL_REGISTRY 从注册表投影：10 键，desc/requires 与注册表一致。"""
     assert set(TOOL_REGISTRY) == {"排盘", "检索", "搜索", "解梦", "风水", "择日",
-                                  "查记录", "合婚", "起名"}
+                                  "查记录", "合婚", "起名", "流月流年"}
     for name, cap in reg.CAPABILITY_BY_NAME.items():
         if cap.cap_type == "tool":
             assert TOOL_REGISTRY[name]["desc"] == cap.description
@@ -58,7 +58,8 @@ def test_tool_description_built():
     from src.bot.capability_registry import build_tool_description
     d = build_tool_description()
     for cid in ("bazi_chart", "web_search", "quote_rag", "dream",
-                "fengshui", "zeri", "record_lookup", "hehun", "naming"):
+                "fengshui", "zeri", "record_lookup", "hehun", "naming",
+                "fortune_cycle"):
         assert cid in d
     assert "8s" in d and "重试1次" in d
 
@@ -77,10 +78,11 @@ def test_validate_params():
 def test_tool_intent_name_collision():
     """同名 cap_id（fengshui/zeri/dream/hehun）：tool 条目优先于 intent 条目（工单校验走 tool）。
 
-    注：_TOOL_CAPS(9) + _INTENT_CAPS(15) = 24 项列表，但 fengshui/zeri/dream/hehun 的
+    注：_TOOL_CAPS(10) + _INTENT_CAPS(15) = 25 项列表，但 fengshui/zeri/dream/hehun 的
     cap_id 与中文名在两类中完全相同（工具是对既有 intent 的追加映射，
-    非新增键），去重后唯一键为 15+9-4=20（批次 2 E2 起名 naming 与既有
-    xingming 意图不同名、不碰撞，故 19 → 20）。
+    非新增键），去重后唯一键为 15+10-4=21（批次 2 E2 起名 naming、批次 2 E3
+    流月流年 fortune_cycle 均为全新中文名/cap_id，与既有 intent 不同名、不碰撞，
+    故 19 → 20 → 21）。
     """
     assert reg.CAPABILITY_BY_ID["fengshui"].cap_type == "tool"
     assert reg.CAPABILITY_BY_ID["zeri"].cap_type == "tool"
@@ -90,11 +92,13 @@ def test_tool_intent_name_collision():
     assert reg.CAPABILITY_BY_NAME["择日"].cap_type == "tool"
     assert reg.CAPABILITY_BY_NAME["解梦"].cap_type == "tool"
     assert reg.CAPABILITY_BY_NAME["合婚"].cap_type == "tool"
-    # 起名（naming）为全新中文名/cap_id，不与任何 intent 同名
+    # 起名（naming）/ 流月流年（fortune_cycle）为全新中文名/cap_id，不与任何 intent 同名
     assert reg.CAPABILITY_BY_ID["naming"].cap_type == "tool"
     assert reg.CAPABILITY_BY_NAME["起名"].cap_type == "tool"
-    assert len(reg.CAPABILITY_BY_ID) == 20
-    assert len(reg.CAPABILITY_BY_NAME) == 20
+    assert reg.CAPABILITY_BY_ID["fortune_cycle"].cap_type == "tool"
+    assert reg.CAPABILITY_BY_NAME["流月流年"].cap_type == "tool"
+    assert len(reg.CAPABILITY_BY_ID) == 21
+    assert len(reg.CAPABILITY_BY_NAME) == 21
     # 回归点：intent 覆盖 tool 时，tool 必填校验静默失效（validate_params 返回 None）
     assert reg.validate_params("fengshui", {}) is not None
     assert reg.validate_params("zeri", {}) is not None
@@ -366,12 +370,13 @@ def test_tool_call_tool_use_id_default_empty():
 
 
 def test_build_tool_schema_list():
-    """注册表 → Anthropic 风格 tools schema：9 个、与 build_tool_description 同源。"""
+    """注册表 → Anthropic 风格 tools schema：10 个、与 build_tool_description 同源。"""
     schemas = reg.build_tool_schema_list()
-    assert len(schemas) == 9
+    assert len(schemas) == 10
     ids = {s["name"] for s in schemas}
     assert ids == {"bazi_chart", "quote_rag", "web_search", "dream",
-                   "fengshui", "zeri", "record_lookup", "hehun", "naming"}
+                   "fengshui", "zeri", "record_lookup", "hehun", "naming",
+                   "fortune_cycle"}
     by_id = {s["name"]: s for s in schemas}
     for c in reg.CAPABILITIES:
         if c.cap_type != "tool":
@@ -482,10 +487,11 @@ def test_native_tool_use_loop_end_to_end():
             fake_messages.turn = 0
         fake_messages.turn += 1
         if fake_messages.turn == 1:
-            # 首轮：必须带 tools（payload 有注册表 schema，批次 2 E2 起 9 个含 naming）
+            # 首轮：必须带 tools（payload 有注册表 schema，批次 2 E3 起 10 个含 fortune_cycle）
             assert tools and [t["name"] for t in tools] == [
                 "bazi_chart", "quote_rag", "web_search", "dream",
-                "fengshui", "zeri", "record_lookup", "hehun", "naming"]
+                "fengshui", "zeri", "record_lookup", "hehun", "naming",
+                "fortune_cycle"]
             return {
                 "stop_reason": "tool_use",
                 "content": [
@@ -1206,8 +1212,8 @@ def test_real_lambda_signature_matches_submit():
             real_params[key_node.value] = [a.arg for a in val_node.args.args]
     assert set(real_params) == {"bazi_chart", "quote_rag", "web_search", "dream",
                                 "fengshui", "zeri", "record_lookup", "hehun",
-                                "naming"}
-    assert len(real_params) == 9
+                                "naming", "fortune_cycle"}
+    assert len(real_params) == 10
     for cid, params in real_params.items():
         assert "user_id" in params, f"{cid} lambda 缺 user_id 形参: {params}"
         assert "user_question" in params, f"{cid} lambda 缺 user_question 形参: {params}"
@@ -1231,6 +1237,8 @@ def test_real_lambda_signature_matches_submit():
         "合婚", True, f"hehun:{user_id}:{p}")
     bot._tool_naming = lambda p, user_id="": ToolResult(
         "起名", True, f"naming:{user_id}:{p}")
+    bot._tool_fortune_cycle = lambda p, user_id="": ToolResult(
+        "流月流年", True, f"cycle:{user_id}:{p}")
 
     # 与 handler.py __init__（bind_executors 块）逐字一致的 lambda 形态：
     # 形参名 user_id/user_question（修复后的约定），内部转发不变
@@ -1247,6 +1255,8 @@ def test_real_lambda_signature_matches_submit():
             p, user_id),
         "hehun": lambda p, user_id="", user_question="": bot._tool_hehun(p, user_id),
         "naming": lambda p, user_id="", user_question="": bot._tool_naming(p, user_id),
+        "fortune_cycle": lambda p, user_id="", user_question="": bot._tool_fortune_cycle(
+            p, user_id),
     }
     expected = {
         "bazi_chart": "bazi:u1:P",
@@ -1258,6 +1268,7 @@ def test_real_lambda_signature_matches_submit():
         "record_lookup": "rec:u1:P",
         "hehun": "hehun:u1:P",
         "naming": "naming:u1:P",
+        "fortune_cycle": "cycle:u1:P",
     }
     orig_exec = {cid: CAPABILITY_BY_ID[cid].executor for cid in executors}
     orig_ex = {cid: reg._tool_executors.get(cid) for cid in executors}
