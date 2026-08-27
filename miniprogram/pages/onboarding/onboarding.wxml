@@ -154,7 +154,12 @@
     <view class="d-line"></view>
     <view class="d-poem">命盘既定 · 灯已为你亮起</view>
     <view class="d-cta">
-      <button class="btn btn-acc btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="goTour">完成</button>
+      <!-- P3 seen-once：看过导览 → 主按钮直接进入（不再自动弹）；未看过 → 尾链导览 -->
+      <button class="btn btn-acc btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onDonePrimary">{{tourSeen ? '直接进入' : '完成'}}</button>
+      <view wx:if="{{tourSeen}}" class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="replayTour">
+        <image class="replay-ic" src="/assets/images/ic-lantern.png"></image>
+        <text>再看一遍导览</text>
+      </view>
       <view class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="replay">
         <image class="replay-ic" src="/assets/images/ic-lantern.png"></image>
         <text>重新看引导</text>
@@ -176,7 +181,12 @@
     </view>
     <view class="d-line"></view>
     <view class="d-cta">
-      <button class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="goTour">继续看看</button>
+      <!-- P3 seen-once：看过导览 → 主按钮直接进入（不再自动弹）；未看过 → 尾链导览 -->
+      <button class="btn btn-ink btn-wide" hover-class="btn-active" hover-stay-time="0" bindtap="onDonePrimary">{{tourSeen ? '直接进入' : '继续看看'}}</button>
+      <view wx:if="{{tourSeen}}" class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="replayTour">
+        <image class="replay-ic" src="/assets/images/ic-lantern.png"></image>
+        <text>再看一遍导览</text>
+      </view>
       <view class="replay" hover-class="replay-active" hover-stay-time="0" bindtap="replay">
         <image class="replay-ic" src="/assets/images/ic-lantern.png"></image>
         <text>重新看引导</text>

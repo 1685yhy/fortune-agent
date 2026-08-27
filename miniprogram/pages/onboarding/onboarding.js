@@ -27,6 +27,7 @@ Page({
     stepCur: 0,                // 1=为何需要 2=填写生辰 3=建档完成
     tourCards: TOUR_CARDS,
     tourIdx: 0,                // 功能导览当前卡（0-2）
+    tourSeen: false,           // P3：是否看过导览（ylm_tour_done/skipped 任一）→ 不再自动弹
 
     // 表单（原型 BirthForm 字段）
     cal: 'solar',              // solar | lunar
@@ -71,7 +72,7 @@ Page({
   /* 跳过：标记 storage（下次启动不再自动弹出引导），展示「未建档案」屏 */
   doSkip() {
     try { wx.setStorageSync(SKIP_KEY, 1); } catch (e) { /* ignore */ }
-    this.setData({ phase: 'skipped', stepCur: 0 });
+    this.setData({ phase: 'skipped', stepCur: 0, tourSeen: this._tourSeen() });
   },
 
   /* 重新看引导（完成页/跳过页底部） */
@@ -179,15 +180,40 @@ Page({
     this.setData({
       phase: 'done',
       stepCur: 3,
+      tourSeen: this._tourSeen(),
       doneSummary: `${d.cal === 'solar' ? '公历' : '农历'} ${d.year} 年 ${d.month} 月 ${d.day} 日 · ${shi} · ${d.gender}${d.place ? ' · ' + d.place : ''}`,
     });
   },
 
-  /* E1：完成页/跳过页 → 功能导览（首访尾链 3 卡，可跳过）。
+  /* E1+P3：done/skipped 页主按钮——首访未看过 → 尾链功能导览（现状）；
+     看过一次（ylm_tour_done/ylm_tour_skipped 任一）→ 不再自动弹，直接进入 App。
      导览只在建档流程尾链出现——me 页「重新看引导」入口仍走本页 welcome 起，
-     经流程走到此处也会看到尾链（与「重新看引导」语义一致） */
-  goTour() {
+     经流程走到此处：未看过 → 尾链导览；看过 → 直接进入（与拍板一致） */
+  onDonePrimary() {
+    if (this.data.tourSeen) {
+      this._leaveOnboarding();
+    } else {
+      this._enterTour();
+    }
+  },
+
+  /* 再次查看入口（复用 done/skipped 页按钮区，未新建页面/导航项）：
+     显式重看功能导览，无视 seen 标记；重看后完成/跳过仍写原有二键 */
+  replayTour() {
+    this._enterTour();
+  },
+
+  _enterTour() {
     this.setData({ phase: 'tour', stepCur: 0, tourIdx: 0 });
+  },
+
+  /* 是否看过导览：ylm_tour_done / ylm_tour_skipped 二选一（任一存在即看过） */
+  _tourSeen() {
+    try {
+      return !!(wx.getStorageSync(guide.TOUR_DONE_KEY) || wx.getStorageSync(guide.TOUR_SKIP_KEY));
+    } catch (e) {
+      return false;
+    }
   },
 
   /* 导览「下一步」：卡 1/卡 2 → 下一张 */

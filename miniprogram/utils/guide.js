@@ -8,7 +8,11 @@
 //    ylm_tour_done / ylm_tour_skipped 二选一——
 //    「开始使用」（第 3 卡看完）→ ylm_tour_done=1；「跳过」→ ylm_tour_skipped=1。
 //    导览卡去向按钮（去排盘/去今日/去对话）不落标记：中途离开未做「完成/跳过」
-//    决定，保持二选一不变量；导览每次由建档流程尾链进入，标记不做进入门槛。
+//    决定，保持二选一不变量。
+//    P3 seen-once（拍板）：看过一次（done/skipped 任一）后 done/skipped 页主按钮
+//    不再尾链导览、直接进入 App（shouldAutoShowTour 判定，onboarding.js 读取
+//    storage 调用）；显式「再看一遍导览」入口随时可重看（不落新标记，重看后
+//    完成/跳过仍写原有二键）。
 //    ⚠ 不影响现有 ylm_onboard_done / ylm_onboard_skipped 判定——app.js
 //    _maybeOnboard 只读 onboard 两键，导览标记与其互不读写（见 guide.test.js
 //    的键隔离断言），onboarding 不再自动弹出的逻辑保持不变。
@@ -32,10 +36,18 @@ function tourHasNext(idx, total) {
   return idx < total - 1;
 }
 
+/* P3 seen-once：看过一次（完成 ylm_tour_done 或关闭 ylm_tour_skipped）→
+   不再自动弹出（done/skipped 页主按钮直接进入 App）；显式「再看一遍导览」
+   入口不受此判定限制（onboarding.js replayTour 直接进 phase==='tour'） */
+function shouldAutoShowTour(tourDone, tourSkipped) {
+  return !tourDone && !tourSkipped;
+}
+
 module.exports = {
   TOUR_DONE_KEY,
   TOUR_SKIP_KEY,
   NOARCH_CLOSED_KEY,
   shouldShowNoarchTip,
   tourHasNext,
+  shouldAutoShowTour,
 };
