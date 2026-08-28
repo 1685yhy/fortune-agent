@@ -321,10 +321,13 @@ Page({
   _refreshQuota() {
     api.getChatQuota()
       .then((q) => {
+        // B4-1-fix Minor：语音模式下按住说话条恒为 1 行高 → 额度条高度按 1 行算
+        // （文本行数仅文字输入态有意义，避免语音模式底部空隙过大）
+        const lines = this.data.inputMode === 'voice' ? 1 : (this._inputLines || 1);
         if (!q || q.is_member || q.limit == null) {
           if (this.data.quotaBar.show) {
             this.setData({ quotaBar: { show: false, text: '', downgraded: false } });
-            this._updateInputBarH(this._inputLines || 1); // B4-1：额度条消失 → 输入条回落
+            this._updateInputBarH(lines); // B4-1：额度条消失 → 输入条回落
           }
           return;
         }
@@ -339,7 +342,7 @@ Page({
               : `今日 ${left}/${q.limit} 条`,
           },
         });
-        this._updateInputBarH(this._inputLines || 1); // B4-1：额度条出现 → 输入条抬高
+        this._updateInputBarH(lines); // B4-1：额度条出现 → 输入条抬高
       })
       .catch(() => { /* 额度查询失败：静默隐藏（不打扰对话） */ });
   },
@@ -791,7 +794,25 @@ Page({
     if (!text || streamHost.active) return;
     const id = e.currentTarget.dataset.id;
     const msg = this._findMessage(id);
-    streamHost.retry(id, text, curatedFor(text).tag, msg && msg.image);
+    // B4-1-fix I1：重试钮挂在 AI 气泡（data-id=AI id），AI 消息无 image →
+    // 回溯最近一条 user 消息（即触发本回复的提问）取 image 一并重发（保持 CV 链路）
+    const img = msg && msg.image ? msg.image : this._findPreviousUserImage(id);
+    streamHost.retry(id, text, curatedFor(text).tag, img);
+  },
+
+  /* 回溯 id 之前的最近一条 user 消息的 image（AI 气泡重试取图用；无则 null）。
+     就近回溯保证：图片消息后的文字追问失败重试不会误挂旧图。 */
+  _findPreviousUserImage(id) {
+    const msgs = this.data.messages;
+    for (let i = 0; i < msgs.length; i++) {
+      if (msgs[i].id === id) {
+        for (let j = i - 1; j >= 0; j--) {
+          if (msgs[j].role === 'user') return msgs[j].image || null;
+        }
+        return null;
+      }
+    }
+    return null;
   },
 
   /* ═══ B4-1 输入区改版：相机选图 / + 面板 / 图片消息 / 自动长高 ═══ */

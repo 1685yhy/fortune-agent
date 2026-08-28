@@ -2209,7 +2209,9 @@ def _sniff_image_ext(data: bytes) -> str:
 
 @app.post("/api/chat/upload")
 async def chat_upload(
-    image: UploadFile = File(...),
+    # 字段名固定 file：与小程序 wx.uploadFile({name:'file'}) 的真实契约一致
+    # （B4-1-fix C1：曾因参数名 image 导致真实上传必 422；alias 使内部变量名保留）
+    image: UploadFile = File(alias="file"),
     uid: str = Depends(require_user),
     request: Request = None,
 ):

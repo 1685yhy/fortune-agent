@@ -11,6 +11,9 @@
 //   8. chat 页：_updateInputBarH 公式（基线/额度条/行数/封顶）
 //   9. chat 页：onInputLineChange → inputBarH 联动 + 贴底补滚
 //   10. chat 页：+ 面板开合、图片点击预览
+//   11. chat 页：retryStream AI 气泡重试 → 回溯 user 消息透传 image（页面接线，B4-1-fix I1）
+//   12. chat 页：图片消息后的文字追问重试 → 不误挂旧图（就近回溯）
+//   13. chat 页：_refreshQuota 语音模式额度条高度按 1 行（B4-1-fix Minor）
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const api = require('../utils/api');
@@ -278,4 +281,69 @@ test('chat 页：+ 面板开合 + 图片点击预览', () => {
   } finally {
     restoreGlobals();
   }
+});
+
+test('chat 页：retryStream AI 气泡重试 → 回溯 user 消息透传 image（接线路径，B4-1-fix I1）', () => {
+  const calls = [];
+  const origRetry = streamHost.retry;
+  streamHost.retry = (msgId, text, tag, img) => { calls.push({ msgId, text, tag, img }); };
+  installWx({ setStorageSync: () => {} });
+  streamHost.reset([]);   // streaming=false → retryStream 可通过 active 闸
+  const page = makePage({
+    messages: [
+      { id: 'u1', role: 'user', content: '（图片）', image: { url: 'http://x/uploads/r.jpg' } },
+      { id: 'a1', role: 'ai', content: '生成失败', error: true, retryText: '（图片）' },
+    ],
+  });
+  try {
+    // 真实点击路径：data-id 是 AI 消息 id（AI 消息本身无 image）
+    page.retryStream({ currentTarget: { dataset: { id: 'a1', text: '（图片）' } } });
+  } finally {
+    streamHost.retry = origRetry;
+    restoreGlobals();
+  }
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].msgId, 'a1');
+  assert.ok(calls[0].img && calls[0].img.url === 'http://x/uploads/r.jpg',
+    '重试应回溯最近 user 消息透传 image（保持 CV 链路）');
+});
+
+test('chat 页：图片消息后的文字追问重试 → 不误挂旧图（B4-1-fix I1 就近回溯）', () => {
+  const calls = [];
+  const origRetry = streamHost.retry;
+  streamHost.retry = (...args) => { calls.push(args); };
+  installWx({ setStorageSync: () => {} });
+  streamHost.reset([]);
+  const page = makePage({
+    messages: [
+      { id: 'u1', role: 'user', content: '（图片）', image: { url: 'http://x/uploads/r.jpg' } },
+      { id: 'a1', role: 'ai', content: '面相分析……' },
+      { id: 'u2', role: 'user', content: '再看仔细些' },
+      { id: 'a2', role: 'ai', content: '生成失败', error: true },
+    ],
+  });
+  try {
+    page.retryStream({ currentTarget: { dataset: { id: 'a2', text: '再看仔细些' } } });
+  } finally {
+    streamHost.retry = origRetry;
+    restoreGlobals();
+  }
+  assert.equal(calls.length, 1);
+  assert.ok(!calls[0][3], '文字追问重试不得误挂更早图片消息的 image');
+});
+
+test('chat 页：_refreshQuota 语音模式额度条高度按 1 行算（B4-1-fix Minor）', async () => {
+  const origQuota = api.getChatQuota;
+  api.getChatQuota = () => Promise.resolve({ is_member: false, limit: 15, used: 3, downgraded: false });
+  installWx({ setStorageSync: () => {} });
+  const page = makePage({ inputMode: 'voice' });
+  page._inputLines = 4;   // 语音模式文本行数无意义 → 高度必须按 1 行
+  try {
+    await page._refreshQuota();
+  } finally {
+    api.getChatQuota = origQuota;
+    restoreGlobals();
+  }
+  assert.equal(page.data.quotaBar.show, true);
+  assert.equal(page.data.inputBarH, 172);   // 130 + 42（额度条），而非 130+42+120=292
 });

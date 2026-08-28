@@ -846,7 +846,10 @@
   border-top: 2rpx solid var(--line-soft);  /* 1px */
   padding: 17rpx 27rpx 19rpx;            /* 9px 14px 10px */
 }
-/* 额度条展示时输入条增高（~42rpx）→ 消息列表底部联动让位（qb-on 挂在 .screen） */
+/* 额度条展示时输入条增高（~42rpx）→ 消息列表底部联动让位（qb-on 挂在 .screen）。
+   注（B4-1-fix Minor）：.screen 恒带内联 --inputbar-h（JS _updateInputBarH 注入，
+   内联优先于类规则）→ 本规则实际不生效，仅作 JS 失效时的兜底；
+   真实增高由 JS INPUTBAR_QBON=42 驱动（wxml L1 挂 class、L2 内联变量）。 */
 .screen.qb-on { --inputbar-h: 172rpx; }
 /* v2026-08-17：输入条上方快捷 chip 排（chip-row/quickchip）已删
    （wxml 同步移除；示例问题已在引导区，无需重复入口）。

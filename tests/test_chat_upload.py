@@ -2,6 +2,8 @@
 
 覆盖：鉴权 401 / 类型白名单 / 魔数嗅探 / 大小超限 / 成功落盘与回读 /
 路径安全（客户端文件名忽略、GET 穿越拒绝）。
+字段名契约（B4-1-fix C1）：全部用例以真实客户端字段名 `file` 发送
+（小程序 wx.uploadFile({name:'file'})），杜绝两套测试各验一半的契约缝隙。
 """
 import pytest
 
@@ -29,9 +31,10 @@ def api_env(tmp_path, monkeypatch):
 
 
 def _post(client, headers, fname="photo.jpg", data=JPEG_BYTES, ctype="image/jpeg"):
+    # 字段名恒为 file：真实客户端（wx.uploadFile name:'file'）契约（B4-1-fix C1）
     return client.post(
         "/api/chat/upload",
-        files={"image": (fname, data, ctype)},
+        files={"file": (fname, data, ctype)},
         headers=headers,
     )
 
@@ -59,6 +62,26 @@ def test_upload_size_limit(api_env):
     client, h, _ = api_env
     r = _post(client, h, fname="big.jpg", data=JPEG_BYTES + b"\x00" * MAX)
     assert r.status_code == 413
+
+
+def test_upload_client_field_name_is_file(api_env):
+    """锁定真实集成契约：前端 wx.uploadFile 以字段名 `file` 发送 multipart。
+
+    B4-1-fix C1：曾因后端参数名 image（FastAPI 以参数名为表单字段名）导致
+    真实客户端上传必 422；现后端 File(alias="file") 接受 `file` 字段。
+    本用例独立于 _post 帮助函数，显式以字段名 file 发 multipart 验证 200。
+    """
+    client, h, tmp_path = api_env
+    r = client.post(
+        "/api/chat/upload",
+        files={"file": ("face.jpg", JPEG_BYTES, "image/jpeg")},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "ok"
+    fname = body["url"].rsplit("/", 1)[1]
+    assert (tmp_path / "uploads" / fname).is_file()
 
 
 def test_upload_success_returns_url_and_get_back(api_env):
