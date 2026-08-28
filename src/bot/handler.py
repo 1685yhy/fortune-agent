@@ -67,7 +67,6 @@ from src.ml.quality_predictor import QualityPredictor
 from src.memory.user_memory import UserMemory, format_birth_line
 # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除，见 src/engines/similarity.py 注释）
 from .formatter import split_long_message, format_error, format_loading
-from src.reading_version import get_version_footer
 # B2-11（P1 #2 残留）：单消息降级分支（无 session_dao）的 system 提示——
 # CHAT_PROMPT（JSON 工单教学）+ [可用工具清单]，与主链首轮同口径
 # （B2-13：旧 _web_tool_guide_line 死导入已清理，无任何消费方）
@@ -1734,6 +1733,8 @@ class MessageHandler:
         # D2 修复：页脚含实时时间戳（get_version_footer 每次调用取当前秒），
         # 起草与润色跨秒时逐字 endswith 失配 → 页脚被当正文丢进 LLM、
         # tail='' → 页脚永久丢失。改按格式正则剥离，跨秒/格式微差仍可回接。
+        # （B3-2-C 后页脚已不再生成，本剥离保持为防御性 no-op：存量草稿/消息
+        # 含页脚时仍可正确剥离回接，不产生行为变化）
         m = re.search(
             r'\n?---\n解读版本: v[\d.]+ \| 生成时间: [^\n]+'
             r'(?:\n同一八字同一问题，结果始终一致)?$', body)
@@ -5079,10 +5080,9 @@ class MessageHandler:
             reply += "\n\n" + followup
 
         # 10. 反馈提示 (F3)
+        # 版本页脚已移除（B3-2-C：用户反馈底部「解读版本/同一八字」技术性文字
+        # 突兀且无意义；前端顶部静态免责行「内容由 AI 生成 · 仅供娱乐参考」保留）
         reply = self._add_feedback_prompt(reply)
-
-        # Add reading version footer for traceability and reproducibility
-        reply += f"\n\n---\n{get_version_footer()}"
 
         # 11. 记录对话记忆
         if self.memory:
@@ -5215,9 +5215,8 @@ class MessageHandler:
             )])
         except Exception:
             pass
-        # 反馈提示 + 版本页脚（静态文本）
+        # 反馈提示（静态文本；版本页脚已移除，B3-2-C）
         reply = self._add_feedback_prompt(reply)
-        reply += f"\n\n---\n{get_version_footer()}"
         # 记录对话记忆（本地存储）
         if self.memory:
             self.memory.add_interaction(user_id, question, reply, intent="bazi",

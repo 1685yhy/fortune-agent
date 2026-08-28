@@ -328,6 +328,40 @@ test('B3-22：完整标记剥离零回归（旧行为不变）', () => {
   assert.equal(stripCardMarkers(''), '');
 });
 
+/* ═══ B3-2-B：流式与卡片重叠去重加强（用户问题：文字+卡片重复两份）═══
+   根因：服务端流式文本（引导句/润色前）与最终卡片正文不完全一致时，
+   旧去重只认「正文以 prefix 开头」→ 失配 → 前缀+卡片同时渲染 = 两份。
+   加强：prefix 整段是正文子串 → 全丢；prefix 尾部最长后缀与正文开头重叠
+   （≥ 4 字符）→ 只渲染未重叠部分；完全不重叠 → 现状保留（不丢内容）。 */
+
+test('B3-2-B：引导句 + 流式正文部分重叠 → 只渲染引导句，重复正文不渲染', () => {
+  const body = '## 今日财运\n稳步上升，适合加仓。';
+  // 流式输出 = 引导句 + 正文（最终回复把正文包进卡片并追加补充说明）
+  const text = '好的，这是你的命盘。\n' + body
+    + '\n[card:yunshi title="运势分析"]\n' + body + '\n\n补充说明\n[/card]';
+  const v = view(text, { streaming: false, error: false });
+  assert.ok(v.card);
+  const flat = JSON.stringify(v.cardPrefixNodes || []);
+  assert.ok(flat.indexOf('好的，这是你的命盘') !== -1);   // 引导句保留
+  assert.ok(flat.indexOf('稳步上升') === -1);             // 重复正文丢弃
+});
+
+test('B3-2-B：流式正文是卡片正文子串（非开头）→ 整段丢弃，卡片上方无残留', () => {
+  const body = '## 今日财运\n稳步上升，适合加仓。';
+  const text = body + '\n[card:yunshi title="运势分析"]\n详细分析如下：\n'
+    + body + '\n[/card]';
+  const v = view(text, {});
+  assert.ok(v.card);
+  assert.equal(v.cardPrefixNodes, null);   // 前缀整段已在正文中出现 → 全丢
+});
+
+test('B3-2-B：短于阈值的巧合重叠不去重（防误伤，前置保留）', () => {
+  const text = '今天天气很好。\n[card:yunshi title="运势分析"]\n很好，今天适合出行\n[/card]';
+  const v = view(text, {});
+  assert.ok(v.card);
+  assert.ok(v.cardPrefixNodes && v.cardPrefixNodes.length >= 1);
+});
+
 /* ═══ E2-2 补漏（批次 2 B3-23）：折叠代码块空行 ═══
    旧 \n{3,}→\n\n 无差别折叠会破坏代码围栏内空行（md.js 只认 ``` 围栏）。 */
 

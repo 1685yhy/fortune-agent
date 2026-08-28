@@ -60,6 +60,12 @@ function _unescapeTitle(s) {
   return String(s).replace(/\\(["\\n])/g, (m, ch) => (ch === 'n' ? '\n' : ch));
 }
 
+/* B3-2-B：流式重发前缀与卡片正文重叠去重的最小重叠长度。
+   低于该长度的「前缀尾 == 正文头」视为巧合（如「很好」两字偶合），不去重、
+   前缀原样保留——避免误伤「先给你个简版。」这类真实前置引导。
+   重叠部分从前缀剔除后由正文头部接续，视觉上天然连续，无内容损失。 */
+const _MIN_DUP_LEN = 4;
+
 /* 解析开始标签行（流式中可为不完整行）：
    "[card:paipan title="我的命盘"]" → {type:'paipan', title:'我的命盘'}
    "[card:data]"                    → {type:'data', title:''}
@@ -83,7 +89,9 @@ function _parseTagLine(line) {
        已解析的 type/title/body 供卡片壳渲染，语义一致，调用方以 pending 判断）
    - pending: true = 见 [card: 但未见 [/card]（流式中）
    - prefix:  第一个 [card: 之前的文本（流式重发场景 = 卡片正文的重复前缀；
-     调用方按「正文以 prefix 开头 → 丢弃」去重；其余情况原样渲染在卡片上方）
+     调用方按「前缀与正文重叠 → 丢弃重叠部分」去重——正文以 prefix 开头 →
+     全丢；prefix 是正文子串 → 全丢；prefix 尾部最长后缀与正文开头重叠
+     （≥ _MIN_DUP_LEN）→ 只丢重叠段；其余情况原样渲染在卡片上方）
    - tail:    [/card] 之后的卡外引导语
    - raw:     原始文本（兜底） */
 function parseCard(text) {
@@ -225,15 +233,35 @@ function buildCardView(content, opts, parseMd) {
       cardFinal: true,
     };
   }
-  // 闭合 → 定格卡片；流式重发重复前缀（标记前文本是正文的开头）丢弃，其余保留。
+  // 闭合 → 定格卡片；流式重发重复内容（前缀与正文重叠）丢弃，其余保留。
+  // B3-2-B 加强（用户问题：流式文本与最终正文不完全一致 → 旧「正文以 prefix
+  // 开头」去重失配 → 前缀+卡片同时渲染两份）：
+  //   1) prefix（剥尾空白）整段是正文子串 → 全丢（正文已含全部内容）
+  //   2) prefix 尾部最长后缀与正文开头重叠且 ≥ _MIN_DUP_LEN → 只保留未重叠
+  //      的前置引导，重复正文不再上屏（重叠段由正文头部接续，视觉连续）
+  //   3) 完全不重叠 → 现状保留（不丢内容；边界：正文头部被改写无连续重叠时
+  //      无法识别重复，仍按现状渲染——见报告边界说明）
   // 前缀可能带换行尾随（正文\n[card:…]），比对前剥掉尾部空白
-  const dup = pc.prefix && pc.card.body.indexOf(pc.prefix.replace(/\s+$/, '')) === 0;
+  const p = (pc.prefix || '').replace(/\s+$/, '');
+  let dupLen = 0;
+  if (p) {
+    if (pc.card.body.indexOf(p) !== -1) {
+      dupLen = p.length;                    // 前缀整段在正文中出现 → 全丢
+    } else {
+      for (let L = Math.min(p.length, pc.card.body.length);
+           L >= _MIN_DUP_LEN; L--) {
+        if (pc.card.body.startsWith(p.slice(-L))) { dupLen = L; break; }
+      }
+    }
+  }
+  const keep = dupLen > 0
+    ? p.slice(0, p.length - dupLen).replace(/\s+$/, '') : p;
   return {
     card: pc.card,
     mdNodes: null,
     cardNodes: parseMd(pc.card.body),
     cardTailNodes: pc.tail ? parseMd(pc.tail) : null,
-    cardPrefixNodes: (pc.prefix && !dup) ? parseMd(pc.prefix) : null,
+    cardPrefixNodes: keep ? parseMd(keep) : null,
     cardTitle: title,
     cardTypeLabel: label,
     cardFinal: true,
