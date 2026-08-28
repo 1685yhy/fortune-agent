@@ -154,4 +154,66 @@ r = client.get("/api/qian/history", headers=h2)
 check("B 自己的历史恰 1 条", len(r.json()["items"]) == 1
       and r.json()["items"][0]["no"] == 12)
 
+# ─────────────────────────── 6. B5-1 三签种(kind 参数 / 跨签种收藏) ───────────────────────────
+import src.api.qian as qian_kinds_mod
+
+# 6.1 签库结构: 三签种数量 + 每支字段完整(poem 4 行 / jx 归一 / cls 合法)
+check("签种全集 original/guanyin/guandi/xuanwushan",
+      set(qian_kinds_mod.QIAN_KINDS) == {"original", "guanyin", "guandi", "xuanwushan"})
+check("观音灵签 100 支", len(qian_kinds_mod.QIAN_KINDS["guanyin"]) == 100)
+check("关帝灵签 100 支", len(qian_kinds_mod.QIAN_KINDS["guandi"]) == 100)
+check("玄武山签 51 支", len(qian_kinds_mod.QIAN_KINDS["xuanwushan"]) == 51)
+check("原版签仍 8 支且为 QIAN_LIBRARY 本体", qian_kinds_mod.QIAN_KINDS["original"] is qian_kinds_mod.QIAN_LIBRARY)
+for _kind in ("guanyin", "guandi", "xuanwushan"):
+    for _c in qian_kinds_mod.QIAN_KINDS[_kind]:
+        assert isinstance(_c["no"], int) and len(_c["poem"]) == 4 \
+            and _c["cls"] in ("up", "mid", "low") and _c["jie"] and _c["suo"]
+        assert _c["jx"] in ("上上签", "上吉签", "中吉签", "中平签", "下签")
+check("三签种全部签卡结构完整(poem 4 行/jx 归一/cls/jie/suo)", True)
+
+# 6.2 draw 按 kind 返回对应签种;缺省 original;无效 kind 400
+for _kind in ("guanyin", "guandi", "xuanwushan"):
+    _c = client.post("/api/qian/draw", json={"kind": _kind}, headers=h).json()["card"]
+    assert _c["no"] in qian_kinds_mod.QIAN_KIND_NOS[_kind]
+check("draw kind=guanyin/guandi/xuanwushan 均返回对应签种", True)
+_c = client.post("/api/qian/draw", json={"kind": "original"}, headers=h).json()["card"]
+check("draw kind=original 返回 8 支之一", _c["no"] in qian_kinds_mod.QIAN_KIND_NOS["original"])
+check("draw 无效 kind 400", client.post("/api/qian/draw", json={"kind": "bad"},
+                                        headers=h).status_code == 400)
+
+# 6.3 save 跨签种同 no 不冲突(UNIQUE(user_id,no,kind))
+for _kind in ("guanyin", "guandi", "xuanwushan"):
+    _r = client.post("/api/qian/save", json={"no": 1, "kind": _kind}, headers=h)
+    assert _r.status_code == 200 and _r.json()["saved"] is True
+check("同 no 跨三种签种均可收藏(不冲突)", True)
+_r = client.post("/api/qian/save", json={"no": 1, "kind": "guanyin"}, headers=h)
+check("同 kind 重复收藏 already=true", _r.json()["already"] is True)
+check("save 无效 kind 400", client.post("/api/qian/save", json={"no": 1, "kind": "bad"},
+                                        headers=h).status_code == 400)
+check("save 签种内无效签号 400", client.post("/api/qian/save", json={"no": 101, "kind": "guanyin"},
+                                            headers=h).status_code == 400)
+
+# 6.4 history 按 kind 过滤
+_r = client.get("/api/qian/history?kind=guanyin", headers=h)
+_items = _r.json()["items"]
+check("history kind=guanyin 恰 1 条(no=1)", len(_items) == 1 and _items[0]["no"] == 1
+      and _items[0]["kind"] == "guanyin")
+check("history 无效 kind 400", client.get("/api/qian/history?kind=bad", headers=h).status_code == 400)
+
+# 6.5 迁移: 旧表(无 kind)构造 QianDAO 后旧数据保留
+import sqlite3, tempfile as _tf
+_fd, _p = _tf.mkstemp(suffix='.db'); os.close(_fd)
+_conn = sqlite3.connect(_p)
+_conn.execute("""CREATE TABLE qian_saves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL,
+    no INTEGER NOT NULL, drawn_at REAL, UNIQUE (user_id, no))""")
+_conn.execute("INSERT INTO qian_saves (user_id, no, drawn_at) VALUES ('old-u', 7, 42.0)")
+_conn.commit()
+_mig = QianDAO(_conn)
+_rows = _conn.execute("SELECT user_id, no, kind, drawn_at FROM qian_saves").fetchall()
+check("迁移后旧行保留且 kind='original'", _rows == [("old-u", 7, "original", 42.0)])
+check("迁移后同 no 跨 kind 可收藏", _mig.save("old-u", 7, "guandi") == (True, False)
+      and _mig.save("old-u", 7, "original") == (False, True))
+_conn.close(); os.unlink(_p)
+
 print(f"\n=== 全部通过: {ok} 项 ===")

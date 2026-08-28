@@ -27,6 +27,32 @@
   margin: 30rpx 0 8rpx;
 }
 
+/* ── B5-1 签种选择器(胶囊切换: 灵签原版/观音灵签/关帝灵签/玄武山签) ── */
+.qian-kinds {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 14rpx;
+  margin: 4rpx 0 18rpx;
+}
+.qian-kind {
+  font-family: var(--font-song);
+  font-size: 24rpx;                     /* 12.5px */
+  letter-spacing: .08em;
+  color: var(--ink-mid);
+  padding: 8rpx 22rpx;
+  border-radius: 999rpx;
+  border: 2rpx solid var(--line);
+  background: var(--paper-card);
+  transition: all .25s ease;
+}
+.qian-kind.active {
+  color: var(--paper-card);
+  background: var(--acc);
+  border-color: var(--acc);
+  letter-spacing: .1em;
+}
+
 /* ── 签筒区 ── */
 .qian-stage {
   display: flex;

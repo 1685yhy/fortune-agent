@@ -1218,10 +1218,15 @@ function getWannianliDay(date) {
   return request(`/api/wannianli/day?date=${date}`, { method: 'GET' });
 }
 
-// Qian (抽灵签)
-function drawQian() { return request('/api/qian/draw', { method: 'POST' }); }
+// Qian (抽灵签; B5-1 三签种: kind ∈ original/guanyin/guandi/xuanwushan)
+function drawQian(kind) {
+  return request('/api/qian/draw', { method: 'POST', data: { kind: kind || 'original' } });
+}
 function saveQian(data) { return request('/api/qian/save', { method: 'POST', data }); }
-function getQianHistory() { return request('/api/qian/history', { method: 'GET' }); }
+function getQianHistory(kind) {
+  const q = kind ? `?kind=${encodeURIComponent(kind)}` : '';
+  return request(`/api/qian/history${q}`, { method: 'GET' });
+}
 
 // Ming (AI取名 · 名笺)
 function genMing(data) { return request('/api/ming/generate', { method: 'POST', data }); }

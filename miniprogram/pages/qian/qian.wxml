@@ -9,6 +9,14 @@
     <!-- 引语(原型: 朱砂小字居中) -->
     <view class="qian-quote">心中默念一事，摇一支签。签不欺人，诚则灵。</view>
 
+    <!-- B5-1 签种选择器(胶囊切换: 灵签原版/观音灵签/关帝灵签/玄武山签;
+         选中后摇签走对应 kind;切换时复位待抽态) -->
+    <view class="qian-kinds">
+      <view wx:for="{{kinds}}" wx:key="id"
+        class="qian-kind {{kind === item.id ? 'active' : ''}}"
+        data-kind="{{item.id}}" bindtap="onKindTap">{{item.name}}</view>
+    </view>
+
     <!-- 签筒区: 点签筒/摇一支 → 摇签动效 1.6s → 单支弹出(签号竖写)
          v2026-08-17（PM）：抽完后（stage=done）签筒不可再点——只响应 idle 态
          的点击（bindtap 条件绑定为空时事件不触发），重摇仅走下方「再摇一支」按钮 -->
@@ -32,7 +40,7 @@
     <!-- 签卡(摇出后) -->
     <view wx:if="{{stage === 'done' && card}}" class="qian-card">
       <view class="qc-head">
-        <text class="qc-no">第{{card.no}}签 · 已摇出</text>
+        <text class="qc-no">{{card.kindName}} · 第{{card.no}}签 · 已摇出</text>
         <view class="qc-badge lv{{card.level}}">{{card.jx}}</view>
       </view>
       <view class="qc-poem">

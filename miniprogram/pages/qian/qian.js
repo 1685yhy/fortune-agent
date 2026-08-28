@@ -10,11 +10,32 @@ const theme = require('../../utils/theme');
 const SHAKE_MS = 1600;                       // 摇签动效时长(1.5-2s)
 const FIRST_DAY_KEY = 'qian_first_day';      // 每日首摇标记(本地)
 const JX_LEVEL = { '上上签': 1, '上吉签': 2, '中吉签': 3, '中平签': 4, '下签': 5 };  // 吉凶徽标分级色
-const NUM_CN = { 1: '一', 2: '二', 3: '三', 5: '五', 7: '七', 9: '九', 12: '十二', 15: '十五', 20: '二十' };
+
+/* B5-1 三签种: 灵签原版(原型 8 支) + 观音灵签 100 + 关帝灵签 100 + 玄武山签 51 */
+const KIND_LIST = [
+  { id: 'original', name: '灵签原版' },
+  { id: 'guanyin', name: '观音灵签' },
+  { id: 'guandi', name: '关帝灵签' },
+  { id: 'xuanwushan', name: '玄武山签' },
+];
+const KIND_NAME = {
+  original: '灵签原版', guanyin: '观音灵签', guandi: '关帝灵签', xuanwushan: '玄武山签',
+};
+
+/* 签号 1-100 → 中文数字(竖排签字: 第X签) */
+const CN_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
+function cnNum(n) {
+  if (n <= 10) return n === 10 ? '十' : CN_DIGITS[n];
+  if (n < 20) return '十' + CN_DIGITS[n % 10];
+  if (n === 100) return '一百';
+  const tens = Math.floor(n / 10);
+  const ones = n % 10;
+  return CN_DIGITS[tens] + '十' + (ones ? CN_DIGITS[ones] : '');
+}
 
 /* 签号 → 竖排签字(单支弹出签面,原型: 签号竖写) */
 function noChars(no) {
-  const num = NUM_CN[no] || String(no);
+  const num = cnNum(no);
   return ['第', ...num.split(''), '签'];
 }
 
@@ -30,10 +51,12 @@ Page({
     navOff: 0,
     dark: false,
     stage: 'idle',        // idle(待摇) | shaking(摇动) | done(签卡)
-    card: null,           // 当前签卡(后端完整签卡 + 前端派生 level/noChars)
+    card: null,           // 当前签卡(后端完整签卡 + 前端派生 level/noChars/kindName)
     raisedIdx: -1,        // 摇出的签枝下标(0-4,按签号映射)
     sticks: [0, 1, 2, 3, 4],
     saving: false,
+    kinds: KIND_LIST,     // B5-1 签种选择器选项
+    kind: 'original',     // 当前签种
   },
 
   onLoad() {
@@ -65,14 +88,26 @@ Page({
      v2026-08-17（PM）：抽完后签筒不可再点——wxml bindtap 仅 idle 态绑定
      onShake（done/shaking 态点击不触发），重摇只走下方「再摇一支」按钮；
      此处 shaking 守卫兜底（连点/按钮连击不重复触发） */
+  /* B5-1 签种切换: 摇签动效中不可切;切换后复位待抽态 */
+  onKindTap(e) {
+    const id = e.currentTarget.dataset.kind;
+    if (!id || id === this.data.kind || this.data.stage === 'shaking') return;
+    this.setData({ kind: id, stage: 'idle', card: null, raisedIdx: -1 });
+  },
+
+  /* 点签筒 / 摇一支: 先进入摇动态,同时请求;响应后补足 1.6s 再揭签卡。
+     v2026-08-17（PM）：抽完后签筒不可再点——wxml bindtap 仅 idle 态绑定
+     onShake（done/shaking 态点击不触发），重摇只走下方「再摇一支」按钮；
+     此处 shaking 守卫兜底（连点/按钮连击不重复触发） */
   onShake() {
     if (this.data.stage === 'shaking') return;
     this.setData({ stage: 'shaking', card: null, raisedIdx: -1 });
-    api.drawQian()
+    api.drawQian(this.data.kind)
       .then((res) => {
         const card = res.card || {};
         card.level = JX_LEVEL[card.jx] || 4;
         card.noChars = noChars(card.no);
+        card.kindName = KIND_NAME[this.data.kind] || KIND_NAME.original;
         // UX批3：签号→5 签枝按 (no*7+3)%5 分散——原 (no%5) 使 5/15/20 号都落 0 枝
         const stickNo = (card.no || 1);
         const raisedIdx = (stickNo * 7 + 3) % 5;
@@ -111,7 +146,7 @@ Page({
     const card = this.data.card;
     if (!card || this.data.saving) return;
     this.setData({ saving: true });
-    api.saveQian({ no: card.no })
+    api.saveQian({ no: card.no, kind: this.data.kind })
       .then((res) => {
         wx.showToast({
           title: res && res.already ? '这张签已在您的收藏中' : '签卡已保存 · 可分享给亲友',
