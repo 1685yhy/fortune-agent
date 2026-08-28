@@ -465,6 +465,15 @@ button::after { border: none; }
   line-height: 1.9;
   color: var(--ink-soft);
 }
+/* Q4：排盘引导卡档案摘要（已有档案时显示，微雅小字与 sub 区分） */
+.tour-arch {
+  margin-top: 12rpx;
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .06em;
+  line-height: 1.8;
+  color: var(--acc);
+}
 .tour-line {
   margin: 34rpx 0 37rpx;
   width: 288rpx;

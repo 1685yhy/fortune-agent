@@ -207,6 +207,8 @@
           <view class="seal tour-seal"><text class="seal-char">{{item.seal}}</text></view>
           <view class="tour-title">{{item.title}}</view>
           <view class="tour-sub">{{item.sub}}</view>
+          <!-- Q4：已有档案 → 排盘引导卡（卡 1）追加档案摘要（无档案不显示） -->
+          <view wx:if="{{item.arch}}" class="tour-arch">你的档案：{{item.arch}}</view>
           <view class="tour-line"></view>
           <button class="btn btn-acc btn-wide" hover-class="btn-active" hover-stay-time="0"
             data-idx="{{index}}" bindtap="onTourGo">{{item.cta}}</button>

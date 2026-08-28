@@ -203,8 +203,28 @@ Page({
     this._enterTour();
   },
 
+  /* Q4（批次2 收尾）：进入导览时按档案预填 tour 卡 1——本地已有命主档案
+     （persons 同源，与 today.js hasLocalArchive 同源）→ 排盘引导卡追加档案摘要
+     「你的档案：…」；无档案/无命主对象 → 原卡片原样（引导去建档，现状保持）。
+     自动尾链（onDonePrimary）与显式重看（replayTour）共用本入口，两路同预填 */
   _enterTour() {
-    this.setData({ phase: 'tour', stepCur: 0, tourIdx: 0 });
+    this.setData({ phase: 'tour', stepCur: 0, tourIdx: 0, tourCards: this._tourCardsWithArchive() });
+  },
+
+  /* 预填判定：默认命主优先（is_default），无默认取列表首个；有命主对象 →
+     卡 1 附档案摘要（persons.birthSummary 全应用同款格式，如
+     「公历 1976年8月23日 丑时 女 · 榆树」）。按钮文案保持「去排盘」：
+     paipan 落地页为手动输入表单（隐私红线不落库、不自动带档），改
+     「用我的档案排盘」会过度承诺；落地后无建档引导条（Q3 已按档案区分），
+     用档案信息重排天然可行。仅对话归档/登录带回 bazi（hasLocalArchive 为真
+     但无 person 对象）→ 无摘要可展示，保持原卡片。不变异模块级 TOUR_CARDS */
+  _tourCardsWithArchive() {
+    const list = persons.getLocalPersons();
+    const p = persons.findDefault(list) || (Array.isArray(list) && list.length ? list[0] : null);
+    if (!p) return TOUR_CARDS;
+    const cards = TOUR_CARDS.map((c) => Object.assign({}, c));
+    cards[0].arch = persons.birthSummary(p);
+    return cards;
   },
 
   /* 是否看过导览：ylm_tour_done / ylm_tour_skipped 二选一（任一存在即看过） */
