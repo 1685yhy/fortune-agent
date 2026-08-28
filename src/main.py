@@ -183,12 +183,19 @@ async def _daily_precompute_worker():
 
 
 async def _daily_jian_precompute():
-    """Task 6: 每小时检查:当日晨笺内容未生成则预生成(金句+宜忌+通用私语)。"""
+    """Task 6: 每小时检查:当日晨笺内容未生成则预生成(金句+宜忌+通用私语)。
+
+    批次2.5 M1:预生成整段经 asyncio.to_thread 委托线程池执行——首次运行
+    含 FAISS 检索 + bge-reranker-v2-m3 重排(分钟级 CPU 计算,py-spy 实证
+    占死事件循环导致端口 20 分钟不监听)。移出后端口在模型加载完成后立即
+    绑定,预生成后台完成,结果与现状等价(与灯语 _prewarm_night_lamps 同款
+    接线;faiss_retriever/reranker 单例加载有锁、查询为只读并发安全)。
+    """
     while True:
         try:
             now = datetime.now(timezone(timedelta(hours=8)))
             date_str = now.strftime("%Y-%m-%d")
-            _precompute_jian_for(date_str)
+            await asyncio.to_thread(_precompute_jian_for, date_str)
         except Exception as e:
             logger.error("晨笺预生成异常: %s", e)
         await asyncio.sleep(3600)
