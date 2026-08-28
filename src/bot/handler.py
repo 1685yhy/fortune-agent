@@ -3295,7 +3295,7 @@ class MessageHandler:
         # （_check_quota 仍在 1533 行保持原样）。
 
         # Handle "会员" keyword — show upgrade info（L5-2：档位与 SUBSCRIBE_PLANS 对齐）
-        if msg.strip() in ("会员", "升级", "付费", "套餐", "价格", "多少钱"):
+        if msg.strip() in ("会员", "升级", "付费", "套餐", "价格", "多少钱", "续费"):
             upgrade_msg = (
                 "🌟 **易理明灯会员计划**\n\n"
                 "📌 **基础会员**（完整分析 · 每日运势 · 畅聊不设限）\n"

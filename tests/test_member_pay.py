@@ -966,6 +966,32 @@ class TestMemberUpgradeCard:
         assert "开通会员解锁完整版" in reply
         assert "选择套餐即可升级" in reply
 
+    def test_renew_single_word_hits_upgrade_card(self):
+        """Q2（批次 2 收尾）：单字「续费」→ 确定性出缴费引导卡（不落 LLM 自由发挥）。
+
+        与「会员」/「升级」同族关键词走同一条 P2 C2 拍板路径：data 卡 +
+        _mark_card_turn data_read=True 生效；既有会员词一并回归。
+        """
+        h = _make_handler_with_llm()
+        for kw in ("续费", "会员", "升级"):
+            reply = h.process(kw, "member_card_6")
+            assert reply.startswith("[card:data"), (kw, reply[:100])
+            assert "[/card]" in reply, (kw, reply[:100])
+            assert "易理明灯会员计划" in reply, (kw, reply[:100])
+            assert h._card_turn["member_card_6"]["data_read"] is True, kw
+
+    def test_renew_embedded_in_sentence_not_matched(self):
+        """Q2 反例：含「续费」的句子不命中精确匹配分支（走全流程/LLM）。
+
+        msg.strip() in 元组的精确匹配语义：整条消息等于「续费」才命中；
+        「我不想续费了」「续费会员多少钱」应落到全流程——断言不返回升级卡文案。
+        """
+        h = _make_handler_with_llm()
+        for msg in ("我不想续费了", "续费会员多少钱"):
+            reply = h.process(msg, "member_card_7")
+            assert "会员计划" not in reply, (msg, reply[:100])
+            assert not reply.startswith("[card:data"), (msg, reply[:100])
+
     def test_member_card_not_breaking_error_double_loop(self):
         """E2-1 双闭环不受影响：普通闲聊不误包；错误签名回复仍拒包。"""
         h = _make_handler_with_llm()
