@@ -611,3 +611,25 @@ tail -100 /var/log/nginx/access.log | awk '{print $NF}'
 - [ ] 审核截图已准备
 - [ ] 隐私政策和用户协议已添加
 - [ ] 内容免责声明已添加
+
+### 9.3 本机 WSL 部署要点（/home/a/fortune-run）
+
+⚠️ **数据路径必须显式覆盖，否则连错库（数据分裂风险）**：
+
+`src/config.py` 默认 `db_path=/mnt/d/fortune-data/userdata/fortune.db`（9P 慢盘旧位置）。
+WSL 部署（数据在 ext4 盘 /home/a/data）必须注入两个环境变量再启动：
+
+```bash
+export FORTUNE_DB_PATH=/home/a/data/userdata/fortune.db
+export VECTORDB_DIR=/home/a/data/vectordb_v2
+nohup /home/a/fortune-agent/.venv/bin/python -m uvicorn src.main:app \
+  --host 0.0.0.0 --port 8767 > logs/start.log 2>&1 &
+```
+
+启动后必须核对 start.log 第一段：「db=/home/a/data/userdata/fortune.db」。
+若显示 /mnt/d/fortune-data，立即 kill 重启并注入覆盖变量。
+
+同步部署：`rsync -a --exclude='.git/' --exclude='.venv/' --exclude='data/' --exclude='logs/' --exclude='.superpowers/' --exclude='__pycache__/' --exclude='*.pyc' <repo>/ /home/a/fortune-run/`
+（禁止 --delete；排除 data/ 保护生产数据）
+
+完整环境变量：`set -a && . ./.env && set +a`（.env 为 symlink，指向 /mnt/e/fortune-agent/.env）
