@@ -56,14 +56,39 @@ def test_combined_prompt_enum_same_source():
 
 
 def test_tool_description_built():
-    """工具说明书生成：11 工具齐、含 cap_id 与超时参数。"""
+    """工具说明书生成：12 工具齐、含 cap_id 与超时参数。"""
     from src.bot.capability_registry import build_tool_description
     d = build_tool_description()
     for cid in ("bazi_chart", "web_search", "quote_rag", "dream",
                 "fengshui", "zeri", "record_lookup", "hehun", "naming",
-                "fortune_cycle", "career_dir"):
+                "fortune_cycle", "career_dir", "num_omen"):
         assert cid in d
     assert "8s" in d and "重试1次" in d
+
+
+def test_num_omen_description_mandates_table_lookup():
+    """E6.1：num_omen 描述必须强约束「查 81 数理表计算、禁止自行编造数理含义」。
+
+    生产验收实证：手机号场景 LLM 未调 num_omen 工具、自由编造『尾号 8000 按
+    81 数理论 0 主空』——81 数理表无 0 数。num_omen 无引擎兜底（E6 设计内），
+    工具描述是唯一质量护栏。两处注入面都以 c.description 为源头：
+    build_tool_description（文本工具清单，handler _free_chat 注入）与
+    build_tool_schema_list（原生 tools schema）——两处都必须带强约束。
+    """
+    cap = reg.CAPABILITY_BY_ID["num_omen"]
+    # 源头字段锁死
+    assert "81 数理表" in cap.description
+    assert "必须调用本工具查 81 数理表计算吉凶" in cap.description
+    assert "禁止自行编造数理含义" in cap.description
+    assert "一律先走本工具" in cap.description
+    # 两处注入面都含约束（防回退成只改源头/只改一处注入面）
+    for d in (reg.build_tool_description(),
+              next(s["description"] for s in reg.build_tool_schema_list()
+                   if s["name"] == "num_omen")):
+        assert "81 数理表" in d
+        assert "必须调用本工具查 81 数理表计算吉凶" in d
+        assert "禁止自行编造数理含义" in d
+        assert "一律先走本工具" in d
 
 
 def test_validate_params():
