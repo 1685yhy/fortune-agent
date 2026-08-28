@@ -40,41 +40,11 @@
     <view class="mb-btn mb-btn-cancel" hover-class="mb-btn-active" hover-stay-time="0" bindtap="exitMulti">取消</view>
   </view>
 
-  <!-- ═══ Task 8 · 深夜模式卡片（方案·灯下漫谈） ═══ -->
-  <!-- 深夜标识：灯笼 + 倾诉临时提示（今夜不落记忆）。
-       2026-08-17 PM：不常驻——3.5s 自动消失，也可点 ✕ 手动关闭
-       （nightHeadShow 控制；nightMode 仅 entry=night 或 21:00-01:00 时段进入） -->
-  <view wx:if="{{nightMode && nightHeadShow}}" class="night-head {{lampLit ? 'lamp-fade' : ''}}">
-    <image class="night-lantern" src="/assets/images/ic-lantern-on.png"></image>
-    <text>灯下漫谈 · 今夜说的话，天亮就忘</text>
-    <text wx:if="{{notKeep}}" class="night-head-sub">倾诉不落记忆 · 要记住的要当面说</text>
-    <view class="night-head-x" hover-class="night-head-x-active" hover-stay-time="0" catchtap="dismissNightHead" aria-label="关闭深夜提示">✕</view>
-  </view>
-  <!-- 枕边灯语卡（23:00-01:00：文字免费/语音会员/收藏/定时关闭 5-30 分钟） -->
-  <view wx:if="{{lamp.show}}" class="lamp-card">
-    <view class="lamp-title">枕边灯语</view>
-    <view class="lamp-text">{{lamp.text}}</view>
-    <view class="lamp-actions">
-      <view wx:if="{{lamp.audioUrl}}" class="lamp-btn" hover-class="lamp-btn-active" hover-stay-time="0" bindtap="onLampPlay">{{lamp.playing ? '暂停' : '播放'}}</view>
-      <view wx:else class="lamp-btn lamp-btn-muted" hover-class="lamp-btn-active" hover-stay-time="0" bindtap="onLampPlay">语音会员</view>
-      <view class="lamp-btn" hover-class="lamp-btn-active" hover-stay-time="0" bindtap="onLampFav">{{lamp.favorited ? '已收藏' : '收藏'}}</view>
-      <picker class="lamp-timer" range="{{[5,10,15,30]}}" value="{{lampTimerIdx}}" bindchange="onLampTimerChange">
-        <view class="lamp-btn lamp-btn-timer">定时关闭 {{lamp.timerMin}} 分钟 ▾</view>
-      </picker>
-    </view>
-  </view>
-  <!-- 挽留条（静默 25-40 分钟，1 次/夜） -->
-  <view wx:if="{{keepBar.show}}" class="night-keep">{{keepBar.text}}</view>
-  <!-- 0 点后劝睡 -->
-  <view wx:if="{{sleepBar}}" class="night-keep">天都快亮了。我给你留一盏小灯，明天接着陪你聊。睡吧。</view>
-  <!-- 「要我记得吗」 -->
-  <view wx:if="{{rememberPrompt.show}}" class="keep-prompt">
-    <text class="kp-q">这句，要帮你记住吗？</text>
-    <view class="kp-btns">
-      <view class="kp-btn" hover-class="kp-btn-active" hover-stay-time="0" bindtap="onRememberYes">要记住</view>
-      <view class="kp-btn kp-btn-no" hover-class="kp-btn-active" hover-stay-time="0" bindtap="onRememberNo">不用</view>
-    </view>
-  </view>
+  <!-- ═══ Task 8 · 深夜模式（方案·灯下漫谈） ═══
+       B3-3（PM 2026-08-29 要求）：聊天页深夜浮层全部移除——夜提示条
+       （night-head）、枕边灯语卡（lamp-card）、挽留条（keepBar）、劝睡
+       （sleepBar）、「要我记得吗」（rememberPrompt）均不再展示；深夜主题
+       （.night 变量级联）、服务端 /api/night/lamp/* 与灯语收藏体系保留 -->
   <!-- 12356 心理援助（UX批1 M-5：加 ✕ 关闭入口，用户读完可收起） -->
   <view wx:if="{{safetyCard.show}}" class="safety-card">
     <view class="safety-head">心理援助 · 请先联系专业人员</view>
@@ -137,8 +107,10 @@
   <scroll-view wx:else scroll-y class="msg-list {{multiMode ? 'multi-on' : ''}}" scroll-into-view="{{scrollInto}}" scroll-with-animation bindscroll="onScroll">
     <view class="msg-inner">
       <block wx:for="{{messages}}" wx:key="id">
+        <!-- B3-3 D 修复：气泡加 catchtap 吞掉点击冒泡——选取模式中点选中气泡
+             不触发 .screen 的 onListTap，选择不会被误退出（气泡外仍可退出） -->
         <view wx:if="{{item.role === 'ai'}}" class="jianzhu {{selectMsgId === item.id ? 'select-mode' : ''}} {{multiMode && multiSel[item.id] ? 'multi-on' : ''}}"
-          bindlongpress="onBubbleLongPress" bindtap="onMsgTap" data-id="{{item.id}}" data-role="ai">
+          bindlongpress="onBubbleLongPress" bindtap="onMsgTap" catchtap="noop" data-id="{{item.id}}" data-role="ai">
           <!-- v1.3 多选勾选框（气泡左上角圆形，点按勾选/取消） -->
           <view wx:if="{{multiMode}}" class="msg-check {{multiSel[item.id] ? 'on' : ''}}" data-id="{{item.id}}" catchtap="onMsgTap">
             <text wx:if="{{multiSel[item.id]}}" class="mc-mark">✓</text>
@@ -261,7 +233,7 @@
         </view>
         <!-- v1.1 排队消息立即上屏：pending 灰态 + 「排队中」小标 -->
         <view wx:else class="user-note {{item.pending ? 'pending' : ''}} {{selectMsgId === item.id ? 'select-mode' : ''}} {{multiMode && multiSel[item.id] ? 'multi-on' : ''}}"
-          bindlongpress="onBubbleLongPress" bindtap="onMsgTap" data-id="{{item.id}}" data-role="user">
+          bindlongpress="onBubbleLongPress" bindtap="onMsgTap" catchtap="noop" data-id="{{item.id}}" data-role="user">
           <!-- v1.3 多选勾选框（气泡左上角圆形，点按勾选/取消） -->
           <view wx:if="{{multiMode}}" class="msg-check {{multiSel[item.id] ? 'on' : ''}}" data-id="{{item.id}}" catchtap="onMsgTap">
             <text wx:if="{{multiSel[item.id]}}" class="mc-mark">✓</text>

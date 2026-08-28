@@ -62,8 +62,6 @@ const REC_MIN_MS = 800;   // 短按 < 800ms → 「说话时间太短」
 const REC_MAX_S = 60;     // 最长录音 60s，到点自动发送
 const SWIPE_CANCEL_PX = 80; // 上滑 80px 进入「松开 取消」
 const WAVE_BAR_COUNT = 26;
-/* UX批1 M-4：灯语定时关闭档位（picker range 与 value 下标同步） */
-const LAMP_TIMER_OPTIONS = [5, 10, 15, 30];
 
 /* v8 阶段 3·过程体验（流式打字机）：滚动节流（生成推进由宿主 tick 驱动） */
 const SCROLL_MS = 100;      // 自动滚动节流
@@ -96,18 +94,12 @@ Page({
     scrollInto: '',
     curTab: 'chat',
     dark: false,
-    /* ═══ Task 8 · 深夜模式（方案·灯下漫谈） ═══ */
+    /* ═══ Task 8 · 深夜模式（方案·灯下漫谈） ═══
+       B3-3：聊天页深夜浮层（night-head/lamp-card/keepBar/sleepBar/rememberPrompt）
+       已按 PM 要求整体移除；深夜主题（.night 变量级联）、服务端 /api/night/lamp/*
+       与灯语收藏体系保留。 */
     nightMode: false,          // 深夜模式(夜色主题+语气)
-    nightHeadShow: true,       // 深夜提示条可见（2026-08-17 PM：可关闭/自动消失）
-    lampLit: false,            // 灯笼动效本轮是否已播
-    lamp: { show: false, date: '', text: '', audioUrl: '', favorited: false,
-            timerMin: 15, playing: false },
-    lampTimerIdx: 2,          // UX批1 M-4：定时 picker 高亮下标（5/10/15/30 → 默认 15 档）
-    keepBar: { show: false, text: '不用急着回。我就在这，灯给你留着。' },
-    sleepBar: false,
-    rememberPrompt: { show: false, msgId: '', userText: '' },
     safetyCard: { show: false, text: '' },
-    notKeep: false,            // 倾诉临时模式提示条(默认不记录)
     /* v8 阶段 3·过程体验（流式） */
     streaming: false,       // 当前有回复正在生成（发送钮 → 停止钮）
     slowHint: false,        // 2026-08-18 生成慢提示：15s 无可见内容 → 输入区上方浅色小字
@@ -222,11 +214,7 @@ Page({
       this._audioCtx.destroy();
       this._audioCtx = null;
     }
-    /* Task 8 深夜：清定时器与灯语音频，退出深夜态 */
-    if (this._keepTimer) { clearTimeout(this._keepTimer); this._keepTimer = null; }
-    if (this._lampTimer) { clearTimeout(this._lampTimer); this._lampTimer = null; }
-    this._clearNightHeadTimer();
-    if (this._lampAudio) { try { this._lampAudio.destroy(); } catch (e) { /* ignore */ } this._lampAudio = null; }
+    /* Task 8 深夜：退出深夜态（B3-3 聊天页浮层已移除，无定时器/音频需清理） */
     streamHost.setDeepNight(false);
   },
 
@@ -238,53 +226,17 @@ Page({
 
   /* ════════════════════════════════════════════════════════════
      Task 8 · 深夜模式（方案·灯下漫谈）
-     夜色主题/灯笼动效/灯语卡/挽留劝睡/要我记得吗/12356 安全条
+     夜色主题/守夜人登记/12356 安全条（B3-3 起：浮层类已整体移除）
      ════════════════════════════════════════════════════════════ */
 
-  /* 进入深夜模式：夜色主题 + 灯笼动效(每日一次,可关) + 临时倾诉提示 */
+  /* 进入深夜模式：夜色主题 + 语气（B3-3 按 PM 要求移除聊天页深夜浮层——
+     夜提示条/灯语卡/挽留条/劝睡/「要我记得吗」全部下线；深夜主题、服务端
+     /api/night/lamp/* 与灯语收藏体系保留） */
   _enterNight() {
-    this.setData({ nightMode: true, nightHeadShow: true, notKeep: true });
+    this.setData({ nightMode: true });
     streamHost.setDeepNight(true);
     try { wx.setNavigationBarColor({ frontColor: '#000000', backgroundColor: '#F4EBD6' }); } catch (e) {}
     try { wx.setBackgroundColor({ backgroundColor: '#F4EBD6' }); } catch (e) {}
-    /* 2026-08-17 PM：深夜提示条不常驻——3.5s 自动淡出消失（也可点 ✕ 关闭） */
-    this._armNightHeadAutoHide();
-    const nightMode = require('../../utils/nightMode');
-    const h = nightMode.bjHour(Date.now());
-    if (h >= 23 || h === 0) this._loadLamp();        // 23:00-01:00 灯语卡
-    if (h >= 0 && h < 4) this.setData({ sleepBar: true });  // 0 点后劝睡
-    if (!this.data.lampLit && this._effectEnabled() && wx.getStorageSync('ylm_lamp_lit_date') !== this._bjDate()) {
-      this.setData({ lampLit: true });
-      wx.setStorageSync('ylm_lamp_lit_date', this._bjDate());
-    }
-    this._armKeepTimer();                             // 挽留定时器
-  },
-
-  /* 深夜提示条自动消失（3.5s；点 ✕ 手动关闭走 dismissNightHead） */
-  _armNightHeadAutoHide() {
-    this._clearNightHeadTimer();
-    this._nightHeadTimer = setTimeout(() => {
-      this._nightHeadTimer = null;
-      this.setData({ nightHeadShow: false });
-    }, 3500);
-  },
-
-  _clearNightHeadTimer() {
-    if (this._nightHeadTimer) {
-      clearTimeout(this._nightHeadTimer);
-      this._nightHeadTimer = null;
-    }
-  },
-
-  /* 深夜提示条手动关闭（✕） */
-  dismissNightHead() {
-    this._clearNightHeadTimer();
-    this.setData({ nightHeadShow: false });
-  },
-
-  _bjDate() { return new Date(Date.now() + 8 * 3600e3).toISOString().slice(0, 10); },
-  _effectEnabled() {
-    try { const p = wx.getStorageSync('ylm_night_prefs'); return !p || p.effect_enabled !== 0; } catch (e) { return true; }
   },
 
   async _loadNightPrefs() {
@@ -305,116 +257,9 @@ Page({
     try { require('../../utils/nightWatch').touch(Date.now()); } catch (e) { /* ignore */ }
   },
 
-  /* ═══ 枕边灯语卡（23:00-01:00） ═══ */
-
-  async _loadLamp() {
-    try {
-      const res = await api.getLampToday();
-      const l = (res && res.lamp) || {};
-      if (!l || !l.text) return;
-      const p = wx.getStorageSync('ylm_night_prefs') || {};
-      const tmin = Number(p.lamp_timer_min) || 15;
-      const tidx = LAMP_TIMER_OPTIONS.indexOf(tmin);
-      this.setData({
-        'lamp.show': true, 'lamp.date': l.date, 'lamp.text': l.text,
-        'lamp.audioUrl': l.audio_url || '',
-        'lamp.favorited': !!l.favorited,
-        'lamp.timerMin': tmin,
-        'lampTimerIdx': tidx >= 0 ? tidx : 2,   // UX批1 M-4：picker 高亮与档位回显同步
-      });
-    } catch (e) { /* 静默 */ }
-  },
-
-  onLampPlay() {
-    if (!this.data.lamp.audioUrl) { wx.showToast({ title: '语音版为会员权益', icon: 'none' }); return; }
-    if (!this._lampAudio) {
-      this._lampAudio = wx.createInnerAudioContext();
-      this._lampAudio.onError(() => this.setData({ 'lamp.playing': false }));
-      this._lampAudio.onEnded(() => this.setData({ 'lamp.playing': false }));
-    }
-    const a = this._lampAudio;
-    // 终审:切换灯语日/首次点击才换源,保持当前进度;点「暂停」真正暂停不再重播
-    if (!a.src || a.src !== this.data.lamp.audioUrl) a.src = this.data.lamp.audioUrl;
-    if (this.data.lamp.playing) {
-      a.pause();
-      if (this._lampTimer) { clearTimeout(this._lampTimer); this._lampTimer = null; }
-      this.setData({ 'lamp.playing': false });
-      return;
-    }
-    a.play();
-    this.setData({ 'lamp.playing': true });
-    if (this._lampTimer) clearTimeout(this._lampTimer);
-    this._lampTimer = setTimeout(() => { a.stop(); this.setData({ 'lamp.playing': false }); },
-      this.data.lamp.timerMin * 60 * 1000);   // 定时关闭(默认 15 分钟)
-  },
-
-  onLampTimerChange(e) {
-    /* UX批1 M-4：picker detail.value 是档位下标（0-3），换算成分钟数 */
-    const idx = Number(e.detail.value) || 0;
-    const min = LAMP_TIMER_OPTIONS[idx] || 15;
-    this.setData({ 'lamp.timerMin': min, lampTimerIdx: idx });
-    // 档位持久化：下次进入灯语卡 picker 高亮仍指向用户所选
-    try {
-      const p = wx.getStorageSync('ylm_night_prefs') || {};
-      wx.setStorageSync('ylm_night_prefs', Object.assign({}, p, { lamp_timer_min: min }));
-    } catch (err) { /* ignore */ }
-    if (this._lampAudio && this.data.lamp.playing) { /* 重新计时 */
-      if (this._lampTimer) clearTimeout(this._lampTimer);
-      this._lampTimer = setTimeout(() => { this._lampAudio.stop(); this.setData({ 'lamp.playing': false }); },
-        min * 60 * 1000);
-    }
-  },
-
-  async onLampFav() {
-    try {
-      const res = await api.favLamp(this.data.lamp.date);
-      this.setData({ 'lamp.favorited': !!res.favorited });
-      wx.showToast({ title: res.favorited ? '已收藏 · 入笺匣' : '已取消收藏', icon: 'none' });
-    } catch (e) { wx.showToast({ title: '操作失败', icon: 'none' }); }
-  },
-
-  /* ═══ 挽留条（静默 25-40 分钟，1 次/夜） ═══ */
-
-  _armKeepTimer() {
-    if (this._keepTimer) clearTimeout(this._keepTimer);
-    if (this.data.sleepBar) return;
-    if (wx.getStorageSync('ylm_keep_date') === this._bjDate()) return;
-    const p = wx.getStorageSync('ylm_night_prefs') || {};
-    if (p.keep_enabled === 0) return;
-    const waitMs = (25 + Math.floor(Math.random() * 16)) * 60 * 1000;  // 25-40 分钟
-    this._keepTimer = setTimeout(() => {
-      this.setData({ 'keepBar.show': true });
-      wx.setStorageSync('ylm_keep_date', this._bjDate());
-    }, waitMs);
-  },
-
-  /* ═══ 「要我记得吗」（流式 done 后扫描回复；每夜一次） ═══ */
-
-  _scanRemember(replyText) {
-    if (this.data.nightMode && /要记住|要我记|帮我记住/.test(replyText || '')
-        && wx.getStorageSync('ylm_remember_date') !== this._bjDate()) {
-      const host = require('../../utils/streamHost');
-      const msgs = (host.getState && host.getState().messages) || [];
-      const lastUser = msgs.slice().reverse().find((m) => m && m.role === 'user');
-      this.setData({ rememberPrompt: { show: true, msgId: '', userText: (lastUser && lastUser.content) || '' } });
-    }
-  },
-
-  async onRememberYes() {
-    const t = this.data.rememberPrompt.userText;
-    this.setData({ rememberPrompt: { show: false, msgId: '', userText: '' } });
-    wx.setStorageSync('ylm_remember_date', this._bjDate());
-    if (!t) return;
-    try {
-      const res = await api.rememberNight(t);
-      wx.showToast({ title: res.remembered ? '已记下 · 仅今晚有效' : '今晚已经记过啦', icon: 'none' });
-    } catch (e) { wx.showToast({ title: '记录失败', icon: 'none' }); }
-  },
-
-  onRememberNo() {
-    this.setData({ rememberPrompt: { show: false, msgId: '', userText: '' } });
-    wx.setStorageSync('ylm_remember_date', this._bjDate());
-  },
+  /* ═══ B3-3：枕边灯语卡 / 挽留条 / 「要我记得吗」浮层已按 PM 要求移除。
+     ═════ 服务端 /api/night/lamp/*、灯语收藏（favLamp/收藏笺匣/night_mark 页）
+     ═════ 与设置页深夜时段档位全部保留，仅收回聊天页浮层入口。 ═══ */
 
   /* ═══ 12356 安全条（输入与回复双向检测） ═══ */
 
@@ -502,13 +347,11 @@ Page({
       /* L5-1/L5-2：一轮对话完成 → 后端已消费额度，刷新额度条（免费超限转降级提示） */
       this._refreshQuota();
       this._checkArchiveKeys(state.messages || []);
-      // 深夜：回复扫描「要我记得吗」触发点 + 回复侧 12356 安全检测
+      // B3-3：回复侧 12356 安全检测（「要我记得吗」浮层已移除，不再扫描）
       const msgs = state.messages || [];
       const last = msgs[msgs.length - 1];
       if (last && last.role === 'ai' && !last.error) {
-        const replyText = String(last.content || '');
-        this._scanRemember(replyText);
-        this._checkSafety(replyText);
+        this._checkSafety(String(last.content || ''));
       }
     }
     this._prevStreaming = !!state.streaming;
@@ -1018,14 +861,14 @@ Page({
     this._toggleMulti(id);
   },
 
-  /* 长按气泡 → 操作菜单（选取模式中不弹菜单，提示长按文字选取；多选模式不弹菜单） */
+  /* 长按气泡 → 操作菜单（多选模式不弹菜单）。
+     B3-3 D 修复：选取模式中长按一律静默返回——不弹菜单、不 toast、不震动，
+     让系统原生文字选择正常出现（此前 toast/震动会盖在 iOS 原生选择 UI 上
+     打断选取流程，即用户反馈「选取文字用不了」的主因之一）。 */
   onBubbleLongPress(e) {
     const { id, role } = e.currentTarget.dataset;
     if (this.data.multiMode) return;   // v1.3 多选：长按不弹菜单，避免与勾选混淆
-    if (this.data.selectMsgId) {
-      wx.showToast({ title: '长按文字即可选取', icon: 'none' });
-      return;
-    }
+    if (this.data.selectMsgId) return; // 选取模式：长按交由系统原生选择
     try { wx.vibrateShort({}); } catch (err) { /* 模拟器无振动能力，静默 */ }
     const msg = this._findMessage(id);
     // 分享目标在开菜单时锁定（分享按钮 open-type=share 会在菜单关闭后读取）
@@ -1038,7 +881,10 @@ Page({
     this.setData({ actionMenu: { show: false, msgId: '', role: '' } });
   },
 
-  /* 消息区点击：选取模式自动退出（多选模式不退出——勾选由气泡点按负责） */
+  /* 消息区点击：选取模式自动退出（多选模式不退出——勾选由气泡点按负责）。
+     B3-3 D 修复：选中气泡自身已加 catchtap（wxml），气泡内点击被吞掉、
+     不冒泡到此处——iOS 上选取手柄/原生菜单操作后点击气泡不会清掉选择，
+     点气泡外空白/输入区仍可退出选取模式（保留逃生出口）。 */
   onListTap() {
     if (this.data.multiMode) return;
     if (this.data.selectMsgId) this.setData({ selectMsgId: '' });
