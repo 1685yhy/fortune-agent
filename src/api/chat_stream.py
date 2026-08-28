@@ -47,6 +47,12 @@ from src.bot.tool_calls import strip_tool_calls  # 兜底：流式出口清理 T
 
 logger = logging.getLogger(__name__)
 
+# 断点续传 watcher 注册表（M2，2026-08-28）：生成器提前关闭（客户端断开）时
+# 安排的后台 watcher 任务由这里强引用持有——未定属的任务在循环关闭而 executor
+# 未结束时被 GC 会打出 "Task was destroyed but it is pending!" 告警；
+# 定属后由 add_done_callback 在任务完成/取消时自动摘除（见 events() finally）。
+_OFFLINE_WATCHERS: set = set()
+
 # 分句模拟流式（保底）：按标点切块；长句按硬边界二次切分
 _SENT_SPLIT = re.compile(r"(?<=[。！？!?；;])")
 
@@ -234,6 +240,21 @@ class ChatStreamer:
                                                min_id=min_id)
         except Exception:
             logger.warning("chat stream offline mark failed: user=%s", user_id)
+
+    async def _wait_and_mark(self, task, user_id: str, session_id: Optional[str],
+                             before_id: Optional[int]):
+        """断点续传 watcher：等后台生成完成后补打 offline_completed 标记。
+
+        仅由 events() 的 finally 通过 _OFFLINE_WATCHERS 注册表创建并持有；
+        任务完成/取消时由 add_done_callback 自动从注册表摘除。
+        """
+        try:
+            reply = await task
+        except Exception:
+            return  # 生成失败/取消：无回复可补全
+        if reply:
+            self._mark_offline_if_needed(user_id, session_id, reply,
+                                         min_id=before_id)
 
     # ── 事件转换 / 收集 ──────────────────────────────────────────
     @staticmethod
@@ -436,19 +457,14 @@ class ChatStreamer:
                 # 完成后补打 offline_completed 标记（下次进入经 pending 补全）。
                 # 标记在事件循环线程做（无跨线程竞态）；await task 同时保住了
                 # future 引用，线程完成后回调不会丢。
+                # M2：watcher 必须由模块级注册表强引用持有（防未完成即被 GC
+                # 触发 "Task was destroyed"），完成后 add_done_callback 自动摘除。
                 logger.info("chat stream generator closed early: user=%s", user_id)
-
-                async def _wait_and_mark():
-                    try:
-                        reply = await task
-                    except Exception:
-                        return  # 生成失败/取消：无回复可补全
-                    if reply:
-                        self._mark_offline_if_needed(
-                            user_id, session_id, reply, min_id=before_id)
-
                 try:
-                    loop.create_task(_wait_and_mark())
+                    watcher = loop.create_task(self._wait_and_mark(
+                        task, user_id, session_id, before_id))
+                    _OFFLINE_WATCHERS.add(watcher)
+                    watcher.add_done_callback(_OFFLINE_WATCHERS.discard)
                 except RuntimeError:
                     logger.warning(
                         "chat stream offline watcher create failed: user=%s",

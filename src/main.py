@@ -4,7 +4,7 @@ import logging
 import os
 import threading
 import time
-from contextlib import asynccontextmanager
+from contextlib import aclosing, asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -1589,12 +1589,22 @@ async def chat_stream(req: ChatRequest, request: Request = None, auth: dict = De
     from .api.chat_stream import ChatStreamer, sse_format
 
     async def _sse_wrap():
-        async for evt in ChatStreamer(
+        # M2（2026-08-28）：客户端断开时 StreamingResponse 直接关闭本生成器，
+        # 但 async for 不会对内层 events() 生成器调用 aclose()——内层生成器会
+        # 悬挂在 yield 处，待 GC 触发 asyncgen finalizer 在事件循环上创建
+        # create_task(aclose())（async_generator_athrow）任务；进程关闭/循环
+        # 销毁时若仍 pending 即打出 "Task was destroyed but it is pending!"
+        # 告警（生产 17:58 现象，+5s/+10s 各一条）。aclosing 确保任何退出路径
+        # （正常完成/断开/取消）都显式收尾内层生成器：断开即刻交付 GeneratorExit，
+        # events() 的 finally 照常安排断点续传 watcher——断连语义不变（executor
+        # 线程自然跑完、配额/历史不丢、离线补打标记）。
+        async with aclosing(ChatStreamer(
             handler=handler, member_dao=member_dao, dao=dao,
             sanitizer=security_sanitizer, auditor=security_audit,
             validator=_validator, chat_quota_dao=chat_quota_dao,
-        ).events(req, request, auth):
-            yield sse_format(evt)
+        ).events(req, request, auth)) as events_gen:
+            async for evt in events_gen:
+                yield sse_format(evt)
 
     return StreamingResponse(
         _sse_wrap(),
