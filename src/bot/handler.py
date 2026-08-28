@@ -4152,14 +4152,58 @@ class MessageHandler:
         _dg = self._downgraded.get(user_id, False)
 
         if parsed is None:
-            # F2 渐进式累积（2026-08-26）：当前消息含部分出生信息 →
-            # 与"会话历史+当前消息"累积合并（最新者胜，不读档案基线）——
-            # 当前消息部分信息优先于档案（用户本轮新给的信息最大）：
-            # 年/月/日齐全 → 直接 _do_bazi_analysis（hour/minute 缺省 0、
-            # gender 缺省 unknown、city 缺省空串，沿用 _do_bazi_analysis
-            # 参数约定与 1384 语义；排盘后 P2 对话建档自动落库，不新增）；
-            # 不全 → 回显已确认项 + 缺什么要什么（_gen_info_collection_prompt）。
-            if self._extract_partial_birth(msg):
+            cur = self._extract_partial_birth(msg)
+            if cur:
+                # B3-1（2026-08-29）对话排盘归属判定（用户拍板规则）：
+                # ① 规则2：当前消息明确第三方（他/她/朋友…）+ 出生信息 →
+                #    排第三方（信息=当前消息+同会话对方分步累积，不被本人
+                #    档案覆盖）；
+                # ② 规则1：否则档案优先——默认命主有完整出生信息时直接用它，
+                #    不被会话历史/渐进收集覆盖（历史里帮别人排的盘不再污染
+                #    当前用户）；当前消息非身份键（时辰/城市/性别等）叠加；
+                # ③ 规则3：当前消息出生年份与档案命主不一致且无法判定归属
+                #    → 问一句确认（_gen_birth_conflict_ask），绝不静默排错；
+                # ④ 无完整档案 → F2 渐进式累积（2026-08-26 体验保留：
+                #    年龄→年份推算、部分回显、缺什么要什么、齐全自动排盘；
+                #    历史累积跳过第三方标记消息，见 _collect_partial_birth）。
+                if self._is_third_party_birth_request(msg):
+                    known, missing = self._collect_partial_birth(
+                        user_id, session_id, msg, third_party=True)
+                    if known.get("year") and known.get("month") and known.get("day"):
+                        return self._do_bazi_analysis(
+                            known["year"], known["month"], known["day"],
+                            known.get("hour") if known.get("hour") is not None else 0,
+                            known.get("minute") if known.get("minute") is not None else 0,
+                            known.get("city") or "",
+                            known.get("gender") or "unknown",
+                            msg, user_id, stream_cb=stream_cb)
+                    return self._gen_info_collection_prompt(
+                        msg, lite=_dg, known=known, missing=missing)
+                saved = self._get_user_birth_profile(user_id)
+                if saved and saved.get("year") and saved.get("month") and saved.get("day"):
+                    if (cur.get("year") and cur["year"] != saved["year"]):
+                        return self._gen_birth_conflict_ask(msg, cur, saved)
+                    # 档案为基线 + 当前消息补充（年份已判定一致或未提）
+                    merged = dict(saved)
+                    for _k in ("year", "month", "day", "hour", "minute",
+                               "city", "gender"):
+                        if _k in cur:
+                            merged[_k] = cur[_k]
+                    ack = self._gen_reuse_acknowledgment(msg, saved, lite=_dg)
+                    result = self._do_bazi_analysis(
+                        merged["year"], merged["month"], merged["day"],
+                        merged.get("hour") if merged.get("hour") is not None else 0,
+                        merged.get("minute") if merged.get("minute") is not None else 0,
+                        merged.get("city") or "",
+                        merged.get("gender") or "unknown",
+                        msg, user_id, stream_cb=stream_cb,
+                    )
+                    return ack + "\n\n" + result if ack else result
+                # ④ F2 渐进式累积（2026-08-26）：年/月/日齐全 → 直接
+                # _do_bazi_analysis（hour/minute 缺省 0、gender 缺省
+                # unknown、city 缺省空串，沿用 _do_bazi_analysis 参数约定
+                # 与 1384 语义；排盘后 P2 对话建档自动落库，不新增）；
+                # 不全 → 回显已确认项 + 缺什么要什么（_gen_info_collection_prompt）。
                 known, missing = self._collect_partial_birth(
                     user_id, session_id, msg)
                 if known.get("year") and known.get("month") and known.get("day"):
@@ -4448,6 +4492,28 @@ class MessageHandler:
         return (year, month, day, hour, minute, city, gender)
 
     # ── F2 渐进式出生信息累积（2026-08-26）────────────────────────────
+    # B3-1（2026-08-29）：第三方排盘指代标记——消息中出现任一即视为
+    # 「帮别人排盘」。用途：① _handle_bazi 当前消息归属判定（规则2）；
+    # ② _collect_partial_birth 跳过含他人信息的历史消息（本人渐进收集
+    # 不被污染）。仅在消息已含出生信息时判定才有意义；无出生信息时命中
+    # 无害（不提取任何键）。
+    _THIRD_PARTY_MARKERS = (
+        "他", "她", "朋友", "同事", "同学", "儿子", "女儿", "孩子", "小孩",
+        "老公", "老婆", "妻子", "丈夫", "爸爸", "妈妈", "父亲", "母亲",
+        "爷爷", "奶奶", "外公", "外婆", "姥爷", "姥姥", "哥哥", "弟弟",
+        "姐姐", "妹妹", "孙子", "孙女", "侄子", "侄女", "外甥", "外甥女",
+        "对象", "恋人", "男朋友", "女朋友", "客户", "老板", "邻居", "亲戚",
+        "家属", "爸", "妈",
+    )
+
+    def _is_third_party_birth_request(self, msg: str) -> bool:
+        """B3-1（规则2）：当前消息是否明确指代第三方排盘（他/她/朋友/亲属…）。
+
+        用户拍板：只有明确给第三方（如「帮我朋友排，他X年X月X日X时生」）
+        才排第三方；含糊时默认本人（档案命主）。
+        """
+        return any(m in msg for m in self._THIRD_PARTY_MARKERS)
+
     def _extract_partial_birth(self, msg: str,
                                current_year: Optional[int] = None) -> dict:
         """F2：从单条消息中提取"部分出生信息"——任意命中的键即可，不要求齐全。
@@ -4582,7 +4648,8 @@ class MessageHandler:
     def _collect_partial_birth(self, user_id: str,
                                session_id: Optional[str] = None,
                                msg: str = "",
-                               history: Optional[list] = None
+                               history: Optional[list] = None,
+                               third_party: bool = False
                                ) -> Tuple[dict, list]:
         """F2：累积合并"会话历史 user 消息 + 当前 msg"中的部分出生信息。
 
@@ -4590,6 +4657,10 @@ class MessageHandler:
           history_limit=8, session_id=session_id)（session_id 可 None=用户级历史，
           现有行为）；只取 role=="user" 的消息
         - 合并顺序：历史（旧→新）→ 当前 msg，最新者胜（后写覆盖）
+        - B3-1（2026-08-29）归属收窄：third_party=False（默认=本人渐进收集）
+          时跳过含第三方指代（他/她/朋友/亲属…，_THIRD_PARTY_MARKERS）的
+          历史消息——历史里帮别人排的盘不再污染当前用户；third_party=True
+          （当前消息明确第三方排盘）时合并全部历史（对方分步给信息也累积）。
         - 不读档案基线（档案复用走 _handle_bazi 既有 saved 分支）；不落库（无状态）
 
         返回 (known, missing)：
@@ -4608,9 +4679,13 @@ class MessageHandler:
                 history = None
         messages: list = []
         if history:
-            messages.extend(
-                h.get("content") for h in history
-                if h.get("role") == "user" and h.get("content"))
+            for _h in history:
+                if _h.get("role") != "user" or not _h.get("content"):
+                    continue
+                _c = _h["content"]
+                if not third_party and self._is_third_party_birth_request(_c):
+                    continue  # B3-1：他人信息不入本人累积
+                messages.append(_c)
         if msg:
             messages.append(msg)
         for m in messages:
@@ -4634,6 +4709,27 @@ class MessageHandler:
         if "gender" not in merged:
             missing.append("性别")
         return merged, missing
+
+    def _gen_birth_conflict_ask(self, msg: str, cur: dict,
+                                saved: dict) -> str:
+        """B3-1（2026-08-29）规则3：当前消息出生信息与档案命主不一致且
+        无法判定归属 → 问一句确认（固定文案零 LLM，绝不静默排错）。
+
+        - 回显当前消息已确认信息（_format_partial_echo，年龄推算带说明）
+        - 回显档案信息；给出路：回复「按档案」用档案信息排；或直接把完整
+          出生时间发过来（帮别人排则带对方信息）。
+        """
+        cur_echo = _format_partial_echo(cur, msg)
+        saved_echo = (f"{saved.get('year')}年{saved.get('month')}月"
+                      f"{saved.get('day')}日")
+        return (
+            f"您刚说的出生信息（{cur_echo}）和档案里您的信息"
+            f"（{saved_echo}）不太一致，我先跟您确认一下，怕排错盘：\n"
+            f"1. 按档案信息（{saved_echo}）给您排——回复「按档案」；\n"
+            "2. 按刚说的信息排——请把完整出生时间直接发给我"
+            "（年月日时分+城市+性别）；\n"
+            "3. 如果是帮别人排的，请告诉我对方的出生时间～"
+        )
 
     @staticmethod
     def _emit_stream_event(stream_cb, evt_type: str, text: str) -> None:
