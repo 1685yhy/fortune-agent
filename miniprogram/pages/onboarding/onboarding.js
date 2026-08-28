@@ -221,7 +221,8 @@ Page({
   _tourCardsWithArchive() {
     const list = persons.getLocalPersons();
     const p = persons.findDefault(list) || (Array.isArray(list) && list.length ? list[0] : null);
-    if (!p) return TOUR_CARDS;
+    // 两路径都返回副本（M4 硬化：无档案路径原返回共享常量引用，就地改返回值会污染常量）
+    if (!p) return TOUR_CARDS.map((c) => Object.assign({}, c));
     const cards = TOUR_CARDS.map((c) => Object.assign({}, c));
     cards[0].arch = persons.birthSummary(p);
     return cards;

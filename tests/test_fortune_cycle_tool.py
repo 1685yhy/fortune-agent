@@ -253,7 +253,8 @@ def test_month_luck_scoring():
 
 
 def test_best_worst_months_deterministic():
-    """全年 12 流月吉凶 → 最吉/最需留意月（确定性，同分取最早）。"""
+    """全年 12 流月吉凶 → 最吉/最需留意月（确定性；同分时最吉月取最早、
+    最需留意月取最晚，与 best_worst_months 文档一致）。"""
     r = BaziEngine().calculate(1990, 5, 20, 12, 0, "北京", "男")
     day_gan = r.bazi[2][0]
     best, worst = cycle.best_worst_months(day_gan, "丁未")

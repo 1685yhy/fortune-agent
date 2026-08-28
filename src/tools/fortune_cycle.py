@@ -270,7 +270,9 @@ def luck_word(score: int) -> str:
 
 
 def best_worst_months(day_gan: str, year_gz: str) -> Tuple[int, int]:
-    """全年 12 流月吉凶评分 → (最吉月, 最需留意月)（1-12 公历月；同分取最早）。"""
+    """全年 12 流月吉凶评分 → (最吉月, 最需留意月)（1-12 公历月；同分时最吉月
+    取最早、最需留意月取最晚——best=max key=(scores[i],-i) 取最早，worst=min
+    key=(scores[i],-i) 取最晚，M4 文档修正对齐实现）。"""
     scores = [luck_score(day_gan, flow_month_gz(year_gz, m)) for m in range(1, 13)]
     best = max(range(12), key=lambda i: (scores[i], -i))
     worst = min(range(12), key=lambda i: (scores[i], -i))

@@ -147,6 +147,17 @@ test('预填不变异模块级 TOUR_CARDS（重复进入多次仍纯净）', () 
   assert.equal(pageCfg.data.tourCards[0].arch, undefined, '模块级常量始终无 arch');
 });
 
+test('无档案路径同样返回副本：就地改返回值不污染常量与后续调用（M4 Minor-3②）', () => {
+  const p = makePage();
+  p._enterTour();
+  const cards = p.data.tourCards;
+  assert.ok(cards !== pageCfg.data.tourCards, '无档案路径应返回新数组（非共享常量引用）');
+  cards[0].title = '被污染';
+  p._enterTour();
+  assert.equal(p.data.tourCards[0].title, '排一次盘', '就地改上次返回值不应影响后续调用');
+  assert.equal(pageCfg.data.tourCards[0].title, '排一次盘', '模块级 TOUR_CARDS 不得被污染');
+});
+
 /* ── 4. wxml 接线（Q3 惯例：读文件断言展示条件） ── */
 
 test('onboarding.wxml：tour 卡渲染区含档案摘要行（wx:if="{{item.arch}}" + 「你的档案：」前缀）', () => {

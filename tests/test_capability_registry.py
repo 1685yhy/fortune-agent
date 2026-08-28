@@ -91,6 +91,32 @@ def test_num_omen_description_mandates_table_lookup():
         assert "一律先走本工具" in d
 
 
+def test_four_batch2_tools_description_mandate_lookup():
+    """M4（台账 Q1 建议）：hehun/naming/fortune_cycle/career_dir 四工具描述
+    追加同构强约束句——「必须调用本工具…计算、禁止自行编造…、用户问…一律
+    先走本工具」（四工具均有引擎兜底，风险低于 num_omen，但查表结论仍禁止
+    LLM 自行编造）。两处注入面（build_tool_description /
+    build_tool_schema_list）都必须带（与 num_omen 四断言同构）。
+    """
+    mandates = {
+        "hehun": ("必须调用本工具", "禁止自行编造", "一律先走本工具", "生肖冲合"),
+        "naming": ("必须调用本工具", "禁止自行编造", "一律先走本工具", "五行补益"),
+        "fortune_cycle": ("必须调用本工具", "禁止自行编造", "一律先走本工具",
+                          "流年流月"),
+        "career_dir": ("必须调用本工具", "禁止自行编造", "一律先走本工具",
+                       "喜用神"),
+    }
+    for cid, needles in mandates.items():
+        cap = reg.CAPABILITY_BY_ID[cid]
+        for n in needles:
+            assert n in cap.description, f"{cid} 描述缺强约束片段: {n}"
+        for d in (reg.build_tool_description(),
+                  next(s["description"] for s in reg.build_tool_schema_list()
+                       if s["name"] == cid)):
+            for n in needles:
+                assert n in d, f"{cid} 注入面缺强约束片段: {n}"
+
+
 def test_validate_params():
     """参数校验：缺必填/类型错 → 错误串；合法 → None。"""
     err = reg.validate_params("web_search", {"query": "北京天气"})
