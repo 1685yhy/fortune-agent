@@ -6791,8 +6791,11 @@ class MessageHandler:
         # 注入渐进引导 hint（LLM 先复述确认已给信息，再只问缺失项，
         # 不要要求完整格式，不要问今年是哪一年）。仅影响 LLM 提示词，
         # 无额外 LLM 调用；历史获取为 DAO 读，降级路径同样注入。
+        # 批次 2 E6（Important-1 修复）：scene_hint 命中的工具场景消息跳过——
+        # 含生日片段（如「1990年5月20日 想给孩子起名」）会同时命中 partial
+        # 累积与场景门控，注入该 hint 会与工具链调度指令并存、LLM 行为不可预测。
         partial_hint = ""
-        if not saved_bazi and not emotion_label:
+        if not saved_bazi and not emotion_label and not scene_hint:
             try:
                 _pknown, _pmissing = self._collect_partial_birth(
                     user_id, session_id, msg)

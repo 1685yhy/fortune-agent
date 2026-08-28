@@ -333,6 +333,44 @@ def test_scene_fallback_fail_open_on_handler_exception():
     assert reply == "🔮 精简回复"
 
 
+# ------------------------------------------------------------- C2. partial_hint 与场景消息互斥
+# Important-1 修复（批次 2 E6）：含生日片段的工具场景消息不得注入「分步提供
+# 出生信息」partial_hint——否则与工具链调度指令并存，LLM 行为不可预测
+# （实测复现：『1990年5月20日 想给孩子起名』known={year,month,day}、
+# 『1995年3月12日 下午2点 男，我适合什么行业』known 5 键）。
+
+
+def test_scene_hint_suppresses_partial_hint_injection():
+    """场景词命中 + 消息含生日片段 → _free_chat 不注入 partial_hint
+    （复现实测：known 非空但 scene_hint 门控优先，工具链提示词保持纯净）。"""
+    h = _make_light_handler()
+    h.session_dao = None  # 单消息模式：partial 累积只读当前消息，不碰会话 DAO
+    for msg, cap in (("1990年5月20日 想给孩子起名", "naming"),
+                     ("1995年3月12日 下午2点 男，我适合什么行业", "career_dir")):
+        h.llm.chat.reset_mock()
+        reply = h._free_chat(msg, "u1", scene_hint=cap)
+        assert reply == "🔮 精简回复"
+        chat_arg = h.llm.chat.call_args[0][0]
+        assert "分步提供出生信息" not in chat_arg, msg
+        assert "只询问缺失项" not in chat_arg, msg
+
+
+def test_no_scene_word_birthday_request_still_injects_partial_hint():
+    """既有 F2 行为回归：无场景词的生日/年龄请求仍注入 partial_hint
+    （渐进引导只被场景门控让路，自由对话路径不受影响）。"""
+    from datetime import date
+
+    h = _make_light_handler()
+    h.session_dao = None
+    expected_year = date.today().year - 50  # 50岁 → 当前年-50（生产 2026 → 1976）
+    reply = h._free_chat("我今年50岁了", "u1")
+    assert reply == "🔮 精简回复"
+    chat_arg = h.llm.chat.call_args[0][0]
+    assert "【重要】用户正在分步提供出生信息" in chat_arg
+    assert f"目前已确认：出生于{expected_year}年（按50岁周岁推算）" in chat_arg
+    assert "只询问缺失项" in chat_arg
+
+
 # ============================================================
 # D. e2e：场景消息 → 工具链 → 工单执行 → 回复含工具结果
 # ============================================================
