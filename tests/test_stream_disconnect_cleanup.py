@@ -136,6 +136,21 @@ def _spy_events(monkeypatch, inner_gens):
     monkeypatch.setattr(cs.ChatStreamer, "events", spy)
 
 
+async def _await_completion(cond, what: str, timeout: float = 10.0,
+                            interval: float = 0.2):
+    """轮询等待条件成立（0.2s 间隔、上限 10s），超时才以 AssertionError 失败。
+
+    批次2.5 M5: 替代固定 asyncio.sleep(3.5) 等待——executor 侧 sleep(3.0)
+    与等待侧同起点、余量仅 0.5s，高负载下线程调度可能击穿（M2 首轮实测 flake）。
+    改为完成标志轮询：只改等待逻辑，不改变被测行为与断言语义。
+    """
+    deadline = time.monotonic() + timeout
+    while not cond():
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"等待超时(>{timeout:.0f}s): {what}")
+        await asyncio.sleep(interval)
+
+
 async def _drive_then_disconnect(m, inner_gens):
     """真实端点路径：驱动 _sse_wrap 到生成中，再 aclose（客户端断开）。"""
     resp = await m.chat_stream(_Req(SID), None, {"method": "jwt", "user_id": USER})
@@ -169,7 +184,10 @@ def test_wrap_disconnect_closes_inner_generator(monkeypatch):
         assert inner.ag_frame is None, \
             "断开后内层 events() 生成器必须被关闭（当前仍悬挂在 yield 处）"
         # executor 继续自然跑完 → watcher 完成 → 离线标记补打（断连语义不回退）
-        await asyncio.sleep(3.5)
+        await _await_completion(
+            lambda: session_dao.marks == [(USER, SID, 42)],
+            what="离线补打标记 marks",
+        )
         assert session_dao.marks == [(USER, SID, 42)]
         # 无任务残留：当前仅剩 scenario 自身
         pending = [t for t in asyncio.all_tasks(loop) if t is not asyncio.current_task()]
@@ -207,7 +225,12 @@ def test_disconnect_watcher_owned_registered_then_removed(monkeypatch):
         watcher = next(iter(new))
         assert not watcher.done()
         # 后台生成自然跑完 → watcher 完成 → 自动摘除 + 补打离线标记
-        await asyncio.sleep(3.5)
+        await _await_completion(
+            lambda: watcher.done()
+            and set(registry) == snapshot
+            and session_dao.marks == [(USER, SID, 42)],
+            what="watcher 完成/摘除/离线标记",
+        )
         assert watcher.done()
         assert set(registry) == snapshot, "watcher 完成后必须从注册表摘除"
         assert session_dao.marks == [(USER, SID, 42)]

@@ -334,13 +334,19 @@ def _prewarm_night_lamps(date_str: str, limit: int = 50) -> dict:
     return stats
 
 
-def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
+async def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
     """按偏好时间下发:晨笺(kind=jian)或晚安(kind=night)。
 
     thing1..thing4 全部截断到 20 字(微信模板消息 thing 字段上限)。
     失败静默(P1): 每次发送异常 bump_fail 计数,连续≥3 次将订阅标记为
     bound_status=invalid,list_enabled_at 只放行 'bound' 故自动停止推送;
     成功 reset_fail 清零。跳过(无 openid)不触碰计数。
+
+    批次2.5 M5: 本函数由 _daily_push_worker 在事件循环线程直接调用(同步执行
+    会阻塞所有请求)。内部两处 _precompute_jian_for(FAISS 检索 + bge-reranker
+    重排,首次重排分钟级 CPU)经 asyncio.to_thread 委托线程池——与 M1
+    _daily_jian_precompute / 灯语 _prewarm_night_lamps 同款惯例,推送分钟撞上
+    首次重排时不再占死事件循环;返回值用于模板消息拼装的语义不变。
     """
     from src.services.wechat_mp import send_template, mp_ready, _env
     stats = {"total": 0, "pushed": 0, "skipped": 0, "errors": 0}
@@ -360,7 +366,7 @@ def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
                 continue
             date_str = datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d")
             if kind == "jian":
-                content = _precompute_jian_for(date_str)
+                content = await asyncio.to_thread(_precompute_jian_for, date_str)
                 from src.engines.jian_private import generate_private_line
                 line = generate_private_line(uid)
                 data = {
@@ -378,7 +384,8 @@ def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
                 # 落地页带 entry=night,前端以入口为准强进深夜模式(白天点开也生效);
                 # thing 字段均 ≤20 字(微信模板消息上限);按钮文案由服务号模板配置,
                 # 当前以 thing4 承诺文案 + 落地页入口承接「点一盏灯,说说话」。
-                night_content = _precompute_jian_for(date_str)
+                night_content = await asyncio.to_thread(
+                    _precompute_jian_for, date_str)
                 data = {
                     "thing1": {"value": "明灯 · 夜话"[:20]},
                     "thing2": {"value": "夜深了,灯还亮着"[:20]},
@@ -451,8 +458,8 @@ async def _daily_push_worker():
                     from src.storage.jian_dao import JianPrefDAO
                     from src.storage.dao import get_conn
                     jdao = JianPrefDAO(get_conn())
-                _send_jian_batch(jdao, current_time, "jian")
-                _send_jian_batch(jdao, current_time, "night")
+                await _send_jian_batch(jdao, current_time, "jian")
+                await _send_jian_batch(jdao, current_time, "night")
         except Exception as e:
             logger.error(f"定时推送任务异常: {e}")
 
