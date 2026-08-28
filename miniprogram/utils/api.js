@@ -426,6 +426,7 @@ function chat(message, scenario = '', history = [], options = {}) {
   if (options.voiceText) data.voice_text = options.voiceText;
   if (options.deepNight) data.deep_night = true;  // Task 8 深夜倾诉：临时不记录 + 深夜语气层
   if (options.sessionId) data.session_id = options.sessionId;  // 会话隔离
+  if (options.imageUrl) data.image_url = options.imageUrl;     // B4-1 图片消息：message_type=image
   // chat 冷启动最慢 59s：单独长超时 60s（微信平台单请求上限），其余请求 30s
   return waitForLogin().then(() => {
     data.user_id = resolveUserId(); // 登录定型后取最新统一身份
@@ -447,7 +448,8 @@ function chat(message, scenario = '', history = [], options = {}) {
  * @param {string} message - 用户消息
  * @param {Object} handlers - { onStart, onThinking, onTool, onChunk, onDone, onError, onAbort }
  * @param {Object} options  - { messageType: 'text'|'voice', voiceText,
- *                              sessionId: string }（会话隔离：新开对话 → 新 sessionId）
+ *                              sessionId: string, imageUrl: string }（会话隔离：新开对话 → 新 sessionId；
+ *                              B4-1 图片消息：messageType='image' + imageUrl=上传返回 URL）
  * @returns {Promise<{abort: Function}>} abort() = 停止生成（已输出保留）
  */
 function chatStream(message, handlers = {}, options = {}) {
@@ -459,6 +461,7 @@ function chatStream(message, handlers = {}, options = {}) {
   if (options.voiceText) data.voice_text = options.voiceText;
   if (options.deepNight) data.deep_night = true;  // Task 8 深夜倾诉：临时不记录 + 深夜语气层
   if (options.sessionId) data.session_id = options.sessionId;  // 会话隔离
+  if (options.imageUrl) data.image_url = options.imageUrl;     // B4-1 图片消息：message_type=image
 
   return waitForLogin().then(ensureBaseURL).then(() => {
     data.user_id = resolveUserId(); // 登录定型后取最新统一身份
@@ -1291,6 +1294,39 @@ function uploadAvatar(filePath) {
   }));
 }
 
+/** 上传对话图片（B4-1：输入区相机/+ 面板 → 面相/手相分析链路）。
+    multipart，后端 form 字段名 file，≤5MB，Bearer 鉴权 → {status, url, filename}。
+    url 为完整可访问地址：小程序渲染 msg.image.url + chatStream image_url 透传共用。 */
+function uploadChatImage(filePath) {
+  return ensureBaseURL().then((baseURL) => new Promise((resolve, reject) => {
+    wx.uploadFile({
+      url: `${baseURL}/api/chat/upload`,
+      filePath,
+      name: 'file',
+      header: { Authorization: `Bearer ${getToken()}` },
+      success: (res) => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          let data = res.data;
+          try { data = JSON.parse(res.data); } catch (e) { /* ignore */ }
+          resolve(data);
+        } else {
+          let msg = '图片上传失败';
+          try {
+            const body = JSON.parse(res.data);
+            if (body && body.detail) msg = body.detail;
+          } catch (e) { /* ignore */ }
+          reject(new Error(msg));
+        }
+      },
+      fail: (err) => {
+        console.error('[API] uploadChatImage error:', err);
+        scheduleReprobe();
+        reject(new Error('网络连接失败，请检查网络设置'));
+      },
+    });
+  }));
+}
+
 // ---- 分享（落地页 + 二维码） ----
 
 /**
@@ -1378,6 +1414,7 @@ module.exports = {
   getPhone,
   saveProfile,
   uploadAvatar,
+  uploadChatImage,
 
   // Jian (明灯晨笺：早晚双笺订阅)
   getJianPrefs,

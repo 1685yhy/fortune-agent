@@ -4,13 +4,14 @@ import logging
 import os
 import threading
 import time
+import uuid
 from contextlib import aclosing, asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 from .config import is_experience_mode, load_settings
@@ -2154,6 +2155,101 @@ async def palm_reading(
         }
     except Exception as e:
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
+
+
+# ════════════════════════════════════════════════════════════════
+# B4-1: 对话图片上传（输入区相机/+ 面板 → 面相/手相分析链路）
+#
+# 前端链路：wx.chooseMedia → POST /api/chat/upload → 返回可访问 URL
+# （本服务 /api/chat/uploads/<uuid>.<ext>）→ 小程序渲染 msg.image.url +
+# chatStream 以 message_type=image + image_url 透传 → handler._handle_image
+# （handler.py 经 urllib urlretrieve 下载该 URL → CV 面相/手相 → 报告）。
+#
+# 安全设计：
+#  - require_user 严格 JWT 鉴权（与 face/palm 同构）；
+#  - 类型白名单（content-type）+ 魔数嗅探（防伪装）；
+#  - 大小上限 5MB（413）；
+#  - 文件名一律服务端 uuid 生成，绝不采用客户端文件名（路径穿越防护）；
+#  - 静态读取走本路由 + Path.name 校验（只允许本上传目录内文件）。
+# 注意：GET /api/chat/uploads/{file} 不带鉴权——小程序 <image src> 无法携带
+# Authorization 头；uuid 文件名不可猜测，与既有 /share-cards 静态服务同策略。
+# ════════════════════════════════════════════════════════════════
+_CHAT_UPLOAD_MAX = 5 * 1024 * 1024  # 5MB
+_CHAT_UPLOAD_EXT = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
+
+def _chat_uploads_dir() -> Path:
+    """上传目录（惰性解析：测试可经 FORTUNE_UPLOADS_DIR 注入临时目录）。"""
+    base = os.environ.get(
+        "FORTUNE_UPLOADS_DIR",
+        str(load_settings().data_dir / "uploads" / "chat"),
+    )
+    d = Path(base)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _sniff_image_ext(data: bytes) -> str:
+    """魔数嗅探真实图片格式（防 content-type 伪装/非图片数据）。"""
+    if data[:3] == b"\xff\xd8\xff":
+        return ".jpg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return ".png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return ".webp"
+    if data[:6] in (b"GIF87a", b"GIF89a"):
+        return ".gif"
+    return ""
+
+
+@app.post("/api/chat/upload")
+async def chat_upload(
+    image: UploadFile = File(...),
+    uid: str = Depends(require_user),
+    request: Request = None,
+):
+    """对话图片上传：鉴权 + 类型白名单 + 大小上限 + 魔数嗅探 + uuid 落盘。
+
+    返回 {status, url, filename}：url 为完整可访问地址（小程序渲染与
+    chatStream image_url 透传共用；服务端 urlretrieve 读回做 CV 分析）。
+    """
+    if not image or not image.filename:
+        raise HTTPException(status_code=400, detail="缺少图片文件")
+    ctype = (image.content_type or "").lower()
+    if ctype not in _CHAT_UPLOAD_EXT:
+        raise HTTPException(status_code=415, detail="仅支持 jpg/png/webp/gif 图片")
+    content = await image.read(_CHAT_UPLOAD_MAX + 1)
+    if len(content) > _CHAT_UPLOAD_MAX:
+        raise HTTPException(status_code=413, detail="图片不能超过 5MB")
+    ext = _sniff_image_ext(content)
+    if not ext:
+        raise HTTPException(status_code=415, detail="文件内容不是有效图片")
+    # 文件名一律服务端 uuid 生成（绝不采用客户端文件名，路径穿越防护）
+    fname = uuid.uuid4().hex + ext
+    (_chat_uploads_dir() / fname).write_bytes(content)
+    base = str(request.base_url).rstrip("/")
+    return {
+        "status": "ok",
+        "url": f"{base}/api/chat/uploads/{fname}",
+        "filename": fname,
+    }
+
+
+@app.get("/api/chat/uploads/{filename}")
+async def chat_upload_file(filename: str):
+    """上传图片静态读取（路径安全：仅本上传目录内文件，拒绝穿越）。"""
+    name = Path(filename).name
+    if name != filename:
+        raise HTTPException(status_code=400, detail="非法文件名")
+    p = _chat_uploads_dir() / name
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return FileResponse(p)  # media_type 按扩展名推断（image/jpeg 等，供小程序 <image> 渲染）
 
 
 @app.get("/api/dashboard/{user_id}")

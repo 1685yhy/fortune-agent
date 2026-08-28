@@ -853,22 +853,68 @@
    quickAsk 函数保留（引导区示例问题使用）；输入条现仅输入行 + 内边距，
    --inputbar-h 已同步降为 130rpx，msg-list/引导区底部联动不变 */
 .input-row { display: flex; align-items: center; gap: 17rpx; }  /* 9px */
+
+/* B4-1 输入框外壳（对齐豆包：内嵌 相机|文本区|小话筒；边框/圆角/底移到此层） */
+.input-shell {
+  flex: 1;
+  min-height: 81rpx;                     /* 42px：与旧单行输入等高 */
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 8rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-input);  /* 1px */
+  border-radius: 15rpx;                  /* 8px */
+}
+.input-shell.input-focused {
+  border-color: var(--acc);
+  box-shadow: 0 0 0 6rpx var(--acc-soft);  /* 3px */
+}
+/* B4-1 自动长高文本区：auto-height，行高 40rpx，5.5 行封顶（max-height 220rpx）；
+   bindlinechange 行数 → JS 联动 --inputbar-h（增量 = (行数-1) × 40rpx，封顶 +200rpx） */
 .chat-input {
   flex: 1;
-  height: 81rpx;                         /* 42px */
-  padding: 0 29rpx;                      /* 15px */
-  background: var(--paper-card);
-  border: 2rpx solid var(--line-input); /* 1px */
-  border-radius: 15rpx;                  /* 8px */
+  min-height: 44rpx;                     /* 单行（行高 40rpx） */
+  max-height: 220rpx;                    /* 5.5 行封顶，超出内部滚动 */
+  height: auto;
+  box-sizing: border-box;
+  line-height: 40rpx;
+  padding: 18rpx 12rpx;
   font-family: var(--font-song);
   font-size: 28rpx;                      /* 14.5px */
   letter-spacing: .04em;
   color: var(--ink);
 }
-.chat-input.input-focused {
-  border-color: var(--acc);
-  box-shadow: 0 0 0 6rpx var(--acc-soft);  /* 3px */
+/* 输入框内嵌图标（相机左 / 小话筒右）：圆形热区，点击态浅朱砂 */
+.in-ic {
+  width: 54rpx;
+  height: 54rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
 }
+.in-ic image { width: 34rpx; height: 34rpx; }  /* 18px */
+.in-ic-active { background: var(--acc-soft); }
+/* 语音插件未配置：内嵌话筒置灰（点按仍有提示，不走长按） */
+.in-ic.in-ic-off image { opacity: .35; }
+
+/* B4-1 「+」钮（输入框右侧、发送钮左边）：展开更多面板（拍照/相册） */
+.plus-btn {
+  width: 85rpx;                          /* 44px */
+  height: 85rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-input);  /* 1px */
+  border-radius: 12rpx;                  /* 6px */
+}
+.plus-btn image { width: 38rpx; height: 38rpx; }  /* 20px */
+.plus-btn-active { border-color: var(--acc); background: var(--acc-soft); }
+
 .input-ph { color: var(--ink-faint); letter-spacing: .12em; }
 
 .send-btn {
@@ -907,22 +953,9 @@
 }
 .stop-btn-active { transform: scale(.94); background: var(--ink-faint); }
 
-/* ═══ 语音交互（元宝式）═ 模式切换 / 按住说话 / 朗读播报 ═══ */
-
-/* ── 麦克风模式钮（v1.1 输入框左侧：点一下 → 按住说话模式，墨韵描线） ── */
-.mic-btn {
-  width: 85rpx;                          /* 44px */
-  height: 85rpx;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--paper-card);
-  border: 2rpx solid var(--line-input);  /* 1px */
-  border-radius: 12rpx;                  /* 6px */
-}
-.mic-btn image { width: 38rpx; height: 38rpx; }  /* 20px */
-.mic-btn-active { border-color: var(--acc); background: var(--acc-soft); }
+/* ═══ 语音交互（元宝式）═ 模式切换 / 按住说话 / 朗读播报 ═══
+   B4-1：独立麦克风模式钮已移除（入口改为输入框内嵌小话筒，见 .in-ic.in-mic）；
+   语音三态（voice-hold/rec-bar/convert-bar）与状态机全部保留 */
 
 /* ── 按住说话条（v1.1 语音模式，浅墨底 + 麦克风小图） ── */
 .voice-hold {
@@ -1219,6 +1252,12 @@
 }
 .act-row::after { border: none; }        /* button 伪边框移除（分享项） */
 .act-row-active { background: var(--acc-soft); }
+/* B4-1 「+」面板入口图标（png 线性体系，与 act-em 等宽对齐） */
+.mp-ic {
+  width: 52rpx;
+  height: 52rpx;
+  flex-shrink: 0;
+}
 .act-em {
   width: 52rpx;
   height: 52rpx;

@@ -1,4 +1,4 @@
-<view class="screen {{nightMode ? 'night' : ''}} {{quotaBar.show ? 'qb-on' : ''}}" style="--nav-off:{{navOff}}px" bindtap="onListTap">
+<view class="screen {{nightMode ? 'night' : ''}} {{quotaBar.show ? 'qb-on' : ''}}" style="--nav-off:{{navOff}}px;--inputbar-h:{{inputBarH}}rpx" bindtap="onListTap">
   <view class="navrow {{showBack ? 'show-back' : ''}}">
     <!-- 返回箭头：仅导航栈进入（历史/解梦 navigateTo）时显示；tab 主屏隐藏（原型 4-tab 常驻无返回） -->
     <view wx:if="{{showBack}}" class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
@@ -145,7 +145,8 @@
           <view class="jz-body">
             <image wx:if="{{item.image && item.image.url}}" class="msg-img"
               src="{{item.image.url}}" mode="widthFix"
-              style="{{item.image.width ? 'max-width:' + item.image.width + 'rpx;' : ''}}"></image>
+              style="{{item.image.width ? 'max-width:' + item.image.width + 'rpx;' : ''}}"
+              data-url="{{item.image.url}}" catchtap="previewMsgImage"></image>
             <block wx:if="{{item.card}}">
               <!-- 前置内容（流式重发重复前缀已由镜像丢弃；此处仅兜底非重复前置） -->
               <view wx:if="{{item.cardPrefixNodes && item.cardPrefixNodes.length}}" class="card-prefix">
@@ -238,10 +239,11 @@
           <view wx:if="{{multiMode}}" class="msg-check {{multiSel[item.id] ? 'on' : ''}}" data-id="{{item.id}}" catchtap="onMsgTap">
             <text wx:if="{{multiSel[item.id]}}" class="mc-mark">✓</text>
           </view>
-          <!-- v1.2 图片消息预留：msg.image → 圆角墨框图片 -->
+          <!-- v1.2 图片消息预留：msg.image → 圆角墨框图片（B4-1：点击放大预览） -->
           <image wx:if="{{item.image && item.image.url}}" class="msg-img"
             src="{{item.image.url}}" mode="widthFix"
-            style="{{item.image.width ? 'max-width:' + item.image.width + 'rpx;' : ''}}"></image>
+            style="{{item.image.width ? 'max-width:' + item.image.width + 'rpx;' : ''}}"
+            data-url="{{item.image.url}}" catchtap="previewMsgImage"></image>
           <text selectable="{{selectMsgId === item.id}}">{{item.content}}</text>
           <view class="u-meta">
             <text class="u-time">我 · {{item.time}}</text>
@@ -269,9 +271,10 @@
       <text class="qb-text">{{quotaBar.text}}</text>
       <view wx:if="{{quotaBar.downgraded}}" class="qb-btn" hover-class="qb-btn-active" hover-stay-time="0" bindtap="goMember">开通会员</view>
     </view>
-    <!-- v1.1 语音/键盘模式切换（元宝式）：
-         文字模式 = 左侧语音图标（点一下切按住说话）+ 输入框 + 发送/停止
-         语音模式 = 按住说话条（复用录音逻辑）+ 右侧键盘图标（点一下切回文字） -->
+    <!-- B4-1 输入区改版（对齐豆包）：[输入框（内嵌 相机|文本|小话筒）] [+钮] [发送钮]
+         文字模式 = 输入框内嵌相机图标（选图/拍照）+ 自动长高文本区 + 内嵌小话筒（点一下切按住说话）
+         语音模式 = 按住说话条（复用录音逻辑）+ 键盘图标（点一下切回文字）+ [+钮]
+         v1.1 语音三态（voice-hold/rec-bar/convert-bar）与状态机全部保留，仅入口变化 -->
     <view class="input-row">
       <block wx:if="{{inputMode === 'voice'}}">
         <view wx:if="{{!isRecording && !converting}}" class="voice-hold {{micAvailable ? '' : 'mic-off'}}" hover-class="voice-hold-active" hover-stay-time="0"
@@ -300,14 +303,30 @@
         <view class="kb-btn" hover-class="kb-btn-active" hover-stay-time="0" data-mode="text" bindtap="switchInputMode">
           <image src="/assets/images/ic-keyboard.png"></image>
         </view>
+        <view class="plus-btn" hover-class="plus-btn-active" hover-stay-time="0" bindtap="openMorePanel">
+          <image src="/assets/images/ic-plus.png"></image>
+        </view>
       </block>
       <block wx:else>
-        <view class="mic-btn mode-mic {{micAvailable ? '' : 'mic-off'}}" hover-class="mic-btn-active" hover-stay-time="0" data-mode="voice" bindtap="switchInputMode">
-          <image src="/assets/images/ic-mic.png"></image>
+        <view class="input-shell {{inputFocused ? 'input-focused' : ''}}">
+          <!-- 内嵌相机图标（豆包样式）：点击选图/拍照 → 上传发图片消息 -->
+          <view class="in-ic in-cam" hover-class="in-ic-active" hover-stay-time="0" bindtap="chooseImage">
+            <image src="/assets/images/ic-camera.png"></image>
+          </view>
+          <!-- B4-1 自动长高：textarea auto-height，5.5 行封顶；bindlinechange 联动 --inputbar-h -->
+          <textarea class="chat-input" placeholder="{{nightMode ? '慢慢说，我听着。' : '写下一句心事…'}}"
+            placeholder-class="input-ph" value="{{inputText}}" focus="{{inputFocus}}"
+            auto-height maxlength="500" cursor-spacing="20"
+            bindinput="onInput" bindfocus="onFocus" bindblur="onBlur" bindconfirm="onConfirm"
+            bindlinechange="onInputLineChange" confirm-type="send" />
+          <!-- 内嵌小话筒图标：点击切按住说话（再点键盘图标切回） -->
+          <view class="in-ic in-mic {{micAvailable ? '' : 'in-ic-off'}}" hover-class="in-ic-active" hover-stay-time="0" data-mode="voice" bindtap="switchInputMode">
+            <image src="/assets/images/ic-mic.png"></image>
+          </view>
         </view>
-        <input class="chat-input {{inputFocused ? 'input-focused' : ''}}" placeholder="{{nightMode ? '慢慢说，我听着。' : '写下一句心事…'}}"
-          placeholder-class="input-ph" value="{{inputText}}" focus="{{inputFocus}}" bindinput="onInput"
-          bindfocus="onFocus" bindblur="onBlur" bindconfirm="onConfirm" confirm-type="send" />
+        <view class="plus-btn" hover-class="plus-btn-active" hover-stay-time="0" bindtap="openMorePanel">
+          <image src="/assets/images/ic-plus.png"></image>
+        </view>
         <!-- v8 阶段 3：生成中无输入 → 停止钮；正在打字 → 发送钮（点按=排队，豆包式） -->
         <view wx:if="{{streaming && !inputText}}" class="stop-btn" hover-class="stop-btn-active" hover-stay-time="0" bindtap="stopStream">
           <view class="stop-square"></view>
@@ -462,6 +481,25 @@
         wx:for="{{EMOJIS}}" wx:key="index" data-em="{{item}}" bindtap="toggleReaction">{{item}}</view>
     </view>
     <view class="act-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeEmojiSheet">取消</view>
+  </view>
+
+  <!-- B4-1 输入区「+」更多面板：拍照 / 从相册选择 → 同一上传链路（面相/手相分析）。
+       文件入口暂缓（台账 Minor）；图标为既有 png 线性体系（禁 emoji 图标） -->
+  <view wx:if="{{morePanel.show}}" class="act-mask" bindtap="closeMorePanel" catchtouchmove="noop"></view>
+  <view wx:if="{{morePanel.show}}" class="act-sheet" catchtouchmove="noop">
+    <view class="act-head">
+      <text class="act-title">更多</text>
+      <text class="act-sub">发一张照片，看看面相或手相</text>
+    </view>
+    <view class="act-row" hover-class="act-row-active" hover-stay-time="0" bindtap="choosePhoto">
+      <image class="mp-ic" src="/assets/images/ic-camera-soft.png"></image>
+      <text class="act-label">拍照</text>
+    </view>
+    <view class="act-row" hover-class="act-row-active" hover-stay-time="0" bindtap="chooseAlbum">
+      <image class="mp-ic" src="/assets/images/ic-camera.png"></image>
+      <text class="act-label">从相册选择</text>
+    </view>
+    <view class="act-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeMorePanel">取消</view>
   </view>
 
   <!-- ═══ v1.2 Markdown 渲染模板（utils/md.js 节点树 → 逐节点 view/text，墨韵样式） ═══ -->

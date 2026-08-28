@@ -139,6 +139,7 @@ class StreamHost {
     this.msgId = null;           // 当前生成中的 AI 消息 id
     this.curText = '';
     this.curTag = '';
+    this.curImg = null;          // B4-1 图片消息：当前流的图片 {url}（message_type=image）
     this.chunkAccum = '';
     this.flushTimer = null;
     this.watchdog = null;
@@ -296,10 +297,31 @@ class StreamHost {
     return 'sent';
   }
 
-  /* 流式一条消息：上屏用户笺 + 空 AI 笺 → 逐 chunk 打字机 → done/error */
-  _startStream(text, tag, queued) {
+  /* B4-1 图片消息：上传成功 → 用户图片笺上屏 + message_type=image 流式请求
+     （img = {url}，与 msg.image 渲染字段同构；生成中同样排队） */
+  sendImage(img) {
+    const url = img && img.url;
+    if (!url) return 'empty';
+    const now = Date.now();
+    const userMsg = { id: 'u' + now, role: 'user', content: '（图片）', image: { url }, time: nowTime(0) };
+    if (this.streaming) {
+      this.messages = this.messages.concat([Object.assign({}, userMsg, { pending: true })]);
+      this.queue.push({ text: '（图片）', tag: '', userMsgId: userMsg.id, img: { url } });
+      this.tick++;
+      this._emit({ autoScroll: true });
+      this._save();
+      return 'queued';
+    }
+    this._startStream('（图片）', '', null, { url });
+    return 'sent';
+  }
+
+  /* 流式一条消息：上屏用户笺 + 空 AI 笺 → 逐 chunk 打字机 → done/error
+     img（可选，B4-1）：{url} → 用户笺挂 image 字段 + 请求走 message_type=image */
+  _startStream(text, tag, queued, img) {
     const now = Date.now();
     let userMsg = null;
+    const imgFor = (queued && queued.img) || img || null;
     if (queued && queued.userMsgId) {
       const idx = this._indexOf(queued.userMsgId);
       if (idx >= 0) {
@@ -311,6 +333,7 @@ class StreamHost {
     if (!userMsg) {
       // 直发（非排队）或排队消息在列表中已缺失：补建用户笺并上屏
       userMsg = { id: 'u' + now, role: 'user', content: text, time: nowTime(0) };
+      if (imgFor) userMsg.image = { url: imgFor.url };
       this.messages = this.messages.concat([userMsg]);
     }
     const aiMsg = {
@@ -335,6 +358,7 @@ class StreamHost {
     this.msgId = aiMsg.id;
     this.curText = text;
     this.curTag = tag || '';
+    this.curImg = imgFor;  // B4-1 图片消息：请求随附 message_type=image + image_url
     this.chunkAccum = '';
     this.gotData = false;
     this.fallbackStarted = false;
@@ -356,8 +380,15 @@ class StreamHost {
       onAbort: () => this._onAbort(),
       onError: (err) => this._onError(err),
     };
+    const img = this.curImg || null;
     api.chatStream(this.curText, handlers,
-                   { deepNight: !!this.deepNight, sessionId: this.sessionId })
+                   {
+                     deepNight: !!this.deepNight,
+                     sessionId: this.sessionId,
+                     // B4-1 图片消息：后端按 message_type=image → _handle_image
+                     messageType: img ? 'image' : 'text',
+                     imageUrl: img ? img.url : '',
+                   })
       .then((handle) => {
         this.task = handle;
         if (this._stopRequested) {
@@ -378,13 +409,13 @@ class StreamHost {
     }
   }
 
-  /* 重试：丢弃失败气泡，用原消息重发 */
-  retry(msgId, text, tag) {
+  /* 重试：丢弃失败气泡，用原消息重发（img 可选：图片消息重试保持图片链路） */
+  retry(msgId, text, tag, img) {
     const t = (text || '').trim();
     if (!t || this.streaming) return;
     this.messages = this.messages.filter((m) => m.id !== msgId);
     this._save();
-    this._startStream(t, tag || '', null);
+    this._startStream(t, tag || '', null, img || null);
   }
 
   /* 删除一条消息（气泡菜单）：生成中的消息 → 中止；排队中的用户消息 → 出队 */
@@ -427,6 +458,8 @@ class StreamHost {
           text: String(m.content || ''),
           userMsgId: m.id,
           tag: tagFor ? tagFor(m.content) : '',
+          // B4-1 图片消息：断线重连保持图片链路（image_url 随队）
+          img: m.image && m.image.url ? { url: m.image.url } : undefined,
         });
       }
     });
@@ -600,8 +633,14 @@ class StreamHost {
     if (!hasPartial && !this.fallbackStarted) {
       this.fallbackStarted = true;
       try {
+        const img = this.curImg || null;
         const res = await api.chat(this.curText || '', '', [],
-                                   { sessionId: this.sessionId });
+                                   {
+                                     sessionId: this.sessionId,
+                                     // B4-1 图片消息：回退普通请求同样走 image 链路
+                                     messageType: img ? 'image' : 'text',
+                                     imageUrl: img ? img.url : '',
+                                   });
         const content = (res && (res.reply || res.content || '')) || '';
         const cur = this._find(this.msgId);
         if (!cur) return;
@@ -654,7 +693,7 @@ class StreamHost {
   _nextQueued() {
     if (!this.queue.length) return;
     const next = this.queue.shift();
-    setTimeout(() => this._startStream(next.text, next.tag, next), 60);
+    setTimeout(() => this._startStream(next.text, next.tag, next, next.img), 60);
   }
 
   /* 流式看门狗：每次收到流事件即续命；超时 → 中止任务 + 走失败流程 */

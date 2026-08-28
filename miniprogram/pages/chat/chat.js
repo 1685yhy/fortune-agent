@@ -75,6 +75,14 @@ const NEAR_BOTTOM_PX = 50;        // 兜底阈值：50px（375px 宽屏的 100rp
 const CLIENTH_MEASURE_MS = 1500;  // 可视区高度周期校准间隔：键盘弹起等布局变化会让 msg-list
                                   // 高度改变，滚动中每 ~1.5s 重测一次防阈值失真
 
+/* B4-1 输入条动态高度（rpx）：--inputbar-h = 基线 + 额度条 + 文本区增长
+   基线 130rpx（与既有常量一致）；行高 40rpx（chat.wxss .chat-input）；
+   5.5 行封顶 → 增长封顶 5 行 × 40 = 200rpx */
+const INPUTBAR_BASE = 130;
+const INPUTBAR_QBON = 42;        // 额度条展示时增高量（原 .qb-on 172-130）
+const INPUTBAR_LINE_H = 40;      // 文本区每增一行的增高量（40rpx 行高）
+const INPUTBAR_MAX_LINES = 6;    // 5.5 行封顶 → 行数封顶 6
+
 Page({
   data: {
     navOff: 0,
@@ -129,6 +137,11 @@ Page({
     saveBanner: false,
     /* L5-1/L5-2 对话额度条：免费用户「今日 X/15」；超限降级 → 精简提示 + 会员引导 */
     quotaBar: { show: false, text: '', downgraded: false },
+    /* B4-1 输入条动态高度（rpx，注入 .screen --inputbar-h，联动 msg-list/引导区/安全条）：
+       130 基线 + 额度条 42 + 文本区增长 (行数-1)×40，封顶 +200 */
+    inputBarH: 130,
+    /* B4-1 「+」更多面板：拍照 / 从相册选择 */
+    morePanel: { show: false },
   },
 
   onLoad(options) {
@@ -137,6 +150,9 @@ Page({
        旧基础库无 wx.getWindowInfo → getSystemInfoSync 兜底 → 仍无则 50px 常量兜底。 */
     const win = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
     this._nearBottomPx = win.windowWidth ? win.windowWidth / 750 * 100 : NEAR_BOTTOM_PX;
+    /* B4-1 输入条动态高度：文本区行数（bindlinechange）初始 1 行 */
+    this._inputLines = 1;
+    this._updateInputBarH(1);
     /* ═══ Task 8 · 深夜模式进入（夜色主题/灯笼/挽留劝睡/灯语卡/要我记得吗/12356） ═══ */
     options = options || {};
     const app = getApp();
@@ -306,7 +322,10 @@ Page({
     api.getChatQuota()
       .then((q) => {
         if (!q || q.is_member || q.limit == null) {
-          if (this.data.quotaBar.show) this.setData({ quotaBar: { show: false, text: '', downgraded: false } });
+          if (this.data.quotaBar.show) {
+            this.setData({ quotaBar: { show: false, text: '', downgraded: false } });
+            this._updateInputBarH(this._inputLines || 1); // B4-1：额度条消失 → 输入条回落
+          }
           return;
         }
         const used = Math.min(q.used || 0, q.limit);
@@ -320,6 +339,7 @@ Page({
               : `今日 ${left}/${q.limit} 条`,
           },
         });
+        this._updateInputBarH(this._inputLines || 1); // B4-1：额度条出现 → 输入条抬高
       })
       .catch(() => { /* 额度查询失败：静默隐藏（不打扰对话） */ });
   },
@@ -764,13 +784,114 @@ Page({
     streamHost.stop();
   },
 
-  /* 重试：丢弃失败气泡，用原消息重发 */
+  /* 重试：丢弃失败气泡，用原消息重发（B4-1：图片消息重试保持图片链路） */
   retryStream(e) {
     if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const text = (e.currentTarget.dataset.text || '').trim();
     if (!text || streamHost.active) return;
     const id = e.currentTarget.dataset.id;
-    streamHost.retry(id, text, curatedFor(text).tag);
+    const msg = this._findMessage(id);
+    streamHost.retry(id, text, curatedFor(text).tag, msg && msg.image);
+  },
+
+  /* ═══ B4-1 输入区改版：相机选图 / + 面板 / 图片消息 / 自动长高 ═══ */
+
+  /* 输入框内嵌相机图标：点击选图/拍照（chooseMedia 双 sourceType）→ 上传发图片消息 */
+  chooseImage() {
+    this._chooseAndSend(['camera', 'album']);
+  },
+
+  /* + 面板「拍照」 */
+  choosePhoto() {
+    this.closeMorePanel();
+    this._chooseAndSend(['camera']);
+  },
+
+  /* + 面板「从相册选择」 */
+  chooseAlbum() {
+    this.closeMorePanel();
+    this._chooseAndSend(['album']);
+  },
+
+  _chooseAndSend(sourceType) {
+    if (!wx.chooseMedia) {
+      wx.showToast({ title: '当前微信版本不支持选图', icon: 'none' });
+      return;
+    }
+    wx.chooseMedia({
+      count: 1,
+      mediaType: ['image'],
+      sourceType,
+      success: (res) => {
+        const f = res && res.tempFiles && res.tempFiles[0];
+        if (f && f.tempFilePath) this._uploadAndSend(f.tempFilePath);
+      },
+      fail: () => { /* 用户取消/相机不可用：静默 */ },
+    });
+  },
+
+  /* 上传 → 发图片消息（上传失败/超限 → 明确 toast，服务端错误码透传） */
+  _uploadAndSend(filePath) {
+    wx.showLoading({ title: '上传中…', mask: true });
+    api.uploadChatImage(filePath)
+      .then((res) => {
+        wx.hideLoading();
+        if (!res || !res.url) {
+          wx.showToast({ title: '图片上传失败', icon: 'none' });
+          return;
+        }
+        this._sendImage({ url: res.url });
+      })
+      .catch((err) => {
+        wx.hideLoading();
+        wx.showToast({ title: (err && err.message) || '图片上传失败', icon: 'none' });
+      });
+  },
+
+  /* 图片消息进宿主（streamHost 上屏用户图片笺 + message_type=image 流式请求） */
+  _sendImage(img) {
+    const r = streamHost.sendImage(img);
+    if (r === 'queued') {
+      wx.showToast({ title: '已排队，等我说完就回你', icon: 'none', duration: 1200 });
+    }
+    if (r !== 'empty') this._nightTouch();  // 深夜：每发一条登记守夜人
+  },
+
+  /* + 面板 */
+  openMorePanel() { this.setData({ morePanel: { show: true } }); },
+  closeMorePanel() { this.setData({ morePanel: { show: false } }); },
+
+  /* 图片消息点击 → 放大预览（一期单图） */
+  previewMsgImage(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
+    const url = e.currentTarget.dataset.url;
+    if (!url) return;
+    wx.previewImage({ current: url, urls: [url] });
+  },
+
+  /* 输入条动态高度：--inputbar-h = 130(基线) + 42(额度条) + 40×(行数-1)（封顶 5 行增量）。
+     注入 .screen 内联变量 → msg-list/引导区/安全条三处 calc 自动联动 */
+  _updateInputBarH(lines) {
+    const n = Math.max(1, Math.min(lines || 1, INPUTBAR_MAX_LINES));
+    const extra = (n - 1) * INPUTBAR_LINE_H;
+    const qb = this.data.quotaBar && this.data.quotaBar.show ? INPUTBAR_QBON : 0;
+    const h = INPUTBAR_BASE + qb + extra;
+    if (h !== this.data.inputBarH) this.setData({ inputBarH: h });
+  },
+
+  /* textarea 行数变化（bindlinechange）→ 高度联动 + 若此前贴底则补一次贴底滚动 */
+  onInputLineChange(e) {
+    const lines = (e.detail && e.detail.lineCount) || this._inputLines || 1;
+    const changed = lines !== this._inputLines;
+    this._inputLines = lines;
+    this._updateInputBarH(lines);
+    if (changed) this._onInputGrow();
+  },
+
+  /* 输入条变高 → 消息区可视高度收缩：若用户此前在底部，补滚贴底（上滑查看不打扰） */
+  _onInputGrow() {
+    const near = this._isNearBottom(this._scrollTop, this._scrollHeight, this._clientH);
+    if (near) this._scrollBottom();
   },
 
   /* 思考路径折叠/展开（宿主持久化） */
@@ -1419,6 +1540,9 @@ Page({
       this._finishRecording(false);
     }
     this.setData({ inputMode: mode, inputFocused: false });
+    // B4-1：语音模式按住说话条固定高 → 输入条回落基线；切回文字恢复文本区行数高度
+    if (mode === 'voice') this._updateInputBarH(1);
+    else this._updateInputBarH(this._inputLines || 1);
   },
 
   /* ════════════════════════════════════════════════════════════
