@@ -4244,6 +4244,25 @@ class MessageHandler:
             return self._gen_info_collection_prompt(msg, lite=_dg)
 
         year, month, day, hour, minute, city, gender = parsed
+        # B3-1-fix（2026-08-29）规则3边界补全（parsed 完整信息路径）：
+        # 当前消息含完整生辰（无第三方指代）且与档案命主年份冲突时，同样
+        # 问一句确认——复用 _gen_birth_conflict_ask（与部分信息冲突路径
+        # 同一套文案），绝不静默排盘/落库；信息与档案一致（或档案无此
+        # 字段）时仍正常排盘（规则1不受影响）。有第三方指代 → 规则2排
+        # 第三方，不询问（与既有 parsed 直排语义一致）。
+        if not self._is_third_party_birth_request(msg):
+            saved = self._get_user_birth_profile(user_id)
+            if (saved and saved.get("year") and saved.get("month")
+                    and saved.get("day") and saved["year"] != year):
+                cur = {"year": year, "month": month, "day": day}
+                if hour or minute:
+                    cur["hour"] = hour
+                    cur["minute"] = minute
+                if city and city != "北京":
+                    cur["city"] = city
+                if gender and gender != "unknown":
+                    cur["gender"] = gender
+                return self._gen_birth_conflict_ask(msg, cur, saved)
         return self._do_bazi_analysis(
             year, month, day, hour, minute, city, gender, msg, user_id,
             stream_cb=stream_cb,
@@ -4492,11 +4511,18 @@ class MessageHandler:
         return (year, month, day, hour, minute, city, gender)
 
     # ── F2 渐进式出生信息累积（2026-08-26）────────────────────────────
-    # B3-1（2026-08-29）：第三方排盘指代标记——消息中出现任一即视为
-    # 「帮别人排盘」。用途：① _handle_bazi 当前消息归属判定（规则2）；
-    # ② _collect_partial_birth 跳过含他人信息的历史消息（本人渐进收集
-    # 不被污染）。仅在消息已含出生信息时判定才有意义；无出生信息时命中
-    # 无害（不提取任何键）。
+    # B3-1（2026-08-29）：第三方排盘指代判定。用途：① _handle_bazi 当前
+    # 消息归属判定（规则2）；② _collect_partial_birth 跳过含他人信息的
+    # 历史消息（本人渐进收集不被污染）。仅在消息已含出生信息时判定才有
+    # 意义；无出生信息时命中无害（不提取任何键）。
+    # B3-1-fix（2026-08-29）：单字裸子串匹配（他/她/妈/爸）误伤本人陈述
+    # ——实测「其他我记不清了」（"其他"含"他"）、「我妈说我是1976年生的」
+    # （"妈"是信息出处不是排盘对象）被误判第三方，走 third_party 分支合并
+    # 全部历史 → 历史含他人完整生辰时静默排出错盘并落库。收紧为两类证据：
+    # ① 结构模式：帮/给/为/替 + 目标（他/她/朋友/亲属称谓…）+ 排/算/看
+    #    （盘|八字|命|卦）——明确「给 X 排盘」；
+    # ② 指代词 他/她 直接后接出生信息（年份/年龄）——「他1976年生」。
+    # 亲缘称谓（妈/爸/朋友…）不再裸词触发，只在结构模式内有效。
     _THIRD_PARTY_MARKERS = (
         "他", "她", "朋友", "同事", "同学", "儿子", "女儿", "孩子", "小孩",
         "老公", "老婆", "妻子", "丈夫", "爸爸", "妈妈", "父亲", "母亲",
@@ -4505,14 +4531,31 @@ class MessageHandler:
         "对象", "恋人", "男朋友", "女朋友", "客户", "老板", "邻居", "亲戚",
         "家属", "爸", "妈",
     )
+    _THIRD_PARTY_STRUCT_RE = re.compile(
+        r'(?:帮|给|为|替)[^，。！？!?；;、\n]{0,12}?'
+        r'(?:' + '|'.join(_THIRD_PARTY_MARKERS) + r')'
+        r'[^，。！？!?；;、\n]{0,4}?'
+        r'(?:排|算|看|看看)(?:个|一)?(?:盘|八字|命|卦)?'
+    )
+    _THIRD_PARTY_PRONOUN_BIRTH_RE = re.compile(
+        r'[他她][^，。！？!?；;、\n\d〇零一二三四五六七八九]{0,2}'
+        r'(?:(?:\d{4}|[〇零一二三四五六七八九]{2,4})\s*年|\d{1,3}\s*岁)'
+    )
 
     def _is_third_party_birth_request(self, msg: str) -> bool:
-        """B3-1（规则2）：当前消息是否明确指代第三方排盘（他/她/朋友/亲属…）。
+        """B3-1（规则2）：当前消息是否明确指代第三方排盘。
 
         用户拍板：只有明确给第三方（如「帮我朋友排，他X年X月X日X时生」）
         才排第三方；含糊时默认本人（档案命主）。
+        B3-1-fix：结构模式（帮/给/为/替 + 目标 + 排盘）或指代词后接出生
+        信息才算第三方；亲缘词裸出现不算——「其他我记不清了」「我妈说
+        我是1976年生的」不再误判第三方。
         """
-        return any(m in msg for m in self._THIRD_PARTY_MARKERS)
+        if not msg:
+            return False
+        if self._THIRD_PARTY_STRUCT_RE.search(msg):
+            return True
+        return bool(self._THIRD_PARTY_PRONOUN_BIRTH_RE.search(msg))
 
     def _extract_partial_birth(self, msg: str,
                                current_year: Optional[int] = None) -> dict:

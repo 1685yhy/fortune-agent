@@ -247,6 +247,129 @@ def test_third_party_marker_detection():
     assert h._is_third_party_birth_request("我1976年生的，帮我排个盘") is False
 
 
+# ── B3-1-fix：第三方判定收紧（他/她/妈/爸 裸词误判修复）──────────
+
+
+def test_third_party_detection_no_false_positive_other():
+    """「其他我记不清了」——"其他"含"他"但非指代 → 不判第三方（纯误伤）。"""
+    h = make_handler()
+    assert h._is_third_party_birth_request("其他我记不清了") is False
+    assert h._is_third_party_birth_request(
+        "帮我排个盘，1976年，其他我记不清了") is False
+    assert h._is_third_party_birth_request("帮我排个盘，1976年，其它情况忘了") is False
+
+
+def test_third_party_detection_no_false_positive_mom_said():
+    """「我妈说我是1976年生的」——"妈"是信息出处不是排盘对象 → 不判第三方；
+    该场景是用户陈述自己的生日（与档案冲突 → 规则3问一句，不静默排错）。"""
+    h = make_handler()
+    assert h._is_third_party_birth_request(
+        "我妈说我是1976年生的，帮我排个盘") is False
+    h._collect_partial_birth = Mock(return_value=(
+        {"year": 1976}, ["出生月日", "出生时辰", "出生城市", "性别"]))
+    out = h._handle_bazi("我妈说我是1976年生的，帮我排个盘", "u1")
+    h._do_bazi_analysis.assert_not_called()
+    h._collect_partial_birth.assert_not_called()  # 本人陈述 → 档案路径，不渐进收集
+    assert "1976" in out and "1990" in out and "档案" in out
+
+
+def test_third_party_detection_mom_paipan_struct():
+    """「给我妈排个盘，她1976年5月13日生」——帮/给+亲属+排盘结构 →
+    判第三方（真实的给妈妈排盘）：走第三方收集并排妈妈的盘，
+    绝不静默排成档案命主（1990）的盘。"""
+    h = make_handler()
+    assert h._is_third_party_birth_request(
+        "给我妈排个盘，她1976年5月13日生") is True
+    h._collect_partial_birth = Mock(return_value=(dict(FRIEND_BIRTH), []))
+    out = h._handle_bazi("给我妈排个盘，她1976年5月13日生", "u1")
+    h._do_bazi_analysis.assert_called_once()
+    pos, kw = h._collect_partial_birth.call_args
+    assert kw["third_party"] is True
+    assert h._do_bazi_analysis.call_args[0][:7] == (1976, 5, 13, 10, 0,
+                                                    "上海", "女")
+    assert out == "分析结果"
+
+
+def test_third_party_detection_friend_paipan_plain():
+    """「帮我朋友排盘」——无出生信息但结构明确 → 判第三方（不裸词也不漏判）。"""
+    h = make_handler()
+    assert h._is_third_party_birth_request("帮我朋友排盘") is True
+    assert h._is_third_party_birth_request("帮我老婆排盘") is True
+    assert h._is_third_party_birth_request("帮她看八字，1976年生") is True
+
+
+def test_third_party_detection_pronoun_birth():
+    """「他1976年5月13日生」——他/她+出生信息 → 判第三方（历史过滤场景，
+    无排盘结构也命中）。"""
+    h = make_handler()
+    assert h._is_third_party_birth_request("他1976年5月13日生的") is True
+    assert h._is_third_party_birth_request("她2001年生") is True
+    assert h._is_third_party_birth_request("他今年50岁了") is True
+    assert h._is_third_party_birth_request("我1976年生的") is False
+    assert h._is_third_party_birth_request("其他年份记不清了") is False
+
+
+def test_collect_skips_pronoun_birth_history():
+    """历史裸「他1976年…」消息（无排盘结构）同样被过滤——不污染本人累积。"""
+    h = make_handler()
+    history = [
+        {"role": "user", "content": "我1990年生的"},
+        {"role": "user", "content": "他1976年5月13日10点出生"},
+    ]
+    known, missing = h._collect_partial_birth("u1", None, "10点以后",
+                                              history=history)
+    assert known["year"] == 1990  # 他1976 被跳过（否则最新-优先为 1976）
+    assert known["hour"] == 10
+    assert "出生年份" not in missing
+
+
+# ── B3-1-fix：parsed 完整信息路径规则3补全（冲突问一句）────────────
+
+
+def test_parsed_conflicting_year_asks():
+    """parsed 完整信息路径：完整生辰与档案命主年份冲突且无第三方指代 →
+    问一句确认（复用 _gen_birth_conflict_ask 文案），不排盘不落库。"""
+    h = make_handler()
+    h._extract_bazi_info = Mock(
+        return_value=(1976, 5, 13, 0, 0, "北京", "unknown"))
+    out = h._handle_bazi("帮我排个盘，1976年5月13日", "u1")
+    h._do_bazi_analysis.assert_not_called()
+    h._gen_info_collection_prompt.assert_not_called()
+    assert "1976" in out and "1990" in out and "档案" in out
+
+
+def test_parsed_conflicting_year_mom_said_asks():
+    """parsed 完整信息 + 「我妈说…」（妈是信息出处）→ 仍视为本人陈述冲突 →
+    问一句，不静默排盘。"""
+    h = make_handler()
+    h._extract_bazi_info = Mock(
+        return_value=(1976, 5, 13, 0, 0, "北京", "unknown"))
+    out = h._handle_bazi("我妈说我是1976年5月13日生的，帮我排个盘", "u1")
+    h._do_bazi_analysis.assert_not_called()
+    assert "1976" in out and "1990" in out and "档案" in out
+
+
+def test_parsed_matching_year_charts_normally():
+    """parsed 完整信息与档案年份一致 → 正常排盘（规则1不破坏）。"""
+    h = make_handler()
+    h._extract_bazi_info = Mock(return_value=(1990, 5, 13, 10, 0, "北京", "男"))
+    out = h._handle_bazi("帮我排个盘，1990年5月13日10点", "u1")
+    h._do_bazi_analysis.assert_called_once()
+    assert h._do_bazi_analysis.call_args[0][:7] == (1990, 5, 13, 10, 0,
+                                                    "北京", "男")
+
+
+def test_parsed_no_archive_charts_normally():
+    """parsed 完整信息 + 无档案 → 正常排盘（无冲突可查）。"""
+    h = make_handler()
+    h._extract_bazi_info = Mock(return_value=(1976, 5, 13, 10, 0, "上海", "女"))
+    h._get_user_birth_profile = Mock(return_value=None)
+    out = h._handle_bazi("1976年5月13日10点上海女，帮我排个盘", "u1")
+    h._do_bazi_analysis.assert_called_once()
+    assert h._do_bazi_analysis.call_args[0][:7] == (1976, 5, 13, 10, 0,
+                                                    "上海", "女")
+
+
 # ── F2 保护：无完整档案时渐进收集照常 ─────────────────────────────
 
 
