@@ -31,6 +31,14 @@ function shouldShowNoarchTip(hasArchive, tipClosed) {
   return !hasArchive && !tipClosed;
 }
 
+/* Q3（批次2 收尾）：排盘页未建档引导条是否显示——未建档用户点「排盘」入口
+   （E1 提示条 / onboarding 导览卡 / 测算页八字排盘卡）落地 paipan 建档表单页时，
+   显示「还没建档」建档口径引导（E1 提示条同款文案）；已有档案 → 不显示。
+   纯判定，供 paipan.js onLoad/onShow 调用（node 单测见 paipan_noarch.test.js）。 */
+function shouldShowPaipanNoarchGuide(hasArchive) {
+  return !hasArchive;
+}
+
 /* 导览卡是否还有下一张（tourIdx 非最后一张 → 显示「下一步」而非「开始使用」） */
 function tourHasNext(idx, total) {
   return idx < total - 1;
@@ -48,6 +56,7 @@ module.exports = {
   TOUR_SKIP_KEY,
   NOARCH_CLOSED_KEY,
   shouldShowNoarchTip,
+  shouldShowPaipanNoarchGuide,
   tourHasNext,
   shouldAutoShowTour,
 };

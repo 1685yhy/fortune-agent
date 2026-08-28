@@ -4,6 +4,8 @@
 // 隐私红线：生辰只随请求内存排盘（后端不落库），本页不写任何本地存储。
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
+const persons = require('../../utils/persons');
+const guide = require('../../utils/guide');
 
 /* ── 静态表 ── */
 
@@ -47,6 +49,7 @@ Page({
     dark: false,
 
     /* ── 输入表单 ── */
+    noArchive: false,     // Q3：本地无档案 → 显示「还没建档」建档口径引导（E1 同款文案）
     bDate: '',            // 'YYYY-MM-DD'（一次选完）
     bCal: 'solar',
     bDateText: '',        // 展示：1999年5月13日
@@ -96,6 +99,20 @@ Page({
 
   onLoad() {
     theme.bindTheme(this);
+    this._refreshNoarchive();
+  },
+
+  /* 每次回页面刷新未建档引导（Q3）：本地无档案 → 引导条显示；建档返回自动消失 */
+  onShow() {
+    this._refreshNoarchive();
+  },
+
+  /* Q3：未建档点「排盘」（E1 提示条/导览卡/测算页）落地本页 → 建档口径引导。
+     纯判定 guide.shouldShowPaipanNoarchGuide（node 单测）；不复用 E1 关闭标记：
+     引导条不新增 storage 键，跟随有无档案自然显隐 */
+  _refreshNoarchive() {
+    const show = guide.shouldShowPaipanNoarchGuide(persons.hasLocalArchive());
+    if (this.data.noArchive !== show) this.setData({ noArchive: show });
   },
 
   /* ════════ 表单 ════════ */

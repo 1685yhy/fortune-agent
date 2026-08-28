@@ -26,6 +26,44 @@ page {
 .input-title { display: block; font-family: var(--font-song); font-weight: 700; font-size: 40rpx; letter-spacing: .2em; color: var(--ink); }
 .input-sub { display: block; margin-top: 6rpx; font-family: var(--font-song); font-size: 22rpx; letter-spacing: .14em; color: var(--ink-soft); }
 
+/* Q3 未建档引导条（批次2 收尾）：无档案落地本页 → 建档口径引导，today E1 提示条同款样式 */
+.pp-noarch {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-top: 26rpx;
+  padding: 22rpx 24rpx;
+  border: 2rpx solid var(--line);
+  border-radius: 12rpx;
+  background: var(--paper-card);
+  box-shadow: 0 8rpx 23rpx var(--shadow-sm);
+}
+.pp-noarch-seal {
+  width: 62rpx; height: 62rpx;
+  flex-shrink: 0;
+  border-radius: 6rpx;
+  background: var(--acc);
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12);
+  display: flex; align-items: center; justify-content: center;
+  transform: rotate(-2deg);
+}
+.pp-noarch-seal-char { font-family: var(--font-kai); font-size: 36rpx; color: #FBF6E8; line-height: 1; }
+.pp-noarch-mid { flex: 1; min-width: 0; }
+.pp-noarch-t {
+  font-family: var(--font-song);
+  font-size: 25rpx;
+  color: var(--ink);
+  letter-spacing: .05em;
+  line-height: 1.5;
+}
+.pp-noarch-s {
+  margin-top: 6rpx;
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .08em;
+  color: var(--ink-faint);
+}
+
 .form-card {
   background: var(--paper-card);
   border: 2rpx solid var(--line);
