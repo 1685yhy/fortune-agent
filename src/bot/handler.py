@@ -114,6 +114,19 @@ _TOOL_EVENT_LABELS = {
     "数字吉凶": "正在查看数字吉凶…",
 }
 
+# 批次 2 E6（工具 AI 决策通道）：工具场景 → 默认引擎兜底映射。
+# process() intent=None 分支：scene_hint 请求经工具链后 LLM 未输出任何工单
+# （tool_log 无 calls）→ 按此表回退既有引擎处理器（质量下限护栏：工具链
+# 不触发时体验不降级；兜底回复继续走 _maybe_wrap_card / welcome / 落库流程）。
+# num_omen 无引擎（数字吉凶为工具规则层确定性计算）→ 不在表内，
+# LLM 自由回复即为兜底。键与 message_analyzer.TOOL_SCENE_WORDS 对齐。
+SCENE_DEFAULT_ENGINE = {
+    "hehun": "_handle_hehun",
+    "naming": "_handle_xingming",
+    "fortune_cycle": "_handle_advisor",
+    "career_dir": "_handle_career",
+}
+
 # ============================================================
 # 择吉日（Task 2）: 7 场景同义词表 + 意图词表（双条件判定）
 # ============================================================
@@ -3489,12 +3502,34 @@ class MessageHandler:
             reply = self._free_chat(msg, user_id, emotion_label=analysis.emotion_label,
                                     extra_hint="\n".join(hints),
                                     stream_cb=stream_cb, session_id=session_id,
-                                    downgraded=downgraded)
+                                    downgraded=downgraded,
+                                    scene_hint=getattr(analysis, "scene_hint", None))
             # AI 原生（Phase 1）：<tool_call> 工具调用循环
             reply = self._run_tool_loop(msg, user_id, reply, stream_cb=stream_cb,
                                         analysis=analysis, session_id=session_id)
             # 阶段 2：本轮工具调用日志 → 落库字段
             tool_log = self._pop_tool_log(user_id)
+            # 批次 2 E6（工具 AI 决策通道）：场景兜底——LLM 未输出任何工单
+            # （tool_log 无 calls）且 scene_hint 命中映射表 → 回退默认引擎
+            # （hehun→_handle_hehun / naming→_handle_xingming /
+            # fortune_cycle→_handle_advisor / career_dir→_handle_career；
+            # num_omen 无引擎，LLM 自由回复即为兜底）。降级链路不做引擎
+            # 兜底（_rule_analyze 不产出 scene_hint，双保险再挡一次）。
+            # 兜底失败 → 保留 _free_chat 原文（fail-open）。
+            if (not (tool_log or {}).get("calls")
+                    and not downgraded
+                    and getattr(analysis, "scene_hint", None)
+                    in SCENE_DEFAULT_ENGINE):
+                try:
+                    _scene_handler = getattr(
+                        self, SCENE_DEFAULT_ENGINE[analysis.scene_hint])
+                    if analysis.scene_hint == "career_dir":
+                        reply = _scene_handler(msg, user_id, stream_cb=stream_cb,
+                                               session_id=session_id)
+                    else:
+                        reply = _scene_handler(msg, user_id, stream_cb=stream_cb)
+                except Exception:
+                    pass  # 兜底异常 → 保留 _free_chat 原文
             # E2-1 卡片化：统一出口包装（只作用于最终回复字符串；开场白/引导语
             # 留在卡片外；未命中 → 原样返回）
             reply = self._maybe_wrap_card(reply, user_id,
@@ -6699,7 +6734,8 @@ class MessageHandler:
                    extra_hint: str = "",
                    stream_cb: Optional[Callable] = None,
                    session_id: Optional[str] = None,
-                   downgraded: bool = False) -> str:
+                   downgraded: bool = False,
+                   scene_hint: str = None) -> str:
         """自由对话：没有命中任何命理意图时，直接用 LLM 自然聊天。
 
         当检测到情绪信号时，将情绪上下文注入提示词，
@@ -6721,10 +6757,13 @@ class MessageHandler:
 
         # 如果消息含数字或年份且用户已有八字，直接路由到八字分析
         # 注意: "男"/"女" 必须是独立出现(性别标记)，不能是 "渣男"/"美女" 等词的一部分
+        # 批次 2 E6（工具 AI 决策通道）：scene_hint 命中的消息（如
+        # 「这个手机号 13800138000 好不好」含 4 位数字串）跳过出生信息
+        # 引导门——否则工具链入口被掐断，LLM 永远看不到工具清单。
         has_year = bool(re.search(r'\d{4}', msg))
         has_gender = bool(re.search(r'(?:^|[^\w])[男女](?:$|[^\w])', msg))
         saved_bazi = self.dao.get_user_bazi(user_id) if self.dao else None
-        if (has_year or has_gender) and not saved_bazi:
+        if (has_year or has_gender) and not saved_bazi and not scene_hint:
             # F2（2026-08-26）：先看是否已在会话中累积部分出生信息——有则
             # 渐进引导（回显已确认项 + 只问缺失项，不要求完整格式）；无则
             # 保持原固定格式引导（行为不变）。
@@ -6737,7 +6776,7 @@ class MessageHandler:
                 return self._gen_info_collection_prompt(
                     msg, lite=downgraded, known=_pknown, missing=_pmissing)
             return '看起来您可能在提供出生信息。请按格式告诉我：\n📅 出生年月日（阳历/阴历）\n⏰ 几点几分\n📍 出生城市\n👤 性别\n\n例如：1990年5月20日 下午3点 北京 男'
-        if saved_bazi and (has_year or has_gender):
+        if saved_bazi and (has_year or has_gender) and not scene_hint:
             # 用户已有八字，但提供了新的出生信息，可能想更新或已有信息
             # L5-2（I-1）：降级链路意图判定改规则快判（零 LLM 调用）
             if self._downgraded.get(user_id, False):

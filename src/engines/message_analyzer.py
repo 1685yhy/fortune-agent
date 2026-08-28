@@ -39,6 +39,10 @@ class MessageAnalysis:
     facts: dict = field(default_factory=dict)
     missing_info: list = field(default_factory=list)
     needs_search: bool = False
+    # 批次 2 E6（工具 AI 决策通道）：工具场景提示——规则门控命中时
+    # intent=None + scene_hint=cap_id，直达工具链（默认 None，向后兼容，
+    # 全部既有构造点无需改动）
+    scene_hint: Optional[str] = None
 
 
 COMBINED_PROMPT = """You are a message analyzer for a Chinese fortune-telling AI (易理明灯).
@@ -94,6 +98,16 @@ Rules:
 - needs_search: 用户的问题是否需要实时信息才能答好（公司/行业现状/时事/人物
   近况类=true；纯命理古籍/排盘=false），不确定默认 false
 
+## 6. 工具场景分类指导（批次 2 E6：LLM 是调度员、工具是工具库）
+- 涉及以下场景的问题，即使符合上面 hehun/career/xingming/calendar 等意图规则
+  的描述，也一律归 "free_chat"（这类请求会进入对话工具链，由 AI 按工具说明书
+  选工具执行确定性计算，不要分给引擎 intent）：
+  * 数字吉凶：手机号/手机号码/车牌/门牌/尾号/号码吉凶
+  * 合婚配对：合不合/合婚/八字合/配不配/般配/生辰合
+  * 起名改名：起名/取名/改名/宝宝叫/孩子叫
+  * 流年流月：流年/流月/明年运势/逐月运势
+  * 择业方位：适合做什么/适合什么行业/职业方向/择业/行业选择/找工作/换工作
+
 Return ONLY JSON:
 {"needs_soothe": bool, "soothe_text": "安抚文本或空", "emotion": "情绪标签",
  "intent": "意图分类", "is_sharing": bool, "secondary_needs": ["附加需求"],
@@ -103,6 +117,39 @@ Return ONLY JSON:
 # Task 5（批次 1）：模块加载时把枚举行占位符替换为注册表生成行（生成结果与原文
 # 一字不差，由 tests/test_capability_registry.py::test_combined_prompt_enum_same_source 锚定）
 COMBINED_PROMPT = COMBINED_PROMPT.replace("__INTENT_ENUM__", build_intent_enum_line())
+
+# 批次 2 E6（工具 AI 决策通道）：工具场景词规则门控表（对标豆包/元宝
+# 「LLM 是调度员、工具是工具库」）。场景词命中 → analyze() 直接返回
+# intent=None + scene_hint=cap_id（0 LLM 确定性，与 D5 快路径门控同族），
+# 直达工具链（_free_chat 工具清单注入 + _run_tool_loop）→ LLM 按工具说明
+# 书选工具执行；无工单时 handler 按 SCENE_DEFAULT_ENGINE 默认引擎兜底。
+#
+# 词表设计（防误伤，逐词评估见 task-E6-report.md）：
+# - 全部为多字专属词，避免「名字/号码/运势/婚/名」等泛词单用；
+# - 各场景词表之间无交集（消息命中唯一 cap_id）；
+# - 不收录「排盘/八字/出生日期」类词——排盘类请求必须保留 bazi 快路径。
+TOOL_SCENE_WORDS: dict = {
+    "num_omen": ("手机号", "手机号码", "车牌", "门牌", "尾号", "号码吉凶", "数字吉凶"),
+    "hehun": ("合不合", "合婚", "八字合", "配不配", "般配", "生辰合"),
+    "naming": ("起名", "取名", "改名", "宝宝叫", "孩子叫"),
+    "fortune_cycle": ("流年", "流月", "明年运势", "逐月运势"),
+    "career_dir": ("适合做什么", "适合什么行业", "职业方向", "择业",
+                   "行业选择", "找工作", "换工作"),
+}
+# 编译一次（词全为中文，re.escape 防御未来加词含正则元字符）
+_TOOL_SCENE_CHECKS = [
+    (cap_id, re.compile("|".join(re.escape(w) for w in words)))
+    for cap_id, words in TOOL_SCENE_WORDS.items()
+]
+
+
+def match_tool_scene(text: str) -> Optional[str]:
+    """工具场景词匹配：命中返回 cap_id（dict 插入序首个命中；词表跨场景
+    无交集，顺序不影响结果），未命中返回 None。"""
+    for cap_id, pattern in _TOOL_SCENE_CHECKS:
+        if pattern.search(text):
+            return cap_id
+    return None
 
 
 class MessageAnalyzer:
@@ -159,6 +206,17 @@ class MessageAnalyzer:
         if not user_message:
             return MessageAnalysis(needs_soothe=False, soothe_text="",
                                    emotion_label=None, intent=None)
+
+        # 批次 2 E6（工具 AI 决策通道）：工具场景词规则门控 → intent=None +
+        # scene_hint=cap_id 直达工具链（0 LLM 确定性，见模块级 TOOL_SCENE_WORDS）。
+        # 置于 BIRTH_DATE_PATTERN 快路径之前：含日期+场景词的请求
+        # （如「1990年5月20日 想给孩子起名」）不被纯生日快路径掐成 bazi
+        # （D4 同族缺陷）；纯生日陈述（无场景词）仍走下方 0 LLM 快路径。
+        scene_hint = match_tool_scene(user_message)
+        if scene_hint:
+            return MessageAnalysis(needs_soothe=False, soothe_text="",
+                                   emotion_label=None, intent=None,
+                                   scene_hint=scene_hint)
 
         # Fast path 收紧：只有"纯生日陈述"（无任何意图词）才直接判 bazi；
         # 含意图词（适合/公司/职业/配/像谁…）即使有生日也必须走 AI 分类

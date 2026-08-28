@@ -72,9 +72,14 @@ def test_birth_plus_company_question_goes_to_ai(analyzer, monkeypatch):
 
 
 def test_birth_plus_career_question_career(analyzer, monkeypatch):
-    """含生日 + 适合什么工作：AI 分类为 career。"""
+    """含生日 + 适合什么工作：AI 分类为 career。
+
+    注意：原文「适合做什么工作」已含 E6 工具场景词（career_dir），现被规则
+    门控直达工具链（见 test_tool_scene_routing.py）；此处改用不含门控词的
+    变体（「适合去哪个公司发展」），保持「career 意图走 LLM 分类」覆盖。
+    """
     calls = _mock_completion("career", monkeypatch)
-    result = analyzer.analyze("1990年5月20日出生，适合做什么工作")
+    result = analyzer.analyze("1990年5月20日出生，适合去哪个公司发展")
     assert result.intent == "career"
     assert calls["n"] == 1
 
@@ -246,19 +251,26 @@ def test_rule_analyze_zeri_request_not_bazi():
 # ── Task 8 双人合盘 hehun 意图扩展（触发词 + 两人语义规则） ──
 
 def test_birth_plus_hehun_words_goes_to_ai(analyzer, monkeypatch):
-    """含生日 + 婚恋配对词（我和TA合不合）：不走 fast path 纯排盘，走 AI 分类返回 hehun。"""
+    """批次 2 E6：含生日 + 婚恋配对词（我和TA合不合）→ 规则门控直达工具链。
+
+    修前（批次 1）：走 AI 分类返回 hehun（引擎直答）。E6 起：场景词命中 →
+    intent=None + scene_hint=hehun（0 LLM），且门控先于 BIRTH_DATE_PATTERN
+    快路径——含日期也不被掐成 bazi（D4 同族缺陷防护）。
+    """
     calls = _mock_completion("hehun", monkeypatch)
     result = analyzer.analyze("1990年5月20日 男，我和TA合不合")
-    assert result.intent == "hehun"
-    assert calls["n"] == 1  # 确实走了 AI 分类
+    assert result.intent is None
+    assert result.scene_hint == "hehun"
+    assert calls["n"] == 0  # 规则门控，无 LLM 调用
 
 
 def test_couple_match_question_hehun(analyzer, monkeypatch):
-    """「我们俩配不配/合不合」类两人消息 → hehun（mock LLM 返回 hehun）。"""
+    """批次 2 E6：「我们俩配不配/合不合」类两人消息 → 规则门控直达工具链。"""
     calls = _mock_completion("hehun", monkeypatch)
     result = analyzer.analyze("看看我们配不配")
-    assert result.intent == "hehun"
-    assert calls["n"] == 1
+    assert result.intent is None
+    assert result.scene_hint == "hehun"
+    assert calls["n"] == 0
 
 
 def test_hepan_word_hehun(analyzer, monkeypatch):
