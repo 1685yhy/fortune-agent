@@ -114,6 +114,103 @@ def test_collection_manager_validation():
     assert len(report.errors) > 0
 
 
+def test_collection_manager_validate_empty_collection(tmp_path):
+    """存在但为空的集合：exists=True, doc_count=0（空集合≠不存在，仅兜底缺失）"""
+    from src.rag.collection_manager import CollectionManager
+    cm = CollectionManager(str(tmp_path), "m3_empty_coll", 1024)
+    cm.ensure_exists()  # 在临时目录创建空集合
+    report = cm.validate()
+    assert report.exists is True
+    assert report.doc_count == 0
+
+
+def test_main_collection_validation_empty_collection_logs_warning(caplog):
+    """启动校验：legacy 集合存在但为空 → 日志为 warning，绝不 ERROR"""
+    import logging
+    from src.rag.collection_manager import ValidationReport
+    from src.main import _log_collection_validation
+
+    report = ValidationReport(
+        collection_name="fortune_books", exists=True, doc_count=0,
+        dimension=1024, valid=False, errors=["Collection is empty"],
+    )
+    logger = logging.getLogger("m3.test.empty")
+    with caplog.at_level(logging.WARNING, logger="m3.test.empty"):
+        _log_collection_validation(logger, report, "fortune_books")
+    assert not any(r.levelno >= logging.ERROR for r in caplog.records), \
+        "空集合不应产生 ERROR 级日志（FAISS 主路径正常，仅 legacy 兜底缺失）"
+    assert any(
+        r.levelno == logging.WARNING and "empty" in r.getMessage()
+        for r in caplog.records
+    ), "空集合应产生 warning 级提示"
+
+
+def test_main_collection_validation_real_failure_still_error(caplog):
+    """启动校验：真实失败（维度不匹配等）仍保持 ERROR，不误降级"""
+    import logging
+    from src.rag.collection_manager import ValidationReport
+    from src.main import _log_collection_validation
+
+    report = ValidationReport(
+        collection_name="fortune_books", exists=True, doc_count=27115,
+        dimension=1024, valid=False,
+        errors=["Dimension mismatch: expected 1024, got 384"],
+    )
+    logger = logging.getLogger("m3.test.fail")
+    with caplog.at_level(logging.ERROR, logger="m3.test.fail"):
+        _log_collection_validation(logger, report, "fortune_books")
+    assert any(
+        r.levelno == logging.ERROR and "FAILED" in r.getMessage()
+        for r in caplog.records
+    ), "真实校验失败必须仍是 ERROR"
+
+
+class _M3StubEmbedder:
+    """测试用 stub embedder：不加载模型，encode 返回全零向量（1024 维）"""
+    dimension = 1024
+
+    def load(self):
+        return True
+
+    def encode(self, texts):
+        import numpy as np
+        if isinstance(texts, str):
+            texts = [texts]
+        return np.zeros((len(texts), self.dimension), dtype=np.float32)
+
+
+def test_retriever_search_empty_collection_returns_empty(tmp_path):
+    """legacy 集合为空：search() 安全返回空列表（兜底缺失不抛异常）"""
+    from src.rag.retriever import Retriever
+
+    r = Retriever(str(tmp_path), _M3StubEmbedder())
+    r._collection_name = "m3_empty_search"
+    results = r.search("乙木虽柔")
+    assert isinstance(results, list)
+    assert results == []
+
+
+def test_retriever_search_ef_conflict_collection_safe(tmp_path, caplog):
+    """旧脚本创建（无 embedding_function 配置）的集合：search() 不抛异常，
+    返回空列表并记 warning（legacy 兜底缺失的最小安全降级）"""
+    import logging
+    import chromadb
+    from chromadb.config import Settings as ChromaSettings
+    from src.rag.retriever import Retriever
+
+    client = chromadb.PersistentClient(
+        path=str(tmp_path), settings=ChromaSettings(anonymized_telemetry=False),
+    )
+    client.create_collection(name="m3_old_style", metadata={"hnsw:space": "cosine"})
+    r = Retriever(str(tmp_path), _M3StubEmbedder())
+    r._collection_name = "m3_old_style"
+    with caplog.at_level(logging.WARNING, logger="src.rag.retriever"):
+        results = r.search("乙木虽柔")
+    assert results == []
+    assert any("degraded" in rec.getMessage() for rec in caplog.records), \
+        "集合不可用时应记 warning 而非静默/抛异常"
+
+
 # --- QueryEnhancer tests ---
 
 def test_enhanced_query_dataclass():

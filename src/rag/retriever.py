@@ -1,4 +1,5 @@
 """混合检索器 - 语义检索 + BM25关键词检索."""
+import logging
 import os
 from dataclasses import dataclass
 from typing import List, Optional
@@ -8,6 +9,8 @@ from chromadb.config import Settings as ChromaSettings
 
 from .embedder import Embedder
 from .chunker import Chunk
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -117,14 +120,25 @@ class Retriever:
 
         **kw：兼容 FAISS 检索接口的扩展参数（expand/rerank/original_query 等），
         本检索器无查询扩展与精排，静默忽略（调用方在两类检索器间可透明切换）。
+
+        集合为空/缺失/配置不兼容（如旧脚本创建的无 embedding_function 集合）时
+        不抛异常：安全返回空列表并记 warning——legacy 兜底缺失，FAISS 主路径
+        不受影响，调用方（handler/api/engine）零改动。
         """
-        # Try vector search first
-        chunk_results = self._vector_search(query, category, top_k, min_score)
+        try:
+            # Try vector search first
+            chunk_results = self._vector_search(query, category, top_k, min_score)
 
-        # If vector search returned nothing, fall back to keyword search
-        if not chunk_results:
-            chunk_results = self._keyword_search(query, category, top_k)
-
+            # If vector search returned nothing, fall back to keyword search
+            if not chunk_results:
+                chunk_results = self._keyword_search(query, category, top_k)
+        except Exception as e:
+            logger.warning(
+                "Legacy retriever search degraded: collection '%s' unavailable "
+                "(empty/missing/misconfigured) — returning empty results: %s",
+                self._collection_name, e,
+            )
+            chunk_results = []
         return chunk_results
 
     def _vector_search(self, query, category, top_k, min_score):

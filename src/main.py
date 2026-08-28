@@ -632,6 +632,37 @@ async def _zeri_reminder_worker():
         await asyncio.sleep(60)  # 每分钟检查一次
 
 
+def _log_collection_validation(logger_, validation, collection_name: str):
+    """启动集合校验日志分级：legacy 集合缺失/为空 → warning（兜底索引缺失，
+    FAISS 主路径不受影响，非致命）；真实校验失败（维度不匹配等）才 ERROR。"""
+    if not validation.exists:
+        logger_.warning(
+            "Collection '%s' not found. RAG queries will fall back to "
+            "keyword search until index is built. "
+            "Run: python scripts/rebuild_index_v2.py",
+            collection_name,
+        )
+    elif validation.doc_count == 0:
+        logger_.warning(
+            "Collection '%s' exists but is empty. Legacy fallback index has "
+            "no docs (FAISS main path unaffected); legacy RAG fallback will "
+            "return empty results. "
+            "Run: python scripts/rebuild_index_v2.py",
+            collection_name,
+        )
+    elif not validation.valid:
+        logger_.error(
+            "Collection validation FAILED: %s. "
+            "RAG queries may not work correctly.",
+            validation.errors,
+        )
+    else:
+        logger_.info(
+            "Collection '%s' validated: %d docs",
+            collection_name, validation.doc_count,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global settings, engine, ziwei_engine, liuyao_engine, fengshui_engine
@@ -752,24 +783,7 @@ async def lifespan(app: FastAPI):
         settings.embedding_dimension,
     )
     validation = cm.validate()
-    if not validation.exists:
-        logger.warning(
-            "Collection '%s' not found. RAG queries will fall back to "
-            "keyword search until index is built. "
-            "Run: python scripts/rebuild_index_v2.py",
-            settings.embedding_collection,
-        )
-    elif not validation.valid:
-        logger.error(
-            "Collection validation FAILED: %s. "
-            "RAG queries may not work correctly.",
-            validation.errors,
-        )
-    else:
-        logger.info(
-            "Collection '%s' validated: %d docs",
-            settings.embedding_collection, validation.doc_count,
-        )
+    _log_collection_validation(logger, validation, settings.embedding_collection)
 
     retriever = Retriever(str(settings.vectordb_dir), embedder)
     # 设置 retriever 使用新集合
