@@ -9,6 +9,13 @@
       <text class="input-title">八字排盘</text>
       <text class="input-sub">四柱 · 大运 · 神煞 · 称骨</text>
     </view>
+    <view class="pp-history-link" hover-class="pp-history-link-active" hover-stay-time="0" bindtap="onShowHistory">历史记录 ▸</view>
+  </view>
+
+  <!-- B3-4 档案预填提示：加载时已用默认命主自动填好表单，用户可直接点排盘 -->
+  <view class="pp-prefill" wx:if="{{prefillNote}}">
+    <view class="pp-prefill-seal"><text class="pp-prefill-seal-char">档</text></view>
+    <text class="pp-prefill-t">{{prefillNote}} · 可直接点「开始排盘」</text>
   </view>
 
   <!-- Q3 未建档引导（批次2 收尾）：本地无档案 → 建档口径引导（E1 提示条同款文案）。
@@ -169,7 +176,7 @@
     <view class="dy-head">
       <view class="dy-seal"><text>运</text></view>
       <text class="dy-title">大运时间线</text>
-      <text class="dy-hint">{{chart.dayun[0].sui}} 岁起运 · 十年一运</text>
+      <text class="dy-hint">{{dayunView[0].sui}} 岁起运 · 十年一运</text>
     </view>
     <view class="dy-jiaoyun">
       <text class="dy-jy-seal">交运</text>
@@ -258,11 +265,11 @@
         <text class="ss-tag-src" wx:if="{{s.src}}">{{s.src}}</text>
       </view>
     </view>
-    <view class="ss-foot">共 <text class="ss-foot-b">{{chart.shensha.length}}</text> 种神煞引擎逐项推算 · 吉凶仅作参考，重在知命修身</view>
+    <view class="ss-foot">共 <text class="ss-foot-b">{{chart.shensha ? chart.shensha.length : 0}}</text> 种神煞引擎逐项推算 · 吉凶仅作参考，重在知命修身</view>
   </view>
 
-  <!-- ⑨ 称骨卡 -->
-  <view class="cg-card">
+  <!-- ⑨ 称骨卡（B3-4：聊天路径缩减记录无称骨数据 → 隐藏空卡） -->
+  <view class="cg-card" wx:if="{{chenggu.weight_text}}">
     <view class="cg-head">
       <view class="cg-seal"><text>骨</text></view>
       <text class="cg-title">称骨论命</text>
@@ -293,6 +300,37 @@
   <view class="pp-repick" hover-class="pp-btn-active" hover-stay-time="0" bindtap="onReset">
     <text>重新排盘</text>
   </view>
+  <view class="pp-history-row">
+    <view class="pp-history-link" hover-class="pp-history-link-active" hover-stay-time="0" bindtap="onShowHistory">查看历史回看 ▸</view>
+  </view>
+</view>
+
+<!-- ════════ 历史弹层（B3-4：只显示自己的 · 脱敏摘要 · 谁/时间/问的什么/一句话结论） ════════ -->
+<view wx:if="{{showHistory}}" class="ph-mask" bindtap="onCloseHistory"></view>
+<view wx:if="{{showHistory}}" class="ph-sheet" catchtouchmove="noop">
+  <view class="ph-head">
+    <text class="ph-title">排盘历史</text>
+    <text class="ph-x" hover-class="ph-x-active" hover-stay-time="0" bindtap="onCloseHistory">✕</text>
+  </view>
+  <scroll-view scroll-y class="ph-body">
+    <view wx:if="{{historyLoading}}" class="ph-empty">加载中…</view>
+    <block wx:elif="{{historyList.length}}">
+      <view wx:for="{{historyList}}" wx:key="id"
+        class="ph-item" hover-class="ph-item-active" hover-stay-time="0"
+        data-idx="{{index}}" bindtap="onHistoryTap">
+        <view class="ph-top">
+          <text class="ph-name">{{item.nameText}}</text>
+          <text class="ph-time">{{item.timeText}}</text>
+        </view>
+        <text class="ph-q">{{item.summary}}</text>
+        <view class="ph-bottom">
+          <text class="ph-concl">{{item.conclusion}}</text>
+          <text class="ph-bazi">{{item.baziText}}</text>
+        </view>
+      </view>
+    </block>
+    <view wx:else class="ph-empty">还没有排盘记录 · 完成一次排盘后会出现在这里</view>
+  </scroll-view>
 </view>
 
 <!-- ════════ 知识弹层 ════════ -->

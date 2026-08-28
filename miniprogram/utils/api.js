@@ -940,6 +940,19 @@ function unionHistory() {
   return request('/api/union/history', { method: 'GET' });
 }
 
+/** 排盘历史（GET /api/paipan/history，B3-4）：{records:[{id, person_id, birth(生辰摘要),
+ * bazi(四柱), day_master, summary(当时问的·排盘摘要), conclusion(一句话结论), created_at}]}
+ * 只显示自己的 · 脱敏摘要（不含全量盘面） */
+function paipanHistory() {
+  return request('/api/paipan/history', { method: 'GET' });
+}
+
+/** 排盘历史详情（GET /api/paipan/history/:id，B3-4）：{id, person_id, birth, chart(完整盘面), created_at}
+ * 归属校验（只能回看自己的）· 重看 0 重跑（不再落新记录） */
+function paipanHistoryDetail(id) {
+  return request(`/api/paipan/history/${id}`, { method: 'GET' });
+}
+
 // 洛书九宫：宫名 → 宫位序号（九宫盘用 position 判断中宫）
 const LO_SHU_POSITION = { 坎: 1, 坤: 2, 震: 3, 巽: 4, 中: 5, 乾: 6, 兑: 7, 艮: 8, 离: 9 };
 const LO_SHU_WUXING = { 坎: '水', 坤: '土', 震: '木', 巽: '木', 中: '土', 乾: '金', 兑: '金', 艮: '土', 离: '火' };
@@ -1396,6 +1409,8 @@ module.exports = {
   // Four Arts
   hehun,
   paipan,
+  paipanHistory,
+  paipanHistoryDetail,
   duipan,
   getKnowledge,
   union,

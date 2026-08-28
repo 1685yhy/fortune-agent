@@ -16,11 +16,20 @@
           knowledge_index(六类可点文字)
     meta：命主信息头（公历/农历/生肖/时辰名，供前端渲染；随整体结果 AES 密文落库）
 
+历史回看（batch3 B3-4，用户问题 #10）：
+    GET /api/paipan/history — 只显示自己的脱敏摘要（生辰摘要/四柱/日主/一句话结论/
+        排盘时间，limit 默认 50）；表单排盘无问题输入，「当时问的」用排盘摘要合成。
+    GET /api/paipan/history/{id} — 归属校验（id + user_id 双条件）后返回完整盘面
+        （重看 0 重跑：直接回读落库结果，不重新计算、不再落新记录）。
+    两者均为只读查询（不建表不写库）；从未排过盘（表未创建）→ 空列表。
+
 隐私红线：生辰 AES 密文落库 chart_records（与档案同加密口径、按 uid 归属隔离），
 不入日志、不写其他 DAO。全接口 require_user 鉴权。
 错误：生辰缺失/越界/伪日期（如 2 月 30 日）→ 400；未登录 → 401。
 """
+import json
 import logging
+import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..engines.bazi import BaziEngine, BaziResult
@@ -43,6 +52,9 @@ CANG_GAN = {
 # 地支 → 生肖（命主信息头）
 SHENGXIAO = {"子": "鼠", "丑": "牛", "寅": "虎", "卯": "兔", "辰": "龙", "巳": "蛇",
              "午": "马", "未": "羊", "申": "猴", "酉": "鸡", "戌": "狗", "亥": "猪"}
+# 地支 → 五行（历史结论「月令旺衰」用：wangshuai 键为五行）
+DIZHI_WUXING = {"子": "水", "丑": "土", "寅": "木", "卯": "木", "辰": "土", "巳": "火",
+                "午": "火", "未": "土", "申": "金", "酉": "金", "戌": "土", "亥": "水"}
 # 农历月名（含「冬月」「腊月」，与称骨表口径一致）
 LUNAR_MONTH_CN = ["正月", "二月", "三月", "四月", "五月", "六月",
                   "七月", "八月", "九月", "十月", "冬月", "腊月"]
@@ -111,6 +123,156 @@ async def paipan(req: BaziInput, uid: str = Depends(require_user)):
         except Exception as e:
             logger.warning("paipan 落库失败 uid=%s: %s", uid, e)  # 不阻塞主流程
     return body
+
+
+# ── 历史回看（batch3 B3-4）──────────────────────────────────────
+
+@router.get("/api/paipan/history")
+async def paipan_history(limit: int = 50, uid: str = Depends(require_user)):
+    """排盘历史（只显示自己的）：脱敏摘要列表。
+
+    - 401：未登录（require_user 鉴权红线）
+    - 503：db 未注入（服务未就绪）
+    - 每项为脱敏摘要：生辰摘要/四柱/日主/一句话结论/排盘时间；绝不回全量盘面
+      （bazi_json 仅在详情接口归属校验后返回）
+    - 只读查询：不建表不写库；chart_records 表尚未创建（从未排过盘）→ 空列表
+    """
+    if _db_path is None:
+        raise HTTPException(status_code=503, detail="服务未就绪")
+    limit = max(1, min(int(limit), 50))
+    return {"records": _read_chart_history(_db_path, uid, limit)}
+
+
+@router.get("/api/paipan/history/{record_id}")
+async def paipan_history_detail(record_id: int, uid: str = Depends(require_user)):
+    """排盘历史详情（归属校验：只能回看自己的）：完整盘面。
+
+    重看 0 重跑：直接回读落库的 bazi_json，不重新计算、不再落新记录。
+    - 401：未登录；404：记录不存在或非本人（id + user_id 双条件，不泄露存在性）
+    """
+    if _db_path is None:
+        raise HTTPException(status_code=503, detail="服务未就绪")
+    from src.storage.models import connect as db_connect
+    from src.storage.dao import _decrypt_or_plain
+
+    conn = db_connect(_db_path)
+    try:
+        try:
+            row = conn.execute(
+                "SELECT id, person_id, birth_enc, bazi_enc, created_at "
+                "FROM chart_records WHERE id=? AND user_id=?",
+                (record_id, uid)).fetchone()
+        except sqlite3.OperationalError:
+            row = None
+    finally:
+        conn.close()
+    if row is None:
+        raise HTTPException(status_code=404, detail="记录不存在")
+
+    def _load(enc: str) -> dict:
+        try:
+            return json.loads(_decrypt_or_plain(enc) or "{}")
+        except (ValueError, TypeError):
+            return {}
+
+    return {
+        "id": row[0],
+        "person_id": row[1],
+        "birth": _load(row[2]),
+        "chart": _load(row[3]),
+        "created_at": row[4],
+    }
+
+
+def _read_chart_history(db_path: str, uid: str, limit: int) -> list:
+    """读 chart_records 脱敏摘要列表（只读查询：不建表不写库）。
+
+    与 POST 落库同表（ChartDAO 口径）；表尚未创建 → 返回 []（从未排过盘）。
+    """
+    from src.storage.models import connect as db_connect
+    from src.storage.dao import _decrypt_or_plain
+
+    conn = db_connect(db_path)
+    try:
+        try:
+            rows = conn.execute(
+                "SELECT id, person_id, birth_enc, bazi_enc, created_at "
+                "FROM chart_records WHERE user_id=? ORDER BY id DESC LIMIT ?",
+                (uid, limit)).fetchall()
+        except sqlite3.OperationalError:
+            return []
+    finally:
+        conn.close()
+
+    def _load(enc: str) -> dict:
+        try:
+            return json.loads(_decrypt_or_plain(enc) or "{}")
+        except (ValueError, TypeError):
+            return {}
+
+    return [_history_item(r[0], r[1], _load(r[2]), _load(r[3]), r[4])
+            for r in rows]
+
+
+def _history_item(record_id: int, person_id, birth: dict, bazi: dict,
+                  created_at: str) -> dict:
+    """单条脱敏摘要：生辰摘要 + 四柱 + 日主 + 一句话结论 + 排盘时间。
+
+    用户视角（一眼认出「这是我上次排的」）：谁（person_id 供前端解析姓名）+
+    什么时候排的（created_at）+ 当时问的（排盘摘要）+ 一句话结论（日主/格局/月令旺衰）。
+    隐私：生辰只随本人记录返回（接口已按 uid 归属隔离）；全量盘面不进列表。
+    """
+    bazi_list = bazi.get("bazi") or []
+    gender = birth.get("gender") or bazi.get("gender") or ""
+    gender_cn = "女" if str(gender) in ("female", "女") else "男"
+
+    # 「当时问的」：表单排盘无问题输入，用排盘摘要合成（与 union 自动归档文案同思路；
+    # 聊天路径的真实问题在 consultations 表，chart_records 未冗余存问题列，不迁移）
+    hour = birth.get("hour")
+    shichen = (SHICHEN_NAME.get(int(hour), "") if isinstance(hour, (int, float))
+               and not isinstance(hour, bool) else "")
+    parts = ["八字排盘", f"{gender_cn}命"]
+    y, m, d = birth.get("year"), birth.get("month"), birth.get("day")
+    if y and m and d:
+        parts.append(f"{int(y)}年{int(m)}月{int(d)}日")
+    if shichen:
+        parts.append(shichen)
+    if birth.get("city"):
+        parts.append(str(birth["city"]))
+
+    # 一句话结论：日主 + 格局（聊天路径已存 geju）或 月令旺衰+强弱+用神（表单路径）
+    dm = bazi.get("day_master") or ""
+    concl = f"日主{dm}" if dm else "八字排盘"
+    geju = bazi.get("geju") or ""
+    if geju:
+        concl += f" · {geju}"
+    else:
+        we = bazi.get("wuxing_energy") or {}
+        month_zhi = ""
+        if len(bazi_list) > 1:
+            cell = bazi_list[1]
+            if isinstance(cell, str) and len(cell) >= 2:
+                month_zhi = cell[1]
+            elif isinstance(cell, list) and len(cell) >= 2:
+                month_zhi = str(cell[1])
+        wang = (we.get("wangshuai") or {}).get(DIZHI_WUXING.get(month_zhi, ""))
+        if month_zhi and wang:
+            concl += f" · {month_zhi}月{DIZHI_WUXING.get(month_zhi, '')}{wang}"
+        if we.get("strength"):
+            concl += f" · {we['strength']}"
+        if we.get("yongshen"):
+            concl += f" · {we['yongshen']}"
+
+    return {
+        "id": record_id,
+        "person_id": person_id,
+        "birth": birth,            # 归属校验后仅本人可见（用户识别用）
+        "bazi": bazi_list,
+        "day_master": dm,
+        "summary": " · ".join(parts),
+        "conclusion": concl,
+        "created_at": created_at,
+    }
 
 
 # ── BaziResult 全字段序列化 ────────────────────────────────────
