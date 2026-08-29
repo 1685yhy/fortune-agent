@@ -373,7 +373,7 @@
       <view class="cd-list-inner">
         <view class="cd-item" hover-class="cd-item-active" hover-stay-time="0" wx:for="{{citeDrawer.items}}" wx:key="index" data-i="{{index}}" bindtap="onCiteItemTap">
           <view class="cd-row">
-            <view class="cd-type {{item.type}}"><image class="cd-type-ic" src="/assets/images/ic-{{item.type}}.png"></image><text>{{citeTypeLabel(item.type)}}</text></view>
+            <view class="cd-type {{item.type}}"><image class="cd-type-ic" src="{{citeTypeIcon(item.type)}}"></image><text>{{citeTypeLabel(item.type)}}</text></view>
             <text class="cd-it-title">{{item.title}}</text>
           </view>
           <view class="cd-it-sum">{{item.text}}</view>

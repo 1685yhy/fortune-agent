@@ -933,6 +933,12 @@ Page({
     return map[type] || '古籍';
   },
 
+  /* 引用角标图标：未知类型回退到古籍书图标（与 citeTypeLabel 同一映射） */
+  citeTypeIcon(type) {
+    const map = { book: '/assets/images/ic-book.png', engine: '/assets/images/ic-engine.png', memory: '/assets/images/ic-memory.png', web: '/assets/images/ic-web.png' };
+    return map[type] || map.book;
+  },
+
   /* 点角标 [n]/🔗 → 打开底部抽屉（该条回复的来源列表） */
   onCiteTap(e) {
     if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应

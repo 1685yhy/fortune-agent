@@ -1270,21 +1270,11 @@
 }
 .act-row::after { border: none; }        /* button 伪边框移除（分享项） */
 .act-row-active { background: var(--acc-soft); }
-/* B4-1 「+」面板入口图标（png 线性体系，与 act-em 等宽对齐） */
+/* B4-1 「+」面板入口图标（png 线性体系，与长按菜单图标 act-em-ic 等宽对齐） */
 .mp-ic {
   width: 52rpx;
   height: 52rpx;
   flex-shrink: 0;
-}
-.act-em {
-  width: 52rpx;
-  height: 52rpx;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 40rpx;
-  line-height: 1;
 }
 /* B6-1 长按菜单图标（emoji → 墨韵线性 png，与气泡动作/输入区同体系） */
 .act-em-ic {
