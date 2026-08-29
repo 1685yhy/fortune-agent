@@ -518,7 +518,15 @@ class BaziEngine:
         排全盘（与问真一致）；不传 city / 未知城市 → 不修正（原行为）。
         """
         # P1-3: Handle unknown gender — default to 男 for calculation
-        calc_gender = gender if gender in ("男", "女") else "男"
+        # G1（2026-08-29 P0-A）：性别契约统一 —— 兼容历史 male/female
+        # （前端旧 genderCode 产出）→ 中文；其余（unknown/None/空）→ 男
+        # （P1-3 既定默认保持，结果中标注性别未知）
+        _g = (gender or "").strip().lower()
+        calc_gender = "女" if _g in ("女", "female") else "男"
+        # G1：结果暴露同样归一（paipan API 输出恒为中文）；"unknown"
+        # 标记保留（P1-3 中性表述信号）
+        _gender_out = ("unknown" if _g not in ("女", "female", "男", "male")
+                       else calc_gender)
         # 真太阳时修正：北京时间 → 出生地真太阳时（经度修正 + 均时差）。
         # 修正可能跨日（如 23:40 长春 → 次日 00:05），此时按修正后的日期排全部四柱。
         year, month, day, hour, minute = self._true_solar_time(
@@ -741,7 +749,7 @@ class BaziEngine:
             shensha=shensha,
             shensha_detail=shensha_detail,
             nayin=nayin,
-            gender=gender,
+            gender=_gender_out,
             taiyuan=taiyuan,
             taiyuan_nayin=NAYIN.get(taiyuan, ""),
             minggong=minggong,

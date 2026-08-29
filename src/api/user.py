@@ -869,12 +869,21 @@ async def delete_user_memories(req: MemoryDeleteRequest,
 def _person_birth(req: PersonRequest) -> dict:
     """PersonRequest → birth dict（PersonDAO 加密字段）。
 
-    gender 为 None/空/"unknown" 时归一为 None → update 路径不覆盖既有值
+    G1（2026-08-29）性别契约统一：male→'男'、female→'女'（大小写不敏感）、
+    中文原样保留；None/空/"unknown" 归一为 None → update 路径不覆盖既有值
     （与 save_bazi_info 的 gender 保护约定一致；创建时由 _birth_dict 落 "unknown"）。
+    既有接口契约零破坏：persons API 仍接受 male/female 入参（归一兼容）。
     """
     gender = (req.gender or "").strip()
+    _gl = gender.lower()
+    if _gl in ("male", "男"):
+        gender = "男"
+    elif _gl in ("female", "女"):
+        gender = "女"
+    else:
+        gender = None
     return {
-        "gender": gender if gender and gender not in ("unknown", "None") else None,
+        "gender": gender,
         "birth_year": req.birth_year or None,
         "birth_month": req.birth_month or None,
         "birth_day": req.birth_day or None,

@@ -23,8 +23,27 @@ BIRTH_KEYS = ("gender", "birth_year", "birth_month", "birth_day",
 RELATION_VALUES = ("自己", "父母", "伴侣", "子女", "朋友", "其他")
 
 
+def _normalize_gender(g) -> str:
+    """性别单一中文契约（G1，2026-08-29）：male/female（大小写不敏感）→
+    男/女；中文原样；其余（unknown/None/空/历史脏值）→ "unknown"。
+
+    存储层兜底：写（_birth_dict）与读（_row_to_person）双向归一，保证
+    persons API 输出 gender 恒为中文、引擎/前端契约不再出现 male/female。
+    """
+    v = str(g or "").strip().lower()
+    if v in ("男", "male"):
+        return "男"
+    if v in ("女", "female"):
+        return "女"
+    return "unknown"
+
+
 def _birth_dict(**kw) -> dict:
-    """构造出生信息字典（只保留合法键；birth_year 等为 0/None 时置 None）。"""
+    """构造出生信息字典（只保留合法键；birth_year 等为 0/None 时置 None）。
+
+    G1：gender 写归一（male/female → 男/女）；其余保持原语义
+    （unknown/None/空 → "unknown"，沿用既有存储形态）。
+    """
     out = {}
     for k in BIRTH_KEYS:
         v = kw.get(k)
@@ -37,7 +56,7 @@ def _birth_dict(**kw) -> dict:
             out[k] = str(v or "")
             continue
         if k == "gender":
-            out[k] = str(v or "unknown")
+            out[k] = _normalize_gender(v or "unknown")
             continue
         try:
             n = int(v or 0)
@@ -81,7 +100,7 @@ class PersonDAO:
             "name": row[2] or "",
             "relation": row[3] or "其他",
             "is_default": bool(row[4]),
-            "gender": birth.get("gender", "unknown"),
+            "gender": _normalize_gender(birth.get("gender")),
             "birth_year": birth.get("birth_year"),
             "birth_month": birth.get("birth_month"),
             "birth_day": birth.get("birth_day"),

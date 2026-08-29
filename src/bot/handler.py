@@ -3924,30 +3924,22 @@ class MessageHandler:
                                  session_id=session_id)
 
     def _get_user_birth_profile(self, user_id: str) -> Optional[dict]:
-        """获取用户出生信息档案（Task 1 排盘档案打通，单向只读）。
+        """获取用户出生信息档案（G1 P0-B 修复：persons 默认档案 = 单一事实源）。
 
-        ① users.bazi_info 非空且有 year 键 → 原样返回；
-        ② 否则查 persons 表主档案：默认档案有出生数据 → 保持默认优先
-           （默认通常即用户本人）；默认无出生数据 → 取最近更新
-           （updated_at 降序）的有出生数据的档案（Brief 要求）。
-           把 birth_year/birth_month/birth_day/birth_hour/birth_minute/gender/city
-           映射为 {year, month, day, hour, minute, city, gender}；
-        ③ D8（2026-08-24 生产实测）：persons/bazi_info 均无出生数据时，
-           查 chart_records 最近一次排盘结果（birth 字段 + 四柱 bazi）——
-           排盘成功已落库的 user 问事不得再被判"无档案"引导建档；
-        ④ 都没有 → None。
+        读取顺序（2026-08-29 G1，原 bazi_info 优先 → 编辑页改 persons 永不
+        生效，P15 生产实测）：① persons 表主档案（默认优先，逻辑不变）→
+        ② users.bazi_info → ③ chart_records 最近排盘（D8 保留）→ ④ None。
 
-        不回写 persons、不新增写路径（单向打通）。
+        自愈（G1）：① 命中且 users.bazi_info 缺失/与 persons 不一致时，
+        用 persons 单向回写刷新 bazi_info（保留 bazi 四柱等既有键）——
+        编辑页改动立即在对话侧生效，消除两库永久分歧；bazi_info 不再当
+        权威（排盘落库 _save_bazi_records 双写不变，gender 已统一中文契约）。
+
+        不回写 persons（persons 是唯一权威，单向打通）。
         """
         if not self.dao:
             return None
-        try:
-            bazi = self.dao.get_user_bazi(user_id)
-        except Exception:
-            bazi = None
-        if bazi and bazi.get("year"):
-            return bazi
-        # ② persons 档案兜底（db_path 访问已置于 self.dao 守卫内）
+        # ① persons 档案优先（单一事实源；db_path 访问已置于 self.dao 守卫内）
         try:
             from src.storage.person_dao import PersonDAO
             pdao = PersonDAO(self.dao.db_path)
@@ -3965,7 +3957,7 @@ class MessageHandler:
                         # 选最近更新的有出生数据的档案（updated_at 降序取最大者）
                         pick = max(candidates, key=lambda p: p.get("updated_at") or "")
                 if pick:
-                    return {
+                    out = {
                         "year": pick.get("birth_year"),
                         "month": pick.get("birth_month"),
                         "day": pick.get("birth_day"),
@@ -3974,8 +3966,31 @@ class MessageHandler:
                         "city": pick.get("city") or "",
                         "gender": pick.get("gender") or "unknown",
                     }
+                    # 自愈：bazi_info 缺失/与 persons 不一致 → persons 单向回写
+                    # （保留 bazi 四柱等既有键；写入失败仅告警，不阻塞读取）
+                    try:
+                        bazi = self.dao.get_user_bazi(user_id)
+                        _keys = ("year", "month", "day", "hour", "minute",
+                                 "city", "gender")
+                        stale = (not bazi or not bazi.get("year")
+                                 or any(bazi.get(k) != out[k] for k in _keys))
+                        if stale:
+                            new_info = dict(bazi or {})
+                            new_info.update(out)
+                            self.dao.save_user_bazi(user_id, new_info)
+                    except Exception as e:
+                        logger.warning("G1 档案自愈回写失败 user=%s: %s",
+                                       user_id, str(e)[:160])
+                    return out
         except Exception:
             pass
+        # ② users.bazi_info 兜底
+        try:
+            bazi = self.dao.get_user_bazi(user_id)
+        except Exception:
+            bazi = None
+        if bazi and bazi.get("year"):
+            return bazi
         # ③ chart_records 排盘结果兜底（D8 修复）：已排盘落库（重看 0 重跑
         # 数据）即视为有档案，问事直接走档案快路径，不再引导建档。
         try:
@@ -4190,7 +4205,20 @@ class MessageHandler:
                                "city", "gender"):
                         if _k in cur:
                             merged[_k] = cur[_k]
-                    ack = self._gen_reuse_acknowledgment(msg, saved, lite=_dg)
+                    # G1（2026-08-29 P0-C）：性别纠正——cur 提取到已确认性别
+                    # （男/女）且档案性别也已确认、两者不一致 → 视为用户纠正
+                    # 档案：以新性别重排 + 固定回执（零 LLM）；_do_bazi_analysis
+                    # → _save_bazi_records 以新 gender 双写 bazi_info+persons，
+                    # 档案自动跟随，永不背离。一致/档案 unknown → 原 merged
+                    # 逻辑（cur 性别补充，行为不变）。
+                    _saved_g = saved.get("gender")
+                    _cur_g = merged.get("gender")
+                    if (_cur_g in ("男", "女") and _saved_g in ("男", "女")
+                            and _cur_g != _saved_g):
+                        ack = self._gen_gender_correction_ack(_saved_g, _cur_g)
+                    else:
+                        ack = self._gen_reuse_acknowledgment(msg, saved,
+                                                             lite=_dg)
                     result = self._do_bazi_analysis(
                         merged["year"], merged["month"], merged["day"],
                         merged.get("hour") if merged.get("hour") is not None else 0,
@@ -4682,10 +4710,19 @@ class MessageHandler:
                                    msg)
             if city_match:
                 out["city"] = city_match.group(1)
-        # 独立出现的男/女才取（防"渣男/美女"）；"性别男"显式带性别词也可取
-        if re.search(r'(?:^|[^\w])女(?:$|[^\w])|性别女', msg):
+        # G1（2026-08-29 P0-C）：性别口语词扩展（保持防"渣男/美女"误伤）——
+        # 女系：女孩/女生/姑娘/丫头/女的/小姑娘/闺女/性别女 + 原独立「女」规则
+        # 男系：男孩/男生/男的/小伙子/性别男 + 原独立「男」规则
+        # 优先级：女系先查（与既有 女→男 顺序一致）；独立规则前字粘连
+        # （渣/美）不命中；「女儿/儿子」等第三方称谓不在词表（归属判定归
+        # 第三方链路，见 B3-1 _is_third_party_birth_request）
+        if re.search(
+                r'(?:^|[^\w])女(?:$|[^\w])|性别女|女孩|女生|姑娘|丫头|女的|小姑娘|闺女',
+                msg):
             out["gender"] = "女"
-        elif re.search(r'(?:^|[^\w])男(?:$|[^\w])|性别男', msg):
+        elif re.search(
+                r'(?:^|[^\w])男(?:$|[^\w])|性别男|男孩|男生|男的|小伙子',
+                msg):
             out["gender"] = "男"
         return out
 
@@ -5364,6 +5401,12 @@ class MessageHandler:
             return out if len(out) >= 2 else []
         except Exception:
             return []  # 生成失败 → 无建议（前端不渲染建议卡，主回复不受影响）
+
+    def _gen_gender_correction_ack(self, old_g: str, new_g: str) -> str:
+        """G1（2026-08-29 P0-C）：性别纠正回执（固定文案，零 LLM——
+        正确性路径确定性优先，不依赖降级/额度状态）。"""
+        return (f"我注意到档案里记录的是{old_g}，已按您本次说的「{new_g}」"
+                f"重新排盘（大运方向已随之调整）。")
 
     def _gen_reuse_acknowledgment(self, msg: str, saved: dict,
                                   lite: bool = False) -> str:

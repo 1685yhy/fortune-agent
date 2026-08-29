@@ -2,7 +2,7 @@
 // 契约字段（后端并行实现中，已定稿）：
 //   person = { id, name, relation, gender, birth_year, birth_month, birth_day,
 //              birth_hour, birth_minute, calendar, city, is_default, created_at }
-//   gender: 'male' | 'female'；birth_hour: 时辰代表整点（23/1/3/…/21）；calendar: 'solar'|'lunar'
+//   gender: '男' | '女' | 'unknown'；birth_hour: 时辰代表整点（23/1/3/…/21）；calendar: 'solar'|'lunar'
 // 接口未就绪时：页面级优雅降级，本地缓存 ylm_persons 兜底（不阻塞）。
 
 const LOCAL_KEY = 'ylm_persons';      // 本地缓存（接口失败时的读兜底 + 乐观写）
@@ -39,13 +39,16 @@ function shichenCN(idx) {
   return HOUR_CN[Math.max(0, Math.min(11, parseInt(idx, 10) || 0))] || '';
 }
 
-/** 性别：contract 'male'|'female' → 展示 '男'|'女' */
+/** 性别（G1 契约统一，2026-08-29）：单一中文契约 '男'|'女'|'unknown'。
+    展示层兼容历史存量 male/female；未知 → '未知'（不再默认显示成男）。 */
 function genderCN(g) {
-  return g === 'female' || g === '女' ? '女' : '男';
+  if (g === '女' || g === 'female') return '女';
+  if (g === '男' || g === 'male') return '男';
+  return '未知';
 }
-/** 展示 '男'|'女' → contract 'male'|'female' */
+/** 展示 '男'|'女' → 中文契约 '男'|'女'；其余（含历史英文、空、未定义）→ 'unknown' */
 function genderCode(g) {
-  return g === '女' ? 'female' : 'male';
+  return g === '女' ? '女' : (g === '男' ? '男' : 'unknown');
 }
 
 /** 生辰摘要（原型 birthLine / prof-birth）：公历 1998年5月12日 卯时 女 · 北京 */
