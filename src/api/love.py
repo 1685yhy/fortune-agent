@@ -35,7 +35,33 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["love"])
 
+# 全局引用，由 main.py 在 lifespan 中设置（付费校验用 MemberDAO）
+_member_dao = None
+
 _engine = BaziEngine()
+
+
+def setup(member_dao):
+    """在应用启动时设置 MemberDAO 引用（paid=true 的购买记录校验）。"""
+    global _member_dao
+    _member_dao = member_dao
+
+
+def _require_paid(uid: str):
+    """校验 love_compatibility 商品购买记录：已购 or 体验模式 → 放行；否则 403（防绕过）。
+
+    与 union.py _require_paid 同款校验：pay.py PRODUCTS 已注册该商品（¥9.9，
+    /api/pay/create 下单，payments 表 status='paid' 即有效购买）。
+    """
+    if is_experience_mode():
+        return
+    if _member_dao is None:
+        raise HTTPException(status_code=503, detail="支付服务未就绪")
+    if _member_dao.get_user_purchase(uid, "love_compatibility") is None:
+        raise HTTPException(
+            status_code=403,
+            detail="请先解锁感情合盘完整版报告（¥9.9，love_compatibility 通道）",
+        )
 
 # 前端 love.js SCORE_LEVELS 等级划分（与页面展示一致）
 SCORE_LEVELS = [
@@ -344,7 +370,13 @@ async def love_compatibility(req: LoveCompatibilityRequest, uid: str = Depends(r
     """感情合盘分析。
 
     安全修复：必须登录（双方生辰为敏感数据），user_id 取 JWT sub。
+    G3b H-2：paid=true 不再信任客户端标志——先校验购买记录
+    （love_compatibility 商品，payments 表 status=paid）或体验模式，
+    未购一律 403，杜绝付费内容白嫖旁路。
     """
+    # 付费档先校验支付（未购直接 403，不白烧排盘）；体验模式由 _require_paid 放行
+    if req.paid:
+        _require_paid(uid)
     try:
         return run_love_compatibility(req)
     except HTTPException:

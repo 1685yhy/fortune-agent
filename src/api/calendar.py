@@ -4,6 +4,8 @@
 """
 
 import asyncio
+import hashlib
+import json
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -43,6 +45,22 @@ BRANCH_WX = {
 def _score_to_stars(score: int) -> int:
     """score(55-95) → 1-5 星，与前端 Math.round(score/20) 一致（76 → 4 星）。"""
     return max(1, min(5, int(score / 20 + 0.5)))
+
+
+def _profile_fingerprint(bazi_info: Optional[dict]) -> str:
+    """八字档案指纹：参与今日运势缓存键（G3b H-7）。
+
+    - 无八字 → "none"：通用版与个性化版天然分键，杜绝建档前后命中同一缓存条目；
+    - 有八字 → 档案内容排序 JSON 的 md5（year/month/day/hour/minute/gender/
+      calendar/city 等全部参与）：建档/改八字/改城市 → 指纹变化 → 旧缓存天然失效，
+      当日立即出新结果，无需在写路径上逐点清缓存；
+    - 仍按 user_id 作用域隔离（cache_scope），无跨用户 key 碰撞。
+    """
+    if not bazi_info:
+        return "none"
+    return hashlib.md5(
+        json.dumps(bazi_info, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()
 
 
 def _generate_hourly(day_stem: str) -> list:
@@ -109,8 +127,10 @@ async def get_today_calendar(
     被忽略（FastAPI 未声明的查询参数自动忽略），无 token 一律 401。
 
     Bugfix:
-    - 按 (user_id, date) 缓存 LLM 结果 6 小时（TTL_CALENDAR_TODAY），
+    - 按 (user_id, date, 八字档案指纹) 缓存 LLM 结果 6 小时（TTL_CALENDAR_TODAY），
       避免每次请求都调用 DeepSeek（原来每次 20 秒+）。
+    - G3b H-7：指纹参与缓存键——建档/改八字/改城市后当日立即出新结果，
+      通用版（无八字）与个性化版分键不混用。
     - 响应补全前端契约：stars（=score 换算 1-5 星）、lucky_color、
       lucky_number、lucky_direction、hourly（12 时辰运势，纯规则生成）。
     - 同步 LLM 调用移入线程池，避免阻塞事件循环导致服务卡死。
@@ -128,15 +148,17 @@ async def get_today_calendar(
     date_str = date or now.strftime("%Y-%m-%d")
     cache_scope = user_id or ""
 
+    # 先读档案：指纹参与缓存键（G3b H-7）——建档/改八字/改城市后指纹变化，
+    # 旧缓存天然失效，当日立即出新结果；通用版与个性化版分键不混用。
+    # 本地 SQLite 单行读取开销可忽略（远小于一次 LLM 调用）。
+    saved = _dao.get_user_bazi(user_id) if (_dao and user_id) else None
+
     # ── 缓存命中直接返回（避免每次调 LLM）──
     cache = get_cache()
-    cache_key = f"calendar:today:{date_str}"
+    cache_key = f"calendar:today:{date_str}:{_profile_fingerprint(saved)}"
     cached = cache.get(cache_key, cache_scope)
     if cached is not None:
         return cached
-
-    # Try to get user's bazi from DAO
-    saved = _dao.get_user_bazi(user_id) if (_dao and user_id) else None
 
     if not saved:
         result = _generate_generic_calendar(date_str)

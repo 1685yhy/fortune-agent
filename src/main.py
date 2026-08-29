@@ -886,6 +886,10 @@ async def lifespan(app: FastAPI):
     from .api.pay import setup as setup_pay
     setup_pay(member_dao)
 
+    # G3b H-2：love.py 付费墙后端校验接线（同 union/pay 注入模式，生产用真实 MemberDAO）
+    from .api.love import setup as setup_love
+    setup_love(member_dao)
+
     # 微信虚拟支付（米大师）：signData/paySig/signature + 发货回调
     from .api.pay_midas import setup as setup_pay_midas
     setup_pay_midas(member_dao)
@@ -981,6 +985,8 @@ app.include_router(_create_oai_router(None))
 from .api.pricing import router as pricing_router
 from .api.scenarios import router as scenarios_router
 from .api.calendar import router as calendar_router
+# G3b H-9：五行→幸运色/数字/方向传统对应表（与今日运势同源，单一事实源）
+from .api.calendar import STEM_WUXING, WX_COLOR, WX_NUMBER, WX_DIR
 from .api.visual_report import router as visual_report_router
 from .api.compatibility import router as compatibility_router
 from .api.share import router as share_router
@@ -1266,6 +1272,48 @@ def _derive_report_content(c: dict, item: dict) -> str:
     return "\n".join(lines)
 
 
+def _derive_lucky_refs(bazi_info: Optional[dict]) -> dict:
+    """按用户日主五行派生幸运色/数字/方向（G3b H-9：去掉 id 取模假数据）。
+
+    规则来源：传统五行对应表（木→绿/东/3，火→红/南/2，土→黄/西南/5，
+    金→金/西/4，水→蓝/北/6）——与今日运势同一体系（api/calendar.py
+    WX_COLOR/WX_NUMBER/WX_DIR），非新造算法、零新依赖。
+    - 有八字：取日主（日柱天干）五行，确定性（同盘同结果）；
+    - 无八字：以当日日干五行参考（真实历法数据派生，确定性），并置
+      lucky_is_reference=True 供前端标注「参考信息」而非测算结果。
+    """
+    day_master = ""
+    if isinstance(bazi_info, dict):
+        bazi = bazi_info.get("bazi") or []
+        if len(bazi) >= 3 and bazi[2]:
+            day_master = bazi[2][0]
+    wx = STEM_WUXING.get(day_master, "")
+    if wx:
+        return {
+            "luckyColor": WX_COLOR[wx],
+            "luckyDirection": WX_DIR[wx],
+            "luckyNumber": WX_NUMBER[wx],
+            "lucky_is_reference": False,
+            "lucky_source": f"日主{day_master}五行属{wx}",
+        }
+    # 无八字：当日日干五行参考（与今日运势通用版同源）
+    from src.engines.calendar import LuckyCalendar
+    day_stem = ""
+    try:
+        day_stem, _ = LuckyCalendar("")._day_stem_branch(
+            datetime.now(timezone(timedelta(hours=8))).strftime("%Y-%m-%d"))
+    except Exception:
+        pass
+    wx = STEM_WUXING.get(day_stem, "土")
+    return {
+        "luckyColor": WX_COLOR[wx],
+        "luckyDirection": WX_DIR[wx],
+        "luckyNumber": WX_NUMBER[wx],
+        "lucky_is_reference": True,
+        "lucky_source": "暂无八字，以当日干支五行参考",
+    }
+
+
 _BASE_REPORT_ID = "base"  # 基础命书（用户已设置八字但尚无任何咨询报告时生成）
 
 
@@ -1368,11 +1416,10 @@ async def get_report_detail(report_id: str, uid: str = Depends(require_user)):
         if not bazi_info:
             raise HTTPException(status_code=404, detail="报告不存在")
         item = _build_base_report_item(bazi_info)
+        # G3b H-9：幸运色/方向/数字按用户日主五行真实派生（原固定「金色/东/8」假数据）
         item.update({
             "fullContent": _derive_base_report_content(bazi_info),
-            "luckyColor": "金色",
-            "luckyDirection": "东",
-            "luckyNumber": "8",
+            **_derive_lucky_refs(bazi_info),
         })
         return {"report": item}
 
@@ -1388,13 +1435,11 @@ async def get_report_detail(report_id: str, uid: str = Depends(require_user)):
     full_content = (c.get("analysis") or "").strip()
     if not full_content:
         full_content = _derive_report_content(c, item)
-    colors = ["金色", "白色", "红色", "蓝色", "绿色"]
-    directions = ["东", "南", "西", "北", "东南", "东北", "西南", "西北"]
+    # G3b H-9：幸运色/方向/数字按用户日主五行真实派生（原 id 取模确定性假数据）
+    lucky = _derive_lucky_refs(dao.get_user_bazi(uid) if dao else None)
     item.update({
         "fullContent": full_content,
-        "luckyColor": colors[rid % len(colors)],
-        "luckyDirection": directions[rid % len(directions)],
-        "luckyNumber": str((rid % 9) + 1),
+        **lucky,
     })
     return {"report": item}
 
