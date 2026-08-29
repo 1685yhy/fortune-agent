@@ -1411,6 +1411,11 @@ Page({
             this.setData({ [`fb.${key}`]: false });
             wx.showToast({ title: '反馈失败，请重试', icon: 'none' });
           });
+      } else {
+        // G3 H-12：无咨询记录（离线/回退/未完成生成的回复）→ 点亮即假成功——
+        // 反馈根本没上报。回滚点亮态并如实提示，不静默
+        this.setData({ [`fb.${key}`]: false });
+        wx.showToast({ title: '反馈未提交：该回复缺少咨询记录', icon: 'none' });
       }
     }
   },
@@ -1881,9 +1886,10 @@ Page({
       let url = res && res.audio_url;
       if (!url) throw new Error('no audio_url');
       if (url.indexOf('http') !== 0) {
-        // 后端返回相对路径时的兜底前缀
-        // TODO: 生产环境 audio 服务前缀改为 https://yilichat.com（或后端统一配置，勿硬编码）
-        url = 'http://127.0.0.1:8768' + url;
+        // G3 H-10：后端已按配置（PUBLIC_BASE_URL）返回完整 URL；相对路径不再拼
+        // 127.0.0.1（真机上指向手机自身，语音必然不可达）——非完整地址视为失败，
+        // 走下方「语音合成失败」提示，不静默播放无效地址
+        throw new Error('audio_url 非完整地址');
       }
       if (!this._ttsCache) this._ttsCache = {};
       this._ttsCache[id] = url;

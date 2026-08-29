@@ -139,8 +139,11 @@ Page({
   _load() {
     const items = [];
     const now = Date.now();
+    const seen = new Set(); // G3 H-3：同 id 双源（storage + 归档）只展示一份
     const push = (m) => {
       if (!m || m.role !== 'ai' || !m.kept || m.favImported) return;
+      if (seen.has(m.id)) return;
+      seen.add(m.id);
       const jian = isJianEntry(m);
       items.push({
         id: m.id,

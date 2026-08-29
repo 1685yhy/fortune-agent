@@ -153,8 +153,8 @@ Page({
           return copy;
         });
         if (streamHost.streaming) streamHost.stop();
-        streamHost.setMessages(msgs.slice(-50));
-        try { wx.setStorageSync(STORAGE_KEY, msgs.slice(-50)); } catch (err) { /* ignore */ }
+        // G3 H-3：写回走 persist —— 晨笺收藏条目（type==='jian' && kept）不被覆盖写抹除
+        streamHost.persist(msgs.slice(-50));
       }
     }
     wx.navigateTo({ url: '/pages/chat/chat' });

@@ -76,6 +76,7 @@ Page({
     solarHint: '明日立秋 · 今夜宜早眠',
     poemLines: DEFAULT_POEM,
     yiChips: DEFAULT_CHIPS,
+    placeholderNote: '', // G3 H-5：占位标记 '' | 'example'（示例文案）| 'error'（获取失败）
     curTab: 'today',
     dark: false,
     /* 深夜入口横幅：mode=深夜时段内(21:00 后,白天不出现)；banner=入口开关 */
@@ -209,10 +210,15 @@ Page({
          本地已建档（后端缓存未刷新）时不再提示 */
       const needsArchive = (res.personal_advice || '').includes('请先设置八字信息')
         && !persons.hasLocalArchive();
+      /* G3 H-5：接口有数据但缺诗签/宜忌 → 原型兜底文案必须带「· 示例文案」标记，
+         不静默冒充真实运势（needsArchive 场景由上方提示条说明，不再重复标记） */
+      const rawAdvice = (res.personal_advice || res.advice || '').trim();
+      const chipsOk = chips.length >= 2;
       this.setData({
-        yiChips: chips.length >= 2 ? chips : DEFAULT_CHIPS,
-        poemLines: needsArchive ? DEFAULT_POEM.slice() : splitPoem(res.personal_advice || res.advice || ''),
+        yiChips: chipsOk ? chips : DEFAULT_CHIPS,
+        poemLines: needsArchive ? DEFAULT_POEM.slice() : splitPoem(rawAdvice),
         archiveHint: needsArchive,
+        placeholderNote: (!needsArchive && (!rawAdvice || !chipsOk)) ? 'example' : '',
       });
 
       /* ── 流日四运（0-10 分，进度条 = score×10%） ── */
@@ -259,6 +265,8 @@ Page({
       });
     } catch (e) {
       console.warn('[Today] API 不可用，保持原型文案');
+      // G3 H-5：接口失败保留原型文案，但必须带可见失败标记 —— 占位内容不再冒充真实运势
+      if (this.data.placeholderNote !== 'error') this.setData({ placeholderNote: 'error' });
     }
   },
 
@@ -407,6 +415,8 @@ Page({
       this._syncHostJian(entry.id, entry);
       this.setData({ 'jian.saved': true });
       wx.showToast({ title: '已收藏 · 入笺匣', icon: 'none' });
+      // G3 H-3：本地收藏之外直连云端（POST /api/favorites，幂等）
+      this._syncJianBackend(entry);
     } catch (e) {
       wx.showToast({ title: '收藏失败，请重试', icon: 'none' });
     }
@@ -426,6 +436,23 @@ Page({
     } catch (e) { /* 同步失败不阻断收藏 */ }
   },
 
+  /* G3 H-3：晨笺收藏同步云端（type='jian'、ref_id=消息 id、summary 截 100 字，
+     与收藏页 _tryImportLocal / 聊天页 _syncKeepBackend 同口径，后端 UNIQUE 幂等）。
+     成功 → 消息打 favImported（收藏页据此不重复展示本地兜底条目）；
+     失败 → 收藏保留本机，toast 如实提示「暂存本机 · 云端同步失败」——
+     不假装已上云（成功提示以服务端确认为准）。 */
+  _syncJianBackend(entry) {
+    api.favAdd({
+      type: 'jian',
+      ref_id: String(entry.id || '').slice(0, 128),
+      summary: String(entry.content || '').slice(0, 100),
+    }).then(() => {
+      streamHost.patchMessage(entry.id, { favImported: true });
+    }).catch(() => {
+      wx.showToast({ title: '收藏暂存本机，云端同步失败', icon: 'none' });
+    });
+  },
+
   _unfavJian() {
     const id = this.data.jian.savedId;
     try {
@@ -434,6 +461,9 @@ Page({
       this._syncHostJian(id, null);
       this.setData({ 'jian.saved': false });
       wx.showToast({ title: '已取消收藏', icon: 'none' });
+      // G3 H-3：云端同步取消（DELETE 幂等，后端无记录也视为成功）；
+      // 失败不阻断本地取消——后端条目留在收藏页可由用户再删，不假装已移除
+      api.favRemove('jian', String(id).slice(0, 128)).catch(() => { /* 静默 */ });
     } catch (e) {
       wx.showToast({ title: '操作失败，请重试', icon: 'none' });
     }

@@ -534,8 +534,14 @@ Page({
       reportId: paidRes.reportId || '',
       showReport: true,
     });
-    if (chapters.length) {
+    if (!chapters.length) return;
+    // G3 H-13：归档成败以服务端 reportId 为准——后端归档失败时 report_id=""，
+    // 原实现只查 chapters 就 toast「已存入报告页」= 假成功（报告页实际查不到）。
+    // 报告本体已内联展示，如实提示「暂未存入」，不假装已归档
+    if (paidRes.reportId) {
       wx.showToast({ title: '已存入报告页', icon: 'none' });
+    } else {
+      wx.showToast({ title: '报告已生成 · 暂未存入报告页', icon: 'none' });
     }
   },
 

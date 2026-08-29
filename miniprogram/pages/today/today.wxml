@@ -22,6 +22,9 @@
       <view class="yi-chips" hover-class="yi-chips-active" hover-stay-time="0" bindtap="goTodayDetail">
         <view class="inktag yi-chip" wx:for="{{yiChips}}" wx:key="*this">{{item}}</view>
       </view>
+      <!-- G3 H-5：占位数据可见标记 —— 原型兜底文案不再静默冒充真实运势 -->
+      <view class="placeholder-note" wx:if="{{placeholderNote === 'example'}}">· 示例文案</view>
+      <view class="placeholder-note placeholder-note-error" wx:if="{{placeholderNote === 'error'}}">运势暂时无法获取，请稍后重试</view>
     </view>
 
     <!-- E1 未建档提示条：本地无档案才显示；点击跳排盘；× 关闭落 ylm_noarch_tip_closed=1。

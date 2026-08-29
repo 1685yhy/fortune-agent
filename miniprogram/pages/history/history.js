@@ -236,8 +236,9 @@ Page({
     });
     if (msgs.length) {
       if (streamHost.streaming) streamHost.stop();
-      streamHost.setMessages(msgs.slice(-50));
-      try { wx.setStorageSync(STORAGE_KEY, msgs.slice(-50)); } catch (e) { /* ignore */ }
+      // G3 H-3：写回走 persist —— 晨笺收藏条目（type==='jian' && kept）不被覆盖写抹除
+      //（_rawMsgs 原样写回之上再兜一层：本会话宿主里未被归档的收藏同样保留）
+      streamHost.persist(msgs.slice(-50));
     }
     /* UX批4 Important-5：续聊成功后清理源归档——同一批消息（同 id）不再二次归档，
        否则新开对话再归档会产生重复会话，收藏页同 id kept 消息出现双卡片。 */
@@ -281,10 +282,11 @@ Page({
       // G2 B3：删除以 storage 真实写成为准，写失败 → 「删除失败」而非假成功
       let delOk = true;
       if (d.isCurrent) {
-        /* 删除当前会话：清空消息 → 聊天页回 SEED 开场 */
-        try { wx.setStorageSync(STORAGE_KEY, []); } catch (e) { delOk = false; }
+        /* 删除当前会话：清空消息 → 聊天页回 SEED 开场。
+           G3 H-3：走 persist([]) —— 晨笺收藏条目（收藏页本地数据源）不随
+           会话删除一起被抹除；写入成败以 storage 真实结果为准（G2 B3） */
         if (streamHost.streaming) streamHost.stop();
-        streamHost.setMessages([]);
+        delOk = streamHost.persist([]);
       } else {
         try {
           const arch = wx.getStorageSync(ARCHIVE_KEY);

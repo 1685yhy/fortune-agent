@@ -94,6 +94,16 @@
 }
 .yi-chips-active { opacity: .72; }
 
+/* G3 H-5：占位数据可见标记（示例文案 / 获取失败）——原原型兜底静默展示，用户误认真实运势 */
+.placeholder-note {
+  margin-top: 12rpx;
+  font-size: 22rpx;                        /* 11.5px */
+  letter-spacing: .1em;
+  color: var(--ink-soft);
+  text-align: center;
+}
+.placeholder-note-error { color: var(--acc); }
+
 /* ═══ 深夜入口横幅（原型 .night-banner：纸卡底 + 金灯 + 灯下见） ═══ */
 .night-banner {
   width: 100%;

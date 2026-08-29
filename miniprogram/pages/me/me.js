@@ -33,7 +33,7 @@ Page({
     lunarBirthday: '',
     pillars: [],
     hasBazi: false,           // UX批1 I-2：命盘是否就绪（决定生日/四柱区 vs 未设置占位）
-    nights: 231,
+    nights: 1,                // G3 H-4：第 N 晚由 ylm_first_seen 真实推导，首夜即第 1 晚（原 231 为虚构数据）
     meRows: BASE_ROWS,
     memberStatus: '基础版',
     memberDialogVisible: false,
@@ -96,23 +96,45 @@ Page({
     this._loadSubscription();
   },
 
-  /* v1.1 收藏数：本机会话 + 归档里 kept 的 AI 回复数（与 favorites 页数据源一致） */
+  /* v1.1 收藏数：与 favorites 页三源同口径（H-8）——
+     ① 本地 kept && !favImported（本机会话 + 归档，同 id 双源只计一次）；
+     ② 后端对话收藏 GET /api/favorites（已导入条目的数据源，本地侧已排除不重复）；
+     ③ 后端名笺 GET /api/ming/saved。
+     后端失败静默降级（只显示已得源，与收藏页降级行为一致）。 */
   _loadFavCount() {
-    let count = 0;
+    let local = 0;
     try {
+      const seen = new Set(); // G3 H-3：同 id 双源（storage + 归档）只计一次
       const scan = (msgs) => {
         (Array.isArray(msgs) ? msgs : []).forEach((m) => {
-          if (m && m.role === 'ai' && m.kept) count++;
+          if (!m || m.role !== 'ai' || !m.kept || m.favImported) return;
+          if (seen.has(m.id)) return;
+          seen.add(m.id);
+          local++;
         });
       };
       scan(wx.getStorageSync(STORAGE_KEY));
       const arch = wx.getStorageSync(ARCHIVE_KEY);
       (Array.isArray(arch) ? arch : []).forEach((a) => scan(a.messages));
     } catch (e) { /* ignore */ }
-    if (count !== this.data.favCount) {
-      this.setData({ favCount: count });
-      this._buildRows();
-    }
+    let remoteFavs = 0;
+    let remoteMings = 0;
+    const apply = () => {
+      const count = local + remoteFavs + remoteMings;
+      if (count !== this.data.favCount) {
+        this.setData({ favCount: count });
+        this._buildRows();
+      }
+    };
+    apply();
+    api.favList().then((data) => {
+      remoteFavs = (data && data.items && data.items.length) || 0;
+      apply();
+    }).catch(() => { /* 失败静默：保持本地数（收藏页同款降级） */ });
+    api.getMingSaved().then((data) => {
+      remoteMings = (data && data.items && data.items.length) || 0;
+      apply();
+    }).catch(() => { /* 失败静默 */ });
   },
 
   /* 会员状态（P1：真实接口，失败/未登录回退基础版） */
@@ -285,17 +307,21 @@ Page({
     }
   },
 
-  /* 第 N 晚：本地首见天数，无记录时原型默认 231 */
+  /* 第 N 晚：由 ylm_first_seen 真实推导（G3 H-4）。
+     首夜（无记录）→ 记首见时间并显示第 1 晚；之后每晚 +1。
+     不再使用虚构的默认 231——宁少不假（原型默认值对老用户是假数据）。 */
   _deriveNights() {
     try {
       const first = wx.getStorageSync('ylm_first_seen');
-      if (!first) {
+      let nights = 1; // 首夜即第 1 晚
+      if (first) {
+        const days = Math.floor((Date.now() - first) / 86400000);
+        nights = days + 1;
+      } else {
         wx.setStorageSync('ylm_first_seen', Date.now());
-        return;
       }
-      const days = Math.floor((Date.now() - first) / 86400000);
-      if (days > 0 && days + 1 !== this.data.nights) {
-        this.setData({ nights: days + 1 });
+      if (nights !== this.data.nights) {
+        this.setData({ nights });
       }
     } catch (e) {
       console.warn('[Me] 首见时间读取失败');

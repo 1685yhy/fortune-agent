@@ -226,7 +226,9 @@ Page({
           console.warn('[Bazi] 保存命主接口未就绪，走本地降级:', e && e.message);
           const local = Object.assign({ id: 'local_' + Date.now(), is_default: false, created_at: Date.now() }, payload);
           this._mergeLocal(local, true);
-          wx.showToast({ title: '已本地保存档案 · 云端稍后同步', icon: 'none', duration: 2200 });
+          // G3 H-3①a：同步承诺有真实实现兜底——local_ 条目在下次 loadPersons（档案页/
+          // 引导页）时逐条 upsert 到服务端（persons.js H-6），文案如实收窄为「联网后自动同步」
+          wx.showToast({ title: '已保存到本机档案 · 联网后自动同步', icon: 'none', duration: 2200 });
           this._enterForm(local);
         }
       },
@@ -344,17 +346,20 @@ Page({
     wx.showModal({
       title: '对话建档提示',
       content: this.data.bannerText
-        ? `在对话中你说到了 ${this.data.bannerText}\n是否将其保存到档案？`
-        : '对话中已识别到出生信息\n是否将其保存到档案？',
-      confirmText: '确认保存',
+        ? `在对话中你说到了 ${this.data.bannerText}\n可在档案页查看并管理`
+        : '对话中已识别到出生信息\n可在档案页查看并管理',
+      confirmText: '知道了',
       cancelText: '取消',
       confirmColor: '#A93A2C',
       success: (res) => {
         this._clearBanner();
         if (res.confirm) {
-          wx.showToast({ title: '已保存到档案 · 档案-添加命主可查看', icon: 'none', duration: 2400 });
+          // G3 H-3①b：原「已保存到档案 · 档案-添加命主可查看」为假成功——标记里只有
+          // {t, text:''} 无出生数据，前端零写入。镜像 chat.js G2 A4：只做档案指引，
+          // 不声称已保存（对话分析落库在服务端，前端无法可靠回提）
+          wx.showToast({ title: '已为你标记，可在档案页查看', icon: 'none' });
         } else {
-          wx.showToast({ title: '未保存 · 本次排盘用完即弃', icon: 'none', duration: 2200 });
+          wx.showToast({ title: '未标记', icon: 'none' });
         }
       },
     });

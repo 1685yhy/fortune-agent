@@ -93,14 +93,49 @@ function saveLocalPersons(list) {
   } catch (e) { /* ignore */ }
 }
 
-/** 全量拉取：接口优先 → 失败降级本地缓存（永不 reject） */
+/** local_ 前缀条目 → 服务端创建载荷（G1 性别中文契约：与后端 _person_birth 归一一致——
+    male/female 历史存量 → 男/女，中文原样，其余 → 'unknown'；绝不产出 male/female） */
+function payloadOf(p) {
+  const gl = String(p.gender || '').trim().toLowerCase();
+  const gender = (gl === '男' || gl === 'male') ? '男' : ((gl === '女' || gl === 'female') ? '女' : 'unknown');
+  return {
+    name: p.name || '',
+    relation: p.relation || '',
+    gender,
+    birth_year: p.birth_year,
+    birth_month: p.birth_month,
+    birth_day: p.birth_day,
+    birth_hour: p.birth_hour,
+    birth_minute: p.birth_minute,
+    calendar: p.calendar || 'solar',
+    city: p.city || '',
+  };
+}
+
+/** 全量拉取：接口优先 → 失败降级本地缓存（永不 reject）。
+    G3 H-6：服务端成功时不再直接覆盖本地缓存 —— 本地未同步条目（id 以 local_ 开头，
+    离线建档/云端失败残留）合并进结果并逐条 upsert 到服务端（POST /api/persons，
+    G2 D2 以服务端 person 确认响应为成功）；同步成功即从缓存移除（服务端列表已含，
+    下次不重复建）；同步失败保留缓存与展示，等待下次重试。缓存写入按 id 幂等。 */
 function loadPersons() {
   const api = require('./api');
   return api.getPersons()
     .then((res) => {
-      const list = (res && res.persons) || [];
-      saveLocalPersons(list);
-      return list;
+      const server = (res && res.persons) || [];
+      const local = getLocalPersons();
+      const localOnly = local.filter((p) => p && String(p.id || '').indexOf('local_') === 0);
+      if (!localOnly.length) {
+        saveLocalPersons(server);
+        return server;
+      }
+      return Promise.all(localOnly.map((p) =>
+        api.createPerson(payloadOf(p)).then(() => null).catch(() => p)
+      )).then((kept) => {
+        const keptList = kept.filter(Boolean);
+        const merged = server.concat(keptList);
+        saveLocalPersons(merged);
+        return merged;
+      });
     })
     .catch(() => getLocalPersons());
 }

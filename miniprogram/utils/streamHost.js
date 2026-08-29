@@ -33,6 +33,35 @@ const STREAM_ERROR_TEXT = {
   server:  { partial: '生成失败，已保留已生成内容，可重试',     empty: '生成失败，请重试' },
 };
 
+/* G3 H-3：晨笺收藏条目判定 —— type==='jian' 且仍处收藏态（kept）。
+   收藏页本地数据源 = ylm_chat_messages（storage + 归档），这类条目被
+   清空对话/续聊覆盖/50 条裁剪抹掉时没有其它备份（clearChat 不归档），
+   即 H-3「收藏无声消失」根因。落盘、重置、覆盖写三路都必须保留它们；
+   取消收藏（favorites._unkeep 删 kept 标记）后即不再豁免。 */
+function isKeptJian(m) {
+  return !!(m && m.type === 'jian' && m.kept === true);
+}
+
+/* 把 prev 里的晨笺收藏条目合并进 base（按 id 去重，保持原对象引用与原顺序）。
+   用于 reset([]) / persist(覆盖写)：清空/覆盖会话时收藏条目不随对话一起消失。 */
+function mergeKept(base, prev) {
+  const baseArr = Array.isArray(base) ? base : [];
+  if (!Array.isArray(prev)) return baseArr;
+  const missing = prev.filter((m) => isKeptJian(m) && baseArr.every((b) => !b || b.id !== m.id));
+  if (!missing.length) return baseArr;
+  return baseArr.concat(missing);
+}
+
+/* 落盘裁剪：普通消息只留末尾 max 条（原 50 条上限语义），晨笺收藏条目不参与裁剪
+   —— 收藏超过 50 条时按原顺序整体保留（收藏页唯一本地数据源，不能丢）。 */
+function trimForSave(list, max) {
+  const arr = Array.isArray(list) ? list : [];
+  const rest = arr.filter((m) => !isKeptJian(m));
+  const tail = rest.slice(-(max || 50));
+  const keepIds = new Set(tail.map((m) => m.id));
+  return arr.filter((m) => isKeptJian(m) || keepIds.has(m.id));
+}
+
 /* 错误分级：
    - 连接类：wx.request fail 的 errMsg 通常含 "request:fail"（如 request:fail interrupted——
      切后台/切页面平台断开；request:fail timeout）；api.js 网络失败统一文案「网络连接失败…」
@@ -182,6 +211,19 @@ class StreamHost {
   /* 页面导入消息（onLoad 恢复历史 / 新开对话 SEED） */
   setMessages(messages) {
     if (Array.isArray(messages)) this.messages = messages;
+  }
+
+  /* G3 H-3：页面侧直接覆盖 storage 的路径（dreams/history 续聊写回、history 删除
+     当前会话）统一走这里 —— 先合并当前宿主里的晨笺收藏条目再落盘（覆盖写不得
+     抹收藏），再同步宿主内存。返回 storage 是否写入成功（G2 B3：删除/续聊 toast
+     以真实写成为准）。 */
+  persist(messages) {
+    const prev = this.messages;
+    this.messages = mergeKept(Array.isArray(messages) ? messages : [], prev);
+    this.tick++;
+    const ok = this._save();
+    this._emit();
+    return ok;
   }
 
   /* ── 断点续传：服务端后台完成的回复 → 追加到消息列表（下次进入自动补全） ──
@@ -468,8 +510,11 @@ class StreamHost {
     if (!this.streaming) this._nextQueued();
   }
 
-  /* 重置（清空/新开对话）：中止进行中的流，清空队列与消息 */
+  /* 重置（清空/新开对话）：中止进行中的流，清空队列与消息。
+     G3 H-3：清空是收藏抹除高危路径（clearChat 不归档、新开对话仅归档已收藏外
+     的旧条目时）——旧现场的晨笺收藏条目先抢救合并，绝不随重置一起消失。 */
   reset(messages) {
+    const prev = this.messages;
     if (this.task) {
       try { this.task.abort(); } catch (e) { /* ignore */ }
     }
@@ -477,7 +522,7 @@ class StreamHost {
     this._clearWatchdog();
     this._clearSlowHint();
     this._init();
-    this.messages = Array.isArray(messages) ? messages : [];
+    this.messages = mergeKept(Array.isArray(messages) ? messages : [], prev);
     this.tick++;
     this._save();
     this._emit();
@@ -784,12 +829,16 @@ class StreamHost {
     return -1;
   }
 
-  /* 历史持久化（页面销毁后由宿主继续写盘） */
+  /* 历史持久化（页面销毁后由宿主继续写盘）。
+     G3 H-3：写盘前做收藏豁免裁剪 —— 晨笺收藏条目不被 50 条上限挤出。
+     返回是否写入成功（persist 的 G2 B3 语义：以 storage 真实写成为准）。 */
   _save() {
     try {
-      wx.setStorageSync(STORAGE_KEY, this.messages.slice(-50));
+      wx.setStorageSync(STORAGE_KEY, trimForSave(this.messages));
+      return true;
     } catch (e) {
       console.warn('[StreamHost] 历史保存失败');
+      return false;
     }
   }
 }

@@ -66,6 +66,25 @@ def is_experience_mode() -> bool:
     return os.getenv("EXPERIENCE_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def tts_upstream_base() -> str:
+    """TTS 合成服务内部地址（转发目标，默认本机 8768；可经 TTS_UPSTREAM_BASE 覆盖）。
+
+    注意：这是「后端 → TTS 服务」的内部转发地址，与服务对外域名无关，
+    生产上两者通常在同一台机器/内网，无需也不应暴露公网地址。
+    """
+    return os.getenv("TTS_UPSTREAM_BASE", "http://127.0.0.1:8768").rstrip("/")
+
+
+def public_base_url() -> str:
+    """对外可访问的服务根地址（G3 H-10：TTS 音频等相对路径改写为完整 URL 用）。
+
+    默认 https://yilichat.com（生产域名）——TTS 相对路径改写若落到 127.0.0.1，
+    真机上指向手机自身、语音全部不可达（上线即坏功能，H-10 根因）。
+    开发环境在本地 .env 设 PUBLIC_BASE_URL=http://127.0.0.1:8768 覆盖。
+    """
+    return os.getenv("PUBLIC_BASE_URL", "https://yilichat.com").rstrip("/")
+
+
 def load_settings(config_path: str = "config/settings.yaml") -> Settings:
     settings = Settings()
     path = Path(config_path)

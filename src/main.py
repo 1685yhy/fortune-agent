@@ -1427,15 +1427,18 @@ class TTSRequest(BaseModel):
 
 @app.post("/api/tts")
 async def api_tts(req: TTSRequest, uid: str = Depends(require_user)):
-    """文字转语音 — 转发到 8768 TTS 服务并返回可播放的完整 audio_url。
+    """文字转语音 — 转发到 TTS 服务并返回可播放的完整 audio_url。
 
-    Bugfix: 8767 原无此路由（前端 404）。8768 的 POST /tts 返回
+    Bugfix: 8767 原无此路由（前端 404）。TTS 的 POST /tts 返回
     {audio_url: "/audio/xxx.mp3", duration_ms}，其 /audio 为 StaticFiles 静态
-    服务；这里把相对路径改写为完整 http://127.0.0.1:8768 前缀，开发环境
-    小程序可直接播放。
+    服务；这里把相对路径改写为完整 URL 前缀——G3 H-10：前缀读配置
+    PUBLIC_BASE_URL（生产 https://yilichat.com，默认即生产域名；开发在本地
+    .env 覆盖 http://127.0.0.1:8768）。禁止硬编码 127.0.0.1（真机上指向
+    手机自身 → 语音全部不可达，上线即坏功能）。
     安全修复：必须登录（防刷 TTS 成本）。
     """
     import httpx
+    from src.config import public_base_url, tts_upstream_base
     if not (req.text or "").strip():
         raise HTTPException(status_code=400, detail="text 不能为空")
     try:
@@ -1443,15 +1446,15 @@ async def api_tts(req: TTSRequest, uid: str = Depends(require_user)):
         if req.voice:
             payload["voice"] = req.voice
         async with httpx.AsyncClient(timeout=60.0) as client:
-            r = await client.post("http://127.0.0.1:8768/tts", json=payload)
+            r = await client.post(f"{tts_upstream_base()}/tts", json=payload)
         if r.status_code != 200:
             logger.warning("TTS upstream error: %s %s", r.status_code, r.text[:200])
             raise HTTPException(status_code=502, detail=f"TTS 服务错误（{r.status_code}）")
         data = r.json()
         audio_url = data.get("audio_url", "")
         if audio_url.startswith("/"):
-            # 相对路径 → 完整 URL（8768 静态挂载 /audio）
-            audio_url = f"http://127.0.0.1:8768{audio_url}"
+            # 相对路径 → 完整 URL（按配置的对外域名，8768 静态挂载 /audio）
+            audio_url = f"{public_base_url()}{audio_url}"
         return {
             "audio_url": audio_url,
             "duration_ms": data.get("duration_ms", 0),
