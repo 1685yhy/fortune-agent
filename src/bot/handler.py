@@ -62,6 +62,7 @@ from src.storage.member_dao import MemberDAO
 from src.storage.member_dao import MemberDAO
 from src.storage.conversation_memory import ConversationMemory
 from src.storage.chart_dao import ChartDAO
+from src.storage.birth_profile import get_user_birth_profile
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
 from src.memory.user_memory import UserMemory, format_birth_line
@@ -3926,89 +3927,12 @@ class MessageHandler:
     def _get_user_birth_profile(self, user_id: str) -> Optional[dict]:
         """获取用户出生信息档案（G1 P0-B 修复：persons 默认档案 = 单一事实源）。
 
-        读取顺序（2026-08-29 G1，原 bazi_info 优先 → 编辑页改 persons 永不
-        生效，P15 生产实测）：① persons 表主档案（默认优先，逻辑不变）→
-        ② users.bazi_info → ③ chart_records 最近排盘（D8 保留）→ ④ None。
-
-        自愈（G1）：① 命中且 users.bazi_info 缺失/与 persons 不一致时，
-        用 persons 单向回写刷新 bazi_info（保留 bazi 四柱等既有键）——
-        编辑页改动立即在对话侧生效，消除两库永久分歧；bazi_info 不再当
-        权威（排盘落库 _save_bazi_records 双写不变，gender 已统一中文契约）。
-
-        不回写 persons（persons 是唯一权威，单向打通）。
+        G3c：委托 src.storage.birth_profile.get_user_birth_profile ——
+        calendar 今日运势（api/calendar.py）与对话路径共用同一实现，
+        读取顺序零漂移（数据一致性铁律），缓存指纹与读取源同源。
         """
-        if not self.dao:
-            return None
-        # ① persons 档案优先（单一事实源；db_path 访问已置于 self.dao 守卫内）
-        try:
-            from src.storage.person_dao import PersonDAO
-            pdao = PersonDAO(self.dao.db_path)
-            persons = pdao.list_persons(user_id)
-            if persons:
-                default = next((p for p in persons if p.get("is_default")), None)
-                if default and default.get("birth_year"):
-                    pick = default
-                else:
-                    candidates = [p for p in persons if p.get("birth_year")]
-                    if not candidates:
-                        candidates = []
-                        pick = None
-                    else:
-                        # 选最近更新的有出生数据的档案（updated_at 降序取最大者）
-                        pick = max(candidates, key=lambda p: p.get("updated_at") or "")
-                if pick:
-                    out = {
-                        "year": pick.get("birth_year"),
-                        "month": pick.get("birth_month"),
-                        "day": pick.get("birth_day"),
-                        "hour": pick.get("birth_hour"),
-                        "minute": pick.get("birth_minute"),
-                        "city": pick.get("city") or "",
-                        "gender": pick.get("gender") or "unknown",
-                    }
-                    # 自愈：bazi_info 缺失/与 persons 不一致 → persons 单向回写
-                    # （保留 bazi 四柱等既有键；写入失败仅告警，不阻塞读取）
-                    try:
-                        bazi = self.dao.get_user_bazi(user_id)
-                        _keys = ("year", "month", "day", "hour", "minute",
-                                 "city", "gender")
-                        stale = (not bazi or not bazi.get("year")
-                                 or any(bazi.get(k) != out[k] for k in _keys))
-                        if stale:
-                            new_info = dict(bazi or {})
-                            new_info.update(out)
-                            self.dao.save_user_bazi(user_id, new_info)
-                    except Exception as e:
-                        logger.warning("G1 档案自愈回写失败 user=%s: %s",
-                                       user_id, str(e)[:160])
-                    return out
-        except Exception:
-            pass
-        # ② users.bazi_info 兜底
-        try:
-            bazi = self.dao.get_user_bazi(user_id)
-        except Exception:
-            bazi = None
-        if bazi and bazi.get("year"):
-            return bazi
-        # ③ chart_records 排盘结果兜底（D8 修复）：已排盘落库（重看 0 重跑
-        # 数据）即视为有档案，问事直接走档案快路径，不再引导建档。
-        try:
-            chart_dao = getattr(self, "chart_dao", None)
-            if chart_dao:
-                chart = chart_dao.get_latest_chart(user_id)
-                if chart and chart.get("birth") and chart["birth"].get("year"):
-                    b = chart["birth"]
-                    out = {k: b.get(k) for k in
-                           ("year", "month", "day", "hour", "minute",
-                            "city", "gender")}
-                    bazi = (chart.get("bazi_json") or {}).get("bazi") or []
-                    if bazi:
-                        out["bazi"] = bazi
-                    return out
-        except Exception:
-            pass
-        return None
+        return get_user_birth_profile(
+            self.dao, user_id, chart_dao=getattr(self, "chart_dao", None))
 
     # ── T5 重看盘直读（0 引擎 0 LLM）─────────────────────────────
     # 用户问"我的盘/我的八字"等重看表述、且 chart_records 已有排盘结果时，

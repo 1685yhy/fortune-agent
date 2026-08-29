@@ -39,7 +39,8 @@ Page({
     dark: false,
     sharing: false,
     /* 卷章全文弹层（墨韵线装书：宣纸底 / 竖排标题 / 印章） */
-    detail: { show: false, noText: '', title: '', date: '', score: 0, luckyColor: '', luckyDirection: '', luckyNumber: '', fullContent: '' },
+    /* luckyIsReference（G3b H-9 / G3c）：幸运色/方向/数字为参考值时标注「参考」 */
+    detail: { show: false, noText: '', title: '', date: '', score: 0, luckyColor: '', luckyDirection: '', luckyNumber: '', luckyIsReference: false, luckySource: '', fullContent: '' },
     loadingDetail: false,
   },
 
@@ -107,6 +108,8 @@ Page({
             luckyColor: r.luckyColor || '',
             luckyDirection: r.luckyDirection || '',
             luckyNumber: r.luckyNumber || '',
+            luckyIsReference: !!r.lucky_is_reference,
+            luckySource: r.lucky_source || '',
             fullContent: String(r.fullContent || ''),
           },
         });
@@ -121,7 +124,7 @@ Page({
   },
 
   closeDetail() {
-    this.setData({ detail: { show: false, noText: '', title: '', date: '', score: 0, luckyColor: '', luckyDirection: '', luckyNumber: '', fullContent: '' } });
+    this.setData({ detail: { show: false, noText: '', title: '', date: '', score: 0, luckyColor: '', luckyDirection: '', luckyNumber: '', luckyIsReference: false, luckySource: '', fullContent: '' } });
   },
 
   /* 空态：去聊一段（回聊天页生成命书） */

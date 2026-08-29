@@ -307,6 +307,16 @@
   border-radius: 5rpx;
   padding: 4rpx 14rpx;
 }
+/* G3c：幸运色/方向/数字为参考值时的「参考」标注（区别于真实推算） */
+.dt-ref {
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+  border: 1rpx dashed var(--line-med);
+  border-radius: 5rpx;
+  padding: 4rpx 14rpx;
+}
 .dt-content {
   display: block;
   font-family: var(--font-kai);

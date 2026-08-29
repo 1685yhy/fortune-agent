@@ -74,6 +74,8 @@
         <text wx:if="{{detail.luckyColor}}" class="dt-meta-item">利色 · {{detail.luckyColor}}</text>
         <text wx:if="{{detail.luckyDirection}}" class="dt-meta-item">利向 · {{detail.luckyDirection}}</text>
         <text wx:if="{{detail.luckyNumber}}" class="dt-meta-item">利数 · {{detail.luckyNumber}}</text>
+        <!-- G3c：无八字参考值标注（lucky_is_reference=true），真实推算不标注 -->
+        <text wx:if="{{detail.luckyIsReference}}" class="dt-ref">参考</text>
       </view>
       <text class="dt-content" selectable>{{detail.fullContent}}</text>
       <view wx:if="{{detail.fullContent}}" class="dt-foot">

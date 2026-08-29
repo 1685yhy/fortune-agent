@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, Query
 from src.engines.calendar import LuckyCalendar, derive_fortune4
 from src.security.auth import require_user
 from src.storage.dao import UserDAO
+from src.storage.birth_profile import get_user_birth_profile
 from src.utils.cache import get_cache, TTL_CALENDAR_TODAY
 
 router = APIRouter(tags=["calendar"])
@@ -131,6 +132,9 @@ async def get_today_calendar(
       避免每次请求都调用 DeepSeek（原来每次 20 秒+）。
     - G3b H-7：指纹参与缓存键——建档/改八字/改城市后当日立即出新结果，
       通用版（无八字）与个性化版分键不混用。
+    - G3c：档案读取与 G1 对话路径同源（persons 默认档案优先 → bazi_info 兜底），
+      P2 persons-only 建档用户不再落通用版（指纹非 "none" → 命中个性化 key，
+      与读取路径同源，旧通用缓存天然失效）。
     - 响应补全前端契约：stars（=score 换算 1-5 星）、lucky_color、
       lucky_number、lucky_direction、hourly（12 时辰运势，纯规则生成）。
     - 同步 LLM 调用移入线程池，避免阻塞事件循环导致服务卡死。
@@ -151,7 +155,10 @@ async def get_today_calendar(
     # 先读档案：指纹参与缓存键（G3b H-7）——建档/改八字/改城市后指纹变化，
     # 旧缓存天然失效，当日立即出新结果；通用版与个性化版分键不混用。
     # 本地 SQLite 单行读取开销可忽略（远小于一次 LLM 调用）。
-    saved = _dao.get_user_bazi(user_id) if (_dao and user_id) else None
+    # G3c：读取路径与 G1 对话路径同源（persons 默认档案优先 → bazi_info 兜底）
+    # ——指纹取自实际驱动个性化计算的档案，P2 persons-only 建档用户
+    # 指纹非 "none"，命中个性化 key，不再落通用版。
+    saved = get_user_birth_profile(_dao, user_id) if (_dao and user_id) else None
 
     # ── 缓存命中直接返回（避免每次调 LLM）──
     cache = get_cache()
