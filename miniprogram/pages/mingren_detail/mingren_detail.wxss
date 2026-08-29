@@ -410,3 +410,342 @@
   letter-spacing: .2em;
   color: var(--ink-faint);
 }
+
+/* ═══ 八字命盘卡 + 大运×大事对照（B5-3，同墨韵一族：宣纸/墨/朱砂） ═══ */
+
+/* 时辰缺失标注：小字灰注（显眼但不突兀——正文级小字+墨灰，不抢盘面焦点） */
+.mrd-hournote {
+  display: block;
+  margin: -4rpx 0 18rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .06em;
+  color: var(--ink-faint);
+}
+
+/* 命主信息行 */
+.mrd-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12rpx 26rpx;
+  padding: 2rpx 0 22rpx;
+  border-bottom: 1rpx dashed rgba(58,44,30,.18);
+}
+.mrd-meta-item {
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .06em;
+  color: var(--ink-mid);
+}
+
+/* 四柱盘面（问真式：四柱为列、多行为格的表格——行序：主星→天干→地支→
+   藏干→副星→星运→空亡→纳音→神煞；日柱朱砂底 + 天干上乾造/坤造小标） */
+.mrd-pillars {
+  display: flex;
+  flex-direction: column;
+  padding-top: 18rpx;
+}
+/* 表头行：行标签占位 + 四柱名（日柱朱砂） */
+.mrd-g-head {
+  display: flex;
+  align-items: stretch;
+  margin-bottom: 8rpx;
+}
+.mrd-g-label {
+  width: 96rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .12em;
+  color: var(--ink-faint);
+}
+.mrd-g-col {
+  flex: 1;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .28em;
+  color: var(--ink-soft);
+}
+.mrd-g-col.is-day {
+  color: var(--acc);
+  font-weight: 700;
+}
+/* 数据行 */
+.mrd-g-row {
+  display: flex;
+  align-items: stretch;
+  border-top: 1rpx solid rgba(58,44,30,.08);
+}
+.mrd-g-cell {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2rpx;
+  padding: 16rpx 4rpx;
+  font-family: var(--font-song);
+  font-size: 22rpx;
+  letter-spacing: .06em;
+  color: var(--ink-mid);
+  text-align: center;
+  border-left: 1rpx solid rgba(58,44,30,.06);
+}
+.mrd-g-cell.is-day {
+  background: linear-gradient(180deg, rgba(169,58,44,.07) 0%, rgba(169,58,44,.015) 88%);
+}
+/* 天干/地支大字醒目居中（问真排版感） */
+.mrd-g-big {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 56rpx;
+  line-height: 1.12;
+  color: var(--ink);
+}
+.mrd-g-cell.is-day .mrd-g-big {
+  color: var(--acc-deep);
+}
+/* 乾造/坤造：日柱天干上小朱标 */
+.mrd-g-gankun {
+  position: absolute;
+  top: 0;
+  padding: 1rpx 10rpx;
+  background: var(--acc);
+  border-radius: 0 0 6rpx 6rpx;
+  font-family: var(--font-song);
+  font-size: 17rpx;
+  letter-spacing: .08em;
+  color: #FBF6E8;
+}
+/* 详盘行：藏干/副星/星运/空亡/神煞（小字） */
+.mrd-g-cell.is-detail {
+  padding: 14rpx 4rpx;
+  font-size: 19rpx;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+.mrd-g-ss {
+  display: block;
+  padding: 2rpx 10rpx;
+  margin: 2rpx 0;
+  border: 1rpx solid rgba(169,58,44,.35);
+  border-radius: 16rpx;
+  font-size: 18rpx;
+  letter-spacing: .08em;
+  color: var(--acc-deep);
+}
+.mrd-g-none {
+  color: var(--ink-faint);
+}
+/* 详盘折叠开关 */
+.mrd-detail-toggle {
+  margin-top: 18rpx;
+  padding: 14rpx 0 2rpx;
+  text-align: center;
+  border-top: 1rpx dashed rgba(58,44,30,.18);
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .12em;
+  color: var(--acc);
+}
+
+/* 起运行 */
+.mrd-qiyun {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  margin-top: 22rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx dashed rgba(58,44,30,.18);
+}
+.mrd-qiyun-tag {
+  padding: 4rpx 14rpx;
+  background: var(--acc);
+  border-radius: 6rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .2em;
+  color: #FBF6E8;
+}
+.mrd-qiyun-t {
+  font-family: var(--font-song);
+  font-weight: 600;
+  font-size: 24rpx;
+  letter-spacing: .06em;
+  color: var(--ink);
+}
+.mrd-qiyun-desc {
+  width: 100%;
+  font-family: var(--font-song);
+  font-size: 20rpx;
+  letter-spacing: .06em;
+  color: var(--ink-soft);
+}
+.mrd-birth-src {
+  margin-top: 12rpx;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .04em;
+  color: var(--ink-faint);
+}
+
+/* 大运×大事对照表 */
+.mrd-dy {
+  padding-top: 8rpx;
+}
+.mrd-dy-head {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin: 20rpx 0 10rpx;
+  padding-bottom: 8rpx;
+  border-bottom: 1rpx solid rgba(169,58,44,.35);
+}
+.mrd-dy-head.is-plain {
+  border-bottom-color: rgba(58,44,30,.22);
+}
+.mrd-dy-gz {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 30rpx;
+  letter-spacing: .1em;
+  color: var(--acc-deep);
+}
+.mrd-dy-gz.is-empty {
+  color: var(--ink-mid);
+  font-weight: 600;
+}
+.mrd-dy-range {
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .06em;
+  color: var(--ink-mid);
+}
+.mrd-dy-item {
+  display: flex;
+  gap: 16rpx;
+  padding: 8rpx 0;
+}
+.mrd-dy-year {
+  flex-shrink: 0;
+  width: 96rpx;
+  font-family: var(--font-lat);
+  font-size: 21rpx;
+  line-height: 1.6;
+  color: var(--acc-deep);
+}
+.mrd-dy-text {
+  flex: 1;
+  font-family: var(--font-song);
+  font-size: 23rpx;
+  line-height: 1.75;
+  letter-spacing: .03em;
+  color: var(--ink);
+}
+/* 大运干支可点（弹解释层，问真对标） */
+.mrd-dy-gz {
+  padding: 4rpx 12rpx 4rpx 0;
+}
+
+/* ── 命盘知识解释弹层（B5-3：主星/星运/纳音/神煞/大运干支） ── */
+.mrd-explain-mask {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(20, 14, 8, .55);
+  z-index: 110;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.mrd-explain {
+  width: 100%;
+  max-height: 72vh;
+  background: var(--paper);
+  border-radius: 20rpx 20rpx 0 0;
+  box-shadow: 0 -10rpx 40rpx rgba(30, 20, 10, .3);
+  padding: 30rpx 38rpx calc(30rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+.mrd-explain-head {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  padding-bottom: 18rpx;
+  border-bottom: 1rpx solid rgba(58,44,30,.14);
+}
+.mrd-explain-head .zd {
+  width: 10rpx;
+  height: 10rpx;
+  transform: rotate(45deg);
+  background: var(--acc);
+  border-radius: 2rpx;
+}
+.mrd-explain-title {
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 32rpx;
+  letter-spacing: .16em;
+  color: var(--ink);
+}
+.mrd-explain-close {
+  margin-left: auto;
+  padding: 4rpx 14rpx;
+  font-family: var(--font-lat);
+  font-size: 36rpx;
+  line-height: 1;
+  color: var(--ink-faint);
+}
+.mrd-explain-body {
+  max-height: 52vh;
+  padding-top: 20rpx;
+}
+.mrd-explain-sec {
+  margin-bottom: 22rpx;
+}
+.mrd-explain-name {
+  display: block;
+  margin-bottom: 8rpx;
+  font-family: var(--font-song);
+  font-weight: 700;
+  font-size: 24rpx;
+  letter-spacing: .1em;
+  color: var(--acc-deep);
+}
+.mrd-explain-text {
+  display: block;
+  font-family: var(--font-song);
+  font-size: 24rpx;
+  line-height: 1.8;
+  letter-spacing: .04em;
+  color: var(--ink);
+}
+.mrd-explain-gujue {
+  display: block;
+  margin-top: 10rpx;
+  padding: 12rpx 18rpx;
+  background: rgba(169,58,44,.06);
+  border-left: 4rpx solid var(--acc);
+  border-radius: 6rpx;
+  font-family: var(--font-kai);
+  font-size: 22rpx;
+  line-height: 1.7;
+  letter-spacing: .04em;
+  color: var(--ink-mid);
+}
+.mrd-explain-foot {
+  margin-top: 8rpx;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .24em;
+  color: var(--ink-faint);
+}

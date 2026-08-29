@@ -79,6 +79,7 @@ Page({
           info: truncate(it.info, 60),
           info2: truncate(it.info2, 40),
           hasInfo2: !!it.has_info2,
+          hasChart: !!it.has_chart,   // B5-3 有命盘徽标（服务端出生数据透出）
           sealChar: (it.name || '例').charAt(0),
         }));
         const merged = append ? this.data.items.concat(items) : items;

@@ -44,7 +44,10 @@
         data-name="{{item.name}}" bindtap="onItemTap">
         <view class="seal mr-seal"><text class="seal-char">{{item.sealChar}}</text></view>
         <view class="mr-mid">
-          <view class="mr-name">{{item.name}}</view>
+          <view class="mr-name-row">
+            <text class="mr-name">{{item.name}}</text>
+            <text class="mr-badge" wx:if="{{item.hasChart}}">有命盘</text>
+          </view>
           <view class="mr-info">{{item.info}}</view>
           <view class="mr-info2" wx:if="{{item.hasInfo2}}">{{item.info2}}</view>
         </view>

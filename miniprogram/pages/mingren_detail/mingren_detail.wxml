@@ -43,6 +43,95 @@
         <text class="mrd-info">{{detail.info}}</text>
       </view>
 
+      <!-- 八字命盘卡（B5-3：四柱为列、多行为格的问真式盘面——主星/天干/地支/
+           藏干/副星/星运/空亡/纳音/神煞，日柱朱砂+乾造标注；有出生数据才渲染） -->
+      <view class="papercard mrd-card" wx:if="{{detail.hasChart}}">
+        <view class="mrd-sec-head">
+          <view class="zd"></view>
+          <text>八字命盘</text>
+          <text class="mrd-sec-count">{{detail.chart.dayMaster}}日主 · {{detail.chart.gankun}}</text>
+        </view>
+        <!-- 时辰缺失标注：小字灰注（显眼但不突兀，防误以为时辰真实） -->
+        <text class="mrd-hournote" wx:if="{{detail.chart.hourNote}}">※ {{detail.chart.hourNote}}</text>
+        <!-- 命主信息行：公历/农历/生肖/时辰 -->
+        <view class="mrd-meta">
+          <text class="mrd-meta-item">公历 {{detail.chart.solarText}}</text>
+          <text class="mrd-meta-item" wx:if="{{detail.chart.lunarText}}">农历{{detail.chart.lunarText}}</text>
+          <text class="mrd-meta-item" wx:if="{{detail.chart.zodiac}}">{{detail.chart.zodiac}}年 · {{detail.chart.shichen}}</text>
+        </view>
+        <!-- 问真式盘面：四柱为列，行为格（主星→天干→地支→藏干→副星→星运→空亡→纳音→神煞） -->
+        <view class="mrd-pillars">
+          <view class="mrd-g-head">
+            <view class="mrd-g-label"></view>
+            <view class="mrd-g-col {{c === chart.dayCol ? 'is-day' : ''}}"
+              wx:for="{{chart.bazi}}" wx:key="*this" wx:for-item="gz" wx:for-index="c">{{chart.pillars[c].name}}</view>
+          </view>
+          <!-- 常显行：主星/天干/地支/纳音（大字醒目，日柱朱砂） -->
+          <view class="mrd-g-row" wx:for="{{chart.baseRows}}" wx:key="key" wx:for-item="row">
+            <view class="mrd-g-label">{{row.label}}</view>
+            <view class="mrd-g-cell {{c === chart.dayCol ? 'is-day' : ''}}"
+              wx:for="{{row.values}}" wx:key="index" wx:for-item="v" wx:for-index="c"
+              bindtap="onCellTap" data-category="{{row.category}}" data-name="{{v}}">
+              <text class="mrd-g-gankun" wx:if="{{row.key === 'gan' && c === chart.dayCol}}">{{chart.gankun}}</text>
+              <text class="mrd-g-big" wx:if="{{row.key === 'gan' || row.key === 'zhi'}}">{{v}}</text>
+              <text wx:else>{{v}}</text>
+            </view>
+          </view>
+          <!-- 详盘折叠行：藏干/副星/星运/空亡/神煞（窄屏可折叠） -->
+          <view class="mrd-g-row" wx:if="{{chartOpen}}"
+            wx:for="{{chart.detailRows}}" wx:key="key" wx:for-item="row">
+            <view class="mrd-g-label">{{row.label}}</view>
+            <block wx:for="{{row.values}}" wx:key="index" wx:for-item="v" wx:for-index="c">
+              <!-- 神煞行：逐名可点弹解释 -->
+              <view class="mrd-g-cell is-detail" wx:if="{{row.key === 'shensha'}}">
+                <text class="mrd-g-ss" wx:for="{{v}}" wx:key="*this" wx:for-item="ss"
+                  catchtap="onCellTap" data-category="shensha" data-name="{{ss}}">{{ss}}</text>
+                <text class="mrd-g-none" wx:if="{{!v.length}}">—</text>
+              </view>
+              <!-- 其余行：整格可点（星运→十二长生解释） -->
+              <view class="mrd-g-cell is-detail" wx:else
+                bindtap="onCellTap" data-category="{{row.category}}" data-name="{{v}}">
+                <text>{{v}}</text>
+              </view>
+            </block>
+          </view>
+        </view>
+        <view class="mrd-detail-toggle" bindtap="toggleChartDetail">
+          <text>{{chartOpen ? '收起详盘' : '展开详盘 · 藏干/星运/空亡/神煞'}}</text>
+        </view>
+        <!-- 起运 -->
+        <view class="mrd-qiyun">
+          <text class="mrd-qiyun-tag">起运</text>
+          <text class="mrd-qiyun-t">{{detail.chart.qiyun.startSui}} 岁起运 · {{detail.chart.qiyun.startYear}} 年</text>
+          <text class="mrd-qiyun-desc" wx:if="{{detail.chart.qiyun.desc}}">{{detail.chart.qiyun.desc}}</text>
+        </view>
+        <view class="mrd-birth-src" wx:if="{{detail.birthSource}}">生辰出处：{{detail.birthSource}}</view>
+      </view>
+
+      <!-- 大运×大事对照表（B5-3：白话分组——事件挂所在大运行；有命盘时替代纯时间线） -->
+      <view class="papercard mrd-card" wx:if="{{detail.hasChart}}">
+        <view class="mrd-sec-head">
+          <view class="zd"></view>
+          <text>大运 · 大事对照</text>
+          <text class="mrd-sec-count">{{detail.flist.length}} 记</text>
+        </view>
+        <view class="mrd-dy" wx:for="{{detail.timeline}}" wx:key="index" wx:for-item="g">
+          <view class="mrd-dy-head {{g.status === 'before' || g.status === 'after' ? 'is-plain' : ''}}">
+            <text class="mrd-dy-gz" wx:if="{{g.dayun}}" bindtap="showGanzhiExplain"
+              data-name="{{g.dayun.ganzhi}}">{{g.dayun.ganzhi}}</text>
+            <text class="mrd-dy-gz is-empty" wx:else>{{g.label}}</text>
+            <text class="mrd-dy-range" wx:if="{{g.dayun}}">{{g.dayun.start_year}}-{{g.dayun.end_year}}年 · {{g.dayun.shishen}}</text>
+          </view>
+          <view class="mrd-dy-item" wx:for="{{g.events}}" wx:key="year" wx:for-item="ev">
+            <text class="mrd-dy-year">{{ev.year}}</text>
+            <text class="mrd-dy-text">{{ev.event}}</text>
+          </view>
+        </view>
+        <view class="mrd-tl-empty" wx:if="{{!detail.timeline.length}}">
+          <text>此例未载生平大事</text>
+        </view>
+      </view>
+
       <!-- 命理评注(穷通宝鉴 · 徐乐吾曰 — 朱砂框突出) -->
       <view class="mrd-note" wx:if="{{detail.hasInfo2}}">
         <view class="mrd-note-head">
@@ -56,8 +145,8 @@
         <text class="mrd-note-src" wx:if="{{detail.source && detail.source !== '-'}}">出处：{{detail.source}}</text>
       </view>
 
-      <!-- 生平大事时间线 -->
-      <view class="papercard mrd-card">
+      <!-- 生平大事时间线（无命盘名人照旧纯生平；有命盘时上方「大运×大事对照」已含全部事件） -->
+      <view class="papercard mrd-card" wx:if="{{!detail.hasChart}}">
         <view class="mrd-sec-head">
           <view class="zd"></view>
           <text>生平大事 · 时间线</text>
@@ -110,6 +199,25 @@
         <view class="mp-price"><text class="mp-num">{{item.priceNum}}</text><text class="mp-unit">{{item.priceUnit}}</text></view>
       </view>
       <view class="md-close" bindtap="closeMemberDialog">暂不开通</view>
+    </view>
+  </view>
+
+  <!-- 命盘知识解释弹层（B5-3：点主星/星运/纳音/神煞/大运干支文字弹出） -->
+  <view class="mrd-explain-mask" wx:if="{{explain.visible}}" bindtap="closeExplain">
+    <view class="mrd-explain" catchtap="noopExplain">
+      <view class="mrd-explain-head">
+        <view class="zd"></view>
+        <text class="mrd-explain-title">{{explain.title}}</text>
+        <text class="mrd-explain-close" bindtap="closeExplain">×</text>
+      </view>
+      <scroll-view scroll-y class="mrd-explain-body">
+        <view class="mrd-explain-sec" wx:for="{{explain.sections}}" wx:key="index">
+          <text class="mrd-explain-name" wx:if="{{item.name}}">{{item.name}}</text>
+          <text class="mrd-explain-text">{{item.text}}</text>
+          <text class="mrd-explain-gujue" wx:if="{{item.extra}}">{{item.extra}}</text>
+        </view>
+        <view class="mrd-explain-foot">明灯谨录 · 观命不执命</view>
+      </scroll-view>
     </view>
   </view>
 </view>

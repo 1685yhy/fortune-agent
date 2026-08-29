@@ -922,8 +922,9 @@ async def lifespan(app: FastAPI):
     setup_zhuanxiang(member_dao, engine)
 
     # 名人命例库 API（2807 例+穷通宝鉴评注; 免费 35 例/高级会员全量, 问真同款门控, L3-1）
+    # B5-3：注入同一 bazi_engine —— 详情页命盘卡 + 大运×大事对照（纯计算不落库）
     from .api.mingren import setup as setup_mingren
-    setup_mingren(member_dao)
+    setup_mingren(member_dao, engine=engine)
 
     # 启动后台推送任务
     if settings.push_enabled:

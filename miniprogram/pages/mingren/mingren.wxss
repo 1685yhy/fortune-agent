@@ -366,3 +366,20 @@
   letter-spacing: .2em;
   color: var(--ink-faint);
 }
+
+/* 有命盘徽标（B5-3：出生数据可溯的名人，详情页有八字命盘） */
+.mr-name-row {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+.mr-badge {
+  padding: 3rpx 12rpx;
+  border: 1rpx solid rgba(169,58,44,.45);
+  border-radius: 20rpx;
+  font-family: var(--font-song);
+  font-size: 17rpx;
+  letter-spacing: .14em;
+  color: var(--acc-deep);
+  background: rgba(169,58,44,.05);
+}
