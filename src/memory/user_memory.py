@@ -209,7 +209,8 @@ class UserMemory:
         return os.path.exists(self._path(user_id))
 
     def save_bazi_info(self, user_id: str, bazi_info: Dict[str, Any],
-                       subject: str = "self") -> dict:
+                       subject: str = "self",
+                       force_gender: bool = False) -> dict:
         """保存用户的八字信息（阶段 5 关键字段保护，方案 v5）。
 
         - 字段级合并：只更新新提供的非空字段，未提供的保留旧值
@@ -217,12 +218,17 @@ class UserMemory:
         - gender 保护：已有值且新值 unknown/None → 不覆盖；
           已有值且新值冲突（女 vs 男）→ 不覆盖并返回 conflict 标记
           （handler 综合回复时向用户确认）
+        - force_gender=True（G1-C2，仅用户明示性别纠正路径）：男↔女冲突时
+          强制覆写为新性别且不返回 conflict 标记（画像层与权威档案
+          users.bazi_info+persons 同步）；默认 False 时拒绝覆写行为不变。
+          unknown/None 新值保护不受 force 影响（仍不覆盖）。
         - subject=other（帮他人排盘）→ 不写入本人画像（facts.subject 隔离）
 
         Args:
             user_id: 用户 ID
             bazi_info: 包含 year, month, day, hour, minute, city, gender 等字段
             subject: "self" 本人 / "other" 帮他人排盘
+            force_gender: 仅用户明示性别纠正时传 True，强制覆写冲突性别
 
         Returns:
             dict: 冲突标记 {"conflict": True, "conflict_field": "gender"}；无冲突返回 {}
@@ -243,7 +249,7 @@ class UserMemory:
                 if old_g and old_g not in ("unknown", "None"):
                     if new_g in ("unknown", "None"):
                         continue  # 新值 unknown 不覆盖已有值
-                    if new_g != old_g:
+                    if new_g != old_g and not force_gender:
                         # 已有值且新值冲突（女 vs 男）：不覆盖，返回冲突标记
                         conflict = {"conflict": True, "conflict_field": "gender"}
                         continue

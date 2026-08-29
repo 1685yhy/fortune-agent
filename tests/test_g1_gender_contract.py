@@ -343,3 +343,95 @@ def test_g1_year_conflict_priority_over_gender_correction():
     out = h._handle_bazi("我是1976年生的女孩儿", "u1")
     assert out == "冲突确认"
     h._do_bazi_analysis.assert_not_called()
+
+
+# ================================================================
+# C2：纠正路径 → 记忆画像层性别强制覆写（画像层不再永久滞后）
+# ================================================================
+
+def test_g1_correction_passes_force_gender_flag():
+    """纠正分支 → _do_bazi_analysis 带 force_gender=True（画像层覆写依据）。"""
+    h = make_handler()
+    h._handle_bazi("我是女孩儿", "u1")
+    assert h._do_bazi_analysis.call_args.kwargs.get("force_gender") is True
+
+
+def test_g1_non_correction_no_force_gender_flag():
+    """非纠正路径（性别一致 / 档案 unknown 补充）→ 不带 force_gender
+    （静默冲突拒绝覆写语义不变，不得扩大强制覆写面）。"""
+    h = make_handler()
+    h._get_user_birth_profile = Mock(return_value={
+        "year": 1990, "month": 5, "day": 20, "hour": 15, "minute": 0,
+        "city": "北京", "gender": "女"})
+    h._handle_bazi("我是女孩儿", "u1")
+    assert h._do_bazi_analysis.call_args.kwargs.get("force_gender") is not True
+
+
+def test_g1_correction_memory_profile_gender_updated(tmp_path):
+    """C2：纠正重排落库 → 记忆画像层 gender 由男强制覆写为女
+    （真实 UserMemory + 真实 DAO 落库链；纠正前画像层男与权威档案男，
+    纠正后三者全部同步为女）。"""
+    h = _real_handler(tmp_path)
+    from src.memory.user_memory import UserMemory
+    h.memory_system = UserMemory(base_dir=str(tmp_path / "mem"))
+    h.memory_system.save_bazi_info("u7", {
+        "year": 1990, "month": 5, "day": 20, "hour": 15, "minute": 0,
+        "city": "北京", "gender": "男"})
+    h.dao.save_user_bazi("u7", {
+        "year": 1990, "month": 5, "day": 20, "hour": 15, "minute": 0,
+        "city": "北京", "gender": "男", "bazi": ["庚午", "辛巳", "甲申", "壬申"]})
+    assert h.memory_system._load("u7")["bazi_info"]["gender"] == "男"  # 前置
+
+    class _R:
+        bazi = ["庚午", "辛巳", "甲申", "壬申"]
+        day_master = "甲"
+        wuxing = {}
+        shishen = []
+        dayun = []
+        liunian = {}
+        liunian_full = []
+        shensha = []
+        geju = ""
+        yongshen = ""
+        nayin = []
+        taiyuan = ""
+        qiyun_detail = None
+
+    h._save_bazi_records(_R(), {"year": 1990, "month": 5, "day": 20,
+                                "hour": 15, "minute": 0, "city": "北京",
+                                "gender": "女"},
+                         "我是女孩儿", "u7", force_gender=True)
+    assert h.memory_system._load("u7")["bazi_info"]["gender"] == "女"  # 画像层已更新
+    assert h.dao.get_user_bazi("u7")["gender"] == "女"                 # 权威档案同步
+
+
+def test_g1_correction_memory_profile_unchanged_without_force(tmp_path):
+    """C2 红线：同一纠正场景若不传 force_gender（如静默数据冲突路径）→
+    画像层拒绝覆写（旧值保留）——强制覆写面只属于用户明示纠正路径。"""
+    h = _real_handler(tmp_path)
+    from src.memory.user_memory import UserMemory
+    h.memory_system = UserMemory(base_dir=str(tmp_path / "mem2"))
+    h.memory_system.save_bazi_info("u8", {
+        "year": 1990, "month": 5, "day": 20, "hour": 15, "minute": 0,
+        "city": "北京", "gender": "男"})
+
+    class _R:
+        bazi = ["庚午", "辛巳", "甲申", "壬申"]
+        day_master = "甲"
+        wuxing = {}
+        shishen = []
+        dayun = []
+        liunian = {}
+        liunian_full = []
+        shensha = []
+        geju = ""
+        yongshen = ""
+        nayin = []
+        taiyuan = ""
+        qiyun_detail = None
+
+    h._save_bazi_records(_R(), {"year": 1990, "month": 5, "day": 20,
+                                "hour": 15, "minute": 0, "city": "北京",
+                                "gender": "女"},
+                         "排盘", "u8")
+    assert h.memory_system._load("u8")["bazi_info"]["gender"] == "男"  # 拒绝覆写

@@ -4213,8 +4213,16 @@ class MessageHandler:
                     # 逻辑（cur 性别补充，行为不变）。
                     _saved_g = saved.get("gender")
                     _cur_g = merged.get("gender")
-                    if (_cur_g in ("男", "女") and _saved_g in ("男", "女")
-                            and _cur_g != _saved_g):
+                    _is_correction = (_cur_g in ("男", "女")
+                                      and _saved_g in ("男", "女")
+                                      and _cur_g != _saved_g)
+                    if _is_correction:
+                        # C2（2026-08-29）：纠正路径强制覆写记忆画像层性别——
+                        # _do_bazi_analysis → _save_bazi_records → save_bazi_info
+                        # (force_gender=True)。权威档案（users.bazi_info+persons）
+                        # 本无条件双写新性别；画像层 save_bazi_info 默认拒绝
+                        # 男↔女 冲突覆写，不强制则画像层 gender 永久滞后旧值
+                        # （后续 LLM 上下文仍按旧性别引用，用户再遇言行错位）。
                         ack = self._gen_gender_correction_ack(_saved_g, _cur_g)
                     else:
                         ack = self._gen_reuse_acknowledgment(msg, saved,
@@ -4226,6 +4234,7 @@ class MessageHandler:
                         merged.get("city") or "",
                         merged.get("gender") or "unknown",
                         msg, user_id, stream_cb=stream_cb,
+                        force_gender=_is_correction,
                     )
                     return ack + "\n\n" + result if ack else result
                 # ④ F2 渐进式累积（2026-08-26）：年/月/日齐全 → 直接
@@ -4851,8 +4860,13 @@ class MessageHandler:
     def _do_bazi_analysis(
         self, year, month, day, hour, minute, city, gender, question, user_id,
         stream_cb: Optional[Callable] = None,
+        force_gender: bool = False,
     ) -> str:
-        """执行八字分析"""
+        """执行八字分析
+
+        force_gender（G1-C2）：仅用户明示性别纠正分支传 True，穿透到
+        _save_bazi_records → save_bazi_info 强制覆写记忆画像层冲突性别。
+        """
         # 1. 排盘（流式模式先发进度事件，避免引擎阶段长沉默触发看门狗）
         self._emit_stream_event(stream_cb, "thinking", "正在排盘…")
         result = self.engine.calculate(year, month, day, hour, minute, city, gender)
@@ -4867,7 +4881,8 @@ class MessageHandler:
                 "year": year, "month": month, "day": day,
                 "hour": hour, "minute": minute,
                 "city": city, "gender": gender,
-            }, question=question, user_id=user_id, stream_cb=stream_cb)
+            }, question=question, user_id=user_id, stream_cb=stream_cb,
+                force_gender=force_gender)
 
         # 2. 秒回安抚（在LLM分析前生成，最终拼接到回复开头）
         # Task 2：优先取并行预生成结果（意图分析期间已完成），未就绪则同步兜底
@@ -4882,7 +4897,7 @@ class MessageHandler:
             "year": year, "month": month, "day": day,
             "hour": hour, "minute": minute,
             "city": city, "gender": gender,
-        }, question=question, user_id=user_id)
+        }, question=question, user_id=user_id, force_gender=force_gender)
 
         # 4. P1-3: If gender is unknown, add instruction for gender-neutral language
         gender_note = ""
@@ -5171,9 +5186,14 @@ class MessageHandler:
             logger.warning("chart_records 落库失败 user=%s: %s", user_id, e)
 
     def _save_bazi_records(self, result, birth: dict, question: str,
-                           user_id: str) -> None:
+                           user_id: str, force_gender: bool = False) -> None:
         """八字结果落库（主路径与降级路径共用）：dao 档案 / persons 多人档案 /
-        咨询记录 / 记忆画像。subject=other（帮他人排盘）不写本人档案与画像。"""
+        咨询记录 / 记忆画像。subject=other（帮他人排盘）不写本人档案与画像。
+
+        force_gender（G1-C2）：用户明示性别纠正分支传 True，穿透到
+        save_bazi_info 强制覆写记忆画像层冲突性别（权威档案本无条件双写，
+        画像层 save_bazi_info 默认拒绝 男↔女 覆写——不穿透则画像层永久滞后）。
+        """
         year, month, day = birth["year"], birth["month"], birth["day"]
         hour, minute, city, gender = (birth["hour"], birth["minute"],
                                       birth["city"], birth["gender"])
@@ -5206,7 +5226,7 @@ class MessageHandler:
                 "city": city, "gender": gender,
                 "bazi": result.bazi,
                 "day_master": getattr(result, "day_master", ""),
-            }, subject=_subject)
+            }, subject=_subject, force_gender=force_gender)
             # L3（方案 §5.5 来源②）：八字 → profile 关键事实条目
             self._persist_l3_bazi(user_id, {
                 "year": year, "month": month, "day": day,
@@ -5222,7 +5242,8 @@ class MessageHandler:
                 self.memory_system.remember(user_id, "last_topic", user_context)
 
     def _do_bazi_lite(self, result, birth: dict, question: str, user_id: str,
-                      stream_cb: Optional[Callable] = None) -> str:
+                      stream_cb: Optional[Callable] = None,
+                      force_gender: bool = False) -> str:
         """降级链路八字：引擎排盘 + 精简文案（确定性 0 成本，不调任何 LLM）。
 
         L5-2 修复（降级成本漏洞）：原 _do_bazi_analysis 在降级时仍走
@@ -5232,7 +5253,8 @@ class MessageHandler:
         主分析 LLM / 秒回安抚 / 下文引导（全部 LLM 调用）。
         """
         # 数据落库与主路径同口径（subject=other 保护）
-        self._save_bazi_records(result, birth, question, user_id)
+        self._save_bazi_records(result, birth, question, user_id,
+                                force_gender=force_gender)
         # 命盘卡片（确定性 0 成本）
         try:
             from src.engines.bazi_formatter import format_compact_card

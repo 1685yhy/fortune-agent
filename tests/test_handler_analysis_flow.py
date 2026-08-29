@@ -99,6 +99,28 @@ def test_save_bazi_info_gender_conflict(memory):
     assert memory._load("u3")["bazi_info"]["gender"] == "女"  # 旧值保留
 
 
+# G1-C2（2026-08-29）：记忆画像层永久滞后——纠正路径需强制覆写，非纠正
+# 路径（上述默认行为）保持不变。force_gender 只放开 男↔女 冲突，其余保护不动。
+def test_save_bazi_info_force_gender_overwrites(memory):
+    """C2：force_gender=True（用户明示性别纠正）→ 冲突时强制覆写画像层
+    新性别，且不返回 conflict 标记（本次写库成功）。"""
+    memory.save_bazi_info("u5", {"gender": "男", "year": 1990})
+    r = memory.save_bazi_info("u5", {"gender": "女", "year": 1990},
+                              force_gender=True)
+    assert r == {}
+    assert memory._load("u5")["bazi_info"]["gender"] == "女"
+    assert memory._load("u5")["bazi_info"]["year"] == 1990  # 其余字段合并不变
+
+
+def test_save_bazi_info_force_gender_unknown_still_protected(memory):
+    """C2 边界：force_gender 只放开 男↔女 冲突；新值 unknown 仍不覆盖已有值。"""
+    memory.save_bazi_info("u6", {"gender": "女", "year": 1995})
+    r = memory.save_bazi_info("u6", {"gender": "unknown", "year": 1995},
+                              force_gender=True)
+    assert r == {}
+    assert memory._load("u6")["bazi_info"]["gender"] == "女"
+
+
 def test_save_bazi_info_subject_other(memory):
     """subject=other（帮他人排盘）→ 不写入本人画像。"""
     memory.save_bazi_info("u4", {"gender": "女", "year": 1995})
