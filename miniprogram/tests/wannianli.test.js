@@ -1,7 +1,7 @@
 // 易理明灯 — 万年历页 B5-2 L（swiper 三页翻月 + 今日默认选中 + 摘要行 + 复制导出）
 // 运行：node --test tests/wannianli.test.js（miniprogram 目录下）
 // 覆盖：onLoad 今日默认落地（当月三页预渲染 + selectedDate=今日 + 中心标题）；
-//       请求序号防旧响应覆盖（快速翻月时旧批丢弃）；
+//       请求序号防旧响应覆盖（快速翻月时旧批丢弃；摘要行迟到今日摘要不覆盖选中日）；
 //       onSwiperChange 滑动切月移位补页（前进/后退/越界弹回）；
 //       onTapDay 选中态 + 摘要行同步 + 详情拉取；
 //       _buildCopyText 复制文本（日期/宜忌/吉时仅吉/彭祖百忌/胎神）；
@@ -229,6 +229,44 @@ test('onTapDay：选中态 + 摘要行同步 + 详情打开', async (t) => {
   page.onTapDay({ currentTarget: { dataset: { date: '2000-05-05', blank: false } } });
   assert.equal(page.data.detailVisible, true);
   assert.equal(api.getWannianliDay.mock.calls.length, before, '同日重开不重复拉取');
+});
+
+test('摘要请求序号：迟到的今日摘要不覆盖选中日摘要（含迟到失败不弹窗）', async (t) => {
+  const dayPending = [];
+  let toasts = 0;
+  t.mock.method(api, 'getWannianliMonth', (y, m) => Promise.resolve(fakeMonth(y, m)));
+  t.mock.method(api, 'getWannianliDay',
+    () => new Promise((res, rej) => dayPending.push({ res, rej })));
+  const page = makePage();
+  global.wx.showToast = () => { toasts += 1; };
+  page.onLoad();                       // 今日摘要请求挂起（未返回）
+  assert.equal(api.getWannianliDay.mock.calls.length, 1);
+  assert.equal(page.data.summaryLoading, true, '摘要行加载中');
+  // 挂起期间用户点选另一天 → 详情请求（新用户意图作废旧摘要请求）
+  page.onTapDay({ currentTarget: { dataset: { date: '2000-05-05', blank: false } } });
+  assert.equal(api.getWannianliDay.mock.calls.length, 2);
+  dayPending[1].res(fakeDetail('2000-05-05'));   // 详情先返回 → 选中日摘要
+  await flush();
+  assert.equal(page.data.summary.title, '选中日宜忌速览', '详情同步写选中日摘要');
+  assert.equal(page.data.summary.date, '2000-05-05');
+  assert.equal(page.data.summaryLoading, false);
+  // 迟到的今日摘要成功返回 → 必须丢弃（不覆盖选中日）
+  dayPending[0].res(fakeDetail(page.data.todayDate));
+  await flush();
+  assert.equal(page.data.summary.title, '选中日宜忌速览', '迟到今日摘要未覆盖选中日');
+  assert.equal(page.data.summary.date, '2000-05-05', '摘要日期仍为选中日');
+  // 迟到摘要失败 → 不弹 toast、不动已有摘要
+  const page2 = makePage();
+  page2.onLoad();
+  assert.equal(api.getWannianliDay.mock.calls.length, 3);
+  page2.onTapDay({ currentTarget: { dataset: { date: '2000-06-06', blank: false } } });
+  assert.equal(api.getWannianliDay.mock.calls.length, 4);
+  const before = toasts;
+  dayPending[2].rej(new Error('net'));           // 过期摘要请求失败
+  await flush();
+  assert.equal(toasts, before, '过期摘要失败不弹 toast');
+  assert.equal(page2.data.summary, null, '过期失败不写摘要');
+  assert.equal(page2.data.summaryLoading, true, '加载态仍由在途详情请求决定');
 });
 
 test('_buildCopyText：日期+宜忌+吉时(仅吉)+彭祖百忌+胎神', () => {

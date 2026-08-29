@@ -114,7 +114,8 @@ Page({
           loading: false,
           monthText: (center && center.monthText) || this.data.monthText,
         });
-        wx.showToast({ title: '万年历加载失败', icon: 'none' });
+        // 仅中心页失败才弹窗（边页预取失败属噪声：滑动到达时仍会重新补拉）
+        if (slotIdx === 1) wx.showToast({ title: '万年历加载失败', icon: 'none' });
       });
   },
 
@@ -253,6 +254,7 @@ Page({
       this.setData({ detailVisible: true });
       return;
     }
+    this._summaryToken = (this._summaryToken || 0) + 1; // 新用户意图: 作废在途摘要请求
     this.setData({ detailDate: date, detailLoading: true, detail: null, detailVisible: true });
     api.getWannianliDay(date)
       .then((data) => {
@@ -269,12 +271,18 @@ Page({
       });
   },
 
-  /* 宜忌摘要行：宜/忌 各前 4 项（未选中日 → 今日摘要） */
+  /* 宜忌摘要行：宜/忌 各前 4 项（未选中日 → 今日摘要）
+     请求序号防旧响应覆盖：onLoad 的今日摘要若在用户点选他日之后才返回，必须丢弃 */
   _loadSummary(date) {
+    const token = (this._summaryToken = (this._summaryToken || 0) + 1);
     this.setData({ summaryLoading: true });
     api.getWannianliDay(date)
-      .then((data) => this._setSummary(data))
+      .then((data) => {
+        if (token !== this._summaryToken) return; // 迟到响应丢弃（用户已改选他日）
+        this._setSummary(data);
+      })
       .catch(() => {
+        if (token !== this._summaryToken) return;
         wx.showToast({ title: '摘要加载失败', icon: 'none' });
         this.setData({ summaryLoading: false });
       });
