@@ -30,7 +30,7 @@
 .cite-type.engine { color: var(--gold); border-color: rgba(176,138,79,.4); background: var(--gold-soft); }
 .cite-type.memory { color: #5F6B4F; border-color: rgba(95,107,79,.4); }
 .cite-type.web { color: #7A6B8F; border-color: rgba(122,107,143,.4); }
-.cite-type-icon { font-size: 24rpx; }
+.cite-type-icon { width: 30rpx; height: 30rpx; }
 .cite-title {
   margin-top: 22rpx;
   font-family: var(--font-song);

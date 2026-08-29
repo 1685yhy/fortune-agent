@@ -148,7 +148,7 @@
 
     <!-- === Empty State (no interaction yet) === -->
     <view class="empty-state" wx:if="{{!submitted && !loading && !result && !error}}">
-      <text class="empty-state-icon">📜</text>
+      <image class="empty-state-icon" src="/assets/images/ic-scroll.png"></image>
       <text class="empty-state-text">请填写信息开始奇门占卜</text>
     </view>
 

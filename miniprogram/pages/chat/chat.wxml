@@ -373,7 +373,7 @@
       <view class="cd-list-inner">
         <view class="cd-item" hover-class="cd-item-active" hover-stay-time="0" wx:for="{{citeDrawer.items}}" wx:key="index" data-i="{{index}}" bindtap="onCiteItemTap">
           <view class="cd-row">
-            <text class="cd-type {{item.type}}">{{citeTypeLabel(item.type)}}</text>
+            <view class="cd-type {{item.type}}"><image class="cd-type-ic" src="/assets/images/ic-{{item.type}}.png"></image><text>{{citeTypeLabel(item.type)}}</text></view>
             <text class="cd-it-title">{{item.title}}</text>
           </view>
           <view class="cd-it-sum">{{item.text}}</view>
@@ -392,54 +392,54 @@
     <!-- 组一 · 评价收藏（仅明灯回复）：点赞 / 点踩 / 收藏 / 表情反应 -->
     <block wx:if="{{actionMenu.role === 'ai'}}">
       <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="up" bindtap="actFeedback">
-        <text class="act-em">👍</text>
+        <image class="act-em-ic" src="/assets/images/ic-up.png"></image>
         <text class="act-label">点赞</text>
       </view>
       <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="down" bindtap="actFeedback">
-        <text class="act-em">👎</text>
+        <image class="act-em-ic" src="/assets/images/ic-down.png"></image>
         <text class="act-label">点踩</text>
       </view>
       <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="keep" bindtap="actFeedback">
-        <text class="act-em">🔖</text>
+        <image class="act-em-ic" src="/assets/images/ic-keep.png"></image>
         <text class="act-label">收藏</text>
       </view>
       <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="emoji" bindtap="actItem">
-        <text class="act-em">😊</text>
+        <image class="act-em-ic" src="/assets/images/ic-reaction.png"></image>
         <text class="act-label">表情反应</text>
       </view>
       <view class="act-sep"></view>
     </block>
     <!-- 组二 · 文字处理（通用）：复制 / 选取文字 / 多选 -->
     <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="copy" bindtap="actItem">
-      <text class="act-em">📋</text>
+      <image class="act-em-ic" src="/assets/images/ic-copy.png"></image>
       <text class="act-label">复制</text>
     </view>
     <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="select" bindtap="actItem">
-      <text class="act-em">📝</text>
+      <image class="act-em-ic" src="/assets/images/ic-edit.png"></image>
       <text class="act-label">选取文字</text>
     </view>
     <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="multi" bindtap="actItem">
-      <text class="act-em">☑️</text>
+      <image class="act-em-ic" src="/assets/images/ic-check.png"></image>
       <text class="act-label">多选</text>
     </view>
     <!-- 组三 · 明灯专属（仅 AI）：朗读 / 分享 / 意见反馈 -->
     <block wx:if="{{actionMenu.role === 'ai'}}">
       <view class="act-sep"></view>
       <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="speak" bindtap="actItem">
-        <text class="act-em">🔊</text>
+        <image class="act-em-ic" src="/assets/images/ic-speak.png"></image>
         <text class="act-label">朗读</text>
       </view>
       <button class="act-row act-share" open-type="share" bindtap="closeActionMenu">
-        <text class="act-em">↗️</text>
+        <image class="act-em-ic" src="/assets/images/ic-share.png"></image>
         <text class="act-label">分享</text>
       </button>
       <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="feedback" bindtap="actItem">
-        <text class="act-em">💬</text>
+        <image class="act-em-ic" src="/assets/images/ic-chat.png"></image>
         <text class="act-label">意见反馈</text>
       </view>
     </block>
     <view class="act-del" hover-class="act-del-active" hover-stay-time="0" data-k="delete" bindtap="actItem">
-      <text class="act-em act-del-em">🗑️</text>
+      <image class="act-del-em-ic" src="/assets/images/ic-delete.png"></image>
       <text class="act-del-txt">删除此条</text>
     </view>
     <view class="act-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeActionMenu">取消</view>
@@ -519,7 +519,7 @@
       </text>
       <!-- 图片：气泡内直接显示（圆角墨框、最大宽 100%、widthFix 高度自适应；长按出系统保存菜单） -->
       <image wx:elif="{{it.t === 'image'}}" class="md-image" src="{{it.url}}" mode="widthFix" show-menu-by-longpress="{{true}}" />
-      <text wx:elif="{{it.t === 'cite'}}" class="cite-chip" data-msgid="{{msgId}}" data-idx="{{it.idx}}" bindtap="onCiteTap">{{it.idx > 0 ? '[' + it.idx + ']' : '🔗'}}</text>
+      <text wx:elif="{{it.t === 'cite'}}" class="cite-chip" data-msgid="{{msgId}}" data-idx="{{it.idx}}" bindtap="onCiteTap"><text wx:if="{{it.idx > 0}}">[{{it.idx}}]</text><image wx:else class="cite-chip-ic" src="/assets/images/ic-link.png"></image></text>
     </block>
   </template>
   <!-- 块级节点：p / h / quote（递归） / ul·ol / code（深墨底可复制） / table（细线网格） -->

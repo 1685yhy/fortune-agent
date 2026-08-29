@@ -50,19 +50,19 @@
       <!-- 分享渠道区（元宝式：图标+文字并排的渠道列表，与长按菜单同构） -->
       <view class="sh-channels">
         <button class="ch-row" hover-class="ch-row-active" hover-stay-time="0" open-type="share">
-          <view class="ch-ic">💬</view>
+          <view class="ch-ic"><image class="ch-ic-img" src="/assets/images/ic-chat.png"></image></view>
           <text class="ch-label">微信好友</text>
         </button>
         <view class="ch-row" hover-class="ch-row-active" hover-stay-time="0" bindtap="onChannelTimeline">
-          <view class="ch-ic">📸</view>
+          <view class="ch-ic"><image class="ch-ic-img" src="/assets/images/ic-camera.png"></image></view>
           <text class="ch-label">朋友圈</text>
         </view>
         <view class="ch-row" hover-class="ch-row-active" hover-stay-time="0" bindtap="onChannelImage">
-          <view class="ch-ic">🖼️</view>
+          <view class="ch-ic"><image class="ch-ic-img" src="/assets/images/ic-image.png"></image></view>
           <text class="ch-label">生成分享图</text>
         </view>
         <view class="ch-row" hover-class="ch-row-active" hover-stay-time="0" bindtap="onChannelLink">
-          <view class="ch-ic">🔗</view>
+          <view class="ch-ic"><image class="ch-ic-img" src="/assets/images/ic-link.png"></image></view>
           <text class="ch-label">复制链接</text>
         </view>
       </view>

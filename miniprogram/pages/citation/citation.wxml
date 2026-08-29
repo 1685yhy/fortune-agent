@@ -2,7 +2,7 @@
   <block wx:if="{{item}}">
     <view class="cite-card">
       <view class="cite-type {{item.type}}">
-        <text class="cite-type-icon">{{icon}}</text>
+        <image class="cite-type-icon" src="{{icon}}"></image>
         <text class="cite-type-label">{{typeLabel}}</text>
       </view>
       <view class="cite-title">{{item.title}}</view>

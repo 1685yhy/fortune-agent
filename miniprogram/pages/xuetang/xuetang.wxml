@@ -48,7 +48,7 @@
 
     <!-- 空状态 -->
     <view class="empty-state animate-scale" wx:if="{{!loading && topics.length === 0}}">
-      <text class="empty-state-icon">📚</text>
+      <image class="empty-state-icon" src="/assets/images/ic-book.png"></image>
       <text class="empty-state-title">暂无课程</text>
       <text class="empty-state-hint">课程内容正在筹备中\n敬请期待</text>
     </view>

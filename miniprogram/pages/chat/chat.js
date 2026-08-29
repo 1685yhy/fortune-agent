@@ -929,8 +929,8 @@ Page({
   noop() {},  // 抽屉内 catchtouchmove 吞掉背景滚动
 
   citeTypeLabel(type) {
-    const map = { book: '📖 古籍', engine: '⚙ 引擎', memory: '🧠 记忆', web: '🌐 网络' };
-    return map[type] || '📖 古籍';
+    const map = { book: '古籍', engine: '引擎', memory: '记忆', web: '网络' };
+    return map[type] || '古籍';
   },
 
   /* 点角标 [n]/🔗 → 打开底部抽屉（该条回复的来源列表） */

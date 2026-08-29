@@ -172,6 +172,11 @@
   background: var(--acc-soft);
   border-radius: 50%;
 }
+.ch-ic-img {
+  width: 44rpx;
+  height: 44rpx;
+  display: block;
+}
 .ch-label {
   flex: 1;
   font-family: var(--font-song);

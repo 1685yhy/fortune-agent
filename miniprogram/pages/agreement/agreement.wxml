@@ -2,7 +2,7 @@
 <view class="page-agreement">
   <scroll-view class="agreement-scroll" scroll-y="{{true}}" enhanced>
     <view class="agreement-header">
-      <text class="agreement-icon">📜</text>
+      <image class="agreement-icon" src="/assets/images/ic-scroll.png"></image>
       <text class="agreement-title">用户协议</text>
       <text class="agreement-subtitle">最后更新：2026年8月</text>
     </view>

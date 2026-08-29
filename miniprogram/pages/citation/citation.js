@@ -4,7 +4,7 @@
 Page({
   data: {
     item: null,
-    icon: '📖',
+    icon: '/assets/images/ic-book.png',
     typeLabel: '古籍',
   },
 
@@ -22,8 +22,8 @@ Page({
       return;
     }
     const map = {
-      book: ['📖', '古籍'], engine: ['⚙', '引擎'],
-      memory: ['🧠', '记忆'], web: ['🌐', '网络'],
+      book: ['/assets/images/ic-book.png', '古籍'], engine: ['/assets/images/ic-engine.png', '引擎'],
+      memory: ['/assets/images/ic-memory.png', '记忆'], web: ['/assets/images/ic-web.png', '网络'],
     };
     const [icon, typeLabel] = map[item.type] || map.book;
     this.setData({ item, icon, typeLabel });

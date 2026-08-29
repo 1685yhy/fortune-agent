@@ -421,6 +421,12 @@
   user-select: none;
 }
 .cite-chip:active { color: var(--acc-deep); border-color: var(--acc-deep); }
+.cite-chip-ic {
+  width: 24rpx;
+  height: 24rpx;
+  vertical-align: -5rpx;
+  display: inline-block;
+}
 
 /* ═══ 阶段 5·引用抽屉（墨韵：半屏 ↔ 全屏，分类列表）═══ */
 .cite-mask {
@@ -509,6 +515,9 @@
 }
 .cd-type {
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6rpx;
   font-family: var(--font-song);
   font-size: 19rpx;
   letter-spacing: .08em;
@@ -516,6 +525,11 @@
   border: 1rpx solid var(--acc-line);
   border-radius: 5rpx;
   padding: 2rpx 10rpx;
+}
+.cd-type-ic {
+  width: 22rpx;
+  height: 22rpx;
+  flex-shrink: 0;
 }
 .cd-type.engine { color: var(--gold); border-color: rgba(176,138,79,.4); }
 .cd-type.memory { color: #5F6B4F; border-color: rgba(95,107,79,.4); }
@@ -1221,7 +1235,7 @@
   letter-spacing: .2em;
   color: var(--acc-deep);
 }
-.act-del-em { font-size: 36rpx; }
+.act-del-em-ic { width: 48rpx; height: 48rpx; flex-shrink: 0; }
 .act-del-active { background: var(--acc-soft); }
 .act-cancel {
   margin-top: 12rpx;
@@ -1238,7 +1252,8 @@
 .fb-grid .act-item { width: 50%; }       /* 意见反馈原因：2×2 */
 
 /* ═══ v2.0 长按菜单竖排行（元宝式：图标+文字每行并排，分隔线分组，朱砂强调） ═══
-   参照 ref_2：点赞👍/点踩👎/收藏🔖/复制📋/选取文字📝/朗读🔊/分享↗️/意见反馈💬/删除🗑️ */
+   B6-1：图标由 emoji 全面更换为墨韵线性 png（ic-up/down/keep/reaction/copy/edit/check/
+   speak/share/chat/delete，与气泡动作、输入区同体系） */
 .act-row {
   width: 100%;
   box-sizing: border-box;
@@ -1270,6 +1285,12 @@
   justify-content: center;
   font-size: 40rpx;
   line-height: 1;
+}
+/* B6-1 长按菜单图标（emoji → 墨韵线性 png，与气泡动作/输入区同体系） */
+.act-em-ic {
+  width: 52rpx;
+  height: 52rpx;
+  flex-shrink: 0;
 }
 .act-sep {
   height: 2rpx;

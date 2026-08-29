@@ -167,7 +167,8 @@
   text-align: center;
 }
 .empty-state-icon {
-  font-size: var(--text-xl);
+  width: 96rpx;
+  height: 96rpx;
   margin-bottom: var(--space-md);
   opacity: 0.6;
 }
