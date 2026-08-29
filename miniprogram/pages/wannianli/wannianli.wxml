@@ -33,38 +33,70 @@
           wx:for="{{weekHead}}" wx:key="*this">{{item}}</view>
       </view>
 
-      <!-- 宫格 -->
-      <view class="wn-grid" wx:if="{{!loading}}">
-        <view wx:for="{{cells}}" wx:key="date" class="wn-cell {{item.blank ? 'wn-cell-blank' : ''}} {{item.isToday ? 'wn-cell-today' : ''}}"
-          hover-class="{{item.blank ? '' : 'wn-cell-active'}}" hover-stay-time="0"
-          data-date="{{item.date}}" data-blank="{{item.blank}}" bindtap="onTapDay">
-          <block wx:if="{{!item.blank}}">
-            <!-- 干支 + 黄黑道 -->
-            <view class="wn-top">
-              <text class="wn-ganzhi">{{item.ganzhi}}</text>
-              <text class="wn-hd {{item.huanghedao === '黄道' ? 'wn-hd-huang' : 'wn-hd-hei'}}">{{item.huanghedao}}</text>
+      <!-- 宫格：swiper 三页预渲染（0=上月 1=当月 2=下月），滑动切月（B5-2 L） -->
+      <swiper class="wn-swiper" wx:if="{{!loading}}" current="{{swiperCurrent}}"
+        duration="280" bindchange="onSwiperChange">
+        <swiper-item wx:for="{{months}}" wx:key="key">
+          <block wx:if="{{item}}">
+            <view class="wn-grid">
+              <view wx:for="{{item.cells}}" wx:for-item="cell" wx:key="date"
+                class="wn-cell {{cell.blank ? 'wn-cell-blank' : ''}} {{cell.isToday ? 'wn-cell-today' : ''}} {{cell.isSelected ? 'wn-cell-sel' : ''}}"
+                hover-class="{{cell.blank ? '' : 'wn-cell-active'}}" hover-stay-time="0"
+                data-date="{{cell.date}}" data-blank="{{cell.blank}}" bindtap="onTapDay">
+                <block wx:if="{{!cell.blank}}">
+                  <!-- 干支 + 黄黑道 -->
+                  <view class="wn-top">
+                    <text class="wn-ganzhi">{{cell.ganzhi}}</text>
+                    <text class="wn-hd {{cell.huanghedao === '黄道' ? 'wn-hd-huang' : 'wn-hd-hei'}}">{{cell.huanghedao}}</text>
+                  </view>
+                  <!-- 公历日 -->
+                  <text class="wn-num {{cell.isToday ? 'wn-num-today' : ''}}">{{cell.day}}</text>
+                  <!-- 农历小字：节气朱砂（取代农历日，传统黄历口径） -->
+                  <text class="wn-lunar {{cell.isJieqi ? 'wn-lunar-jieqi' : ''}} {{cell.isFestival ? 'wn-lunar-fest' : ''}}"
+                    wx:if="{{!cell.isFestival || cell.isJieqi}}">{{cell.cellLunar}}</text>
+                  <text class="wn-lunar wn-lunar-fest" wx:if="{{cell.isFestival && !cell.isJieqi}}">{{cell.festival}}</text>
+                  <!-- 宜忌点 + 建除吉凶 -->
+                  <view class="wn-bot">
+                    <text class="wn-dot wn-dot-yi" wx:if="{{cell.yiDot}}">宜{{cell.yiDot}}</text>
+                    <text class="wn-dot wn-dot-ji" wx:if="{{cell.jiDot}}">忌{{cell.jiDot}}</text>
+                  </view>
+                  <view class="wn-foot">
+                    <text class="wn-jc {{cell.qCls}}">{{cell.jianchu}}</text>
+                  </view>
+                </block>
+              </view>
             </view>
-            <!-- 公历日 -->
-            <text class="wn-num {{item.isToday ? 'wn-num-today' : ''}}">{{item.day}}</text>
-            <!-- 农历小字：节气朱砂（取代农历日，传统黄历口径） -->
-            <text class="wn-lunar {{item.isJieqi ? 'wn-lunar-jieqi' : ''}} {{item.isFestival ? 'wn-lunar-fest' : ''}}"
-              wx:if="{{!item.isFestival || item.isJieqi}}">{{item.cellLunar}}</text>
-            <text class="wn-lunar wn-lunar-fest" wx:if="{{item.isFestival && !item.isJieqi}}">{{item.festival}}</text>
-            <!-- 宜忌点 + 建除吉凶 -->
-            <view class="wn-bot">
-              <text class="wn-dot wn-dot-yi" wx:if="{{item.yiDot}}">宜{{item.yiDot}}</text>
-              <text class="wn-dot wn-dot-ji" wx:if="{{item.jiDot}}">忌{{item.jiDot}}</text>
-            </view>
-            <view class="wn-foot">
-              <text class="wn-jc {{item.qCls}}">{{item.jianchu}}</text>
+            <!-- 单页加载骨架（远端页预取） -->
+            <view class="wn-loading" wx:if="{{item.loading}}">
+              <view class="inkdot"></view><view class="inkdot"></view><view class="inkdot"></view>
             </view>
           </block>
-        </view>
-      </view>
+        </swiper-item>
+      </swiper>
 
-      <!-- 加载骨架 -->
+      <!-- 初始加载骨架 -->
       <view class="wn-loading" wx:if="{{loading}}">
         <view class="inkdot"></view><view class="inkdot"></view><view class="inkdot"></view>
+      </view>
+
+      <!-- 宜忌摘要行（B5-2 L）：选中日 宜/忌 前几项；未选中日显示今日（今日页朱砂胶囊/淡墨虚线风格） -->
+      <view class="wn-summary" wx:if="{{summary}}">
+        <view class="wn-summary-head">
+          <text class="wn-summary-title">{{summary.title}}</text>
+          <text class="wn-summary-date">{{summary.date}}</text>
+        </view>
+        <view class="ws-yiji" wx:if="{{summary.yi.length}}">
+          <text class="ws-yiji-label">宜</text>
+          <view class="ws-chips">
+            <view class="ws-chip wn-sum-chip wn-sum-chip-yi" wx:for="{{summary.yi}}" wx:key="*this">{{item}}</view>
+          </view>
+        </view>
+        <view class="ws-yiji" wx:if="{{summary.ji.length}}">
+          <text class="ws-yiji-label ws-yiji-label-ji">忌</text>
+          <view class="ws-chips">
+            <view class="ws-chip wn-sum-chip wn-sum-chip-ji" wx:for="{{summary.ji}}" wx:key="*this">{{item}}</view>
+          </view>
+        </view>
       </view>
 
       <view class="wn-note">
@@ -171,6 +203,44 @@
             <text class="ws-zhi">阳贵{{detail.positions.yang_gui}}</text>
             <text class="ws-zhi">阴贵{{detail.positions.yin_gui}}</text>
           </view>
+        </view>
+
+        <!-- 吉时（B5-2 L）：13 时辰（早/晚子时分列），吉朱砂 / 凶淡墨 -->
+        <view class="ws-sec ws-sec-line">
+          <view class="ws-sec-label">吉时</view>
+          <view class="ws-jishi">
+            <view class="ws-jishi-cell {{item.luck === '吉' ? 'ws-jishi-ji' : 'ws-jishi-xiong'}}"
+              wx:for="{{detail.jishi}}" wx:key="time">
+              <view class="ws-jishi-top">
+                <text class="ws-jishi-time">{{item.time}}</text>
+                <text class="ws-jishi-luck">{{item.luck}}</text>
+              </view>
+              <text class="ws-jishi-range">{{item.range}}</text>
+              <text class="ws-jishi-ganzhi">{{item.ganzhi}} · {{item.tianshen}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- 彭祖百忌 + 胎神（B5-2 L） -->
+        <view class="ws-sec ws-sec-line">
+          <view class="ws-sec-label">彭祖百忌</view>
+          <view class="ws-pengzu">
+            <text class="ws-zhi">日干忌 · {{detail.pengzu.gan}}</text>
+            <text class="ws-zhi">日支忌 · {{detail.pengzu.zhi}}</text>
+          </view>
+        </view>
+
+        <view class="ws-sec">
+          <view class="ws-sec-label">胎神</view>
+          <view class="ws-zhirow">
+            <text class="ws-zhi">胎神占方 · {{detail.taishen.desc}}</text>
+          </view>
+        </view>
+
+        <!-- 复制导出（B5-2 L） -->
+        <view class="ws-copy" hover-class="ws-copy-active" hover-stay-time="0" bindtap="onCopyDetail">
+          <text class="ws-copy-char">印</text>
+          <text>复制文本 · 导出今日黄历</text>
         </view>
 
         <view class="ws-foot">明灯谨录 · 宜忌随历</view>

@@ -1,12 +1,17 @@
 // 万年历 — 月历宫格 + 日详情（问真"吉真万年历"同款，确定性 0 LLM）
 // 数据流：onLoad/翻月 → GET /api/wannianli?year=&month=（月视图）
-//         点某天 → GET /api/wannianli/day?date=（日详情，底部笺页）
+//         点某天 → GET /api/wannianli/day?date=（日详情，底部笺页 + 宜忌摘要行）
+// B5-2 L：swiper 三页滑动翻月（上/当/下月预渲染，滑动换月后移位补远端页）、
+//         进入默认定位当前月并选中今日、月历下方选中日宜忌摘要行（未选中显示今日）、
+//         详情弹层 吉时/彭祖百忌/胎神 展示 + 复制文本导出。
 // 确定性纯规则：lunar-python 历法 + 建除/黄黑道宜忌规则（后端引擎）
 const api = require('../../utils/api');
 
 const MIN_YEAR = 1900;
 const MAX_YEAR = 2100;
 const WEEK_HEAD = ['日', '一', '二', '三', '四', '五', '六'];
+// 6 行宫格为最大值（如 2026-08：首日周六 31 天 → 6 行），固定高度避免翻页跳动
+const SWIPER_GRID_HEIGHT = 1040; // rpx
 
 Page({
   data: {
@@ -15,10 +20,17 @@ Page({
     month: 0,
     monthText: '',
     weekHead: WEEK_HEAD,
-    cells: [],              // 宫格（含前置空格 {blank:true} 与每日 {…}）
+    swiperHeight: SWIPER_GRID_HEIGHT,
+    swiperCurrent: 1,       // swiper 中心页下标（0=上月 1=当月 2=下月，滑动后回中）
+    // swiper 三页月视图: [{year, month, key, monthText, cells, loading}]（越界月为 null）
+    months: [null, null, null],
     todayDate: '',          // 设备时钟今日 YYYY-MM-DD（is_today/今日跳转以设备为准）
     todayMonth: '',         // 设备时钟今日年月（"今日"按钮显示/跳转用）
+    selectedDate: '',       // 选中日（进入默认今日；切走后不受影响）
     loading: true,
+    // 宜忌摘要行（月历下方）：选中日 宜/忌 前几项；未选中日显示今日摘要
+    summary: null,          // {date, title, yi[], ji[]}
+    summaryLoading: false,
     // 日详情（底部笺页）
     detail: null,           // 后端 day_detail 全字段
     detailDate: '',         // 已选中日期（重复点击同一天不重复拉取）
@@ -37,8 +49,10 @@ Page({
       month: now.getMonth() + 1,
       todayMonth: `${y}-${m}`,
       todayDate: `${y}-${m}-${d}`,
+      selectedDate: `${y}-${m}-${d}`,   // 今日默认选中
     });
     this._loadMonth();
+    this._loadSummary(this.data.selectedDate);   // 未选中日 → 今日摘要
   },
 
   /* 安全区避让（同 me 页 _initNavOff） */
@@ -48,25 +62,63 @@ Page({
     if (off !== 0) this.setData({ navOff: off });
   },
 
+  /* 年月偏移: 上/下 n 月，越出 1900-2100 返回 null */
+  _offsetMonth(year, month, off) {
+    let y = year;
+    let m = month + off;
+    while (m < 1) { m += 12; y -= 1; }
+    while (m > 12) { m -= 12; y += 1; }
+    if (y < MIN_YEAR || y > MAX_YEAR) return null;
+    return [y, m];
+  },
+
+  /* 载入当前年月 ± 1 的三页预渲染（请求序号防旧响应覆盖，UX批2 Important） */
   _loadMonth() {
     const { year, month } = this.data;
-    // 请求序号: 快速连点翻月时后到的旧响应丢弃, 不覆盖新月(UX批2 Important)
     const token = (this._monthToken = (this._monthToken || 0) + 1);
-    this.setData({ loading: true });
-    api.getWannianliMonth(year, month)
+    const months = this.data.months.map((_, i) => {
+      const ym = this._offsetMonth(year, month, i - 1);
+      if (!ym) return null;
+      return {
+        key: `${ym[0]}-${ym[1]}`,
+        year: ym[0],
+        month: ym[1],
+        monthText: '',
+        cells: [],
+        loading: true,
+      };
+    });
+    this.setData({ months, loading: true });
+    for (let i = 0; i < 3; i++) {
+      const s = months[i];
+      if (s) this._fetchMonth(s.year, s.month, i, token);
+    }
+  },
+
+  _fetchMonth(y, m, slotIdx, token) {
+    api.getWannianliMonth(y, m)
       .then((data) => {
         if (token !== this._monthToken) return; // 过期响应丢弃
-        this._renderMonth(data);
+        this._renderMonth(data, slotIdx);
       })
       .catch(() => {
         if (token !== this._monthToken) return;
+        // 失败仅清空该页宫格, 避免"新月标题配旧月宫格"内容错配
+        const months = this.data.months.map((mo, i) => {
+          if (i !== slotIdx || !mo) return mo;
+          return { ...mo, cells: [], loading: false };
+        });
+        const center = months[1];
+        this.setData({
+          months,
+          loading: false,
+          monthText: (center && center.monthText) || this.data.monthText,
+        });
         wx.showToast({ title: '万年历加载失败', icon: 'none' });
-        // 失败时清空旧月宫格与标题, 避免"新月标题配旧月宫格"内容错配
-        this.setData({ loading: false, cells: [], monthText: '' });
       });
   },
 
-  _renderMonth(data) {
+  _renderMonth(data, slotIdx) {
     const cells = [];
     // 前置空格：first_weekday 为 0=周日（calendar.monthrange 口径），与星期表头对应
     for (let i = 0; i < data.first_weekday; i++) cells.push({ blank: true });
@@ -89,16 +141,67 @@ Page({
         // P1-1 审查 C2: is_today 以设备时钟自算为准（后端月视图缓存 24h，
         // 服务端 is_today/today 可能过期——23:59 渲染的缓存次日会标错"今日"）
         isToday: d.date === this.data.todayDate,
+        // B5-2 L: 选中态（默认今日；点某天更新）
+        isSelected: d.date === this.data.selectedDate,
       });
     }
-    this.setData({
-      cells,
-      monthText: `${data.year}年${data.month}月`,
-      loading: false,
+    const monthText = `${data.year}年${data.month}月`;
+    const months = this.data.months.map((mo, i) => {
+      if (i !== slotIdx) return mo;
+      return {
+        key: `${data.year}-${data.month}`,
+        year: data.year,
+        month: data.month,
+        monthText,
+        cells,
+        loading: false,
+      };
     });
+    const patch = { months };
+    if (slotIdx === 1) {
+      // 中心页就绪：标题 + 撤初始骨架（swiper 显示）
+      patch.monthText = monthText;
+      patch.loading = false;
+    }
+    this.setData(patch);
   },
 
-  /* 翻月 */
+  /* swiper 滑动翻月：滑到边页 → 以目标页为新月中心移位补页（回中无感） */
+  onSwiperChange(e) {
+    const cur = e.detail.current;
+    if (cur === 1) return;                 // 轻滑回弹/仍在中心：不换月
+    const dir = cur === 2 ? 1 : -1;        // 滑到第 3 页=前进一月；第 1 页=后退一月
+    const { year, month } = this.data;
+    const ym = this._offsetMonth(year, month, dir);
+    if (!ym) {
+      // 越界（1900/2100 边界）: 弹回中心，不换月
+      this.setData({ swiperCurrent: 1 });
+      return;
+    }
+    const [y, m] = ym;
+    const months = this.data.months;
+    const far = this._offsetMonth(y, m, dir);          // 远端新页（可能越界=null）
+    const farSlot = far
+      ? { key: `${far[0]}-${far[1]}`, year: far[0], month: far[1], monthText: '', cells: [], loading: true }
+      : null;
+    const newMonths = dir > 0
+      ? [months[1], months[2], farSlot]
+      : [farSlot, months[0], months[1]];
+    // 目标页内容已成新中心；新中心标题取已渲染值
+    this.setData({
+      year: y,
+      month: m,
+      months: newMonths,
+      monthText: (dir > 0 ? months[2] : months[0]).monthText || `${y}年${m}月`,
+      swiperCurrent: 1,                  // 回中：内容与刚看的一致, 视觉无感
+    });
+    if (far) {
+      const token = (this._monthToken = (this._monthToken || 0) + 1);
+      this._fetchMonth(far[0], far[1], dir > 0 ? 2 : 0, token);
+    }
+  },
+
+  /* 翻月（按钮辅助，保留原有语义） */
   onPrevMonth() {
     let { year, month } = this.data;
     month -= 1;
@@ -124,11 +227,24 @@ Page({
     this._loadMonth();
   },
 
-  /* 点某天 → 日详情 */
+  /* 点某天 → 日详情（同步更新选中态与摘要行） */
   onTapDay(e) {
     const { date, blank } = e.currentTarget.dataset;
     if (blank || !date) return;
+    this._markSelected(date);
     this._openDetail(date);
+  },
+
+  /* 更新选中态（中心/边页宫格高亮） */
+  _markSelected(date) {
+    const months = this.data.months.map((mo) => {
+      if (!mo || !mo.cells) return mo;
+      return {
+        ...mo,
+        cells: mo.cells.map((c) => (c.blank ? c : { ...c, isSelected: c.date === date })),
+      };
+    });
+    this.setData({ months, selectedDate: date });
   },
 
   _openDetail(date) {
@@ -145,6 +261,7 @@ Page({
         const jq = (data.jianchu || {}).quality;
         data.jcCls = jq === '吉' ? 'ws-zhi-huang' : (jq === '凶' ? 'ws-zhi-hei' : '');
         this.setData({ detail: data, detailLoading: false });
+        this._setSummary(data);          // 摘要行与详情同一次请求
       })
       .catch(() => {
         wx.showToast({ title: '详情加载失败', icon: 'none' });
@@ -152,11 +269,62 @@ Page({
       });
   },
 
+  /* 宜忌摘要行：宜/忌 各前 4 项（未选中日 → 今日摘要） */
+  _loadSummary(date) {
+    this.setData({ summaryLoading: true });
+    api.getWannianliDay(date)
+      .then((data) => this._setSummary(data))
+      .catch(() => {
+        wx.showToast({ title: '摘要加载失败', icon: 'none' });
+        this.setData({ summaryLoading: false });
+      });
+  },
+
+  _setSummary(data) {
+    const date = data.date || '';
+    this.setData({
+      summary: {
+        date,
+        title: date === this.data.todayDate ? '今日宜忌速览' : '选中日宜忌速览',
+        yi: (data.yi || []).slice(0, 4),
+        ji: (data.ji || []).slice(0, 4),
+      },
+      summaryLoading: false,
+    });
+  },
+
   onCloseDetail() {
     // 仅藏弹层, 保留 detail 缓存供同日重开直达
     this.setData({ detailVisible: false });
   },
   noop() {},
+
+  /* 复制文本导出：日期+宜忌+吉时+彭祖百忌+胎神 */
+  _buildCopyText(det) {
+    const rows = [];
+    rows.push(`【万年历】${det.date} 星期${det.weekday}`);
+    const lunar = det.lunar || {};
+    if (lunar.full) rows.push(`${lunar.full}（${(det.ganzhi || {}).day || ''}日）`);
+    if (det.yi && det.yi.length) rows.push(`宜：${det.yi.join('、')}`);
+    if (det.ji && det.ji.length) rows.push(`忌：${det.ji.join('、')}`);
+    const jiTimes = (det.jishi || [])
+      .filter((t) => t.luck === '吉')
+      .map((t) => `${t.time} ${t.range}`)
+      .join('、');
+    if (jiTimes) rows.push(`吉时：${jiTimes}`);
+    const pz = det.pengzu || {};
+    if (pz.gan || pz.zhi) rows.push(`彭祖百忌：${pz.gan}；${pz.zhi}`);
+    if (det.taishen && det.taishen.desc) rows.push(`胎神：${det.taishen.desc}`);
+    return rows.join('\n');
+  },
+
+  onCopyDetail() {
+    if (!this.data.detail) return;
+    wx.setClipboardData({
+      data: this._buildCopyText(this.data.detail),
+      success: () => wx.showToast({ title: '已复制', icon: 'success' }),
+    });
+  },
 
   goToday() {
     wx.navigateBack({ fail: () => wx.reLaunch({ url: '/pages/today/today' }) });

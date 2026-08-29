@@ -55,7 +55,10 @@
 }
 .wn-week-rest { color: var(--acc); }
 
-/* ════════ 宫格 ════════ */
+/* ════════ 宫格（swiper 三页，B5-2 L） ════════ */
+
+/* swiper 高度固定 6 行宫格（月历最大行数），避免滑动翻页时高度跳动 */
+.wn-swiper { height: 1040rpx; }
 
 .wn-grid { display: flex; flex-wrap: wrap; padding-top: 14rpx; }
 
@@ -76,6 +79,13 @@
   border-color: var(--acc);
   box-shadow: inset 0 0 0 2rpx rgba(169,58,44,.25), 0 6rpx 18rpx rgba(169,58,44,.16);
 }
+/* 选中日（默认今日；点某天更新）——朱砂底，弱化今日红框冲突 */
+.wn-cell-sel {
+  background: var(--acc-soft);
+  border-color: var(--acc);
+}
+.wn-cell-sel .wn-num { color: var(--acc); font-weight: 700; }
+.wn-cell-sel .wn-lunar { color: var(--acc); }
 
 .wn-top { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 0 8rpx; }
 .wn-ganzhi { font-family: var(--font-song); font-size: 17rpx; color: var(--ink-faint); letter-spacing: .02em; }
@@ -116,6 +126,43 @@
 .q-ji { color: var(--acc); }
 .q-ping { color: var(--ink-mid); }
 .q-xiong { color: var(--ink-faint); }
+
+/* ════════ 宜忌摘要行（B5-2 L：选中日 宜/忌 速览，今日页胶囊风格） ════════ */
+
+.wn-summary {
+  margin-top: 8rpx;
+  padding: 22rpx 20rpx 20rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 14rpx;
+}
+.wn-summary-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  margin-bottom: 14rpx;
+}
+.wn-summary-title {
+  font-family: var(--font-song); font-size: 21rpx; letter-spacing: .18em;
+  color: var(--ink-mid);
+}
+.wn-summary-date {
+  font-family: var(--font-kai); font-size: 22rpx; color: var(--ink-faint);
+}
+/* 摘要胶囊：朱砂实线（宜）/ 淡墨虚线（忌），对齐今日页 jian-yi-chip */
+.wn-sum-chip {
+  border-radius: 999rpx;
+  padding: 8rpx 22rpx;
+  font-size: 21rpx;
+}
+.wn-sum-chip-yi {
+  color: var(--acc);
+  border: 2rpx solid rgba(169,58,44,.4);
+  background: var(--acc-soft);
+}
+.wn-sum-chip-ji {
+  color: var(--ink-faint);
+  border: 2rpx dashed rgba(58,44,30,.38);
+  background: transparent;
+}
 
 /* ════════ 加载 / 底部 ════════ */
 
@@ -220,6 +267,51 @@
   color: var(--ink-faint); margin-bottom: 8rpx;
 }
 .ws-sha-label-ji { color: var(--acc); }
+
+/* 吉时 13 时辰格子（B5-2 L：早/晚子时分列，吉朱砂 / 凶淡墨） */
+.ws-jishi {
+  display: flex; flex-wrap: wrap; gap: 12rpx;
+}
+.ws-jishi-cell {
+  width: calc((100% - 72rpx) / 7);   /* 7 列，间距 12rpx */
+  box-sizing: border-box;
+  border-radius: 8rpx;
+  padding: 10rpx 4rpx 8rpx;
+  display: flex; flex-direction: column; align-items: center;
+  border: 2rpx solid var(--line-soft);
+}
+.ws-jishi-ji { background: var(--acc-soft); border-color: rgba(169,58,44,.4); }
+.ws-jishi-xiong { background: transparent; border-style: dashed; border-color: rgba(58,44,30,.22); }
+.ws-jishi-top { display: flex; align-items: baseline; gap: 6rpx; }
+.ws-jishi-time { font-family: var(--font-kai); font-size: 23rpx; color: var(--ink); }
+.ws-jishi-luck { font-family: var(--font-song); font-size: 17rpx; }
+.ws-jishi-ji .ws-jishi-luck { color: var(--acc); }
+.ws-jishi-xiong .ws-jishi-luck { color: var(--ink-faint); }
+.ws-jishi-range { margin-top: 3rpx; font-family: var(--font-song); font-size: 15rpx; color: var(--ink-soft); }
+.ws-jishi-ganzhi { margin-top: 2rpx; font-family: var(--font-song); font-size: 15rpx; color: var(--ink-faint); }
+
+/* 彭祖百忌（B5-2 L） */
+.ws-pengzu { display: flex; flex-direction: column; gap: 8rpx; }
+
+/* 复制导出按钮（B5-2 L） */
+.ws-copy {
+  margin-top: 6rpx;
+  display: flex; align-items: center; justify-content: center; gap: 12rpx;
+  height: 84rpx;
+  border: 2rpx solid var(--line);
+  border-radius: 12rpx;
+  font-family: var(--font-song); font-size: 24rpx; letter-spacing: .14em;
+  color: var(--ink-mid);
+  background: var(--paper);
+}
+.ws-copy-active { background: var(--acc-soft); border-color: var(--acc-line); color: var(--acc); }
+.ws-copy-char {
+  font-family: var(--font-kai); font-size: 26rpx; font-weight: 700;
+  color: #FBF6E8; background: var(--acc);
+  width: 40rpx; height: 40rpx; border-radius: 8rpx;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.12), 0 2rpx 6rpx rgba(60,30,20,.25);
+}
 
 .ws-foot {
   margin-top: 22rpx; text-align: center;

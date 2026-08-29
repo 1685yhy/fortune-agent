@@ -297,6 +297,77 @@ def test_validation_400():
     assert c.get("/api/wannianli/day?date=2101-01-01", headers=_headers()).status_code == 400
 
 
+# ---------------------------------------------------------------- 吉时/彭祖百忌/胎神（B5-2 L 三字段）
+def test_day_detail_jishi_pengzu_taishen():
+    """day_detail 三字段（B5-2）：吉时 13 时辰（子时早/晚分列）、彭祖百忌两行、胎神占方。
+
+    2026-08-19（乙丑日，既有锚点日）:
+    - jishi: lunar.getTimes() 13 项 = 早子时 00:00-00:59 起 至 晚子时 23:00-23:59
+      （子时按传统早/晚拆分，晚子时换日 → 丙寅日戊子），每项含
+      time/range/ganzhi/luck/tianshen/type/yi/ji；一日吉凶时辰兼有
+    - pengzu: {gan: 乙不栽植千株不长, zhi: 丑不冠带主不还乡}
+    - taishen: {desc: 碓磨厕 外东南}
+    """
+    r = _client().get("/api/wannianli/day?date=2026-08-19", headers=_headers())
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    # 既有字段零回归（三字段为纯增量）
+    assert body["ganzhi"]["day"] == "乙丑"
+    assert body["yi"] and body["ji"]
+
+    # 吉时：13 时辰结构
+    jishi = body["jishi"]
+    assert isinstance(jishi, list) and len(jishi) == 13
+    assert jishi[0]["time"] == "早子时"
+    assert jishi[0]["range"] == "00:00-00:59"
+    assert jishi[0]["ganzhi"] == "丙子"      # 乙日 日上起时 → 丙子
+    assert jishi[11]["time"] == "亥时"
+    assert jishi[11]["range"] == "21:00-22:59"
+    assert jishi[12]["time"] == "晚子时"
+    assert jishi[12]["range"] == "23:00-23:59"
+    assert jishi[12]["ganzhi"] == "戊子"      # 晚子时换日 → 丙寅日戊子
+    for t in jishi:
+        assert t["time"] and t["range"] and t["ganzhi"]
+        assert t["luck"] in ("吉", "凶")
+        assert t["type"] in ("黄道", "黑道")
+        assert t["tianshen"]
+        assert isinstance(t["yi"], list) and isinstance(t["ji"], list)
+    lucks = {t["luck"] for t in jishi}
+    assert lucks == {"吉", "凶"}               # 一日兼有吉凶时辰
+
+    # 时辰锚点: 2026-08-19 巳时(09:00-10:59) = 辛巳 · 黄道玉堂吉
+    si = next(t for t in jishi if t["time"] == "巳时")
+    assert si["range"] == "09:00-10:59" and si["ganzhi"] == "辛巳"
+    assert si["luck"] == "吉" and si["type"] == "黄道" and si["tianshen"] == "玉堂"
+
+    # 彭祖百忌
+    assert body["pengzu"] == {
+        "gan": "乙不栽植千株不长",
+        "zhi": "丑不冠带主不还乡",
+    }
+
+    # 胎神占方
+    assert body["taishen"] == {"desc": "碓磨厕 外东南"}
+
+
+def test_day_detail_jishi_pengzu_taishen_other_dates():
+    """三字段在其他日期同样存在且结构正确（立秋日/下界 1900-01-01）。"""
+    for date, pengzu_gan, pengzu_zhi, tai in [
+        ("2026-08-07", "癸不词讼理弱敌强", "丑不冠带主不还乡", "房床厕 外东北"),
+        ("1900-01-01", "甲不开仓财物耗散", "戌不吃犬作怪上床", "占门栖 外西南"),
+    ]:
+        r = _client().get(f"/api/wannianli/day?date={date}", headers=_headers())
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert len(body["jishi"]) == 13, date
+        assert all(t["time"] and t["range"] and t["luck"] in ("吉", "凶")
+                   for t in body["jishi"]), date
+        assert body["pengzu"]["gan"] == pengzu_gan, date
+        assert body["pengzu"]["zhi"] == pengzu_zhi, date
+        assert body["taishen"]["desc"] == tai, date
+
+
 # ---------------------------------------------------------------- 闰月覆盖
 def test_leap_month():
     """闰月：2025-07-25 = 闰六月初一，lunar.leap=True 且月名带"闰"。"""

@@ -4,7 +4,9 @@
 - lunar-python（Solar→Lunar）: 公历↔农历转换、年/月/日干支、节气、纳音、
   黄黑道十二值神（getDayTianShen/Type/Luck）、吉神宜趋（getDayJiShen）、
   凶煞宜忌（getDayXiongSha）、冲煞（getDayChongDesc/getDaySha）、
-  财神/喜神/福神/贵神方位（getDayPosition*）、旬空（八字的 DayXunKong）、节日、星期。
+  财神/喜神/福神/贵神方位（getDayPosition*）、时辰吉凶（getTimes，早/晚子时
+  13 项）、彭祖百忌（getPengZuGan/Zhi）、胎神占方（getDayPositionTai）、
+  旬空（八字的 DayXunKong）、节日、星期。
 - src/engines/zeri.py: 建除十二神（月支起建 _calc_jianchu_with_jieqi，节气日
   12 节交节即新月令顺推一位，对齐主流通书）+ 建除宜忌表（JIANCHU_YI_JI，传统
   通书《协纪辨方书》建除十二神宜忌规则）+ 建除吉凶（JIANCHU_QUALITY）+
@@ -89,6 +91,35 @@ def _resolve_yi_ji_conflicts(yi: List[str], ji: List[str]) -> tuple:
 def _jieqi_and_festival(lunar) -> tuple:
     """(当日节气名 or "", [节日列表])。节气当日返回节气名（立秋等），否则空串。"""
     return (lunar.getJieQi() or ""), list(lunar.getFestivals() or [])
+
+
+def _day_jishi(lunar) -> List[Dict[str, Any]]:
+    """一日时辰吉凶（lunar-python lunar.getTimes()，B5-2 L）。
+
+    getTimes() 返回 13 项覆盖全天 24h：0 = 早子时 00:00-00:59、1..11 = 丑时..亥时、
+    12 = 晚子时 23:00-23:59（子时按传统早/晚拆分；晚子时换日，时柱属次日）。
+    每项含 时辰名/起止区间/时柱干支/吉凶/值神/黄黑道/宜事/忌事，全部确定性纯规则。
+    """
+    times = lunar.getTimes() or []
+    out: List[Dict[str, Any]] = []
+    for i, t in enumerate(times):
+        if i == 0:
+            name = "早子时"
+        elif i == len(times) - 1:
+            name = "晚子时"
+        else:
+            name = f"{t.getZhi()}时"
+        out.append({
+            "time": name,
+            "range": f"{t.getMinHm()}-{t.getMaxHm()}",
+            "ganzhi": t.getGanZhi() or "",
+            "luck": t.getTianShenLuck() or "",   # 吉/凶（值神口径）
+            "tianshen": t.getTianShen() or "",
+            "type": t.getTianShenType() or "",   # 黄道/黑道
+            "yi": list(t.getYi() or []),
+            "ji": list(t.getJi() or []),
+        })
+    return out
 
 
 class WannianliEngine:
@@ -251,4 +282,13 @@ class WannianliEngine:
                 "yang_gui": lunar.getDayPositionYangGuiDesc(),  # 阳贵神方位
                 "yin_gui": lunar.getDayPositionYinGuiDesc(),    # 阴贵神方位
             },
+            # 吉时（时辰吉凶，B5-2 L）: 早子时 00:00-00:59 … 晚子时 23:00-23:59
+            "jishi": _day_jishi(lunar),
+            # 彭祖百忌（B5-2 L）: 天干日忌 + 地支日忌
+            "pengzu": {
+                "gan": lunar.getPengZuGan() or "",
+                "zhi": lunar.getPengZuZhi() or "",
+            },
+            # 胎神占方（B5-2 L）: 如「碓磨厕 外东南」
+            "taishen": {"desc": lunar.getDayPositionTai() or ""},
         }
