@@ -107,7 +107,8 @@ async def paipan(req: BaziInput, uid: str = Depends(require_user)):
     person = _resolve_person(req)
     result = _bazi_engine.calculate(
         person.year, person.month, person.day,
-        person.hour, person.minute, person.city, person.gender)
+        person.hour, person.minute, person.city, person.gender,
+        person.daylightSaving, person.lateChildHour)
     body = serialize_bazi(result, _bazi_engine, person)
     # 排盘结果落库 chart_records（重看 0 重跑；本人排盘，命主档案不强制绑定）
     if _db_path:
@@ -362,6 +363,7 @@ def serialize_bazi(r: BaziResult, engine: BaziEngine,
         "siling": r.siling,
         "siling_detail": r.siling_detail,
         "qiyun_desc": r.qiyun_desc,
+        "qiyun_sui_desc": r.qiyun_sui_desc,  # G5：问真实岁「X岁X个月起运」显示串
         "qiyun_detail": list(r.qiyun_detail or ()),
         "dayun": dayun,
         # 小运（110 条干支，起运前逐年）与每步大运神煞 [[干支, [神煞...]], ...]（P2-2 补全）

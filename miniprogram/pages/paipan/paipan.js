@@ -425,9 +425,17 @@ Page({
 
     /* 起运 / 交运 / 司令 */
     const qiyunSui = (dayunView[0] && dayunView[0].sui) || 0;
+    // G5：问真实岁串「X岁X个月起运」为主显示，分解串「出生后X年…」为副；
+    // 旧记录（无 qiyun_sui_desc）回落虚岁口径
+    const qiyunSuiDesc = c.qiyun_sui_desc || '';
+    const qiyunDesc = c.qiyun_desc || '';
+    let qiyunVal = qiyunSuiDesc
+      ? `<b>${qiyunSuiDesc.replace(/起运$/, '')}</b>起运`
+      : `<b>${qiyunSui}</b> 岁起运`;
+    if (qiyunDesc) qiyunVal += `<br/>${qiyunDesc}`;
     const jy = c.jiaoyun || {};
     const slChips = [
-      { seal: '起', name: '起运', val: `<b>${qiyunSui}</b> 岁`, gold: false },
+      { seal: '起', name: '起运', val: qiyunVal, gold: false },
       { seal: '交', name: '交运', val: `逢<b>${jy.gan_pair || '—'}</b>年 · ${jy.jie || ''}后<b>${jy.days_after_jie || ''}</b>天`, gold: false },
       { seal: '令', name: '司令', val: `<b>${c.siling || ''}</b>${WUXING_TG[c.siling] || ''}当令`, gold: true },
     ];

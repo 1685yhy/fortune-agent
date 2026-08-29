@@ -249,6 +249,27 @@ JIE_OF_MONTH = {
 # 12 节（交运时刻所在节月判定用，非中气）
 JIE_NAMES = ["立春", "惊蛰", "清明", "立夏", "芒种", "小暑", "立秋", "白露", "寒露", "立冬", "大雪", "小寒"]
 
+# 中国夏令时 1986-1991（G5，问真未解码、按公开史实建表；开关默认关=零行为变化）
+# 史实规则：每年 4 月中旬第 2 个星期日 02:00 起，至 9 月中旬第 2 个星期日 02:00 止；
+# 1986 为首年，从 5 月第 1 个星期日（05-04）开始。各年起止日均为星期日，与规则自洽。
+# 来源核实（2026-08-30）：知乎《历史上中国夏令时的时间段》
+#   （zhuanlan.zhihu.com/p/25733756）、360doc《夏令时丨中国夏令时的时间表》
+#   （360doc.com/content/25/0407/15/30138949_1150746493.shtml）、百度文库
+#   《中国夏令时时间对照表，转自百科，仅供参考》
+#   （wenku.baidu.com/view/adba987c7b3e0912a21614791711cc7931b778fa）一致：
+#   1986: 05-04~09-14；1987: 04-12~09-13；1988: 04-10~09-11；
+#   1989: 04-16~09-17；1990: 04-15~09-16；1991: 04-14~09-15。
+#   （公开资料对起止时刻有 01:00 / 02:00 两说，本项目按问真口径 02:00 建表，
+#    边界按闭区间含边界：起始日 02:00 整（含）～结束日 02:00 整（含）内出生 → 减 1 小时。）
+DST_TABLE = {
+    1986: ((5, 4), (9, 14)),
+    1987: ((4, 12), (9, 13)),
+    1988: ((4, 10), (9, 11)),
+    1989: ((4, 16), (9, 17)),
+    1990: ((4, 15), (9, 16)),
+    1991: ((4, 14), (9, 15)),
+}
+
 
 def _calendar_add(base: dt, years: int, months: int, days: int,
                   hours: int = 0, minutes: int = 0) -> dt:
@@ -259,6 +280,29 @@ def _calendar_add(base: dt, years: int, months: int, days: int,
     m2 = (base.month - 1 + total_months) % 12 + 1
     d2 = min(base.day, calendar.monthrange(y2, m2)[1])
     return dt(y2, m2, d2, base.hour, base.minute) + timedelta(days=days, hours=hours, minutes=minutes)
+
+
+def _calendar_add_raw(base: dt, years: int, months: int, days: int,
+                      hours: int = 0, minutes: int = 0) -> dt:
+    """按日历加年月日时分（问真交运/起运口径 G5：加整年整月时日不截断，顺滚入次月）。
+
+    与 _calendar_add 的唯一区别：目标月天数不足出生日时顺滚（如 12-31 + 9月 → 10-01
+    而非 09-30；12-31 + 2月 → 03-02 闰年/03-03 平年，而非 02-28/02-29），
+    不把日截断到目标月有效天数。
+
+    G5 实测（2026-08-30，data/wenzhen/wenzhen_charts.jsonl 8658 例 jiaoyun 全对齐
+    100%）：问真服务端交运时刻按本口径计算；_calendar_add 截断口径仅当出生日为
+    29/30/31 且目标月更短时差 1-3 天（8658 例中复现 9 例，全部 23:00/月底出生；
+    活体案例 P3 陈静 1999-12-31 23:07 + 1年9月 → 问真「寒露后12天」，本口径
+    10-21 10:31 距寒露 12.9 天 → 12 全对，截断口径 11.9 天 → 11 差 1）。
+    仅起运/交运时刻使用；大运步进（+10年0月）两口径一致，_calendar_add 保持不动。
+    """
+    total_months = years * 12 + months
+    y2 = base.year + (base.month - 1 + total_months) // 12
+    m2 = (base.month - 1 + total_months) % 12 + 1
+    d2 = dt(y2, m2, 1) + timedelta(days=base.day - 1)  # 不截断：超目标月天数顺滚
+    return d2.replace(hour=base.hour, minute=base.minute) + timedelta(
+        days=days, hours=hours, minutes=minutes)
 
 
 def _jie_time_of(year: int, name: str) -> Optional[dt]:
@@ -397,6 +441,7 @@ class BaziResult:
     kongwang_day: str = ""        # 日柱旬空亡（问真顶层 kongwang 口径）
     qiyun_detail: tuple = ()      # 起运时间分解 (年,月,日,时,分)（问真 qiyunarr 前5位口径）
     qiyun_desc: str = ""          # 起运描述 "出生后2年4月22天0时起运"（问真排盘页口径，P0-1）
+    qiyun_sui_desc: str = ""      # 起运实岁串 "9岁5个月起运"（G5 新增，问真实岁口径，取分解年/月位）
     corrected_time: str = ""      # 真太阳时修正后时间 "HH:MM"（P1-2审查I1：晚子时/归日判定与引擎同口径；
                                   # 引擎按修正后小时判定归日，输出文案须用同一口径）
     jiaoyun: dict = field(default_factory=dict)  # 交运信息（问真口径，P0-1）：见 _calc_jiaoyun
@@ -509,13 +554,22 @@ class BaziEngine:
 
     def calculate(self, year: int, month: int, day: int,
                   hour: int, minute: int, city: str,
-                  gender: str) -> BaziResult:
+                  gender: str, daylight_saving: bool = False,
+                  late_child_hour: bool = False) -> BaziResult:
         """排八字命盘
 
         P1-3: 当 gender 为 "unknown" 时，默认按男排盘（大运顺排），
         但在结果中标注性别未知。
         真太阳时：用户填北京时间出生，按出生地经度 + 均时差修正为真太阳时后
         排全盘（与问真一致）；不传 city / 未知城市 → 不修正（原行为）。
+        G5（2026-08-30，问真口径对齐）：
+        - daylight_saving=False 默认关=现行为零变化；开启时若出生时刻（北京时间，
+          修正前原始时间）落在 DST_TABLE 区间内（闭区间含边界）→ 先减 1 小时
+          还原真实时间，再走真太阳时修正与排盘（问真客户端夏令时开关口径）。
+        - late_child_hour=False 默认关=现行为零变化（23:00-24:00 日柱/农历日按次日）；
+          开启（=问真早晚子时专业档 yzs=1）时 23:00-24:00 日柱/农历日按当天，
+          时柱仍按次日日干五鼠遁（lunar-python 默认口径恰为该规则，直接不换日）。
+          判定基于真太阳时修正后的时间（修正后退出晚子时段则档位无关）。
         """
         # P1-3: Handle unknown gender — default to 男 for calculation
         # G1（2026-08-29 P0-A）：性别契约统一 —— 兼容历史 male/female
@@ -527,6 +581,17 @@ class BaziEngine:
         # 标记保留（P1-3 中性表述信号）
         _gender_out = ("unknown" if _g not in ("女", "female", "男", "male")
                        else calc_gender)
+        # G5 夏令时（默认关）：修正前原始北京时间落在 DST_TABLE 区间（闭区间含边界）
+        # → 减 1 小时还原真实时间，再走真太阳时修正与排盘（问真客户端口径）。
+        if daylight_saving:
+            _ent = DST_TABLE.get(year)
+            if _ent is not None:
+                (_sm, _sd), (_em, _ed) = _ent
+                _raw = dt(year, month, day, hour, minute)
+                if dt(year, _sm, _sd, 2, 0) <= _raw <= dt(year, _em, _ed, 2, 0):
+                    _raw -= timedelta(hours=1)
+                    year, month, day, hour, minute = (
+                        _raw.year, _raw.month, _raw.day, _raw.hour, _raw.minute)
         # 真太阳时修正：北京时间 → 出生地真太阳时（经度修正 + 均时差）。
         # 修正可能跨日（如 23:40 长春 → 次日 00:05），此时按修正后的日期排全部四柱。
         year, month, day, hour, minute = self._true_solar_time(
@@ -537,7 +602,11 @@ class BaziEngine:
         # 处理晚子时 (23:00-23:59): 使用次日日期, 时柱仍为子时
         # 起运距离用真实出生时刻（真太阳时修正后）计算（与问真口径一致），故保留原始时间
         orig_birth = (year, month, day, hour, minute)
-        if hour >= 23:
+        # G5 早晚子时专业档（late_child_hour=1，问真 yzs=1）：23:00-24:00 不换日，
+        # 日柱/农历日按当天、时柱按次日日干五鼠遁——lunar-python 默认口径（sect=2）
+        # 恰为该规则（实测 1990-01-01 23:00 → 日柱丙寅+时柱庚子+农历腊月初五，与
+        # 问真 yzs=1 实测逐位一致），故直接不换日即可；默认关保持换日=现行为。
+        if hour >= 23 and not late_child_hour:
             d = dt(year, month, day) + timedelta(days=1)
             year, month, day = d.year, d.month, d.day
             hour = 0
@@ -588,9 +657,11 @@ class BaziEngine:
         self._qiyun_breakdown = ()
         self._qiyun_datetime = None
         self._qiyun_desc = ""
+        self._qiyun_sui_desc = ""
         dayun = self._calc_dayun(lunar, calc_gender, bazi_pillars, orig_birth)
         qiyun_detail = self._qiyun_breakdown
         qiyun_desc = self._qiyun_desc
+        qiyun_sui_desc = self._qiyun_sui_desc
 
         # 小运 / 大运神煞（问真口径，P2-2 补全）：顺逆与大运同向（阳男阴女顺、
         # 阴男阳女逆），时柱起逐年推 110 条；大运神煞逐柱套通用规则（shensha_of_dayun）
@@ -760,6 +831,7 @@ class BaziEngine:
             kongwang_day=kongwang[2] if len(kongwang) > 2 else "",
             qiyun_detail=qiyun_detail,
             qiyun_desc=qiyun_desc,
+            qiyun_sui_desc=qiyun_sui_desc,
             corrected_time=corrected_time,
             jiaoyun=jiaoyun,
             siling=siling,
@@ -959,12 +1031,16 @@ class BaziEngine:
         hh = int(H_total) - 720 * mm - 24 * dd
         mi = int(round((H_total - int(H_total)) * 60.0))
 
-        # 起运时刻（日历相加：先加整年整月[日对齐到目标月有效天数]，再加日时分）
-        qy = _calendar_add(birth, yy, mm, dd, hh, mi)
+        # 起运时刻（G5 问真口径：加整年整月[日不截断，顺滚入次月]，再加日时分；
+        # 实测 8658 例问真 jiaoyun 100% 对齐，见 _calendar_add_raw 注释）
+        qy = _calendar_add_raw(birth, yy, mm, dd, hh, mi)
 
         self._qiyun_breakdown = (yy, mm, dd, hh, mi)  # 供 qiyun_detail 暴露（问真 qiyunarr 前5位）
         self._qiyun_datetime = qy                      # 起运时刻 = 首个交运时刻（问真口径，P0-1）
         self._qiyun_desc = "出生后%d年%d月%d天%d时起运" % (yy, mm, dd, hh)
+        # G5 实岁串（问真「X岁X个月起运」）：取分解年/月位；60 分不进位（如 9,10,4,6,60
+        # → 9岁10个月）与月借位（如 3,0,20,20,8 → 3岁0个月）案例均直接覆盖
+        self._qiyun_sui_desc = "%d岁%d个月起运" % (yy, mm)
         return qy.year - birth.year + 1  # 虚岁
 
     def _calc_dayun_improved(self, lunar, gender: str, orig_birth: tuple = None) -> list:
@@ -1011,34 +1087,39 @@ class BaziEngine:
         """交运信息（问真口径，P0-1；2026-08-19 经 7 例服务端 jiaoyun 数据验证 7/7）。
 
         问真排盘页/API jiaoyun 字段："逢X、Y年 节后N天 交大运"：
-          1. 交运时刻 = 起运时刻（出生时刻 + 起运分解，按日历加法）
+          1. 交运时刻 = 起运时刻（出生时刻 + 起运分解，G5 口径：加整年整月时日
+             不截断顺滚入次月，见 _calendar_add_raw——否则月底出生差 1-3 天）
           2. 交运年 = 交运时刻所在年按立春界定（交运时刻 < 该年立春 → 取前一年）
           3. X、Y = 交运年天干 + 其五合之干（甲己/乙庚/丙辛/丁壬/戊癸）
-          4. N = floor(交运时刻 − 所在节时刻)（节为 12 节之一，如"白露后27天"）
+          4. N = floor(交运时刻 − 所在节时刻)（节为 12 节之一，如"白露后27天"；
+             节时刻取问真表 _jieqi_time——lunar-python 个别年份差 24h，如
+             1917/1927 大雪/白露，问真表与语料 8658 例 jiaoyun 100% 对齐）
         客户端 fatemaps 另输出 "每逢 X、Y 年M月D日H时交脱大运"，本实现同用上述
         服务端口径的交运时刻（与排盘页/API 一致），格式字符串对齐问真。
 
-        口径说明（对比报告 P2 项，2026-08-21）：起运虚岁已与问真 100% 对齐，但
-        "节后 N 天"（交运日期）与本引擎节气口径存在 ≤2 天差异——节锚定规则不同
-        （本引擎用问真节气表/起运时刻所在节 floor 天数，问真服务端按自身交运日
-        口径锚定）。差异属口径而非错误，刻意不改输出（避免引入回归）；前端展示
-        时以"约"字弱化精确对比即可。
+        G5 判定（2026-08-30）：data/wenzhen/wenzhen_charts.jsonl 8658 例问真
+        jiaoyun 全量对比——(a) 节锚定必须用问真表（lunar-python 1917 大雪/
+        1927 白露差 24h，8 例复现）；(b) 交运时刻必须用不截断日历加法（9 例
+        复现，全部 23:00/月底出生）；(c) N = floor 成立（此前 P3「节后11 vs
+        12天」即 (b) 所致：1999-12-31 23:07 + 1年9月 → 问真 10-01 而非 09-30，
+        距寒露 12.9 天 → 12，非舍入规则差异）。修复后 8658/8658 全对齐，
+        既有案例（21/25/30/2 天等）零回归。
         """
         if not breakdown or qy_time is None:
             return {}
         jy_time = qy_time
-        # 交运年（立春界定）
-        lichun = _jie_time_of(jy_time.year, "立春")
+        # 交运年（立春界定，问真表；与下方节锚定同源，语料 8658 例 100% 对齐）
+        lichun = _jieqi_time(jy_time.year, "立春")
         if lichun is None:
             return {}
         V = jy_time.year if jy_time >= lichun else jy_time.year - 1
         stem_idx = (V + 4712 + 24) % 10
         gan1, gan2 = TIANGAN[stem_idx], TIANGAN[(stem_idx + 5) % 10]
-        # 交运时刻所在节 + 节后天数（floor）
+        # 交运时刻所在节 + 节后天数（floor；节时刻用问真表，G5 实测与语料全对齐）
         jie_t, jie_name, n_days = None, "", -1
         for cand_year in (jy_time.year - 1, jy_time.year):
             for name in JIE_NAMES:
-                jt = _jie_time_of(cand_year, name)
+                jt = _jieqi_time(cand_year, name)
                 if jt is not None and jt <= jy_time and (jie_t is None or jt > jie_t):
                     jie_t, jie_name = jt, name
         if jie_t is not None:
@@ -1047,7 +1128,7 @@ class BaziEngine:
         years = []
         for k in range(9):
             t = _calendar_add(qy_time, 10 * k, 0, 0)
-            lc = _jie_time_of(t.year, "立春")
+            lc = _jieqi_time(t.year, "立春")
             if lc is None:
                 break
             vk = t.year if t >= lc else t.year - 1

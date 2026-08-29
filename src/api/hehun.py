@@ -31,6 +31,9 @@ class BaziInput(BaseModel):
     minute: int = 0
     city: str = "北京"
     gender: str = "男"
+    # G5 能力开关（默认关=现行为零变化，旧请求零影响）：
+    daylightSaving: bool = False   # 夏令时：1986-1991 区间内出生时间减 1 小时再排盘
+    lateChildHour: bool = False    # 早晚子时专业档（问真 yzs=1）：23:00-24:00 日柱按当天
     # 小程序字段（别名）
     birthYear: Optional[int] = None
     birthMonth: Optional[int] = None
@@ -91,8 +94,10 @@ async def hehun_match(req: HehunRequest, uid: str = Depends(require_user)):
     a, b = _resolve_pair(req)
 
     # 排盘
-    r1 = _bazi_engine.calculate(a.year, a.month, a.day, a.hour, a.minute, a.city, a.gender)
-    r2 = _bazi_engine.calculate(b.year, b.month, b.day, b.hour, b.minute, b.city, b.gender)
+    r1 = _bazi_engine.calculate(a.year, a.month, a.day, a.hour, a.minute, a.city, a.gender,
+                                a.daylightSaving, a.lateChildHour)
+    r2 = _bazi_engine.calculate(b.year, b.month, b.day, b.hour, b.minute, b.city, b.gender,
+                                b.daylightSaving, b.lateChildHour)
 
     # 合婚匹配
     result = _hehun_engine.match(r1, r2)
@@ -174,6 +179,7 @@ def _resolve_person(data: Optional[BaziInput]) -> BaziInput:
         year=int(year), month=int(month), day=int(day),
         hour=normalize_hour(hour), minute=data.minute,
         city=data.city, gender=normalize_gender(data.gender),
+        daylightSaving=data.daylightSaving, lateChildHour=data.lateChildHour,
     )
 
 
