@@ -184,6 +184,35 @@ function request(url, options = {}) {
     .then(() => doRequest(url, options));
 }
 
+/**
+ * 响应业务校验（G2 D2）：HTTP 2xx 不代表业务成功，成功提示必须以服务端确认响应为准。
+ * - 恒查：响应体含 truthy `error` 字段 → 视为业务失败（全仓后端无「2xx + error」合法响应；
+ *   chat_stream 的 error 是 SSE 事件 type 而非响应体；bot tool 包装是 LLM 内部协议）。
+ * - 按需：options._bizRequire 数组 → 所列字段必须存在且非空（如 ['person']），
+ *   缺则视为异常——服务端确认响应缺关键字段时，调用方不得拼装假对象冒充成功（A1）。
+ * 粒度说明：不做全局「status !== 'ok' 即拒绝」——checkVirtualStatus(paid/pending)、
+ * hourly(no_bazi)、uploadChatImage({status,…}) 等 2xx 合法返回非 ok 状态值，全局规则会误伤；
+ * 校验走「error 恒查 + 关键字段按调用点声明」两级，均不改变正常响应行为。
+ * @param {*} data - 响应体
+ * @param {Array<string>} [required] - 必须存在的业务字段（null/undefined 视为缺失）
+ * @throws {Error} 校验失败
+ */
+function validateBizResponse(data, required) {
+  if (data && typeof data === 'object' && !Array.isArray(data)) {
+    if (data.error) {
+      throw new Error(String(data.error));
+    }
+    if (Array.isArray(required)) {
+      for (const k of required) {
+        if (data[k] == null) {
+          throw new Error('服务端响应缺少关键字段: ' + k);
+        }
+      }
+    }
+  }
+  return data;
+}
+
 /** 实际发请求（baseURL 已确定） */
 function doRequest(url, options = {}) {
   const { method = 'GET', data = {}, headers = {}, showLoading = false } = options;
@@ -215,6 +244,14 @@ function doRequest(url, options = {}) {
         if (showLoading) wx.hideLoading();
 
         if (res.statusCode >= 200 && res.statusCode < 300) {
+          // G2 D2：2xx 只代表链路通，业务成败看响应体（error 恒查 + 调用点声明关键字段）
+          try {
+            validateBizResponse(res.data, options._bizRequire);
+          } catch (e) {
+            console.warn('[API] 业务校验失败:', e && e.message);
+            reject(e);
+            return;
+          }
           resolve(res.data);
         } else if (res.statusCode === 401) {
           // Token 过期：静默自动重登一次（不 toast），成功后重试原请求 1 次
@@ -711,7 +748,8 @@ function getPersons() {
  * @returns {Promise<{person: Object}>}
  */
 function createPerson(data) {
-  return request('/api/persons', { method: 'POST', data });
+  // G2 D2：建档成功必须以服务端确认响应（person）为准，缺字段即异常（A1/A3 不拼装假对象）
+  return request('/api/persons', { method: 'POST', data, _bizRequire: ['person'] });
 }
 
 /**
@@ -720,7 +758,8 @@ function createPerson(data) {
  * @returns {Promise<{person: Object}>}
  */
 function updatePerson(id, data) {
-  return request(`/api/persons/${id}`, { method: 'PUT', data });
+  // G2 D2：同 createPerson——保存成功必须以服务端确认响应（person）为准
+  return request(`/api/persons/${id}`, { method: 'PUT', data, _bizRequire: ['person'] });
 }
 
 /**
@@ -1379,6 +1418,7 @@ module.exports = {
   // 多环境 baseURL 探测（app.js onLaunch 提前启动）
   probe: () => probeBaseURL(),
   getBaseURL,
+  validateBizResponse,
 
   // Auth
   login,

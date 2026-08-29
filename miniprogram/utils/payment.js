@@ -3,7 +3,22 @@
 //   后端配置齐（WECHAT_PAY_ENABLED=true + MIDAS_OFFER_ID/MIDAS_APP_KEY）→ 微信虚拟支付（米大师）
 //   未配置 → 保留原 mock 支付（后端订单直接置 paid，前端演示成功）
 const api = require('./api');
-const DEV_MODE = true; // 开发模式(演示支付), 上线改为 false
+
+// ---- 演示支付判定（G2 D1：任何环境不得假成功） ----
+// 旧实现 DEV_MODE=true 写死：生产真支付下，支付失败（非取消）也会弹「购买成功！（演示）」
+// 并返回 success:true → 调用方继续请求付费内容，但后端订单 pending——收入/体验活漏洞。
+// 修复：仅 develop（开发者工具/预览）环境允许「支付失败→演示成功」；trial/release
+// 恒 false——生产支付失败一律真实失败提示、可重试。分支点运行时调用 isDevDemo()
+// （可单测），不使用加载期常量。
+function isDevDemo() {
+  try {
+    if (typeof wx === 'undefined' || !wx || typeof wx.getAccountInfoSync !== 'function') return false;
+    const env = wx.getAccountInfoSync().miniProgram && wx.getAccountInfoSync().miniProgram.envVersion;
+    return env === 'develop';
+  } catch (e) {
+    return false; // 环境信息异常 → 按生产处理，宁可真失败不可假成功
+  }
+}
 
 // ---- 产品定价 ----
 const PRODUCTS = {
@@ -300,8 +315,9 @@ async function purchase(productId) {
   } catch (e) {
     if (e.errMsg && e.errMsg.includes('cancel')) {
       wx.showToast({ title: '支付已取消', icon: 'none' });
-    } else if (DEV_MODE) {
-      console.log('[Payment] Using demo payment mode');
+    } else if (isDevDemo()) {
+      // 仅 develop 环境：演示支付（后端 mock 模式下模拟成功；绝不进入生产）
+      console.log('[Payment] Using demo payment mode (develop only)');
       wx.showToast({ title: '购买成功！（演示）', icon: 'success' });
       return { success: true, orderId: 'demo_' + Date.now() };
     } else {
@@ -339,7 +355,8 @@ async function subscribeMember(planId) {
   } catch (e) {
     if (e.errMsg && e.errMsg.includes('cancel')) {
       wx.showToast({ title: '订阅已取消', icon: 'none' });
-    } else if (DEV_MODE) {
+    } else if (isDevDemo()) {
+      // 仅 develop 环境：演示支付（同上，绝不进入生产）
       wx.showToast({ title: '订阅成功！（演示）', icon: 'success' });
       return { success: true };
     } else {
@@ -358,4 +375,5 @@ module.exports = {
   purchase,
   subscribeMember,
   canUseVirtualPayment,
+  isDevDemo,
 };

@@ -177,20 +177,23 @@ Page({
     if (!d) return;
     this.setData({ dlgDel: null, removing: d.id });
     setTimeout(() => {
-      this._removeNote(d.id);
+      // G2 B2：删除以 storage 真实写成为准，写失败 → 「删除失败」而非假成功
+      const ok = this._removeNote(d.id);
       this.setData({ removing: '', view: 'list', current: null });
       this._load();
-      wx.showToast({ title: '已删除此记', icon: 'none' });
+      wx.showToast({ title: ok ? '已删除此记' : '删除失败，请重试', icon: 'none' });
     }, 330);
   },
 
-  /* 从本机会话 + 归档里移除该消息（与 favorites 页 _unkeep 同源操作方式） */
+  /* 从本机会话 + 归档里移除该消息（与 favorites 页 _unkeep 同源操作方式）；
+     返回是否全部写入成功（G2 B2：storage 写失败不再被吞） */
   _removeNote(id) {
+    let ok = true;
     const removeIn = (list) => (Array.isArray(list) ? list : []).filter((m) => m && m.id !== id);
     try {
       const cur = wx.getStorageSync(STORAGE_KEY);
       wx.setStorageSync(STORAGE_KEY, removeIn(cur));
-    } catch (e) { /* ignore */ }
+    } catch (e) { ok = false; }
     try {
       const arch = wx.getStorageSync(ARCHIVE_KEY);
       if (Array.isArray(arch)) {
@@ -198,11 +201,12 @@ Page({
           (a && a.messages) ? Object.assign({}, a, { messages: removeIn(a.messages) }) : a
         )));
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { ok = false; }
     /* 宿主内存同步（回到聊天页时现场一致） */
     if (streamHost && typeof streamHost.removeMessage === 'function') {
-      try { streamHost.removeMessage(id); } catch (e) { /* ignore */ }
+      try { streamHost.removeMessage(id); } catch (e) { ok = false; }
     }
+    return ok;
   },
 
   noop() { /* 弹层内吞掉背景滚动/穿透 */ },

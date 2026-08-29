@@ -260,11 +260,15 @@ Page({
     } catch (e) { /* ignore */ }
     if (!items.length) return;
     api.favImport(items).then((res) => {
-      if (!res || !res.imported) return;
+      const n = res && typeof res.imported === 'number' ? res.imported : 0;
+      if (n <= 0) return;   // 0 = 已全部导入过（幂等），非失败不提示
       // 导入成功 → 本地打 favImported 标记（含归档），刷新列表（后端条目接管展示）
       items.forEach((it) => this._markImported(it.ref_id));
       this._load();
-    }).catch(() => { /* ignore */ });
+    }).catch(() => {
+      // G2 B4：导入失败不再静默——本地 kept 保留，重新打开收藏页会再次自动导入
+      wx.showToast({ title: '云端同步失败，稍后自动重试', icon: 'none' });
+    });
   },
 
   /* 给本地消息打 favImported 标记（storage 双处 + 宿主内存，仿 _unkeep 写法） */

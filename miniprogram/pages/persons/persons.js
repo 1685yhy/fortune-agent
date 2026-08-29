@@ -1,6 +1,6 @@
 // 档案管理 — 多人命主（原型 dir_funcs 柒：卡片列表 / 添加编辑删除 / 默认星标 / 空态引导）
 // 契约：GET/POST /api/persons、PUT/DELETE /api/persons/{id}、POST /api/persons/{id}/default
-//   接口未就绪 → 降级：本地缓存 ylm_persons（乐观写，失败提示「云端稍后同步」）
+//   G2 A1/A2：保存/删除成功必须以服务端确认响应为准；接口失败 → 明确失败提示，不写本地假数据
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const persons = require('../../utils/persons');
@@ -198,7 +198,8 @@ Page({
   onHourChange(e) { this.setData({ dHourIndex: parseInt(e.currentTarget.dataset.idx, 10) || 0 }, () => this._refreshForm()); },
   onGenderChange(e) { this.setData({ dGender: e.currentTarget.dataset.g }, () => this._refreshForm()); },
 
-  /* 保存：新增 POST / 编辑 PUT；接口失败 → 本地降级 */
+  /* 保存：新增 POST / 编辑 PUT；成功以服务端确认响应（res.person）为准（G2 A1）：
+     失败 → 明确失败提示 + 不写本地缓存 + 停留表单页可重试；绝不「本地假保存」+ 无同步机制 */
   async onSave() {
     if (!this.data.filled || this.data.saving) return;
     this.setData({ saving: true });
@@ -209,27 +210,24 @@ Page({
       let saved = null;
       if (editing) {
         const res = await api.updatePerson(editing.id, payload);
-        saved = (res && res.person) || Object.assign({}, editing, payload);
+        if (!res || !res.person) throw new Error('服务端未返回档案');
+        saved = res.person;
         wx.showToast({ title: `已保存 · ${saved.name || payload.name}`, icon: 'none' });
       } else {
         const res = await api.createPerson(payload);
-        saved = (res && res.person) || null;
-        wx.showToast({ title: `已加入档案 · ${payload.name}`, icon: 'none' });
+        if (!res || !res.person) throw new Error('服务端未返回档案');
+        saved = res.person;
+        wx.showToast({ title: `已加入档案 · ${saved.name || payload.name}`, icon: 'none' });
       }
-      if (saved) this._mergeLocal(saved, editing);
-    } catch (e) {
-      console.warn('[Persons] 保存接口未就绪，走本地降级:', e && e.message);
-      const local = Object.assign({
-        id: editing ? editing.id : 'local_' + Date.now(),
-        is_default: editing ? !!editing.is_default : this.data.persons.length === 0,
-        created_at: editing ? (editing.created_at || Date.now()) : Date.now(),
-      }, payload);
-      this._mergeLocal(local, editing);
-      wx.showToast({ title: '云端稍后同步 · 已本地保存', icon: 'none', duration: 2200 });
-    } finally {
-      this.setData({ saving: false });
+      this._mergeLocal(saved, editing);
       this.setData({ mode: 'list', editing: null });
       this._load();
+    } catch (e) {
+      // 不写本地、不弹成功、不回列表（表单数据保留，可直接重试）
+      console.warn('[Persons] 保存失败:', e && e.message);
+      wx.showToast({ title: '保存失败，请重试', icon: 'none' });
+    } finally {
+      this.setData({ saving: false });
     }
   },
 
@@ -280,8 +278,10 @@ Page({
     api.deletePerson(id)
       .then(done)
       .catch((e) => {
-        console.warn('[Persons] 删除接口未就绪，走本地降级:', e && e.message);
-        done();
+        // G2 A2：接口失败 → 明确失败提示 + 保留本地条目（绝不「已删除」假成功）
+        console.warn('[Persons] 删除失败:', e && e.message);
+        this.setData({ removingId: '' });
+        wx.showToast({ title: '删除失败，请重试', icon: 'none' });
       });
   },
 

@@ -1,6 +1,6 @@
 // 新用户引导 — 三步建档（原型 dir_funcs 陆：欢迎 → 为何需要 → 填写生辰 → 完成 / 跳过）
 // 契约：POST /api/persons（relation=自己, is_default 由后端定）
-//   接口未就绪 → 降级：本地缓存 ylm_persons + 提示稍后，仍可进入完成页
+//   G2 A3：建档成功必须以服务端确认响应（person）为准；失败 → 停留表单页明确提示，不本地假建档
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const persons = require('../../utils/persons');
@@ -149,25 +149,15 @@ Page({
 
     try {
       const res = await api.createPerson(payload);
-      const created = (res && res.person) || null;
-      if (created) {
-        const list = persons.getLocalPersons();
-        list.push(created);
-        persons.saveLocalPersons(list);
-      }
+      if (!res || !res.person) throw new Error('服务端未返回档案');
+      const list = persons.getLocalPersons();
+      list.push(res.person);
+      persons.saveLocalPersons(list);
       this._finish();
     } catch (e) {
-      console.warn('[Onboarding] 建档接口未就绪，走本地降级:', e && e.message);
-      const local = Object.assign({
-        id: 'local_' + Date.now(),
-        is_default: true,
-        created_at: Date.now(),
-      }, payload);
-      const list = persons.getLocalPersons();
-      list.push(local);
-      persons.saveLocalPersons(list);
-      wx.showToast({ title: '云端稍后同步 · 已本地建档', icon: 'none', duration: 2200 });
-      this._finish();
+      // G2 A3：失败 → 明确失败提示 + 不写本地 + 停留表单页（可重试），绝不「已本地建档」假成功
+      console.warn('[Onboarding] 建档失败:', e && e.message);
+      wx.showToast({ title: '建档失败，请重试', icon: 'none' });
     } finally {
       this.setData({ saving: false });
     }

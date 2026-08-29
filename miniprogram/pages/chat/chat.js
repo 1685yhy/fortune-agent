@@ -389,7 +389,10 @@ Page({
   },
 
   /* 对话建档提示：AI 回复含「已保存到档案/建档」类 key → 顶部提示条 + 本地标记
-     （排盘选命主页读同一标记展示确认弹层；点提示条确认/取消后清除） */
+     （排盘选命主页读同一标记展示确认弹层；点提示条确认/取消后清除）。
+     G2 A4：提示条只做「档案指引」，不承诺前端执行保存——对话分析落库发生在服务端
+     （_save_bazi_records 双写 bazi_info+persons），前端无法可靠从会话文本回提出生信息
+     （重复解析 = 契约分裂风险），零写入却声称「已保存」即假成功，故移除保存语义 */
   _checkArchiveKeys(messages) {
     const ARCHIVE_KEYS = ['已保存到档案', '已加入档案', '档案已建立', '已建立档案', '出生信息已保存', '已存到档案'];
     const last = messages[messages.length - 1];
@@ -404,21 +407,23 @@ Page({
     }
   },
 
-  /* 提示条点击：确认/取消建档弹层（清除标记与提示条） */
+  /* 提示条点击：确认/取消建档弹层（清除标记与提示条）。
+     G2 A4（取舍见 _checkArchiveKeys 注释）：移除「确认保存」保存语义——
+     改为档案指引「知道了」，不再声称前端执行了保存 */
   onSaveBannerTap() {
     wx.showModal({
       title: '对话建档提示',
-      content: '对话中已识别到出生信息\n是否将其保存到档案？',
-      confirmText: '确认保存',
+      content: '对话中已识别到出生信息\n可在档案页查看并管理',
+      confirmText: '知道了',
       cancelText: '取消',
       confirmColor: '#A93A2C',
       success: (res) => {
         this.setData({ saveBanner: false });
         try { wx.removeStorageSync('ylm_dlg_person_saved'); } catch (e) { /* ignore */ }
         if (res.confirm) {
-          wx.showToast({ title: '已保存到档案', icon: 'none' });
+          wx.showToast({ title: '已为你标记，可在档案页查看', icon: 'none' });
         } else {
-          wx.showToast({ title: '未保存', icon: 'none' });
+          wx.showToast({ title: '未标记', icon: 'none' });
         }
       },
     });
@@ -1095,7 +1100,8 @@ Page({
      already:true 不报错）。
      - keep 成功 → 打 favImported：后端条目接管展示，收藏页本地兜底不再重复展示
        （不打标记则收藏页「本地 kept 条目 + 后端条目」双份显示，造成重复）
-     - 失败静默：本地 kept 保留，收藏页首启导入仍可兜底，绝不影响收藏体验 */
+     - 失败（G2 A5/A7）：本地 kept 保留（纯本地收藏为设计内行为），但必须明示
+       「云端同步失败」——不得静默装成功；收藏页首启导入仍可兜底 */
   _syncKeepBackend(msg, on) {
     if (!msg || !msg.id) return;
     const type = isJianEntry(msg) ? 'jian' : 'chat';
@@ -1107,7 +1113,9 @@ Page({
         summary: String(msg.content || '').slice(0, 100),
       }).then(() => {
         streamHost.patchMessage(msg.id, { favImported: true });
-      }).catch(() => { /* 静默：本地收藏体验不受影响 */ });
+      }).catch(() => {
+        wx.showToast({ title: '收藏暂存本机，云端同步失败', icon: 'none' });
+      });
     } else {
       api.favRemove(type, refId).catch(() => { /* 静默：deleted=false 视为本就不存在 */ });
     }
@@ -1223,7 +1231,9 @@ Page({
     wx.navigateTo({ url: '/pages/share/share' });
   },
 
-  /* 意见反馈原因 → 本地留档 + 后端上报（有咨询 ID 时 negative + 备注） */
+  /* 意见反馈原因 → 本地留档 + 后端上报（有咨询 ID 时 negative + 备注）。
+     G2 A8：成功提示以后端上报结果为准；上报失败 → 明确失败提示（本地留档保留，
+     但不得声称已送达明灯）；无咨询 ID 时纯本地留档（设计内行为） */
   submitFeedbackReason(e) {
     const reason = e.currentTarget.dataset.reason;
     const { msgId } = this.data.fbMenu;
@@ -1232,9 +1242,12 @@ Page({
     if (!msg) return;
     this._logFeedback(msg, reason);
     if (msg.consultationId) {
-      api.feedback(msg.consultationId, 'negative', reason).catch(() => {});
+      api.feedback(msg.consultationId, 'negative', reason)
+        .then(() => { wx.showToast({ title: '已收到你的反馈，明灯会改进', icon: 'none' }); })
+        .catch(() => { wx.showToast({ title: '反馈提交失败，请重试', icon: 'none' }); });
+    } else {
+      wx.showToast({ title: '已收到你的反馈，明灯会改进', icon: 'none' });
     }
-    wx.showToast({ title: '已收到你的反馈，明灯会改进', icon: 'none' });
   },
 
   closeFbMenu() {
@@ -1377,6 +1390,8 @@ Page({
       if (!msg) return;
       const on = !msg.kept;
       streamHost.patchMessage(id, { kept: on, keptAt: on ? Date.now() : 0 });
+      // G2 A6：气泡尾星标收藏此前完全无后端调用 → 与长按菜单同链路同步（失败提示见 _syncKeepBackend）
+      if (msg.role === 'ai') this._syncKeepBackend(msg, on);
       wx.showToast({ title: on ? '已收藏 · 我的页可查看' : '已取消收藏', icon: 'none' });
       return;
     }
@@ -1390,7 +1405,12 @@ Page({
     if ((k === 'up' || k === 'down') && on) {
       const msg = this._findMessage(id);
       if (msg && msg.consultationId) {
-        api.feedback(msg.consultationId, k === 'up' ? 'positive' : 'negative').catch(() => {});
+        api.feedback(msg.consultationId, k === 'up' ? 'positive' : 'negative')
+          .catch(() => {
+            // G2 B1：上报失败 → 回滚点亮态 + 明确提示（失败不点亮，不静默）
+            this.setData({ [`fb.${key}`]: false });
+            wx.showToast({ title: '反馈失败，请重试', icon: 'none' });
+          });
       }
     }
   },

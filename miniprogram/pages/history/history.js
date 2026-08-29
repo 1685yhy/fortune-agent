@@ -278,9 +278,11 @@ Page({
     if (!d) return;
     this.setData({ dlgDel: null, removing: d.id });
     setTimeout(() => {
+      // G2 B3：删除以 storage 真实写成为准，写失败 → 「删除失败」而非假成功
+      let delOk = true;
       if (d.isCurrent) {
         /* 删除当前会话：清空消息 → 聊天页回 SEED 开场 */
-        try { wx.setStorageSync(STORAGE_KEY, []); } catch (e) { /* ignore */ }
+        try { wx.setStorageSync(STORAGE_KEY, []); } catch (e) { delOk = false; }
         if (streamHost.streaming) streamHost.stop();
         streamHost.setMessages([]);
       } else {
@@ -289,11 +291,11 @@ Page({
           if (Array.isArray(arch)) {
             wx.setStorageSync(ARCHIVE_KEY, arch.filter((a) => a && a.id !== d.id));
           }
-        } catch (e) { /* ignore */ }
+        } catch (e) { delOk = false; }
       }
       this.setData({ removing: '', view: 'list', current: null });
       this._load();
-      wx.showToast({ title: '已删除 · 夜话不留痕', icon: 'none' });
+      wx.showToast({ title: delOk ? '已删除 · 夜话不留痕' : '删除失败，请重试', icon: 'none' });
     }, 340);
   },
 
