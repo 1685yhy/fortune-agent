@@ -4213,9 +4213,9 @@ class MessageHandler:
                     # 逻辑（cur 性别补充，行为不变）。
                     _saved_g = saved.get("gender")
                     _cur_g = merged.get("gender")
-                    _is_correction = (_cur_g in ("男", "女")
-                                      and _saved_g in ("男", "女")
-                                      and _cur_g != _saved_g)
+                    # C2b（2026-08-29）：判定逻辑抽为 _is_gender_correction，
+                    # partial 分支与 parsed 直排路径共用同一判定（不重复实现）。
+                    _is_correction = self._is_gender_correction(_cur_g, _saved_g)
                     if _is_correction:
                         # C2（2026-08-29）：纠正路径强制覆写记忆画像层性别——
                         # _do_bazi_analysis → _save_bazi_records → save_bazi_info
@@ -4288,6 +4288,8 @@ class MessageHandler:
         # 同一套文案），绝不静默排盘/落库；信息与档案一致（或档案无此
         # 字段）时仍正常排盘（规则1不受影响）。有第三方指代 → 规则2排
         # 第三方，不询问（与既有 parsed 直排语义一致）。
+        _is_correction = False
+        _ack = ""
         if not self._is_third_party_birth_request(msg):
             saved = self._get_user_birth_profile(user_id)
             if (saved and saved.get("year") and saved.get("month")
@@ -4301,10 +4303,21 @@ class MessageHandler:
                 if gender and gender != "unknown":
                     cur["gender"] = gender
                 return self._gen_birth_conflict_ask(msg, cur, saved)
-        return self._do_bazi_analysis(
+            # C2b（2026-08-29）：parsed 直排路径同款性别纠正判定——消息提取
+            # 到已确认性别（男/女）且档案性别也已确认、两者不一致 → 视为
+            # 用户明示纠正：force_gender=True 穿透（_do_bazi_analysis →
+            # _save_bazi_records → save_bazi_info 强制覆写画像层，权威档案
+            # users.bazi_info+persons 随重排双写新性别）+ 固定回执（零 LLM）。
+            # 一致/档案 unknown/第三方指代 → 行为保持现状（不强制、无回执）。
+            _saved_g = (saved or {}).get("gender")
+            _is_correction = self._is_gender_correction(gender, _saved_g)
+            if _is_correction:
+                _ack = self._gen_gender_correction_ack(_saved_g, gender)
+        result = self._do_bazi_analysis(
             year, month, day, hour, minute, city, gender, msg, user_id,
-            stream_cb=stream_cb,
+            stream_cb=stream_cb, force_gender=_is_correction,
         )
+        return _ack + "\n\n" + result if _ack else result
 
     # ── D9 无档案问事：先答通用知识，再要档案 ──────────────────────
     # 问事句式兜底词（知识关键词匹配优先；这里是句式级兜底）：
@@ -5423,6 +5436,19 @@ class MessageHandler:
             return out if len(out) >= 2 else []
         except Exception:
             return []  # 生成失败 → 无建议（前端不渲染建议卡，主回复不受影响）
+
+    def _is_gender_correction(self, new_g: Optional[str],
+                              old_g: Optional[str]) -> bool:
+        """G1-C2/C2b（2026-08-29）：用户明示性别纠正判定——新提取性别与
+        档案性别均为已确认值（男/女）且不一致 → True（视为用户明示纠正，
+        允许 force_gender 强制覆写画像层）；任一 unknown/None 或一致 →
+        False（静默数据冲突/tool 直排路径不扩大强制覆写面）。
+
+        partial 分支（_handle_bazi 部分信息累积）与 parsed 直排路径
+        （_handle_bazi 完整生辰消息）共用同一判定，不重复实现。
+        """
+        return (new_g in ("男", "女") and old_g in ("男", "女")
+                and new_g != old_g)
 
     def _gen_gender_correction_ack(self, old_g: str, new_g: str) -> str:
         """G1（2026-08-29 P0-C）：性别纠正回执（固定文案，零 LLM——

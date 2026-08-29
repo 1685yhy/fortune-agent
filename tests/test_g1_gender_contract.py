@@ -435,3 +435,140 @@ def test_g1_correction_memory_profile_unchanged_without_force(tmp_path):
                                 "gender": "女"},
                          "排盘", "u8")
     assert h.memory_system._load("u8")["bazi_info"]["gender"] == "男"  # 拒绝覆写
+
+
+# ================================================================
+# C2b：parsed 直排路径（完整生辰+性别同一句）同款纠正判定
+# ================================================================
+# C2 修复（5d63fa6）只覆盖 partial 路径（纠正分支 ~4216 传 force_gender）；
+# parsed 直排路径（handler.py 完整生辰分支，_extract_bazi_info 直排）此前
+# 无纠正判定、未传 force_gender → DAO 无条件跟随新性别落库、画像层拒绝
+# 覆写 → C2 症状（纠正后 LLM 画像仍持旧性别）在该路径复现。本批修复：
+# parsed 路径同款 _is_gender_correction 判定 + force_gender 穿透 + 固定回执。
+
+_PARSED_FEMALE = (1990, 5, 20, 7, 0, "北京", "女")
+
+
+def test_g1_c2b_parsed_path_correction_forces_gender():
+    """C2b：完整生辰+性别纠正消息（档案男 + 「我是1990年5月20日7点北京生的
+    女孩儿」）→ 视为纠正：_do_bazi_analysis 收 gender=女 + force_gender=True
+    （画像层强制覆写依据）+ 固定回执（重排确认）。"""
+    h = make_handler()
+    h._extract_bazi_info = Mock(return_value=_PARSED_FEMALE)
+    out = h._handle_bazi("我是1990年5月20日7点北京生的女孩儿", "u1")
+    args = h._do_bazi_analysis.call_args[0]
+    assert args[:7] == (1990, 5, 20, 7, 0, "北京", "女")  # 女命重排
+    assert h._do_bazi_analysis.call_args.kwargs.get("force_gender") is True
+    assert "重新排盘" in out
+    assert "女" in out
+    h._gen_reuse_acknowledgment.assert_not_called()  # 纠正走固定回执
+
+
+def test_g1_c2b_parsed_path_same_gender_no_force():
+    """C2b：parsed 路径 + 同性别（档案女 + 女孩儿）→ 行为保持现状：
+    force_gender 非 True、无纠正回执。"""
+    h = make_handler()
+    h._extract_bazi_info = Mock(return_value=_PARSED_FEMALE)
+    h._get_user_birth_profile = Mock(return_value={
+        "year": 1990, "month": 5, "day": 20, "hour": 15, "minute": 0,
+        "city": "北京", "gender": "女"})
+    out = h._handle_bazi("我是1990年5月20日7点北京生的女孩儿", "u1")
+    assert h._do_bazi_analysis.call_args.kwargs.get("force_gender") is not True
+    assert "重新排盘" not in out
+    assert h._do_bazi_analysis.call_args[0][6] == "女"
+
+
+def test_g1_c2b_parsed_path_archive_unknown_no_force():
+    """C2b：parsed 路径 + 档案性别 unknown → 补充而非纠正（不强制、无回执）。"""
+    h = make_handler()
+    h._extract_bazi_info = Mock(return_value=_PARSED_FEMALE)
+    h._get_user_birth_profile = Mock(return_value={
+        "year": 1990, "month": 5, "day": 20, "hour": 15, "minute": 0,
+        "city": "北京", "gender": "unknown"})
+    out = h._handle_bazi("我是1990年5月20日7点北京生的女孩儿", "u1")
+    assert h._do_bazi_analysis.call_args.kwargs.get("force_gender") is not True
+    assert "重新排盘" not in out
+    assert h._do_bazi_analysis.call_args[0][6] == "女"
+
+
+def test_g1_c2b_parsed_path_third_party_no_force():
+    """C2b 红线：parsed 路径 + 第三方指代（规则2，为他人排盘）→ 不判定
+    纠正、不传 force（新性别属于第三方，绝不强制覆写本人画像）。"""
+    h = make_handler()
+    h._extract_bazi_info = Mock(return_value=_PARSED_FEMALE)
+    out = h._handle_bazi("帮我女儿排个盘，她是1990年5月20日7点北京生的女孩儿",
+                         "u1")
+    assert h._do_bazi_analysis.call_args.kwargs.get("force_gender") is not True
+    assert "重新排盘" not in out
+    assert h._do_bazi_analysis.call_args[0][6] == "女"
+
+
+def test_g1_c2b_parsed_path_year_conflict_priority():
+    """C2b：parsed 路径年份冲突（规则3）优先于性别纠正：绝不静默重排。"""
+    h = make_handler()
+    h._extract_bazi_info = Mock(return_value=(1976, 5, 20, 7, 0, "北京", "女"))
+    h._gen_birth_conflict_ask = Mock(return_value="冲突确认")
+    out = h._handle_bazi("我是1976年5月20日7点北京生的女孩儿", "u1")
+    assert out == "冲突确认"
+    h._do_bazi_analysis.assert_not_called()
+
+
+class _ResultStub:
+    """排盘结果桩（与上文 _R 同构，C2b 全链路测试共用）。"""
+    bazi = ["庚午", "辛巳", "甲申", "壬申"]
+    day_master = "甲"
+    wuxing = {}
+    shishen = []
+    dayun = []
+    liunian = {}
+    liunian_full = []
+    shensha = []
+    geju = ""
+    yongshen = ""
+    nayin = []
+    taiyuan = ""
+    qiyun_detail = None
+
+
+def test_g1_c2b_parsed_path_full_chain(tmp_path):
+    """C2b 全链路：真实 _handle_bazi（parsed 直排）+ 真实落库——档案男 +
+    完整生辰性别消息 → 纠正判定 → force_gender=True 穿透：画像层 gender
+    男→女 强制覆写 + persons/users.bazi_info 双写女 + 回执确认重排。"""
+    from src.memory.user_memory import UserMemory
+    h = _real_handler(tmp_path)
+    h._downgraded = {}
+    h.memory_system = UserMemory(base_dir=str(tmp_path / "mem"))
+    h.memory_system.save_bazi_info("u9", {
+        "year": 1990, "month": 5, "day": 20, "hour": 15, "minute": 0,
+        "city": "北京", "gender": "男"})
+    pdao = _create_person(tmp_path, "u9", "男", birth_year=1990)
+    h.dao.save_user_bazi("u9", {
+        "year": 1990, "month": 5, "day": 20, "hour": 15, "minute": 0,
+        "city": "北京", "gender": "男", "bazi": ["庚午", "辛巳", "甲申", "壬申"]})
+    # 重看盘直读兜底与本修复正交（有存量即短路，test_chart_reuse 已覆盖）→ 关掉
+    h._try_reuse_chart = Mock(return_value="")
+
+    _calls = {}
+
+    def _fake_analysis(year, month, day, hour, minute, city, gender,
+                       question, user_id, stream_cb=None, force_gender=False):
+        _calls.update(gender=gender, force_gender=force_gender)
+        h._save_bazi_records(_ResultStub(), {
+            "year": year, "month": month, "day": day,
+            "hour": hour, "minute": minute,
+            "city": city, "gender": gender,
+        }, question, user_id, force_gender=force_gender)
+        return "分析结果"
+    h._do_bazi_analysis = _fake_analysis
+
+    out = h._handle_bazi("我是1990年5月20日7点北京生的女孩儿", "u9")
+
+    assert _calls["gender"] == "女"                      # 女命重排
+    assert _calls["force_gender"] is True                # 纠正穿透
+    # 画像层强制覆写：男 → 女（C2b 核心，此前 parsed 路径画像层永久滞后）
+    assert h.memory_system._load("u9")["bazi_info"]["gender"] == "女"
+    # 权威档案双写女
+    assert h.dao.get_user_bazi("u9")["gender"] == "女"
+    assert pdao.list_persons("u9")[0]["gender"] == "女"
+    assert "重新排盘" in out                              # 固定回执
+    assert "「女」" in out
