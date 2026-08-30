@@ -1,5 +1,6 @@
 """紫微斗数排盘引擎 - 纯Python实现，无外部JS依赖."""
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from typing import List, Dict, Optional, Tuple
 from lunar_python import Solar
 
@@ -176,43 +177,51 @@ for m in range(1, 13):
     ZUOYOU_TABLE[m] = (DIZHI[zuo_idx], DIZHI[you_idx])
 
 # 文昌文曲: 时辰 → (文昌, 文曲)
-# 文昌: 戌宫起子时, 顺行
-# 文曲: 辰宫起子时, 逆行
+# 安星口诀「文昌戌上起子时，逆到生时；文曲辰上起子时，顺到生时」：
+#   文昌: 戌宫起子时**逆行**（戌 - 时序）
+#   文曲: 辰宫起子时**顺行**（辰 + 时序）
+# （K2 对齐权威 iztro getChangQuIndex / ZDS / 见微；原顺逆写反，午时等对称时辰恰好同宫未暴露）
 WENCHANG_WENQU_TABLE = {}
 for shi_idx, shi_name in enumerate(DIZHI):
-    # 文昌: 戌(10) + shi_idx 顺行
-    wc_idx = (DIZHI.index("戌") + shi_idx) % 12
-    # 文曲: 辰(4) - shi_idx 逆行
-    wq_idx = (DIZHI.index("辰") - shi_idx) % 12
+    # 文昌: 戌(10) - shi_idx 逆行
+    wc_idx = (DIZHI.index("戌") - shi_idx) % 12
+    # 文曲: 辰(4) + shi_idx 顺行
+    wq_idx = (DIZHI.index("辰") + shi_idx) % 12
     WENCHANG_WENQU_TABLE[shi_name] = (DIZHI[wc_idx], DIZHI[wq_idx])
 
 # 火星铃星: 年支 → (火星起始位置, 铃星起始位置)
-# 火星: 从起始位置起子时, 顺行到生时
-# 铃星: 从起始位置起子时, 顺行到生时
+# 安星口诀「申子辰人寅戌扬，寅午戌人丑卯方，巳酉丑人卯戌位，亥卯未人酉戌房」：
+#   寅午戌：火星丑宫起子时、铃星卯宫起子时
+#   申子辰：火星寅宫起子时、铃星戌宫起子时
+#   巳酉丑：火星卯宫起子时、铃星戌宫起子时
+#   亥卯未：火星酉宫起子时、铃星戌宫起子时
+# 两者均自起宫顺数至生时（K2 对齐权威 iztro getHuoLingIndex / ZDS / 见微）
 HUO_LING_START = {
-    "寅": (DIZHI.index("子"), DIZHI.index("丑")),
-    "午": (DIZHI.index("子"), DIZHI.index("丑")),
-    "戌": (DIZHI.index("子"), DIZHI.index("丑")),
-    "申": (DIZHI.index("寅"), DIZHI.index("寅")),
-    "子": (DIZHI.index("寅"), DIZHI.index("寅")),
-    "辰": (DIZHI.index("寅"), DIZHI.index("寅")),
-    "巳": (DIZHI.index("卯"), DIZHI.index("午")),
-    "酉": (DIZHI.index("卯"), DIZHI.index("午")),
-    "丑": (DIZHI.index("卯"), DIZHI.index("午")),
-    "亥": (DIZHI.index("酉"), DIZHI.index("子")),
-    "卯": (DIZHI.index("酉"), DIZHI.index("子")),
-    "未": (DIZHI.index("酉"), DIZHI.index("子")),
+    "寅": (DIZHI.index("丑"), DIZHI.index("卯")),
+    "午": (DIZHI.index("丑"), DIZHI.index("卯")),
+    "戌": (DIZHI.index("丑"), DIZHI.index("卯")),
+    "申": (DIZHI.index("寅"), DIZHI.index("戌")),
+    "子": (DIZHI.index("寅"), DIZHI.index("戌")),
+    "辰": (DIZHI.index("寅"), DIZHI.index("戌")),
+    "巳": (DIZHI.index("卯"), DIZHI.index("戌")),
+    "酉": (DIZHI.index("卯"), DIZHI.index("戌")),
+    "丑": (DIZHI.index("卯"), DIZHI.index("戌")),
+    "亥": (DIZHI.index("酉"), DIZHI.index("戌")),
+    "卯": (DIZHI.index("酉"), DIZHI.index("戌")),
+    "未": (DIZHI.index("酉"), DIZHI.index("戌")),
 }
 
 # 地空地劫: 时辰 → (地空, 地劫)
-# 地空: 亥宫起子时, 顺行
-# 地劫: 戌宫起子时, 顺行
+# 安星口诀「亥上子时顺安劫，逆回便是地空亡」：
+#   地空: 亥宫起子时**逆行**（亥 - 时辰序）
+#   地劫: 亥宫起子时**顺行**（亥 + 时辰序）
+# （K2 对齐权威 iztro getKongJieIndex: kongIndex=亥-fixedTimeIndex, jieIndex=亥+fixedTimeIndex）
 DIKONG_DIJIE_TABLE = {}
 for shi_idx, shi_name in enumerate(DIZHI):
-    # 地空: 亥(11) + shi_idx 顺行
-    dk_idx = (DIZHI.index("亥") + shi_idx) % 12
-    # 地劫: 戌(10) + shi_idx 顺行
-    dj_idx = (DIZHI.index("戌") + shi_idx) % 12
+    # 地空: 亥(11) - shi_idx 逆行
+    dk_idx = (DIZHI.index("亥") - shi_idx) % 12
+    # 地劫: 亥(11) + shi_idx 顺行
+    dj_idx = (DIZHI.index("亥") + shi_idx) % 12
     DIKONG_DIJIE_TABLE[shi_name] = (DIZHI[dk_idx], DIZHI[dj_idx])
 
 # 12宫顺序（从命宫起逆时针）
@@ -289,6 +298,17 @@ class ZiweiEngine:
         time_zhi = lunar.getTimeZhi()
         shichen_idx = SHICHEN_MAP[time_zhi]
 
+        # 晚子时（23:00-23:59）换日（K2-F）：日系星（紫微系+天府系）按**次日**农历日安星。
+        # 对齐权威主流口径：iztro 默认 dayDivide='forward'（astro.js L47: _day=lunarDay+1，
+        # 超月尾折回 maxDays）、ZDS（23 时一律次日）、问真（用户确认）；
+        # 见微按当日属少数派，本批不设开关。
+        # 换日仅作用于日系星：命身宫/年干支/四化/月系星/时系星均不受影响（与 iztro 一致）。
+        ziwei_day = lunar_day
+        if hour >= 23:
+            next_day = date(year, month, day) + timedelta(days=1)
+            ziwei_day = Solar.fromYmdHms(
+                next_day.year, next_day.month, next_day.day, 0, 0, 0).getLunar().getDay()
+
         # 年干支
         year_ganzhi = lunar.getYearInGanZhi()
         year_gan = year_ganzhi[0]
@@ -310,8 +330,8 @@ class ZiweiEngine:
         wuxing_ju = self._calc_wuxing_ju(ming_gong_ganzhi)
         wuxing_ju_name = WUXING_JU_NAMES.get(wuxing_ju, "未知")
 
-        # 6. 紫微星位置
-        ziwei_dizhi = ZIWEI_POS_TABLE[wuxing_ju][lunar_day]
+        # 6. 紫微星位置（日系星：晚子时按次日农历日安星，见上 ziwei_day 计算）
+        ziwei_dizhi = ZIWEI_POS_TABLE[wuxing_ju][ziwei_day]
         ziwei_idx = DIZHI.index(ziwei_dizhi)
 
         # 7. 14主星位置
@@ -345,6 +365,7 @@ class ZiweiEngine:
                 "lunar_year": lunar_year,
                 "lunar_month": lunar_month,
                 "lunar_day": lunar_day,
+                "ziwei_day": ziwei_day,  # 紫微安星所用农历日（晚子时=次日；其余=当日）
                 "time_zhi": time_zhi,
                 "year_gan": year_gan,
                 "year_zhi": year_zhi,
@@ -448,10 +469,12 @@ class ZiweiEngine:
             pos_idx = (ziwei_idx + offset) % 12
             stars[star_name] = DIZHI[pos_idx]
 
-        # 天府位置: 与紫微对称于寅申线
-        # 标准安天府诀: 紫微在寅,天府在辰 → 紫微+天府 ≡ 6 (mod 12)
-        # 天府DIZHI_idx = (6 - 紫微DIZHI_idx) % 12
-        tianfu_idx = (6 - ziwei_idx) % 12
+        # 天府位置: 与紫微对称于寅申线（紫微在寅申，天府同宫）
+        # 安天府诀: 紫微卯→天府丑、辰→子、巳→亥、午→戌、未→酉…
+        # 天府DIZHI_idx = (4 - 紫微DIZHI_idx) % 12
+        # （K2 对齐权威 iztro location.js: tianfuIndex = fixIndex(12 - ziweiIndex) 寅起索引，
+        #   换算为子起索引即 (4 - ziwei) mod 12；A/B/C 三站四案实证）
+        tianfu_idx = (4 - ziwei_idx) % 12
 
         # 天府系 (顺行/顺时针 = +1 in DIZHI index)
         for star_name, offset in TIANFU_XI_STARS:
