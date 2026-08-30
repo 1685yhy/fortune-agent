@@ -59,7 +59,9 @@ ERSHIBA_XIU_JIXIONG = {
 # 建除十二神宜忌
 JIANCHU_YI_JI = {
     "建": {
-        "yi": ["出行", "嫁娶", "上梁", "起基", "纳财", "开市", "纳采"],
+        # K3-A4: 移除"嫁娶""纳采" —— 建日不宜嫁娶(主流黄历: xzw 2026-09-20 宜无嫁娶纳采,
+        # lhl 2026-10-15 建日忌嫁娶 实证)。建日宜表仅保留建事类宜项。
+        "yi": ["出行", "上梁", "起基", "纳财", "开市"],
         "ji": ["动土", "开仓", "掘井", "安葬", "破土"],
         "desc": "健旺之日，宜建事，忌动土",
     },
@@ -458,11 +460,22 @@ class ZeriEngine:
 
         # 复用已有引擎单日分析（不传 purpose, 保持自然宜忌）
         r = self.select(d.year, d.month, d.day)
+        lunar_yi = list(lunar.getDayYi())
         # 宜忌 = 建除宜忌(引擎在前) + lunar-python 当日黄历宜忌（去重）
-        yi = list(dict.fromkeys(r.yi + lunar.getDayYi()))
-        ji = list(dict.fromkeys(r.ji + lunar.getDayJi()))
+        yi = list(dict.fromkeys(r.yi + lunar_yi))
+        # K3-A3(神煞级优先): 建除表忌与当日神煞级黄历宜冲突时以当日黄历宜为准。
+        # 建除表忌为 12 日周期的粗粒度近似, 不覆盖神煞级明示之宜 —— 实证:
+        # 2026-10-01 闭日(建除表忌入宅/移徙), 但 lhl 当日神煞级黄历宜=…移徙入宅…,
+        # 且为权威搬家吉日; 若按建除表忌执行 ji_hits 排除将漏掉该权威吉日
+        # (10-14 同日闭日、神煞级宜无入宅移徙 → 忌仍保留, 不受影响)。
+        ji = [j for j in dict.fromkeys(r.ji + lunar.getDayJi()) if j not in lunar_yi]
 
         # ---- 排除规则 ----
+        # K3-A1: 诸事不宜/馀事勿取日直接排除 —— 权威判定标准「排除破日、危日与
+        # 诸事不宜之日」, 此类日不得报为任何场景吉日（12/12 忌=诸事不宜、
+        # 11/7 宜=解除+馀事勿取、9/20 宜=…馀事勿取 实证）。
+        if "诸事不宜" in ji or "馀事勿取" in ji or "馀事勿取" in yi:
+            return None
         if r.jianchu in cfg["jianchu_avoid"]:
             return None
         if any(kw in j for j in ji for kw in cfg["ji_hits"]):
@@ -486,7 +499,11 @@ class ZeriEngine:
             return None
 
         # ---- 三层评分 ----
-        scene_score, scene_reason = self._scene_score(cfg, r.jianchu, yi)
+        # K3-A4/A5 补完(神煞级优先): 场景命中只算 lunar-python 当日神煞级黄历宜,
+        # 不算建除表宜 —— 权威对比口径为「以黄历当日明确列出为准入」(A5),
+        # 建除表词与神煞级完整黄历不符处均可能误报 (11/7 开表词、11/17 成表词、
+        # 12/8 定表词 实证, 报告 A4 同类风险)。建除表宜仍保留在卡片宜列表作展示。
+        scene_score, scene_reason = self._scene_score(cfg, r.jianchu, lunar_yi)
         if scene_score < 20:
             # 未命中任何场景宜关键词 → 不构成合格吉日
             return None
@@ -517,7 +534,12 @@ class ZeriEngine:
         )
 
     def _scene_score(self, cfg: dict, jianchu: str, yi: List[str]) -> tuple:
-        """场景匹配分(0-50): 宜关键词每命中 +20, 成/开/定值日 +10, 封顶 50"""
+        """场景匹配分(0-50): 宜关键词每命中 +20, 成/开/定值日 +10, 封顶 50
+
+        K3(神煞级优先): yi 实参为 lunar-python 当日神煞级黄历宜（_build_lucky_card
+        传入 lunar_yi）, 建除表宜不参与场景分（仅展示）——权威「以黄历当日明确
+        列出为准入」; 值日加分仍看建除十二神（成/开/定）。
+        """
         hits = [kw for kw in cfg["yi_hits"] if any(kw in y for y in yi)]
         bonus = 10 if jianchu in ("成", "开", "定") else 0
         score = min(50, len(hits) * 20 + bonus)
@@ -654,7 +676,9 @@ SHENG_CYCLE = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "�
 # 场景规则库
 #   yi_hits:      宜关键词（当日宜列表命中 → 加场景分）
 #   ji_hits:      忌关键词（当日忌列表命中 → 直接排除; 与 yi_hits 同词即自相矛盾, 不出现）
-#   jianchu_avoid: 建除神当日排除（如"破""闭"）
+#   jianchu_avoid: 建除神当日排除 —— K3-A2/A3: 全场景统一排除 破/危 两日
+#                 (权威判定标准「排除破日、危日与诸事不宜之日」, 11/16 危日出行误报实证);
+#                 闭日不再排除 (权威不排除闭日, 10/1 闭日神煞级宜入宅移徙为搬家吉日实证)
 #   avoid_chong:  冲 user_bazi 生肖排除（独立条目, 按场景开关: 搬家冲宅主/提车冲车主;
 #                 无生肖信息时跳过; 不混入 shensha_avoid）
 #   shensha_avoid: 神煞排除（三娘煞/杨公忌日/月破/月刑/空亡; 冲生肖已独立为 avoid_chong 条目）
@@ -664,7 +688,7 @@ SCENES = {
         "label": "嫁娶",
         "yi_hits": ["嫁娶", "订盟", "纳采"],
         "ji_hits": ["嫁娶", "纳采", "订盟"],   # fix-later: 补"订盟"与 yi 对称(订盟日不宜嫁娶, 黄历有据)
-        "jianchu_avoid": ["破", "闭"],
+        "jianchu_avoid": ["破", "危"],
         "avoid_chong": True,
         "shensha_avoid": ["三娘煞", "杨公忌日"],
         "weekend_bonus": True,
@@ -673,7 +697,7 @@ SCENES = {
         "label": "搬家",
         "yi_hits": ["入宅", "移徙", "安床"],
         "ji_hits": ["入宅", "移徙"],
-        "jianchu_avoid": ["破", "闭"],
+        "jianchu_avoid": ["破", "危"],
         "avoid_chong": True,      # 冲宅主生肖（用 user_bazi 生肖）
         "shensha_avoid": [],
         "weekend_bonus": True,
@@ -682,7 +706,7 @@ SCENES = {
         "label": "开业",
         "yi_hits": ["开市", "交易", "纳财"],
         "ji_hits": ["开市", "纳财"],
-        "jianchu_avoid": ["破", "闭"],
+        "jianchu_avoid": ["破", "危"],
         "avoid_chong": False,
         "shensha_avoid": ["月破", "月刑"],
         "weekend_bonus": True,
@@ -691,16 +715,18 @@ SCENES = {
         "label": "晋升",
         "yi_hits": ["祈福", "会亲友", "出行", "入学"],   # 四词均已核实在宜词表存在（建除宜表+黄历宜）
         "ji_hits": [],
-        "jianchu_avoid": ["破", "闭"],
+        "jianchu_avoid": ["破", "危"],
         "avoid_chong": False,
         "shensha_avoid": ["月破", "月刑"],
         "weekend_bonus": True,
     },
     "出行": {
+        # K3-A5: 只认"出行" —— 权威标准「出行吉日必须以黄历当日明确列出"出行"为准入」,
+        # 会亲友/祈福 不等于出行 (12/5 宜会亲友安机械 出行误报实证)。
         "label": "出行",
-        "yi_hits": ["出行", "会亲友", "祈福"],
+        "yi_hits": ["出行"],
         "ji_hits": [],   # fix-later: 去掉"出行" —— 与 yi_hits 同词自相矛盾; 实际忌词为空
-        "jianchu_avoid": ["破", "闭"],
+        "jianchu_avoid": ["破", "危"],
         "avoid_chong": False,
         "shensha_avoid": ["空亡"],
         "weekend_bonus": True,
@@ -709,7 +735,7 @@ SCENES = {
         "label": "提车",
         "yi_hits": ["祈福", "出行", "安机械"],
         "ji_hits": [],   # fix-later: 去掉"出行" —— 与 yi_hits 同词自相矛盾; 实际忌词为空
-        "jianchu_avoid": ["破", "闭"],
+        "jianchu_avoid": ["破", "危"],
         "avoid_chong": True,      # 冲车主生肖
         "shensha_avoid": [],
         "weekend_bonus": True,
@@ -718,7 +744,7 @@ SCENES = {
         "label": "签约",
         "yi_hits": ["交易", "订盟", "纳财"],
         "ji_hits": ["交易", "纳财"],
-        "jianchu_avoid": [],
+        "jianchu_avoid": ["破", "危"],   # K3-A2: 补齐危日(此前为空); 破日与月破同日, 语义不变
         "avoid_chong": False,
         "shensha_avoid": ["月破", "月刑"],   # 忌日月刑冲
         "weekend_bonus": True,
