@@ -307,8 +307,9 @@ def test_e2e_real_chains_synthesize():
 
 
 def test_e2e_real_pair_ziwei_qimen_same_birth():
-    """真实体系对（同一生日 1990-05-20 16:30）：紫微水二局 vs 奇门值符天英(火) → 五行分歧。
+    """真实体系对（同一生日 1990-05-20 16:30）：紫微水二局 vs 奇门值符天冲(木) → 五行分歧。
 
+    K7: 1990-05-20 16:30 属甲申段(5/19起)=中元 -> 阳1局 值符天冲@3 (权威锚点 1990-05-20 16:30).
     两体系仅有五行公共键且断言不同 → 分歧；无共识、无不可比较（如实，不硬造）。"""
     from src.engines.qimen import QimenEngine
     from src.engines.ziwei import ZiweiEngine
@@ -324,5 +325,5 @@ def test_e2e_real_pair_ziwei_qimen_same_birth():
         SystemResult(system="qimen", chain=chain_qm),
     ])
     assert synth.consensus == []
-    assert [d["topic"] for d in synth.divergences] == ["五行不同：水、火"]
+    assert [d["topic"] for d in synth.divergences] == ["五行不同：水、木"]
     assert synth.unresolved == []

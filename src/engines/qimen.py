@@ -91,22 +91,40 @@ JIE_QI_DUN = {
     "大雪": ("阴遁", (4, 7, 1)),
 }
 
-# 八门 阳遁路径 (顺时针, 跳过中宫5)
-YANG_DOOR_PATH = [1, 2, 3, 4, 6, 7, 8, 9]
+# 洛书环 (后天八卦环, 权威口径): 离9→坤2→兑7→乾6→坎1→艮8→震3→巽4→离9
+# 报告 RING cw = [9,2,7,6,1,8,3,4]; 权威天盘@X = 地盘@ring(X, s)
+LUOSHU_RING = [9, 2, 7, 6, 1, 8, 3, 4]
+RING_IDX = {p: i for i, p in enumerate(LUOSHU_RING)}
 
-# 八门 阴遁路径 (逆时针, 跳过中宫5)
-YIN_DOOR_PATH = [1, 9, 8, 7, 6, 4, 3, 2]
-
-# 八神 阳遁顺行路径 (顺时针, 跳过中宫5)
-YANG_SHEN_PATH = [1, 2, 3, 4, 6, 7, 8, 9]
-
-# 八神 阴遁逆行路径 (逆时针, 跳过中宫5)
-YIN_SHEN_PATH = [1, 9, 8, 7, 6, 4, 3, 2]
+# getJieQiTable() 键: 内部16节为中文名, 表边界8节为拼音大写 (如 DA_XUE) → 统一映射
+_TERM_ALIAS = {
+    "DONG_ZHI": "冬至", "XIAO_HAN": "小寒", "DA_HAN": "大寒", "LI_CHUN": "立春",
+    "YU_SHUI": "雨水", "JING_ZHE": "惊蛰", "CHUN_FEN": "春分", "QING_MING": "清明",
+    "GU_YU": "谷雨", "LI_XIA": "立夏", "XIAO_MAN": "小满", "MANG_ZHONG": "芒种",
+    "XIA_ZHI": "夏至", "XIAO_SHU": "小暑", "DA_SHU": "大暑", "LI_QIU": "立秋",
+    "CHU_SHU": "处暑", "BAI_LU": "白露", "QIU_FEN": "秋分", "HAN_LU": "寒露",
+    "SHUANG_JIANG": "霜降", "LI_DONG": "立冬", "XIAO_XUE": "小雪", "DA_XUE": "大雪",
+}
 
 
 # ============================================================
 # 工具函数
 # ============================================================
+
+def _ring_shift(orig: int, target: int) -> int:
+    """洛书环步数 s: 原宫→落宫 沿环顺时针步数 (0-7).
+
+    权威: 值符原宫→落宫 s 步, 天盘/九星/八门/八神整体沿环同转.
+    """
+    return (RING_IDX[target] - RING_IDX[orig]) % 8
+
+
+def _ring_at(palace: int, shift: int) -> int:
+    """洛书环位移: 宫位 palace 沿环后退 shift 步的宫位.
+
+    权威天盘@X = 地盘@ring(X, s)  (X 沿环前 s 位看回 origin).
+    """
+    return LUOSHU_RING[(RING_IDX[palace] - shift) % 8]
 
 def xunshou_to_yi(branch_index: int) -> int:
     """Map 旬首 branch index (0=子/2=寅/4=辰/6=午/8=申/10=戌) to 六仪 index (0-5).
@@ -179,14 +197,12 @@ class QimenEngine:
         solar = Solar.fromYmdHms(year, month, day, hour, minute, 0)
         lunar = solar.getLunar()
 
-        # --- 1. 确定节气 & 阴阳遁局数 ---
-        term_name = self._resolve_solar_term(solar)
+        # --- 1. 确定节气 & 阴阳遁局数 (时辰级交节判断) ---
+        term_name, jieqi_instant = self._resolve_solar_term(solar)
         dun_type, (upper, middle, lower) = JIE_QI_DUN[term_name]
 
-        # --- 2. 确定元 (上/中/下) ---
-        term_start = self._resolve_term_start(solar, term_name)
-        days_in_term = int(solar.getJulianDay() - term_start.getJulianDay())
-        yuan_idx = min(days_in_term // 5, 2)
+        # --- 2. 确定元 (上/中/下) — 拆补法: 符头段固定元 (段起日地支判, 节气与符头各走各的) ---
+        yuan_idx = self._resolve_yuan_idx(jieqi_instant, solar.getJulianDay())
         ju_number = [upper, middle, lower][yuan_idx]
 
         # --- 3. 排地盘 ---
@@ -217,17 +233,17 @@ class QimenEngine:
         # --- 7. 值符天盘位置 (时干所在宫位) ---
         target_palace = self._find_hour_gan_palace(dipan, time_gan, time_gan_idx, xunshou_palace)
 
-        # --- 8. 排天盘九星 ---
-        jiuxing = self._build_jiuxing(zhifu_star, target_palace)
+        # --- 8. 排天盘九星 (洛书环刚性旋转) ---
+        jiuxing = self._build_jiuxing(xunshou_palace, target_palace)
 
-        # --- 9. 排八门 ---
-        bamen_map = self._build_bamen(zhishi_door, xunshou_zhi_idx, time_zhi_idx, dun_type)
+        # --- 9. 排八门 (值使落宫 = 旬首六仪地盘宫 ± steps 飞盘位移, 门位洛书环旋转) ---
+        bamen_map = self._build_bamen(xunshou_palace, xunshou_zhi_idx, time_zhi_idx, dun_type)
 
-        # --- 10. 排八神 ---
+        # --- 10. 排八神 (值符神领位, 阳顺阴逆环布) ---
         bashen_map = self._build_bashen(dun_type, target_palace)
 
-        # --- 11. 排天盘奇仪 ---
-        tianpan = self._build_tianpan_qi(dipan, zhifu_star, target_palace)
+        # --- 11. 排天盘奇仪 (洛书环刚性旋转) ---
+        tianpan = self._build_tianpan_qi(dipan, xunshou_palace, target_palace)
 
         # --- 12. 转换为宫位名称 ---
         return self._to_result(
@@ -240,37 +256,71 @@ class QimenEngine:
 
     # ---- 节气相关 ----
 
-    def _resolve_solar_term(self, solar: Solar) -> str:
-        """Resolve which solar term the given date falls in.
-        Returns the Chinese name string of the solar term."""
-        lunar = solar.getLunar()
-        current = lunar.getCurrentJieQi()
-        if current is not None:
-            return current.getName()
-        prev = lunar.getPrevJieQi()
-        if prev is not None:
-            return prev.getName()
-        # Fallback
-        return "冬至"
+    def _jieqi_instants(self, solar: Solar) -> List[Tuple[float, str, Solar]]:
+        """节气时刻表 [(JulianDay, 名, Solar)], 北京天文时刻, 按时间升序.
 
-    def _resolve_term_start(self, solar: Solar, term_name: str) -> Solar:
-        """Find the exact start date of the current solar term."""
-        jq_obj = solar.getLunar().getCurrentJieQi()
-        if jq_obj is not None and jq_obj.getName() == term_name:
-            return solar
-        # Walk back day by day
-        for i in range(1, 30):
-            s = solar.nextDay(-i)
-            jq = s.getLunar().getCurrentJieQi()
-            if jq is not None and jq.getName() == term_name:
-                return s
-        # Walk forward (for rare edge case at term boundary)
-        for i in range(1, 3):
-            s = solar.nextDay(i)
-            jq = s.getLunar().getCurrentJieQi()
-            if jq is not None and jq.getName() == term_name:
-                return s
-        return solar
+        来自 lunar-python getJieQiTable (覆盖起局时刻前后约15个月, 与权威交节时刻一致).
+        键为中文或拼音大写 (边界8节), 统一经 _TERM_ALIAS 映射.
+        """
+        table = solar.getLunar().getJieQiTable()
+        instants = []
+        for k, v in table.items():
+            if isinstance(v, Solar):
+                instants.append((v.getJulianDay(), _TERM_ALIAS.get(k, k), v))
+        instants.sort()
+        return instants
+
+    def _resolve_solar_term(self, solar: Solar) -> Tuple[str, Solar]:
+        """拆补法节气判定: 返回 (节气名, 交节时刻Solar).
+
+        时辰级交节判断: 起局时刻 < 交节时刻 → 归上一节气段 (权威口径).
+        边界例: 2025-12-21 23:00 (冬至 23:03 交节前3分钟) = 大雪段; 12/22 00:30 = 冬至段.
+        晚子时归次日 (23:00 起时柱归次日) 由 getTimeGan/Zhi 处理, 本方法不动.
+        """
+        instants = self._jieqi_instants(solar)
+        jd = solar.getJulianDay()
+        for i, (jj, name, jq_solar) in enumerate(instants):
+            if jj > jd:
+                if i == 0:
+                    break  # 起局早于表中最早节气 (超15个月) → 回退
+                return instants[i - 1][1], instants[i - 1][2]
+        # 起局晚于表中全部节气, 或早于最早节气 → 用精确时刻回退
+        prev = solar.getLunar().getPrevJieQi(False)
+        return prev.getName(), prev.getSolar()
+
+    def _resolve_yuan_idx(self, jieqi_instant: Solar, query_jd: float) -> int:
+        """拆补法定元 (权威口径, 衍象坊+openfate 双站互证 2026-08-31): 三元按符头段固定.
+
+        三元段 = 通用 5 日符头段网格 (甲/己日 0:00 起), 节气与符头各走各的:
+          - 段元由段起日地支固定判定: 子午卯酉=上元, 寅申巳亥=中元, 辰戌丑未=下元
+          - 查询有效日: 晚子时 (>=23:00) 归次日
+          - 交节时刻只决定节气段边界, 不参与定元 (无正授/超神/接气分档, 无补段概念)
+        权威例 (段起日 地支 段元):
+          处暑 2026 (交节 8/23 10:18, 段起己巳=中): 中[8/23,8/28) 下[8/28,9/2) 上[9/2,9/7)
+          大雪 2025 (交节 12/7 05:04, 段起己酉=上): 上[12/7,12/11) 中[12/11,12/16) 下[12/16,12/21)
+          惊蛰 2026 (交节 3/5 21:59, 段起甲戌=下): 3/5 22:30=下元; 3/5 23:30 晚子时归次日
+                      段起己卯=上 -> 上元 (3/6 起全段上元)
+        返回 0=上元 1=中元 2=下元. 与交节时刻无关, jieqi_instant 仅保留签名兼容.
+        """
+        # 查询有效日: 晚子时 (>=23:00) 归次日
+        q = Solar.fromJulianDay(query_jd)
+        if q.getHour() >= 23:
+            q = q.nextDay(1)
+        # 回找查询日所在符头段起日 (上一甲/己日; 正午日柱避免晚子时偏移)
+        day = q
+        while True:
+            noon = Solar.fromYmdHms(day.getYear(), day.getMonth(), day.getDay(), 12, 0, 0)
+            if noon.getLunar().getDayGan() in ("甲", "己"):
+                break
+            day = day.nextDay(-1)
+        zhi = (Solar.fromYmdHms(day.getYear(), day.getMonth(), day.getDay(), 12, 0, 0)
+               .getLunar().getDayZhi())
+        # 段元: 子午卯酉=上元(0), 寅申巳亥=中元(1), 辰戌丑未=下元(2)
+        if zhi in ("子", "午", "卯", "酉"):
+            return 0
+        if zhi in ("寅", "申", "巳", "亥"):
+            return 1
+        return 2
 
     # ---- 排地盘 ----
 
@@ -314,83 +364,80 @@ class QimenEngine:
 
     # ---- 排九星 ----
 
-    def _build_jiuxing(self, zhifu_star: str, target_palace: int) -> Dict[int, str]:
-        """排天盘九星: 值符引领, 其余九星按宫位顺序跟随.
+    def _build_jiuxing(self, xunshou_palace: int, target_palace: int) -> Dict[int, str]:
+        """排天盘九星: 洛书环刚性旋转 (权威口径).
 
-        All 9 stars rotate as a group. The 值符 star moves to target_palace,
-        and all other stars shift by the same offset.
+        值符星 = 旬首宫之星 (身份, 已在 calculate 确定); 天盘@X = 地盘星@ring(X, s),
+        s = 值符原宫→落宫沿环步数. 中5 = 天禽 (我方显示口径; 权威禽芮同宫寄坤2, 计算等价).
         """
-        zhifu_orig = JIU_XING_PALACE[zhifu_star]
-        shift = (target_palace - zhifu_orig + 9) % 9
+        orig = 2 if xunshou_palace == 5 else xunshou_palace
+        tgt = 2 if target_palace == 5 else target_palace
+        shift = _ring_shift(orig, tgt)
 
-        jiuxing: Dict[int, str] = {}
-        for orig_palace in range(1, 10):
-            new_palace = ((orig_palace - 1 + shift) % 9) + 1
-            jiuxing[new_palace] = JIU_XING_ORIGIN[orig_palace]
+        jiuxing: Dict[int, str] = {5: JIU_XING_ORIGIN[5]}
+        for p in LUOSHU_RING:
+            jiuxing[p] = JIU_XING_ORIGIN[_ring_at(p, shift)]
         return jiuxing
 
     # ---- 排八门 ----
 
-    def _build_bamen(self, zhishi_door: str,
+    def _build_bamen(self, xunshou_palace: int,
                      xunshou_zhi_idx: int, time_zhi_idx: int,
                      dun_type: str) -> Dict[int, str]:
-        """排八门: 值使门引领, 其余七门跟随.
+        """排八门: 值使落宫 = 旬首六仪地盘宫 ± steps (飞盘位移, 阳遁+ 阴遁-).
 
-        门按阳遁/阴遁路径排列, 从中宫跳过。
-        步数 = (时支 - 旬首支 + 12) % 12, 取模8。
+        steps = (时支-旬首支)%12; 落宫结果中5 显示为坤2 (寄坤二);
+        天禽旬 (旬首中5) 从真实中5位置计数.
+        八门布局 = 洛书环刚性旋转: s_door = ring_shift(值使原宫, 值使落宫).
         """
         steps = (time_zhi_idx - xunshou_zhi_idx + 12) % 12
-        path = YANG_DOOR_PATH if dun_type == "阳遁" else YIN_DOOR_PATH
+        direction = 1 if dun_type == "阳遁" else -1
+        door_target = ((xunshou_palace - 1 + direction * steps) % 9) + 1
+        if door_target == 5:
+            door_target = 2  # 中5 寄坤二显示
 
-        zhishi_orig = BA_MEN_PALACE[zhishi_door]
-        orig_idx = path.index(zhishi_orig)
-        new_idx = (orig_idx + steps) % 8
-        offset = (orig_idx - new_idx + 8) % 8
+        orig = 2 if xunshou_palace == 5 else xunshou_palace
+        shift = _ring_shift(orig, door_target)
 
         bamen: Dict[int, str] = {}
-        for i, palace in enumerate(path):
-            door_idx = (i + offset) % 8
-            bamen[palace] = BA_MEN[door_idx]
+        for p in LUOSHU_RING:
+            bamen[p] = BA_MEN_ORIGIN[_ring_at(p, shift)]
         return bamen
 
     # ---- 排八神 ----
 
     def _build_bashen(self, dun_type: str, zhifu_palace: int) -> Dict[int, str]:
-        """排八神: 值符引领, 其余七神按顺逆排列.
+        """排八神: 值符神领位 (落宫 = 值符星落宫), 其余七神沿洛书环顺逆布列.
 
-        阳遁顺行, 阴遁逆行。八神只占8个宫(跳过中宫5)。
+        阳遁顺行 (环上+1), 阴遁逆行 (环上-1); 中5空.
+        值符落中5 → 寄坤2 显示 (与 值符星/天盘 口径一致).
         """
-        path = YANG_SHEN_PATH if dun_type == "阳遁" else YIN_SHEN_PATH
-
-        # Find where 值符神 goes (same as 值符星 on 天盘)
-        if zhifu_palace in path:
-            zhifu_idx = path.index(zhifu_palace)
-        else:
-            # If 值符 is in 中宫 (palace 5), place 值符神 at first path palace
-            zhifu_idx = 0
+        cur = 2 if zhifu_palace == 5 else zhifu_palace
+        direction = 1 if dun_type == "阳遁" else -1
 
         bashen: Dict[int, str] = {}
-        for i, palace in enumerate(path):
-            bs_idx = (i - zhifu_idx + 8) % 8
-            bashen[palace] = BA_SHEN[bs_idx]
+        for i, shen in enumerate(BA_SHEN):
+            bashen[cur] = shen
+            if i < 7:
+                cur = LUOSHU_RING[(RING_IDX[cur] + direction) % 8]
         return bashen
 
     # ---- 排天盘奇仪 ----
 
     def _build_tianpan_qi(self, dipan: Dict[int, str],
-                           zhifu_star: str,
+                           xunshou_palace: int,
                            target_palace: int) -> Dict[int, str]:
-        """排天盘奇仪: 随九星旋转的六仪三奇.
+        """排天盘奇仪: 洛书环刚性旋转 (权威口径).
 
-        天盘奇仪第p宫 = 地盘奇仪从(p - shift)宫, shift由值符位移决定。
+        天盘@X = 地盘@ring(X, s); s = 值符原宫→落宫沿环步数; 中5 奇仪不动.
         """
-        zhifu_orig = JIU_XING_PALACE[zhifu_star]
-        shift = (target_palace - zhifu_orig + 9) % 9
+        orig = 2 if xunshou_palace == 5 else xunshou_palace
+        tgt = 2 if target_palace == 5 else target_palace
+        shift = _ring_shift(orig, tgt)
 
-        tianpan: Dict[int, str] = {}
-        for p in range(1, 10):
-            orig_p = ((p - 1 - shift + 9) % 9) + 1
-            tianpan[p] = dipan[orig_p]
+        tianpan: Dict[int, str] = {5: dipan[5]}
+        for p in LUOSHU_RING:
+            tianpan[p] = dipan[_ring_at(p, shift)]
         return tianpan
 
     # ---- 输出转换 ----

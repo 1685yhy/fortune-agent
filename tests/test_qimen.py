@@ -1,4 +1,8 @@
-"""Tests for Qimen Dunjia (奇门遁甲) Engine."""
+"""Tests for Qimen Dunjia (奇门遁甲) Engine.
+
+K7 变更 (2026-08-31): 旧 YANG_DOOR_PATH/YIN_DOOR_PATH (八门顺/逆路径) 已由
+LUOSHU_RING 洛书环刚性旋转替代 (权威口径, 见 test_qimen_k7_authority.py).
+"""
 from src.engines.qimen import (
     QimenEngine,
     QimenResult,
@@ -10,8 +14,7 @@ from src.engines.qimen import (
     BA_MEN_ORIGIN,
     BA_SHEN,
     YI_QI,
-    YANG_DOOR_PATH,
-    YIN_DOOR_PATH,
+    LUOSHU_RING,
     YANG_DUN_TERMS,
     YIN_DUN_TERMS,
     JIE_QI_DUN,
@@ -467,17 +470,19 @@ def test_yang_vs_yin_distinct():
 # ============================================================
 
 def test_solar_term_transition():
-    """Verify correct term detection at boundaries."""
+    """Verify correct term detection at boundaries (K7: 时辰级交节判断).
+
+    小暑 2024-07-06 22:20 交节: 22:00 尚处夏至段, 23:00 已入小暑段 (旧日级切换 7/6 00:00 即切, 为 bug).
+    """
     engine = QimenEngine()
 
-    # Just before 小暑 (2024-07-05)
-    before = engine.calculate(2024, 7, 5, 12, 0)
-    # Just after 小暑 (2024-07-06)
-    after = engine.calculate(2024, 7, 6, 12, 0)
+    before = engine.calculate(2024, 7, 6, 22, 0)
+    after = engine.calculate(2024, 7, 6, 23, 0)
 
-    # They should be in different solar terms with potentially different 局数
-    assert before.raw_data["solar_term"] != after.raw_data["solar_term"] or \
-           before.ju_number != after.ju_number
+    assert before.raw_data["solar_term"] == "夏至"
+    assert after.raw_data["solar_term"] == "小暑"
+    assert before.raw_data["solar_term"] != after.raw_data["solar_term"]
+    assert before.ju_number != after.ju_number
 
 
 # ============================================================
@@ -498,21 +503,14 @@ def test_hour_boundary():
 
 
 # ============================================================
-# 八门 path tests
+# 洛书环 (K7 替代旧 八门顺/逆路径)
 # ============================================================
 
-def test_yang_door_path():
-    """Verify 阳遁八门 path is correct."""
-    expected = [1, 2, 3, 4, 6, 7, 8, 9]
-    assert YANG_DOOR_PATH == expected, \
-        f"Expected {expected}, got {YANG_DOOR_PATH}"
-
-
-def test_yin_door_path():
-    """Verify 阴遁八门 path is correct."""
-    expected = [1, 9, 8, 7, 6, 4, 3, 2]
-    assert YIN_DOOR_PATH == expected, \
-        f"Expected {expected}, got {YIN_DOOR_PATH}"
+def test_luoshu_ring():
+    """K7: 权威洛书环 RING cw = [9,2,7,6,1,8,3,4] (天盘/九星/八门/八神刚性旋转)."""
+    expected = [9, 2, 7, 6, 1, 8, 3, 4]
+    assert LUOSHU_RING == expected, \
+        f"Expected {expected}, got {LUOSHU_RING}"
 
 
 # ============================================================
@@ -541,7 +539,9 @@ def test_qimen_different_years():
     engine = QimenEngine()
 
     for year in [2023, 2024, 2025]:
-        result = engine.calculate(year, 6, 21, 12, 0)  # 夏至
+        # K7 变更: 夏至交节时刻逐年不同 (2023 22:58 / 2024 04:51 / 2025 10:43),
+        # 用 23:30 保证已过交节 → 夏至段 阴遁 (旧 12:00 在 2023 尚处芒种段 阳遁)
+        result = engine.calculate(year, 6, 21, 23, 30)
         assert result.dun_type == "阴遁", f"{year} 夏至 should be 阴遁"
 
         result2 = engine.calculate(year, 12, 22, 12, 0)  # 冬至附近
@@ -553,55 +553,56 @@ def test_qimen_different_years():
 # ============================================================
 
 def test_known_case_winter():
-    """Test a known case: 2024-12-21 冬至 午时.
+    """Test a known case: 2024-12-21 冬至 戌时 (K7: 交节 17:21, 12:00 尚在大雪段).
 
-    冬至上元 = 阳遁1局
-    地盘: 戊坎 己坤 庚震 辛巽 壬中 癸乾 丁兑 丙艮 乙离
+    K7 变更 (时辰级交节判断): 12:00 < 交节 17:21 → 属大雪段 (旧日级切换 12:00 误判冬至).
+    20:00 已过交节 → 冬至段 下元阳4局 (K7 拆补法: 段起日己未=下元, 权威锚点 2024-12-21 20:00).
+    地盘: 丁坎 丙坤 乙震 戊巽 己中 庚乾 辛兑 壬艮 癸离
     """
     engine = QimenEngine()
-    result = engine.calculate(2024, 12, 21, 12, 0)
+    result = engine.calculate(2024, 12, 21, 20, 0)
 
     assert result.dun_type == "阳遁"
-    assert result.ju_number == 1
+    assert result.ju_number == 4
     assert result.raw_data["solar_term"] == "冬至"
-    assert result.raw_data["yuan"] == "上元"
+    assert result.raw_data["yuan"] == "下元"
 
-    # 地盘 for 阳遁1局
-    assert result.dipan["坎"] == "戊"
-    assert result.dipan["坤"] == "己"
-    assert result.dipan["震"] == "庚"
-    assert result.dipan["巽"] == "辛"
-    assert result.dipan["中"] == "壬"
-    assert result.dipan["乾"] == "癸"
-    assert result.dipan["兑"] == "丁"
-    assert result.dipan["艮"] == "丙"
-    assert result.dipan["离"] == "乙"
+    # 地盘 for 阳遁4局
+    assert result.dipan["坎"] == "丁"
+    assert result.dipan["坤"] == "丙"
+    assert result.dipan["震"] == "乙"
+    assert result.dipan["巽"] == "戊"
+    assert result.dipan["中"] == "己"
+    assert result.dipan["乾"] == "庚"
+    assert result.dipan["兑"] == "辛"
+    assert result.dipan["艮"] == "壬"
+    assert result.dipan["离"] == "癸"
 
 
 def test_known_case_summer():
     """Test a known case: 2024-06-21 夏至.
 
-    夏至上元 = 阴遁9局
-    地盘: 戊离 己艮 庚兑 辛乾 壬中 癸巽 丁震 丙坤 乙坎
+    夏至中元 = 阴遁3局 (K7 拆补法: 交节 6/21 04:51 属甲寅段 (6/19起)=中元, 权威锚点 2024-06-21 12:00).
+    地盘: 庚坎 己坤 戊震 乙巽 丙中 丁乾 癸兑 壬艮 辛离
     """
     engine = QimenEngine()
     result = engine.calculate(2024, 6, 21, 12, 0)
 
     assert result.dun_type == "阴遁"
-    assert result.ju_number == 9
+    assert result.ju_number == 3
     assert result.raw_data["solar_term"] == "夏至"
-    assert result.raw_data["yuan"] == "上元"
+    assert result.raw_data["yuan"] == "中元"
 
-    # 地盘 for 阴遁9局
-    assert result.dipan["离"] == "戊"
-    assert result.dipan["艮"] == "己"
-    assert result.dipan["兑"] == "庚"
-    assert result.dipan["乾"] == "辛"
-    assert result.dipan["中"] == "壬"
-    assert result.dipan["巽"] == "癸"
-    assert result.dipan["震"] == "丁"
-    assert result.dipan["坤"] == "丙"
-    assert result.dipan["坎"] == "乙"
+    # 地盘 for 阴遁3局
+    assert result.dipan["离"] == "辛"
+    assert result.dipan["艮"] == "壬"
+    assert result.dipan["兑"] == "癸"
+    assert result.dipan["乾"] == "丁"
+    assert result.dipan["中"] == "丙"
+    assert result.dipan["巽"] == "乙"
+    assert result.dipan["震"] == "戊"
+    assert result.dipan["坤"] == "己"
+    assert result.dipan["坎"] == "庚"
 
 
 def test_known_print_chart():

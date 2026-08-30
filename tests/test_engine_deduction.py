@@ -177,17 +177,17 @@ def test_deduce_qimen_chain_from_engine():
     chain = deduce(pills, engine_result=result, question="出行", system="qimen")
     rules = [s.rule for s in chain.steps]
     assert rules == QIMEN_RULES
-    # 排盘步骤：遁局/局数
-    assert "阴遁2局" in chain.steps[0].output
+    # 排盘步骤：遁局/局数 (K7: 小暑 7/11 属甲戌段=下元 -> 阴遁5局, 权威锚点 2024-07-11 13:30)
+    assert "阴遁5局" in chain.steps[0].output
     # 八门步骤：八门五行属性查表
     assert "生属土" in chain.steps[1].output
     # 九星步骤：九星五行属性查表
     assert "天任属土" in chain.steps[2].output
-    # 值符值使步骤
-    assert "值符星 天任" in chain.steps[3].output
-    assert "值使门 生" in chain.steps[3].output
+    # 值符值使步骤 (K7: 阴5局 值符天芮/值使死, 权威锚点)
+    assert "值符星 天芮" in chain.steps[3].output
+    assert "值使门 死" in chain.steps[3].output
     # 断语要点=规则要点组装
-    assert "遁局：阴遁2局" in chain.steps[4].output
+    assert "遁局：阴遁5局" in chain.steps[4].output
     assert chain.coverage.get("未举证")
 
 
@@ -197,9 +197,10 @@ def test_deduce_qimen_chain_second_case():
     pills = _pills_of(2024, 1, 5, 9)
     chain = deduce(pills, engine_result=result, question="", system="qimen")
     assert [s.rule for s in chain.steps] == QIMEN_RULES
-    assert "阳遁4局" in chain.steps[0].output
-    assert "值符星 天英" in chain.steps[3].output
-    assert "遁局：阳遁4局" in chain.steps[4].output
+    # K7: 2024-01-05 属甲子段(1/1起)=上元 -> 阳遁1局 值符天心 (权威锚点 2024-01-05 09:00)
+    assert "阳遁1局" in chain.steps[0].output
+    assert "值符星 天心" in chain.steps[3].output
+    assert "遁局：阳遁1局" in chain.steps[4].output
 
 
 def test_deduce_qimen_without_engine_marks_uncovered():
