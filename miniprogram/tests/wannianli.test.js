@@ -40,7 +40,12 @@ function makePage() {
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 
 // 假月视图（后端 month_view 口径）：days_in_month 天，首日周日对齐
-function fakeMonth(y, m, daysInMonth = 30) {
+// 未显式传天数时按当月真实天数生成（selectedDate=设备时钟今日，30 天假月会在
+// 每月 30/31 日跑挂 —— todayCell 不在月视图中）
+function fakeMonth(y, m, daysInMonth) {
+  if (daysInMonth === undefined) {
+    daysInMonth = new Date(y, m, 0).getDate();  // m 月真实天数（new Date(y, m, 0) = m 月最后一天）
+  }
   const days = [];
   for (let d = 1; d <= daysInMonth; d++) {
     const date = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
@@ -121,7 +126,7 @@ test('onLoad：今日默认落地 —— 三页预渲染 + selectedDate=今日 +
   assert.equal(page.data.monthText, `${c.y}年${c.m}月`, '中心月标题');
   assert.equal(page.data.loading, false, '中心页就绪后撤初始骨架');
   const centerCells = months[1].cells.filter((x) => !x.blank);
-  assert.equal(centerCells.length, 30);
+  assert.equal(centerCells.length, new Date(c.y, c.m, 0).getDate(), '中心月格数 = 当月真实天数');
   const todayCell = centerCells.find((x) => x.date === page.data.selectedDate);
   assert.ok(todayCell && todayCell.isToday && todayCell.isSelected, '今日格 isToday+isSelected');
   assert.ok(centerCells.find((x) => x.isSelected && x.date === page.data.selectedDate));
