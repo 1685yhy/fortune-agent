@@ -27,17 +27,17 @@ def test_xingming_basic():
 
 def test_xingming_wuge_calculation():
     """Test five-cell calculation correctness."""
-    # 李四：李=7, 四=5
+    # 李四：李=7, 四=4（K4 换康熙笔画源：数字按数值计画，四=5→4）
     # 天格 = 7+1 = 8 (单姓+1)
-    # 人格 = 李(7) + 四(5) = 12
-    # 地格 = 5+1 = 6 (单名+1)
-    # 总格 = 7+5 = 12
-    # 外格 = 12-12+1 = 1
+    # 人格 = 李(7) + 四(4) = 11
+    # 地格 = 4+1 = 5 (单名+1)
+    # 总格 = 7+4 = 11
+    # 外格 = 11-11+1 = 1
     wuge = get_wuge("李", "四")
     assert wuge["天格"] == 8, f"Expected 8, got {wuge['天格']}"
-    assert wuge["人格"] == 12, f"Expected 12, got {wuge['人格']}"
-    assert wuge["地格"] == 6, f"Expected 6, got {wuge['地格']}"
-    assert wuge["总格"] == 12, f"Expected 12, got {wuge['总格']}"
+    assert wuge["人格"] == 11, f"Expected 11, got {wuge['人格']}"
+    assert wuge["地格"] == 5, f"Expected 5, got {wuge['地格']}"
+    assert wuge["总格"] == 11, f"Expected 11, got {wuge['总格']}"
     assert wuge["外格"] == 1, f"Expected 1, got {wuge['外格']}"
 
 
@@ -124,9 +124,9 @@ def test_sancai_evaluation():
     mid = evaluate_sancai("金", "金", "金")
     assert mid in ("大吉", "吉", "半吉")
 
-    # 木金土 = 木克金(凶), 金生土(吉) → 半吉
+    # 木金土 = 权威凶（K4 三才档级修正，中华起名网对照：天木/人金/地土）
     mixed = evaluate_sancai("木", "金", "土")
-    assert mixed in ("半吉", "吉", "凶")
+    assert mixed == "凶"
 
 
 def test_sancai_wuxing():
@@ -199,7 +199,8 @@ def test_get_stroke_count_coverage():
     assert get_stroke_count("一") == 1
     assert get_stroke_count("二") == 2
     assert get_stroke_count("三") == 3
-    assert get_stroke_count("十") == 2
+    # K4 换康熙笔画源：数字按数值计画（十=2→10）
+    assert get_stroke_count("十") == 10
     assert get_stroke_count("大") == 3
     assert get_stroke_count("天") == 4
     assert get_stroke_count("文") == 4
