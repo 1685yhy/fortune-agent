@@ -123,14 +123,15 @@ LIUYAO_RULES = ["liuyao.起卦.cast", "liuyao.liuqin_of", "liuyao.shiying_positi
 
 
 def test_deduce_liuyao_chain_from_engine():
-    """真实 LiuyaoEngine 输出（seed=42 固定）构建链：起卦→六亲→世应→动变→断语要点。"""
+    """真实 LiuyaoEngine 输出（seed=42 固定）构建链：起卦→六亲→世应→动变→断语要点。
+    K1 位序修复：seed=42 同爻象本卦由雷火丰更正为山火贲。"""
     result = LiuyaoEngine().cast(method="random", question="财运如何", seed=42)
     pills = ["庚午", "辛巳", "乙酉", "甲申"]  # 日干乙为"我"
     chain = deduce(pills, engine_result=result, question="财运如何", system="liuyao")
     rules = [s.rule for s in chain.steps]
     assert rules == LIUYAO_RULES
     # 起卦步骤：注明固定 seed 可复现
-    assert "雷火丰" in chain.steps[0].output
+    assert "山火贲" in chain.steps[0].output
     assert "固定 seed" in chain.steps[0].fact
     # 六亲步骤：以日干乙为"我"，世爻地支判六亲（与规则库同口径交叉验证）
     expected_lq = liuqin_of(pills[2][0], result.lines[result.shi_yao]["dizhi"])
@@ -141,17 +142,18 @@ def test_deduce_liuyao_chain_from_engine():
     # 动变步骤
     assert result.changed_hexagram in chain.steps[3].output
     # 断语要点=规则要点组装
-    assert "本卦：雷火丰" in chain.steps[4].output
+    assert "本卦：山火贲" in chain.steps[4].output
     assert chain.coverage.get("未举证")
 
 
 def test_deduce_liuyao_chain_second_case():
-    """第二链：seed=7 另一卦（天雷无妄），动爻/变卦随起卦结果变化。"""
+    """第二链：seed=7 另一卦（天山遁），动爻/变卦随起卦结果变化。
+    K1 位序修复：seed=7 同爻象（少阴/老阴/少阳×4）本卦由天雷无妄更正为天山遁。"""
     result = LiuyaoEngine().cast(method="random", question="事业", seed=7)
     chain = deduce(["庚午", "辛巳", "乙酉", "甲申"], engine_result=result, question="事业", system="liuyao")
     assert [s.rule for s in chain.steps] == LIUYAO_RULES
-    assert "天雷无妄" in chain.steps[0].output
-    assert "天泽履" in chain.steps[3].output
+    assert "天山遁" in chain.steps[0].output
+    assert "天风姤" in chain.steps[3].output
 
 
 def test_deduce_liuyao_without_engine_marks_uncovered():

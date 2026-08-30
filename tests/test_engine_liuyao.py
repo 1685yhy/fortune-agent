@@ -63,7 +63,7 @@ def test_shiying_gong_order():
     assert shiying_positions("山地剥") == (4, 1)    # 五世卦 世在五爻
     assert shiying_positions("火地晋") == (3, 0)    # 游魂卦 世在四爻
     assert shiying_positions("火天大有") == (2, 5)  # 归魂卦 世在三爻
-    # 雷火丰 = 坎宫五世卦（引擎 seed=42 实卦）
+    # 雷火丰 = 坎宫五世卦（K1 位序修复后 seed=42 实卦为山火贲，此断言为八宫卦序查表）
     assert shiying_positions("雷火丰") == (4, 1)
 
 def test_shiying_cross_validate_all_64():
@@ -106,31 +106,33 @@ def test_najia_ganzhi():
 # ---------- 动变 ----------
 
 def test_bian_hexagram_flip():
-    # 雷火丰(37=0b100101) 二四五爻老阴动 → 阴阳互变 → 乾为天(63)
-    assert bian_hexagram(37, [1, 3, 4]) == "乾为天"
+    # K1 位序修复：爻位→卦表位序（下卦 bit2=初爻…上卦 bit5=四爻…）
+    # 雷火丰(37=0b100101) 二四五爻动 → 翻 bit1/bit5/bit4 → 水天需(0b010111)
+    assert bian_hexagram(37, [1, 3, 4]) == "水天需"
     # 静卦：无动爻 → 变卦即本卦
     assert bian_hexagram(37, []) == "雷火丰"
 
 def test_analyze_engine_result_cross_check():
     # 真实起卦（seed=42 固定可复现）与规则库交叉验证
+    # K1 位序修复：同爻象（少阳/老阴/少阳/老阴/老阴/少阳）本卦由雷火丰更正为山火贲
     engine = LiuyaoEngine()
     r = engine.cast(method="random", question="测试", seed=42)
-    assert r.original_hexagram == "雷火丰"
+    assert r.original_hexagram == "山火贲"
     assert r.changing_lines == [1, 3, 4]
     assert r.changed_hexagram == "乾为天"
     # 动变独立计算与引擎一致
     assert bian_hexagram(r.original_hexagram_value, r.changing_lines) == r.changed_hexagram
-    # analyze：日干口径六亲（甲木日 世爻申金 克我→官鬼）
+    # analyze：日干口径六亲（甲木日 世爻卯木 同我→兄弟）
     points = analyze(r, day_gan="甲")
-    assert "本卦：雷火丰" in points
-    assert "世应：世在五爻应在二爻" in points
-    assert "世爻六亲：申为官鬼（以日干甲木为我）" in points
+    assert "本卦：山火贲" in points
+    assert "世应：世在初爻应在四爻" in points
+    assert "世爻六亲：卯为兄弟（以日干甲木为我）" in points
     assert "动爻：3爻动（二爻、四爻、五爻）" in points
     assert "变卦：乾为天" in points
-    # 未给日干：世爻六亲采排盘卦宫口径（坎水为体，申金生水→父母）并明示
+    # 未给日干：世爻六亲采排盘卦宫口径（艮土为体，卯木克土→官鬼）并明示
     points2 = analyze(r)
     assert any("卦宫口径" in p for p in points2)
-    assert "世应：世在五爻应在二爻" in points2
+    assert "世应：世在初爻应在四爻" in points2
 
 def test_evaluate_dict_chart():
     chart = {
@@ -152,7 +154,8 @@ def test_evaluate_dict_chart():
     assert out["世爻六亲"] == "官鬼"
     assert out["动爻数"] == 3
     assert out["动爻"] == ["二爻", "四爻", "五爻"]
-    assert out["变卦"] == "乾为天"
+    # K1 位序修复：二四五爻动按爻位→卦表位序翻 bit → 水天需（原 1<<i 翻位得乾为天系 bug）
+    assert out["变卦"] == "水天需"
     assert isinstance(out["要点"], list) and len(out["要点"]) >= 5
 
 

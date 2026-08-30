@@ -114,10 +114,10 @@ def test_run_e2e_phase3_each_system_chain_prefixes():
 
 
 def test_run_e2e_phase3_liuyao_seed_fixed():
-    """六爻 seed 固定可复现：seed=42 → 雷火丰（与 Task 6 单测交叉验证）。"""
+    """六爻 seed 固定可复现：seed=42 → 山火贲（K1 位序修复后，与 Task 6 单测交叉验证）。"""
     case = next(c for c in load_cases(PHASE3_CASES) if c.expected["system"] == "liuyao")
     chain = e2e_eval._build_chain(case, "liuyao")
-    assert "雷火丰" in chain.steps[0].output
+    assert "山火贲" in chain.steps[0].output
     assert "固定 seed" in chain.steps[0].fact
 
 

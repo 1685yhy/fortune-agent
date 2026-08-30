@@ -14,6 +14,8 @@
 """
 from __future__ import annotations
 
+from src.engines.liuyao import _line_to_bit  # 爻位→卦表位序的唯一事实源（K1 修复）
+
 # ============================================================
 # 基础表：干支五行
 # ============================================================
@@ -85,7 +87,8 @@ def liuqin_of(day_gan: str, line_gan_or_wuxing: str) -> str:
 # 世应（八宫六十四卦表）
 # ============================================================
 
-# 六爻卦值编码：6 bit，从下到上（初爻=LSB），上卦在高 3 位。
+# 六爻卦值编码：6 bit，下卦 bit2=初爻 bit1=二爻 bit0=三爻，上卦 bit5=四爻 bit4=五爻 bit3=上爻
+# （爻位→位序见 _line_to_bit；K1 修复前此处注释误写「初爻=LSB」，与表编码相反）。
 # 世位：0 初爻 ~ 5 上爻（本宫世六、游魂世四、归魂世三；京房八宫世应）。
 HEXAGRAMS: dict[int, tuple[str, int]] = {
     # 乾宫（属金）
@@ -210,10 +213,14 @@ def najia_ganzhi(upper: str, lower: str) -> list[str]:
 # ============================================================
 
 def bian_hexagram(hexagram_value: int, changing_indices: list[int]) -> str:
-    """变卦：动爻（老阴/老阳）阴阳互变（1↔0）后查表得变卦名；静卦返回本卦名。"""
+    """变卦：动爻（老阴/老阳）阴阳互变（1↔0）后查表得变卦名；静卦返回本卦名。
+
+    hexagram_value 为卦表位序值（下卦 bit2=初爻…）；动爻按 _line_to_bit 翻对应位
+    （K1 修复：此前直接翻 `1 << i` 以爻位当位序，与卦表约定相反，绝大多数变卦错）。
+    """
     value = hexagram_value
     for i in changing_indices:
-        value ^= (1 << i)
+        value ^= (1 << _line_to_bit(i))
     entry = HEXAGRAMS.get(value)
     if entry is None:
         raise ValueError(f"变卦值非法（不在六十四卦表）: {value}")

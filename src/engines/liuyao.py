@@ -62,7 +62,9 @@ TRIGRAM_NAJIA: Dict[str, Tuple[int, int, bool]] = {
 }
 
 # 八宫卦序 -- 64 卦查询表
-# key: hexagram_value = (upper_trigram << 3) | lower_trigram (6-bit, bottom line=LSB)
+# key: hexagram_value = (upper_trigram << 3) | lower_trigram
+#      6-bit 位序：下卦 bit2=初爻 bit1=二爻 bit0=三爻；上卦 bit5=四爻 bit4=五爻 bit3=上爻
+#      （爻位→位序映射见 _line_to_bit，是位序的唯一事实源）
 # value: (name, palace_index, shi_position)
 # palace_index matches TRIGRAM_NAMES keys
 HEXAGRAM_TABLE: Dict[int, Tuple[str, int, int]] = {
@@ -149,6 +151,16 @@ HEXAGRAM_TABLE: Dict[int, Tuple[str, int, int]] = {
 
 # Reverse lookup: name -> hexagram value
 HEXAGRAM_BY_NAME: Dict[str, int] = {v[0]: k for k, v in HEXAGRAM_TABLE.items()}
+
+
+def _line_to_bit(i: int) -> int:
+    """爻位(0=初爻..5=上爻) → 卦表 6-bit 位序。
+
+    卦表约定 value=(上卦<<3)|下卦：下卦 bit2=初爻 bit1=二爻 bit0=三爻，
+    上卦 bit5=四爻 bit4=五爻 bit3=上爻。本函数是「爻位→位序」的唯一事实源
+    （K1 修复：此前 _cast_coins 以 bit=爻位 写入，与卦表约定反向，75% 爻象整盘装卦错）。
+    """
+    return 2 - i if i < 3 else 8 - i
 
 # All 64 hexagram values for verification
 ALL_HEXAGRAM_VALUES = set(HEXAGRAM_TABLE.keys())
@@ -317,7 +329,8 @@ class LiuyaoEngine:
         rng = random.Random(seed)
 
         raw_lines: List[Dict] = []
-        hex_value = 0  # Build 6-bit hexagram from bottom (LSB)
+        # 卦表位序：爻位 i → _line_to_bit(i)（下卦 bit2=初爻…），与 HEXAGRAM_TABLE 一致
+        hex_value = 0
 
         for i in range(6):
             total = rng.choice([2, 3]) + rng.choice([2, 3]) + rng.choice([2, 3])
@@ -338,7 +351,7 @@ class LiuyaoEngine:
                 raise RuntimeError(f"Unexpected coin sum: {total}")
 
             if yin_yang:
-                hex_value |= (1 << i)
+                hex_value |= (1 << _line_to_bit(i))
 
             raw_lines.append({
                 "index": i,
@@ -389,10 +402,10 @@ class LiuyaoEngine:
             if rl["changing"]:
                 changing_lines.append(i)
 
-        # Calculate 变卦 (flip changing lines)
+        # Calculate 变卦 (flip changing lines) -- 翻卦表位序位，与装卦位序一致
         changed_value = hex_value
         for i in changing_lines:
-            changed_value ^= (1 << i)
+            changed_value ^= (1 << _line_to_bit(i))
 
         changed_name = ""
         if changing_lines:

@@ -12,6 +12,7 @@ from src.engines.liuyao import (
     ALL_HEXAGRAM_VALUES,
     wuxing_generates,
     wuxing_controls,
+    _line_to_bit,
 )
 
 
@@ -83,10 +84,11 @@ def test_liuyao_changing_lines():
                 f"Line {i} is {line['type']} but in changing_lines"
 
     # Verify 变卦: flip changing bits on original -> get changed value
+    # K1 位序修复：翻卦表位序位（_line_to_bit），与装卦位序同一映射
     if result.changing_lines:
         expected_value = result.original_hexagram_value
         for i in result.changing_lines:
-            expected_value ^= (1 << i)
+            expected_value ^= (1 << _line_to_bit(i))
         assert result.changed_hexagram_value == expected_value
 
         # Original and changed should be different
