@@ -267,7 +267,7 @@ def _pills_of(year, month, day, hour):
 
 def test_e2e_real_chains_synthesize():
     """真实体系链合成（1990-05-20 16:30 北京 女）：
-    bazi(用神水)+ziwei(水二局) 共识水；liuyao(世爻申金) 分歧金；
+    bazi(用神水)+ziwei(水二局) 共识水；liuyao(世爻卯木，K1 位序修复后 seed=42=山火贲) 分歧木；
     qimen 未提供排盘结果（空链）→ 不可比较。三分类非空且无硬造共识。"""
     from src.engines.bazi import BaziEngine
     from src.engines.liuyao import LiuyaoEngine
@@ -289,7 +289,7 @@ def test_e2e_real_chains_synthesize():
         SystemResult(system="qimen", chain=chain_qimen_empty),
     ])
     assert synth.consensus, "真实链必须产生共识（八字用神水 vs 紫微水二局）"
-    assert synth.divergences, "真实链必须产生分歧（水 vs 六爻世爻金）"
+    assert synth.divergences, "真实链必须产生分歧（水 vs 六爻世爻木）"
     assert synth.unresolved, "空链成员必须产生不可比较说明"
 
     # 钉死真实共识：五行一致：水，参与 bazi+ziwei
@@ -300,7 +300,7 @@ def test_e2e_real_chains_synthesize():
         assert len(c["systems"]) >= 2
         assert all(ev["text"] for ev in c["evidence"])
         assert all(ev["source"] for ev in c["evidence"])
-    # 分歧如实：五行不同（水 vs 金）
+    # 分歧如实：五行不同（水 vs 木）
     assert any("五行不同" in d["topic"] for d in synth.divergences)
     # 不可比较如实：qimen 空链与各体系均无公共维度
     assert any("qimen:无事实要点" in u for u in synth.unresolved)
