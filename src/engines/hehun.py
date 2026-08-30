@@ -82,6 +82,18 @@ WUXING_CYCLE = ["木", "火", "土", "金", "水"]
 WUXING_SHENG = {"木": "火", "火": "土", "土": "金", "金": "水", "水": "木"}
 WUXING_KE = {"木": "土", "土": "水", "水": "火", "火": "金", "金": "木"}
 
+# 天干五合（问真「日柱天合地合」良缘提示口径，合化吉判）：
+# 甲己合土、乙庚合金、丙辛合水、丁壬合木、戊癸合火
+# 五合对必含（单向）五行相克关系（如甲木克己土），故须在相克判定之前先查五合
+# ——否则旧逻辑把戊癸合等一律误断「相克（凶）」（K6 C3）。
+TIANGAN_WUHE = {
+    ("甲", "己"), ("己", "甲"),
+    ("乙", "庚"), ("庚", "乙"),
+    ("丙", "辛"), ("辛", "丙"),
+    ("丁", "壬"), ("壬", "丁"),
+    ("戊", "癸"), ("癸", "戊"),
+}
+
 
 @dataclass
 class HehunResult:
@@ -167,11 +179,11 @@ class HehunEngine:
         for wx in weak1:
             if w2.get(wx, 0) >= 2:
                 complement_count += 1
-                complement_details.append(f"{wx}: 一人缺{'{'}补{'}'}，二人{wx}旺")
+                complement_details.append(f"{wx}: 一人缺{wx}，二人{wx}旺")
         for wx in weak2:
             if w1.get(wx, 0) >= 2 and wx not in weak1:
                 complement_count += 1
-                complement_details.append(f"{wx}: 二人缺{'{'}补{'}'}，一人{wx}旺")
+                complement_details.append(f"{wx}: 二人缺{wx}，一人{wx}旺")
 
         # 日主关系
         day_master1 = bazi1.day_master[-1]  # 五行
@@ -314,7 +326,12 @@ class HehunEngine:
         gan2_wx = WUXING_TG.get(ri_gan2, "")
 
         if gan1_wx and gan2_wx:
-            if WUXING_SHENG.get(gan1_wx) == gan2_wx or WUXING_SHENG.get(gan2_wx) == gan1_wx:
+            if (ri_gan1, ri_gan2) in TIANGAN_WUHE:
+                # 天干五合（甲己/乙庚/丙辛/丁壬/戊癸）：合化吉判（问真良缘提示口径），
+                # 优先于五行生克判定——五合对同时互为相克，旧逻辑误断为「相克（凶）」2 分
+                gan_relation = "五合（吉）"
+                gan_score = 8
+            elif WUXING_SHENG.get(gan1_wx) == gan2_wx or WUXING_SHENG.get(gan2_wx) == gan1_wx:
                 gan_relation = "相生"
                 gan_score = 8
             elif gan1_wx == gan2_wx:
@@ -359,9 +376,13 @@ class HehunEngine:
 
         score = min(gan_score + zhi_score, 35)
 
-        # 日柱合婚短语
+        # 日柱合婚短语（K6 B2：六合/三合与相克分别成句，吉凶方向一致——
+        # 不再无条件拼「天缘甚佳」，日干相克时明示凶判并拆成两句）
         if zhi_score >= 18:
-            description = f"日支{zhi_relation}，日干{gan_relation}，天缘甚佳"
+            if gan_relation == "相克":
+                description = f"日支{zhi_relation}。日干相克（凶），喜忧参半"
+            else:
+                description = f"日支{zhi_relation}，日干{gan_relation}，天缘甚佳"
         elif zhi_score <= 5:
             description = f"日支{zhi_relation}，日干{gan_relation}，需多加磨合"
         else:
