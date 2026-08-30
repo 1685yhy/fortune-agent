@@ -14,7 +14,7 @@
    顺逆（dayun），不影响十二宫本身，此处复现引擎口径。
 4. 主星分布：紫微系自紫微起逆时针（紫微→天机→太阳→武曲→天同→廉贞），
    天府系自天府起顺时针（天府→太阴→贪狼→巨门→天相→天梁→七杀→破军）；
-   天府与紫微对称于寅申线（紫微+天府 ≡ 6 mod 12）。
+   天府与紫微对称于寅申线（紫微寅申天府同宫，子起索引 天府 = (4 - 紫微) mod 12）。
 
 只做确定性查表事实，不做解释性断语（断语归 LLM 综合层）。
 """
@@ -83,7 +83,8 @@ PALACE_ORDER = [
 ZIWEI_XI = [
     ("紫微", 0), ("天机", -1), ("太阳", -3), ("武曲", -4), ("天同", -5), ("廉贞", -8),
 ]
-# 天府系：自天府起顺时针；天府与紫微对称于寅申线：天府idx = (6 - 紫微idx) mod 12
+# 天府系：自天府起顺时针；天府与紫微对称于寅申线（紫微寅申天府同宫）：
+# 天府idx = (4 - 紫微idx) mod 12（K2 对齐权威 iztro/ZSZ/见微，原 (6 - idx) 为错式）
 TIANFU_XI = [
     ("天府", 0), ("太阴", 1), ("贪狼", 2), ("巨门", 3),
     ("天相", 4), ("天梁", 5), ("七杀", 6), ("破军", 10),
@@ -158,14 +159,15 @@ def palace_order(ming_gong: str) -> dict[str, str]:
 def main_stars_of(ziwei_dizhi: str) -> dict[str, str]:
     """14 主星分布：紫微系逆时针 + 天府系顺时针（天府=紫微对寅申线对称）。
 
-    如 紫微在寅 → 天机丑/太阳亥/武曲戌/天同酉/廉贞午；
-                  天府辰/太阴巳/贪狼午/巨门未/天相申/天梁酉/七杀戌/破军寅。
+    如 紫微在寅 → 天机丑/太阳亥/武曲戌/天同酉/廉贞午（紫微与天府同宫于寅）；
+                  天府寅/太阴卯/贪狼辰/巨门巳/天相午/天梁未/七杀申/破军子。
+    （K2 对齐权威：紫微寅→天府寅、卯→丑、辰→子…；原"天府辰/破军寅"为错式）
     """
     if ziwei_dizhi not in SHICHEN_INDEX:
         raise ValueError(f"非法紫微地支: {ziwei_dizhi}")
     ziwei_idx = SHICHEN_INDEX[ziwei_dizhi]
     stars = {star: DIZHI[(ziwei_idx + offset) % 12] for star, offset in ZIWEI_XI}
-    tianfu_idx = (6 - ziwei_idx) % 12
+    tianfu_idx = (4 - ziwei_idx) % 12
     stars.update({star: DIZHI[(tianfu_idx + offset) % 12] for star, offset in TIANFU_XI})
     return stars
 
