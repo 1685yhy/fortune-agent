@@ -402,11 +402,13 @@ def test_select_lucky_days_chong_scene_scoped():
     仅 avoid_chong=True(嫁娶/提车)排除; 开业/出行/签约(False)不受冲生肖影响"""
     engine = ZeriEngine()
     ub = {"shengxiao": "鼠"}
-    # avoid_chong=False 场景: 卡片正常返回, 冲鼠日不排除（08-12 戊午开日 总分74 仍入选）
-    kaiye = engine.select_lucky_days("开业", "2026-08-08", "2026-08-18", user_bazi=ub)
-    assert kaiye["cards"] and any(c.date == "2026-08-12" for c in kaiye["cards"])
+    # avoid_chong=False 场景: 卡片正常返回, 冲鼠日不排除
+    # （出行: 08-12 戊午开日 当日黄历宜出行 → 仍入选; K3 神煞级优先后开业 08-12
+    #  当日黄历宜无开市/交易/纳财不再合格, 与冲生肖无关 —— 见 kaiye_scene 测试）
     chuxing = engine.select_lucky_days("出行", "2026-08-08", "2026-08-18", user_bazi=ub)
     assert chuxing["cards"] and any(c.date == "2026-08-12" for c in chuxing["cards"])
+    kaiye = engine.select_lucky_days("开业", "2026-08-08", "2026-08-18", user_bazi=ub)
+    assert kaiye["cards"]
     assert engine.select_lucky_days("签约", "2026-08-08", "2026-08-18", user_bazi=ub)["cards"]
     # avoid_chong=True 场景: 冲鼠日排除
     for scene in ("嫁娶", "提车"):
@@ -441,7 +443,10 @@ def test_select_lucky_days_reason_source():
     res = engine.select_lucky_days("搬家", "2026-08-08", "2026-08-18")
     reasons = {c.reason_source for c in res["cards"]}
     # 08-16 满日 3 宜命中(场景50>个人24) → "宜入宅、移徙、安床"; 08-10 成日 → "成日值日"
-    assert reasons == {"宜入宅、移徙、安床", "成日值日"}
+    # K3-A3(神煞级优先)后 08-18 定日成为卡片: lunar-python 08-18 神煞级宜含
+    # 移徙/入宅/安床(建除表"定日忌移徙"被神煞级宜覆盖, 与 10/1 闭日同源修复) →
+    # 定日值日 +10, 总分 74 与 08-16 并列 → Top3 含第三张卡片。
+    assert reasons == {"宜入宅、移徙、安床", "成日值日", "定日值日"}
     forbidden = ("三娘煞", "杨公忌", "月破", "月刑", "空亡", "冲煞")
     assert all(not any(f in r for f in forbidden) for r in reasons)
     # 周末分最高时 → 周末宜{场景}（周六 08-01 开业 1宜命中 场景20<个人24? 不成立——
@@ -477,13 +482,16 @@ def test_old_select_interface_regression():
 
 
 def test_select_lucky_days_kaiye_scene():
-    """开业场景: 月破+月刑排除（08-08 申月寅日 = 月破+月刑+破日）; 成/开日合格"""
+    """开业场景: 月破+月刑排除（08-08 申月寅日 = 月破+月刑+破日）; 神煞级宜命中才合格"""
     engine = ZeriEngine()
     res = engine.select_lucky_days("开业", "2026-08-08", "2026-08-12")
     dates = {c.date for c in res["cards"]}
     assert "2026-08-08" not in dates
-    # 08-10 成日(开市/交易/纳财) / 08-12 开日(开市/纳财) → 合格
-    assert {"2026-08-10", "2026-08-12"} <= dates
+    # K3(神煞级优先): 场景命中只算 lunar-python 当日神煞级黄历宜 ——
+    # 08-10 成日(当日黄历宜开市/交易) → 合格; 08-12 开日当日黄历宜无开市/交易/纳财
+    # (旧口径仅凭建除"开"表词计分, 属报告 A4 同类风险), 不再合格
+    assert "2026-08-10" in dates
+    assert "2026-08-12" not in dates
 
 
 def test_select_lucky_days_tiche_scene():
@@ -502,8 +510,11 @@ def test_select_lucky_days_jinsheng_scene():
     res = engine.select_lucky_days("晋升", "2026-08-08", "2026-08-18")
     dates = {c.date for c in res["cards"]}
     assert "2026-08-08" not in dates
-    # 08-10 成日(入学/出行) / 08-12 开日(祈福/会亲友/出行/入学) → 合格
-    assert {"2026-08-10", "2026-08-12"} <= dates
+    # K3(神煞级优先): 场景命中只算当日黄历宜 ——
+    # 08-12 开日(当日黄历宜祈福/会亲友/出行) / 08-18 定日(宜祈福/出行) / 08-16 满日(宜会亲友/出行)
+    # → 合格 Top3; 08-10 成日仅当日黄历宜祈福(旧口径"入学/出行"来自建除"成"表词, 不再计分)
+    # 总分 54 未进 Top3, 行为更新见 kaiye_scene 测试说明
+    assert {"2026-08-12", "2026-08-18", "2026-08-16"} <= dates
     for c in res["cards"]:
         assert 0 <= c.scene_score <= 50
         assert c.total == c.scene_score + c.personal_score + c.practical_score
