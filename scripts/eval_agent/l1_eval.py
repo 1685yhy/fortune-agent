@@ -274,8 +274,17 @@ def seed_task_setup(db_path: str, user_id: str, setup: dict):
 
         # qian_saves：灵签存量直读数据源（只存 no；kind 默认 original）
         if setup.get("qian_saves"):
+            from src.storage.qian_dao import QianDAO
             con = sqlite3.connect(db_path)
             try:
+                # 生产 schema 对齐（E6 正式迁移，task-E6-brief 残留处理 #4）：
+                # QianDAO 构造即执行 CREATE IF NOT EXISTS（新 schema）+
+                # _migrate_kind 懒迁移（旧库缺 kind 列 → 整表重建，
+                # UNIQUE(user_id,no,kind)，旧数据 kind='original' 零丢失）——
+                # 与生产 src/storage/qian_dao.py 迁移语义逐字一致（唯一标准）。
+                # T051/T053/T057 种子不再依赖 judge.py 本地 shim（E4 遗留
+                # 上移为种子流程正式迁移；shim 保留为幂等兜底，零冲突）
+                QianDAO(con)
                 for q in setup["qian_saves"]:
                     con.execute(
                         "INSERT OR IGNORE INTO qian_saves (user_id, no, kind,"
