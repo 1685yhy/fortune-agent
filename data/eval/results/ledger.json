@@ -1,0 +1,116 @@
+[
+  {
+    "run_id": "unified-20260831-230202",
+    "run_at": "2026-08-31 23:02:02 +0800",
+    "mode": "quick",
+    "thresholds_mode": "capability",
+    "repo_version": "8685546",
+    "scope_count": 40,
+    "gate_verdict": false,
+    "gate_mode": "capability",
+    "metrics": {
+      "l1": {
+        "tool_selection_accuracy": 0.85,
+        "param_accuracy": 1.0,
+        "false_call_rate": 0.08333333333333333,
+        "executed": 40,
+        "skipped": []
+      },
+      "l2": {
+        "assertion_pass_rate": 0.725,
+        "executed": 40,
+        "skipped": []
+      },
+      "l3": {
+        "weighted_avg": 4.956,
+        "weighted_avg_incl_errors": 4.956,
+        "p0_avg": 6.027,
+        "judged": 40,
+        "judge_error": []
+      },
+      "l4": {
+        "tsr": 0.9032258064516129,
+        "passk_rate": 0.9032258064516129,
+        "p0_passk_rate": 0.9411764705882353,
+        "tsr_denominator": 31,
+        "executed_with_checks": 31,
+        "no_state_checks": [
+          "T049",
+          "T072",
+          "T073",
+          "T074",
+          "T081",
+          "T082",
+          "T084",
+          "T085",
+          "T093"
+        ],
+        "skipped": []
+      }
+    }
+  },
+  {
+    "run_id": "unified-20260901-014540",
+    "run_at": "2026-09-01 01:45:40 +0800",
+    "mode": "full",
+    "thresholds_mode": "regression",
+    "repo_version": "8685546",
+    "scope_count": 100,
+    "gate_verdict": false,
+    "gate_mode": "regression",
+    "metrics": {
+      "l1": {
+        "tool_selection_accuracy": 0.86,
+        "param_accuracy": 1.0,
+        "false_call_rate": 0.08333333333333333,
+        "executed": 100,
+        "skipped": []
+      },
+      "l2": {
+        "assertion_pass_rate": 0.63,
+        "executed": 100,
+        "skipped": []
+      },
+      "l3": {
+        "weighted_avg": 5.136,
+        "weighted_avg_incl_errors": 5.136,
+        "p0_avg": 5.921,
+        "judged": 100,
+        "judge_error": []
+      },
+      "l4": {
+        "tsr": 0.935064935064935,
+        "passk_rate": 0.935064935064935,
+        "p0_passk_rate": 0.9615384615384616,
+        "tsr_denominator": 77,
+        "executed_with_checks": 77,
+        "no_state_checks": [
+          "T005",
+          "T020",
+          "T030",
+          "T031",
+          "T032",
+          "T033",
+          "T044",
+          "T049",
+          "T051",
+          "T052",
+          "T053",
+          "T054",
+          "T055",
+          "T056",
+          "T067",
+          "T072",
+          "T073",
+          "T074",
+          "T081",
+          "T082",
+          "T084",
+          "T085",
+          "T093"
+        ],
+        "skipped": []
+      }
+    }
+  }
+]

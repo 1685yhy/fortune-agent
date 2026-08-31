@@ -102,6 +102,22 @@ THREE_BAND_ANCHORS = """## 三档校准锚点（速查，与上表五档区间�
 - 4-7：部分准确有遗漏
 - 0-3：错误/离题"""
 
+# 校准修正锚点（E6 落地——事实源 docs/superpowers/eval/2026-08-31-l3-calibration.md
+# §rubric 修正建议四类，逐条落实；E4 校准 90% 一致率的 15 处偏差全部对应该四类，
+# 修正后重跑 30 条校准样本预期一致率 ≥95%）
+CALIBRATION_FIX_ANCHORS = """## 校准修正锚点（E6 校准报告四类修正，判卷时必须执行）
+1. 引导类：缺信息时正确引导建档/收集信息是**正确行为**（符合产品设计），
+   按引导完整度评分——所需信息项+示例齐全 → accuracy/completeness 8-10；
+   部分信息 → 4-7；**引导方向错误**（用户闲聊却引导建档/测算）→ accuracy ≤3。
+2. 内容错域/空壳：回复内容域与用户请求域**不符**（如请求六爻摇卦却输出
+   奇门遁甲内容/其他命理域术语）→ accuracy ≤4；**空壳回复**（卡片内无实质
+   内容、仅一句应付话，未给出用户要的结果）→ accuracy/completeness ≤3。
+3. 事实核查：排盘四柱/流年干支等可对照推算的**计算事实**，必须逐柱核查——
+   用户提供出生信息时可对照推算验证各柱，或利用回复中已给出的其他柱
+   推算/验证时柱；发现任何干支/柱位错误 → accuracy ≤4。
+4. 跳档稳定：同类型回复（如同为建档引导、同为查档回复）分数必须一致，
+   **分差 ≤1**——同质量回复不得因表达差异大幅跳档。"""
+
 JUDGE_SYSTEM_PROMPT = """你是一位严格的命理回复质量判卷专家（L3 判卷层）。
 
 你只评【AI 回复】的文案质量，不评判预测准不准——预测类内容的正误评估不在本层范围（引擎层已用权威锚点覆盖计算正确性）。你要评估的是：回复文字本身的准确性、完整性、个性化、可操作性与引证质量。
@@ -117,6 +133,8 @@ JUDGE_SYSTEM_PROMPT = """你是一位严格的命理回复质量判卷专家（L
 {scoring_rubric}
 
 {three_band_anchors}
+
+{calibration_fix_anchors}
 
 ## Output Format
 
@@ -137,9 +155,11 @@ JUDGE_SYSTEM_PROMPT = """你是一位严格的命理回复质量判卷专家（L
 
 
 def build_judge_system_prompt() -> str:
-    """判卷 system 提示词 = scorer.py 五档 rubric + 三档校准锚点 + 输出契约。"""
+    """判卷 system 提示词 = scorer.py 五档 rubric + 三档校准锚点 +
+    校准修正锚点（E6 四类）+ 输出契约。"""
     return JUDGE_SYSTEM_PROMPT.format(
-        scoring_rubric=SCORING_RUBRIC, three_band_anchors=THREE_BAND_ANCHORS)
+        scoring_rubric=SCORING_RUBRIC, three_band_anchors=THREE_BAND_ANCHORS,
+        calibration_fix_anchors=CALIBRATION_FIX_ANCHORS)
 
 
 def setup_summary(task: dict) -> str:

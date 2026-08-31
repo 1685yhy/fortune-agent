@@ -153,8 +153,14 @@ def check_task(t, out):
             for k, v in sc.items():
                 if not STATE_ACTION_RE.match(k):
                     out.append("[%s] state_checks 键 %r 非法（须 <表>_created/_unchanged/_equals）" % (t["id"], k))
-                if not isinstance(v, bool):
-                    out.append("[%s] state_checks.%s 值必须为 bool" % (t["id"], k))
+                # 值契约（E6 放宽，task-E5-report.md concern #3 落地）：created/
+                # unchanged 为 bool；_equals 支持 int（行数精确相等，与
+                # state_verifier._equals 契约对齐——bool 为校验器兼容退化语义，
+                # int 为正式数值断言；评估集当前 0 条使用，schema 完备性保留）
+                if not isinstance(v, bool) and not (
+                        k.endswith("_equals") and isinstance(v, int)):
+                    out.append("[%s] state_checks.%s 值必须为 bool"
+                               "（_equals 可为 int 行数）" % (t["id"], k))
     # setup 已知键
     st = t.get("setup")
     if st is not None:
