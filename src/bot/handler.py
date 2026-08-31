@@ -28,6 +28,7 @@ from src.tools.career_dir import format_career_card, parse_career_params  # 批�
 from src.tools.num_omen import (analyze_number, format_num_card,  # 批次 2 E5 数字吉凶工具规则层
                                 parse_num_params)
 from src.engines.message_analyzer import MessageAnalyzer, MessageAnalysis
+from src.bot.record_query import _MEMBER_PAY_WORDS  # R1-1：支付词单一事实源（与会员直读守卫同表，防分裂）
 try:
     from src.engines.advisor_v2 import AdaptiveAdvisor
     HAS_ADVISOR_V2 = True
@@ -126,6 +127,30 @@ SCENE_DEFAULT_ENGINE = {
     "fortune_cycle": "_handle_advisor",
     "career_dir": "_handle_career",
 }
+
+# ============================================================
+# R1-1（评测 T087/T088 修复）：支付守卫词（单一事实源）
+# ============================================================
+# 精确词：整句等值命中即支付意图（保持原行为不变）。
+# 自然支付句式（"开会员多少钱"/"帮我充一下会员"）由子串判定补足：
+#   含"会员" 且 命中 _MEMBER_PAY_WORDS（与 record_query 会员直读守卫同表，
+#   数据一致性铁律——支付意图判定只有一个事实源）→ 支付守卫优先于建档
+#   引导/意图分析，绝不被 _handle_advisor 的建档引导覆盖。
+_MEMBER_GUARD_EXACT = ("会员", "升级", "付费", "套餐", "价格", "多少钱", "续费")
+
+# ============================================================
+# R1-1（评测 T096 修复·跨用户污染）：本人运势类问句确定性判定
+# ============================================================
+# 命中即强制 bazi 意图（防 LLM 意图漂移到 free_chat/advisor 时用会话
+# 上下文里他人出生信息冒充本人——B3-1 在线实锤"根据你1976年5月13日
+# 出生的信息"）。强制后走 _handle_bazi 的 B3-1 规则1（档案优先：默认命主
+# 完整出生信息直接使用，不被他人盘覆盖）；无档案 → F2 渐进式建档引导
+# （与 bazi 意图行为一致，不回归建档）。
+# 刻意不收时间锚/维度锚（流年/流月/明年/今年/今日/财运 等）——那些走
+# fortune_cycle 工具链 / calendar 意图 / 场景路由，不被本守卫劫持。
+_SELF_FORTUNE_RE = re.compile(
+    r"(?:我的|本人|自己的|我最近的)(?:运势|运气|运程)|"
+    r"(?:帮我看看|看看我的)(?:运势|运气|运程)")
 
 # ============================================================
 # 择吉日（Task 2）: 7 场景同义词表 + 意图词表（双条件判定）
@@ -3297,7 +3322,24 @@ class MessageHandler:
         # （_check_quota 仍在 1533 行保持原样）。
 
         # Handle "会员" keyword — show upgrade info（L5-2：档位与 SUBSCRIBE_PLANS 对齐）
-        if msg.strip() in ("会员", "升级", "付费", "套餐", "价格", "多少钱", "续费"):
+        # R1-1（评测 T087/T088 修复·支付守卫优先级）：原守卫仅整句等值命中，
+        # "开会员多少钱"/"帮我充一下会员" 等自然支付句式绕过 → LLM 意图漂移 →
+        # scene_hint 兜底建档引导"需要先了解你的命盘哦～"，支付入口被吞且
+        # memberships 3→4 攻击写入（T087/T088 实锤）。扩展为：
+        #   等值命中 _MEMBER_GUARD_EXACT（原行为不变）
+        #   或（含"会员" 且 命中 _MEMBER_PAY_WORDS 任一支付词）→ 支付守卫
+        # 守卫命中即短路返回会员计划文案，绝不落入建档引导（优先级最高：
+        # 本分支位于 record_query 会员直读/意图分析/建档引导之前）。
+        # 纯账务查询（"我的会员额度还剩多少"）不含支付词 → 不受影响，
+        # 仍走下方 record_query 直读（守卫不劫持查询，复用 record_query 同表）。
+        # Q2 反例（既有产品契约）：含「续费」的句子不命中子串守卫——「续费
+        # 会员多少钱」「我不想续费了」等续费语境走全流程/LLM（与 record_query
+        # 会员直读的支付词守卫同口径：续费语境不短路）；「续费」整句仍等值
+        # 命中 _MEMBER_GUARD_EXACT（Q2 正例，行为不变）。
+        if (msg.strip() in _MEMBER_GUARD_EXACT
+                or ("会员" in msg
+                    and "续费" not in msg
+                    and any(w in msg for w in _MEMBER_PAY_WORDS))):
             upgrade_msg = (
                 "🌟 **易理明灯会员计划**\n\n"
                 "📌 **基础会员**（完整分析 · 每日运势 · 畅聊不设限）\n"
@@ -3366,6 +3408,25 @@ class MessageHandler:
             analysis = self._analyze_message(msg, user_id, session_id=session_id)
         logger.info("[timing] stage=intent duration=%.1fs",
                     time.monotonic() - _t0)
+        # R1-1（评测 T096 修复·跨用户污染）：本人运势类问句 → 确定性强制
+        # bazi 意图。原链：LLM 意图分类器对"我的运势怎么样"漂移（free_chat/
+        # advisor 均出现过）→ 回复生成 LLM 用会话上下文里的他人出生信息
+        # 冒充本人（B3-1 在线实锤"根据你1976年5月13日出生的信息"，T096
+        # 轮2 实锤 丙辰 盘）。强制 bazi 后走 _handle_bazi：
+        #   - B3-1 规则1（档案优先）：默认命主（当前会话用户）完整出生信息
+        #     直接使用 → 庚午（本人 1990 档案）必现、丙辰（朋友盘）必不现；
+        #   - facts.subject 强制 "self"：排盘/落库只认本人（他人信息只作
+        #     排盘展示，不替换当前用户档案——接口契约零破坏，前端字段不变）；
+        #   - 无档案 → F2 渐进式建档引导（与 bazi 意图一致，不回归建档行为）。
+        if (analysis.intent != "bazi"
+                and _SELF_FORTUNE_RE.search(msg)
+                and not self._is_third_party_birth_request(msg)):
+            analysis.intent = "bazi"
+            _facts = analysis.facts or {}
+            if _facts.get("subject", "self") != "self":
+                _facts = dict(_facts)
+                _facts["subject"] = "self"
+                analysis.facts = _facts
         # 阶段 5（方案 v5）：记录本轮理解出的关键事实（subject=other 时排盘不写本人画像）
         self._analysis_facts[user_id] = analysis.facts or {}
         # P2 System1 每轮提取钩子（阶段 5）：facts → L2 事实条目（去重入库）
@@ -3592,11 +3653,22 @@ class MessageHandler:
         # 精简文案已自成一体，无需二次生成）。
         # D2 修复（数据正确性）：engine_draft 记录润色前的引擎原稿
         # （四柱与已存盘一致，作为四柱终审冲突时的兜底回退稿）。
+        # R1-1（T096 跨用户污染）：本人运势问句 + 会话历史含第三方排盘 →
+        # 跳过润色，保留确定性引擎原稿。润色 LLM 读历史时会把朋友的出生
+        # 信息当成当前用户的（在线复现实锤：轮2「我的运势怎么样」被润色成
+        # 「根据你1976年5月13日在上海出生的命盘…」；D2 因对手文案干支声明
+        # 不足 4 个早退、且 chart_records 最新恰为朋友盘，无法兜底）。
         engine_draft = None
+        _r1_self_fortune_turn = (
+            not self._is_third_party_birth_request(msg)
+            and bool(_SELF_FORTUNE_RE.search(msg)))
         if (analysis.intent not in ("xuetang", "advisor")
                 and not downgraded
                 and reply and not reply.startswith("⚠️")
-                and self._citations.get(user_id)):
+                and self._citations.get(user_id)
+                and not (_r1_self_fortune_turn
+                         and self._history_has_third_party_birth(
+                             user_id, session_id))):
             engine_draft = reply
             try:
                 reply = self._polish_with_engine_draft(
@@ -4086,6 +4158,27 @@ class MessageHandler:
         reuse_text = self._try_reuse_chart(user_id, msg)
         if reuse_text:
             return reuse_text
+        # R1-1（评测 T096 修复·跨用户污染·持久化半环闭环）：subject 由消息
+        # 确定性判定（B3-1 规则2 消息级检测），不依赖 LLM analyzer 的 facts
+        # ——真实 analyzer 对「帮我朋友排个盘…」返回 facts={} → 旧逻辑 subject
+        # 默认 self → _sync_person_profile 把默认命主覆盖成朋友盘（1990→1976
+        # 实锤，跨用户污染在线根因）；轮2「我的运势怎么样」analyzer 又可能回
+        # facts.subject=other（旧信息冒充本人）。统一在入口按消息强制判定：
+        # 他人信息只作排盘展示，绝不写入当前用户档案（产品裁决）。
+        _f = dict(self._analysis_facts.get(user_id) or {})
+        _f["subject"] = "other" if self._is_third_party_birth_request(msg) else "self"
+        # R1-1（T096 终局）：subject 强制 self 时顺带清除 analyzer 从会话
+        # 上下文捎带来的他人出生身份字段（在线复现实锤：轮2「我的运势怎么
+        # 样」analyzer 回 facts.subject=other + birth_date='1976年5月13日'
+        # + birth_time + birth_place + gender='女'）。他人信息只作排盘展示，
+        # 不进入当前用户的任何数据路径（排盘/落库/建档读取均用档案或消息
+        # 解析值，这些残留键是纯污染源——无代码读 facts.gender，清除零影响）。
+        if _f["subject"] == "self":
+            for _k in ("birth_date", "birth_time", "birth_place",
+                       "birth_year", "birth_month", "birth_day",
+                       "birth_hour", "birth_minute", "gender", "age"):
+                _f.pop(_k, None)
+        self._analysis_facts[user_id] = _f
         parsed = self._extract_bazi_info(msg)
         # L5-2 修复（降级成本）：降级用户的前置文案（复用档案确认/信息收集
         # 引导）不调 LLM，全部走固定文案（_do_bazi_analysis 内部同口径门控）。
@@ -4517,6 +4610,30 @@ class MessageHandler:
         r'(?:(?:\d{4}|[〇零一二三四五六七八九]{2,4})\s*年|\d{1,3}\s*岁)'
     )
 
+    def _history_has_third_party_birth(self, user_id: str,
+                                       session_id: Optional[str] = None) -> bool:
+        """R1-1（T096 跨用户污染）：会话历史里是否存在第三方排盘消息。
+
+        润色 LLM（_polish_with_engine_draft）会把会话历史注入提示——若历史里
+        有「帮我朋友排个盘，他1976年…」这类消息，润色可能把朋友的出生信息
+        当成当前用户的（在线复现实锤：T096 轮2「我的运势怎么样」被润色成
+        「根据你1976年5月13日在上海出生的命盘…」，D2 因干支声明不足 4 个
+        早退无法兜底）。返回 True → 调用方跳过润色，保留确定性引擎原稿。
+        """
+        if not self.session_dao:
+            return False
+        try:
+            history = self.session_dao.get_context_for_llm(
+                user_id, history_limit=20, session_id=session_id)
+        except Exception:
+            return False
+        for m in history or []:
+            if m.get("role") != "user":
+                continue
+            if self._is_third_party_birth_request(str(m.get("content") or "")):
+                return True
+        return False
+
     def _is_third_party_birth_request(self, msg: str) -> bool:
         """B3-1（规则2）：当前消息是否明确指代第三方排盘。
 
@@ -4810,6 +4927,31 @@ class MessageHandler:
         # E2-1 卡片化：完成引擎排盘（paipan 卡片判定依据，含降级精简路径）
         self._mark_card_turn(user_id, paipan=True)
 
+        # R1-1（评测 T096 修复·跨用户污染·只作排盘展示）：subject=other（帮
+        # 朋友排盘）→ 确定性卡片回复：跳过 LLM 深度分析/秒回安抚/行动建议/
+        # 润色。他人命盘只作展示——分析 LLM 曾把朋友盘干支重印成
+        # 「年柱：丙辰（火土）」（且改写为错柱乙卯/甲辰），混入用户运势上下文
+        # 造成跨用户污染表述（T096 轮1 实锤）；确定性卡片（天干/地支分行）永
+        # 不含连续干支文本，朋友盘绝不进入用户会话的运势表述。
+        _subject_now = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
+        if _subject_now == "other":
+            self._pregen_instant.pop(user_id, None)  # 他人盘不消费秒回预生成
+            self._save_bazi_records(result, {
+                "year": year, "month": month, "day": day,
+                "hour": hour, "minute": minute,
+                "city": city, "gender": gender,
+            }, question=question, user_id=user_id, force_gender=force_gender)
+            try:
+                from src.engines.bazi_formatter import format_compact_card
+                chart = format_compact_card(result, {
+                    "year": year, "month": month, "day": day,
+                    "hour": hour, "minute": minute,
+                    "city": city, "gender": gender})
+            except Exception:
+                chart = ""
+            reply = chart + "\n\n已为你朋友排出命盘，供展示参考；如需分析你自己的运势，随时告诉我。"
+            return self._add_feedback_prompt(reply)
+
         # L5-2 修复（降级成本漏洞）：降级时 bazi 走「引擎排盘 + 精简文案」——
         # 排盘为确定性 0 成本（BaziEngine 本地计算）；RAG 检索 / AdaptiveAdvisor
         # 并行 LLM / 主分析 LLM / 秒回安抚 / 下文引导等最贵路径全部跳过。
@@ -5038,6 +5180,13 @@ class MessageHandler:
             chart = format_compact_card(result, birth_info)
         except Exception:
             chart = ""
+        # R1-1（评测 T096 修复·确定性四柱展示）：本人排盘卡片附标准四柱行——
+        # 卡片天干/地支分行展示（如 庚/午 分列）不产生连续干支文本，补一行
+        # 「四柱：庚午 辛巳 乙酉 甲申」（与已存盘逐字一致，D2 终审同口径），
+        # 使本人年柱以标准连续形式出现在回复中；第三方盘走上方确定性分支
+        # 不含此行（朋友干支绝不入会话表述）。
+        if getattr(result, "bazi", None):
+            chart += f"\n📜 四柱：{' '.join(result.bazi)}"
 
         # 阶段 5·来源体系（方案 §3.0 ②）：意图路径排盘也标引擎来源"你的命盘"
         try:
