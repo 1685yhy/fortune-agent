@@ -94,9 +94,15 @@ def format_hehun_card(bazi_a, bazi_b, hehun_result) -> str:
     """
     sx = hehun_result.shengxiao_detail
     wx = hehun_result.bazi_match
+    # R1-2（T039）：按双方档案性别回显 男方/女方（引擎已归一化 男/女）；
+    # 性别未知时退回 A方/B方，不破坏原有结构。
+    g_a = (getattr(bazi_a, "gender", "") or "").strip()
+    g_b = (getattr(bazi_b, "gender", "") or "").strip()
+    label_a = "男方" if g_a == "男" else ("女方" if g_a == "女" else "A方")
+    label_b = "男方" if g_b == "男" else ("女方" if g_b == "女" else "B方")
     lines = [
-        f"【合婚】A方四柱：{' '.join(bazi_a.bazi)}（日主{bazi_a.day_master}）｜"
-        f"B方四柱：{' '.join(bazi_b.bazi)}（日主{bazi_b.day_master}）",
+        f"【合婚】{label_a}四柱：{' '.join(bazi_a.bazi)}（日主{bazi_a.day_master}）｜"
+        f"{label_b}四柱：{' '.join(bazi_b.bazi)}（日主{bazi_b.day_master}）",
         f"生肖配对：{hehun_result.shengxiao}",
         f"五行互补：{wx.get('wuxing_1', '')} ↔ {wx.get('wuxing_2', '')} —— "
         f"{wx.get('complement_desc', '')}（{wx.get('score', 0)}/40）",

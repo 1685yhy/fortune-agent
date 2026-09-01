@@ -255,6 +255,19 @@ def _make_light_handler(**kw):
     h._pregen_instant = {}
     for k, v in kw.items():
         setattr(h, k, v)
+    # __new__ 装配不跑 __init__ → 注册表 executor 仍为 None，工具链空转
+    # （R1-2 实锤：_execute_tool_call 提交 None executor 直接失败）。
+    # 与 __init__ 同型把场景工具执行器绑定到本实例（纯查表，0 LLM）。
+    from src.bot.capability_registry import bind_executors
+    bind_executors(
+        {
+            "num_omen": lambda p, user_id="", user_question="": h._tool_num_omen(p, user_id),
+            "hehun": lambda p, user_id="", user_question="": h._tool_hehun(p, user_id),
+            "career_dir": lambda p, user_id="", user_question="": h._tool_career_dir(
+                p, user_id),
+        },
+        {},
+    )
     return h
 
 
@@ -298,12 +311,17 @@ def test_scene_fallback_skipped_when_tool_calls_exist():
     assert reply == "根据合婚结果：你们很般配。"
 
 
-def test_num_omen_scene_no_engine_fallback():
-    """num_omen 无引擎（映射表外）：LLM 自由回复即为兜底，回复保持原样。"""
+def test_num_omen_scene_executes_tool_fallback():
+    """num_omen 场景（R1-2 T094 修复契约）：确定性执行数字吉凶工具
+    （纯查表 0 LLM）——回复为结构化卡片（吉凶/数理/尾号），不再是 LLM
+    自由回复（旧行为实锤：LLM 把工具调用 JSON 当回复文本输出，工具从未
+    执行，T094 1/3 失败）。兜底失败才 fail-open 保留原文。"""
     h = _make_light_handler()
     _patch_scene_analysis(h, "num_omen")
     reply = h.process("这个手机号 13800138000 好不好", "u1")
-    assert reply == "🔮 精简回复"
+    assert reply != "🔮 精简回复", reply
+    assert ("吉凶" in reply or "数理" in reply or "尾号" in reply), reply
+    assert "{" not in reply, reply
 
 
 def test_scene_fallback_disabled_in_downgrade():
