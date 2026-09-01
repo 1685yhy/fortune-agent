@@ -84,15 +84,28 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
                 }
                 # 自愈：bazi_info 缺失/与 persons 不一致 → persons 单向回写
                 # （保留 bazi 四柱等既有键；写入失败仅告警，不阻塞读取）
+                # R1-3（T009 修复暴露的误触发）：persons 存储层把 hour/minute
+                # 0 折叠为 None（_birth_dict），读回 None 与 bazi_info 的 0
+                # 永不等 → 每次排盘后读档案都误触发回写。比较与回写统一按
+                # 「0 与 None/空 等价」（时辰/分钟未知）归一，gender 等仍严格。
                 try:
                     bazi = dao.get_user_bazi(user_id)
                     _keys = ("year", "month", "day", "hour", "minute",
                              "city", "gender")
+
+                    def _time_eq(k, a, b):
+                        if k in ("hour", "minute"):
+                            return (a in (None, "", 0)) == (b in (None, "", 0))
+                        return a == b
+
                     stale = (not bazi or not bazi.get("year")
-                             or any(bazi.get(k) != out[k] for k in _keys))
+                             or any(not _time_eq(k, bazi.get(k), out[k])
+                                    for k in _keys))
                     if stale:
                         new_info = dict(bazi or {})
-                        new_info.update(out)
+                        for k in _keys:
+                            if not _time_eq(k, new_info.get(k), out.get(k)):
+                                new_info[k] = out[k]
                         dao.save_user_bazi(user_id, new_info)
                 except Exception as e:
                     logger.warning("G1 档案自愈回写失败 user=%s: %s",

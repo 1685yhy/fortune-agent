@@ -110,12 +110,14 @@ def test_duipan_anchor_chen_vs_wu():
     # ── diff：格局（同） ──
     assert d["geju"] == {"a": "偏财格", "b": "偏财格", "same": True}
 
-    # ── diff：大运（起运岁数同 3 岁、序列同；起运分解差 20 天） ──
+    # ── diff：大运（起运岁数同 3 岁、序列同；起运分解差 25 天） ──
     dy = d["dayun"]
     assert dy["start_same"] is True and dy["a_start"] == dy["b_start"] == 3
     assert dy["start_gap"] == 0
     assert dy["a_qiyun"] == "出生后2年4月2天0时起运"
-    assert dy["b_qiyun"] == "出生后2年4月22天0时起运"
+    # R1-3（T045 午时校准）：b 侧午时序号 6 → 时钟小时 12，起运分解
+    # 22天0时 → 27天0时（a 侧辰时不变，差异 20 天 → 25 天）。
+    assert dy["b_qiyun"] == "出生后2年4月27天0时起运"
     assert dy["sequence_same"] is True
     assert dy["a"][0] == {"sui": 3, "ganzhi": "戊辰"} == dy["b"][0]
     assert len(dy["a"]) == len(dy["b"]) == 12

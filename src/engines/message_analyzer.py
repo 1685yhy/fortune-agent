@@ -131,11 +131,35 @@ COMBINED_PROMPT = COMBINED_PROMPT.replace("__INTENT_ENUM__", build_intent_enum_l
 TOOL_SCENE_WORDS: dict = {
     "num_omen": ("手机号", "手机号码", "车牌", "门牌", "尾号", "号码吉凶", "数字吉凶"),
     "hehun": ("合不合", "合婚", "八字合", "配不配", "般配", "生辰合"),
-    "naming": ("起名", "取名", "改名", "宝宝叫", "孩子叫"),
+    # R1-3（T045 修复）：口语起名动词族（"给孩子起个名"）此前只命中
+    # LLM 意图分类（3/3 全部 0 工具调用——LLM 直接输出排盘卡片），
+    # 补入场景词表 → 0 LLM 确定性走 naming 场景 → 工具兜底（0 LLM）。
+    "naming": ("起名", "取名", "改名", "宝宝叫", "孩子叫",
+               "起个名", "起个名字", "取个名", "取个名字", "起名字", "取名字"),
     "fortune_cycle": ("流年", "流月", "明年运势", "逐月运势"),
     "career_dir": ("适合做什么", "适合什么行业", "职业方向", "择业",
                    "行业选择", "找工作", "换工作"),
 }
+
+# R1-3 意图强路由（0 LLM 确定性；analyze() 中置于 BIRTH_DATE_PATTERN
+# 快路径之前）：评测实锤三类请求被 LLM 意图分类错域路由——
+# - 六爻摇卦 → 奇门遁甲局（T058 出奇门实锤）；- 紫微排盘 → 八字排盘
+# （T064 被 bazi 快路径掐走）；- 择日带完整日期 → 建档引导/calendar
+# （T100 实锤）。改关键词确定性强路由，杜绝 LLM 波动（3/3 全错、1/3
+# 才稳定的真实命中率）。
+# _FORCE_META_RE 元门控：比较/差异类问句（哪个/区别/对比/比较/差异）
+# 是讨论不是排盘请求（"紫微斗数和八字哪个准"不得强制紫微）。
+_FORCE_META_RE = re.compile(r"哪个|区别|对比|比较|差异")
+# 六爻族（与任务族 T058-T063 全量对齐，碰撞扫描零误伤）
+_LIUYAO_FORCE_RE = re.compile(r"摇卦|摇一卦|起一卦|六爻|卜卦|占一卦|算卦")
+# 紫微族（与任务族 T064-T069 全量对齐，碰撞扫描零误伤）
+_ZIWEI_FORCE_RE = re.compile(r"排\s*紫微|紫微(?:盘|命盘|斗数)")
+# 择日：意图词 + 完整日期锚双条件（T028/T038/T100 的
+# 「2026年9月15日搬家 帮我选个日子」形态）；单意图词无日期锚
+# （「下个月结婚 帮我选个吉日」T030-T032 已绿）留给 LLM 分类，不误伤。
+_ZERI_FORCE_RE = re.compile(
+    r"选(?:个|挑个)?(?:日子|时间)|择日|择吉|挑日子|看日子|吉日|换一批|重新选")
+_ZERI_DATE_ANCHOR_RE = re.compile(r"\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日")
 # 编译一次（词全为中文，re.escape 防御未来加词含正则元字符）
 _TOOL_SCENE_CHECKS = [
     (cap_id, re.compile("|".join(re.escape(w) for w in words)))
@@ -217,6 +241,22 @@ class MessageAnalyzer:
             return MessageAnalysis(needs_soothe=False, soothe_text="",
                                    emotion_label=None, intent=None,
                                    scene_hint=scene_hint)
+
+        # R1-3（T058/T064/T100 修复·意图强路由）：关键词确定性意图（0 LLM，
+        # 见模块级 _*_FORCE_RE 注释）。元门控：比较类问句不强制。放在
+        # BIRTH_DATE_PATTERN 快路径之前——"1990年5月20日…帮我排紫微盘"
+        # 必须路由 ziwei 而非被纯生日快路径掐成 bazi（T064 3/3 实锤）。
+        if not _FORCE_META_RE.search(user_message):
+            if _LIUYAO_FORCE_RE.search(user_message):
+                return MessageAnalysis(needs_soothe=False, soothe_text="",
+                                       emotion_label=None, intent="liuyao")
+            if (_ZERI_FORCE_RE.search(user_message)
+                    and _ZERI_DATE_ANCHOR_RE.search(user_message)):
+                return MessageAnalysis(needs_soothe=False, soothe_text="",
+                                       emotion_label=None, intent="zeri")
+            if _ZIWEI_FORCE_RE.search(user_message):
+                return MessageAnalysis(needs_soothe=False, soothe_text="",
+                                       emotion_label=None, intent="ziwei")
 
         # Fast path 收紧：只有"纯生日陈述"（无任何意图词）才直接判 bazi；
         # 含意图词（适合/公司/职业/配/像谁…）即使有生日也必须走 AI 分类
