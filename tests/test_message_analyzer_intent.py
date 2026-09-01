@@ -196,13 +196,15 @@ def test_intent_hint_pattern_zeri_words_coverage():
 
 
 def test_birth_plus_zeri_words_goes_to_ai(analyzer, monkeypatch):
-    """D5 核心：含 4 位年份日期 + 择日场景词（『2026年9月15日搬家 帮我选个日子』）
-    不再被 BIRTH_DATE_PATTERN 快路径确定性掐成 bazi（0 LLM → 排盘卡片），
-    必须落入 LLM 意图分类（deepseek 输出 zeri）→ _handle_zeri 引擎产出具体日期。"""
+    """D5+R1-3：含 4 位年份日期 + 择日场景词（『2026年9月15日搬家 帮我选个日子』）
+    不被 BIRTH_DATE_PATTERN 快路径掐成 bazi（0 LLM → 排盘卡片）。
+    R1-3（T100 修复）：日期锚 + 择日词命中 _ZERI_FORCE_RE → 0 LLM 确定性强路由
+    zeri（原 LLM 分类 1 次调用且 3/3 错域——T100 实锤 LLM 把择日问句路由
+    到建档引导/calendar）；意图结果与旧路径一致（zeri）。"""
     calls = _mock_completion("zeri", monkeypatch)
     result = analyzer.analyze("2026年9月15日搬家 帮我选个日子")
     assert result.intent == "zeri"
-    assert calls["n"] == 1  # 确实走了 AI 分类，未被快路径截断
+    assert calls["n"] == 0  # R1-3 强路由：0 LLM（原 1 次 AI 分类）
 
 
 def test_birth_plus_zeri_scene_word_alone_goes_to_ai(analyzer, monkeypatch):

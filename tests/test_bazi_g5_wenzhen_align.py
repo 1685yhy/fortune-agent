@@ -282,7 +282,9 @@ def test_serialize_bazi_includes_qiyun_sui_desc():
         "birthHour": 6, "minute": 25, "gender": "male", "city": "北京",
     }, headers=_headers()).json()
     assert body["qiyun_sui_desc"] == "2岁4个月起运"          # 闫海洋盘（北京真太阳时口径）
-    assert body["qiyun_desc"] == "出生后2年4月21天2时起运"    # 原字段保留
+    # R1-3（T045 午时校准）：午时序号 6 → 时钟小时 12（原 11 → 真太阳时
+    # ~10:37 落巳时块 → 时柱错），起运距离 21天2时 → 26天1时（随口径同步）。
+    assert body["qiyun_desc"] == "出生后2年4月26天1时起运"    # 原字段保留
     assert body["qiyun_sui_desc"] == "%d岁%d个月起运" % (body["qiyun_detail"][0], body["qiyun_detail"][1])
 
 

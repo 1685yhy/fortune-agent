@@ -41,12 +41,20 @@ def test_tool_loop_analysis_hint_secondary_needs(handler):
 
 
 def test_tool_loop_analysis_hint_needs_search(handler, monkeypatch):
-    """needs_search=True 且搜索可用 → 注入 web_search JSON 工单引导（Task 5 改版）。"""
+    """needs_search=True 且搜索可用 → 注入 web_search JSON 工单引导（Task 5 改版）。
+
+    R1-3（T074）：needs_search 注入受 _web_search_allowed 研究类白名单门控——
+    无消息/与命理无关的问题（股市行情等）不注入搜索引导；消息为研究类
+    （新闻/政策/数据等）才注入。
+    """
     import src.rag.web_search as ws
     monkeypatch.setattr(ws, "web_search_available", lambda force=False: True)
     a = MessageAnalysis(needs_soothe=False, soothe_text="", emotion_label=None,
                         intent="career", needs_search=True)
-    hint = handler._tool_loop_analysis_hint(a)
+    # 空消息（无用户原句）→ 门控不放行
+    assert handler._tool_loop_analysis_hint(a) == ""
+    # 研究类消息 → 门控放行，注入工单引导
+    hint = handler._tool_loop_analysis_hint(a, "帮我查一下最近的行业新闻")
     assert "实时信息" in hint
     assert '<tool_calls>[{"tool": "web_search"' in hint
 

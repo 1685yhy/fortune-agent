@@ -190,7 +190,7 @@ def test_no_false_positive_lookalike_words(analyzer, monkeypatch):
     合盘 vs 合婚（合盘仍走 LLM 分类返回 hehun）、配 vs 配不配。"""
     calls = _mock_completion("free_chat", monkeypatch)
     for msg in ("帮我改签机票",           # 改签 不命中 改名
-                "帮我起个名字",           # 起个名字 不命中 起名（变体走 LLM）
+                "帮我看看名字笔画",       # 名字笔画 不命中 起名词族（R1-3 起个名字已转正）
                 "帮我合盘，我和她"):      # 合盘 不命中 合婚词表（LLM→hehun）
         result = analyzer.analyze(msg)
         assert result.scene_hint is None, msg
@@ -199,12 +199,14 @@ def test_no_false_positive_lookalike_words(analyzer, monkeypatch):
 
 
 def test_no_false_positive_pure_birth_with_zeri_words(analyzer, monkeypatch):
-    """D5 择日词回归：含日期+择日词仍走 LLM 分类（zeri），E6 门控不得劫持。"""
+    """D5+R1-3 择日词回归：含日期+择日词路由 zeri（不被 bazi 快路径/其他
+    门控劫持）。R1-3（T100）：_ZERI_FORCE_RE 确定性强路由 0 LLM（原 LLM
+    分类 1 次且 3/3 错域）；意图结果一致（zeri）。"""
     calls = _mock_completion("zeri", monkeypatch)
     result = analyzer.analyze("2026年9月15日搬家 帮我选个日子")
     assert result.intent == "zeri"
     assert result.scene_hint is None
-    assert calls["n"] == 1
+    assert calls["n"] == 0
 
 
 # ============================================================

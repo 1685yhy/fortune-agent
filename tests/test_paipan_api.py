@@ -68,10 +68,15 @@ def test_paipan_full_chart_anchors():
     assert [p["nayin"] for p in ps] == ["城头土", "大林木", "海中金", "杨柳木"]
 
     # ── L1：起运 / 交运 / 司令 ──
-    assert body["qiyun_desc"] == "出生后2年4月21天2时起运"  # 北京真太阳时口径
+    # 北京真太阳时口径。R1-3（T045 校准修复）：午时序号 6 → 时钟小时 12
+    # （原 11 → 真太阳时 ~10:37 落巳时块 → 时柱错），起运距离随之位移：
+    # 2年4月21天2时 → 2年4月26天1时（时柱壬午锚点不变）。
+    assert body["qiyun_desc"] == "出生后2年4月26天1时起运"
     assert body["dayun"][0]["sui"] == 3                     # 起运 3 岁
     jy = body["jiaoyun"]
-    assert "交大运" in jy["page_text"] and "白露后" in jy["page_text"]
+    # R1-3 午时校准后交运时刻 ≈2001-10-09（原 11 点口径 ≈2001-10-04 白露后），
+    # 跨过寒露（10-08）→ 寒露后1天；交运年 2001 辛巳 → 五合对 辛、丙 不变。
+    assert "交大运" in jy["page_text"] and "寒露后" in jy["page_text"]
     assert jy["gan_pair"] in ("辛、丙", "丙、辛")
     assert body["siling"] == "庚"                            # 巳月庚金用事
     assert body["siling_detail"]["days"] == 9

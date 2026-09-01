@@ -112,7 +112,8 @@ def test_paipan_api_writes_chart(tmp_path):
     """表单排盘：POST /api/paipan 成功后 chart_records 有记录（本人 uid 名下）。
 
     YAN 锚点盘（闫海洋 1999-05-13 11:25 北京 男）：己卯 己巳 乙丑 壬午。
-    birthHour=6 为时辰序号（午时 → 归一化时钟小时 11）。
+    birthHour=6 为时辰序号（午时 → 归一化时钟小时 12；R1-3 午时取中点，
+    12:25 真太阳时 ≈11:52 仍在午时块 → 时柱壬午锚点不变）。
     """
     from fastapi.testclient import TestClient
     from src.main import app
@@ -136,5 +137,5 @@ def test_paipan_api_writes_chart(tmp_path):
     assert rec is not None
     assert rec["bazi_json"]["bazi"] == ["己卯", "己巳", "乙丑", "壬午"]
     assert rec["birth"]["year"] == 1999
-    assert rec["birth"]["hour"] == 11
+    assert rec["birth"]["hour"] == 12
     assert rec["birth"]["gender"] == "男"

@@ -391,7 +391,18 @@ def test_seed_task_setup_all_keys(tmp_path):
         # 默认命主：is_default=1 且 birth_enc 不落明文（AES 加密）
         row = con.execute("SELECT is_default, birth_enc FROM persons").fetchone()
         assert row[0] == 1
-        assert "1995" not in row[1] and "06" not in row[1]
+        # 加密断言用解密比对（确定性）：_encrypt_text 每次随机 IV → base64
+        # 密文是随机串，「密文不含 '1995'/'06'」子串断言有 ~1% 概率撞车
+        # （base64 字母表含数字），曾致全量回归偶发红（2026-09-01 实测一次）。
+        # 存储明文是 parse_birth_components 拼出的 JSON 出生字典
+        # （{"birth_year": …, "gender": …}），解密后按 key 断言。
+        from src.storage.dao import _decrypt_or_plain
+        import json as _json
+        assert row[1] != "1995-06-15 08:30"          # 密文 ≠ 明文
+        _plain = _json.loads(_decrypt_or_plain(row[1]))
+        assert _plain["birth_year"] == 1995 and _plain["birth_month"] == 6
+        assert _plain["birth_day"] == 15 and _plain["birth_hour"] == 8
+        assert _plain["birth_minute"] == 30 and _plain["gender"] == "男"
         assert con.execute("SELECT COUNT(*) FROM chart_records").fetchone()[0] == 1
         assert con.execute("SELECT COUNT(*) FROM favorites").fetchone()[0] == 2
         assert con.execute("SELECT COUNT(*) FROM qian_saves").fetchone()[0] == 2

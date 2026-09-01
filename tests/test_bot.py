@@ -298,7 +298,20 @@ def test_process_bazi_with_extracted_info():
 
     mock_dao = Mock()
     mock_dao.db_path = _make_test_db_path()  # MemberDAO/PreferenceDAO 需真实路径（Mock 属性会返回 Mock → Path TypeError）
-    mock_dao.get_user_bazi.return_value = None  # 无存量档案 → 不走快路径，验证 RAG 预检索
+    # R1-3：排盘后 _rehang_gender_echo 会再读一次档案（persons 单一事实源），
+    # 档案层 stub 需反映刚落库的数据——否则 get_user_bazi 恒 None 会让 G1 自愈
+    # 误判「bazi_info 缺失」触发多余回写（真实 DAO 下 _time_eq 归一不触发）。
+    _saved_bazi = None
+
+    def _get_bazi(uid):
+        return _saved_bazi
+
+    def _save_bazi(uid, data):
+        nonlocal _saved_bazi
+        _saved_bazi = data
+
+    mock_dao.get_user_bazi.side_effect = _get_bazi
+    mock_dao.save_user_bazi.side_effect = _save_bazi
 
     handler = MessageHandler(
         engine=mock_engine,
