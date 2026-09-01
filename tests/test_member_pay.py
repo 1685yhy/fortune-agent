@@ -528,8 +528,10 @@ class TestQuotaCoordination:
         from src.services.chat_quota import try_consume_chat_quota, CHAT_DAILY_LIMIT
         from src.storage.chat_quota_dao import ChatQuotaDAO
         qdao = ChatQuotaDAO(member_dao.db_path)
-        # 先把旧额度（membership 免费档上限 3）置满（先建档再置满）
-        member_dao.get_membership("free1")
+        # 先把旧额度（membership 免费档上限 3）置满（R1-1 产品裁决：建档不
+        # 初始化免费额度——get_membership 不再自动建档，行只由显式创建产生，
+        # 测试装配改为显式 create_membership）
+        member_dao.create_membership("free1", "free")
         conn = member_dao._connect()
         conn.execute("UPDATE memberships SET queries_used=queries_limit WHERE user_id='free1'")
         conn.commit()

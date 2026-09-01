@@ -1,5 +1,6 @@
 """Tests for membership and payment system."""
 import os
+import sqlite3
 import sys
 import tempfile
 import pytest
@@ -26,13 +27,25 @@ def dao(db_path):
 
 
 class TestMemberDAO:
-    def test_get_membership_creates_free(self, dao):
-        """Getting membership for a new user should create a free plan."""
+    def test_get_membership_no_write_synthetic_free(self, dao, db_path):
+        """R1-1（产品裁决：建档不初始化免费额度）：无行用户读取返回免费档
+        合成数据（只读语义），memberships 表零写入——T087/T088 的 3→4
+        攻击写入回归防护。"""
         mem = dao.get_membership("new_user")
         assert mem["user_id"] == "new_user"
         assert mem["plan"] == "free"
+        assert mem["plan_label"] == PLANS["free"]["label"]
         assert mem["queries_limit"] == 3
         assert mem["queries_used"] == 0
+        assert mem["queries_remaining"] == 3
+        assert mem["started_at"] is None  # 合成行标记：从未开通（与真实行可区分）
+        con = sqlite3.connect(db_path)
+        try:
+            rows = con.execute(
+                "SELECT COUNT(*) FROM memberships").fetchone()[0]
+        finally:
+            con.close()
+        assert rows == 0
 
     def test_create_membership_basic(self, dao):
         """Create a basic membership."""
@@ -61,13 +74,29 @@ class TestMemberDAO:
         assert dao.check_quota("quota_user") is True
 
     def test_use_quota_decrements(self, dao):
-        """Using quota should increment queries_used."""
+        """Using quota should increment queries_used（对已有行——显式支付创建）。"""
+        dao.create_membership("quota_user2", "free")  # R1-1：行只由显式创建产生
         dao.use_quota("quota_user2")
         mem = dao.get_membership("quota_user2")
         assert mem["queries_used"] == 1
 
+    def test_use_quota_no_row_no_write_noop(self, dao, db_path):
+        """R1-1：无行用户 use_quota 空操作成功（不 INSERT、不扣减）——
+        建档/对话路径零写入 memberships（T087/T088 攻击写入回归防护）。"""
+        assert dao.use_quota("quota_norow") is True
+        mem = dao.get_membership("quota_norow")
+        assert mem["queries_used"] == 0
+        con = sqlite3.connect(db_path)
+        try:
+            rows = con.execute(
+                "SELECT COUNT(*) FROM memberships").fetchone()[0]
+        finally:
+            con.close()
+        assert rows == 0
+
     def test_quota_exhausted(self, dao):
         """Using all free quota should return False for check_quota initially, but auto-reset."""
+        dao.create_membership("quota_user3", "free")  # R1-1：行只由显式创建产生
         for _ in range(5):
             dao.use_quota("quota_user3")
         # After exhausting, check_quota should auto-reset

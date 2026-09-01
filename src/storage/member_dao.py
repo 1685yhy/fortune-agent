@@ -54,27 +54,25 @@ class MemberDAO:
         return db_connect(self.db_path, timeout=10)
 
     def _ensure_free_membership(self, user_id: str):
-        """Ensure a user always has a free membership row (default)."""
-        conn = self._connect()
-        try:
-            row = conn.execute(
-                "SELECT user_id FROM memberships WHERE user_id = ?", (user_id,)
-            ).fetchone()
-            if not row:
-                now = datetime.now().isoformat()
-                conn.execute(
-                    """INSERT INTO memberships
-                       (user_id, plan, started_at, expires_at, queries_used, queries_limit, auto_renew)
-                       VALUES (?, 'free', ?, ?, 0, 3, 0)""",
-                    (user_id, now, now),
-                )
-                conn.commit()
-        finally:
-            conn.close()
+        """R1-1（评测 T087/T088 修复·产品裁决「建档不初始化免费额度」）：空操作。
+
+        旧实现：任何 get_membership/use_quota 调用都会为无行用户自动 INSERT
+        免费档行——建档引导/自由对话/支付守卫等一切聊天路径都可能攻击性写入
+        memberships（T087/T088 实锤：3→4 行，state_checks memberships_unchanged
+        当场抓获）。修复：memberships 行只由显式支付/升级动作创建
+        （create_membership / confirm_payment 保持 INSERT）；无行用户一律按
+        免费档只读语义处理（get_membership 返回合成免费档、use_quota 空操作
+        成功），**读路径与消费路径绝不落库**。保留签名以兼容潜在外部调用。
+        """
+        return None
 
     def get_membership(self, user_id: str) -> dict:
-        """Get membership info for a user. Returns plan details with quota."""
-        self._ensure_free_membership(user_id)
+        """Get membership info for a user. Returns plan details with quota.
+
+        R1-1：无行用户 → 返回免费档只读合成数据（不 INSERT——建档/对话流程
+        零写入 memberships；`queries_used=0` 且 `started_at=None` 表示"从未
+        开通"，与真实行可区分，消费端行为一致）。
+        """
         conn = self._connect()
         try:
             row = conn.execute(
@@ -84,7 +82,19 @@ class MemberDAO:
                 (user_id,),
             ).fetchone()
             if not row:
-                return {"user_id": user_id, "plan": "free", "error": "not found"}
+                _free = PLANS["free"]
+                return {
+                    "user_id": user_id,
+                    "plan": "free",
+                    "plan_label": _free["label"],
+                    "started_at": None,
+                    "expires_at": None,
+                    "queries_used": 0,
+                    "queries_limit": _free["queries_limit"],
+                    "queries_remaining": _free["queries_limit"],
+                    "auto_renew": False,
+                    "features": _free["features"],
+                }
 
             plan = row[1]
             expires_at = row[3]
@@ -267,11 +277,11 @@ class MemberDAO:
                 (user_id,),
             ).fetchone()
             if not row:
-                self._ensure_free_membership(user_id)
-                row = conn.execute(
-                    "SELECT queries_limit, queries_used FROM memberships WHERE user_id = ?",
-                    (user_id,),
-                ).fetchone()
+                # R1-1：无行用户视为免费档，消费空操作成功（不 INSERT——
+                # 建档/对话流程零写入 memberships 的产品裁决；聊天额度由
+                # chat_quota 治理，旧额度门只对已有行——显式支付创建的
+                # 用户生效，无行用户永不因额度门被挡）。
+                return True
 
             if row:
                 limit, used = row
