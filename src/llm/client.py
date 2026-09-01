@@ -637,9 +637,14 @@ class FortuneLLM:
 
     def _format_chart(self, r: BaziResult) -> str:
         gender_line = f"\n性别：{r.gender}" if r.gender else ""
+        # R1-2（T007 实锤）：五行计数不得以 Python dict 字面量形态注入
+        # （{'金': 3, …}）——LLM 会逐字回显成回复文本（评测 neg "{" 契约
+        # 失败）。与 format_compact_card 同口径：无括号计数字符串。
+        _wuxing = r.wuxing or {}
+        _wuxing_str = " ".join(f"{k}{v}" for k, v in _wuxing.items()) or "无"
         return f"""八字：{' '.join(r.bazi)}
 日主：{r.day_master}
-五行：{r.wuxing}
+五行：{_wuxing_str}
 十神：{' '.join(r.shishen)}
 格局：{r.geju}
 用神：{r.yongshen}{gender_line}

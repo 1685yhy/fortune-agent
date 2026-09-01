@@ -4,8 +4,6 @@
 """
 
 import asyncio
-import hashlib
-import json
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -51,17 +49,12 @@ def _score_to_stars(score: int) -> int:
 def _profile_fingerprint(bazi_info: Optional[dict]) -> str:
     """八字档案指纹：参与今日运势缓存键（G3b H-7）。
 
-    - 无八字 → "none"：通用版与个性化版天然分键，杜绝建档前后命中同一缓存条目；
-    - 有八字 → 档案内容排序 JSON 的 md5（year/month/day/hour/minute/gender/
-      calendar/city 等全部参与）：建档/改八字/改城市 → 指纹变化 → 旧缓存天然失效，
-      当日立即出新结果，无需在写路径上逐点清缓存；
-    - 仍按 user_id 作用域隔离（cache_scope），无跨用户 key 碰撞。
+    R1-2（T089 同源）：实现委托 src.storage.birth_profile.profile_fingerprint，
+    与对话路径（handler._profile_cache_fingerprint）共用同一指纹函数 ——
+    改城市/改档案后 calendar 与对话两条消费点的旧缓存同时失效，无漂移。
     """
-    if not bazi_info:
-        return "none"
-    return hashlib.md5(
-        json.dumps(bazi_info, sort_keys=True, ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
+    from src.storage.birth_profile import profile_fingerprint
+    return profile_fingerprint(bazi_info)
 
 
 def _generate_hourly(day_stem: str) -> list:

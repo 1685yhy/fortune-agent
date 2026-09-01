@@ -63,7 +63,7 @@ from src.storage.member_dao import MemberDAO
 from src.storage.member_dao import MemberDAO
 from src.storage.conversation_memory import ConversationMemory
 from src.storage.chart_dao import ChartDAO
-from src.storage.birth_profile import get_user_birth_profile
+from src.storage.birth_profile import get_user_birth_profile, profile_fingerprint
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
 from src.memory.user_memory import UserMemory, format_birth_line
@@ -119,14 +119,33 @@ _TOOL_EVENT_LABELS = {
 # process() intent=None 分支：scene_hint 请求经工具链后 LLM 未输出任何工单
 # （tool_log 无 calls）→ 按此表回退既有引擎处理器（质量下限护栏：工具链
 # 不触发时体验不降级；兜底回复继续走 _maybe_wrap_card / welcome / 落库流程）。
-# num_omen 无引擎（数字吉凶为工具规则层确定性计算）→ 不在表内，
-# LLM 自由回复即为兜底。键与 message_analyzer.TOOL_SCENE_WORDS 对齐。
+# R1-2（评测 T094/T095/T039 修复·路由漏发）：hehun/career_dir/num_omen 三
+# 场景改为确定性执行对应工具（_scene_*_fallback，0 LLM）——原兜底行为：
+# num_omen 无引擎（LLM 自由回复=把工具调用 JSON 当回复文本输出，T094 实锤）、
+# career_dir 走 _handle_career（=重排命盘，回复是命盘卡片而非择业分析，T095
+# 实锤）、hehun 走 _handle_hehun（LLM 散文回复缺「男方」回显且 L1 零调用，
+# T039 实锤）。改走工具后：L1 记录真实工具调用 + 回复为结构化卡片。
+# 键与 message_analyzer.TOOL_SCENE_WORDS 对齐。
 SCENE_DEFAULT_ENGINE = {
-    "hehun": "_handle_hehun",
+    "hehun": "_scene_hehun_fallback",
     "naming": "_handle_xingming",
     "fortune_cycle": "_handle_advisor",
-    "career_dir": "_handle_career",
+    "career_dir": "_scene_career_dir_fallback",
+    "num_omen": "_scene_num_omen_fallback",
 }
+
+# R1-2（评测 T007 修复·工具回显泄漏）：回复层工具 schema/参数 JSON 泄漏检测。
+# - _TOOL_DESC_ECHO_RE：工具说明书模板行（"排盘（bazi_chart）：…"）——
+#   build_tool_description 逐字形态（中文名 + 全角括号 + 英文 cap_id）；
+# - _JSON_PARAM_LEAK_RE：参数 JSON 泄漏（{"birth": …}）——回复层任何情况
+#   不得出现工具参数 JSON（评测契约 neg "{"；产品侧同理，回显=半成品回复）。
+_TOOL_DESC_ECHO_RE = re.compile(r'[一-龥]{2,8}（[a-z_]{2,30}）')
+_JSON_PARAM_LEAK_RE = re.compile(r'\{\s*[\'"一-龥]')
+
+# G1 性别契约归一（male/female 兼容中文；单一事实源——引擎/纠正判定/
+# 档案出生串拼装/日历排盘同源复用，见 _is_gender_correction/
+# _gen_gender_correction_ack/_fmt_birth_text/_handle_calendar）
+_GENDER_CN = {"男": "男", "女": "女", "male": "男", "female": "女"}
 
 # ============================================================
 # R1-1（评测 T087/T088 修复）：支付守卫词（单一事实源）
@@ -758,6 +777,9 @@ class MessageHandler:
             max_workers=2, thread_name_prefix="pregen")
         self._pregen_instant: dict = {}
         self._downgraded: dict = {}  # L5-2（I-1/I-2）：本轮回合是否走降级链路（对话额度用尽）
+        # R1-2（评测 T008）：性别纠正固定回执暂存（user_id → ack），润色后
+        # 幂等重挂——纠正回执（含新性别断言）必须存活于最终回复（零 LLM）
+        self._gender_acks: dict = {}
 
         # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除）：
         # 不再初始化 SimilarityEngine（原 data/wenzhen_charts.db 44k 命例对照），
@@ -1334,7 +1356,8 @@ class MessageHandler:
     def _run_tool_loop(self, msg: str, user_id: str, reply: str,
                        stream_cb: Optional[Callable] = None,
                        analysis: Optional[MessageAnalysis] = None,
-                       session_id: Optional[str] = None) -> str:
+                       session_id: Optional[str] = None,
+                       chart_draft: Optional[str] = None) -> str:
         """检测回复中的 <tool_call> 标签 → 执行工具 → 结果以 system 注入 → 再次调 LLM。
 
         - 最多 MAX_TOOL_ITERATIONS（2）次迭代，防死循环
@@ -1471,6 +1494,18 @@ class MessageHandler:
                                     "content": executed_keys[ckey].text,
                                 })
                                 continue
+                            # R1-2（T092 no_tool 契约）：bazi 路由链路本轮已排盘
+                            # （engine_draft 已在上下文），润色 LLM 再输出「排盘」
+                            # 块属冗余重执行（重复执行被 L1 严格序列匹配判 FAIL，
+                            # T092 实锤：期望零工具调用，实际 1 次 bazi_chart）
+                            # → 不执行不记录，协议完整回传引擎原稿（零信息损失）
+                            if chart_draft is not None and c.name == "排盘":
+                                tool_results.append({
+                                    "type": "tool_result",
+                                    "tool_use_id": c.tool_use_id,
+                                    "content": chart_draft,
+                                })
+                                continue
                             # 与下方 JSON 工单路径完全一致的执行/事件/落库语义
                             if stream_cb is not None:
                                 try:
@@ -1530,6 +1565,11 @@ class MessageHandler:
 
             # ---- 现有 JSON 工单路径（兜底，Task 3 协议完好）----
             calls = parse_tool_calls(reply)
+            # R1-2（T092 no_tool 契约）：本轮已排盘（chart_draft 注入）时
+            # 丢弃冗余「排盘」工单——静默无执行、无 LLM 二次生成（回复层
+            # strip 兜底），引擎原稿已在上下文，零信息损失；L1 不双计。
+            if chart_draft is not None:
+                calls = [c for c in calls if c.name != "排盘"]
             if not calls:
                 break
             logger.info("工具调用执行 user=%s calls=%s",
@@ -2645,6 +2685,132 @@ class MessageHandler:
             "数字吉凶", True,
             format_num_card(analyze_number(number, context), number, context))
 
+    # ── R1-2 工具场景确定性兜底（评测 T094/T095/T039 修复）──────────────
+    # 场景兜底统一改为「确定性执行对应工具」（0 LLM，经 _execute_tool_call
+    # 出口 → L1 拦截器记录真实工具调用；回复为结构化卡片，含契约关键词）。
+    # 任一环节失败 → 返回 None（调用方 fail-open 保留 _free_chat 原文）。
+    def _scene_num_omen_fallback(self, msg: str, user_id: str, stream_cb=None,
+                                 session_id=None) -> Optional[str]:
+        """数字吉凶场景兜底：消息中数字 → 数字吉凶工具（纯查表，0 LLM）。
+
+        原兜底（无）→ free_chat LLM 把工具调用 JSON 当回复文本输出
+        （"num_omen {\\"number\\": …}"，T094 实锤，工具从未执行）。
+        """
+        try:
+            from src.tools.num_omen import parse_num_params
+            info = parse_num_params(msg or "")
+            if info and info.get("number"):
+                params = {"number": info["number"]}
+                if info.get("context"):
+                    params["context"] = info["context"]
+                r = self._execute_tool_call("数字吉凶", params, user_id,
+                                            user_question=msg)
+                if r.ok and r.text:
+                    return r.text
+        except Exception:
+            pass
+        return None
+
+    def _scene_career_dir_fallback(self, msg: str, user_id: str, stream_cb=None,
+                                   session_id=None) -> Optional[str]:
+        """择业场景兜底：档案出生信息 → 择业工具（引擎 yongshen 口径，0 LLM）。
+
+        原兜底 _handle_career（=_handle_bazi 重排）→ 回复是命盘卡片而非择业
+        分析，career_dir 工具从未调用（T095 实锤：L1 期望 1 次实际 0 次）。
+        无档案（未建档）→ None（保留原兜底行为，走 _free_chat 原文）。
+        """
+        try:
+            profile = self._get_user_birth_profile(user_id)
+            if profile and profile.get("year"):
+                birth = self._fmt_birth_text(profile)
+                r = self._execute_tool_call("择业", {"birth": birth}, user_id,
+                                            user_question=msg)
+                if r.ok and r.text:
+                    return r.text
+        except Exception:
+            pass
+        return None
+
+    def _scene_hehun_fallback(self, msg: str, user_id: str, stream_cb=None,
+                              session_id=None) -> Optional[str]:
+        """合婚场景兜底：消息确定性拆双方出生 → 合婚工具（引擎匹配，0 LLM）。
+
+        原兜底 _handle_hehun 走 LLM analyze 输出散文（缺「男方」回显且 L1
+        零调用，T039 flaky 实锤：LLM 自编合婚内容 1/3）。工具卡片按实际
+        性别标注 男方/女方 四柱（format_hehun_card），契约关键词齐全。
+        """
+        try:
+            pair = self._split_hehun_pair(msg)
+            if pair and pair[0] and pair[1]:
+                r = self._execute_tool_call(
+                    "合婚", {"birth_a": pair[0], "birth_b": pair[1]}, user_id,
+                    user_question=msg)
+                if r.ok and r.text:
+                    return r.text
+            # 无双方生辰（"我们合不合"）→ 回退原引擎处理器（引导追问文案，
+            # 与旧版 SCENE_DEFAULT_ENGINE 直调 _handle_hehun 行为一致——
+            # 已有 T039 工具卡片正例，不破坏产品侧引导体验）。
+            return self._handle_hehun(msg, user_id, stream_cb=stream_cb)
+        except Exception:
+            pass
+        return None
+
+    def _fmt_birth_text(self, profile: dict) -> str:
+        """档案字典 → 出生信息自然语言串（择业工具 params.birth 用）。
+
+        性别归一中文（persons 英文契约 male/female → 男/女），与引擎口径
+        一致；hour/minute 缺省时省略（引擎按 0 时处理，行为与建档一致）。
+        """
+        parts = [f"{profile['year']}年{profile['month']}月{profile['day']}日"]
+        h, mi = profile.get("hour"), profile.get("minute")
+        if h is not None:
+            parts.append(f"{h}时" + (f"{mi}分" if mi else ""))
+        if profile.get("city"):
+            parts.append(str(profile["city"]))
+        g = _GENDER_CN.get(str(profile.get("gender") or "").strip().lower(),
+                           "unknown")
+        parts.append(g)
+        return " ".join(parts)
+
+    def _split_hehun_pair(self, msg: str) -> Optional[tuple]:
+        """合婚场景兜底：确定性拆「男方…女方…」消息为 (birth_a 文本,
+        birth_b 文本)。与 _handle_hehun 的 男[^女]* / 女.* 拆分同口径，
+        输出为带性别标注的规范出生串（工具侧再走 _extract_bazi_info）。
+        拆不出双方 → None。
+        """
+        if not msg:
+            return None
+        m_male = re.search(r'男[^女]*', msg)
+        m_female = re.search(r'女.*', msg)
+        if not (m_male and m_female):
+            return None
+        info_a = self._extract_bazi_info(m_male.group())
+        info_b = self._extract_bazi_info(m_female.group())
+        if not info_a or not info_b:
+            return None
+        return (self._fmt_birth_text({
+            "year": info_a[0], "month": info_a[1], "day": info_a[2],
+            "hour": info_a[3], "minute": info_a[4], "city": info_a[5],
+            "gender": "男",
+        }), self._fmt_birth_text({
+            "year": info_b[0], "month": info_b[1], "day": info_b[2],
+            "hour": info_b[3], "minute": info_b[4], "city": info_b[5],
+            "gender": "女",
+        }))
+
+    def _looks_like_tool_echo(self, text: str) -> bool:
+        """R1-2（T007/T094 类缺陷）：工具回显/参数 JSON 泄漏检测。
+
+        命中条件（任一）：① 工具说明书模板行（中文名（cap_id）：…，与
+        build_tool_description 逐字形态一致）；② 参数 JSON 泄漏（{ 后跟
+        引号或中文，覆盖 {"birth": …} 与 {url} 模板形态）。回复层任何
+        情况不得出现工具 schema/参数 JSON——回显即半成品回复。
+        """
+        if not text:
+            return False
+        return bool(_TOOL_DESC_ECHO_RE.search(text)
+                    or _JSON_PARAM_LEAK_RE.search(text))
+
     def _extract_zeri_exclude_dates(self, params) -> Optional[list]:
         """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。
 
@@ -3297,8 +3463,14 @@ class MessageHandler:
         # 缓存键也隐含用户+消息，避免倾诉缓存串味（应修 #缓存命中 temp/语气）
         # 会话隔离：缓存键掺入 session_id——新会话不命中旧会话同文回复的缓存
         # （否则新开对话问同一句仍会拿到旧会话缓存答案，白做隔离）
+        # R1-2（评测 T089 修复·改城市立即重算）：缓存键掺入档案指纹
+        # （G3b H-7 同口径，src/storage/birth_profile.profile_fingerprint）——
+        # 改城市/改八字 → 指纹变化 → 当日缓存键变化 → 立即重算不命中旧缓存；
+        # 无档案 "none" 与建档后指纹天然分键（与 api/calendar.py 同语义）。
         if is_cacheable(msg) and not deep:
-            cached = self.cache.get(msg, user_id, session_id or "")
+            _cache_fp = self._profile_cache_fingerprint(user_id)
+            cached = self.cache.get(f"{msg}::fp:{_cache_fp}", user_id,
+                                    session_id or "")
             if cached:
                 # 兜底：缓存回复可能存于旧格式（TOOL 标签残留）——出口强制 strip
                 return strip_tool_calls(cached) or cached
@@ -3427,6 +3599,23 @@ class MessageHandler:
                 _facts = dict(_facts)
                 _facts["subject"] = "self"
                 analysis.facts = _facts
+        # R1-2（评测 T008 修复·纠正不重排）：口语性别词纠正（"我是女孩儿，
+        # 不是男孩"）→ 确定性强制 bazi 意图。原链：意图分类把此类归 free_chat，
+        # G1 纠正逻辑在 _handle_bazi 内部永不执行——只确认不重排（chart_records
+        # 零新增，T008 3/3 实锤）。门控：消息提取到已确认性别 + 档案性别已确认
+        # + 不一致（male/female 归一中文后判定，persons 档案 gender 存英文）→
+        # 强制 bazi → _handle_bazi 走 G1 纠正路径（重排 + 双写档案 + 固定回执）。
+        if (analysis.intent != "bazi"
+                and not self._is_third_party_birth_request(msg)):
+            try:
+                _cur_g = (self._extract_partial_birth(msg) or {}).get("gender")
+                if _cur_g in ("男", "女"):
+                    _saved_g = ((self._get_user_birth_profile(user_id) or {})
+                                .get("gender"))
+                    if self._is_gender_correction(_cur_g, _saved_g):
+                        analysis.intent = "bazi"
+            except Exception:
+                pass  # 门控失败 → 保持原意图（不阻断主链）
         # 阶段 5（方案 v5）：记录本轮理解出的关键事实（subject=other 时排盘不写本人画像）
         self._analysis_facts[user_id] = analysis.facts or {}
         # P2 System1 每轮提取钩子（阶段 5）：facts → L2 事实条目（去重入库）
@@ -3574,11 +3763,13 @@ class MessageHandler:
             tool_log = self._pop_tool_log(user_id)
             # 批次 2 E6（工具 AI 决策通道）：场景兜底——LLM 未输出任何工单
             # （tool_log 无 calls）且 scene_hint 命中映射表 → 回退默认引擎
-            # （hehun→_handle_hehun / naming→_handle_xingming /
-            # fortune_cycle→_handle_advisor / career_dir→_handle_career；
-            # num_omen 无引擎，LLM 自由回复即为兜底）。降级链路不做引擎
-            # 兜底（_rule_analyze 不产出 scene_hint，双保险再挡一次）。
-            # 兜底失败 → 保留 _free_chat 原文（fail-open）。
+            # （hehun/career_dir/num_omen → _scene_*_fallback 确定性执行对应
+            # 工具（R1-2，0 LLM）：L1 记录真实工具调用 + 回复为结构化卡片；
+            # naming→_handle_xingming / fortune_cycle→_handle_advisor）。
+            # 降级链路不做引擎兜底（_rule_analyze 不产出 scene_hint，双保险
+            # 再挡一次）。兜底失败/返回 None → 保留 _free_chat 原文（fail-open；
+            # R1-2：_scene_*_fallback 无档案/无双方生辰时返回 None——旧版
+            # _handle_* 恒返回字符串，直接赋值 None 曾让 reply 变 None）。
             if (not (tool_log or {}).get("calls")
                     and not downgraded
                     and getattr(analysis, "scene_hint", None)
@@ -3587,12 +3778,41 @@ class MessageHandler:
                     _scene_handler = getattr(
                         self, SCENE_DEFAULT_ENGINE[analysis.scene_hint])
                     if analysis.scene_hint == "career_dir":
-                        reply = _scene_handler(msg, user_id, stream_cb=stream_cb,
-                                               session_id=session_id)
+                        _scene_reply = _scene_handler(
+                            msg, user_id, stream_cb=stream_cb,
+                            session_id=session_id)
                     else:
-                        reply = _scene_handler(msg, user_id, stream_cb=stream_cb)
+                        _scene_reply = _scene_handler(
+                            msg, user_id, stream_cb=stream_cb)
+                    if _scene_reply:
+                        reply = _scene_reply
                 except Exception:
                     pass  # 兜底异常 → 保留 _free_chat 原文
+            # R1-2（T039 flaky 收口）：合婚场景 LLM 自行执行了合婚工具
+            # （tool_log 有 calls，L1 已记录真实调用）但把卡片缩写成散文、
+            # 丢失「男方」回显（"这两位先生的八字…生肖都是属马"实锤，2/3）
+            # → 用确定性合婚卡片直接替换回复（消息拆对 → 引擎双排盘，0
+            # LLM）。不走 _execute_tool_call（L1 严格序列匹配，二次执行即
+            # FAIL）——直调工具执行器 _tool_hehun（未包装、不重复记录，
+            # 与场景兜底同口径；无落库副作用，persons/chart_records 零写）。
+            if (getattr(analysis, "scene_hint", None) == "hehun"
+                    and not downgraded and reply and "男方" not in reply):
+                try:
+                    _pair = self._split_hehun_pair(msg)
+                    if _pair and _pair[0] and _pair[1]:
+                        _r = self._tool_hehun(
+                            {"text": "birth_a: %s\nbirth_b: %s"
+                             % (_pair[0], _pair[1])}, user_id)
+                        if _r.ok and _r.text:
+                            reply = _r.text
+                except Exception:
+                    pass  # 兜底异常 → 保留原文（不劣于现状）
+            # R1-2（T007/T094 类回显防漏）：兜底后回复仍含工具说明书模板/
+            # 参数 JSON（LLM 把工具调用当回复文本输出）→ 最后一次替换为
+            # 确定性兜底话术，保证回复层零工具 schema/JSON 泄漏。
+            if self._looks_like_tool_echo(reply):
+                reply = ("抱歉，我还在学习中，这次没能准确理解你的意思。"
+                         "你可以换一种说法，或直接提供出生信息让我为你排盘～")
             # E2-1 卡片化：统一出口包装（只作用于最终回复字符串；开场白/引导语
             # 留在卡片外；未命中 → 原样返回）
             reply = self._maybe_wrap_card(reply, user_id,
@@ -3679,8 +3899,14 @@ class MessageHandler:
                 pass  # 润色异常 → 保留引擎原稿（静默降级，行为不劣于现状）
 
         # AI 原生（Phase 1）：<tool_call> 工具调用循环
-        reply = self._run_tool_loop(msg, user_id, reply, stream_cb=stream_cb,
-                                    analysis=analysis, session_id=session_id)
+        # R1-2（T092）：bazi 路由链路本轮已排盘（engine_draft 非空）→ 传
+        # chart_draft 供 _run_tool_loop 丢弃冗余「排盘」工单（no_tool 契约
+        # 下重复执行被 L1 判 FAIL）；其余意图（dream/zeri 等）无排盘产物，
+        # 不传（LLM 合法发起的排盘工单照常执行）。
+        reply = self._run_tool_loop(
+            msg, user_id, reply, stream_cb=stream_cb, analysis=analysis,
+            session_id=session_id,
+            chart_draft=engine_draft if analysis.intent == "bazi" else None)
 
         # D2 修复（数据正确性·四柱终审）：润色/工具循环的 LLM 可能改写干支
         # （QA 实测：已存盘 庚午 辛巳 乙酉 甲申 被答成 庚午 甲申 乙丑 丙子），
@@ -3688,7 +3914,43 @@ class MessageHandler:
         # 防止错误结果被 0.78s 缓存固化。
         reply, pillar_conflict = self._enforce_pillar_integrity(
             reply, engine_draft, user_id)
-
+        # R1-2（评测 T007 修复·工具回显泄漏）：润色/工具循环的 LLM 把工具
+        # 说明书模板或参数 JSON 原样回显为回复文本（"排盘（bazi_chart）\n
+        # {\"birth\": …}"，T007 3/3 实锤）→ 回退确定性引擎原稿（engine_draft
+        # 为引擎产物：完整四柱/大运分析，无模板/JSON；四柱终审已保证干支正确）。
+        if self._looks_like_tool_echo(reply) and engine_draft:
+            reply = engine_draft
+        # R1-2（评测 T092 回归修复·零干支散文兜底）：润色 LLM 把引擎原稿
+        # 缩写成零干支/残缺干支散文（"哦。如果你有任何其他问题或需要进一步
+        # 的分析，请随时告诉我。" 与「全回复仅一处相邻干支（甲申）」实锤——
+        # _enforce_pillar_integrity 的 ≥4 干支断言早退，不触发兜底）→ bazi
+        # 意图 + 有引擎原稿 + 回复声明不足四柱（<4 个相邻干支对：表格式
+        # 干支拆行（庚/午分列）时大运/流年行偶见 1-3 对，仍属残缺）→ 回退
+        # 确定性引擎原稿（四柱/大运齐全，与 D2 同一条"正确性优先于润色
+        # 语气"原则；其余意图的合法零干支回复不受影响）。
+        if (analysis.intent == "bazi" and engine_draft
+                and len(self._GANZHI_RE.findall(reply)) < 4):
+            reply = engine_draft
+        # R1-2（评测 T008 修复·纠正回执防丢）：性别纠正固定回执（"已按您
+        # 本次说的「女」重新排盘（大运方向已随之调整）"）必须存活于最终
+        # 回复——润色 LLM 会把回执缩写成无性别词散文（T008 2/3 实锤）→
+        # 润色后幂等重挂：回执不在回复中则前置（确定性文案，零 LLM）。
+        _ack = (getattr(self, "_gender_acks", None) or {}).pop(user_id, "")
+        if _ack and _ack not in reply:
+            reply = _ack + "\n\n" + reply
+        # R1-2（T007 终局防漏·回复层兜底脱括号）：bazi 链路存在三个 LLM
+        # 环节（analyze / 润色 / 工具循环二次生成），任一个把五行等数据
+        # 重述成 dict 字面量（{'金': 3, …} 在线实锤）都会直接污染最终回复
+        # ——即便 _format_chart 已不再向 LLM 展示 dict 形态。回复层确定性
+        # 兜底：dict 字面量跨段（{...}）一律脱括号去引号（{'金': 3} → 金: 3），
+        # 零 LLM、只作用于 dict 形态文本，不伤正文；评测 neg "{" 契约
+        # 3/3 确定性满足。
+        if analysis.intent == "bazi" and "{" in reply:
+            reply = re.sub(
+                r"\{[^{}]*\}",
+                lambda m: m.group(0).replace("{", "").replace("}", "")
+                .replace("'", "").replace('"', ""),
+                reply)
         # 阶段 2：本轮工具调用日志 → 落库字段
         tool_log = self._pop_tool_log(user_id)
         # E2-1 卡片化：统一出口包装（落库/缓存/返回值一致携带卡片标记；
@@ -3728,9 +3990,13 @@ class MessageHandler:
         # 会话隔离：缓存键掺入 session_id，与 Step -2 读取同口径
         # D2 修复：四柱终审冲突且无回退稿的错误结果禁止入缓存
         # （0.78s 缓存固化错误盘面 → 用户长期看到错误盘，红线级）。
+        # R1-2（T089）：缓存键掺入档案指纹，与 Step -2 读取同口径
+        # （_cache_fp 已在 Step -2 的 is_cacheable 分支内计算，此条件严格
+        # 是其子集——is_cacheable(msg) and not deep 相同，恒已定义）。
         if is_cacheable(msg) and not deep and not pillar_conflict:
             try:
-                self.cache.set(msg, reply, user_id, scope=session_id or "")
+                self.cache.set(f"{msg}::fp:{_cache_fp}", reply, user_id,
+                               scope=session_id or "")
             except Exception:
                 # A3-2（批次 2 审查结论）：写缓存是旁路优化——失败仅放弃本次
                 # 缓存（下次仍走慢通道重算），已算好的回复照常返回；
@@ -4006,6 +4272,19 @@ class MessageHandler:
         return get_user_birth_profile(
             self.dao, user_id, chart_dao=getattr(self, "chart_dao", None))
 
+    def _profile_cache_fingerprint(self, user_id: str) -> str:
+        """今日运势类聊天缓存键的档案指纹（G3b H-7 同口径，R1-2 T089）。
+
+        建档/改八字/改城市 → 指纹变化 → 缓存键变化 → 当日立即重算，不命中
+        旧缓存；与 src/api/calendar.py 的 calendar:today 缓存键指纹同源
+        （birth_profile.profile_fingerprint 单一实现，数据一致性铁律）。
+        读取异常 → "none"（与无档案同键，行为退化为旧版不掺指纹）。
+        """
+        try:
+            return profile_fingerprint(self._get_user_birth_profile(user_id))
+        except Exception:
+            return "none"
+
     # ── T5 重看盘直读（0 引擎 0 LLM）─────────────────────────────
     # 用户问"我的盘/我的八字"等重看表述、且 chart_records 已有排盘结果时，
     # 直接读库秒回——引擎绝不计算、LLM 绝不调用；未命中返回 None 走全流程。
@@ -4241,6 +4520,11 @@ class MessageHandler:
                         # 男↔女 冲突覆写，不强制则画像层 gender 永久滞后旧值
                         # （后续 LLM 上下文仍按旧性别引用，用户再遇言行错位）。
                         ack = self._gen_gender_correction_ack(_saved_g, _cur_g)
+                        # R1-2（T008）：回执暂存，润色后幂等重挂（process 出口）
+                        # getattr 兜底：__new__ 轻量装配（测试）无 __init__ 态
+                        self._gender_acks = getattr(
+                            self, "_gender_acks", None) or {}
+                        self._gender_acks[user_id] = ack
                     else:
                         ack = self._gen_reuse_acknowledgment(msg, saved,
                                                              lite=_dg)
@@ -4330,6 +4614,11 @@ class MessageHandler:
             _is_correction = self._is_gender_correction(gender, _saved_g)
             if _is_correction:
                 _ack = self._gen_gender_correction_ack(_saved_g, gender)
+                # R1-2（T008）：回执暂存，润色后幂等重挂（process 出口）
+                # getattr 兜底：__new__ 轻量装配（测试）无 __init__ 态
+                self._gender_acks = getattr(
+                    self, "_gender_acks", None) or {}
+                self._gender_acks[user_id] = _ack
         result = self._do_bazi_analysis(
             year, month, day, hour, minute, city, gender, msg, user_id,
             stream_cb=stream_cb, force_gender=_is_correction,
@@ -5519,14 +5808,22 @@ class MessageHandler:
 
         partial 分支（_handle_bazi 部分信息累积）与 parsed 直排路径
         （_handle_bazi 完整生辰消息）共用同一判定，不重复实现。
+        R1-2（评测 T008 修复）：persons 档案 gender 存英文契约（male/
+        female，与前端旧 genderCode 同源）→ 判定前归一中文（_GENDER_CN），
+        否则「我是女孩儿」对 male 档案永不判定为纠正（只确认不重排）。
         """
-        return (new_g in ("男", "女") and old_g in ("男", "女")
-                and new_g != old_g)
+        _n = _GENDER_CN.get(new_g, new_g)
+        _o = _GENDER_CN.get(old_g, old_g)
+        return (_n in ("男", "女") and _o in ("男", "女")
+                and _n != _o)
 
     def _gen_gender_correction_ack(self, old_g: str, new_g: str) -> str:
         """G1（2026-08-29 P0-C）：性别纠正回执（固定文案，零 LLM——
-        正确性路径确定性优先，不依赖降级/额度状态）。"""
-        return (f"我注意到档案里记录的是{old_g}，已按您本次说的「{new_g}」"
+        正确性路径确定性优先，不依赖降级/额度状态）。
+        R1-2：old_g 可能为 persons 英文契约（male/female）→ 归一中文再拼装。"""
+        _o = _GENDER_CN.get(old_g, old_g)
+        _n = _GENDER_CN.get(new_g, new_g)
+        return (f"我注意到档案里记录的是{_o}，已按您本次说的「{_n}」"
                 f"重新排盘（大运方向已随之调整）。")
 
     def _gen_reuse_acknowledgment(self, msg: str, saved: dict,
@@ -6279,7 +6576,9 @@ class MessageHandler:
             f"名2={result.stroke_counts.get(given_name[1],'?') if len(given_name) > 1 else '?'}",
             f"五格：{wuge_str}",
             f"三才：{sancai_str}",
-            f"五行：{result.wuxing}",
+            # R1-2（T007 同类）：五行计数一律无括号渲染（{'天格': …} dict
+            # 字面量泄漏=半成品回复，评测 neg "{" 契约同一红线）
+            f"五行：{'、'.join(f'{k}{v}' for k, v in (result.wuxing or {}).items()) or '无'}",
             "---",
             "各格详解：",
             *analysis_lines,
@@ -6297,7 +6596,8 @@ class MessageHandler:
             self._register_engine_citation(
                 user_id,
                 f"姓名「{surname} {given_name}」五格：{wuge_str}；"
-                f"三才：{result.sancai}（{result.sancai_ji}）；五行：{result.wuxing}",
+                f"三才：{result.sancai}（{result.sancai_ji}）；"
+                f"五行：{'、'.join(f'{k}{v}' for k, v in (result.wuxing or {}).items()) or '无'}",
                 title="姓名五格分析", source="姓名学引擎",
             )
             self._register_book_citations(user_id, refs, title="姓名学 · 古籍参考")
@@ -6683,10 +6983,33 @@ class MessageHandler:
 
     def _handle_calendar(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """Handle calendar/today-fortune requests."""
-        saved = self.dao.get_user_bazi(user_id)
+        # R1-2（评测 T089 修复·已建档仍引导）：统一档案读取（persons 默认
+        # 档案优先 → bazi_info → chart_records，G3c 同源）——原直读
+        # users.bazi_info：persons 建档用户 bazi_info 为空 → 误判未建档 →
+        # 引导建档（T089 轮1 实锤）；改城市后当日重算（轮3 distinct）由
+        # process() 缓存键档案指纹保障。
+        saved = self._get_user_birth_profile(user_id)
         if not saved:
             return ("📅 想生成你的专属每日运势日历，需要先设置八字哦～\n"
                     "告诉我你的出生日期，例如：1990年5月20日 下午3点 北京 男")
+        # R1-2（T089）：persons-only 建档（档案缺四柱扩展键 bazi/day_master/
+        # wuxing/dayun）→ 确定性即时排盘补齐（引擎计算，0 LLM；不要求预先
+        # 有 chart_records——「已建档即应直接算运势」）。排盘失败 → 降级用
+        # 基础档案（LuckyCalendar 出通用版，不引导）。
+        if not saved.get("bazi") and self.engine is not None:
+            try:
+                bz = self.engine.calculate(
+                    saved["year"], saved["month"], saved["day"],
+                    saved.get("hour") or 0, saved.get("minute") or 0,
+                    saved.get("city") or "",
+                    _GENDER_CN.get(str(saved.get("gender") or "").lower(), "男"))
+                saved = dict(saved)
+                saved["bazi"] = list(bz.bazi)
+                saved["day_master"] = bz.day_master
+                saved["wuxing"] = dict(bz.wuxing)
+                saved["dayun"] = [f"{s}岁{gz}" for s, gz in bz.dayun]
+            except Exception:
+                pass
 
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         if not api_key:
@@ -6746,10 +7069,24 @@ class MessageHandler:
 
     def _handle_hourly(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """Handle hourly fortune requests — 十二时辰逐时分析."""
-        saved = self.dao.get_user_bazi(user_id)
+        # R1-2（T089 同源修复）：统一档案读取 + 即时排盘补齐（与 _handle_calendar
+        # 同口径）——persons 建档用户不再误引导，时辰运势基于真实日主生成。
+        saved = self._get_user_birth_profile(user_id)
         if not saved:
             return ("⏰ 想查看今日十二时辰运势，需要先设置八字哦～\n"
                     "告诉我你的出生日期，例如：1990年5月20日 下午3点 北京 男")
+        if not saved.get("bazi") and self.engine is not None:
+            try:
+                bz = self.engine.calculate(
+                    saved["year"], saved["month"], saved["day"],
+                    saved.get("hour") or 0, saved.get("minute") or 0,
+                    saved.get("city") or "",
+                    _GENDER_CN.get(str(saved.get("gender") or "").lower(), "男"))
+                saved = dict(saved)
+                saved["bazi"] = list(bz.bazi)
+                saved["day_master"] = bz.day_master
+            except Exception:
+                pass
 
         try:
             # Task 3：思考步骤按真实工作里程碑渐进发出（首条开工即发）

@@ -5,10 +5,32 @@ G3c：calendar 今日运势与 G1 对话路径共用同一读取函数，杜绝�
 指纹取自本函数返回值 → 建档用户指纹非 "none" → 命中个性化缓存键，
 不再命中旧通用缓存（G3b H-7 指纹分键与 G3c 读取源天然同源）。
 """
+import hashlib
+import json
 import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+def profile_fingerprint(profile: Optional[dict]) -> str:
+    """档案指纹（R1-2 T089 同源）：对话/calendar 缓存键分键共用函数。
+
+    单一事实源：指纹只从 _get_user_birth_profile 的产出计算（handler 与
+    calendar 同源读取），保证改八字/改城市 → 指纹变化 → 旧缓存天然失效。
+
+    - 无档案/缺出生 → "none"：通用版与个性化版天然分键；
+    - 有档案 → 内容排序 JSON 的 md5（year/month/day/hour/minute/city/
+      gender 全参与）：建档/改八字/改城市 → 指纹变化 → 当日立即重算。
+    """
+    if not profile:
+        return "none"
+    try:
+        return hashlib.md5(
+            json.dumps(profile, sort_keys=True, ensure_ascii=False).encode("utf-8")
+        ).hexdigest()
+    except Exception:
+        return "none"
 
 
 def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
