@@ -193,9 +193,11 @@ class TestCalendar:
                          "love": {"score": 5.5, "desc": "感情稳"},
                          "health": {"score": 7.0, "desc": "健康佳🌿"}},
         }, ensure_ascii=False)
-        resp = mock.Mock()
-        resp.json.return_value = {"content": [{"type": "text", "text": llm_text}]}
-        with mock.patch("src.engines.calendar.httpx.post", return_value=resp) as m:
+        # R2-3：calendar 直调已改走统一路由（src.llm.client.deepseek_anthropic_completion，
+        # 函数内 import 调用期解析模块属性）——mock 目标随之切换；mock 返回未经 client
+        # 层 strip 的文本，验证日历侧幂等 strip 兜底仍生效。
+        with mock.patch("src.llm.client.deepseek_anthropic_completion",
+                        return_value=llm_text) as m:
             day = LuckyCalendar(api_key="test-key").daily(
                 {"bazi": ["庚午", "辛巳", "乙酉", "甲申"], "day_master": "乙木",
                  "wuxing": {"金": 3}, "current_dayun": "壬午"},
