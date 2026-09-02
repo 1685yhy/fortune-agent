@@ -45,7 +45,7 @@
     </view>
 
     <view class="form-group">
-      <text class="form-label">出生地 <text class="form-opt">选填 · 不选默认北京 · 用于真太阳时校准</text></text>
+      <text class="form-label">出生地 <text class="form-opt">选填 · 不选默认北京 · 当前按北京时间排盘，出生地留档（真太阳时功能上线后可校准）</text></text>
       <place-picker value="{{bCity}}" placeholder="选择省 / 市" bindchange="onCityChange" />
     </view>
 

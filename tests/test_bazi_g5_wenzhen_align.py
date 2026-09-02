@@ -56,7 +56,8 @@ ANCHORS = [
                          ids=[a[0] for a in ANCHORS])
 def test_qiyun_sui_desc_5_anchors(name, birth, gender, city, qy_detail, qy_sui, jy_text, bazi):
     """5 案例 qiyun_sui_desc 与问真「X岁X个月起运」逐字一致（含 60 分不进位、0 月案例）。"""
-    r = ENGINE.calculate(*birth, city, gender)
+    # R2-1：真太阳时默认关（问真口径），锚点断言基于修正开口径 → 显式传 solar_time=True
+    r = ENGINE.calculate(*birth, city, gender, solar_time=True)
     # 数据一致性：实岁串取 qiyun_detail 年/月位（60 分不进位不影响月位）
     assert r.qiyun_sui_desc == qy_sui == "%d岁%d个月起运" % (qy_detail[0], qy_detail[1])
     # qiyun_detail 逐位对齐问真 qiyunarr（前 5 位）
@@ -67,14 +68,14 @@ def test_qiyun_sui_desc_5_anchors(name, birth, gender, city, qy_detail, qy_sui, 
 
 def test_qiyun_sui_desc_60min_no_carry_case():
     """60 分不进位怪癖案例（问真 qiyunarr [9,10,4,6,60,10]）：月位不受 60 分影响 → 9岁10个月。"""
-    r = ENGINE.calculate(2016, 2, 4, 23, 30, "深圳", "男")
+    r = ENGINE.calculate(2016, 2, 4, 23, 30, "深圳", "男", solar_time=True)
     assert list(r.qiyun_detail) == [9, 10, 4, 6, 60]
     assert r.qiyun_sui_desc == "9岁10个月起运"
 
 
 def test_qiyun_sui_desc_zero_month_case():
     """0 个月案例（问真 qiyunarr [3,0,20,20,8,4]）→ 3岁0个月起运（0 月不可省略）。"""
-    r = ENGINE.calculate(1985, 6, 15, 8, 20, "乌鲁木齐", "男")
+    r = ENGINE.calculate(1985, 6, 15, 8, 20, "乌鲁木齐", "男", solar_time=True)
     assert r.qiyun_sui_desc == "3岁0个月起运"
 
 
@@ -107,16 +108,19 @@ def test_dst_table_matches_public_history():
 
 def test_dst_default_off_zero_change():
     """默认关 = 现行为零变化：不传/传 False 输出逐位一致。"""
-    base = ENGINE.calculate(1987, 6, 1, 10, 0, "北京", "男")
-    off = ENGINE.calculate(1987, 6, 1, 10, 0, "北京", "男", daylight_saving=False)
+    # R2-1：本组断言基于真太阳时修正开口径 → 显式传 solar_time=True
+    base = ENGINE.calculate(1987, 6, 1, 10, 0, "北京", "男", solar_time=True)
+    off = ENGINE.calculate(1987, 6, 1, 10, 0, "北京", "男", daylight_saving=False,
+                           solar_time=True)
     assert base.corrected_time == off.corrected_time == "09:47"
     assert list(base.bazi) == list(off.bazi)
 
 
 def test_dst_in_window_minus_one_hour_before_correction():
     """表内生日开档：修正前原始时间减 1 小时（真太阳时修正后整 1 小时提前）。"""
-    off = ENGINE.calculate(1987, 6, 1, 10, 0, "北京", "男")
-    on = ENGINE.calculate(1987, 6, 1, 10, 0, "北京", "男", daylight_saving=True)
+    off = ENGINE.calculate(1987, 6, 1, 10, 0, "北京", "男", solar_time=True)
+    on = ENGINE.calculate(1987, 6, 1, 10, 0, "北京", "男", daylight_saving=True,
+                          solar_time=True)
     assert off.corrected_time == "09:47"
     assert on.corrected_time == "08:47"  # 修正前 10:00→09:00，再走真太阳时
 
@@ -125,8 +129,9 @@ def test_dst_out_of_window_no_change():
     """表外生日开档 → 不变（非夏令时年份 1992 / 区间外日期 / 1986 首年起始日前）。"""
     for birth in [(1988, 3, 1, 10, 0), (1992, 6, 1, 10, 0), (1986, 5, 3, 10, 0),
                   (1986, 9, 15, 10, 0), (1991, 4, 13, 10, 0)]:
-        off = ENGINE.calculate(*birth, "北京", "男")
-        on = ENGINE.calculate(*birth, "北京", "男", daylight_saving=True)
+        off = ENGINE.calculate(*birth, "北京", "男", solar_time=True)
+        on = ENGINE.calculate(*birth, "北京", "男", daylight_saving=True,
+                               solar_time=True)
         assert on.corrected_time == off.corrected_time
         assert list(on.bazi) == list(off.bazi)
 
@@ -134,25 +139,32 @@ def test_dst_out_of_window_no_change():
 def test_dst_boundaries_inclusive_0200():
     """边界闭区间含边界：起始日 02:00（含）、结束日 02:00（含）减 1 小时；01:59/02:01 不减。"""
     # 1987 起始 04-12 02:00：含边界 → 减 1 小时（01:00 → 修正后 00:44）
-    at_start = ENGINE.calculate(1987, 4, 12, 2, 0, "北京", "男", daylight_saving=True)
+    at_start = ENGINE.calculate(1987, 4, 12, 2, 0, "北京", "男", daylight_saving=True,
+                                solar_time=True)
     assert at_start.corrected_time == "00:44"
     # 01:59 → 不减（01:43，与关档一致）
-    before = ENGINE.calculate(1987, 4, 12, 1, 59, "北京", "男", daylight_saving=True)
+    before = ENGINE.calculate(1987, 4, 12, 1, 59, "北京", "男", daylight_saving=True,
+                              solar_time=True)
     assert before.corrected_time == "01:43"
     # 1987 结束 09-13 02:00：含边界 → 减 1 小时
-    at_end = ENGINE.calculate(1987, 9, 13, 2, 0, "北京", "男", daylight_saving=True)
+    at_end = ENGINE.calculate(1987, 9, 13, 2, 0, "北京", "男", daylight_saving=True,
+                              solar_time=True)
     assert at_end.corrected_time == "00:50"
     # 02:01 → 不减
-    after = ENGINE.calculate(1987, 9, 13, 2, 1, "北京", "男", daylight_saving=True)
+    after = ENGINE.calculate(1987, 9, 13, 2, 1, "北京", "男", daylight_saving=True,
+                             solar_time=True)
     assert after.corrected_time == "01:51"
     # 对照：同刻关档为未减时间
-    assert ENGINE.calculate(1987, 4, 12, 2, 0, "北京", "男").corrected_time == "01:44"
-    assert ENGINE.calculate(1987, 9, 13, 2, 0, "北京", "男").corrected_time == "01:50"
+    assert ENGINE.calculate(1987, 4, 12, 2, 0, "北京", "男",
+                            solar_time=True).corrected_time == "01:44"
+    assert ENGINE.calculate(1987, 9, 13, 2, 0, "北京", "男",
+                            solar_time=True).corrected_time == "01:50"
 
 
 def test_dst_cross_midnight_rolls_to_previous_day():
     """减 1 小时跨日：00:30 开档 → 前一日 23:30 再修正（23:18），排盘走前日盘。"""
-    on = ENGINE.calculate(1987, 6, 1, 0, 30, "北京", "男", daylight_saving=True)
+    on = ENGINE.calculate(1987, 6, 1, 0, 30, "北京", "男", daylight_saving=True,
+                          solar_time=True)
     assert on.corrected_time == "23:18"
 
 
@@ -169,10 +181,11 @@ def test_late_child_hour_anchor_1990_0101_2300():
 
 def test_late_child_hour_default_off_is_existing_behavior():
     """默认关 = 现行为：23:40 北京（修正后 23:21）→ 日柱次日（问真 P2 李明 丁卯）。"""
-    r = ENGINE.calculate(1990, 1, 1, 23, 40, "北京", "男")
+    r = ENGINE.calculate(1990, 1, 1, 23, 40, "北京", "男", solar_time=True)
     assert r.corrected_time == "23:21"
     assert list(r.bazi) == ["己巳", "丙子", "丁卯", "庚子"]
-    on = ENGINE.calculate(1990, 1, 1, 23, 40, "北京", "男", late_child_hour=True)
+    on = ENGINE.calculate(1990, 1, 1, 23, 40, "北京", "男", late_child_hour=True,
+                          solar_time=True)
     assert list(on.bazi) == ["己巳", "丙子", "丙寅", "庚子"]
 
 
@@ -192,8 +205,9 @@ def test_late_child_hour_non_late_hour_zero_effect():
 def test_late_child_hour_true_solar_exit_window_p5():
     """真太阳时交互-退晚子时（问真 P5 刘洋）：23:30 深圳 → 修正 22:52 退出晚子时段，
     档位无关（双档逐位一致，含四柱/起运/交运）。"""
-    off = ENGINE.calculate(2016, 2, 4, 23, 30, "深圳", "男")
-    on = ENGINE.calculate(2016, 2, 4, 23, 30, "深圳", "男", late_child_hour=True)
+    off = ENGINE.calculate(2016, 2, 4, 23, 30, "深圳", "男", solar_time=True)
+    on = ENGINE.calculate(2016, 2, 4, 23, 30, "深圳", "男", late_child_hour=True,
+                          solar_time=True)
     assert off.corrected_time == on.corrected_time == "22:52"
     assert list(on.bazi) == list(off.bazi) == ["丙申", "庚寅", "丙辰", "己亥"]
     assert list(on.qiyun_detail) == list(off.qiyun_detail) == [9, 10, 4, 6, 60]
@@ -204,8 +218,9 @@ def test_late_child_hour_true_solar_enter_window():
     """真太阳时交互-跨入晚子时：22:52 长春 → 修正 23:01 落入晚子时段 → 档位生效。
     开档日柱 = 修正日当天（己巳，独立以 lunar-python 校验），关档 = 次日（庚午）；
     时柱双档均为庚午日五鼠遁丙子（与问真「时柱按次日日干」口径一致）。"""
-    off = ENGINE.calculate(1990, 3, 5, 22, 52, "长春", "男")
-    on = ENGINE.calculate(1990, 3, 5, 22, 52, "长春", "男", late_child_hour=True)
+    off = ENGINE.calculate(1990, 3, 5, 22, 52, "长春", "男", solar_time=True)
+    on = ENGINE.calculate(1990, 3, 5, 22, 52, "长春", "男", late_child_hour=True,
+                          solar_time=True)
     assert off.corrected_time == on.corrected_time == "23:01"
     # 独立校验：修正日 1990-03-05 日柱 = 己巳，次日 1990-03-06 = 庚午（lunar-python 直查）
     assert Solar.fromYmdHms(1990, 3, 5, 12, 0, 0).getLunar().getEightChar().getDay() == "己巳"
@@ -220,7 +235,7 @@ def test_late_child_hour_true_solar_enter_window():
                          ids=[a[0] for a in ANCHORS])
 def test_jiaoyun_5_anchors_match_wenzhen(name, birth, gender, city, qy_detail, qy_sui, jy_text, bazi):
     """5 案例交运表述与问真逐字一致（干支年/节名/节后天数；P3 修复后 12 天对齐）。"""
-    r = ENGINE.calculate(*birth, city, gender)
+    r = ENGINE.calculate(*birth, city, gender, solar_time=True)
     assert r.jiaoyun["page_text"] == jy_text
 
 
@@ -228,7 +243,7 @@ def test_jiaoyun_p3_was_boundary_case():
     """P3 陈静（G5 差异原案例）：节后 12 天（问真）；修复后交运时刻 2001-10-21 10:31。
     根因=问真不截断日历加法（1999-12-31 23:07 + 1年9月 → 2001-10-01 而非 09-30），
     距寒露 12.9 天 → floor=12；非舍入规则差异。"""
-    r = ENGINE.calculate(2000, 1, 1, 0, 15, "成都", "女")
+    r = ENGINE.calculate(2000, 1, 1, 0, 15, "成都", "女", solar_time=True)
     jy = r.jiaoyun
     assert jy["jie"] == "寒露" and jy["days_after_jie"] == 12
     assert jy["time"] == "2001-10-21 10:31"
@@ -261,7 +276,10 @@ def test_bazi_input_new_fields_default_off():
     """BaziInput 新字段默认 False（旧请求零影响）；显式传 True 可开。"""
     m = BaziInput(year=1999, month=5, day=13, hour=6, minute=25, gender="male", city="北京")
     assert m.daylightSaving is False and m.lateChildHour is False
+    assert m.solarTime is False
     assert BaziInput().daylightSaving is False and BaziInput().lateChildHour is False
+    assert BaziInput().solarTime is False
+    assert BaziInput(solarTime=True).solarTime is True
 
 
 def _client():
@@ -277,9 +295,12 @@ def _headers():
 
 def test_serialize_bazi_includes_qiyun_sui_desc():
     """serialize_bazi 输出含 qiyun_sui_desc（实岁串），与 qiyun_detail 年/月位一致。"""
+    # R2-1：断言基于北京真太阳时修正口径（12:25→修正 12:14→起运 26天1时）——
+    # 显式传 solarTime: true 保持原断言（默认关口径下为 27天0时，见 R2-1 复测）
     body = _client().post("/api/paipan", json={
         "birthYear": 1999, "birthMonth": 5, "birthDay": 13,
         "birthHour": 6, "minute": 25, "gender": "male", "city": "北京",
+        "solarTime": True,
     }, headers=_headers()).json()
     assert body["qiyun_sui_desc"] == "2岁4个月起运"          # 闫海洋盘（北京真太阳时口径）
     # R1-3（T045 午时校准）：午时序号 6 → 时钟小时 12（原 11 → 真太阳时

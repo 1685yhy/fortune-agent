@@ -119,8 +119,12 @@ def test_r13_engine_wushi_noon_hour_pillar_anchor():
     eng = BaziEngine()
     noon = eng.calculate(2019, 3, 15, 12, 0, "北京", "男")
     assert noon.bazi[3] == "甲午", noon.bazi
-    bug_hour = eng.calculate(2019, 3, 15, 11, 0, "北京", "男")
-    assert bug_hour.bazi[3] == "癸巳"  # 锁死 11 点错例：证明 12 点修复是必要的
+    # R2-1（问真口径默认关）：11:00 默认关直接午时甲午——错位窗口消失（新默认
+    # 口径即问真排盘）；显式开修正仍锁 R1-3 期行为（修正 10:35 → 巳时癸巳，
+    # 正是 R2-1 修复的错位，属开关功能回归）
+    assert eng.calculate(2019, 3, 15, 11, 0, "北京", "男").bazi[3] == "甲午"
+    bug_hour = eng.calculate(2019, 3, 15, 11, 0, "北京", "男", solar_time=True)
+    assert bug_hour.bazi[3] == "癸巳"  # 修正开仍锁 11 点错例（开关回归锚点）
 
 
 # ============================================================

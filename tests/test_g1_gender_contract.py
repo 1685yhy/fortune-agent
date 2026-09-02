@@ -124,28 +124,34 @@ def test_g1_partial_full_birth_with_spoken_gender():
 # ================================================================
 
 def test_g1_engine_female_english_equals_chinese():
-    """female 与 女 完全同盘：P15 1999-02-26 07:00 北京 → 阴年女顺排
-    起运 2年8月12天 → 虚岁3岁丁卯大运。"""
+    """female 与 女 完全同盘：1999-02-26 07:00 北京 → 阴年女顺排
+    起运 2年8月9天19时 → 虚岁3岁丁卯大运。
+
+    R2-1（问真口径默认关）修正：默认关下 07:00 北京时间 = 辰时（时柱戊辰；
+    旧锚点 丁卯 为修正开口径 06:3x 卯时 的 R1-3 期实测值，本批起默认关）。"""
     from src.engines.bazi import BaziEngine
     eng = BaziEngine()
     r_cn = eng.calculate(1999, 2, 26, 7, 0, "北京", "女")
     r_en = eng.calculate(1999, 2, 26, 7, 0, "北京", "female")
-    assert r_en.bazi == r_cn.bazi == ["己卯", "丙寅", "己酉", "丁卯"]
-    assert list(r_en.qiyun_detail) == list(r_cn.qiyun_detail) == [2, 8, 12, 3, 24]
-    assert r_en.qiyun_desc == r_cn.qiyun_desc == "出生后2年8月12天3时起运"
+    assert r_en.bazi == r_cn.bazi == ["己卯", "丙寅", "己酉", "戊辰"]
+    assert list(r_en.qiyun_detail) == list(r_cn.qiyun_detail) == [2, 8, 9, 19, 24]
+    assert r_en.qiyun_desc == r_cn.qiyun_desc == "出生后2年8月9天19时起运"
     assert r_en.dayun == r_cn.dayun
     assert r_en.dayun[0] == (3, "丁卯")  # 虚岁3岁丁卯大运（女命顺排）
     assert r_en.gender == "女"
 
 
 def test_g1_engine_male_english_equals_chinese():
-    """male 与 男 完全同盘：阴年男逆排 → 起运 7年2月17天（8岁乙丑）。"""
+    """male 与 男 完全同盘：阴年男逆排 → 起运 7年2月20天（8岁乙丑）。
+
+    R2-1（问真口径默认关）修正：默认关实测 7年2月20天5时54分
+    （旧锚 7年2月17天21时54分 为修正开口径的 R1-3 期实测值）。"""
     from src.engines.bazi import BaziEngine
     eng = BaziEngine()
     r_cn = eng.calculate(1999, 2, 26, 7, 0, "北京", "男")
     r_en = eng.calculate(1999, 2, 26, 7, 0, "北京", "male")
     assert r_en.bazi == r_cn.bazi
-    assert list(r_en.qiyun_detail) == list(r_cn.qiyun_detail) == [7, 2, 17, 21, 54]
+    assert list(r_en.qiyun_detail) == list(r_cn.qiyun_detail) == [7, 2, 20, 5, 54]
     assert r_en.dayun == r_cn.dayun
     assert r_en.dayun[0] == (8, "乙丑")
     assert r_en.gender == "男"
