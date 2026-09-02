@@ -1,11 +1,12 @@
 """多盘对比（P1-2）：POST /api/duipan — 锚点 + 晚子时 + 同时辰 + 确定性 + 鉴权 + 校验。
 
-锚点盘：1999-05-13 长春 男（与 test_paipan_api 同生日，长春真太阳时 +25 分钟）：
+锚点盘：1999-05-13 长春 男（与 test_paipan_api 同生日；R2-1 起真太阳时默认关，
+    北京时间直接排盘——长春不再修正，锚点值均为默认关实测 2026-09-02）：
     辰时（序号4 → 07:00）：己卯 己巳 乙丑 庚辰（时柱庚辰，十神正官）
-    午时（序号6 → 11:00）：己卯 己巳 乙丑 壬午（时柱壬午，十神正印）
+    午时（序号6 → 12:00，R1-3 午时取中点）：己卯 己巳 乙丑 壬午（时柱壬午，十神正印）
     仅时柱变：庚辰→壬午；五行 金1木2水0火1土4 → 金0木2水1火2土3；
     用神核心同为「水」（喜用由 水、木 → 水、金、火）；格局同为偏财格；
-    起运同为 3 岁（起运分解差 20 天：2年4月2天 vs 2年4月22天）；大运序列相同。
+    起运同为 3 岁（起运分解差 25 天：2年3月29天22时 vs 2年4月24天21时）；大运序列相同。
 晚子时锚点：亥时（序号10 → 19:00）vs 子时（序号0 → 23:00 晚子时归次日 5/14）：
     日柱 乙丑→丙寅、日主 乙木→丙火（晚子时按次日排盘说明）。
 """
@@ -114,10 +115,10 @@ def test_duipan_anchor_chen_vs_wu():
     dy = d["dayun"]
     assert dy["start_same"] is True and dy["a_start"] == dy["b_start"] == 3
     assert dy["start_gap"] == 0
-    assert dy["a_qiyun"] == "出生后2年4月2天0时起运"
-    # R1-3（T045 午时校准）：b 侧午时序号 6 → 时钟小时 12，起运分解
-    # 22天0时 → 27天0时（a 侧辰时不变，差异 20 天 → 25 天）。
-    assert dy["b_qiyun"] == "出生后2年4月27天0时起运"
+    # R2-1（问真口径默认关）：默认关实测值（修正开旧锚 a/b = 2年4月2天0时 /
+    # 2年4月27天0时——R1-3 期锚，duipan 无真太阳时开关、产品路径取默认关）
+    assert dy["a_qiyun"] == "出生后2年3月29天22时起运"
+    assert dy["b_qiyun"] == "出生后2年4月24天21时起运"
     assert dy["sequence_same"] is True
     assert dy["a"][0] == {"sui": 3, "ganzhi": "戊辰"} == dy["b"][0]
     assert len(dy["a"]) == len(dy["b"]) == 12
@@ -267,18 +268,23 @@ def test_compare_summary_rule_templates():
 
 # ---------------------------------------------------------------- P1-2审查 I1：晚子时按修正后小时判定
 def test_duipan_i1_note_no_false_late_zi_beijing():
-    """I1：北京 23:00 真太阳时修正后 22:4x（未达晚子时、日柱当日）——
-    note 输出"修正后未达晚子时"，不得假报晚子时/按次日排盘。"""
+    """I1（R2-1 口径更新）：晚子时按排盘时刻判定——默认关（问真口径）下北京
+    23:00 即晚子时 → 归次日（note 如实报晚子时/次日，非假报）；修正开（真太阳
+    时开关）下 23:00 → 22:4x 未达晚子时 → 日柱当日——原 I1 审计语义
+    「不按修正后小时假报晚子时」仅修正开成立（开关功能本身，引擎级断言保留）。"""
     eng = BaziEngine()
     r23 = eng.calculate(2026, 8, 16, 23, 0, "北京", "男")    # 输入 23 点（子时）
     r11 = eng.calculate(2026, 8, 16, 11, 0, "北京", "男")    # 输入 11 点（午时）
-    assert r23.corrected_time.startswith("22:")               # 修正后未达晚子时
-    assert r23.bazi[2] == r11.bazi[2]                         # 日柱当日（与午时同日柱）
+    assert r23.corrected_time == "23:00"                      # 默认关不修正
+    assert r23.bazi[2] != r11.bazi[2]                         # 晚子时 → 次日日柱
+    r23_on = eng.calculate(2026, 8, 16, 23, 0, "北京", "男", solar_time=True)
+    assert r23_on.corrected_time.startswith("22:")            # 修正开 22:4x
+    assert r23_on.bazi[2] == r11.bazi[2]                      # 修正开未达晚子时 → 当日
 
-    r = compare_pans((2026, 8, 16), 23, 6, "北京", "男")      # 23:00 vs 午时 11:00
+    r = compare_pans((2026, 8, 16), 23, 6, "北京", "男")      # 默认关 23:00 vs 午时
     note = r["diff"]["day_master"]["note"]
-    assert "修正后未达晚子时" in note
-    assert "次日" not in note
+    assert "晚子时" in note and "次日" in note                # 默认关如实报晚子时归次日
+    assert "修正后未达晚子时" not in note
 
 
 def test_duipan_i1_note_late_zi_changchun():
@@ -304,12 +310,14 @@ def test_duipan_i2_same_shichen_qiyun_diff_not_masked():
     r7 = eng.calculate(1999, 5, 13, 7, 0, "长春", "男")     # 辰时 7:00
     r8 = eng.calculate(1999, 5, 13, 8, 0, "长春", "男")     # 辰时 8:00
     assert r7.bazi == r8.bazi == ["己卯", "己巳", "乙丑", "庚辰"]  # 四柱全同
-    assert r7.qiyun_desc == "出生后2年4月2天0时起运"
-    assert r8.qiyun_desc == "出生后2年4月7天0时起运"                 # 起运分解差 5 天
+    # R2-1（问真口径默认关）：起运分解字符串为默认关实测（修正开旧锚
+    # 2年4月2天0时 / 2年4月7天0时——差异同 5 天，本批起取默认关值）
+    assert r7.qiyun_desc == "出生后2年3月29天22时起运"
+    assert r8.qiyun_desc == "出生后2年4月4天21时起运"                 # 起运分解差 5 天
     assert r7.dayun[0][0] == r8.dayun[0][0] == 3                    # 起运岁数仍同为 3 岁
 
     s = compare_summary(r7, r8, (7, 8))
     assert "四柱完全相同" in s                                      # 不再早退"无差异"
     assert "无差异" not in s
     assert "起运分解" in s and "相差5天" in s
-    assert "出生后2年4月2天0时起运" in s and "出生后2年4月7天0时起运" in s
+    assert "出生后2年3月29天22时起运" in s and "出生后2年4月4天21时起运" in s

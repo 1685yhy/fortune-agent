@@ -108,7 +108,7 @@ async def paipan(req: BaziInput, uid: str = Depends(require_user)):
     result = _bazi_engine.calculate(
         person.year, person.month, person.day,
         person.hour, person.minute, person.city, person.gender,
-        person.daylightSaving, person.lateChildHour)
+        person.daylightSaving, person.lateChildHour, person.solarTime)
     body = serialize_bazi(result, _bazi_engine, person)
     # 排盘结果落库 chart_records（重看 0 重跑；本人排盘，命主档案不强制绑定）
     if _db_path:

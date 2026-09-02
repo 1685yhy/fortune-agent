@@ -101,8 +101,10 @@ def test_tool_bazi_writes_chart(tmp_path):
     assert tr.ok
     r = h.chart_dao.get_latest_chart("u2")
     assert r is not None
-    # 真太阳时修正后引擎确定性输出（北京 15:00 → 未时；与对话排盘同源同口径）
-    assert r["bazi_json"]["bazi"] == ["庚午", "辛巳", "乙酉", "癸未"]
+    # R2-1 问真口径默认关：北京 15:00 北京时间直接排盘 = 申时 → 时柱甲申
+    # （修正开旧口径 15:00 → 未时癸未；默认关下 15:00 与 15:30 同为甲申——
+    # 与 T007 契约 15:00→14:30 的迁移理由一致）
+    assert r["bazi_json"]["bazi"] == ["庚午", "辛巳", "乙酉", "甲申"]
     assert r["bazi_json"]["day_master"] == "乙木"
     assert r["birth"]["gender"] == "男"
 

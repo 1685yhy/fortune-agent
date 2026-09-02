@@ -1,8 +1,11 @@
-"""真太阳时修正测试 — 对齐问真口径（经度修正 + 均时差）。
+"""真太阳时修正测试 — 修正功能本体（经度修正 + 均时差）。
 
-口径：用户填北京时间出生 → 按出生地经度修正为真太阳时后排全盘。
-  真太阳时 = 北京时间 + (经度-120)*4分钟 + 均时差
+口径：真太阳时 = 北京时间 + (经度-120)*4分钟 + 均时差；
   不传 city / 未知城市 → 不修正（兼容原行为）。
+R2-1（2026-09-02，问真口径对齐）：calculate 加 solar_time 开关且默认关——
+  本文件排盘类用例全部显式传 solar_time=True 继续测修正功能本身
+  （测的是开关功能本身，与 R2-1 默认关不冲突；默认关用例见
+  test_bazi_r21_solar_time_default_off.py）。
 锚点（问真网页）：长春 1999-05-13 10:56 → 修正 ~11:21 → 午时 → 时柱壬午。
 """
 from datetime import date
@@ -74,7 +77,7 @@ def test_cross_day_correction():
 
 def test_changchun_wenzhen_anchor():
     """问真锚点：长春 1999-05-13 10:56 男 → 修正 11:21 午时 → 时柱壬午，全盘与问真一致。"""
-    r = ENGINE.calculate(1999, 5, 13, 10, 56, "长春", "男")
+    r = ENGINE.calculate(1999, 5, 13, 10, 56, "长春", "男", solar_time=True)
     assert r.bazi == ["己卯", "己巳", "乙丑", "壬午"], r.bazi
     assert r.dayun[0][0] == 3  # 起运虚岁与问真一致（修正后起运距离）
 
@@ -82,8 +85,8 @@ def test_changchun_wenzhen_anchor():
 def test_yushu_matches_jilin_city():
     """榆树 1999-05-13 10:55 男 → 修正 11:24 午时 → 时柱壬午；
     与吉林市（经度差 0.02°）同输入全盘完全一致。"""
-    a = ENGINE.calculate(1999, 5, 13, 10, 55, "榆树", "男")
-    b = ENGINE.calculate(1999, 5, 13, 10, 55, "吉林市", "男")
+    a = ENGINE.calculate(1999, 5, 13, 10, 55, "榆树", "男", solar_time=True)
+    b = ENGINE.calculate(1999, 5, 13, 10, 55, "吉林市", "男", solar_time=True)
     assert a.corrected_time == "11:24"
     assert a.corrected_time == b.corrected_time
     assert a.bazi == b.bazi == ["己卯", "己巳", "乙丑", "壬午"]
@@ -97,13 +100,13 @@ def test_beijing_unchanged():
 
 def test_urumqi_evening_goes_to_you():
     """乌鲁木齐 2000-06-01 20:00 → 17:52 酉时（不做修正则为戌时 丙戌，修正后 乙酉）。"""
-    r = ENGINE.calculate(2000, 6, 1, 20, 0, "乌鲁木齐", "男")
+    r = ENGINE.calculate(2000, 6, 1, 20, 0, "乌鲁木齐", "男", solar_time=True)
     assert r.bazi[3] == "乙酉", r.bazi
 
 
 def test_urumqi_late_night_same_day():
     """乌鲁木齐 23:30 → 21:22 亥时，不跨日：日柱不变（2000-06-01 庚寅）。"""
-    r = ENGINE.calculate(2000, 6, 1, 23, 30, "乌鲁木齐", "女")
+    r = ENGINE.calculate(2000, 6, 1, 23, 30, "乌鲁木齐", "女", solar_time=True)
     assert r.bazi[2] == "庚寅", r.bazi
     assert r.bazi[3] == "丁亥", r.bazi
 
@@ -111,7 +114,7 @@ def test_urumqi_late_night_same_day():
 def test_cross_day_backwards_pillars():
     """跨日（提前）：乌鲁木齐 2000-06-01 00:10 → 修正 2000-05-31 22:02，
     四柱应按修正后日期（前一日）排全盘。"""
-    r = ENGINE.calculate(2000, 6, 1, 0, 10, "乌鲁木齐", "男")
+    r = ENGINE.calculate(2000, 6, 1, 0, 10, "乌鲁木齐", "男", solar_time=True)
     expected = ENGINE.calculate(2000, 5, 31, 22, 2, "", "男")  # 不修正口径
     assert r.bazi == expected.bazi, f"{r.bazi} != {expected.bazi}"
     assert r.dayun == expected.dayun
@@ -119,7 +122,7 @@ def test_cross_day_backwards_pillars():
 
 def test_cross_day_forward_pillars():
     """跨日（推迟）：长春 1999-05-13 23:40 → 修正 1999-05-14 00:05，日柱用次日。"""
-    r = ENGINE.calculate(1999, 5, 13, 23, 40, "长春", "女")
+    r = ENGINE.calculate(1999, 5, 13, 23, 40, "长春", "女", solar_time=True)
     expected = ENGINE.calculate(1999, 5, 14, 0, 5, "", "女")
     assert r.bazi == expected.bazi, f"{r.bazi} != {expected.bazi}"
     assert r.bazi[2] != "乙丑"  # 日柱确已跨到次日
