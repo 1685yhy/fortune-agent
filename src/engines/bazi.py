@@ -443,8 +443,8 @@ class BaziResult:
     qiyun_desc: str = ""          # 起运描述 "出生后2年4月22天0时起运"（问真排盘页口径，P0-1）
     qiyun_sui_desc: str = ""      # 起运实岁串 "9岁5个月起运"（G5 新增，问真实岁口径，取分解年/月位）
     corrected_time: str = ""      # 实际排盘时刻 "HH:MM"（P1-2审查I1：晚子时/归日判定与引擎同口径；
-                                  # 引擎按排盘时刻判定归日，输出文案须用同一口径；R2-1 起
-                                  # solar_time 默认关 = 北京时间原样，开启时 = 真太阳时修正后）
+                                  # 引擎按排盘时刻判定归日，输出文案须用同一口径；R2-4 起
+                                  # solar_time 默认开 = 真太阳时修正后，用户显式关闭 = 北京时间原样）
     jiaoyun: dict = field(default_factory=dict)  # 交运信息（问真口径，P0-1）：见 _calc_jiaoyun
     siling: str = ""              # 人元司令天干（问真排盘页"司令：X"口径，P0-1）
     siling_detail: dict = field(default_factory=dict)  # 司令分野明细 {gan,days,elapsed,remaining,...}
@@ -557,19 +557,19 @@ class BaziEngine:
                   hour: int, minute: int, city: str,
                   gender: str, daylight_saving: bool = False,
                   late_child_hour: bool = False,
-                  solar_time: bool = False) -> BaziResult:
+                  solar_time: bool = True) -> BaziResult:
         """排八字命盘
 
         P1-3: 当 gender 为 "unknown" 时，默认按男排盘（大运顺排），
         但在结果中标注性别未知。
-        R2-1（2026-09-02，问真口径对齐——用户拍板）：
-        - solar_time=False 默认关=问真口径：不做真太阳时修正，北京时间直接排盘
-          （时辰按北京时间自然划分；午时边界 11:00-12:00 出生与问真默认一致排午时）。
-          问真 App 真太阳时默认关、用户手动开才修正，本默认与之对齐；
-          city 传值与否在默认关下不影响排盘（仅留档）。
-        - solar_time=True = 开关保留（问真用户手动开场景）：按出生地经度 + 均时差
-          修正为真太阳时后排全盘（原无条件修正行为）；不传 city / 未知城市 →
-          不修正。
+        R2-4（2026-09-03，产品裁决反转默认——用户原始指令「真太阳时默认开启，
+        但可以允许用户关闭」；R2-1 曾默认关对齐问真 App 默认态，本批反转）：
+        - solar_time=True 默认开=产品口径：按出生地经度 + 均时差修正为真太阳时
+          后排全盘（修正更准，且修正后=问真开状态口径，与问真一致性成立）；
+          不传 city / 未知城市 → 不修正（无经度可校，原样排）。
+        - solar_time=False = 用户关闭场景：不做真太阳时修正，北京时间直接排盘
+          （时辰按北京时间自然划分）——关闭后=北京时间口径=问真默认态
+          （与问真一致性在「用户关闭后」成立）。
         G5（2026-08-30，问真口径对齐）：
         - daylight_saving=False 默认关=现行为零变化；开启时若出生时刻（北京时间，
           修正前原始时间）落在 DST_TABLE 区间内（闭区间含边界）→ 先减 1 小时
@@ -578,7 +578,8 @@ class BaziEngine:
         - late_child_hour=False 默认关=现行为零变化（23:00-24:00 日柱/农历日按次日）；
           开启（=问真早晚子时专业档 yzs=1）时 23:00-24:00 日柱/农历日按当天，
           时柱仍按次日日干五鼠遁（lunar-python 默认口径恰为该规则，直接不换日）。
-          判定基于实际排盘时刻（solar_time 开 = 真太阳时修正后；默认关 = 北京时间）。
+          判定基于实际排盘时刻（solar_time 开（含默认）= 真太阳时修正后；
+          用户显式关闭 = 北京时间）。
         """
         # P1-3: Handle unknown gender — default to 男 for calculation
         # G1（2026-08-29 P0-A）：性别契约统一 —— 兼容历史 male/female
@@ -601,20 +602,20 @@ class BaziEngine:
                     _raw -= timedelta(hours=1)
                     year, month, day, hour, minute = (
                         _raw.year, _raw.month, _raw.day, _raw.hour, _raw.minute)
-        # R2-1 真太阳时开关（默认关=问真口径）：False 不调用 _true_solar_time，
-        # 北京时间直接排盘；True = 原修正逻辑（北京时间 → 出生地真太阳时：
-        # 经度修正 + 均时差，修正可能跨日——如 23:40 长春 → 次日 00:05，
-        # 此时按修正后的日期排全部四柱）。
+        # R2-4 真太阳时开关（默认开=产品口径，R2-1 默认关已反转）：False = 用户
+        # 关闭 → 不做 _true_solar_time 修正、北京时间直接排盘；True（默认）=
+        # 修正逻辑（北京时间 → 出生地真太阳时：经度修正 + 均时差，修正可能跨日——
+        # 如 23:40 长春 → 次日 00:05，此时按修正后的日期排全部四柱）。
         if solar_time:
             year, month, day, hour, minute = self._true_solar_time(
                 year, month, day, hour, minute, city)
         # 暴露实际排盘时刻（P1-2审查I1）：晚子时/归日判定须与引擎同口径——
         # solar_time 开时输入 23:00 修正后可能未达 23 点（如北京 22:41，非晚子时、
-        # 日柱当日）；默认关则即北京时间原样。
+        # 日柱当日）；默认开=修正后时刻，用户显式关闭则即北京时间原样。
         corrected_time = "%02d:%02d" % (hour, minute)
         # 处理晚子时 (23:00-23:59): 使用次日日期, 时柱仍为子时
-        # 起运距离用实际排盘时刻（solar_time 开 = 真太阳时修正后；默认关 = 北京
-        # 时间）计算（问真口径），故保留该时刻
+        # 起运距离用实际排盘时刻（solar_time 开（含默认）= 真太阳时修正后；
+        # 显式关 = 北京时间）计算（问真口径），故保留该时刻
         orig_birth = (year, month, day, hour, minute)
         # G5 早晚子时专业档（late_child_hour=1，问真 yzs=1）：23:00-24:00 不换日，
         # 日柱/农历日按当天、时柱按次日日干五鼠遁——lunar-python 默认口径（sect=2）

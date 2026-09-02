@@ -273,13 +273,15 @@ def test_jiaoyun_unclamped_calendar_add_direct():
 # ═══════════════════════ ⑤ 契约（零破坏） ═══════════════════════
 
 def test_bazi_input_new_fields_default_off():
-    """BaziInput 新字段默认 False（旧请求零影响）；显式传 True 可开。"""
+    """BaziInput 新字段默认值：daylightSaving/lateChildHour 默认 False（旧请求
+    零影响）；solarTime R2-4（2026-09-03 产品裁决）反转默认 True（所有排盘统一
+    默认开），显式传 False 可关。"""
     m = BaziInput(year=1999, month=5, day=13, hour=6, minute=25, gender="male", city="北京")
     assert m.daylightSaving is False and m.lateChildHour is False
-    assert m.solarTime is False
+    assert m.solarTime is True
     assert BaziInput().daylightSaving is False and BaziInput().lateChildHour is False
-    assert BaziInput().solarTime is False
-    assert BaziInput(solarTime=True).solarTime is True
+    assert BaziInput().solarTime is True
+    assert BaziInput(solarTime=False).solarTime is False
 
 
 def _client():
