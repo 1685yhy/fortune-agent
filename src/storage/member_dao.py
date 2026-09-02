@@ -269,7 +269,17 @@ class MemberDAO:
             conn.close()
 
     def use_quota(self, user_id: str) -> bool:
-        """Decrement quota (mark one query used). Returns True if successful."""
+        """Mark one query as used. Returns True if quota was consumed.
+
+        R2-2（额度限流修复）：满额（used >= limit）不再重置——旧实现把 free
+        用户的 queries_used 重置为 1（「免费用户永远能聊」软化设计），而聊天
+        路径的 _consume_quota 在择日额度门（_check_quota）之前执行 → 重置后
+        门检查 remaining = limit-1 > 0 → 门永不触发，免费用户可无限调引擎。
+        修复：满额不 UPDATE、保持 used=limit、返回 False（未扣成）。三个
+        调用方（handler._consume_quota / main.py / chat_stream.py）均忽略
+        返回值，语义兼容（不新增依赖）。memberships 零写入红线延续：此处
+        无 INSERT；未满扣减照常 +1。
+        """
         conn = self._connect()
         try:
             row = conn.execute(
@@ -283,30 +293,17 @@ class MemberDAO:
                 # 用户生效，无行用户永不因额度门被挡）。
                 return True
 
-            if row:
-                limit, used = row
-                if limit is not None and used >= limit:
-                    # For free users, try reset
-                    plan_row = conn.execute(
-                        "SELECT plan FROM memberships WHERE user_id = ?",
-                        (user_id,),
-                    ).fetchone()
-                    if plan_row and plan_row[0] == "free":
-                        conn.execute(
-                            "UPDATE memberships SET queries_used=1 WHERE user_id=? AND plan='free'",
-                            (user_id,),
-                        )
-                        conn.commit()
-                        return True
-                    return False
+            limit, used = row
+            if limit is not None and used >= limit:
+                # R2-2：满额不再重置——额度门（_check_quota）据此真触发
+                return False
 
-                conn.execute(
-                    "UPDATE memberships SET queries_used = queries_used + 1 WHERE user_id = ?",
-                    (user_id,),
-                )
-                conn.commit()
-                return True
-            return False
+            conn.execute(
+                "UPDATE memberships SET queries_used = queries_used + 1 WHERE user_id = ?",
+                (user_id,),
+            )
+            conn.commit()
+            return True
         finally:
             conn.close()
 
