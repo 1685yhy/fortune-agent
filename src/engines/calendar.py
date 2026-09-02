@@ -14,8 +14,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 
-import httpx
-
 from src.utils.text_clean import strip_emoji
 
 
@@ -281,47 +279,38 @@ class LuckyCalendar:
         )
 
         try:
-            # Bugfix（原实现每次 20s+ 且 content 为空）：
-            # - 走原生 /v1/chat/completions 时 deepseek-v4-flash 是推理模型，
-            #   max_tokens 需同时容纳 reasoning_content 与 content：1500 时推理
-            #   占满配额 → content 为空（finish_reason=length）；即使加大到 8000
-            #   也要 30s+，逼近前端 30s 超时。
-            # - 改为与主聊天一致的 Anthropic 兼容端点 + deepseek-v4-flash[1m]，
-            #   并显式 thinking: {"type": "disabled"} 关闭推理：实测约 4.5s 返回
-            #   完整 JSON（不关闭时完整 prompt 的 thinking 会占满 2000 tokens）。
-            resp = httpx.post(
-                "https://api.deepseek.com/anthropic/v1/messages",
-                headers={
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                    "anthropic-version": "2023-06-01",
-                },
-                json={
-                    "model": "deepseek-v4-flash[1m]",
-                    "max_tokens": 2000,
-                    "thinking": {"type": "disabled"},
-                    "messages": [{"role": "user", "content": prompt}],
-                },
+            # R2-3：日历 LLM 直调 → 统一 LLM 路由层（src/llm/client.py）。
+            # 根因：评测装配只 patch src.llm.client 模块级函数 deepseek_anthropic_completion
+            # （l1_eval.py llm_client.deepseek_anthropic_completion = _routed），旧代码在此
+            # httpx 直连硬编码 deepseek 端点 → 评测环境 key 失效（401）→ 静默降级规则模板。
+            # 端点/模型同值性（与旧直调逐项对照，生产零行为差异）：
+            # - URL：client 层常量 ANTHROPIC_MESSAGES_URL == 旧硬编码字面量（同值）；
+            # - model：传 "deepseek-v4-flash"，client 层 _anthropic_model_name 映射为
+            #   "deepseek-v4-flash[1m]"（== 旧硬编码字面量）；
+            # - thinking：_anthropic_payload 恒带 {"type": "disabled"}（与旧直调同语义）；
+            # - max_tokens=2000 / timeout=60.0 与旧直调同值；旧直调省略 temperature →
+            #   DeepSeek 服务端默认（官方文档推荐 1.0），此处显式传 1.0 同值；
+            # - messages 结构与旧直调等价（单 user 消息，prompt 原样内联）。
+            # 注：旧直调走 Anthropic 兼容端点 + deepseek-v4-flash[1m] + thinking disabled
+            # 的历史原因（仍适用）：原生 /v1/chat/completions 下 deepseek-v4-flash 为推理
+            # 模型，reasoning_content 占满 max_tokens → content 为空；[1m] 变体实测约 4.5s
+            # 返回完整 JSON。client 层 _anthropic_payload 与上述语义一致，等效保留。
+            # 空/错误响应：client 层空文本抛 ValueError、上游错误抛 RuntimeError →
+            # 均落入下方 except 兜底（_fallback_calendar），降级行为与旧实现一致。
+            # 注意：函数内 import（调用期解析模块属性）——模块顶层 from-import 会在
+            # 评测装配 patch 前绑定函数对象，patch 将不生效（本批同族 zeri_checklist
+            # 顶层 import + deepseek_anthropic_messages 未 patch 为范围外，见 report）。
+            from src.llm.client import deepseek_anthropic_completion
+            content = deepseek_anthropic_completion(
+                self.api_key,
+                messages=[{"role": "user", "content": prompt}],
+                model="deepseek-v4-flash",
+                max_tokens=2000,
+                temperature=1.0,
                 timeout=60.0,
             )
-            resp_data = resp.json()
-            if "error" in resp_data:
-                import logging
-                logging.getLogger(__name__).warning(f"Calendar API error: {resp_data['error']}")
-                raise ValueError(str(resp_data['error']))
-            # Anthropic 格式：content 为 blocks 数组，取 text block
-            content = ""
-            for block in resp_data.get("content", []):
-                if block.get("type") == "text":
-                    content = strip_emoji(block.get("text", "").strip())
-                    break
-            if not content:
-                # 无 text block / content 为空，必须降级到 fallback
-                import logging
-                logging.getLogger(__name__).warning(
-                    f"Calendar API returned empty content (stop_reason={resp_data.get('stop_reason')}) — using fallback"
-                )
-                raise ValueError("Empty content from LLM")
+            # client 层已 strip_emoji，此处再 strip 为幂等兜底（评测 mock 可能含 emoji）
+            content = strip_emoji(content).strip()
             data = self._parse_json(content)
             if not data:
                 import logging
