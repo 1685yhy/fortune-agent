@@ -3157,6 +3157,9 @@ class MessageHandler:
                 saved = None
         if not saved:
             return None
+        # R2-6（同类残余直喂点）：存储档案可能是 lunar 原始 y/m/d（R2-5 后
+        # 带 calendar 标记）→ 本机排盘补全前单点转公历（引擎契约=公历输入）
+        saved = self._solarize_birth(saved)
         bazi = saved.get("bazi") or []
         # 表单选填八字: 解析字段 dict 无四柱 → 排盘补全(引擎异常 → 放弃, None 兜底不误伤)
         if not bazi and saved.get("year"):
@@ -4704,13 +4707,16 @@ class MessageHandler:
                     known, missing = self._collect_partial_birth(
                         user_id, session_id, msg, third_party=True)
                     if known.get("year") and known.get("month") and known.get("day"):
-                        return self._do_bazi_analysis(
-                            known["year"], known["month"], known["day"],
-                            known.get("hour") if known.get("hour") is not None else 0,
-                            known.get("minute") if known.get("minute") is not None else 0,
-                            known.get("city") or "",
-                            known.get("gender") or "unknown",
-                            msg, user_id, stream_cb=stream_cb)
+                        # R2-6：known 可能含农历原始月日（分步口述含「农历」/中文
+                        # 数字月日，_extract_partial_birth 带 _md_lunar 语义标记）→
+                        # _feed_birth 单点转公历喂引擎 + arch_raw 持久化原值
+                        _src = {k: v for k, v in known.items()
+                                if k in ("year", "month", "day", "hour",
+                                         "minute", "city", "gender")}
+                        if known.get("_md_lunar"):
+                            _src["calendar"] = "lunar"
+                        return self._feed_birth(
+                            _src, msg, user_id, stream_cb=stream_cb)
                     return self._gen_info_collection_prompt(
                         msg, lite=_dg, known=known, missing=missing)
                 saved = self._get_user_birth_profile(user_id)
@@ -4723,6 +4729,14 @@ class MessageHandler:
                                "city", "gender"):
                         if _k in cur:
                             merged[_k] = cur[_k]
+                    # R2-6：当前消息覆写月日时，日历语义随覆写值走——
+                    # _md_lunar（显式「农历/阴历」或中文数字月日）= 农历口径；
+                    # 阿拉伯数字无关键字 = 公历口径（D7 既有约定）。不覆写月日
+                    # → 沿用档案继承的 calendar（B1 残余直喂点：merged 可能
+                    # 仍是 lunar 原始值，_feed_birth 统一转公历后喂引擎）。
+                    if "month" in cur and "day" in cur:
+                        merged["calendar"] = (
+                            "lunar" if cur.get("_md_lunar") else "solar")
                     # G1（2026-08-29 P0-C）：性别纠正——cur 提取到已确认性别
                     # （男/女）且档案性别也已确认、两者不一致 → 视为用户纠正
                     # 档案：以新性别重排 + 固定回执（零 LLM）；_do_bazi_analysis
@@ -4750,15 +4764,11 @@ class MessageHandler:
                     else:
                         ack = self._gen_reuse_acknowledgment(msg, saved,
                                                              lite=_dg)
-                    result = self._do_bazi_analysis(
-                        merged["year"], merged["month"], merged["day"],
-                        merged.get("hour") if merged.get("hour") is not None else 0,
-                        merged.get("minute") if merged.get("minute") is not None else 0,
-                        merged.get("city") or "",
-                        merged.get("gender") or "unknown",
-                        msg, user_id, stream_cb=stream_cb,
-                        force_gender=_is_correction,
-                    )
+                    # R2-6（B1 残余直喂点）：merged 可能为 lunar 原始 y/m/d
+                    # → _feed_birth 转公历后喂引擎，arch_raw 持久化原值+标记
+                    result = self._feed_birth(
+                        merged, msg, user_id, stream_cb=stream_cb,
+                        force_gender=_is_correction)
                     return ack + "\n\n" + result if ack else result
                 # ④ F2 渐进式累积（2026-08-26）：年/月/日齐全 → 直接
                 # _do_bazi_analysis（hour/minute 缺省 0、gender 缺省
@@ -4768,13 +4778,16 @@ class MessageHandler:
                 known, missing = self._collect_partial_birth(
                     user_id, session_id, msg)
                 if known.get("year") and known.get("month") and known.get("day"):
-                    return self._do_bazi_analysis(
-                        known["year"], known["month"], known["day"],
-                        known.get("hour") if known.get("hour") is not None else 0,
-                        known.get("minute") if known.get("minute") is not None else 0,
-                        known.get("city") or "",
-                        known.get("gender") or "unknown",
-                        msg, user_id, stream_cb=stream_cb)
+                    # R2-6（F2 渐进累积直喂点）：known 月日可能为农历原始值
+                    # （分步口述含「农历」/中文数字月日，_md_lunar 标记）→
+                    # _feed_birth 单点转公历喂引擎 + arch_raw 持久化原值
+                    _src = {k: v for k, v in known.items()
+                            if k in ("year", "month", "day", "hour",
+                                     "minute", "city", "gender")}
+                    if known.get("_md_lunar"):
+                        _src["calendar"] = "lunar"
+                    return self._feed_birth(
+                        _src, msg, user_id, stream_cb=stream_cb)
                 return self._gen_info_collection_prompt(
                     msg, lite=_dg, known=known, missing=missing)
 
@@ -4784,14 +4797,11 @@ class MessageHandler:
             if saved and saved.get("year") and saved.get("month") and saved.get("day"):
                 # AI generates a brief acknowledgment that we're using saved info
                 ack = self._gen_reuse_acknowledgment(msg, saved, lite=_dg)
-                result = self._do_bazi_analysis(
-                    saved.get("year"), saved.get("month"), saved.get("day"),
-                    saved.get("hour") if saved.get("hour") is not None else 0,
-                    saved.get("minute") if saved.get("minute") is not None else 0,
-                    saved.get("city") or "",
-                    saved.get("gender") or "unknown",
-                    msg, user_id, stream_cb=stream_cb,
-                )
+                # R2-6（B2 残余直喂点）：lunar 档案原始 y/m/d → _feed_birth
+                # 转公历后喂引擎（R2-5 只修了 _tool_bazi 的档案兜底，本分支
+                # 同款直喂——省前缀城市 + 阴历档案直排曾整链错误）
+                result = self._feed_birth(
+                    saved, msg, user_id, stream_cb=stream_cb)
                 return ack + "\n\n" + result if ack else result
 
             # D9（2026-08-24 生产实测）：无档案但问事意图明确 → 先答通用
@@ -4846,6 +4856,64 @@ class MessageHandler:
             stream_cb=stream_cb, force_gender=_is_correction,
         )
         return _ack + "\n\n" + result if _ack else result
+
+    # ── R2-6 残余农历直喂点：档案/累积出生 dict 统一单点转换 ────────
+    # R2-5 只修了 _tool_bazi 档案兜底；本批把同口径铺满 _handle_bazi 的
+    # 档案+消息合并（B1）/档案直接兜底（B2）/F2 渐进累积（含第三方）/
+    # _handle_calendar·_handle_hourly 引擎补齐，凡 lunar 原始 y/m/d 进引擎
+    # 前必先转公历。存储层（persons/bazi_info/chart_records）原始值不动。
+
+    def _solarize_birth(self, profile: dict) -> dict:
+        """农历出生档案 → 公历 y/m/d 的浅拷贝（消费前单点转换）。
+
+        R2-6（数据一致性铁律：存储=原始输入事实源，消费点单点转公历）：
+        - calendar=='lunar' 且 to_solar_date 成功 → 返回**浅拷贝**：y/m/d 换
+          公历，calendar 保留 'lunar' 原值（拷贝不落存储层，仅供消费；保留
+          原值便于调用方判别"发生过转换"以决定 arch_raw 落库口径）。绝不
+          mutate 入参 dict（persons/bazi_info/chart_records 原始值铁律）；
+        - 非 lunar（含旧档案无标记，按 solar 语义）→ 原 dict 原样返回
+          （正常流，不告警）；
+        - lunar 但转换失败（非法农历日/越界/lunar-python 异常）→ 原 dict
+          返回 + logger.warning 一行（不抛异常不阻塞，安全回落原值）。
+        """
+        if str(profile.get("calendar") or "solar") != "lunar":
+            return profile
+        _sol = to_solar_date(profile)
+        if _sol:
+            _p = dict(profile)
+            _p["year"], _p["month"], _p["day"] = _sol
+            return _p
+        logger.warning(
+            "R2-6 _solarize_birth：lunar 档案转公历失败，按原始值排盘 "
+            "birth=%s-%s-%s", profile.get("year"), profile.get("month"),
+            profile.get("day"))
+        return profile
+
+    def _feed_birth(self, src: dict, question: str, user_id: str,
+                    stream_cb: Optional[Callable] = None,
+                    force_gender: bool = False) -> str:
+        """档案/累积出生 dict → 排盘主链路（R2-6 单点转换入口）。
+
+        src 语义 = get_user_birth_profile / _collect_partial_birth 产出：
+        y/m/d 为**原始输入**（农历时带 calendar='lunar' 语义）——
+        lunar → _solarize_birth 转公历后喂引擎（引擎契约=公历输入）；
+        且把原始 y/m/d + calendar='lunar' 经 arch_raw 透传 _do_bazi_analysis，
+        持久化保留原始值 + 标记（不改写原值不抹标记，与 R2-5 _tool_bazi
+        同口径）。solar/无标记 → 零行为变化（原值直喂、arch_raw=None）。
+        转换失败 → 安全回落原值 + warning（_solarize_birth 内），不阻塞。
+        """
+        _p = self._solarize_birth(src)
+        _arch = None
+        if str(src.get("calendar") or "solar") == "lunar":
+            _arch = {"year": src.get("year"), "month": src.get("month"),
+                     "day": src.get("day"), "calendar": "lunar"}
+        return self._do_bazi_analysis(
+            _p.get("year"), _p.get("month"), _p.get("day"),
+            _p.get("hour") if _p.get("hour") is not None else 0,
+            _p.get("minute") if _p.get("minute") is not None else 0,
+            _p.get("city") or "", _p.get("gender") or "unknown",
+            question, user_id, stream_cb=stream_cb,
+            force_gender=force_gender, arch_raw=_arch)
 
     # ── D9 无档案问事：先答通用知识，再要档案 ──────────────────────
     # 问事句式兜底词（知识关键词匹配优先；这里是句式级兜底）：
@@ -5229,6 +5297,12 @@ class MessageHandler:
         if month and day and abs(month) <= 12 and 1 <= day <= 31:
             out["month"] = month
             out["day"] = day
+            # R2-6：月日口径语义标记——中文数字月日（_parse_cn_month_day）或
+            # 显式「农历/阴历」关键字 → 农历口径；阿拉伯数字无关键字 → 公历
+            # 口径（D7 既有约定）。marker 随 known 累积最新者胜（下游
+            # _collect_partial_birth），齐全自动排盘时驱动 _feed_birth 单点
+            # 转公历——残余直喂点不因分步口述的农历日期再漏网。
+            out["_md_lunar"] = bool(cn_md or re.search(r'农历|阴历', msg))
 
         # ── hour/minute（复用 _extract_bazi_info 三段口径，只记数值不做校验）──
         hour = minute = None
@@ -5350,6 +5424,11 @@ class MessageHandler:
             # 最新一条直接报出年份 → 清除此前年龄推算的"按X岁推算"说明
             if "year" in part and "_age_used" not in part:
                 merged.pop("_age_used", None)
+            # R2-6：月日口径最新者胜（镜像 _age_used 清除语义）——本条月日为
+            # 公历口径（阿拉伯数字无关键字）→ 清除此前「农历」标记；本条带
+            # 农历标记已由上方合并写入。无月日条目不触碰既有标记。
+            if "month" in part and "day" in part and not part.get("_md_lunar"):
+                merged["_md_lunar"] = False
         if not merged:
             return {}, ["出生年份", "出生月日", "出生时辰", "出生城市", "性别"]
         missing: list = []
@@ -5412,9 +5491,14 @@ class MessageHandler:
                 chart = chart_dao.get_latest_chart(user_id)
                 if chart and chart.get("birth"):
                     b = chart["birth"]
-                    if (b.get("year") == birth.get("year")
-                            and b.get("month") == birth.get("month")
-                            and b.get("day") == birth.get("day")):
+                    # R2-6：chart 行日期=原始输入（lunar 档案排盘落库原始
+                    # y/m/d+标记，R2-5 口径）→ 比对前单点转公历——消费方统一
+                    # 经 to_solar_date（_feed_birth 转出的引擎参数为公历，chart
+                    # 原始值不转则同生辰 lunar 用户每次重排都漏过快路径白跑 RAG）
+                    _cb = self._solarize_birth(b)
+                    if (_cb.get("year") == birth.get("year")
+                            and _cb.get("month") == birth.get("month")
+                            and _cb.get("day") == birth.get("day")):
                         return True
             if self.dao.get_user_bazi(user_id):
                 return True
@@ -5426,15 +5510,34 @@ class MessageHandler:
         self, year, month, day, hour, minute, city, gender, question, user_id,
         stream_cb: Optional[Callable] = None,
         force_gender: bool = False,
+        arch_raw: Optional[dict] = None,
     ) -> str:
         """执行八字分析
 
         force_gender（G1-C2）：仅用户明示性别纠正分支传 True，穿透到
         _save_bazi_records → save_bazi_info 强制覆写记忆画像层冲突性别。
+        arch_raw（R2-6）：lunar 原始出生 y/m/d（含 calendar='lunar' 标记）——
+        仅当档案/累积来源为农历且引擎已按转公历算盘时由 _feed_birth 透传：
+        落库（bazi_info/persons/chart_records）保留原始 y/m/d + 标记
+        （存储=原始输入事实源，不改写原值不抹标记——B1/B2/F2 残余直喂点与
+        R2-5 _tool_bazi 同口径）。None = 普通公历路径，行为零变化。
         """
         # 1. 排盘（流式模式先发进度事件，避免引擎阶段长沉默触发看门狗）
         self._emit_stream_event(stream_cb, "thinking", "正在排盘…")
         result = self.engine.calculate(year, month, day, hour, minute, city, gender)
+        # R2-6：落库 birth 字典——arch_raw 提供时保留原始 y/m/d + calendar
+        # 标记；否则引擎参数即事实。hour/minute/city/gender 恒取引擎参数
+        # （农历转换只作用于 y/m/d，时间/地点/性别不受影响原样持久化）。
+        _persist_birth = {"year": year, "month": month, "day": day,
+                          "hour": hour, "minute": minute,
+                          "city": city, "gender": gender}
+        if arch_raw is not None:
+            _persist_birth = {"year": arch_raw.get("year", year),
+                              "month": arch_raw.get("month", month),
+                              "day": arch_raw.get("day", day),
+                              "hour": hour, "minute": minute,
+                              "city": city, "gender": gender,
+                              "calendar": "lunar"}
         # E2-1 卡片化：完成引擎排盘（paipan 卡片判定依据，含降级精简路径）
         self._mark_card_turn(user_id, paipan=True)
 
@@ -5447,11 +5550,9 @@ class MessageHandler:
         _subject_now = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
         if _subject_now == "other":
             self._pregen_instant.pop(user_id, None)  # 他人盘不消费秒回预生成
-            self._save_bazi_records(result, {
-                "year": year, "month": month, "day": day,
-                "hour": hour, "minute": minute,
-                "city": city, "gender": gender,
-            }, question=question, user_id=user_id, force_gender=force_gender)
+            self._save_bazi_records(result, _persist_birth,
+                                    question=question, user_id=user_id,
+                                    force_gender=force_gender)
             try:
                 from src.engines.bazi_formatter import format_compact_card
                 chart = format_compact_card(result, {
@@ -5467,12 +5568,15 @@ class MessageHandler:
         # 排盘为确定性 0 成本（BaziEngine 本地计算）；RAG 检索 / AdaptiveAdvisor
         # 并行 LLM / 主分析 LLM / 秒回安抚 / 下文引导等最贵路径全部跳过。
         if self._downgraded.get(user_id, False):
+            # R2-6：arch_raw 透传——lite 内部 _save_bazi_records 落库保留
+            # 原始 y/m/d + calendar 标记；卡片展示仍用引擎参数（公历口径，
+            # 与主路径展示一致）
             return self._do_bazi_lite(result, {
                 "year": year, "month": month, "day": day,
                 "hour": hour, "minute": minute,
                 "city": city, "gender": gender,
             }, question=question, user_id=user_id, stream_cb=stream_cb,
-                force_gender=force_gender)
+                force_gender=force_gender, arch_raw=arch_raw)
 
         # 2. 秒回安抚（在LLM分析前生成，最终拼接到回复开头）
         # Task 2：优先取并行预生成结果（意图分析期间已完成），未就绪则同步兜底
@@ -5483,11 +5587,9 @@ class MessageHandler:
             instant_reply = self._gen_instant_reply(result)
 
         # 3. 保存用户数据（dao 档案 / persons 多人档案 / 咨询记录 / 记忆画像）
-        self._save_bazi_records(result, {
-            "year": year, "month": month, "day": day,
-            "hour": hour, "minute": minute,
-            "city": city, "gender": gender,
-        }, question=question, user_id=user_id, force_gender=force_gender)
+        self._save_bazi_records(result, _persist_birth,
+                                question=question, user_id=user_id,
+                                force_gender=force_gender)
 
         # 4. P1-3: If gender is unknown, add instruction for gender-neutral language
         gender_note = ""
@@ -5790,18 +5892,31 @@ class MessageHandler:
         _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
         _facts_this = self._analysis_facts.get(user_id) or {}
         if _subject != "other":
-            self.dao.save_user_bazi(user_id, {
+            _bazi_save = {
                 "year": year, "month": month, "day": day,
                 "hour": hour, "minute": minute,
                 "city": city, "gender": gender,
                 "bazi": result.bazi,
-            })
+            }
+            # R2-6：calendar 标记透传落库（仅 lunar 写显式键；solar/无标记
+            # 不写 → 读取缺省 solar，与 R2-5 _tool_bazi 同口径）——lunar 来源
+            # 的档案经 B1/B2/F2 排盘后 bazi_info 不被抹标（自毁式修复防范）
+            if birth.get("calendar") == "lunar":
+                _bazi_save["calendar"] = "lunar"
+            self.dao.save_user_bazi(user_id, _bazi_save)
         # P2 多人档案：对话建档（subject=self 年份不同→新建命主N；other 按关系/姓名）
-        self._sync_person_profile(user_id, {
+        # R2-6：calendar 标记透传（仅 lunar 写显式键，与 _bazi_save 同口径）——
+        # _sync_person_profile → person_dao 全量替换 birth_enc，缺 calendar 键
+        # 默认 'solar' 会把 lunar 标记抹掉（自毁式修复，R2-5 同款注释）。
+        _person_sync = {
             "year": year, "month": month, "day": day,
             "hour": hour, "minute": minute,
             "city": city, "gender": gender,
-        }, subject=_subject, facts=_facts_this)
+        }
+        if birth.get("calendar") == "lunar":
+            _person_sync["calendar"] = "lunar"
+        self._sync_person_profile(user_id, _person_sync,
+                                  subject=_subject, facts=_facts_this)
         self.dao.save_consultation(user_id, question, result)
         # 排盘结果落库 chart_records（重看 0 重跑；subject=other 也落库但归属本人名下）
         self._persist_chart_result(user_id, result, birth, _subject)
@@ -5833,7 +5948,8 @@ class MessageHandler:
 
     def _do_bazi_lite(self, result, birth: dict, question: str, user_id: str,
                       stream_cb: Optional[Callable] = None,
-                      force_gender: bool = False) -> str:
+                      force_gender: bool = False,
+                      arch_raw: Optional[dict] = None) -> str:
         """降级链路八字：引擎排盘 + 精简文案（确定性 0 成本，不调任何 LLM）。
 
         L5-2 修复（降级成本漏洞）：原 _do_bazi_analysis 在降级时仍走
@@ -5841,9 +5957,18 @@ class MessageHandler:
         的最贵路径；本方法保留：排盘（确定性 0 成本）+ 命盘卡片 +
         规则要点文案 + 数据落库（不丢档案），跳过：RAG / advisor /
         主分析 LLM / 秒回安抚 / 下文引导（全部 LLM 调用）。
+        arch_raw（R2-6）：透传给落库（与 _do_bazi_analysis 同口径，保留
+        lunar 原始 y/m/d + 标记）；birth 仍为引擎参数（公历），仅用于展示。
         """
-        # 数据落库与主路径同口径（subject=other 保护）
-        self._save_bazi_records(result, birth, question, user_id,
+        # 数据落库与主路径同口径（subject=other 保护）；arch_raw → 原始值+标记
+        _persist = birth
+        if arch_raw is not None:
+            _persist = dict(birth)
+            _persist.update({"year": arch_raw.get("year", birth["year"]),
+                             "month": arch_raw.get("month", birth["month"]),
+                             "day": arch_raw.get("day", birth["day"]),
+                             "calendar": "lunar"})
+        self._save_bazi_records(result, _persist, question, user_id,
                                 force_gender=force_gender)
         # 命盘卡片（确定性 0 成本）
         try:
@@ -7139,6 +7264,9 @@ class MessageHandler:
             return ("💡 想为你生成专属建议，需要先了解你的命盘哦～\n"
                     "请提供你的出生信息：出生年月日时、出生地、性别\n\n"
                     "例如：1990年5月20日 下午3点 北京 男")
+        # R2-6（同类残余直喂点）：存储档案可能为 lunar 原始 y/m/d → 重排盘前
+        # 单点转公历（引擎契约=公历输入；阴历当公历算错日主/四柱，建议全链错）
+        saved = self._solarize_birth(saved)
 
         # 2. 提取用户处境（去掉排盘信息后的剩余文本）
         user_context = self._extract_user_context(msg)
@@ -7247,6 +7375,12 @@ class MessageHandler:
         # 基础档案（LuckyCalendar 出通用版，不引导）。
         if not saved.get("bazi") and self.engine is not None:
             try:
+                # R2-6（同类残余直喂点）：lunar 档案原始 y/m/d → 单点转公历
+                # 再补齐四柱（引擎契约=公历输入；R2-5 只修了 /api/calendar.py
+                # 端点，对话入口 _handle_calendar 同款直喂遗漏——阴历当公历
+                # 算错日主，daily/hourly 展示全链跟着错）。转换失败 → 回落
+                # 原值 + warning（_solarize_birth 内），不阻塞主流程。
+                saved = self._solarize_birth(saved)
                 bz = self.engine.calculate(
                     saved["year"], saved["month"], saved["day"],
                     saved.get("hour") or 0, saved.get("minute") or 0,
@@ -7326,6 +7460,10 @@ class MessageHandler:
                     "告诉我你的出生日期，例如：1990年5月20日 下午3点 北京 男")
         if not saved.get("bazi") and self.engine is not None:
             try:
+                # R2-6（同类残余直喂点，与 _handle_calendar 同口径）：lunar
+                # 档案原始 y/m/d → 单点转公历再补齐四柱（见 _handle_calendar
+                # 注释；时辰运势的日主/时辰干支依赖正确四柱）
+                saved = self._solarize_birth(saved)
                 bz = self.engine.calculate(
                     saved["year"], saved["month"], saved["day"],
                     saved.get("hour") or 0, saved.get("minute") or 0,
