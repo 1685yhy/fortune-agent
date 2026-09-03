@@ -912,7 +912,8 @@ function hehun(payload) {
 /**
  * 八字排盘（POST /api/paipan，L4 排盘结果页）
  * 入参：{birthYear, birthMonth, birthDay, birthHour(0-11 时辰序号或 12-23 时钟小时),
- *        gender('male'|'female'), city, minute?}
+ *        gender('male'|'female'), city, minute?, solarTime?(R2-4 真太阳时开关：
+ *        排盘页带页面当前开关值；不带=服务端 BaziInput 默认 True（默认开=经度校准）)}
  * 响应：BaziResult 全字段序列化 JSON（基础/L1 起运交运司令大运流年/L2 五行称骨神煞
  *       知识索引 + pillars 盘面 + meta 命主头）。生辰只用于内存排盘，不落库。
  */
@@ -927,6 +928,10 @@ function paipan(payload) {
     city: p.city || '北京',
   };
   if (p.minute != null) data.minute = parseInt(p.minute, 10);
+  // R2-4-fix：真太阳时开关透传（此前白名单静默丢弃 solarTime → 用户「关」无效果，
+  // 恒出修正盘）。nullish 守卫：未传该字段的调用方（页面上仅 paipan 页有开关）
+  // 保持不带参 → 服务端 BaziInput 默认 True 语义不变。
+  if (p.solarTime != null) data.solarTime = !!p.solarTime;
   return request('/api/paipan', { method: 'POST', data, showLoading: true });
 }
 

@@ -2,10 +2,13 @@
 
 口径：真太阳时 = 北京时间 + (经度-120)*4分钟 + 均时差；
   不传 city / 未知城市 → 不修正（兼容原行为）。
-R2-1（2026-09-02，问真口径对齐）：calculate 加 solar_time 开关且默认关——
-  本文件排盘类用例全部显式传 solar_time=True 继续测修正功能本身
-  （测的是开关功能本身，与 R2-1 默认关不冲突；默认关用例见
-  test_bazi_r21_solar_time_default_off.py）。
+R2-4（2026-09-03，产品口径）：calculate 默认 solar_time=True（所有排盘统一默认
+  开=按出生地经度校准）。本文件主体是修正功能本身的测试：多数排盘用例显式传
+  solar_time=True 聚焦「修正生效」的排盘结果；个别用例用默认调用（=默认开口径，
+  如 test_beijing_unchanged——北京修正不翻柱全盘回归、test_unknown_city_same_as_no_city
+  ——未知城市不修正与不传 city 等价）；默认开口径与显式 solar_time=False（用户
+  关闭=北京时间直排）的开关级用例见 test_bazi_r24_solar_time_default_on.py
+  （R2-4 由原 test_bazi_r21_solar_time_default_off.py 改名而来）。
 锚点（问真网页）：长春 1999-05-13 10:56 → 修正 ~11:21 → 午时 → 时柱壬午。
 """
 from datetime import date
