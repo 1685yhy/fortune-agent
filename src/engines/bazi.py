@@ -527,13 +527,71 @@ class BaziEngine:
 
     @staticmethod
     def _city_longitude(city) -> Optional[float]:
-        """查城市经度；未知城市 / 空值返回 None（不做修正）。支持去掉「市」后缀。"""
+        """查城市经度（R2-6 分层匹配升级）；未知城市 / 空值返回 None（不修正）。
+
+        R2-6（2026-09-04 生产实锤）：档案 city 存行政区划全路径（如
+        '吉林省长春市'），旧实现只去「市/省」尾缀 → 查不到经度 → 真太阳时
+        修正被静默跳过 → 起运/交运与问真差 2 天。匹配策略逐级升级，返回
+        类型 Optional[float] 不变，绝不抛异常：
+        1. 原样精确命中（CITY_LONGLAT 键）；
+        2. 去「市省」尾缀（多重病理性尾缀如 '长春省'/'长春省市' 一并剥净，
+           与旧实现顶层 rstrip 候选同域）后命中——层 1+2 内核对整名先执行
+           一次，层 3 剥前缀后的剩余部分再执行一次；
+        3. 剥行政区划前缀（XX省/XX自治区/XX特别行政区；直辖市『北京市』
+           类由层 2 尾缀规则覆盖）后，剩余部分再走 1+2；
+        4. 最长后缀兜底：输入以表中某键（或键+'市'）结尾 → 取最长的
+           匹配键（防 '吉林市' 与 '长春' 类混淆；'吉林长春' 类无前缀标记
+           输入也由本层命中）；键长相同 → 取输入串中位置靠后者——排序
+           元组 (len, pos)，靠后 = 后缀起点靠内层城市名；(len, pos) 全等
+           不可能出现（起点由键长唯一确定），排序决胜恒为前两元；
+        5. 全部不中 → None（行为兼容）+ module-level logger warning 一行
+           （含 city 原文）——本批「不静默」：修正失效必须有日志可观测。
+        """
         if not city:
             return None
-        name = city.strip()
-        for cand in (name, name.rstrip("市"), name.rstrip("省")):
+        name = str(city).strip()
+        if not name:
+            return None
+
+        def _exact_or_shave(cand: str):
+            """层 1+2 内核：精确命中，或去「市省」尾缀后命中（返回表键）。
+            对整名（层 1+2）与层 3 剥前缀剩余部分各执行一次。"""
             if cand in CITY_LONGLAT:
-                return CITY_LONGLAT[cand][0]
+                return cand
+            cand_shaved = cand.rstrip("市省")
+            if cand_shaved and cand_shaved in CITY_LONGLAT:
+                return cand_shaved
+            return None
+
+        # 层 1+2（整名）：原样精确 / 去「市省」尾缀——顶层必须先执行（旧
+        # 实现即在整名上查；'长春省'/'长春省市' 类病理性尾缀输入不剥前缀也
+        # 应命中，否则回落层 4 之外 → None + warning，注释口径与实现回归一致）
+        _top = _exact_or_shave(name)
+        if _top:
+            return CITY_LONGLAT[_top][0]
+
+        # 层 3：剥行政区划前缀（先长标记后短标记，防部分误剥；前缀 1-8 字）
+        for _mark, _rest in (("特别行政区", 5), ("自治区", 3), ("省", 1)):
+            _idx = name.find(_mark)
+            if _idx < 1 or _idx > 8:
+                continue
+            _hit = _exact_or_shave(name[_idx + _rest:])
+            if _hit:
+                return CITY_LONGLAT[_hit][0]
+
+        # 层 4：最长后缀兜底（键或以键+'市'结尾 → 取最长键；(len, pos) 排序，
+        # 等长取靠后；(len, pos) 全等不可能 → 无字典序决胜场景）
+        _tail = []
+        for _key in CITY_LONGLAT:
+            if name.endswith(_key):
+                _tail.append((len(_key), len(name) - len(_key), _key))
+            elif name.endswith(_key + "市"):
+                _tail.append((len(_key) + 1, len(name) - len(_key) - 1, _key))
+        if _tail:
+            _tail.sort()
+            return CITY_LONGLAT[_tail[-1][2]][0]
+
+        logger.warning("R2-6 城市「%s」未命中经度表，本次不做真太阳时修正", city)
         return None
 
     def _true_solar_time(self, year: int, month: int, day: int,
