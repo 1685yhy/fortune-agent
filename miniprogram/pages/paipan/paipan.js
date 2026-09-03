@@ -79,6 +79,9 @@ Page({
     bCity: '',            // 展示用 '省·市'
     bCityName: '',        // 请求用裸市名（真太阳时修正可命中）
     bCitySet: false,
+    // R2-4 真太阳时开关（产品口径：默认开=按出生地经度校准时辰；关=北京时间直排。
+    // 页面会话级状态，开关值持久化是未来项——重进页面回到默认开）
+    bSolarTime: true,
     hourOptions: HOUR_OPTIONS,
 
     /* ── 状态 ── */
@@ -212,6 +215,10 @@ Page({
   onCityChange(e) {
     this.setData({ bCity: e.detail.full, bCityName: e.detail.city, bCitySet: !!e.detail.city });
   },
+  /* 真太阳时开关（R2-4）：开=solarTime:true 按出生地经度校准；关=北京时间直排 */
+  onSolarTimeChange(e) {
+    this.setData({ bSolarTime: !!e.detail.value });
+  },
   /* 性别：男/女 大按钮（点击切换） */
   onGenderTap(e) {
     this.setData({ bGender: e.currentTarget.dataset.gender });
@@ -245,6 +252,7 @@ Page({
       birthHour: this.data.bHourIdx - 1,          // 时辰序号 0-11
       gender: this.data.bGender,
       city: this.data.bCityName || '北京',
+      solarTime: this.data.bSolarTime,            // R2-4：默认开=真太阳时校准；关=北京时间直排
     };
     this.setData({ loading: true, errorMsg: '' });
     api.paipan(payload)

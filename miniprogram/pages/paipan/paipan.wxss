@@ -84,6 +84,11 @@ page {
   color: var(--ink-mid);
 }
 .form-picker-empty { color: var(--ink-faint); }
+/* R2-4 真太阳时开关行：左文案右 switch（产品口径：默认开=按出生地经度校准；关=北京时间直排） */
+.solar-row { display: flex; align-items: center; gap: 24rpx; }
+.solar-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
+.solar-t { font-family: var(--font-song); font-size: 24rpx; letter-spacing: .06em; color: var(--ink-mid); }
+.solar-d { font-family: var(--font-song); font-size: 20rpx; color: var(--ink-faint); letter-spacing: .04em; line-height: 1.7; }
 /* 性别：男/女 并排大按钮（问真式：选中朱砂底白字，未选宣纸墨框） */
 .gender-group { display: flex; gap: 22rpx; }
 .gender-btn {

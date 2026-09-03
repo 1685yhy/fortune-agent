@@ -44,8 +44,20 @@
       </picker>
     </view>
 
+    <!-- R2-4 真太阳时开关（产品口径 2026-09-03：所有排盘统一默认开=按出生地经度
+         校准时辰；允许用户关闭=北京时间直排；R2-1「功能上线后可校准」文案随上线退役） -->
     <view class="form-group">
-      <text class="form-label">出生地 <text class="form-opt">选填 · 不选默认北京 · 当前按北京时间排盘，出生地留档（真太阳时功能上线后可校准）</text></text>
+      <view class="solar-row">
+        <view class="solar-copy">
+          <view class="solar-t">真太阳时</view>
+          <view class="solar-d">按出生地经度校准时辰 · 排盘更精准（推荐开启 · 时辰恰在边界附近时可关闭对比北京时间直排）</view>
+        </view>
+        <switch checked="{{bSolarTime}}" bindchange="onSolarTimeChange" color="#A93A2C" />
+      </view>
+    </view>
+
+    <view class="form-group">
+      <text class="form-label">出生地 <text class="form-opt">选填 · 不选默认北京 · {{bSolarTime ? '真太阳时按出生地经度校准' : '已按北京时间直排，出生地仅留档'}}</text></text>
       <place-picker value="{{bCity}}" placeholder="选择省 / 市" bindchange="onCityChange" />
     </view>
 

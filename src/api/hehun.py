@@ -34,9 +34,13 @@ class BaziInput(BaseModel):
     # G5 能力开关（默认关=现行为零变化，旧请求零影响）：
     daylightSaving: bool = False   # 夏令时：1986-1991 区间内出生时间减 1 小时再排盘
     lateChildHour: bool = False    # 早晚子时专业档（问真 yzs=1）：23:00-24:00 日柱按当天
-    # R2-1 真太阳时开关（默认关=问真 App 口径——问真默认关、用户手动开才修正；
-    # 镜像 daylightSaving/lateChildHour 模式，接口只增不减）：
-    solarTime: bool = False        # 真太阳时：按出生地经度+均时差修正后再排盘
+    # R2-4 真太阳时开关（2026-09-03 产品裁决反转默认：所有排盘统一默认开、
+    # 前端开关允许用户关闭——paipan/hehun/union/zhuanxiang 同源 BaziInput
+    # 一并生效；R2-1 曾默认关对齐问真 App 默认态）。字段 R2-1 已加
+    # （镜像 daylightSaving/lateChildHour 模式，接口只增不减，本次仅翻默认值）：
+    # True=按出生地经度+均时差修正后排盘（默认，产品口径）；
+    # False=北京时间直排=问真默认态口径（用户关闭后一致性成立）。
+    solarTime: bool = True         # 真太阳时：按出生地经度+均时差修正后再排盘
     # 小程序字段（别名）
     birthYear: Optional[int] = None
     birthMonth: Optional[int] = None
