@@ -86,6 +86,13 @@ class TestCityLongitudeMatch:
         """'吉林省长春市榆树市' 类嵌套 → 最内层城市：榆树（126.53）。"""
         assert BaziEngine._city_longitude("吉林省榆树市") == CITY_LONGLAT["榆树"][0]
 
+    def test_pathological_province_tail_restored_hit(self):
+        """Fix Round 1（注释/实现对齐）：'长春省'/'长春省市' 类病理性尾缀 →
+        层 1+2 整名 rstrip「市省」剥净后命中 '长春'（旧实现顶层即查；
+        R2-6 初版整名不执行层 1+2 → 漏为 None+warning，本修复轮恢复命中）。"""
+        assert BaziEngine._city_longitude("长春省") == 125.35
+        assert BaziEngine._city_longitude("长春省市") == 125.35
+
 
 # ================================================================
 # 2) 真实用户路径端到端（生产档案字面量，勿自造顺手值）

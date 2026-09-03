@@ -380,3 +380,95 @@ class TestCalendarEngineFillSolarized:
             f"引擎应收公历 (1999,5,13,9,0)，实收 {args[:5]}"
         # 无 api_key（h.llm=None）→ 固定兜底文案，补齐已完成可观测
         assert "日历" in out or "可用" in out
+
+
+# ================================================================
+# 7) Fix Round 1（评审 Important）：arch_raw 流画像层/L3 口径 = 引擎实收
+#    公历日期（_save_bazi_records 画像层曾写 lunar 原始值无标记 → 分裂）
+# ================================================================
+
+class TestProfileLayerSolarAlignment:
+    """评审修复（画像/引擎分裂）：B1 等 arch_raw（lunar 档案+消息补时）流下
+    dao/persons/chart 保留 lunar 原始值+标记（存储铁律不动），但画像层
+    bazi_info 与 L3 profile 事实是 LLM 上下文消费方（get_profile_summary →
+    format_birth_line 渲染「出生:…」行），必须收到引擎实际排盘口径的**公历**
+    日期（1999-5-13）——与 R2-5 _tool_bazi 画像层口径统一；修复前写 lunar
+    原始 3/28 无标记 → 画像「出生:1999年3月28日…」与同上下文 5/13 公历盘
+    （乙丑日）四柱自相矛盾。真实 UserMemory 装配（tmp 目录文件落盘，真实
+    消费路径 format_birth_line/get_profile_summary/list_entries 全链路），
+    非 mock——堵住 _make_handler memory_system=None 的测试盲区。"""
+
+    def _attach_memory(self, h, tmp_path, uid):
+        from src.memory.user_memory import UserMemory
+        mem = UserMemory(base_dir=str(tmp_path / "mem"))
+        h.memory_system = mem
+        return mem
+
+    def test_b1_lunar_archive_profile_layer_gets_solar(self, tmp_path):
+        """B1（lunar 档案 3/28 + 消息补 hour=11 → arch_raw 流）：画像层
+        bazi_info/L3 必须 = 公历 (1999,5,13)（修复前画像层写原始 3/28 无
+        标记 → 断言必失败）；档案三处原值 + lunar 标记不动（复核）。"""
+        from src.engines.bazi import BaziEngine
+        from src.storage.person_dao import PersonDAO
+        rec = _RecordingEngine()
+        rec.real = BaziEngine()
+        h = _make_handler(tmp_path, "u-pf1", engine=rec)
+        mem = self._attach_memory(h, tmp_path, "u-pf1")
+        pdao = PersonDAO(h.dao.db_path)
+        _create_lunar_person(pdao, "u-pf1")
+
+        h._handle_bazi("我的出生时辰是上午11点", "u-pf1")
+        # 引擎确收公历 + 北极星 qiyun（基线复核，与既有 B1 测试同口径）
+        assert rec.calls and rec.results[0].qiyun_desc == NORTH_STAR
+        # 画像层 bazi_info：公历 5/13，无 lunar 标记（solar 口径值）
+        data = mem._load("u-pf1")
+        bi = data.get("bazi_info") or {}
+        assert (bi.get("year"), bi.get("month"), bi.get("day")) == (1999, 5, 13), \
+            f"画像层应收公历 (1999,5,13)，实收 " \
+            f"{(bi.get('year'), bi.get('month'), bi.get('day'))}"
+        assert bi.get("calendar") != "lunar"
+        assert bi.get("hour") == 11 and bi.get("city") == "吉林省长春市"
+        # 消费方渲染：summary 出生行 = 公历日期，不得再出现农历 3/28
+        summary = mem.get_profile_summary("u-pf1")
+        assert "1999年5月13日" in summary, summary
+        assert "3月28日" not in summary, summary
+        # L3 profile 事实条目：日期 = 公历（修复前写 3/28 与公历四柱自相矛盾）
+        entries = mem.list_entries("u-pf1", entry_type="profile")
+        assert entries and any("1999年5月13日" in (e.get("content") or "")
+                               for e in entries), entries
+        assert not any("1999年3月28日" in (e.get("content") or "")
+                       for e in entries), entries
+        # 档案三处原值不动（存储=原始输入事实源铁律复核）
+        bazi = h.dao.get_user_bazi("u-pf1")
+        assert (bazi["year"], bazi["month"], bazi["day"]) == (1999, 3, 28)
+        assert bazi.get("calendar") == "lunar"
+        p = pdao.get_default_person("u-pf1")
+        assert (p["birth_year"], p["birth_month"], p["birth_day"]) == (1999, 3, 28)
+        assert p["calendar"] == "lunar"
+
+    def test_b1_solar_archive_profile_layer_unchanged(self, tmp_path):
+        """回归：solar 档案流（无 arch_raw）画像层值不变——bazi_info 仍
+        1990-5-20 原值、无 lunar 标记，summary 渲染 1990年5月20日。"""
+        from src.engines.bazi import BaziEngine
+        from src.storage.person_dao import PersonDAO
+        rec = _RecordingEngine()
+        rec.real = BaziEngine()
+        h = _make_handler(tmp_path, "u-pf2", engine=rec)
+        mem = self._attach_memory(h, tmp_path, "u-pf2")
+        pdao = PersonDAO(h.dao.db_path)
+        pdao.create_person(
+            "u-pf2", name="我", relation="自己", is_default=True,
+            birth={"gender": "男", "birth_year": 1990, "birth_month": 5,
+                   "birth_day": 20, "birth_hour": 9, "birth_minute": 0,
+                   "calendar": "solar", "city": "北京"})
+
+        h._handle_bazi("我的出生时辰是下午3点", "u-pf2")
+        assert rec.calls
+        assert rec.calls[0][0][:5] == (1990, 5, 20, 15, 0)
+        data = mem._load("u-pf2")
+        bi = data.get("bazi_info") or {}
+        assert (bi.get("year"), bi.get("month"), bi.get("day")) == (1990, 5, 20), bi
+        assert bi.get("calendar") != "lunar"
+        summary = mem.get_profile_summary("u-pf2")
+        assert "1990年5月20日" in summary, summary
+        assert "3月28日" not in summary

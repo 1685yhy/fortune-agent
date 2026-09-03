@@ -5925,16 +5925,34 @@ class MessageHandler:
         # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人画像
         _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
         if self.memory_system and _subject != "other":
+            # R2-6 Fix（画像/引擎口径统一）：本函数上方 dao/persons/chart 落
+            # 库保留 lunar 原始 y/m/d + calendar 标记（存储=原始输入事实源）；
+            # 画像层/L3 则是 LLM 上下文消费方（get_profile_summary →
+            # format_birth_line 渲染「出生:…」行），口径必须与引擎实际排盘
+            # 一致 = 公历——arch_raw（B1/B2/F2）流下 birth 载原始农历 y/m/d
+            # + 'lunar' 标记，写画像层前单点 to_solar_date 转公历（与 R2-5
+            # _tool_bazi 画像层写引擎实收公历值同口径；不 mutate birth）。
+            # 转换失败 → 回落原始值 + warning（此时引擎本就按原始值排盘，
+            # 画像层与引擎仍一致，语义同 _solarize_birth）。
+            _prof_year, _prof_month, _prof_day = year, month, day
+            if birth.get("calendar") == "lunar":
+                _sol = to_solar_date(birth)
+                if _sol is not None:
+                    _prof_year, _prof_month, _prof_day = _sol
+                else:
+                    logger.warning(
+                        "R2-6 画像层 lunar 转公历失败，画像层按原始值写入 "
+                        "user=%s birth=%s-%s-%s", user_id, year, month, day)
             self.memory_system.save_bazi_info(user_id, {
-                "year": year, "month": month, "day": day,
+                "year": _prof_year, "month": _prof_month, "day": _prof_day,
                 "hour": hour, "minute": minute,
                 "city": city, "gender": gender,
                 "bazi": result.bazi,
                 "day_master": getattr(result, "day_master", ""),
             }, subject=_subject, force_gender=force_gender)
-            # L3（方案 §5.5 来源②）：八字 → profile 关键事实条目
+            # L3（方案 §5.5 来源②）：八字 → profile 关键事实条目（同画像层公历口径）
             self._persist_l3_bazi(user_id, {
-                "year": year, "month": month, "day": day,
+                "year": _prof_year, "month": _prof_month, "day": _prof_day,
                 "hour": hour, "minute": minute,
                 "city": city, "gender": gender,
                 "bazi": result.bazi,
