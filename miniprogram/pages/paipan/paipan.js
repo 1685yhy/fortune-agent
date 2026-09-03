@@ -244,7 +244,11 @@ Page({
       this.setData({ errorMsg: '请选择出生时辰（时辰不同盘面不同）' });
       return;
     }
-    const parts = this.data.bDate.split('-');
+    // R2-5：阴历生辰 → 提交前转公历（排盘引擎只吃公历，payload 用公历；
+    // 表单展示态 bDate/bCal 保持用户输入不回改；转换失败回落原文不崩溃）
+    let date = this.data.bDate;
+    if (this.data.bCal === 'lunar') date = lunarDateToSolar(date) || date;
+    const parts = String(date || '').split('-');
     const payload = {
       birthYear: parseInt(parts[0], 10),
       birthMonth: parseInt(parts[1], 10),
