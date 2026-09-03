@@ -63,7 +63,8 @@ from src.storage.member_dao import MemberDAO
 from src.storage.member_dao import MemberDAO
 from src.storage.conversation_memory import ConversationMemory
 from src.storage.chart_dao import ChartDAO
-from src.storage.birth_profile import get_user_birth_profile, profile_fingerprint
+from src.storage.birth_profile import (
+    get_user_birth_profile, profile_fingerprint, to_solar_date)
 from src.utils.cache import ResponseCache, is_cacheable
 from src.ml.quality_predictor import QualityPredictor
 from src.memory.user_memory import UserMemory, format_birth_line
@@ -2032,19 +2033,41 @@ class MessageHandler:
         """工具「排盘」：解析出生信息（文本描述）→ BaziEngine.calculate。"""
         if self.engine is None:
             return ToolResult("排盘", False, "「排盘」工具暂不可用，请直接与用户聊天。")
+        # R2-5：档案兜底持久化原始值标记（lunar 转公历排盘后不把原始输入
+        # 改写/抹标——persons 全量替换回写路径防自毁；文本解析路径恒 None）
+        _arch_raw = None
         parsed = self._extract_bazi_info(params)
         if parsed is None:
             # Task 1 排盘档案打通：解析失败先试档案（bazi_info + persons 兜底）填参，
             # 年/月/日至少齐才排盘；hour/minute 缺省 0（与 _extract_bazi_info 缺时辰一致）
             profile = self._get_user_birth_profile(user_id)
             if profile and profile.get("year") and profile.get("month") and profile.get("day"):
-                parsed = (
-                    profile.get("year"), profile.get("month"), profile.get("day"),
-                    profile.get("hour") if profile.get("hour") is not None else 0,
-                    profile.get("minute") if profile.get("minute") is not None else 0,
-                    profile.get("city") or "",
-                    profile.get("gender") or "unknown",
-                )
+                _hour = (profile.get("hour") if profile.get("hour") is not None else 0)
+                _minute = (profile.get("minute")
+                           if profile.get("minute") is not None else 0)
+                _city = profile.get("city") or ""
+                _gender = profile.get("gender") or "unknown"
+                # R2-5：档案 calendar=='lunar' → 单点转换公历再进引擎（引擎契约
+                # =公历输入，用户阴历 1999-03-28 被当公历直排起运差 5 年 P0）。
+                # 转换失败（非法农历日等）→ 安全回落原值排盘 + warning 不阻塞。
+                _sol = None
+                if str(profile.get("calendar") or "solar") == "lunar":
+                    _sol = to_solar_date(profile)
+                    if _sol is None:
+                        logger.warning(
+                            "R2-5 排盘档案兜底：lunar 档案转公历失败，按原始值排盘 "
+                            "user=%s birth=%s-%s-%s", user_id,
+                            profile.get("year"), profile.get("month"),
+                            profile.get("day"))
+                if _sol:
+                    parsed = (_sol[0], _sol[1], _sol[2], _hour, _minute,
+                              _city, _gender)
+                    _arch_raw = (profile.get("year"), profile.get("month"),
+                                 profile.get("day"))
+                else:
+                    parsed = (profile.get("year"), profile.get("month"),
+                              profile.get("day"), _hour, _minute, _city,
+                              _gender)
             else:
                 return ToolResult(
                     "排盘", False,
@@ -2060,29 +2083,32 @@ class MessageHandler:
             return ToolResult("排盘", False, f"排盘引擎执行失败：{str(e)[:100]}")
         # 持久化：与 _do_bazi_analysis 保持一致的记忆/画像逻辑
         # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人档案（数据库层同步保护）
+        # R2-5：lunar 档案兜底（引擎已按转换公历算）持久化保留原始值 + calendar
+        # 标记——存储层=原始输入事实源，消费点单点转公历；不改写原值不抹标记
+        # （_sync_person_profile → person_dao 全量替换 birth_enc，缺 calendar
+        # 键会默认 'solar' 抹掉 lunar 标记 → 自毁式修复）。
+        _persist = {
+            "year": _arch_raw[0] if _arch_raw is not None else year,
+            "month": _arch_raw[1] if _arch_raw is not None else month,
+            "day": _arch_raw[2] if _arch_raw is not None else day,
+            "hour": hour, "minute": minute,
+            "city": city, "gender": gender,
+        }
+        if _arch_raw is not None:
+            _persist["calendar"] = "lunar"
         try:
             _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
             _facts_this = self._analysis_facts.get(user_id) or {}
             if _subject != "other":
-                self.dao.save_user_bazi(user_id, {
-                    "year": year, "month": month, "day": day,
-                    "hour": hour, "minute": minute,
-                    "city": city, "gender": gender,
-                    "bazi": result.bazi,
-                })
+                _bazi_save = dict(_persist)
+                _bazi_save["bazi"] = result.bazi
+                self.dao.save_user_bazi(user_id, _bazi_save)
             # P2 多人档案：对话建档（subject=self 年份不同→新建命主N；other 按关系/姓名）
-            self._sync_person_profile(user_id, {
-                "year": year, "month": month, "day": day,
-                "hour": hour, "minute": minute,
-                "city": city, "gender": gender,
-            }, subject=_subject, facts=_facts_this)
+            self._sync_person_profile(user_id, _persist, subject=_subject,
+                                      facts=_facts_this)
             self.dao.save_consultation(user_id, params, result)
             # 排盘结果落库 chart_records（与 _save_bazi_records 同口径）
-            self._persist_chart_result(user_id, result, {
-                "year": year, "month": month, "day": day,
-                "hour": hour, "minute": minute,
-                "city": city, "gender": gender,
-            }, _subject)
+            self._persist_chart_result(user_id, result, _persist, _subject)
         except Exception:
             pass
         # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人画像；
@@ -2867,8 +2893,19 @@ class MessageHandler:
 
         性别归一中文（persons 英文契约 male/female → 男/女），与引擎口径
         一致；hour/minute 缺省时省略（引擎按 0 时处理，行为与建档一致）。
+        R2-5：lunar 档案 → 日期部分拼转换后公历（文本=公历口径，下游
+        _extract_bazi_info 按公历解析正确）；solar/无标记 → 原值零回退。
         """
-        parts = [f"{profile['year']}年{profile['month']}月{profile['day']}日"]
+        y, m, d = profile.get("year"), profile.get("month"), profile.get("day")
+        if str(profile.get("calendar") or "solar") == "lunar":
+            _sol = to_solar_date(profile)
+            if _sol:
+                y, m, d = _sol
+            else:
+                logger.warning(
+                    "R2-5 _fmt_birth_text：lunar 档案转公历失败，文本按原始值 "
+                    "birth=%s-%s-%s", y, m, d)
+        parts = [f"{y}年{m}月{d}日"]
         h, mi = profile.get("hour"), profile.get("minute")
         if h is not None:
             parts.append(f"{h}时" + (f"{mi}分" if mi else ""))
@@ -5713,7 +5750,12 @@ class MessageHandler:
                 {"year": birth["year"], "month": birth["month"],
                  "day": birth["day"], "hour": birth["hour"],
                  "minute": birth["minute"], "city": birth["city"],
-                 "gender": birth["gender"], "calendar": "solar"},
+                 "gender": birth["gender"],
+                 # R2-5：calendar 由 birth 透传（默认 solar=零行为回退）——
+                 # lunar 档案兜底排盘的行需带 lunar 标记（chart_records 是
+                 # get_user_birth_profile ③ 级兜底源，行内日期是原始农历值，
+                 # 消费方凭标记单点转公历）
+                 "calendar": birth.get("calendar", "solar")},
                 # R1-3（T064）：bazi 路径行为不变（result.bazi 恒有）；
                 # getattr 兜底让 ZiweiResult（无 bazi 字段）落库不再
                 # AttributeError——紫微路径落库行存在即满足重看 0 重跑。

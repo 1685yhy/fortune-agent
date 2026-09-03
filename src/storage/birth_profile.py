@@ -81,6 +81,10 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
                     "minute": pick.get("birth_minute"),
                     "city": pick.get("city") or "",
                     "gender": pick.get("gender") or "unknown",
+                    # R2-5：三源 out 统一透传 calendar（源值，缺省 solar）——
+                    # 消费方据此决定是否 to_solar_date 转公历；year/month/day
+                    # 保持原始值不改（保存回写路径 3243/3381/4679 消费原值安全）。
+                    "calendar": pick.get("calendar") or "solar",
                 }
                 # 自愈：bazi_info 缺失/与 persons 不一致 → persons 单向回写
                 # （保留 bazi 四柱等既有键；写入失败仅告警，不阻塞读取）
@@ -91,9 +95,14 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
                 try:
                     bazi = dao.get_user_bazi(user_id)
                     _keys = ("year", "month", "day", "hour", "minute",
-                             "city", "gender")
+                             "city", "gender", "calendar")
 
                     def _time_eq(k, a, b):
+                        if k == "calendar":
+                            # R2-5：旧 bazi_info 行无 calendar 键 → 缺省 solar
+                            # 与 out 的显式 'solar' 等价，不误触发；persons 侧
+                            # lunar 标记必须回写 bazi_info（两库单一事实源打通）
+                            return (a or "solar") == (b or "solar")
                         if k in ("hour", "minute"):
                             return (a in (None, "", 0)) == (b in (None, "", 0))
                         return a == b
@@ -119,7 +128,10 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
     except Exception:
         bazi = None
     if bazi and bazi.get("year"):
-        return bazi
+        out = dict(bazi)
+        # R2-5：bazi_info 源 out 透传 calendar（源值，旧行缺省 solar）
+        out.setdefault("calendar", "solar")
+        return out
     # ③ chart_records 排盘结果兜底（D8 保留）：已排盘落库（重看 0 重跑
     # 数据）即视为有档案，问事直接走档案快路径，不再引导建档。
     try:
@@ -133,6 +145,8 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
                 out = {k: b.get(k) for k in
                        ("year", "month", "day", "hour", "minute",
                         "city", "gender")}
+                # R2-5：chart 源 out 透传 calendar（行内值，缺省 solar）
+                out["calendar"] = b.get("calendar") or "solar"
                 bazi = (chart.get("bazi_json") or {}).get("bazi") or []
                 if bazi:
                     out["bazi"] = bazi
@@ -140,3 +154,39 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
     except Exception:
         pass
     return None
+
+
+def to_solar_date(profile: Optional[dict]):
+    """单点转换：农历出生档案 → 公历 (year, month, day)。
+
+    R2-5（数据一致性铁律：存储=原始输入事实源（含 calendar 标记），消费前
+    单点转公历——禁止各处自实现转换，禁止回写改写原始值）。引擎契约=
+    公历输入，所有档案消费方（handler 排盘兜底 / _fmt_birth_text /
+    calendar 今日运势）统一经此函数转换。
+
+    - calendar != 'lunar'（含旧档案缺省 solar）→ None：调用方直接用原值；
+    - lunar 但日期非法（不存在的农历日/月份越界）/ 年份超出前端 lunar.js
+      契约 1900-2100 / lunar-python 异常 → None：调用方回落原值并
+      logger.warning 一行，不抛异常不阻塞（绝不因转换问题打断用户主流程）。
+    - lunar 且转换成功 → (y, m, d) 公历三元组。
+
+    闰月语义：lunar-python fromYmd 的「序数月」口径与前端 lunar.js
+    lunar2solar 一致（非闰月序号换算；真闰月出生需带 isLeap 标记，前端
+    选择器与后端均未传 → 见 report concerns）。
+    """
+    if not profile or str(profile.get("calendar") or "solar") != "lunar":
+        return None
+    y = profile.get("year")
+    m = profile.get("month")
+    d = profile.get("day")
+    if not all(isinstance(v, int) and not isinstance(v, bool) for v in (y, m, d)):
+        return None
+    if not (1900 <= y <= 2100 and 1 <= m <= 12 and 1 <= d <= 30):
+        return None
+    try:
+        from lunar_python import Lunar
+        solar = Lunar.fromYmd(y, m, d).getSolar()
+        return (solar.getYear(), solar.getMonth(), solar.getDay())
+    except Exception:
+        # 非法农历日（如 1999-03-30 三月仅 29 天）→ None，调用方安全回落
+        return None

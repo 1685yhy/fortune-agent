@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import logging
 import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -13,8 +14,11 @@ from fastapi import APIRouter, Depends, Query
 from src.engines.calendar import LuckyCalendar, derive_fortune4
 from src.security.auth import require_user
 from src.storage.dao import UserDAO
-from src.storage.birth_profile import get_user_birth_profile
+from src.storage.birth_profile import (
+    get_user_birth_profile, to_solar_date)
 from src.utils.cache import get_cache, TTL_CALENDAR_TODAY
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["calendar"])
 
@@ -176,12 +180,27 @@ async def get_today_calendar(
             if pref_hint:
                 preferences = pref_hint
 
+    # R2-5：lunar 档案 → daily 喂「转公历副本」（引擎契约=公历输入；saved
+    # 原对象不 mutate——缓存键指纹在转换前已按原始档案生成，语义稳定）。
+    # 转换失败 → 安全回落原值（不抛异常不阻塞；档案内 bazi 四柱等键不受
+    # 影响，LuckyCalendar.daily 只消费 bazi/day_master/wuxing/dayun）。
+    _calc = saved
+    if str(saved.get("calendar") or "solar") == "lunar":
+        _sol = to_solar_date(saved)
+        if _sol:
+            _calc = dict(saved)
+            _calc["year"], _calc["month"], _calc["day"] = _sol
+        else:
+            logger.warning(
+                "R2-5 今日运势：lunar 档案转公历失败，按原始值计算 user=%s",
+                user_id)
+
     try:
         cal = LuckyCalendar(api_key) if api_key else LuckyCalendar("")
         # 同步 LLM 调用放线程池：事件循环保持空闲，请求超时中间件才能生效
         loop = asyncio.get_event_loop()
         day = await loop.run_in_executor(
-            None, lambda: cal.daily(saved, date_str=date_str, preferences=preferences)
+            None, lambda: cal.daily(_calc, date_str=date_str, preferences=preferences)
         )
     except Exception:
         result = _generate_generic_calendar(date_str)
