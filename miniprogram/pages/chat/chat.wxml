@@ -1,4 +1,4 @@
-<view class="screen {{nightMode ? 'night' : ''}} {{quotaBar.show ? 'qb-on' : ''}}" style="--nav-off:{{navOff}}px;--inputbar-h:{{inputBarH}}rpx" bindtap="onListTap">
+<view class="screen {{nightMode ? 'night' : ''}}" style="--nav-off:{{navOff}}px" bindtap="onListTap">
   <view class="navrow {{showBack ? 'show-back' : ''}}">
     <!-- 返回箭头：仅导航栈进入（历史/解梦 navigateTo）时显示；tab 主屏隐藏（原型 4-tab 常驻无返回） -->
     <view wx:if="{{showBack}}" class="back" hover-class="navrow-hover" hover-stay-time="0" bindtap="goBack">
@@ -45,13 +45,6 @@
        （night-head）、枕边灯语卡（lamp-card）、挽留条（keepBar）、劝睡
        （sleepBar）、「要我记得吗」（rememberPrompt）均不再展示；深夜主题
        （.night 变量级联）、服务端 /api/night/lamp/* 与灯语收藏体系保留 -->
-  <!-- 12356 心理援助（UX批1 M-5：加 ✕ 关闭入口，用户读完可收起） -->
-  <view wx:if="{{safetyCard.show}}" class="safety-card">
-    <view class="safety-head">心理援助 · 请先联系专业人员</view>
-    <text>{{safetyCard.text}}</text>
-    <view class="safety-x" hover-class="safety-x-active" hover-stay-time="0" catchtap="dismissSafetyCard" aria-label="关闭心理援助提示">✕</view>
-  </view>
-
   <!-- 对话建档提示条：AI 回复含建档 key → 顶部提示（点按确认/取消，可关闭） -->
   <view wx:if="{{saveBanner}}" class="dlg-banner" hover-class="dlg-banner-active" hover-stay-time="0" bindtap="onSaveBannerTap">
     <view class="seal db-seal"><text class="seal-char">对</text></view>
@@ -72,7 +65,23 @@
        不随消息滚动隐藏；全局只出现一次） -->
   <view class="chat-disclaimer">内容由 AI 生成 · 仅供娱乐参考</view>
 
-  <view wx:if="{{showGuide}}" class="guide">
+  <!-- ═══ k6-P1 输入区入流 · 屏幕中部内容容器（.chat-mid，结构见 chat.wxss .screen 注释）═══
+       容器占满导航行与输入条之间的全部弹性空间：输入条（.chat-inputbar，流内 flex 子项）
+       随额度条显隐 / textarea auto-height 增行而长高时，本容器由 flex 自然收缩——容器内的
+       绝对覆盖层（安全条 .safety-card / 引导区 .guide / 消息列表 .msg-list，坐标已换算为
+       mid 内锚点）随容器锚定，视觉与旧布局零位移、全程无 setData / 无 calc 重排 / 无滚动。
+       屏级绝对组件（multi-bar / dlg-banner / chat-disclaimer / navrow / tabbar）保持在容器
+       之外、坐标不动（见各自 wxss 注释） -->
+  <view class="chat-mid">
+    <!-- 12356 心理援助（UX批1 M-5：加 ✕ 关闭入口，用户读完可收起；k6-P1 移入 chat-mid，
+         bottom 锚点 = 容器底（输入条顶），见 chat.wxss .safety-card） -->
+    <view wx:if="{{safetyCard.show}}" class="safety-card">
+      <view class="safety-head">心理援助 · 请先联系专业人员</view>
+      <text>{{safetyCard.text}}</text>
+      <view class="safety-x" hover-class="safety-x-active" hover-stay-time="0" catchtap="dismissSafetyCard" aria-label="关闭心理援助提示">✕</view>
+    </view>
+
+    <view wx:if="{{showGuide}}" class="guide">
     <view class="guide-main">
       <!-- 左下 · 品牌（印章 + 名称 + 副标题） -->
       <view class="guide-brand">
@@ -264,6 +273,7 @@
       <view id="btm" class="msg-anchor"></view>
     </view>
   </scroll-view>
+  </view><!-- /chat-mid (k6-P1) -->
 
   <view class="chat-inputbar">
     <!-- L5-1/L5-2 对话额度条：免费用户「今日 X/15」；超限降级 → 精简提示 + 开通会员入口 -->
@@ -313,14 +323,17 @@
           <view class="in-ic in-cam" hover-class="in-ic-active" hover-stay-time="0" bindtap="chooseImage">
             <image src="/assets/images/ic-camera.png"></image>
           </view>
-          <!-- B4-1 自动长高：textarea auto-height，5.5 行封顶；bindlinechange 联动 --inputbar-h -->
+          <!-- B4-1 自动长高：textarea auto-height，5.5 行封顶。k6-P1：不再 bindlinechange——
+               原生长高由流内 .chat-inputbar + .chat-mid(flex:1) 自然吸收（打字零 setData/零重排） -->
           <textarea class="chat-input" placeholder="{{nightMode ? '慢慢说，我听着。' : '写下一句心事…'}}"
             placeholder-class="input-ph" value="{{inputText}}" focus="{{inputFocus}}"
             auto-height maxlength="500" cursor-spacing="20"
             bindinput="onInput" bindfocus="onFocus" bindblur="onBlur" bindconfirm="onConfirm"
-            bindlinechange="onInputLineChange" confirm-type="send" />
-          <!-- 内嵌小话筒图标：点击切按住说话（再点键盘图标切回） -->
-          <view class="in-ic in-mic {{micAvailable ? '' : 'in-ic-off'}}" hover-class="in-ic-active" hover-stay-time="0" data-mode="voice" bindtap="switchInputMode">
+            confirm-type="send" />
+          <!-- 内嵌小话筒图标：短按切「按住说话」模式（再点键盘图标切回）；长按（k6-P2）直达
+               录音——切 voice 态（textarea 卸载、键盘自然收起）→ 授权 → 直接开录，
+               松开发送/取消等一切结束路径自动复位回文字态（micLongPress/_clearLongPressVoice） -->
+          <view class="in-ic in-mic {{micAvailable ? '' : 'in-ic-off'}}" hover-class="in-ic-active" hover-stay-time="0" data-mode="voice" bindtap="switchInputMode" bindlongpress="micLongPress">
             <image src="/assets/images/ic-mic.png"></image>
           </view>
         </view>

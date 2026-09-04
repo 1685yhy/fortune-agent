@@ -1,9 +1,34 @@
 /* ═══ 屏 2 · 夜话 — 笺注对话（dir_b.html 825-903 行逐行翻译，px×1.923→rpx） ═══ */
 
-/* 输入条总高（输入行 + 内边距，rpx 常量估算；v2026-08-17 移除快捷 chip 行后
-   由 192rpx 降为 130rpx）：
-   msg-list 底部与其联动，滚动到底时最后一条气泡不被输入条遮挡 */
-.screen { --inputbar-h: 130rpx; }
+/* ═══ k6-P1 键盘闪断结构性修复：输入条改普通文档流 ═══
+   旧链路：输入条为 .screen 绝对定位（bottom:173rpx），总高由 JS 常量估算并以
+   CSS 变量 --inputbar-h 注入（v2026-08-17 由 192rpx 降 130rpx）——打字每增一行 →
+   bindlinechange → setData --inputbar-h → msg-list/引导区/安全条三处 calc 全页
+   重排 + scroll-into-view 动画补滚，键盘弹出期间被 JS 打断（用户实诉：输入打到
+   快满一行即被中断、键盘直接关闭）。
+   结构性方案：.screen（app.wxss 共享，position:fixed inset:0）在本页改为
+   flex 纵向列——绝对导航行 navrow 与底部 tabbar 是 app.wxss 跨页共享件，保持
+   absolute 不动，由页内 padding-top/padding-bottom 让位出等高铁轨；
+   中部新增 .chat-mid（flex:1; min-height:0; position:relative）承载原绝对覆盖层
+   （安全条/引导区/消息列表，锚点换算后视觉零位移）；输入条 .chat-inputbar 改
+   流内 flex 子项（flex-shrink:0）——额度条显隐、textarea auto-height 原生长高
+   都由 flex 自然吸收，无 setData、无重排、无滚动（行高机件整体退役，见
+   chat.js 文件头 k6-P1 注释）。 */
+.screen {
+  display: flex;
+  flex-direction: column;
+  padding-top: calc(182rpx + var(--nav-off));   /* 让位绝对 navrow：top 90rpx + 高 92rpx */
+  padding-bottom: 173rpx;                        /* 让位绝对 tabbar：高 173rpx（含安全区） */
+}
+/* 屏幕中部内容容器：占满 navrow 与输入条之间的全部弹性空间——本页原 absolute
+   覆盖层（.guide / .msg-list / .safety-card）随本容器锚定（坐标换算见各自规则），
+   输入条长高（额度条/文本区增行）时本容器自然收缩，无需任何 JS 联动 */
+.chat-mid {
+  flex: 1;
+  min-height: 0;
+  position: relative;   /* z-index:auto → 不产生层叠上下文，子覆盖层 z 级（25/40）
+                           仍按原语义与屏级多选条(z38)/横幅(z32)全局比较 */
+}
 
 /* ═══ 页头导航行（原型 v7 反馈#7 符号钮改造）═══
    标题「对话」居中；左侧纯符号钮（零文字）：
@@ -113,9 +138,9 @@
 
 .guide {
   position: absolute;
-  top: calc(247rpx + var(--nav-off));
+  top: 65rpx;                        /* k6-P1：.chat-mid 内坐标（原屏坐标 247rpx − mid 顶 182rpx，零位移） */
   left: 0; right: 0;
-  bottom: calc(173rpx + var(--inputbar-h) + 12rpx);
+  bottom: 12rpx;                     /* k6-P1：mid 底边 = 输入条顶边（等价原 calc "+12rpx"，输入条长高自动让位） */
   z-index: 25;
   display: flex;
   flex-direction: column;
@@ -257,8 +282,10 @@
 .mb-btn-cancel { color: var(--ink-faint); border-color: transparent; background: transparent; }
 .mb-btn-active { background: var(--acc-soft); }
 
-/* 多选模式：消息区下移避让操作条（215 → 286：让出 86rpx 条高 + 8rpx 间距） */
-.msg-list.multi-on { top: calc(318rpx + var(--nav-off)); }
+/* 多选模式：消息区下移避让操作条（215 → 286：让出 86rpx 条高 + 8rpx 间距）。
+   k6-P1：操作条仍为屏级 absolute，消息区在其内的 .chat-mid 中下移对应量
+   （原屏坐标 318rpx − mid 顶 182rpx = 136rpx） */
+.msg-list.multi-on { top: 136rpx; }
 
 /* 多选勾选框（气泡左上角圆形，勾选=朱砂实心 ✓）
    left:-32rpx：消息区内边距 35rpx，勾选框仍完整在滚动容器内（overflow-x 不裁剪） */
@@ -348,16 +375,17 @@
   flex-shrink: 0;
 }
 
-/* ── 消息流 ──
-   bottom 与输入条联动：输入条占底部 173rpx(tabbar) 之上 --inputbar-h 高度，
-   滚动到底时最后一条气泡（含反馈钮）完整露出，不被快捷笺条/输入行遮挡 */
+/* ── 消息流（k6-P1：.chat-mid 内绝对覆盖层）──
+   .chat-mid 底边 = 输入条顶边（.chat-inputbar 已为流内元素，见 .screen 注释）——
+   输入条随额度条/文本区长高时，消息区可视高度由 flex 自然收缩（等价旧
+   bottom = 173rpx(tabbar) + --inputbar-h + 12rpx 的视觉结果，但无任何 JS 联动） */
 .msg-list {
   position: absolute;
-  top: calc(247rpx + var(--nav-off));   /* 112px（免责一行占位后下移 32rpx） */
+  top: 65rpx;                        /* k6-P1：mid 内坐标（原屏坐标 247rpx − 182rpx，零位移；免责一行仍占位其上） */
   left: 0; right: 0;
-  bottom: calc(173rpx + var(--inputbar-h) + 12rpx);  /* 原 246rpx 会被输入条盖住 */
+  bottom: 12rpx;                     /* k6-P1：输入条上方留 12rpx 收边（原 calc 尾部 +12rpx） */
   z-index: 25;
-  overflow-x: hidden;                    /* 真机修复：内容超宽时横向裁剪，页面不可横滑 */
+  overflow-x: hidden;                /* 真机修复：内容超宽时横向裁剪，页面不可横滑 */
 }
 .msg-inner { display: flex; flex-direction: column; gap: 35rpx; padding: 27rpx 35rpx 35rpx; }  /* 14px 18px 18px */
 .msg-anchor { height: 2rpx; }
@@ -760,6 +788,7 @@
   line-height: 1.8;
   letter-spacing: .03em;
   color: var(--ink);
+  word-break: break-all;                 /* k6-P3：超长连续串（URL/口令等）断行，防穿出右缘被 .msg-list 横向裁剪（与 AI 侧 md-p 同规则） */
   transition: opacity .25s ease;
 }
 .user-note.pending {
@@ -848,32 +877,31 @@
 }
 .qb-btn-active { opacity: .7; }
 
-/* ── 输入条（额度条 + 输入行 + 朱砂发送） ── */
+/* ── 输入条（额度条 + 输入行 + 朱砂发送） ──
+   k6-P1：改普通文档流（.screen flex 列内、.chat-mid 之下）——高度随内容原生长
+   （额度条显隐 / textarea auto-height 增行），消息区由 .chat-mid flex 自然让位；
+   旧定位（absolute bottom:173rpx + z30 + --inputbar-h 注入）与 qb-on 类整体退役 */
 .chat-inputbar {
-  position: absolute;
-  left: 0; right: 0;
-  bottom: 173rpx;                        /* 90px */
-  z-index: 30;
+  position: relative;                   /* 无偏移，仅恢复旧 z30 层序（流内元素低于定位兄弟层） */
+  z-index: 30;                          /* 原语义：输入条恒盖消息区（msg-list z25 / guide z25） */
+  flex-shrink: 0;                       /* 不参与 flex 压缩：保持内容自然高度 */
   display: flex;
   flex-direction: column;
   background: var(--tabbar-bg);
   border-top: 2rpx solid var(--line-soft);  /* 1px */
   padding: 17rpx 27rpx 19rpx;            /* 9px 14px 10px */
 }
-/* 额度条展示时输入条增高（~42rpx）→ 消息列表底部联动让位（qb-on 挂在 .screen）。
-   注（B4-1-fix Minor）：.screen 恒带内联 --inputbar-h（JS _updateInputBarH 注入，
-   内联优先于类规则）→ 本规则实际不生效，仅作 JS 失效时的兜底；
-   真实增高由 JS INPUTBAR_QBON=42 驱动（wxml L1 挂 class、L2 内联变量）。 */
-.screen.qb-on { --inputbar-h: 172rpx; }
 /* v2026-08-17：输入条上方快捷 chip 排（chip-row/quickchip）已删
    （wxml 同步移除；示例问题已在引导区，无需重复入口）。
-   quickAsk 函数保留（引导区示例问题使用）；输入条现仅输入行 + 内边距，
-   --inputbar-h 已同步降为 130rpx，msg-list/引导区底部联动不变 */
+   quickAsk 函数保留（引导区示例问题使用）；k6-P1：输入条高度随内容（流内），
+   不再有 --inputbar-h 变量与 msg-list/引导区/安全条 calc 联动 */
 .input-row { display: flex; align-items: center; gap: 17rpx; }  /* 9px */
 
 /* B4-1 输入框外壳（对齐豆包：内嵌 相机|文本区|小话筒；边框/圆角/底移到此层） */
 .input-shell {
   flex: 1;
+  min-width: 0;                          /* k6-P3：flex 子项默认 min-width:auto → 内嵌原生 textarea 固有
+                                            宽使外壳拒绝收缩、挤出右侧钮；归零允许收缩（仓库 .db-mid 同款先例） */
   min-height: 81rpx;                     /* 42px：与旧单行输入等高 */
   box-sizing: border-box;
   display: flex;
@@ -887,10 +915,14 @@
   border-color: var(--acc);
   box-shadow: 0 0 0 6rpx var(--acc-soft);  /* 3px */
 }
-/* B4-1 自动长高文本区：auto-height，行高 40rpx，5.5 行封顶（max-height 220rpx）；
-   bindlinechange 行数 → JS 联动 --inputbar-h（增量 = (行数-1) × 40rpx，封顶 +200rpx） */
+/* B4-1 自动长高文本区：auto-height，行高 40rpx，5.5 行封顶（max-height 220rpx）。
+   k6-P1：不再 bindlinechange / JS 联动——auto-height 原生长高由 .chat-inputbar
+   （流内）+ .chat-mid（flex:1）自然吸收，打字过程零 setData / 零重排 / 零滚动 */
 .chat-input {
   flex: 1;
+  min-width: 0;                          /* k6-P3：textarea 原生固有宽（~300px 级）不随 flex 份额收缩，
+                                            会挤出/叠压右侧 .in-mic——归零允许收缩 */
+  width: 100%;                           /* k6-P3：等价显式宽度约束兜底（native 层非 flex 约束时仍收进外壳） */
   min-height: 44rpx;                     /* 单行（行高 40rpx） */
   max-height: 220rpx;                    /* 5.5 行封顶，超出内部滚动 */
   height: auto;
@@ -1619,12 +1651,12 @@
 /* UX批1 M-7：语音插件未配置时 mic 入口置灰（点按即提示，不用等长按） */
 .mic-off { opacity: .35; }
 
-/* ── 12356 心理援助安全条 ── */
+/* ── 12356 心理援助安全条（k6-P1：.chat-mid 内覆盖层，wxml 已移入 chat-mid） ── */
 .safety-card {
   position: absolute;
   left: 35rpx;
   right: 35rpx;
-  bottom: calc(173rpx + var(--inputbar-h) + 20rpx);
+  bottom: 20rpx;                     /* k6-P1：mid 底边 = 输入条顶边（原 calc 尾部 +20rpx，输入条长高自动让位） */
   z-index: 40;
   padding: 21rpx 25rpx;
   background: var(--paper-card);
