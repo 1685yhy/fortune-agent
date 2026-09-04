@@ -70,11 +70,14 @@ def compute_stream_remaining(reply: str, streamed_text: str) -> str:
 
     规则（约束：reply 中未流出过的句子绝不丢弃；补发内容必须句子完整，
     截断句中已流出的前缀允许重叠一次）：
-    - covered 计算保持现有（最长后缀匹配）；covered==0 → 整段重发（保留现状）；
+    - covered 计算保持现有（最长后缀匹配）；
     - 剩余起点恰在句子边界（reply[covered-1] 是 。！？… 换行）→ 增量补发 reply[covered:]；
     - 否则（covered 截在句子中间）→ 回溯到 reply 中 covered 之前的最后一个
       句子结束符，从该句起点补发 reply[边界+1:]，保证句子完整；
-    - covered 之前不存在任何句子结束符（整个前缀是同一句）→ 整段补发。
+    - covered==0 / covered 前缀内无句子边界 → k5 尾部对齐补发：reply 最长前缀
+      已在 streamed 中完整流出过（正文主体已流出，reply 尾部是流后追加的图片
+      URL/页脚）→ 只补未流出的尾部增量，不再整段重发；正文从未流出 → 整段
+      补发（降级/非流式兜底，保留现状语义）。
     """
     if not reply:
         return ""
@@ -97,7 +100,30 @@ def compute_stream_remaining(reply: str, streamed_text: str) -> str:
             if reply[idx] in _SENT_END_CHARS:
                 boundary = idx
                 break
-        start = boundary + 1  # 前缀内无边界 → boundary=-1 → start=0 → 整段补发
+        start = boundary + 1  # 前缀内无边界 → boundary=-1 → start=0 → 落入下方 k5 尾部对齐
+    if start == 0:
+        # k5 单稿流（2026-09-04，用户实锤一条回复显示两遍）：streamed 尾部与
+        # reply 前缀无重叠（covered==0：多稿灌流 / 回复经再处理后与流尾逐字
+        # 失配），或 covered 前缀内无句子边界（正文尾部恰缺句末标点，旧逻辑
+        # 整段重发 = 把已流出正文再整段重发一遍）→ 不再无条件整段重发：
+        # 找 reply 最长前缀已在 streamed 中作为连续子串出现（正常：定稿正文
+        # 已完整流过，reply = 定稿正文 + 流后追加的尾部如命盘图 URL/页脚
+        # → 只补未流出的尾部增量）。复杂度：k 递减的 in 为 C 层快速子串
+        # 查找，reply ≤3000 字符、每次请求仅一次，命中即 break，最坏
+        # ~百 ms 级可接受。
+        best = 0
+        for k in range(len(reply), 0, -1):
+            if reply[:k] in streamed_text:
+                best = k
+                break
+        # 正文主体（≥20 字符）确已完整流出 → 只补尾部；或重叠前缀恰止于
+        # 句子边界（reply[covered] 即换行等句末符，尾部以完整句/段开始）
+        # → 同理只补尾部（覆盖 covered>0 但前缀内无边界、长度不足 20 的
+        # 短正文尾部追加场景）。
+        if best >= 20 or (best == covered and best > 0
+                          and reply[best] in _SENT_END_CHARS):
+            return reply[best:]  # 正文主体已流出 → 只补尾部增量（不再整段重发）
+    # 正文从未流出（降级/非流式兜底）→ 整段模拟流式（保持现状语义）
     return reply[start:]
 
 
@@ -537,4 +563,8 @@ class ChatStreamer:
             "suggestions": suggestions,
             # L5-1 降级标记：true 时前端提示"今日额度已用尽，已为你精简回复"
             "downgraded": downgraded,
+            # k5 单稿流（2026-09-04）：done 携带定稿全文（与落库同文）——前端
+            # 本批不消费，字段先就位：未来前端「整泡兜底替换」用（显示 = 落库
+            # 数据一致性铁律，回看与屏幕永远同稿）。
+            "content": reply,
         }

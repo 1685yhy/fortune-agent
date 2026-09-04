@@ -4069,17 +4069,37 @@ class MessageHandler:
         handler_map = {c.cap_id: c.executor for c in CAPABILITIES
                        if c.cap_type == "intent" and c.executor}
 
+        # k5 单稿流门控（2026-09-04，用户实锤一条回复显示两遍）：引擎 handler
+        # 内部的草稿正文 chunk（LLM 实时流）先拦截暂存不发出——正文唯一来源 =
+        # 下方润色定稿流（对齐豆包/元宝：正文只生成/流出一遍）；thinking/tool
+        # 事件原样透传（引擎分析阶段前端只显示思考状态）。handler 返回后按
+        # _will_polish 决定：丢弃暂存（本稿将被润色重写）或按原序 flush（本稿
+        # 即最终稿：信息收集/无引用/⚠️/降级等，用户不失内容）。仅流式模式
+        # （stream_cb 非 None）启用包装；非流式 /api/chat 原样直传（handler
+        # 内部不产出 chunk，零影响）。
+        _draft_chunks: Optional[list] = None
         handler = handler_map.get(analysis.intent)
         if handler:
             try:
                 self._consume_quota(user_id)
+                if stream_cb is not None:
+                    _draft_chunks = []
+                    _real_cb = stream_cb
+
+                    def _gated_cb(evt_type: str, payload: dict) -> None:
+                        if evt_type == "chunk":
+                            _draft_chunks.append(payload)  # 草稿正文：暂存
+                            return
+                        _real_cb(evt_type, payload)  # thinking/tool：透传
+                else:
+                    _gated_cb = stream_cb
                 # 会话隔离：解梦需读会话历史（P0-1 已有梦境免重复描述），
                 # 仅 dream 处理器感知 session_id；其余引擎处理器不读历史
                 if analysis.intent in ("dream", "bazi", "career"):
-                    reply = handler(msg, user_id, stream_cb=stream_cb,
+                    reply = handler(msg, user_id, stream_cb=_gated_cb,
                                     session_id=session_id)
                 else:
-                    reply = handler(msg, user_id, stream_cb=stream_cb)
+                    reply = handler(msg, user_id, stream_cb=_gated_cb)
             except Exception as e:
                 reply = f"⚠️ 服务暂时不可用：{str(e)[:100]}\n\n请稍后再试或换一种命理方式。"
         else:
@@ -4103,13 +4123,25 @@ class MessageHandler:
         _r1_self_fortune_turn = (
             not self._is_third_party_birth_request(msg)
             and bool(_SELF_FORTUNE_RE.search(msg)))
-        if (analysis.intent not in ("xuetang", "advisor")
-                and not downgraded
-                and reply and not reply.startswith("⚠️")
-                and self._citations.get(user_id)
-                and not (_r1_self_fortune_turn
-                         and self._history_has_third_party_birth(
-                             user_id, session_id))):
+        # k5 单稿流：will_polish 在 handler 返回后即刻原样求值（条件与短路
+        # 顺序同下方原块，只求一次、不重复求值）——True → 本稿将走润色
+        # 重写，暂存的草稿 chunk 丢弃（正文以定稿流为唯一来源）；False →
+        # 本稿即最终稿，按原序 flush 暂存 chunk 给真 stream_cb（用户看到
+        # 的正文与落库一致）。
+        _will_polish = (analysis.intent not in ("xuetang", "advisor")
+                        and not downgraded
+                        and reply and not reply.startswith("⚠️")
+                        and self._citations.get(user_id)
+                        and not (_r1_self_fortune_turn
+                                 and self._history_has_third_party_birth(
+                                     user_id, session_id)))
+        if _draft_chunks:
+            if _will_polish:
+                _draft_chunks.clear()  # 草稿丢弃：正文只流一遍（润色定稿）
+            else:
+                for _payload in _draft_chunks:  # 按原序 flush（草稿即最终稿）
+                    stream_cb("chunk", _payload)
+        if _will_polish:
             engine_draft = reply
             try:
                 reply = self._polish_with_engine_draft(
