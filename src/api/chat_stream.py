@@ -129,8 +129,15 @@ def compute_stream_remaining(reply: str, streamed_text: str) -> str:
         if best >= 20 or (best == covered and best > 0
                           and reply[best] in _SENT_END_CHARS):
             return reply[best:]  # 正文主体已流出 → 只补尾部增量（不再整段重发）
-        if best == 0 and len(streamed_text) >= 20:
-            # k7 中段命中（2026-09-05，18:47 排盘双份实证）：reply 的正文主体
+        if best < 20 and len(streamed_text) >= 20:
+            # k7c（2026-09-05，引用角标死区实证）：原条件 best == 0 漏掉
+            # 0 < best < 20 的死区——reply 前缀与 streamed 存在 1-19 字符
+            # 巧合子串（典型：排盘正文带引擎引用角标 [1]，reply[:1]="["
+            # 与正文 "[" 命中 → best=1）→ k5 不触发、中段也被闸死 → 落兜底
+            # 整段重发 = 18:47 双份形态回归。best < 20 即「k5 无有意义命中
+            # （正文主体未作为 reply 前缀流出）」→ 允许尝试中段对齐；中段
+            # 自身有 ≥90% 全长阈值封死误伤，不中自然落兜底，行为不劣化。
+            # 原 k7 注释（2026-09-05，18:47 排盘双份实证）：reply 的正文主体
             # 被卡壳包裹（reply = 卡前缀 + 正文 + 卡尾），正文已作为实时流
             # 完整流出 → 只补壳头+壳尾，不再整段重发。镜像 k5 的前缀查找：
             # 找 streamed_text 最长前缀在 reply 中作连续子串的对齐位置
