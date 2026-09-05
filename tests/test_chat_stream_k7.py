@@ -51,6 +51,21 @@ _BODY = (
 # 卡场景完整 reply（= 落库定稿形态）
 _REPLY_CARD = _CARD_HEAD + _BODY + _CARD_TAIL
 
+# 带引擎引用角标正文（≥100 字：正文句子间插入 "[1]"——阶段 5 引用来源
+# 实据形态；"[1]" 使 reply[:1]="[" 与正文 "[" 必然巧合命中 → k5 best=1）
+_CITE_BODY = (
+    "你生于丙子年腊月，四柱官印相生，身强任财。"
+    "大运逆行入财乡，中年以后积蓄渐丰，宜稳不宜急。"
+    "流年逢驿马冲动，今年秋冬有出行之象，动静之间自有转机。"
+    "凡事先谋而后动，遇贵人点拨可成大事，切记守正出奇。"
+    "身弱不胜财官，宜食伤泄秀以制衡。[1]\n\n"
+    "目下正逢运势上升之期，把握时机稳步前行，自可水到渠成。"
+)
+assert len(_CITE_BODY) >= 100
+assert "[1]" in _CITE_BODY  # 夹具自检：引用角标必须在正文中（best=1 触发前提）
+# 卡场景完整 reply（含角标正文版本）
+_CITE_REPLY_CARD = _CARD_HEAD + _CITE_BODY + _CARD_TAIL
+
 
 # ================================================================
 # 1) compute_stream_remaining：卡场景 + 中段命中 + 回归矩阵
@@ -100,6 +115,26 @@ class TestComputeStreamRemainingK7:
         # 只补：壳头 + 正文最后一句（未流出的差异尾）+ 卡尾——不整段重发
         assert remaining == _CARD_HEAD + _BODY[-5:] + _CARD_TAIL
         assert remaining != _REPLY_CARD  # 命中 mid 分支（非整段兜底）
+
+    def test_citation_bracket_mid_body_refills_shell_only(self):
+        """死区复现（k7c 实证）：正文含引擎引用角标 [1] → reply[:1]="[" 与
+        streamed 正文 "[" 巧合命中 → 修复前 k5 best=1 ∈ (0,20)：k5 分支
+        不触发（不足 20）、中段分支被 best == 0 闸死 → 落兜底整段重发
+        （18:47 双份形态回归）；修复后中段入口放宽 best < 20 → 中段对齐
+        命中 → 只补壳头 + 壳尾，正文绝不重发。"""
+        remaining = compute_stream_remaining(_CITE_REPLY_CARD, _CITE_BODY)
+        print(f"cite dead-zone scene: remaining={remaining!r}")
+        assert remaining == _CARD_HEAD + _CARD_TAIL
+        assert _CITE_BODY not in remaining  # 正文绝不重发
+
+    def test_citation_body_tail_append_returns_tail(self):
+        """放宽条件不影响非卡形态（k7c 回归）：reply = 含 [1] 正文 + 尾部
+        追加（流后追加的图片行）→ 只补尾部增量（正文不重发）。"""
+        reply = _CITE_BODY + "\n\n📊 命盘图片：http://x.example/114949.png"
+        remaining = compute_stream_remaining(reply, _CITE_BODY)
+        print(f"cite tail-append scene: remaining={remaining!r}")
+        assert remaining == "\n\n📊 命盘图片：http://x.example/114949.png"
+        assert _CITE_BODY not in remaining
 
     def test_empty_guards(self):
         assert compute_stream_remaining("", "任意流内容") == ""
@@ -179,6 +214,10 @@ _LIVE_PIECES = [
 _LIVE_BODY = "".join(_LIVE_PIECES)
 assert _LIVE_BODY == _BODY  # 夹具自检：流 = 卡内正文（防静默装配错误）
 
+# 引用角标正文实时流（生产 LLM delta 形态；split_sentences 逐字保真）
+_CITE_PIECES = split_sentences(_CITE_BODY)
+assert "".join(_CITE_PIECES) == _CITE_BODY  # 夹具自检：join 还原正文
+
 
 class _K7Handler:
     """模拟 handler.process：正文以指定 payload 键实时流（queue 路径），
@@ -209,6 +248,28 @@ class _K7Handler:
         return _REPLY_CARD
 
 
+class _K7CiteHandler:
+    """模拟 handler.process（k7c 死区复现形态）：正文含引擎引用角标 [1]，
+    按分句实时流（text 键），返回 = 卡壳+含 [1] 正文+卡尾 的定稿 reply。"""
+
+    def __init__(self, key: str = "text"):
+        self.key = key
+        self.session_dao = None
+
+    def pop_citations(self, uid):
+        return []
+
+    def gen_suggestions(self, uid, q, r):
+        return []
+
+    def process(self, message, user_id, stream_cb=None, deep_night=False,
+                session_id=None, downgraded=False):
+        if stream_cb is not None:
+            for piece in _CITE_PIECES:
+                stream_cb("chunk", {self.key: piece})
+        return _CITE_REPLY_CARD
+
+
 class _K7MemberDAO:
     def check_quota(self, uid):
         return True
@@ -230,9 +291,10 @@ class _K7Req:
     user_id = None
 
 
-async def _collect(events_out: list, payload_key: str = "text"):
+async def _collect(events_out: list, payload_key: str = "text",
+                   handler_cls=_K7Handler):
     st = ChatStreamer(
-        handler=_K7Handler(key=payload_key),
+        handler=handler_cls(key=payload_key),
         member_dao=_K7MemberDAO(),
         dao=None, sanitizer=None, auditor=None, validator=None,
         chat_quota_dao=None,
@@ -271,6 +333,35 @@ class TestEventsSingleStream:
         done = events[-1]
         assert done["type"] == "done"
         assert done["content"] == _REPLY_CARD
+
+
+class TestEventsCitationDeadzone:
+    """端到端死区复现（k7c，生产形态 payload={"text":…}）：正文实时流含
+    引用角标 [1] → 修复前中段分支被 best ∈ (0,20) 闸死 → 收尾整卡重发
+    （正文两遍 = 18:47 双份回归）；修复后只补壳头+壳尾，正文恰好一遍。"""
+
+    def test_citation_body_streamed_once_shell_only_refill(self):
+        events = []
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_collect(events, payload_key="text",
+                                             handler_cls=_K7CiteHandler))
+        finally:
+            loop.close()
+
+        chunks = [e["content"] for e in events if e["type"] == "chunk"]
+        text = "".join(chunks)
+        # 无真空 chunk；正文实时块原样可见
+        assert all(chunk for chunk in chunks)
+        # 最终结构 = 含 [1] 正文一遍 + 壳头 + 卡尾（收尾只补壳，不重发正文）
+        assert text == _CITE_BODY + _CARD_HEAD + _CARD_TAIL, repr(text[:120])
+        assert text.count(_CITE_BODY) == 1
+        # 事件协议骨架：start 先行、done 收尾（done 携带定稿全文 = 落库同文）
+        assert events[0]["type"] == "start"
+        done = events[-1]
+        assert done["type"] == "done"
+        assert done["content"] == _CITE_REPLY_CARD
 
 
 class TestEventsContentKeyCollection:
