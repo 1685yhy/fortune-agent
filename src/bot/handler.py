@@ -99,7 +99,7 @@ from src.bot.capability_registry import (
 )
 
 # E2-1 对话消息卡片化：卡片标记生成与判定（纯函数，见 task-e2-server-brief）
-from .card_mark import detect_card_type, wrap_card
+from .card_mark import detect_card_type, wrap_card, strip_card_decor_for_llm
 
 # v8 阶段 3（过程体验）：工具调用事件文案（思考路径逐步点亮）
 _TOOL_EVENT_LABELS = {
@@ -1976,6 +1976,11 @@ class MessageHandler:
             return draft
         polished = polished.strip()
         if len(polished) < 10:
+            return draft
+        # k7b：LLM 从会话历史仿写卡尾（卡头行+假图行+[/card]+假页脚）的净化
+        # （只净化 LLM 输出；净化后再补的 chart_url/tail 即唯一装饰）
+        polished = strip_card_decor_for_llm(polished)
+        if not polished or len(polished) < 10:
             return draft
         if chart_url and chart_url not in polished:
             polished = polished + "\n\n" + chart_url

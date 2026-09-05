@@ -12,6 +12,10 @@ import sqlite3
 from typing import Optional, List, Dict
 
 from .models import init_db, connect as db_connect
+# k7b：LLM 上下文卡装饰剥离。src.bot.card_mark 为纯函数模块（只 import re/
+# typing），无循环依赖；storage 层引用其纯函数属轻微层序倒置，但卡规则
+# 与 wrap_card 同源同文件、清洗语义归属卡模块，可接受（契约函数名不变）。
+from src.bot.card_mark import strip_card_decor_for_llm
 
 logger = logging.getLogger(__name__)
 
@@ -485,10 +489,21 @@ class SessionDAO:
 
         Returns:
             list of dicts: [{"role": "user"/"assistant", "content": "..."}, ...]
+
+        k7b：返回内容将直接进 LLM 上下文——assistant 消息先经
+        strip_card_decor_for_llm 剥卡装饰（卡/图/页脚只由装配层注入，LLM
+        不该看到卡样例，否则会仿写卡尾自增强）。只读清洗，绝不回写库
+        （库内定稿保持原样——前端历史渲染仍读原文含卡）。
         """
         history = self.get_history(user_id, limit=history_limit,
                                    session_id=session_id, temp=temp)
-        return [{"role": h["role"], "content": h["content"]} for h in history]
+        out = []
+        for h in history:
+            content = h["content"]
+            if h["role"] == "assistant" and content:
+                content = strip_card_decor_for_llm(content)
+            out.append({"role": h["role"], "content": content})
+        return out
 
     def clear_history(self, user_id: str):
         """清除指定用户的所有会话消息。"""

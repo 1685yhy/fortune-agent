@@ -166,6 +166,73 @@ def detect_card_type(
     return None
 
 
+def strip_card_decor_for_llm(text: Optional[str]) -> Optional[str]:
+    """按行剥离卡片渲染装饰（k7b），返回纯正文 —— LLM 上下文/输出清洗。
+
+    背景（k7b 端到端实录实证）：会话历史里存在装配层生成的整卡定稿
+    （[card:…]…[/card]+图行+页脚）后，LLM 会从历史仿写卡尾（自造卡头行+
+    假图行（URL 幻觉抄历史旧图、可能丢📊）+假[/card]+假页脚），每次仿写
+    又落库成为新的假样例 → 自增强。卡/图/页脚是渲染装饰，只由装配层
+    （wrap_card/引擎直出保底）注入一次；LLM 永远只该看到和产出正文。
+
+    规则（每种装饰在实录中均独立成行，按行级剥离，正文行全部保留）：
+    - 卡头行：行首（可带缩进）`[card:…`
+    - 卡闭合行：行首（可带缩进）`[/card]`
+    - 图行：行内 📊 且含 `http(s)://…`；或行内「命盘图片：」且含 URL
+      （覆盖 LLM 仿写丢📊 的空白前缀形态；不锚定行首）
+    - 反馈页脚行：行内含「可回复」且「「准」」且「「不准」」
+    - 分隔行：整行 `———…` 或 `---…`
+    - 版本页脚（防御性，存量消息）：行含「解读版本：」
+
+    契约：
+    - 保正文逐行原样（只删装饰行）；删除后连续空行压缩（≥3 个 `\\n` → 2 个
+      `\\n`，正文段落间正常最多 1 空行=2 换行）；
+    - 首尾 strip；无装饰文本 → 返回原文（strip 后恒等）；
+    - 误伤防护：正文行含「命盘」但无「图片：+URL」不动；含 📊 但无 http
+      不动；`[card:` 只在整行行首才剥（正文行以文字开头不受影响）；
+    - 空串/None 原样返回（防御）。
+    - 只读清洗：只服务 LLM 上下文/LLM 输出，绝不回写库（库内定稿保持
+      原样，前端历史渲染仍读原文含卡）。
+    """
+    if not text:
+        return text
+    lines = text.splitlines()
+    kept = [ln for ln in lines if not _is_decor_line(ln)]
+    if len(kept) == len(lines):
+        return text.strip()  # 无装饰 → 恒等（strip 后）
+    body = _BLANK_RUN_RE.sub("\n\n", "\n".join(kept))
+    return body.strip()
+
+
+# k7b 行级装饰判定（单行正则，见 strip_card_decor_for_llm docstring）
+_URL_IN_LINE_RE = re.compile(r'https?://\S+')
+_TEXT_IMG_LINE_RE = re.compile(r'命盘图片[：:][^\n]*https?://\S+')
+_VERSION_FOOTER_RE = re.compile(r'解读版本[：:]')
+_CARD_HEADER_LINE_RE = re.compile(r'^\s*\[card:')
+_CARD_CLOSE_LINE_RE = re.compile(r'^\s*\[/card\]')
+_DASH_SEP_LINE_RE = re.compile(r'^\s*---+$')
+_EMDASH_SEP_LINE_RE = re.compile(r'^\s*———+\s*$')
+_BLANK_RUN_RE = re.compile(r'\n{3,}')
+
+
+def _is_decor_line(line: str) -> bool:
+    """判定单行是否为卡渲染装饰（卡头/卡闭合/图行/反馈页脚/分隔/版本页脚）。"""
+    if _CARD_HEADER_LINE_RE.match(line):
+        return True
+    if _CARD_CLOSE_LINE_RE.match(line):
+        return True
+    if ("📊" in line and _URL_IN_LINE_RE.search(line)) or \
+            _TEXT_IMG_LINE_RE.search(line):
+        return True
+    if "可回复" in line and "「准」" in line and "「不准」" in line:
+        return True
+    if _DASH_SEP_LINE_RE.match(line) or _EMDASH_SEP_LINE_RE.match(line):
+        return True
+    if _VERSION_FOOTER_RE.search(line):
+        return True
+    return False
+
+
 def split_tail(reply: str) -> Tuple[str, str]:
     """按回复尾部已知模式拆分 (正文主干, 尾部引导语/反馈语)。
 
