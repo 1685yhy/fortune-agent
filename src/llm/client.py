@@ -150,6 +150,15 @@ def _run_stream_feed_callback(
         loop.run_until_complete(_collect())
     finally:
         try:
+            # k7d：message_stop break 后 async 生成器 aclose 由 call_soon 调度，
+            # run_until_complete 返回后立即 close → aclose task 未跑完 →
+            # 「Task was destroyed but it is pending! async_generator_athrow」
+            # 噪音（实测每次流式正常收尾必现，与内容中断无因果）。让事件循环
+            # 再转一圈收尾 aclose 后再关，日志归零。
+            loop.run_until_complete(asyncio.sleep(0.01))
+        except Exception:
+            pass
+        try:
             loop.close()
         except Exception:
             pass

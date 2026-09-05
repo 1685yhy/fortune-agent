@@ -1962,7 +1962,10 @@ class MessageHandler:
             from src.llm.client import deepseek_anthropic_completion
             polished = deepseek_anthropic_completion(
                 api_key, messages, model=model,
-                max_tokens=2000, temperature=0.7, timeout=60.0,
+                # k7d：polish 输入为引擎完整稿（实测最长 ~2600 字符），2000 token
+                # 上限会截断润色输出（实测断于 1140 字符半句），用户实时流看到
+                # 半句稿 → 4000（实测 2870-3382 字符长流完整）。
+                max_tokens=4000, temperature=0.7, timeout=60.0,
                 stream_cb=stream_cb,
             )
             logger.info("[timing] stage=polish duration=%.1fs",
@@ -4616,18 +4619,29 @@ class MessageHandler:
         return []
 
     def _pillar_claims_conflict(self, reply: str, chart_bazi: list) -> bool:
-        """回复中按序断言了完整四柱、且与已存盘不一致 → 冲突。
+        """回复中断言了完整四柱、且与已存盘不一致 → 冲突。
 
-        - 只取回复正文按序出现的前 4 个干支（正文先讲四柱，大运/流年干支在后）；
-        - 不足 4 个干支（非排盘类回复）无从断言四柱 → 不判冲突；
-        - 顺序敏感：'庚午 甲申 乙丑 丙子' vs 已存 '庚午 辛巳 乙酉 甲申' → 冲突。
+        - 回复不足 4 个干支（非排盘类回复）无从断言四柱 → 不判冲突；
+        - k7d（2026-09-05，D2 误判实证）：原实现取「文本序前 4 个干支」
+          假设「正文先讲四柱、大运/流年在后」——polish 稿结构把
+          「大运：3岁戊辰,13岁丁卯…」摘要行放在【分析解读】四柱声明行
+          （己卯年、己巳月、乙丑日、辛巳时）之前 → 前 4 = 大运四连
+          （[戊辰,丁卯,丙寅,乙丑]）≠ 存档 → 系统性误判冲突 → 回退引擎稿
+          → 已流的 polish 稿与整卡异文 = 18:47 双稿形态。改为：回复全文
+          存在「与存档同序同值的完整四柱四连组」（任意位置）→ 声明正确
+          不冲突；断言 ≥4 个干支却无存档序四连 → LLM 写了别家的四柱，
+          仍判冲突（原 D2 防护语义不变）。
         """
         if not reply or not chart_bazi or len(chart_bazi) < 4:
             return False
         found = self._GANZHI_RE.findall(reply)
         if len(found) < 4:
             return False
-        return list(found[:4]) != list(chart_bazi[:4])
+        want = list(chart_bazi[:4])
+        for i in range(len(found) - 3):
+            if list(found[i:i + 4]) == want:
+                return False  # 已断言与存档同序同值四柱 → 声明正确
+        return True
 
     def _liunian_claims_conflict(self, reply: str, user_id: str) -> bool:
         """回复中断言了带明确年份（今年/YYYY年）的流年干支且与已存盘
