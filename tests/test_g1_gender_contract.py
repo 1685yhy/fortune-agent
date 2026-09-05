@@ -214,10 +214,11 @@ def test_g1_profile_persons_first_when_bazi_info_stale(tmp_path):
     assert saved is not None
     assert saved["gender"] == "女"          # 单一事实源 = persons
     assert saved["year"] == 1999
-    # 自愈：bazi_info 被 persons 回写为女，且既有 bazi 键保留
+    # k8（2026-09-05 21:44 根因）：自愈改为「以 persons 全量重建」——旧行
+    # bazi 四柱键一律丢弃（四柱只属于 chart_records），不再保留既有键
     bazi = h.dao.get_user_bazi("u1")
     assert bazi["gender"] == "女"
-    assert bazi["bazi"] == ["己卯", "丙寅", "己酉", "丁卯"]
+    assert "bazi" not in bazi, "自愈重建不得保留旧行 bazi 四柱键"
 
 
 def test_g1_profile_persons_first_when_bazi_info_missing(tmp_path):
@@ -314,7 +315,10 @@ def test_g1_correction_archives_double_written(tmp_path):
     persons = pdao.list_persons("u5")
     assert persons[0]["gender"] == "女"          # persons 双写
     assert h.dao.get_user_bazi("u5")["gender"] == "女"  # bazi_info 双写
-    assert h.dao.get_user_bazi("u5")["bazi"] == ["庚午", "辛巳", "甲申", "壬申"]
+    # k8：_R 的四柱锚点（庚午辛巳甲申壬申）是 R2-4 修正默认开前的旧值时柱
+    # （15:00 北京 → 引擎复算 癸未），与 birth 键矛盾 → dao 一致性守卫丢弃
+    # bazi 键（四柱只属 chart_records；画像层不再承载四柱键）
+    assert "bazi" not in h.dao.get_user_bazi("u5")
 
 
 def test_g1_same_gender_no_correction():

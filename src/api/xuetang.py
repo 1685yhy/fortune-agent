@@ -115,10 +115,14 @@ async def get_lesson(
         )
 
     # Try personalization with the authenticated user's bazi
+    # k8：四柱只取「出生档案匹配的 chart_records 盘」（get_user_birth_profile_full）
+    # ——不再读 users.bazi_info.bazi（旧行 bazi 键可能为历史他人盘污染，21:44
+    # 事故源；无匹配盘 → 通用课程，不把他人盘四柱用于个性化）
     bazi_data = None
     if user_id and _dao:
         try:
-            saved = _dao.get_user_bazi(user_id)
+            from src.storage.birth_profile import get_user_birth_profile_full
+            saved = get_user_birth_profile_full(_dao, user_id)
             if saved and saved.get("bazi"):
                 bazi_data = {
                     "day_master": saved.get("day_master", ""),

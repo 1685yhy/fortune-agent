@@ -629,6 +629,17 @@ nohup /home/a/fortune-agent/.venv/bin/python -m uvicorn src.main:app \
 启动后必须核对 start.log 第一段：「db=/home/a/data/userdata/fortune.db」。
 若显示 /mnt/d/fortune-data，立即 kill 重启并注入覆盖变量。
 
+⚠️ **切库红线（2026-09-03 21:44 事故放大因素，根因报告见
+/tmp/fortune-bazi_info-rootcause-20260905.md）**：A(/home/a/data/userdata) 与
+B(/mnt/d/fortune-data/userdata) 双库并存且 persons 内容分叉过（B 库默认命主曾
+错存 1995-03-28 达 2.5 周），**禁止裸切换 FORTUNE_DB_PATH**。任何切库/回滚前
+必须：① 先对目标库做一致性备份；② 启动后核对启动日志 db= 行；③ 校验目标库
+persons 默认命主指纹与当前库一致（同 user_id 的默认命主 birth_year/month/day/
+gender/city/calendar 逐键核对，参考 `get_user_birth_profile` 输出与
+profile_fingerprint），不一致 → 立即停服，禁止继续服务；④ persons 修错后必须
+同步触发画像层对齐（读取侧 G1 自愈会以 persons 全量重建 users.bazi_info，
+不会自动重写未读取的旧行——修复后让用户重新打开一次档案页/发一条运势请求）。
+
 同步部署：`rsync -a --exclude='.git/' --exclude='.venv/' --exclude='data/' --exclude='logs/' --exclude='.superpowers/' --exclude='__pycache__/' --exclude='*.pyc' <repo>/ /home/a/fortune-run/`
 （禁止 --delete；排除 data/ 保护生产数据）
 

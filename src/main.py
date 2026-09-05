@@ -1390,7 +1390,11 @@ async def list_reports(page: int = 1, limit: int = 20, uid: str = Depends(requir
     consultations = dao.get_user_consultations(uid, limit=1000)
     reports = [_build_report_item(c) for c in consultations]
     if not reports:
-        bazi_info = dao.get_user_bazi(uid)
+        # k8：基础命书改经统一画像读取（persons 优先 + 四柱只取匹配
+        # chart_records）——不再裸读 users.bazi_info（旧行 bazi 键可能为
+        # 历史他人盘污染；birth 键可能滞后 persons 修复）
+        from src.storage.birth_profile import get_user_birth_profile_full
+        bazi_info = get_user_birth_profile_full(dao, uid)
         if bazi_info:
             reports = [_build_base_report_item(bazi_info)]
     total = len(reports)
@@ -1412,7 +1416,9 @@ async def get_report_detail(report_id: str, uid: str = Depends(require_user)):
 
     # 基础命书：不落库，从已保存八字派生
     if report_id == _BASE_REPORT_ID:
-        bazi_info = dao.get_user_bazi(uid)
+        # k8：统一画像读取（persons 优先 + 四柱只取匹配 chart_records）
+        from src.storage.birth_profile import get_user_birth_profile_full
+        bazi_info = get_user_birth_profile_full(dao, uid)
         if not bazi_info:
             raise HTTPException(status_code=404, detail="报告不存在")
         item = _build_base_report_item(bazi_info)
@@ -1436,7 +1442,17 @@ async def get_report_detail(report_id: str, uid: str = Depends(require_user)):
     if not full_content:
         full_content = _derive_report_content(c, item)
     # G3b H-9：幸运色/方向/数字按用户日主五行真实派生（原 id 取模确定性假数据）
-    lucky = _derive_lucky_refs(dao.get_user_bazi(uid) if dao else None)
+    # k8：日主只取匹配 chart_records 盘（不读 users.bazi_info.bazi——旧行 bazi
+    # 键可能为历史他人盘污染）；无匹配盘 → lucky 走参考模式（lucky_is_reference）
+    if dao is not None:
+        from src.storage.birth_profile import get_user_birth_profile_full
+        try:
+            _bazi = get_user_birth_profile_full(dao, uid)
+        except Exception:
+            _bazi = None
+    else:
+        _bazi = None
+    lucky = _derive_lucky_refs(_bazi)
     item.update({
         "fullContent": full_content,
         **lucky,

@@ -40,10 +40,11 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
     生效，P15 生产实测）：① persons 表主档案（默认优先，逻辑不变）→
     ② users.bazi_info → ③ chart_records 最近排盘（D8 保留）→ ④ None。
 
-    自愈（G1）：① 命中且 users.bazi_info 缺失/与 persons 不一致时，
-    用 persons 单向回写刷新 bazi_info（保留 bazi 四柱等既有键）——
-    编辑页改动立即生效，消除两库永久分歧；bazi_info 不再当权威
-    （gender 沿用档案中文契约 男/女，不产出 male/female）。
+    自愈（G1 + k8）：① 命中且 users.bazi_info 缺失/与 persons 不一致时，
+    用 persons 单向回写刷新 bazi_info（k8 起为全量重建 8 个 birth 键，旧行
+    bazi 四柱键等非 birth 键一律丢弃——四柱只属于 chart_records，21:44 事故
+    即「保留旧 bazi 键」所致）——编辑页改动立即生效，消除两库永久分歧；
+    bazi_info 不再当权威（gender 沿用档案中文契约 男/女，不产出 male/female）。
 
     不回写 persons（persons 是唯一权威，单向打通）。
 
@@ -86,12 +87,16 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
                     # 保持原始值不改（保存回写路径 3243/3381/4679 消费原值安全）。
                     "calendar": pick.get("calendar") or "solar",
                 }
-                # 自愈：bazi_info 缺失/与 persons 不一致 → persons 单向回写
-                # （保留 bazi 四柱等既有键；写入失败仅告警，不阻塞读取）
+                # 自愈：bazi_info 缺失/与 persons 不一致 → persons 单向回写。
+                # k8（2026-09-05 根因）：合并语义由「dict(旧行) 起手只覆写不等
+                # birth 键、保留旧 bazi 键」改为「以 persons 全量重建 8 个 birth
+                # 键」——旧行 bazi 四柱键（非本人盘污染源，21:44 事故）一律丢弃，
+                # bazi 键不写回 bazi_info（四柱只属于 chart_records）。写入失败
+                # 仅告警，不阻塞读取。
                 # R1-3（T009 修复暴露的误触发）：persons 存储层把 hour/minute
                 # 0 折叠为 None（_birth_dict），读回 None 与 bazi_info 的 0
-                # 永不等 → 每次排盘后读档案都误触发回写。比较与回写统一按
-                # 「0 与 None/空 等价」（时辰/分钟未知）归一，gender 等仍严格。
+                # 永不等 → 每次排盘后读档案都误触发回写。比较按「0 与 None/空
+                # 等价」（时辰/分钟未知）归一，gender 等仍严格。
                 try:
                     bazi = dao.get_user_bazi(user_id)
                     _keys = ("year", "month", "day", "hour", "minute",
@@ -111,11 +116,26 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
                              or any(not _time_eq(k, bazi.get(k), out[k])
                                     for k in _keys))
                     if stale:
-                        new_info = dict(bazi or {})
-                        for k in _keys:
-                            if not _time_eq(k, new_info.get(k), out.get(k)):
-                                new_info[k] = out[k]
+                        _had_bazi_key = bool(bazi and bazi.get("bazi"))
+                        # k8：全量重建 birth 键（persons 权威），不携带旧行
+                        # 任何非 birth 键（含 bazi 四柱键——四柱只存 chart_records）。
+                        new_info = dict(out)
                         dao.save_user_bazi(user_id, new_info)
+                        if bazi and (bazi.get("year") or _had_bazi_key):
+                            # 不一致重建（旧行有出生数据或含 bazi 键）→ warning
+                            logger.warning(
+                                "G1 自愈回写 user=%s：以 persons 全量重建 "
+                                "bazi_info birth=%s-%s-%s %s时 %s %s %s"
+                                "%s（丢弃旧行 bazi 四柱键等非 birth 键）",
+                                user_id, out.get("year"), out.get("month"),
+                                out.get("day"), out.get("hour"),
+                                out.get("city") or "", out.get("gender") or "",
+                                "农历" if out.get("calendar") == "lunar" else "公历",
+                                "；旧行含 bazi 键已删" if _had_bazi_key else "")
+                        else:
+                            logger.info("G1 自愈首建 bazi_info user=%s birth=%s-%s-%s",
+                                        user_id, out.get("year"),
+                                        out.get("month"), out.get("day"))
                 except Exception as e:
                     logger.warning("G1 档案自愈回写失败 user=%s: %s",
                                    user_id, str(e)[:160])
@@ -190,3 +210,82 @@ def to_solar_date(profile: Optional[dict]):
     except Exception:
         # 非法农历日（如 1999-03-30 三月仅 29 天）→ None，调用方安全回落
         return None
+
+
+# ────────────────────────────────────────────────────────────────────────
+# k8（2026-09-05）：显示/消费层全量形态读取 —— birth 键 persons 优先，
+# bazi 四柱及盘面扩展键只取自「出生档案匹配的 chart_records」（四柱单一
+# 事实源=chart_records；users.bazi_info 的 bazi 键不再被任何显示方消费）。
+# ────────────────────────────────────────────────────────────────────────
+
+def _chart_birth_matches(chart_birth: dict, profile: dict) -> bool:
+    """chart_records 行 birth 是否与当前档案一致（y/m/d + calendar + hour）。
+
+    - calendar：双缺省 solar 等价（旧行无 calendar 键）；
+    - hour：0 与 None/空 等价（persons _birth_dict 折叠 0 → None）；
+    - gender 不参与匹配：性别只影响大运方向，不影响四柱；同 y/m/d 时辰下
+      男/女盘四柱相同。
+    不一致（如 21:44 事故的他人盘/择时盘 birth=2026-08-18 vs 本人
+    1995-03-28）→ 不采纳其四柱，防止「错配四柱 + 错配出生」再组装。
+    """
+    if not chart_birth or not profile:
+        return False
+    for k in ("year", "month", "day"):
+        if chart_birth.get(k) != profile.get(k):
+            return False
+    if ((chart_birth.get("calendar") or "solar")
+            != (profile.get("calendar") or "solar")):
+        return False
+    a, b = chart_birth.get("hour"), profile.get("hour")
+    if (a in (None, "", 0)) != (b in (None, "", 0)):
+        return False
+    return True
+
+
+def get_user_birth_profile_full(dao, user_id: str,
+                                chart_dao=None) -> Optional[dict]:
+    """画像读取的「显示/消费全量形态」（k8，C 组显示层统一入口）。
+
+    birth 8 键 = get_user_birth_profile（persons 单一事实源优先 + 自愈，
+    读取顺序/指纹语义不变）；bazi 及盘面扩展键（bazi/day_master 等）只取自
+    birth 与档案匹配（_chart_birth_matches）的最近 chart_records 行——
+    旧 users.bazi_info.bazi 键（可能为历史他人盘污染，21:44 事故源）永不再
+    被消费；无匹配盘 → 仅返回 birth 键（消费方按「未排盘」兜底）。
+
+    调用方：报告页（src/main.py）/ 用户画像维护（src/api/user.py）/
+    学堂个性化（src/api/xuetang.py）等显示层。纯读函数（自愈写由
+    get_user_birth_profile 负责，与既有语义一致）。
+
+    Args:
+        dao: UserDAO（须有 db_path / get_user_bazi / save_user_bazi）。
+        user_id: 用户 id（JWT sub）。
+        chart_dao: 显式 ChartDAO（None 时按 dao.db_path 自建）。
+    """
+    profile = get_user_birth_profile(dao, user_id, chart_dao=chart_dao)
+    if not profile:
+        return None
+    out = {k: profile.get(k) for k in
+           ("year", "month", "day", "hour", "minute",
+            "city", "gender", "calendar")}
+    out["calendar"] = profile.get("calendar") or "solar"
+    try:
+        if chart_dao is None:
+            from src.storage.chart_dao import ChartDAO
+            chart_dao = ChartDAO(dao.db_path)
+        if chart_dao:
+            for chart in chart_dao.list_charts(user_id, limit=50):
+                if _chart_birth_matches((chart or {}).get("birth") or {}, profile):
+                    extra = (chart.get("bazi_json") or {}).get("bazi") or []
+                    if isinstance(extra, list) and len(extra) >= 4:
+                        out["bazi"] = list(extra)
+                        # 盘面扩展键（day_master 等）只随匹配盘携带——
+                        # 与旧 bazi_info 行曾被写入的扩展字段同形
+                        for k in ("day_master", "wuxing", "shishen", "geju",
+                                  "yongshen", "dayun"):
+                            v = (chart.get("bazi_json") or {}).get(k)
+                            if v:
+                                out[k] = v
+                    break
+    except Exception:
+        pass
+    return out
