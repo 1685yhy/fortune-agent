@@ -130,10 +130,11 @@ class TestSharedReadOrder:
         assert saved is not None
         assert saved["gender"] == "女"      # 中文契约，不产出 male/female
         assert saved["year"] == 1999
-        # 自愈：bazi_info 被 persons 回写为女，且既有 bazi 键保留
+        # k8（2026-09-05 21:44 根因）：自愈为「以 persons 全量重建」——旧行
+        # bazi 四柱键等非 birth 键一律丢弃（四柱只属于 chart_records）
         bazi = dao.get_user_bazi("u1")
         assert bazi["gender"] == "女"
-        assert bazi["bazi"] == ["己卯", "丙寅", "己酉", "丁卯"]
+        assert "bazi" not in bazi, "自愈重建不得保留旧行 bazi 四柱键"
 
     def test_persons_only_when_bazi_info_missing(self, tmp_path):
         """P2 persons-only：bazi_info 完全缺失 → persons 出生数据可用（G3c 主场景）。"""
@@ -150,15 +151,18 @@ class TestSharedReadOrder:
     def test_bazi_info_fallback_when_no_persons(self, tmp_path):
         """无 persons → bazi_info 兜底（G3b 既有行为保持）。"""
         dao, _ = _real_db(tmp_path)
+        # bazi 锚点 = 当前引擎默认（R2-4 真太阳时开）复算值：1990-05-20 15:00
+        # 北京 → 修正 ~14:50 → 未时 癸未；旧锚点 壬申（未修正申时）与守卫
+        # 复算矛盾会被 dao 守卫丢弃（k8），勿回改旧值
         dao.save_user_bazi("u3", {
             "year": 1990, "month": 5, "day": 20, "hour": 15, "minute": 0,
             "city": "北京", "gender": "男",
-            "bazi": ["庚午", "辛巳", "甲申", "壬申"],
+            "bazi": ["庚午", "辛巳", "乙酉", "癸未"],
         })
         saved = get_user_birth_profile(dao, "u3")
         assert saved is not None
         assert saved["year"] == 1990 and saved["gender"] == "男"
-        assert saved.get("bazi") == ["庚午", "辛巳", "甲申", "壬申"]
+        assert saved.get("bazi") == ["庚午", "辛巳", "乙酉", "癸未"]
 
     def test_persons_without_birth_data_falls_to_bazi_info(self, tmp_path):
         """persons 无出生数据 → 退回 bazi_info（G1 行为保持）。"""

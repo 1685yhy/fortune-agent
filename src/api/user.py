@@ -594,7 +594,11 @@ async def user_profile(uid: str = Depends(require_user), user_id: str = ""):
         # 两者由同一保存路径写入（/api/user/bazi 与对话 _sync_person_profile
         # 同时写 persons 默认命主 + users.bazi_info），故天然一致；契约由
         # tests/test_profile_consistency.py 守护（改动任一读取源须同步更新测试）。
-        # 逻辑未变（本任务仅注释说明 + 测试守护）。
+        # k8（2026-09-05 根因）：兜底链改经 get_user_birth_profile（persons →
+        # bazi_info → chart_records 统一读取，含 G1 自愈），不再裸读
+        # users.bazi_info——21:44 事故后「persons 已修 1999、bazi_info 仍 1995」
+        # 时维护页/画像直读旧值显示 1995 的路径即此；响应 bazi_info 剥离旧行
+        # bazi 键（bazi 四柱只属于 chart_records，不向显示层暴露画像 bazi 键）。
         pdao = get_person_dao()
         if pdao is not None:
             try:
@@ -602,9 +606,21 @@ async def user_profile(uid: str = Depends(require_user), user_id: str = ""):
             except Exception:
                 bazi_info = None
         if bazi_info is None:
-            bazi_info = _dao.get_user_bazi(user_id)
-        # 命盘（bazi 四柱）仍从 users.bazi_info 取（旧字段；person 建档时同步写）
-        chart = _dao.get_user_bazi(user_id)
+            from src.storage.birth_profile import get_user_birth_profile
+            try:
+                bazi_info = get_user_birth_profile(_dao, user_id)
+            except Exception:
+                bazi_info = None
+            if isinstance(bazi_info, dict) and "bazi" in bazi_info:
+                bazi_info = {k: v for k, v in bazi_info.items() if k != "bazi"}
+        # 命盘（bazi 四柱）k8 起只取「出生档案匹配的 chart_records 盘」
+        # （get_user_birth_profile_full；不读 users.bazi_info.bazi——旧行 bazi
+        # 键可能为历史他人盘污染，21:44 事故源）
+        from src.storage.birth_profile import get_user_birth_profile_full
+        try:
+            chart = get_user_birth_profile_full(_dao, user_id)
+        except Exception:
+            chart = None
         has_bazi = bool(chart and chart.get("bazi"))
         push_settings = {
             "daily_push": _dao.get_user_push_settings(user_id).get("push_enabled", False),

@@ -25,6 +25,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from src import main  # noqa: E402
 from src.main import _derive_lucky_refs  # noqa: E402
 from src.security.auth import set_auth_handler, AuthHandler, JWTHandler  # noqa: E402
+from src.storage.dao import UserDAO  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -91,9 +92,25 @@ class TestDeriveLuckyRefs:
 
 
 class FakeReportDao:
-    def __init__(self, bazi):
+    """真实 sqlite 环境 + 咨询记录注入（k8：画像读取链 = persons/bazi_info +
+    chart_records 三源，需要真实 db_path 才走通）。
+
+    - bazi_info 行只落 birth 键（k8：画像行不再承载 bazi 四柱键）；
+    - 四柱落在 chart_records（四柱单一事实源），day master/幸运派生只读它。
+    """
+
+    def __init__(self, bazi, db_path, user_id):
         self.bazi = bazi
+        self.db_path = db_path
         self.consultations = {}
+        if bazi is not None:
+            from src.storage.chart_dao import ChartDAO
+            birth = {k: bazi[k] for k in
+                     ("year", "month", "day", "hour", "minute",
+                      "city", "gender", "calendar")}
+            ChartDAO(db_path).save_chart(
+                user_id, None, dict(birth),
+                {"bazi": list(bazi["bazi"]), "day_master": bazi["bazi"][2][0]})
 
     def get_user_bazi(self, user_id):
         return self.bazi
@@ -117,9 +134,11 @@ def _make_consultation(rid: int, user_id: str) -> dict:
 
 class TestReportDetailEndpoint:
     @pytest.fixture
-    def client(self, monkeypatch):
-        """main.app 全路由，仅替换 dao 全局（不跑 lifespan）。"""
-        dao = FakeReportDao(dict(PROFILE_JIA))
+    def client(self, tmp_path, monkeypatch):
+        """main.app 全路由，真实 sqlite dao（lucky 幸运派生 = 画像 + chart_records）。"""
+        db = str(tmp_path / "lucky.db")
+        UserDAO(db)  # 建表（空库；画像行由 FakeReportDao 构造时落）
+        dao = FakeReportDao(dict(PROFILE_JIA), db, "u-h9-1")
         dao.consultations = {101: _make_consultation(101, "u-h9-1"),
                              202: _make_consultation(202, "u-h9-1")}
         monkeypatch.setattr(main, "dao", dao)
@@ -137,9 +156,11 @@ class TestReportDetailEndpoint:
         assert item["lucky_is_reference"] is False
         assert item["fullContent"]              # 契约不破坏
 
-    def test_base_report_no_bazi_reference(self, monkeypatch):
+    def test_base_report_no_bazi_reference(self, tmp_path, monkeypatch):
         """base 报告 + 无八字：参考标记 + 契约完整。"""
-        dao = FakeReportDao(None)
+        db = str(tmp_path / "lucky_none.db")
+        UserDAO(db)
+        dao = FakeReportDao(None, db, "u-h9-1")
         monkeypatch.setattr(main, "dao", dao)
         c = TestClient(main.app)
         r = c.get("/api/reports/base", headers=_token("u-h9-1"))
@@ -168,9 +189,11 @@ class TestReportDetailEndpoint:
         assert a["luckyColor"] != "红色"
         assert a["luckyNumber"] != "5"
 
-    def test_different_profile_different_lucky(self, monkeypatch):
+    def test_different_profile_different_lucky(self, tmp_path, monkeypatch):
         """不同档案（日主丙火）→ 红/南/2，与甲木不同。"""
-        dao = FakeReportDao(dict(PROFILE_BING))
+        db = str(tmp_path / "lucky_bing.db")
+        UserDAO(db)
+        dao = FakeReportDao(dict(PROFILE_BING), db, "u-h9-2")
         dao.consultations = {7: _make_consultation(7, "u-h9-2")}
         monkeypatch.setattr(main, "dao", dao)
         c = TestClient(main.app)

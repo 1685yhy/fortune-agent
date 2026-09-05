@@ -121,8 +121,76 @@ class UserDAO:
         except Exception as e:
             logger.warning("八字迁移加密失败 %s: %s", user_id, e)
 
+    # ── bazi 键一致性守卫（k8，2026-09-05 单一漏斗防线）─────────────────
+    # 四柱只属于 chart_records；users.bazi_info 同时含 birth 键与 bazi 键的
+    # 写入口（W2/W3 排盘落库等）在写前用确定性排盘引擎复算比对——
+    # 不一致（如 21:44 事故的「1995 出生 + 他人 2026-08-18 盘四柱」畸形
+    # 组装）→ 丢弃 bazi 键，绝不并存矛盾字段。复算为纯规则零 LLM（实测
+    # 单次 ~26ms）；calendar=lunar 时先经 to_solar_date 转公历再复算
+    # （与 R2-5/R2-6 写路径口径一致：落库保留原始农历 y/m/d+标记）。
+    # 无法验证（复算异常/bazi 形状不可比）→ fail-open 保留 + warning。
+    # 不得改动 tool_calls.py 主链——守卫只挂在 dao 写漏斗。
+    _guard_engine = None
+
+    def _guard_bazi_pillars(self, user_id: str, bazi_info: dict) -> dict:
+        try:
+            info = dict(bazi_info)
+            birth_keys = ("year", "month", "day")
+            if not all(info.get(k) not in (None, "") for k in birth_keys):
+                return info  # 无完整出生键 → 无法复算（缺省形态写不校验）
+            stored = info.get("bazi")
+            if not stored:
+                return info  # 无 bazi 键 → 守卫不介入
+            if isinstance(stored, str):
+                stored = stored.split()
+            if not isinstance(stored, (list, tuple)) or len(stored) != 4:
+                return info  # 形状不可比 → fail-open 保留
+            # lunar → 引擎契约=公历输入：先单点转公历（与写路径同口径）
+            y, m, d = info["year"], info["month"], info["day"]
+            if str(info.get("calendar") or "solar") == "lunar":
+                from src.storage.birth_profile import to_solar_date
+                sol = to_solar_date(info)
+                if sol is None:
+                    return info  # 转换失败（写路径同样回落原值）→ 不误判
+                y, m, d = sol
+            hour = int(info.get("hour") or 0)
+            minute = int(info.get("minute") or 0)
+            city = str(info.get("city") or "")
+            gender = info.get("gender") or "unknown"
+            if self._guard_engine is None:
+                from src.engines.bazi import BaziEngine
+                self._guard_engine = BaziEngine()
+            try:
+                expected = list(self._guard_engine.calculate(
+                    int(y), int(m), int(d), hour, minute, city, gender).bazi)
+            except Exception as e:
+                logger.warning(
+                    "bazi 一致性守卫复算失败（fail-open 保留）user=%s birth="
+                    "%s-%s-%s %s时：%s", user_id, y, m, d, hour, str(e)[:120])
+                return info
+            actual = [str(s).strip() for s in stored]
+            if actual == expected:
+                return info
+            logger.warning(
+                "bazi 一致性守卫：birth 键与 bazi 四柱矛盾 → 丢弃 bazi 键 "
+                "user=%s birth=%s-%s-%s %s:%s %s %s（待写 %s vs 引擎复算 %s）",
+                user_id, info.get("year"), info.get("month"), info.get("day"),
+                hour, minute, city or "未知城市",
+                str(info.get("gender") or ""),
+                "/".join(actual), "/".join(expected))
+            info.pop("bazi", None)
+            return info
+        except Exception as e:
+            logger.warning("bazi 一致性守卫异常（fail-open 保留）user=%s: %s",
+                           user_id, str(e)[:160])
+            return bazi_info
+
     def save_user_bazi(self, user_id: str, bazi_info: dict):
-        """保存或更新用户八字信息（加密后落库）"""
+        """保存或更新用户八字信息（加密后落库）。
+
+        k8：写前经 _guard_bazi_pillars 校验（birth 键与 bazi 四柱一致性）。
+        """
+        bazi_info = self._guard_bazi_pillars(user_id, bazi_info)
         conn = self._connect()
         existing = conn.execute(
             "SELECT user_id FROM users WHERE user_id = ?", (user_id,)
