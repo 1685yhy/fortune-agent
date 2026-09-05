@@ -55,6 +55,8 @@ _OFFLINE_WATCHERS: set = set()
 
 # 分句模拟流式（保底）：按标点切块；长句按硬边界二次切分
 _SENT_SPLIT = re.compile(r"(?<=[。！？!?；;])")
+# k7 逐字保真分句：捕获组把句末分隔符留在所属句子块尾部（join 可还原原文）
+_SENT_SPLIT_CAP = re.compile(r"([。！？!?；;])")
 
 # 收尾对齐的句子结束符（。！？… 换行）
 _SENT_END_CHARS = "。！？…\n"
@@ -78,6 +80,10 @@ def compute_stream_remaining(reply: str, streamed_text: str) -> str:
       已在 streamed 中完整流出过（正文主体已流出，reply 尾部是流后追加的图片
       URL/页脚）→ 只补未流出的尾部增量，不再整段重发；正文从未流出 → 整段
       补发（降级/非流式兜底，保留现状语义）。
+    - k5 前缀命中不了（reply 前缀是卡壳、正文在 reply 中段）→ k7 中段命中：
+      reply = 卡壳 + 正文 + 卡尾（排盘卡），正文已作为实时流完整流出——镜像
+      k5，找 streamed 最长前缀在 reply 中的连续子串对齐位置，覆盖 ≥90% 全长
+      → 只补壳头 + 壳尾，不再整段重发（正文绝不重发）。
     """
     if not reply:
         return ""
@@ -123,28 +129,60 @@ def compute_stream_remaining(reply: str, streamed_text: str) -> str:
         if best >= 20 or (best == covered and best > 0
                           and reply[best] in _SENT_END_CHARS):
             return reply[best:]  # 正文主体已流出 → 只补尾部增量（不再整段重发）
+        if best == 0 and len(streamed_text) >= 20:
+            # k7 中段命中（2026-09-05，18:47 排盘双份实证）：reply 的正文主体
+            # 被卡壳包裹（reply = 卡前缀 + 正文 + 卡尾），正文已作为实时流
+            # 完整流出 → 只补壳头+壳尾，不再整段重发。镜像 k5 的前缀查找：
+            # 找 streamed_text 最长前缀在 reply 中作连续子串的对齐位置
+            # （reply.find 为 C 层快速查找，长度同 k5，最坏 ~百 ms 级可接受）。
+            mid_start, mid_len = -1, 0
+            for k in range(len(streamed_text), 0, -1):
+                j = reply.find(streamed_text[:k])
+                if j >= 0:
+                    mid_start, mid_len = j, k
+                    break
+            # 正文主体确已流出（≥90% 全长才算，防短巧合误截；允许尾部失真
+            # 重叠一次）→ 只补壳头 + 壳尾（命中起点即 reply 开头 → 全部已
+            # 流出 → 返回 ""；失真 → 返回含正文尾少量重叠，绝不丢字）
+            if mid_len >= max(20, int(len(streamed_text) * 0.9)):
+                return reply[:mid_start] + reply[mid_start + mid_len:]
     # 正文从未流出（降级/非流式兜底）→ 整段模拟流式（保持现状语义）
     return reply[start:]
 
 
 def split_sentences(text: str) -> list:
-    """把完整回复切成适合模拟打字机的文本块。"""
-    parts = re.split(_SENT_SPLIT, text)
+    """把完整回复切成适合模拟打字机的文本块（逐字保真，k7 2026-09-05）。
+
+    契约：`"".join(split_sentences(text)) == text` 逐字相等——绝不吞任何字符
+    （旧实现按无捕获 _SENT_SPLIT 切分后逐段 strip，句末标点后的段间空行/
+    句末换行被吞，18:47 实证 981→969 丢 12 字符，前端收到的 body 与实时流
+    prefix 逐字失配，卡片去重认不出重复）。
+
+    实现：捕获组分句——句末分隔符（与 _SENT_SPLIT 同字符集）留在所属句子
+    块尾部；单句 >48 字符按 48 硬切（只断块不丢字，join 后仍还原原文）；
+    剔除的只有真空块（块为空串才剔除，不做 strip——含空白的块剔除会破坏
+    join 还原）。块边界只在句末分隔符处或 48 硬切处，不跨句子。
+    """
+    parts = _SENT_SPLIT_CAP.split(text)
     out = []
-    for i, p in enumerate(parts):
-        if not p:
-            continue
-        if i == 0:
-            # 保留首段前导空白（尾部补足时与正文分隔符对齐）
-            p = p.rstrip()
-        else:
-            p = p.strip()
-        if not p:
-            continue
-        while len(p) > 48:
-            out.append(p[:48])
-            p = p[48:]
-        out.append(p)
+    buf = ""
+    for p in parts:
+        buf += p
+        if len(p) == 1 and p in "。！？!?；;":
+            # 句末分隔符 → 句子完整，flush（超 48 先硬切）
+            while len(buf) > 48:
+                out.append(buf[:48])
+                buf = buf[48:]
+            if buf:
+                out.append(buf)
+            buf = ""
+    if buf:
+        # 文本不以句末标点收尾的残尾
+        while len(buf) > 48:
+            out.append(buf[:48])
+            buf = buf[48:]
+        if buf:
+            out.append(buf)
     return out
 
 
@@ -435,7 +473,14 @@ class ChatStreamer:
                         last_event = time.monotonic()
                         yield self._to_event(evt_type, payload)
                         if evt_type == "chunk":
-                            chunk_texts.append(payload.get("text", ""))
+                            # k7 键名归一（2026-09-05，18:47 排盘双份实证）：SSE
+                            # 出口事件键为 content，内部 payload 键历史上有 text/
+                            # content 两种写法 → content 优先、text 兜底，两种
+                            # 都收得到（旧写法只认 text，漏收即 chunk_texts 恒空
+                            # → streamed_text 恒空 → 收尾无条件整段补发 = 双份）
+                            chunk_texts.append(
+                                payload.get("content") or payload.get("text")
+                                or "")
                     break
 
                 waiter = asyncio.ensure_future(queue.get())
@@ -457,7 +502,10 @@ class ChatStreamer:
                     evt_type, payload = waiter.result()
                     last_event = time.monotonic()
                     if evt_type == "chunk":
-                        chunk_texts.append(payload.get("text", ""))
+                        # k7 键名归一：见 task.done() 排空分支注释
+                        chunk_texts.append(
+                            payload.get("content") or payload.get("text")
+                            or "")
                     yield self._to_event(evt_type, payload)
                     continue
 
