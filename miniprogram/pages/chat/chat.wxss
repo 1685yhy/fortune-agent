@@ -1208,46 +1208,9 @@
   color: var(--ink-faint);
 }
 /* v1.3 操作菜单项改造（PM 反馈：图标不明显/看不懂）：
-   图标+文字并排（大众认知），图标调大、墨色图标+中墨文字（宣纸/墨/朱砂，无灰） */
-.act-grid {
-  display: flex;
-  flex-wrap: wrap;
-}
-.act-item {
-  width: 33.333%;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: row;                   /* 图标+文字并排 */
-  align-items: center;
-  justify-content: center;
-  gap: 14rpx;
-  padding: 24rpx 6rpx;
-  border-radius: 10rpx;
-  background: transparent;               /* button 默认样式重置（分享项） */
-  border: none;
-  line-height: 1;
-  margin: 0;
-  text-align: center;
-  font-size: inherit;
-}
-.act-item::after { border: none; }       /* button 伪边框移除（分享项） */
-.act-item-active { background: var(--acc-soft); }
-.act-ic { width: 54rpx; height: 54rpx; flex-shrink: 0; }   /* 调大 */
-.act-glyph {
-  width: 54rpx; height: 54rpx;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-song);
-  font-size: 28rpx;
-  color: var(--ink);
-  border: 2rpx solid var(--line-med);
-  border-radius: 8rpx;
-  box-sizing: border-box;
-}
-.act-glyph-multi { color: var(--acc); border-color: var(--acc-line); }   /* 多选：朱砂提示 */
-.act-glyph-emoji { font-size: 36rpx; border-color: transparent; }        /* emoji 字号加大、去框 */
+   图标+文字并排（大众认知），图标调大、墨色图标+中墨文字（宣纸/墨/朱砂，无灰）。
+   k6 波2 P4.6：旧 fbMenu 原因网格整体退役 → .act-grid/.act-item/.act-ic/.act-glyph*
+   死样式一并清除（wxml 零引用，grep 验证） */
 .act-label {
   font-family: var(--font-song);
   font-size: 23rpx;                      /* 调大 */
@@ -1285,7 +1248,6 @@
   color: var(--ink-faint);
 }
 .act-cancel-active { color: var(--acc); }
-.fb-grid .act-item { width: 50%; }       /* 意见反馈原因：2×2 */
 
 /* ═══ v2.0 长按菜单竖排行（元宝式：图标+文字每行并排，分隔线分组，朱砂强调） ═══
    B6-1：图标由 emoji 全面更换为墨韵线性 png（ic-up/down/keep/reaction/copy/edit/check/
@@ -1668,6 +1630,113 @@
 
 /* UX批1 M-7：语音插件未配置时 mic 入口置灰（点按即提示，不用等长按） */
 .mic-off { opacity: .35; }
+
+/* ═══ k6 波2 P4.6 元宝式反馈面板（fbs-*；IMG_4510 文字描述的最小合理版）═══
+   顶部感谢行 + 分组多选原因 chips（针对问题/回答/格式）+「我要补充」+ 底部提交。
+   待图复核：布局/文案以用户实机图为准微调。 */
+.fbs-sheet { padding-bottom: calc(22rpx + env(safe-area-inset-bottom)); }
+.fbs-head { margin-bottom: 12rpx; }
+.fbs-title {
+  font-family: var(--font-song);
+  font-size: 26rpx;
+  letter-spacing: .06em;
+  line-height: 1.7;
+  color: var(--ink);
+  text-align: center;
+}
+.fbs-groups { max-height: 46vh; overflow-y: auto; }
+.fbs-group { margin-bottom: 24rpx; }
+.fbs-g-label {
+  display: block;
+  margin-bottom: 12rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .16em;
+  color: var(--ink-faint);
+}
+.fbs-chips { display: flex; flex-wrap: wrap; gap: 14rpx; }
+.fbs-chip {
+  box-sizing: border-box;
+  padding: 12rpx 26rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-med);
+  border-radius: 30rpx;
+}
+.fbs-chip-txt {
+  font-family: var(--font-song);
+  font-size: 24rpx;
+  letter-spacing: .06em;
+  color: var(--ink-mid);
+}
+.fbs-chip.on {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+.fbs-chip.on .fbs-chip-txt { color: #FBF6E8; }
+.fbs-chip-active { opacity: .82; transform: scale(.97); }
+
+.fbs-note-wrap {
+  margin-top: 6rpx;
+  padding: 16rpx 20rpx 20rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 12rpx;
+}
+.fbs-note-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8rpx; }
+.fbs-note-label {
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .16em;
+  color: var(--ink-soft);
+}
+.fbs-note-opt {
+  font-family: var(--font-song);
+  font-size: 18rpx;
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+}
+.fbs-note {
+  width: 100%;
+  height: 108rpx;
+  box-sizing: border-box;
+  padding: 10rpx 4rpx 0;
+  font-family: var(--font-song);
+  font-size: 25rpx;
+  line-height: 1.7;
+  color: var(--ink);
+}
+
+.fbs-actions {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-top: 18rpx;
+}
+.fbs-cancel { flex: 1; margin-top: 0; padding: 18rpx 0; }
+.fbs-submit {
+  flex: 1.6;
+  padding: 20rpx 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--acc);
+  border-radius: 12rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.1);
+}
+.fbs-submit-txt {
+  font-family: var(--font-song);
+  font-size: 26rpx;
+  letter-spacing: .3em;
+  text-indent: .3em;
+  color: #FBF6E8;
+}
+.fbs-submit.off {
+  background: var(--ink-faint);
+  box-shadow: none;
+  opacity: .55;
+}
+.fbs-submit-active { transform: scale(.97); background: var(--acc-deep); }
+.fbs-submit.off.fbs-submit-active { background: var(--ink-faint); }
 
 /* ═══ k10-C 文字选取：甲（段落高亮 + 引导小字）与乙（textarea 覆盖层）═══ */
 

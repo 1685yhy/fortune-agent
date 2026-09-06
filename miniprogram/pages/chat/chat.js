@@ -58,6 +58,15 @@ function navFor(content) {
 /* v1.2 表情反应可选集（8 个常用） */
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🙏', '✨'];
 
+/* ═══ k6 波2 P4.6 元宝式反馈面板：踩（footer/菜单）→ 底部面板，分组原因多选
+   （权威参考 = 用户 2026-09-04 实机截图 IMG_4510——本批无图可读，先按 brief 默认
+   文案实现最小合理版，待图复核；用户可后改文案） ═══ */
+const FB_REASON_GROUPS = [
+  { label: '针对问题', opts: ['理解错了', '没回答到点上', '忽略了我的关键信息'] },
+  { label: '针对回答', opts: ['内容不准确', '说得太绝对', '内容不完整', '太敷衍', '排盘或日期算错了', '内容让我不适'] },
+  { label: '针对格式', opts: ['排版乱了', '内容重复了', '图片没显示'] },
+];
+
 /* 语音输入参数（元宝式） */
 const REC_MIN_MS = 800;   // 短按 < 800ms → 「说话时间太短」
 const REC_MAX_S = 60;     // 最长录音 60s，到点自动发送
@@ -155,7 +164,10 @@ Page({
     /* v1.1 气泡长按操作菜单（墨韵弹层） */
     actionMenu: { show: false, msgId: '', role: '', paraKey: '', canRegen: false, canCite: false },
     // paraKey: k10-C 被按段落键；canRegen/canCite: k6 波2 P4.1/4.2 可见条件（开菜单时计算）
-    fbMenu: { show: false, msgId: '' },   // 意见反馈原因弹层
+    /* k6 波2 P4.6：元宝式反馈面板（取代旧 fbMenu 原因网格——踩/意见反馈同面板）。
+       canSubmit 派生：有选中原因或补充非空；提交按钮据此置灰/可点 */
+    fbSheet: { show: false, msgId: '', reasons: {}, note: '', canSubmit: false },
+    FB_REASON_GROUPS,
     selectMsgId: '',                      // 选取模式：该气泡 text 动态加 selectable
     /* k10-C 文字选取：甲（段落高亮 + 引导）与乙（textarea 覆盖层）共用状态 */
     selParaKey: '',                       // 甲模式：当前高亮段落键（'md:2'/'card:0'/'user:0'）
@@ -1244,7 +1256,8 @@ Page({
       // k6 波2 P4.2 查看引用：复用角标同款引用抽屉（空态由可见条件挡掉，双保险仍判）
       this._openCiteDrawer(msgId);
     } else if (k === 'feedback') {
-      this.setData({ fbMenu: { show: true, msgId } });
+      // k6 波2 P4.6：意见反馈 → 元宝式反馈面板（与 footer 踩同面板）
+      this.openFeedbackPanel(msgId);
     } else if (k === 'delete') {
       wx.showModal({
         title: '删除此条',
@@ -1296,7 +1309,8 @@ Page({
     }
   },
 
-  /* 菜单反馈项：点赞/点踩（复用反馈回路）/收藏（持久化 kept） */
+  /* 菜单反馈项：点赞（点亮 + 轻提示）/ 点踩（k6 波2 P4.6 → 元宝式反馈面板）/
+     收藏（持久化 kept） */
   actFeedback(e) {
     const k = e.currentTarget.dataset.k;
     const { msgId } = this.data.actionMenu;
@@ -1312,7 +1326,12 @@ Page({
       wx.showToast({ title: on ? '已收藏 · 我的页可查看' : '已取消收藏', icon: 'none' });
       return;
     }
-    this._toggleFbCore(msgId, k);
+    if (k === 'down') {
+      // P4.6：菜单点踩与 footer 踩同语义——打开反馈面板（不再直发 negative）
+      this.openFeedbackPanel(msgId);
+      return;
+    }
+    this._toggleFbCore(msgId, k, '谢谢认可，我会继续精进');
   },
 
   /* k6 波2 P4.3：AI footer 复制钮——与菜单「复制」同一行为（E2-2 口径：
@@ -1417,27 +1436,72 @@ Page({
     wx.navigateTo({ url: '/pages/share/share' });
   },
 
-  /* 意见反馈原因 → 本地留档 + 后端上报（有咨询 ID 时 negative + 备注）。
-     G2 A8：成功提示以后端上报结果为准；上报失败 → 明确失败提示（本地留档保留，
-     但不得声称已送达明灯）；无咨询 ID 时纯本地留档（设计内行为） */
-  submitFeedbackReason(e) {
-    const reason = e.currentTarget.dataset.reason;
-    const { msgId } = this.data.fbMenu;
-    this.setData({ fbMenu: { show: false, msgId: '' } });
+  /* ═══ k6 波2 P4.6 元宝式反馈面板（踩不再直发 negative——footer 踩钮/长按菜单
+     点踩/意见反馈三入口同面板；旧 fbMenu 网格整体退役，grep 清零） ═══ */
+
+  /* 打开面板（重置选区与补充文本）。三入口共用：
+     footer 踩钮（toggleFb k=down）/ 长按菜单点踩（actFeedback k=down）
+     / 长按菜单意见反馈（actItem k=feedback） */
+  openFeedbackPanel(msgId) {
     const msg = this._findMessage(msgId);
-    if (!msg) return;
-    this._logFeedback(msg, reason);
-    if (msg.consultationId) {
-      api.feedback(msg.consultationId, 'negative', reason)
-        .then(() => { wx.showToast({ title: '已收到你的反馈，明灯会改进', icon: 'none' }); })
-        .catch(() => { wx.showToast({ title: '反馈提交失败，请重试', icon: 'none' }); });
-    } else {
-      wx.showToast({ title: '已收到你的反馈，明灯会改进', icon: 'none' });
-    }
+    if (!msg || !msgId) return;
+    this.setData({ fbSheet: { show: true, msgId, reasons: {}, note: '', canSubmit: false } });
   },
 
-  closeFbMenu() {
-    this.setData({ fbMenu: { show: false, msgId: '' } });
+  closeFbSheet() {
+    if (!this.data.fbSheet.show) return;
+    this.setData({ fbSheet: { show: false, msgId: '', reasons: {}, note: '', canSubmit: false } });
+  },
+
+  /* 原因 chip 点击：多选切换（选中=朱砂实心） */
+  onFbReasonTap(e) {
+    const opt = e.currentTarget.dataset.opt;
+    if (!opt) return;
+    const sheet = Object.assign({}, this.data.fbSheet);
+    const reasons = Object.assign({}, sheet.reasons);
+    if (reasons[opt]) delete reasons[opt]; else reasons[opt] = true;
+    sheet.reasons = reasons;
+    sheet.canSubmit = Object.keys(reasons).length > 0 || String(sheet.note || '').trim().length > 0;
+    this.setData({ fbSheet: sheet });
+  },
+
+  /* 「我要补充」输入（可不填） */
+  onFbNoteInput(e) {
+    const sheet = Object.assign({}, this.data.fbSheet);
+    sheet.note = String(e.detail && e.detail.value || '');
+    sheet.canSubmit = Object.keys(sheet.reasons || {}).length > 0 || sheet.note.trim().length > 0;
+    this.setData({ fbSheet: sheet });
+  },
+
+  /* 提交：原因多选「、」连接 + 补充文本 → 本地留档 + 后端 negative（有咨询 ID）。
+     面板点亮口径（brief P4.6）：成功后踩图标点亮 + toast「已收到反馈」；无咨询 ID →
+     只点亮不发后端（本地留档为证据，旧网格 submitFeedbackReason 同口径）。
+     上报失败 → 不点亮 + 明确失败提示（G2 B1 语义：不静默装成功）。 */
+  submitFbSheet() {
+    const sheet = this.data.fbSheet;
+    const msg = this._findMessage(sheet.msgId);
+    if (!sheet.show || !msg) return;
+    const reasons = FB_REASON_GROUPS.reduce((acc, g) => acc.concat(g.opts), [])
+      .filter((o) => sheet.reasons[o]);
+    const note = String(sheet.note || '').trim();
+    const parts = [reasons.join('、'), note].filter((s) => s);
+    if (!parts.length) return;                       // 空选择：提交钮已置灰，双保险
+    const label = parts.join('；');
+    this.closeFbSheet();
+    this._logFeedback(msg, label);
+    if (!msg.consultationId) {
+      this.setData({ [`fb.${sheet.msgId}-down`]: true });
+      wx.showToast({ title: '已收到反馈', icon: 'none' });
+      return;
+    }
+    api.feedback(msg.consultationId, 'negative', label)
+      .then(() => {
+        this.setData({ [`fb.${sheet.msgId}-down`]: true });
+        wx.showToast({ title: '已收到反馈', icon: 'none' });
+      })
+      .catch(() => {
+        wx.showToast({ title: '反馈提交失败，请重试', icon: 'none' });
+      });
   },
 
   /* ═══ v1.2 表情反应（气泡尾部 ＋ / 长按菜单 → emoji 选择 → 气泡角显示，可追加/移除） ═══ */
@@ -1567,7 +1631,9 @@ Page({
     };
   },
 
-  /* 原型 toggleFb：反馈点亮（up/down 有咨询 ID 时上报后端；keep → 持久化收藏 kept） */
+  /* 原型 toggleFb：反馈点亮（up/down 有咨询 ID 时上报后端；keep → 持久化收藏 kept）
+     k6 波2 P4.6：down 不再直发——footer 踩钮打开元宝式反馈面板（点赞仍为
+     图标点亮 + 轻提示「谢谢认可，我会继续精进」，不弹窗） */
   toggleFb(e) {
     if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应（点气泡=勾选）
     const { id, k } = e.currentTarget.dataset;
@@ -1581,10 +1647,17 @@ Page({
       wx.showToast({ title: on ? '已收藏 · 我的页可查看' : '已取消收藏', icon: 'none' });
       return;
     }
-    this._toggleFbCore(id, k);
+    if (k === 'down') {
+      // P4.6：踩 → 反馈面板（取代直发 negative）
+      this.openFeedbackPanel(id);
+      return;
+    }
+    this._toggleFbCore(id, k, '谢谢认可，我会继续精进');
   },
 
-  _toggleFbCore(id, k) {
+  /* 赞/踩点亮核心（P4.6 起产品入口仅赞使用；踩旧直发路径退役，核心保留供
+     状态一致性与既有单测）。onToast：点亮成功后停留点亮态时的轻提示文案。 */
+  _toggleFbCore(id, k, onToast) {
     const key = id + '-' + k;
     const on = !this.data.fb[key];
     this.setData({ [`fb.${key}`]: on });
@@ -1592,6 +1665,11 @@ Page({
       const msg = this._findMessage(id);
       if (msg && msg.consultationId) {
         api.feedback(msg.consultationId, k === 'up' ? 'positive' : 'negative')
+          .then(() => {
+            if (onToast && this.data.fb[key]) {
+              wx.showToast({ title: onToast, icon: 'none', duration: 2000 });
+            }
+          })
           .catch(() => {
             // G2 B1：上报失败 → 回滚点亮态 + 明确提示（失败不点亮，不静默）
             this.setData({ [`fb.${key}`]: false });
@@ -1726,7 +1804,7 @@ Page({
       speakingId: '',
       citeDrawer: { show: false, full: false, msgId: '', items: [] },
       actionMenu: { show: false, msgId: '', role: '', paraKey: '', canRegen: false, canCite: false },
-      fbMenu: { show: false, msgId: '' },
+      fbSheet: { show: false, msgId: '', reasons: {}, note: '', canSubmit: false },
       selectMsgId: '',
       selParaKey: '',
       inputMode: 'text',

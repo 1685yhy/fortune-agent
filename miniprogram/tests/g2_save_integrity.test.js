@@ -454,7 +454,9 @@ function makeChatPage(msgs, wxStub) {
     actionMenu: { show: false, msgId: '', role: '' },
     messages: msgs || [],
     multiMode: false, multiSel: {}, multiCount: 0, multiAll: false,
-    fb: {}, fbMenu: { show: false, msgId: '' }, reactions: {}, saveBanner: false,
+    fb: {},
+    fbSheet: { show: false, msgId: '', reasons: {}, note: '', canSubmit: false },
+    reactions: {}, saveBanner: false,
   };
   page.setData = dottedSetData;
   page._findMessage = (id) => (msgs || []).find((m) => m.id === id) || null;
@@ -512,7 +514,7 @@ test('A6 用户消息星标：本地行为不变，不同步后端（契约保�
   }
 });
 
-test('A8 意见反馈上报失败：明确失败提示（不静默、不声称已送达）', async () => {
+test('A8 反馈面板上报失败：明确失败提示（不静默、不点亮）', async () => {
   const toasts = [];
   const origFb = api.feedback;
   const wxStub = { showToast: (o) => toasts.push(o.title), getStorageSync: () => undefined, setStorageSync: () => {}, removeStorageSync: () => {} };
@@ -521,17 +523,19 @@ test('A8 意见反馈上报失败：明确失败提示（不静默、不声称�
   try {
     const msg = { id: 'm1', role: 'ai', consultationId: 'c1', content: 'x' };
     const page = makeChatPage([msg], wxStub);
-    page.data.fbMenu = { show: true, msgId: 'm1' };
-    page.submitFeedbackReason({ currentTarget: { dataset: { reason: '不准' } } });
+    page.openFeedbackPanel('m1');
+    page.onFbReasonTap({ currentTarget: { dataset: { opt: '内容不准确' } } });
+    page.submitFbSheet();
     await new Promise((r) => setTimeout(r, 0));
     assert.ok(toasts.includes('反馈提交失败，请重试'), '失败必须明示: ' + toasts.join(','));
-    assert.ok(!toasts.includes('已收到你的反馈'), '失败不得弹成功: ' + toasts.join(','));
+    assert.ok(!toasts.includes('已收到反馈'), '失败不得弹成功: ' + toasts.join(','));
+    assert.equal(page.data.fb['m1-down'], undefined, '失败不得点亮（不静默装成功）');
   } finally {
     api.feedback = origFb;
   }
 });
 
-test('A8 意见反馈上报成功：以服务端为准弹成功', async () => {
+test('A8 反馈面板上报成功：以服务端为准点亮 + 弹成功', async () => {
   const toasts = [];
   const origFb = api.feedback;
   const wxStub = { showToast: (o) => toasts.push(o.title), getStorageSync: () => undefined, setStorageSync: () => {}, removeStorageSync: () => {} };
@@ -540,10 +544,12 @@ test('A8 意见反馈上报成功：以服务端为准弹成功', async () => {
   try {
     const msg = { id: 'm1', role: 'ai', consultationId: 'c1', content: 'x' };
     const page = makeChatPage([msg], wxStub);
-    page.data.fbMenu = { show: true, msgId: 'm1' };
-    page.submitFeedbackReason({ currentTarget: { dataset: { reason: '不准' } } });
+    page.openFeedbackPanel('m1');
+    page.onFbReasonTap({ currentTarget: { dataset: { opt: '内容不准确' } } });
+    page.submitFbSheet();
     await new Promise((r) => setTimeout(r, 0));
-    assert.ok(toasts.includes('已收到你的反馈，明灯会改进'));
+    assert.ok(toasts.includes('已收到反馈'), '以服务端为准弹成功');
+    assert.equal(page.data.fb['m1-down'], true, '成功后踩图标点亮');
   } finally {
     api.feedback = origFb;
   }

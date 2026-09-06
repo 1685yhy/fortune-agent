@@ -512,28 +512,46 @@
     <view class="act-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeActionMenu">取消</view>
   </view>
 
-  <!-- v1.1 意见反馈原因弹层 -->
-  <view wx:if="{{fbMenu.show}}" class="act-mask" bindtap="closeFbMenu" catchtouchmove="noop"></view>
-  <view wx:if="{{fbMenu.show}}" class="act-sheet" catchtouchmove="noop">
-    <view class="act-head">
-      <text class="act-title">意见反馈 · 此回复</text>
-      <text class="act-sub">明灯会认真读每一句意见</text>
+  <!-- ═══ k6 波2 P4.6 元宝式反馈面板 ═══
+       footer 踩钮 / 长按菜单「点踩」「意见反馈」三入口同面板（旧 fbMenu 网格退役）。
+       布局按用户 2026-09-04 实机截图（IMG_4510）文字描述实现最小合理版：
+       顶部感谢行「谢谢你的反馈，我们会继续优化进步」→ 分组原因（针对问题/针对回答/
+       针对格式，多选 chips）→「我要补充」输入框（可不填）→ 底部提交钮
+       （未选任何原因且补充为空 → 置灰）——参考图本批不可得，待图复核后微调 -->
+  <view wx:if="{{fbSheet.show}}" class="act-mask" bindtap="closeFbSheet" catchtouchmove="noop"></view>
+  <view wx:if="{{fbSheet.show}}" class="act-sheet fbs-sheet" catchtouchmove="noop">
+    <view class="act-head fbs-head">
+      <text class="fbs-title">谢谢你的反馈，我们会继续优化进步</text>
     </view>
-    <view class="act-grid fb-grid">
-      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-reason="不准确" bindtap="submitFeedbackReason">
-        <text class="act-glyph">误</text><text class="act-label">不准确</text>
+    <view class="fbs-groups">
+      <block wx:for="{{FB_REASON_GROUPS}}" wx:for-item="grp" wx:key="label">
+        <view class="fbs-group">
+          <text class="fbs-g-label">{{grp.label}}</text>
+          <view class="fbs-chips">
+            <view wx:for="{{grp.opts}}" wx:for-item="opt" wx:key="*this"
+              class="fbs-chip {{fbSheet.reasons[opt] ? 'on' : ''}}" hover-class="fbs-chip-active" hover-stay-time="0"
+              data-opt="{{opt}}" bindtap="onFbReasonTap">
+              <text class="fbs-chip-txt">{{opt}}</text>
+            </view>
+          </view>
+        </view>
+      </block>
+    </view>
+    <view class="fbs-note-wrap">
+      <view class="fbs-note-head">
+        <text class="fbs-note-label">我要补充</text>
+        <text class="fbs-note-opt">可不填</text>
       </view>
-      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-reason="语气差" bindtap="submitFeedbackReason">
-        <text class="act-glyph">语</text><text class="act-label">语气差</text>
-      </view>
-      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-reason="内容不适" bindtap="submitFeedbackReason">
-        <text class="act-glyph">忌</text><text class="act-label">内容不适</text>
-      </view>
-      <view class="act-item" hover-class="act-item-active" hover-stay-time="0" data-reason="其他" bindtap="submitFeedbackReason">
-        <text class="act-glyph">余</text><text class="act-label">其他</text>
+      <textarea class="fbs-note" placeholder="想再说点什么…" placeholder-class="input-ph"
+        value="{{fbSheet.note}}" maxlength="200" disable-default-padding cursor-spacing="10"
+        bindinput="onFbNoteInput"></textarea>
+    </view>
+    <view class="fbs-actions">
+      <view class="act-cancel fbs-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeFbSheet">取消</view>
+      <view class="fbs-submit {{fbSheet.canSubmit ? '' : 'off'}}" hover-class="fbs-submit-active" hover-stay-time="0" bindtap="submitFbSheet">
+        <text class="fbs-submit-txt">提交</text>
       </view>
     </view>
-    <view class="act-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeFbMenu">取消</view>
   </view>
 
   <!-- v1.2 表情反应选择弹层（墨韵弹层：emoji 宫格，点一下加 / 再点移除） -->
