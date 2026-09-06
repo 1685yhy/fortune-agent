@@ -94,16 +94,24 @@ const CLIENTH_MEASURE_MS = 1500;  // 可视区高度周期校准间隔：键盘�
       wx.hideKeyboard 尽力抑制，iOS 只读/程序聚焦下是否保留手柄不保证；
    ③ selectable 与自定义 bindlongpress 在同一元素互斥 → 现状「模式开关」让位原生，
       代价是菜单消费第一次长按、用户需第二次长按（甲兜底正为此引导）。
-   双路径（乙=用户拍板主路径，甲=自动降级）：
+   双路径（2026-09-06 主会话拍板：乙默认关闭，全平台默认走甲；乙路径代码保留在
+   调试开关 TEXT_SEL_ENGINE='b' 之后，供真机实验/后续评估复用）：
    乙：点「选取文字」→ 被按气泡正文以只读 textarea 覆盖层呈现纯文本，程序
        focus + selection-start/end 选中长按所在段落 → 可拖动两端焦点的观感；
        （结构见 chat.wxml .sel-overlay；键盘抑制/失焦/点外部退出/滚动联动见
        _openSelOverlay/_closeTextOverlay）
-   甲：乙运行时不可靠/平台不支持 → 段落高亮定位 + 气泡顶部引导小字
-       「长按这段文字即可拖动选择」+ 菜单「复制本段」（一键复制被按段）。
-   引擎开关与降级阈值：真机验证乙在 Android 表现后，若可靠可将
-   TEXT_SEL_IOS_OVERLAY 置 true 或用 TEXT_SEL_ENGINE='a' 全量回甲。 */
-const TEXT_SEL_ENGINE = 'b';          // 'b' = 乙优先（不满足条件自动降甲）| 'a' = 强制甲
+   甲：段落高亮定位 + 气泡顶部引导小字「长按这段文字即可拖动选择」
+       + 菜单「复制本段」（一键复制被按段）。
+   乙为何默认关闭（结构性障碍，勿试图突破）：
+       ① textarea/input 均无 readonly 属性——程序 focus 必然弹起键盘，无 API 可
+          抑制（wx.hideKeyboard 只能尽力而为，跨端行为不保证）；
+       ② textarea selection-start/end 仅在聚焦时生效，iOS 程序聚焦下是否显示可拖
+          手柄不保证（无任何 API 可编程唤起 <text> 的系统选择）；
+       ③ 覆盖层几何依赖实测矩形，超长文本/目标段落落在 textarea 首屏外时预设
+          选区不可见，且无真机验证通道。
+   → 全平台默认甲（TEXT_SEL_ENGINE='a'）。真机实验乙：置 'b'（如需 iOS 一并放开
+   TEXT_SEL_IOS_OVERLAY）；单测/调试亦可用 page._textSelEngine 实例覆盖。 */
+const TEXT_SEL_ENGINE = 'a';          // 'a' = 全平台默认甲（乙关闭）| 'b' = 乙优先（实验开关，自动降甲）
 const TEXT_SEL_IOS_OVERLAY = false;   // iOS 覆盖层实验开关：默认关（iOS 不保证只读选中行为）
 const TEXT_SEL_MAX_TEXT = 900;        // 覆盖层文本超过该长度 → 甲（超长段落会落在首屏外）
 const TEXT_SEL_MAX_PARA_START = 500;  // 目标段落起始偏移超过 → 甲（同上，textarea 无法预滚）
@@ -1140,7 +1148,10 @@ Page({
   /* 乙可行性判定（清晰可测：常量开关 + 平台名单 + 文本/偏移阈值 + 能力/异常兜底） */
   _textOverlayFeasible(msg, model, para) {
     try {
-      if (TEXT_SEL_ENGINE === 'a') return false;
+      // 引擎开关：默认常量 'a'（全平台甲）；真机/单测实验乙可用
+      // page._textSelEngine = 'b' 实例覆盖（不改源码即可调试，见文件头 k10-C 注释）
+      const engine = (typeof this._textSelEngine === 'string') ? this._textSelEngine : TEXT_SEL_ENGINE;
+      if (engine === 'a') return false;
       const sys = wx.getSystemInfoSync ? wx.getSystemInfoSync() : {};
       if ((sys.platform || '') === 'ios' && !TEXT_SEL_IOS_OVERLAY) return false;
       if (!para || !model || !model.text) return false;

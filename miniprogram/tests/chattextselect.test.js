@@ -160,12 +160,14 @@ test('菜单「选取文字」段落路径 + iOS → 自动降甲（高亮 + 引
   assert.equal(calls.toast.length, 0, '甲路径不再 toast 打断（引导小字常驻）');
 });
 
-test('乙可行（android + 测量可用）→ 覆盖层打开且选区=段落偏移', () => {
+test('乙可行（android + 测量可用 + 实验开关）→ 覆盖层打开且选区=段落偏移', () => {
   const m1 = aiMsg(MD_TEXT, { mdNodes: MD_BLOCKS });
   const rect = { top: 200, left: 40, width: 300, height: 220 };
   const { page } = makePage({ messages: [m1] }, {
     getSystemInfoSync: () => ({ platform: 'android' }),
   });
+  // 乙默认关闭（TEXT_SEL_ENGINE='a'）——本用例经实例实验开关置 'b' 验证乙路径本体
+  page._textSelEngine = 'b';
   page.createSelectorQuery = () => ({
     select() { return this; },
     boundingClientRect(cb) { this._cb = cb; return this; },
@@ -189,26 +191,39 @@ test('乙可行（android + 测量可用）→ 覆盖层打开且选区=段落�
   assert.equal(page.data.selParaKey, 'md:1');
 });
 
-test('乙可行性各降级条件（异常/超长/无段落 → 甲）', () => {
+test('乙默认关闭（拍板）：android 全条件满足亦走甲——实例开关未置 b 时恒不可行', () => {
   const model = chatSelect.paragraphModel(aiMsg(MD_TEXT, { mdNodes: MD_BLOCKS }));
   const msg = aiMsg(MD_TEXT, { mdNodes: MD_BLOCKS });
   const { page } = makePage({}, { getSystemInfoSync: () => ({ platform: 'android' }) });
   try {
     page.createSelectorQuery = () => ({});
-    // 基准可行
+    // 默认引擎 'a'：即使 android + 测量可用 + 段落存在 → 乙不可行（全平台甲）
+    assert.equal(page._textOverlayFeasible(msg, model, model.byKey['md:1']), false,
+      '乙默认关闭：android 全条件满足亦不可行');
+  } finally {
+    restoreGlobals();
+  }
+});
+
+test('乙可行性各降级条件（实验开关 b 下：异常/超长/无段落 → 甲）', () => {
+  const model = chatSelect.paragraphModel(aiMsg(MD_TEXT, { mdNodes: MD_BLOCKS }));
+  const msg = aiMsg(MD_TEXT, { mdNodes: MD_BLOCKS });
+  const { page } = makePage({}, { getSystemInfoSync: () => ({ platform: 'android' }) });
+  page._textSelEngine = 'b';   // 实验开关：验证乙开启时降级链仍完整
+  try {
+    page.createSelectorQuery = () => ({});
+    // 基准可行（实验开关 b）
     assert.equal(page._textOverlayFeasible(msg, model, model.byKey['md:1']), true);
     // 图片消息 → 不可行
     assert.equal(page._textOverlayFeasible(Object.assign({}, msg, { image: { url: 'x' } }), model, model.byKey['md:1']), false);
     // 无段落/空模型
     assert.equal(page._textOverlayFeasible(msg, { text: '' }, null), false);
-    // 引擎常量强制甲：经实例重绑定模拟（常量只读，验证方法分支已覆盖）
+    // 超长文本 → 甲
     const LONG = { text: 'x'.repeat(2000), byKey: {} };
     const longPara = { key: 'md:0', text: 'x'.repeat(100), start: 1000, end: 1100 };
     assert.equal(page._textOverlayFeasible(msg, LONG, longPara), false, '超长文本 → 甲');
     // 异常（getSystemInfoSync throw）→ 甲
-    page.data = page.data;
-    const wxStub = { getSystemInfoSync: () => { throw new Error('boom'); } };
-    installWx(Object.assign({}, wxStub, { getSystemInfoSync: () => { throw new Error('boom'); } }));
+    installWx({ getSystemInfoSync: () => { throw new Error('boom'); }, showToast: () => {} });
     assert.equal(page._textOverlayFeasible(msg, model, model.byKey['md:1']), false, '异常 → 甲');
   } finally {
     restoreGlobals();
