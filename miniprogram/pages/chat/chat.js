@@ -13,6 +13,7 @@ const theme = require('../../utils/theme');
 const streamHost = require('../../utils/streamHost');
 const md = require('../../utils/md');
 const cardUtil = require('../../utils/card');   // E2-2 对话卡片化：卡片标记解析
+const chatSelect = require('../../utils/chatSelect'); // k10-C 文字选取：段落模型（乙覆盖层/甲高亮/复制本段共用事实源）
 
 /* 原型 aiComplete 精选文案（dir_b.html 532-537 行 CURATED，后端不可用时兜底） */
 const CURATED = {
@@ -57,6 +58,15 @@ function navFor(content) {
 /* v1.2 表情反应可选集（8 个常用） */
 const EMOJIS = ['👍', '❤️', '😂', '😮', '😢', '🔥', '🙏', '✨'];
 
+/* ═══ k6 波2 P4.6 元宝式反馈面板：踩（footer/菜单）→ 底部面板，分组原因多选
+   （权威参考 = 用户 2026-09-04 实机截图 IMG_4510——本批无图可读，先按 brief 默认
+   文案实现最小合理版，待图复核；用户可后改文案） ═══ */
+const FB_REASON_GROUPS = [
+  { label: '针对问题', opts: ['理解错了', '没回答到点上', '忽略了我的关键信息'] },
+  { label: '针对回答', opts: ['内容不准确', '说得太绝对', '内容不完整', '太敷衍', '排盘或日期算错了', '内容让我不适'] },
+  { label: '针对格式', opts: ['排版乱了', '内容重复了', '图片没显示'] },
+];
+
 /* 语音输入参数（元宝式） */
 const REC_MIN_MS = 800;   // 短按 < 800ms → 「说话时间太短」
 const REC_MAX_S = 60;     // 最长录音 60s，到点自动发送
@@ -75,13 +85,47 @@ const NEAR_BOTTOM_PX = 50;        // 兜底阈值：50px（375px 宽屏的 100rp
 const CLIENTH_MEASURE_MS = 1500;  // 可视区高度周期校准间隔：键盘弹起等布局变化会让 msg-list
                                   // 高度改变，滚动中每 ~1.5s 重测一次防阈值失真
 
-/* B4-1 输入条动态高度（rpx）：--inputbar-h = 基线 + 额度条 + 文本区增长
-   基线 130rpx（与既有常量一致）；行高 40rpx（chat.wxss .chat-input）；
-   5.5 行封顶 → 增长封顶 5 行 × 40 = 200rpx */
-const INPUTBAR_BASE = 130;
-const INPUTBAR_QBON = 42;        // 额度条展示时增高量（原 .qb-on 172-130）
-const INPUTBAR_LINE_H = 40;      // 文本区每增一行的增高量（40rpx 行高）
-const INPUTBAR_MAX_LINES = 6;    // 5.5 行封顶 → 行数封顶 6
+/* ═══ k10-C 文字选取（用户 2026-09-04 实诉：点「选取文字」后没有默认选区） ═══
+   平台限制（勿试图突破，官方无解）：
+   ① `<text selectable>` 只能「允许用户自己长按」唤起系统选择——没有任何 API 可
+      编程唤起选区/全选/预设选区（无 DOM Range/setSelection）；
+   ② `<textarea>` 支持 selection-start/end，但仅在自身聚焦时生效；textarea 无
+      readonly 属性（input 亦无）——程序 focus 必然弹键盘，只能 focus 后立即
+      wx.hideKeyboard 尽力抑制，iOS 只读/程序聚焦下是否保留手柄不保证；
+   ③ selectable 与自定义 bindlongpress 在同一元素互斥 → 现状「模式开关」让位原生，
+      代价是菜单消费第一次长按、用户需第二次长按（甲兜底正为此引导）。
+   双路径（2026-09-06 主会话拍板：乙默认关闭，全平台默认走甲；乙路径代码保留在
+   调试开关 TEXT_SEL_ENGINE='b' 之后，供真机实验/后续评估复用）：
+   乙：点「选取文字」→ 被按气泡正文以只读 textarea 覆盖层呈现纯文本，程序
+       focus + selection-start/end 选中长按所在段落 → 可拖动两端焦点的观感；
+       （结构见 chat.wxml .sel-overlay；键盘抑制/失焦/点外部退出/滚动联动见
+       _openSelOverlay/_closeTextOverlay）
+   甲：段落高亮定位 + 气泡顶部引导小字「长按这段文字即可拖动选择」
+       + 菜单「复制本段」（一键复制被按段）。
+   乙为何默认关闭（结构性障碍，勿试图突破）：
+       ① textarea/input 均无 readonly 属性——程序 focus 必然弹起键盘，无 API 可
+          抑制（wx.hideKeyboard 只能尽力而为，跨端行为不保证）；
+       ② textarea selection-start/end 仅在聚焦时生效，iOS 程序聚焦下是否显示可拖
+          手柄不保证（无任何 API 可编程唤起 <text> 的系统选择）；
+       ③ 覆盖层几何依赖实测矩形，超长文本/目标段落落在 textarea 首屏外时预设
+          选区不可见，且无真机验证通道。
+   → 全平台默认甲（TEXT_SEL_ENGINE='a'）。真机实验乙：置 'b'（如需 iOS 一并放开
+   TEXT_SEL_IOS_OVERLAY）；单测/调试亦可用 page._textSelEngine 实例覆盖。 */
+const TEXT_SEL_ENGINE = 'a';          // 'a' = 全平台默认甲（乙关闭）| 'b' = 乙优先（实验开关，自动降甲）
+const TEXT_SEL_IOS_OVERLAY = false;   // iOS 覆盖层实验开关：默认关（iOS 不保证只读选中行为）
+const TEXT_SEL_MAX_TEXT = 900;        // 覆盖层文本超过该长度 → 甲（超长段落会落在首屏外）
+const TEXT_SEL_MAX_PARA_START = 500;  // 目标段落起始偏移超过 → 甲（同上，textarea 无法预滚）
+
+/* ═══ k6-P1 输入条行高机件整体退役 ═══
+   B4-1 曾以 JS 常量估算输入条总高并 setData --inputbar-h（wxml L1 内联 CSS 变量，
+   wxss L6/L867 兜底）→ 打字每增一行：bindlinechange → setData → msg-list/引导区/
+   安全条三处 calc 全页重排 + scroll-into-view 动画补滚——键盘弹出期间被 JS 打断
+   （用户实诉：输入打到快满一行被中断、键盘直接关闭）。
+   结构性修复：输入条改普通文档流（.screen flex 列内，见 chat.wxss .screen 注释），
+   额度条显隐与 textarea auto-height 增行由 flex 自然吸收——本批移除：
+   INPUTBAR_* 常量、_inputLines 状态、_updateInputBarH/onInputLineChange/_onInputGrow、
+   wxml bindlinechange 与 --inputbar-h/inputBarH/qb-on、wxss 变量兜底与三处 calc。
+   流式/发送既有自动滚动路径（scrollInto 'btm'）一律未动。 */
 
 Page({
   data: {
@@ -126,9 +170,19 @@ Page({
     /* 阶段 5·引用交互：底部抽屉（半屏↔全屏） */
     citeDrawer: { show: false, full: false, msgId: '', items: [] },
     /* v1.1 气泡长按操作菜单（墨韵弹层） */
-    actionMenu: { show: false, msgId: '', role: '' },
-    fbMenu: { show: false, msgId: '' },   // 意见反馈原因弹层
+    actionMenu: { show: false, msgId: '', role: '', paraKey: '', canRegen: false, canCite: false },
+    // paraKey: k10-C 被按段落键；canRegen/canCite: k6 波2 P4.1/4.2 可见条件（开菜单时计算）
+    /* k6 波2 P4.6：元宝式反馈面板（取代旧 fbMenu 原因网格——踩/意见反馈同面板）。
+       canSubmit 派生：有选中原因或补充非空；提交按钮据此置灰/可点 */
+    fbSheet: { show: false, msgId: '', reasons: {}, note: '', canSubmit: false },
+    FB_REASON_GROUPS,
     selectMsgId: '',                      // 选取模式：该气泡 text 动态加 selectable
+    /* k10-C 文字选取：甲（段落高亮 + 引导）与乙（textarea 覆盖层）共用状态 */
+    selParaKey: '',                       // 甲模式：当前高亮段落键（'md:2'/'card:0'/'user:0'）
+    selOverlay: {                         // 乙模式：只读 textarea 覆盖层（几何/选区）
+      show: false, msgId: '', text: '', start: 0, end: 0,
+      top: 0, left: 0, width: 0, height: 0, focus: false,
+    },
     /* v1.2 表情反应：{消息id: [emoji...]} 持久化 + 选择弹层 */
     reactions: {},
     EMOJIS,
@@ -137,9 +191,6 @@ Page({
     saveBanner: false,
     /* L5-1/L5-2 对话额度条：免费用户「今日 X/15」；超限降级 → 精简提示 + 会员引导 */
     quotaBar: { show: false, text: '', downgraded: false },
-    /* B4-1 输入条动态高度（rpx，注入 .screen --inputbar-h，联动 msg-list/引导区/安全条）：
-       130 基线 + 额度条 42 + 文本区增长 (行数-1)×40，封顶 +200 */
-    inputBarH: 130,
     /* B4-1 「+」更多面板：拍照 / 从相册选择 */
     morePanel: { show: false },
   },
@@ -150,9 +201,6 @@ Page({
        旧基础库无 wx.getWindowInfo → getSystemInfoSync 兜底 → 仍无则 50px 常量兜底。 */
     const win = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
     this._nearBottomPx = win.windowWidth ? win.windowWidth / 750 * 100 : NEAR_BOTTOM_PX;
-    /* B4-1 输入条动态高度：文本区行数（bindlinechange）初始 1 行 */
-    this._inputLines = 1;
-    this._updateInputBarH(1);
     /* ═══ Task 8 · 深夜模式进入（夜色主题/灯笼/挽留劝睡/灯语卡/要我记得吗/12356） ═══ */
     options = options || {};
     const app = getApp();
@@ -321,13 +369,11 @@ Page({
   _refreshQuota() {
     api.getChatQuota()
       .then((q) => {
-        // B4-1-fix Minor：语音模式下按住说话条恒为 1 行高 → 额度条高度按 1 行算
-        // （文本行数仅文字输入态有意义，避免语音模式底部空隙过大）
-        const lines = this.data.inputMode === 'voice' ? 1 : (this._inputLines || 1);
+        // k6-P1：额度条在流内输入条内（.chat-mid flex:1 承压）——显隐由 flex 自然让位，
+        // 不再需要 JS 高度联动（旧 B4-1 注释/INPUTBAR_QBON 计算已随机件一并移除）
         if (!q || q.is_member || q.limit == null) {
           if (this.data.quotaBar.show) {
             this.setData({ quotaBar: { show: false, text: '', downgraded: false } });
-            this._updateInputBarH(lines); // B4-1：额度条消失 → 输入条回落
           }
           return;
         }
@@ -342,7 +388,6 @@ Page({
               : `今日 ${left}/${q.limit} 条`,
           },
         });
-        this._updateInputBarH(lines); // B4-1：额度条出现 → 输入条抬高
       })
       .catch(() => { /* 额度查询失败：静默隐藏（不打扰对话） */ });
   },
@@ -355,6 +400,9 @@ Page({
 
   /* 宿主状态 → 页面镜像（segments 由页面重算，引用分段渲染在页面侧） */
   _onHostState(state) {
+    // k10-C：流式增量/消息变更会推移覆盖层矩形 → 先退出乙覆盖层（甲态高亮保留，
+    // 用户仍可二次长按）。state.notice 等提示类事件不触发（tick 未变时下方早退）
+    if (this.data.selOverlay.show && typeof state.tick === 'number') this._closeTextOverlay();
     if (state.notice) {
       wx.showToast({ title: state.notice, icon: 'none' });
       streamHost.clearNotice();
@@ -664,8 +712,13 @@ Page({
      回到距底 ≤ 阈值 → 恢复自动跟随；流结束（done）同规则：本就在底部则停在底部，
      自行上滑过则不再拽回（流结束不强制滚）。 */
 
-  /* scroll-view 滚动事件：只记录位置与内容总高（WXML bindscroll 每帧触发，不做重活） */
+  /* scroll-view 滚动事件：只记录位置与内容总高（WXML bindscroll 每帧触发，不做重活）。
+     k10-C：乙覆盖层打开期间消息列表若发生滚动（mask 已阻断触摸滚动，此处兜底
+     程序性滚动/流式位移）→ 退出覆盖层（覆盖层矩形随之失效） */
   onScroll(e) {
+    if (this.data.selOverlay.show) {
+      this._closeTextOverlay();
+    }
     const d = e.detail || {};
     if (typeof d.scrollTop === 'number') this._scrollTop = d.scrollTop;
     if (typeof d.scrollHeight === 'number') this._scrollHeight = d.scrollHeight;
@@ -895,30 +948,10 @@ Page({
     wx.previewImage({ current: url, urls: [url] });
   },
 
-  /* 输入条动态高度：--inputbar-h = 130(基线) + 42(额度条) + 40×(行数-1)（封顶 5 行增量）。
-     注入 .screen 内联变量 → msg-list/引导区/安全条三处 calc 自动联动 */
-  _updateInputBarH(lines) {
-    const n = Math.max(1, Math.min(lines || 1, INPUTBAR_MAX_LINES));
-    const extra = (n - 1) * INPUTBAR_LINE_H;
-    const qb = this.data.quotaBar && this.data.quotaBar.show ? INPUTBAR_QBON : 0;
-    const h = INPUTBAR_BASE + qb + extra;
-    if (h !== this.data.inputBarH) this.setData({ inputBarH: h });
-  },
-
-  /* textarea 行数变化（bindlinechange）→ 高度联动 + 若此前贴底则补一次贴底滚动 */
-  onInputLineChange(e) {
-    const lines = (e.detail && e.detail.lineCount) || this._inputLines || 1;
-    const changed = lines !== this._inputLines;
-    this._inputLines = lines;
-    this._updateInputBarH(lines);
-    if (changed) this._onInputGrow();
-  },
-
-  /* 输入条变高 → 消息区可视高度收缩：若用户此前在底部，补滚贴底（上滑查看不打扰） */
-  _onInputGrow() {
-    const near = this._isNearBottom(this._scrollTop, this._scrollHeight, this._clientH);
-    if (near) this._scrollBottom();
-  },
+  /* ═══ k6-P1：以下输入条行高机件已整体退役（结构修复见文件头注释与
+     chat.wxss .screen/.chat-mid——输入条为流内 flex 子项，原生长高自然让位）：
+     _updateInputBarH / onInputLineChange / _onInputGrow 已删除；wxml 不再绑定
+     bindlinechange；--inputbar-h 变量、data.inputBarH、_inputLines、qb-on 全清 ═══ */
 
   /* 思考路径折叠/展开（宿主持久化） */
   toggleThink(e) {
@@ -944,18 +977,23 @@ Page({
     return map[type] || map.book;
   },
 
-  /* 点角标 [n]/🔗 → 打开底部抽屉（该条回复的来源列表） */
+  /* 点角标 [n]/🔗 → 打开底部抽屉（该条回复的来源列表）。
+     k6 波2 P4.2：长按菜单「查看引用」复用同一打开逻辑（_openCiteDrawer） */
   onCiteTap(e) {
     if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
-    const { msgid, idx } = e.currentTarget.dataset;
-    const msg = this._findMessage(msgid);
+    this._openCiteDrawer(e.currentTarget.dataset.msgid);
+  },
+
+  _openCiteDrawer(msgId) {
+    if (!msgId) return;
+    const msg = this._findMessage(msgId);
     const items = (msg && Array.isArray(msg.citations)) ? msg.citations : [];
     if (!items.length) {
       wx.showToast({ title: '本条回复暂无参考资料', icon: 'none' });
       return;
     }
     this._drawerRestore = null;
-    this.setData({ citeDrawer: { show: true, full: false, msgId: msgid, items } });
+    this.setData({ citeDrawer: { show: true, full: false, msgId, items } });
   },
 
   closeCiteDrawer() {
@@ -1018,6 +1056,19 @@ Page({
      B3-3 D 修复：选取模式中长按一律静默返回——不弹菜单、不 toast、不震动，
      让系统原生文字选择正常出现（此前 toast/震动会盖在 iOS 原生选择 UI 上
      打断选取流程，即用户反馈「选取文字用不了」的主因之一）。 */
+  /* k10-C 段落长按记录（md 段落 / user 正文的 data-para-id，冒泡先于气泡级
+      onBubbleLongPress）：只做簿记，不拦事件、不震动——菜单仍由气泡级长按打开，
+      菜单打开时读此记录判定「复制本段/高亮/乙预设选区」的目标段落。
+     选取模式/多选模式中不记录（选取模式静默让位系统原生选择，B3-3 语义） */
+  onParaLongPress(e) {
+    if (this.data.multiMode) return;
+    if (this.data.selectMsgId) return;
+    const ds = (e.currentTarget && e.currentTarget.dataset) || {};
+    const key = ds.paraId || '';
+    if (!key || !ds.msgid) return;
+    this._lastParaHit = { msgId: ds.msgid, key };
+  },
+
   onBubbleLongPress(e) {
     const { id, role } = e.currentTarget.dataset;
     if (this.data.multiMode) return;   // v1.3 多选：长按不弹菜单，避免与勾选混淆
@@ -1027,11 +1078,37 @@ Page({
     // 分享目标在开菜单时锁定（分享按钮 open-type=share 会在菜单关闭后读取）
     // E2-2：分享标题走剥标记后的纯文本（卡片标记不暴露给用户）
     this._shareTarget = msg ? cardUtil.stripCardMarkers(msg.content) : '';
-    this.setData({ actionMenu: { show: true, msgId: id, role, kept: !!(msg && msg.kept) } });
+    // k10-C：本次长按是否落在段落上（段落键仅对同一条消息有效，防跨气泡陈旧命中）
+    const hit = this._lastParaHit;
+    const paraKey = (hit && hit.msgId === id) ? hit.key : '';
+    this._lastParaHit = null;
+    // k6 波2 P4.1/4.2 可见条件（开菜单时一次算定）：
+    //   canRegen：AI + 非失败 + 非流式 + 宿主空闲 + 是本消息列表中最后一条 AI 回复
+    //     （重生成会移除原消息并在底部重流——只有「末条 AI」语义才成立）
+    //   canCite：msg.citations 为非空数组（引用抽屉数据层已齐，见 streamHost done 事件）
+    const lastAiOk = msg && !msg.error && !msg.streaming && !streamHost.active
+      && !!msg.retryText && this._isLastAiMessage(id);
+    const citeOk = msg && Array.isArray(msg.citations) && msg.citations.length > 0;
+    this.setData({
+      actionMenu: {
+        show: true, msgId: id, role, kept: !!(msg && msg.kept), paraKey,
+        canRegen: !!(role === 'ai' && lastAiOk),
+        canCite: !!(role === 'ai' && citeOk),
+      },
+    });
+  },
+
+  /* P4.1 可见条件辅助：msgId 是否为本消息列表中最后一条 AI 回复 */
+  _isLastAiMessage(id) {
+    const msgs = this.data.messages || [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'ai') return msgs[i].id === id;
+    }
+    return false;
   },
 
   closeActionMenu() {
-    this.setData({ actionMenu: { show: false, msgId: '', role: '' } });
+    this.setData({ actionMenu: { show: false, msgId: '', role: '', paraKey: '', canRegen: false, canCite: false } });
   },
 
   /* 消息区点击：选取模式自动退出（多选模式不退出——勾选由气泡点按负责）。
@@ -1040,23 +1117,141 @@ Page({
      点气泡外空白/输入区仍可退出选取模式（保留逃生出口）。 */
   onListTap() {
     if (this.data.multiMode) return;
-    if (this.data.selectMsgId) this.setData({ selectMsgId: '' });
+    if (this.data.selectMsgId) this.setData({ selectMsgId: '', selParaKey: '' });
   },
 
-  /* 菜单普通项：复制 / 选取文字 / 朗读 / 意见反馈 / 删除 */
+  /* ═══ k10-C 文字选取：乙覆盖层（可行时）→ 甲兜底（高亮+引导+复制本段） ═══ */
+
+  /* 菜单「选取文字」点击：
+     - 长按落在段落上且乙可行 → _openSelOverlay（textarea 覆盖层预设该段选区）
+     - 段落存在但乙不可行/异常 → 甲：selectMsgId + 段落高亮（md-hl）+ 气泡顶部
+       引导小字（wxml .sel-guide：「长按这段文字即可拖动选择」——说明为何需
+       二次长按：系统原生选择只能由用户自己长按唤起，无 API 预设）
+     - 长按落在空白/装饰区（无段落）→ 保持旧语义：整泡 selectable + toast 引导 */
+  _enterTextSelect(msgId, paraKey) {
+    const msg = this._findMessage(msgId);
+    if (!msg) return;
+    const model = chatSelect.paragraphModel(msg);
+    const para = (paraKey && model.byKey[paraKey]) ? model.byKey[paraKey] : null;
+    if (!para) {
+      this.setData({ selectMsgId: msgId, selParaKey: '' });
+      wx.showToast({ title: '长按文字即可选取', icon: 'none', duration: 2000 });
+      return;
+    }
+    if (this._textOverlayFeasible(msg, model, para)) {
+      this._openSelOverlay(msgId, model, para);
+      return;
+    }
+    this.setData({ selectMsgId: msgId, selParaKey: para.key });
+  },
+
+  /* 乙可行性判定（清晰可测：常量开关 + 平台名单 + 文本/偏移阈值 + 能力/异常兜底） */
+  _textOverlayFeasible(msg, model, para) {
+    try {
+      // 引擎开关：默认常量 'a'（全平台甲）；真机/单测实验乙可用
+      // page._textSelEngine = 'b' 实例覆盖（不改源码即可调试，见文件头 k10-C 注释）
+      const engine = (typeof this._textSelEngine === 'string') ? this._textSelEngine : TEXT_SEL_ENGINE;
+      if (engine === 'a') return false;
+      const sys = wx.getSystemInfoSync ? wx.getSystemInfoSync() : {};
+      if ((sys.platform || '') === 'ios' && !TEXT_SEL_IOS_OVERLAY) return false;
+      if (!para || !model || !model.text) return false;
+      if (msg.image) return false;                               // 图片+文字混合：几何不可靠
+      if (model.text.length > TEXT_SEL_MAX_TEXT) return false;   // 超长：段落落在首屏外
+      if (para.start > TEXT_SEL_MAX_PARA_START) return false;    // 同上（textarea 无法预滚）
+      if (typeof this.createSelectorQuery !== 'function') return false;
+      return true;
+    } catch (e) {
+      return false;                                              // 异常 → 甲
+    }
+  },
+
+  /* 乙：打开覆盖层。先落甲态（高亮+引导，任何失败都停留在甲可继续二次长按），
+     测量 .jz-body/.user-note 实际矩形后以纯文本 textarea 原位垫上并 focus +
+     selection-start/end 预设长按段落 → 用户可见两端可拖选区。
+     滚动联动：全屏 mask 阻断页面滚动；流式更新/程序滚动触发 _closeTextOverlay。 */
+  _openSelOverlay(msgId, model, para) {
+    const msg = this._findMessage(msgId);
+    if (!msg) return;
+    this.setData({ selectMsgId: msgId, selParaKey: para.key });
+    let done = false;
+    const finish = (rect) => {
+      if (done) return;
+      done = true;
+      if (!rect || !rect.width || !rect.height) return;   // 测量失败 → 停留甲态
+      const L = model.text.length;
+      this.setData({
+        selOverlay: {
+          show: true, msgId, role: msg.role || 'ai', text: model.text,
+          start: Math.max(0, Math.min(para.start, L)),
+          end: Math.max(0, Math.min(para.end, L)),
+          top: Math.round(rect.top), left: Math.round(rect.left),
+          width: Math.round(rect.width), height: Math.round(rect.height),
+          focus: true,
+        },
+      });
+    };
+    try {
+      this.createSelectorQuery()
+        .select('.sel-body-' + msgId)
+        .boundingClientRect(finish)
+        .exec();
+    } catch (e) { /* 落 catch 外兜底 */ finish(null); }
+    setTimeout(() => finish(null), 600);   // 测量兜底超时：不弹覆盖层，甲态保留
+  },
+
+  /* 关闭乙覆盖层（点外部/失焦/滚动/流式更新）：恢复原气泡；甲态（selectMsgId +
+     高亮 + 引导）保留，用户仍可二次长按走系统原生选择 */
+  _closeTextOverlay() {
+    if (!this.data.selOverlay.show) return;
+    this.setData({
+      selOverlay: {
+        show: false, msgId: '', role: '', text: '', start: 0, end: 0,
+        top: 0, left: 0, width: 0, height: 0, focus: false,
+      },
+    });
+  },
+
+  /* 公共别名（review F1）：wxml .sel-mask 绑定名为公共方法（事件绑定不解析私有
+     下划线方法——此前找不到方法会静默失败，「点外部退出」失效），js 内统一走
+     私有 _closeTextOverlay 单实现 */
+  closeTextOverlay() {
+    this._closeTextOverlay();
+  },
+
+  /* 覆盖层聚焦（textarea 无 readonly、聚焦必弹键盘）→ 立即 hideKeyboard 尽力抑制。
+     iOS 程序聚焦下是否保留选区手柄不保证（平台限制注释见文件头 k10-C）——真机验证
+     不可靠时由主会话将 TEXT_SEL_ENGINE 拨回 'a'（甲默认）。 */
+  onSelOvFocus() {
+    try {
+      if (wx.hideKeyboard) wx.hideKeyboard({});
+    } catch (e) { /* ignore */ }
+  },
+
+  onSelOvBlur() {
+    // 延迟关闭：允许聚焦/失焦抖动自愈；期间 mask 点击同样走 closeTextOverlay（幂等）
+    setTimeout(() => this._closeTextOverlay(), 150);
+  },
+
+  /* 菜单普通项：复制本段 / 复制 / 选取文字 / 朗读 / 意见反馈 / 删除 */
   actItem(e) {
     const k = e.currentTarget.dataset.k;
-    const { msgId } = this.data.actionMenu;
+    const { msgId, paraKey } = this.data.actionMenu;
     const msg = this._findMessage(msgId);
     this.closeActionMenu();
     if (!msg) return;
-    if (k === 'select') {
-      // 选取模式：该气泡 text 动态加 selectable，长按文字出系统选择手柄
-      this.setData({ selectMsgId: msgId });
-      wx.showToast({ title: '长按文字即可选取', icon: 'none', duration: 2000 });
+    if (k === 'copyPara') {
+      // k10-C 甲兜底：复制被按段落全文（与复制全文同一清洗管线：段落模型由
+      // stripCardMarkers 后同款文本构建——卡片标记/装饰不暴露给用户）
+      const para = chatSelect.paragraphModel(msg).byKey[paraKey];
+      if (para) wx.setClipboardData({ data: para.text });
+      return;
     } else if (k === 'copy') {
       // E2-2：复制走剥标记后的纯文本（卡片标记不暴露给用户）
       wx.setClipboardData({ data: cardUtil.stripCardMarkers(msg.content) });
+    } else if (k === 'select') {
+      // k10-C：乙 textarea 覆盖层（可行时）→ 预设长按段落选区；否则甲兜底
+      // （selectMsgId + 段落高亮 + 气泡顶部引导小字，替代旧 toast 引导）
+      this._enterTextSelect(msgId, paraKey || '');
     } else if (k === 'emoji') {
       // v1.2 表情反应：打开 emoji 选择弹层
       this._openEmojiFor(msgId);
@@ -1068,8 +1263,19 @@ Page({
       // E2-2-FIX：长按菜单朗读与气泡直接朗读（speakMessage）同口径——
       // 走剥标记后的纯文本，[card:…] 标记不被 TTS 读出（标记不暴露三出口之一）
       this._playWithTts(msgId, cardUtil.stripCardMarkers(msg.content), true);
+    } else if (k === 'regen') {
+      // k6 波2 P4.1 重新生成：移除原消息 → 用原提问重流（streamHost.retry）。
+      // 无确认弹窗（元宝/豆包即时感）；宿主 active 时内部静默 return，菜单侧已按
+      // canRegen 不可见兜底防静默空点。P4.5 作废旧 consultation 行需后端接口
+      // （voidConsultation 不存在，见 k10 报告后续项）——本批不接作废。
+      if (streamHost.active) return;
+      streamHost.retry(msg.id, String(msg.retryText || ''), msg.tag || '');
+    } else if (k === 'cite') {
+      // k6 波2 P4.2 查看引用：复用角标同款引用抽屉（空态由可见条件挡掉，双保险仍判）
+      this._openCiteDrawer(msgId);
     } else if (k === 'feedback') {
-      this.setData({ fbMenu: { show: true, msgId } });
+      // k6 波2 P4.6：意见反馈 → 元宝式反馈面板（与 footer 踩同面板）
+      this.openFeedbackPanel(msgId);
     } else if (k === 'delete') {
       wx.showModal({
         title: '删除此条',
@@ -1121,7 +1327,8 @@ Page({
     }
   },
 
-  /* 菜单反馈项：点赞/点踩（复用反馈回路）/收藏（持久化 kept） */
+  /* 菜单反馈项：点赞（点亮 + 轻提示）/ 点踩（k6 波2 P4.6 → 元宝式反馈面板）/
+     收藏（持久化 kept） */
   actFeedback(e) {
     const k = e.currentTarget.dataset.k;
     const { msgId } = this.data.actionMenu;
@@ -1137,20 +1344,36 @@ Page({
       wx.showToast({ title: on ? '已收藏 · 我的页可查看' : '已取消收藏', icon: 'none' });
       return;
     }
-    this._toggleFbCore(msgId, k);
+    if (k === 'down') {
+      // P4.6：菜单点踩与 footer 踩同语义——打开反馈面板（不再直发 negative）
+      this.openFeedbackPanel(msgId);
+      return;
+    }
+    this._toggleFbCore(msgId, k, '谢谢认可，我会继续精进');
+  },
+
+  /* k6 波2 P4.3：AI footer 复制钮——与菜单「复制」同一行为（E2-2 口径：
+     stripCardMarkers 后写剪贴板，卡片标记不暴露；系统自带「内容已复制」提示） */
+  footerCopyText(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
+    const msg = this._findMessage(e.currentTarget.dataset.id);
+    if (!msg) return;
+    wx.setClipboardData({ data: cardUtil.stripCardMarkers(msg.content) });
   },
 
   /* ═══ v1.3 多选收藏 / 分享（长按菜单「多选」→ 勾选模式 → 批量收藏 / 分享页） ═══ */
 
   /* 进入勾选模式：顶部出现操作条（已选 N 条/全选/收藏/分享/取消），气泡左上角出勾选框 */
   _enterMulti() {
+    this._closeTextOverlay();
     this.setData({
       multiMode: true,
       multiSel: {},
       multiCount: 0,
       multiAll: false,
       selectMsgId: '',
-      actionMenu: { show: false, msgId: '', role: '' },
+      selParaKey: '',
+      actionMenu: { show: false, msgId: '', role: '', paraKey: '', canRegen: false, canCite: false },
     });
   },
 
@@ -1231,27 +1454,72 @@ Page({
     wx.navigateTo({ url: '/pages/share/share' });
   },
 
-  /* 意见反馈原因 → 本地留档 + 后端上报（有咨询 ID 时 negative + 备注）。
-     G2 A8：成功提示以后端上报结果为准；上报失败 → 明确失败提示（本地留档保留，
-     但不得声称已送达明灯）；无咨询 ID 时纯本地留档（设计内行为） */
-  submitFeedbackReason(e) {
-    const reason = e.currentTarget.dataset.reason;
-    const { msgId } = this.data.fbMenu;
-    this.setData({ fbMenu: { show: false, msgId: '' } });
+  /* ═══ k6 波2 P4.6 元宝式反馈面板（踩不再直发 negative——footer 踩钮/长按菜单
+     点踩/意见反馈三入口同面板；旧 fbMenu 网格整体退役，grep 清零） ═══ */
+
+  /* 打开面板（重置选区与补充文本）。三入口共用：
+     footer 踩钮（toggleFb k=down）/ 长按菜单点踩（actFeedback k=down）
+     / 长按菜单意见反馈（actItem k=feedback） */
+  openFeedbackPanel(msgId) {
     const msg = this._findMessage(msgId);
-    if (!msg) return;
-    this._logFeedback(msg, reason);
-    if (msg.consultationId) {
-      api.feedback(msg.consultationId, 'negative', reason)
-        .then(() => { wx.showToast({ title: '已收到你的反馈，明灯会改进', icon: 'none' }); })
-        .catch(() => { wx.showToast({ title: '反馈提交失败，请重试', icon: 'none' }); });
-    } else {
-      wx.showToast({ title: '已收到你的反馈，明灯会改进', icon: 'none' });
-    }
+    if (!msg || !msgId) return;
+    this.setData({ fbSheet: { show: true, msgId, reasons: {}, note: '', canSubmit: false } });
   },
 
-  closeFbMenu() {
-    this.setData({ fbMenu: { show: false, msgId: '' } });
+  closeFbSheet() {
+    if (!this.data.fbSheet.show) return;
+    this.setData({ fbSheet: { show: false, msgId: '', reasons: {}, note: '', canSubmit: false } });
+  },
+
+  /* 原因 chip 点击：多选切换（选中=朱砂实心） */
+  onFbReasonTap(e) {
+    const opt = e.currentTarget.dataset.opt;
+    if (!opt) return;
+    const sheet = Object.assign({}, this.data.fbSheet);
+    const reasons = Object.assign({}, sheet.reasons);
+    if (reasons[opt]) delete reasons[opt]; else reasons[opt] = true;
+    sheet.reasons = reasons;
+    sheet.canSubmit = Object.keys(reasons).length > 0 || String(sheet.note || '').trim().length > 0;
+    this.setData({ fbSheet: sheet });
+  },
+
+  /* 「我要补充」输入（可不填） */
+  onFbNoteInput(e) {
+    const sheet = Object.assign({}, this.data.fbSheet);
+    sheet.note = String(e.detail && e.detail.value || '');
+    sheet.canSubmit = Object.keys(sheet.reasons || {}).length > 0 || sheet.note.trim().length > 0;
+    this.setData({ fbSheet: sheet });
+  },
+
+  /* 提交：原因多选「、」连接 + 补充文本 → 本地留档 + 后端 negative（有咨询 ID）。
+     面板点亮口径（brief P4.6）：成功后踩图标点亮 + toast「已收到反馈」；无咨询 ID →
+     只点亮不发后端（本地留档为证据，旧网格 submitFeedbackReason 同口径）。
+     上报失败 → 不点亮 + 明确失败提示（G2 B1 语义：不静默装成功）。 */
+  submitFbSheet() {
+    const sheet = this.data.fbSheet;
+    const msg = this._findMessage(sheet.msgId);
+    if (!sheet.show || !msg) return;
+    const reasons = FB_REASON_GROUPS.reduce((acc, g) => acc.concat(g.opts), [])
+      .filter((o) => sheet.reasons[o]);
+    const note = String(sheet.note || '').trim();
+    const parts = [reasons.join('、'), note].filter((s) => s);
+    if (!parts.length) return;                       // 空选择：提交钮已置灰，双保险
+    const label = parts.join('；');
+    this.closeFbSheet();
+    this._logFeedback(msg, label);
+    if (!msg.consultationId) {
+      this.setData({ [`fb.${sheet.msgId}-down`]: true });
+      wx.showToast({ title: '已收到反馈', icon: 'none' });
+      return;
+    }
+    api.feedback(msg.consultationId, 'negative', label)
+      .then(() => {
+        this.setData({ [`fb.${sheet.msgId}-down`]: true });
+        wx.showToast({ title: '已收到反馈', icon: 'none' });
+      })
+      .catch(() => {
+        wx.showToast({ title: '反馈提交失败，请重试', icon: 'none' });
+      });
   },
 
   /* ═══ v1.2 表情反应（气泡尾部 ＋ / 长按菜单 → emoji 选择 → 气泡角显示，可追加/移除） ═══ */
@@ -1381,7 +1649,9 @@ Page({
     };
   },
 
-  /* 原型 toggleFb：反馈点亮（up/down 有咨询 ID 时上报后端；keep → 持久化收藏 kept） */
+  /* 原型 toggleFb：反馈点亮（up/down 有咨询 ID 时上报后端；keep → 持久化收藏 kept）
+     k6 波2 P4.6：down 不再直发——footer 踩钮打开元宝式反馈面板（点赞仍为
+     图标点亮 + 轻提示「谢谢认可，我会继续精进」，不弹窗） */
   toggleFb(e) {
     if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应（点气泡=勾选）
     const { id, k } = e.currentTarget.dataset;
@@ -1395,10 +1665,17 @@ Page({
       wx.showToast({ title: on ? '已收藏 · 我的页可查看' : '已取消收藏', icon: 'none' });
       return;
     }
-    this._toggleFbCore(id, k);
+    if (k === 'down') {
+      // P4.6：踩 → 反馈面板（取代直发 negative）
+      this.openFeedbackPanel(id);
+      return;
+    }
+    this._toggleFbCore(id, k, '谢谢认可，我会继续精进');
   },
 
-  _toggleFbCore(id, k) {
+  /* 赞/踩点亮核心（P4.6 起产品入口仅赞使用；踩旧直发路径退役，核心保留供
+     状态一致性与既有单测）。onToast：点亮成功后停留点亮态时的轻提示文案。 */
+  _toggleFbCore(id, k, onToast) {
     const key = id + '-' + k;
     const on = !this.data.fb[key];
     this.setData({ [`fb.${key}`]: on });
@@ -1406,6 +1683,11 @@ Page({
       const msg = this._findMessage(id);
       if (msg && msg.consultationId) {
         api.feedback(msg.consultationId, k === 'up' ? 'positive' : 'negative')
+          .then(() => {
+            if (onToast && this.data.fb[key]) {
+              wx.showToast({ title: onToast, icon: 'none', duration: 2000 });
+            }
+          })
           .catch(() => {
             // G2 B1：上报失败 → 回滚点亮态 + 明确提示（失败不点亮，不静默）
             this.setData({ [`fb.${key}`]: false });
@@ -1528,6 +1810,7 @@ Page({
     }
     this._speakSeq = (this._speakSeq || 0) + 1;   // 使在途 TTS 请求失效（播新停旧语义）
     this._drawerRestore = null;
+    this._closeTextOverlay();
     const emptyMirror = this._mirror([]);  // 与订阅路径同口径（空列表，引导区接管）
     this.setData({
       messages: emptyMirror,
@@ -1538,9 +1821,10 @@ Page({
       streaming: false,
       speakingId: '',
       citeDrawer: { show: false, full: false, msgId: '', items: [] },
-      actionMenu: { show: false, msgId: '', role: '' },
-      fbMenu: { show: false, msgId: '' },
+      actionMenu: { show: false, msgId: '', role: '', paraKey: '', canRegen: false, canCite: false },
+      fbSheet: { show: false, msgId: '', reasons: {}, note: '', canSubmit: false },
       selectMsgId: '',
+      selParaKey: '',
       inputMode: 'text',
       inputText: '',
       emojiSheet: { show: false, msgId: '', cur: [], curMap: {} },
@@ -1592,9 +1876,66 @@ Page({
       this._finishRecording(false);
     }
     this.setData({ inputMode: mode, inputFocused: false });
-    // B4-1：语音模式按住说话条固定高 → 输入条回落基线；切回文字恢复文本区行数高度
-    if (mode === 'voice') this._updateInputBarH(1);
-    else this._updateInputBarH(this._inputLines || 1);
+    // k6-P1：输入条高由流内 flex 自然决定（voice 按住条 / 文字行数差异自动吸收），
+    // 不再有 JS 高度机件（旧 B4-1 _updateInputBarH 调用已随结构修复移除）
+  },
+
+  /* ═══ k6-P2 文字态长按小话筒直达录音（不必先切语音模式） ═══
+     微信 bindlongpress(≈350ms) 与 bindtap 天然互斥：短按仍走 switchInputMode 切
+     语音模式，长按直达「按住说话」。流程：守卫 → 走既有 switchInputMode 内部路径
+     切 voice 态（textarea 整块卸载 → 键盘自然收起，仓库既有收键盘机制）→
+     _ensureRecordPermission → _startRecording（手指仍按住，rec-bar 接住 touchend，
+     voice-hold→rec-bar 中途切换为生产已验证模式）。语音/流式状态机核心零改动，
+     本方法只加入口与触摸会话簿记；会话结束复位见 _clearLongPressVoice（发送完成/
+     取消/太短/识别失败/中断等一切收尾路径均会经过）。 */
+  micLongPress(e) {
+    if (this.data.isRecording || this.data.converting || this.data.streaming) return;
+    if (!this.data.micAvailable) return;      // 置灰态（.in-ic-off）：不响应（短按同规则）
+    if ((this.data.inputText || '').trim()) {
+      wx.showToast({ title: '请先发送或清空输入，再长按说话', icon: 'none' });
+      return;
+    }
+    const t = (e.touches && e.touches[0]) || {};
+    this._voiceFromLongPress = true;          // 会话结束 → 回文字态（见 _clearLongPressVoice）
+    this._touchActive = true;                 // 触摸会话簿记（与 micTouchStart 同口径）
+    this._touchY = t.clientY || 0;
+    // k6 wave1 review M-1：bindlongpress 在手指按下约 350ms 后才触发，此刻才起算
+    // 会让「真实按住 ≥0.8s 即发送」的按住条语义变成 ≥~1.15s（0.8–1.15s 波段的
+    // 长按松手被误判「说话时间太短」取消）。_touchStartAt 回拨 350ms ≈ 手指真正
+    // 按下时刻，与 voice-hold（micTouchStart 于 touchstart 起算）完全同一口径。
+    this._touchStartAt = Date.now() - 350;
+    this.switchInputMode({ currentTarget: { dataset: { mode: 'voice' } } });
+    this._ensureRecordPermission((ok) => {
+      if (!ok) {
+        // 授权被拒/弹窗：本次触摸已被消耗（长按不会再来 touchend）——
+        // 留在 voice 态（可再点按住条），清标记防止后续会话误复位
+        this._voiceFromLongPress = false;
+        return;
+      }
+      if (!this._touchActive) {
+        // 授权弹窗消耗了本次长按（触摸已结束）：不自动开录，按既有口径提示
+        this._voiceFromLongPress = false;
+        if (Date.now() - this._touchStartAt < REC_MIN_MS) {
+          wx.showToast({ title: '说话时间太短', icon: 'none' });
+        } else {
+          wx.showToast({ title: '已授权，请再次长按说话', icon: 'none' });
+        }
+        return;
+      }
+      this._startRecording();
+    });
+  },
+
+  /* k6-P2 收尾复位：长按直达语音的一切会话结束路径（发送完成/取消/太短/识别失败/
+     中断/清理）调用本方法——若来自文字态长按入口（_voiceFromLongPress）→
+     复位 inputMode='text' 并清标记（inputFocus 恒 false，不自动弹键盘）；
+     短按手动进语音模式（无标记）不受影响。 */
+  _clearLongPressVoice() {
+    if (!this._voiceFromLongPress) return;
+    this._voiceFromLongPress = false;
+    if (this.data.inputMode !== 'text') {
+      this.setData({ inputMode: 'text', inputFocused: false });
+    }
   },
 
   /* ════════════════════════════════════════════════════════════
@@ -1772,6 +2113,7 @@ Page({
       this._dropResult = true;
       this.setData({ isRecording: false, recCanceling: false, recSeconds: 0 });
       try { this._recMgr && this._recMgr.stop(); } catch (e) { /* ignore */ }
+      this._clearLongPressVoice(); // k6-P2：长按会话取消/太短 → 复位回文字态
       return;
     }
     this.setData({ isRecording: false, recCanceling: false, recSeconds: 0, converting: true });
@@ -1781,6 +2123,7 @@ Page({
       console.warn('[Chat] 录音停止失败:', e);
       this.setData({ converting: false });
       wx.showToast({ title: '录音停止失败，请重试', icon: 'none' });
+      this._clearLongPressVoice(); // k6-P2：异常路径同样收尾复位
     }
   },
 
@@ -1788,21 +2131,32 @@ Page({
   _handleRecognitionResult(res) {
     this._cleanupTimer();
     this.setData({ isRecording: false, converting: false, recCanceling: false });
-    if (this._dropResult) { this._dropResult = false; return; }
+    if (this._dropResult) {
+      this._dropResult = false;
+      this._clearLongPressVoice(); // k6-P2：识别结果被丢弃（取消会话）→ 复位回文字态
+      return;
+    }
     const text = ((res && res.result) || '').trim();
     if (!text) {
       wx.showToast({ title: '没听清，请再试一次', icon: 'none' });
+      this._clearLongPressVoice(); // k6-P2：识别为空 = 会话结束 → 复位回文字态
       return;
     }
     this._send(text);
+    this._clearLongPressVoice(); // k6-P2：发送完成 → 复位回文字态（键盘不自动弹出）
   },
 
   _handleRecognitionError(res) {
     this._cleanupTimer();
     this.setData({ isRecording: false, converting: false, recCanceling: false });
-    if (this._dropResult) { this._dropResult = false; return; }
+    if (this._dropResult) {
+      this._dropResult = false;
+      this._clearLongPressVoice(); // k6-P2：错误结果被丢弃 → 复位回文字态
+      return;
+    }
     console.warn('[Chat] 语音识别失败:', res);
     wx.showToast({ title: '识别失败，请再试一次', icon: 'none' });
+    this._clearLongPressVoice(); // k6-P2：识别失败 = 会话结束 → 复位回文字态
   },
 
   _cleanupTimer() {
@@ -1819,6 +2173,7 @@ Page({
       try { this._recMgr.stop(); } catch (e) { /* ignore */ }
     }
     this.setData({ isRecording: false, converting: false, recCanceling: false, recSeconds: 0 });
+    this._clearLongPressVoice(); // k6-P2：录音会话被中断（切走/清空/新开）→ 清标记并复位
   },
 
   /* ════════════════════════════════════════════════════════════

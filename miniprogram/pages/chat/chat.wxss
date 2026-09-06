@@ -1,9 +1,34 @@
 /* ═══ 屏 2 · 夜话 — 笺注对话（dir_b.html 825-903 行逐行翻译，px×1.923→rpx） ═══ */
 
-/* 输入条总高（输入行 + 内边距，rpx 常量估算；v2026-08-17 移除快捷 chip 行后
-   由 192rpx 降为 130rpx）：
-   msg-list 底部与其联动，滚动到底时最后一条气泡不被输入条遮挡 */
-.screen { --inputbar-h: 130rpx; }
+/* ═══ k6-P1 键盘闪断结构性修复：输入条改普通文档流 ═══
+   旧链路：输入条为 .screen 绝对定位（bottom:173rpx），总高由 JS 常量估算并以
+   CSS 变量 --inputbar-h 注入（v2026-08-17 由 192rpx 降 130rpx）——打字每增一行 →
+   bindlinechange → setData --inputbar-h → msg-list/引导区/安全条三处 calc 全页
+   重排 + scroll-into-view 动画补滚，键盘弹出期间被 JS 打断（用户实诉：输入打到
+   快满一行即被中断、键盘直接关闭）。
+   结构性方案：.screen（app.wxss 共享，position:fixed inset:0）在本页改为
+   flex 纵向列——绝对导航行 navrow 与底部 tabbar 是 app.wxss 跨页共享件，保持
+   absolute 不动，由页内 padding-top/padding-bottom 让位出等高铁轨；
+   中部新增 .chat-mid（flex:1; min-height:0; position:relative）承载原绝对覆盖层
+   （安全条/引导区/消息列表，锚点换算后视觉零位移）；输入条 .chat-inputbar 改
+   流内 flex 子项（flex-shrink:0）——额度条显隐、textarea auto-height 原生长高
+   都由 flex 自然吸收，无 setData、无重排、无滚动（行高机件整体退役，见
+   chat.js 文件头 k6-P1 注释）。 */
+.screen {
+  display: flex;
+  flex-direction: column;
+  padding-top: calc(182rpx + var(--nav-off));   /* 让位绝对 navrow：top 90rpx + 高 92rpx */
+  padding-bottom: 173rpx;                        /* 让位绝对 tabbar：高 173rpx（含安全区） */
+}
+/* 屏幕中部内容容器：占满 navrow 与输入条之间的全部弹性空间——本页原 absolute
+   覆盖层（.guide / .msg-list / .safety-card）随本容器锚定（坐标换算见各自规则），
+   输入条长高（额度条/文本区增行）时本容器自然收缩，无需任何 JS 联动 */
+.chat-mid {
+  flex: 1;
+  min-height: 0;
+  position: relative;   /* z-index:auto → 不产生层叠上下文，子覆盖层 z 级（25/40）
+                           仍按原语义与屏级多选条(z38)/横幅(z32)全局比较 */
+}
 
 /* ═══ 页头导航行（原型 v7 反馈#7 符号钮改造）═══
    标题「对话」居中；左侧纯符号钮（零文字）：
@@ -113,9 +138,9 @@
 
 .guide {
   position: absolute;
-  top: calc(247rpx + var(--nav-off));
+  top: 65rpx;                        /* k6-P1：.chat-mid 内坐标（原屏坐标 247rpx − mid 顶 182rpx，零位移） */
   left: 0; right: 0;
-  bottom: calc(173rpx + var(--inputbar-h) + 12rpx);
+  bottom: 12rpx;                     /* k6-P1：mid 底边 = 输入条顶边（等价原 calc "+12rpx"，输入条长高自动让位） */
   z-index: 25;
   display: flex;
   flex-direction: column;
@@ -257,8 +282,10 @@
 .mb-btn-cancel { color: var(--ink-faint); border-color: transparent; background: transparent; }
 .mb-btn-active { background: var(--acc-soft); }
 
-/* 多选模式：消息区下移避让操作条（215 → 286：让出 86rpx 条高 + 8rpx 间距） */
-.msg-list.multi-on { top: calc(318rpx + var(--nav-off)); }
+/* 多选模式：消息区下移避让操作条（215 → 286：让出 86rpx 条高 + 8rpx 间距）。
+   k6-P1：操作条仍为屏级 absolute，消息区在其内的 .chat-mid 中下移对应量
+   （原屏坐标 318rpx − mid 顶 182rpx = 136rpx） */
+.msg-list.multi-on { top: 136rpx; }
 
 /* 多选勾选框（气泡左上角圆形，勾选=朱砂实心 ✓）
    left:-32rpx：消息区内边距 35rpx，勾选框仍完整在滚动容器内（overflow-x 不裁剪） */
@@ -348,16 +375,17 @@
   flex-shrink: 0;
 }
 
-/* ── 消息流 ──
-   bottom 与输入条联动：输入条占底部 173rpx(tabbar) 之上 --inputbar-h 高度，
-   滚动到底时最后一条气泡（含反馈钮）完整露出，不被快捷笺条/输入行遮挡 */
+/* ── 消息流（k6-P1：.chat-mid 内绝对覆盖层）──
+   .chat-mid 底边 = 输入条顶边（.chat-inputbar 已为流内元素，见 .screen 注释）——
+   输入条随额度条/文本区长高时，消息区可视高度由 flex 自然收缩（等价旧
+   bottom = 173rpx(tabbar) + --inputbar-h + 12rpx 的视觉结果，但无任何 JS 联动） */
 .msg-list {
   position: absolute;
-  top: calc(247rpx + var(--nav-off));   /* 112px（免责一行占位后下移 32rpx） */
+  top: 65rpx;                        /* k6-P1：mid 内坐标（原屏坐标 247rpx − 182rpx，零位移；免责一行仍占位其上） */
   left: 0; right: 0;
-  bottom: calc(173rpx + var(--inputbar-h) + 12rpx);  /* 原 246rpx 会被输入条盖住 */
+  bottom: 12rpx;                     /* k6-P1：输入条上方留 12rpx 收边（原 calc 尾部 +12rpx） */
   z-index: 25;
-  overflow-x: hidden;                    /* 真机修复：内容超宽时横向裁剪，页面不可横滑 */
+  overflow-x: hidden;                /* 真机修复：内容超宽时横向裁剪，页面不可横滑 */
 }
 .msg-inner { display: flex; flex-direction: column; gap: 35rpx; padding: 27rpx 35rpx 35rpx; }  /* 14px 18px 18px */
 .msg-anchor { height: 2rpx; }
@@ -741,6 +769,10 @@
 }
 .jz-fb-btn image { width: 38rpx; height: 38rpx; }  /* 17px → v1.3 调大（新图标 192px 更清晰） */
 .jz-fb-btn.keep image { width: 36rpx; height: 36rpx; }  /* 16px */
+/* k6 波2 P4.3 footer 复制钮：图标与 keep 同档 36rpx；
+   宽度核算：5 钮 ×62 + 4×4 gap = 326rpx + timewrap(时间~113 + gap10 + speak52 ≈ 175)
+   = 501rpx ≤ 气泡内容宽 511rpx（569 − 29×2）——留 ~10rpx 余量，无需压缩钮尺寸 */
+.jz-fb-btn.copy image { width: 36rpx; height: 36rpx; }
 .jz-fb-active { background: var(--acc-soft); }
 .jz-fb-btn.on { background: var(--acc-soft); }
 
@@ -760,6 +792,7 @@
   line-height: 1.8;
   letter-spacing: .03em;
   color: var(--ink);
+  word-break: break-all;                 /* k6-P3：超长连续串（URL/口令等）断行，防穿出右缘被 .msg-list 横向裁剪（与 AI 侧 md-p 同规则） */
   transition: opacity .25s ease;
 }
 .user-note.pending {
@@ -848,32 +881,31 @@
 }
 .qb-btn-active { opacity: .7; }
 
-/* ── 输入条（额度条 + 输入行 + 朱砂发送） ── */
+/* ── 输入条（额度条 + 输入行 + 朱砂发送） ──
+   k6-P1：改普通文档流（.screen flex 列内、.chat-mid 之下）——高度随内容原生长
+   （额度条显隐 / textarea auto-height 增行），消息区由 .chat-mid flex 自然让位；
+   旧定位（absolute bottom:173rpx + z30 + --inputbar-h 注入）与 qb-on 类整体退役 */
 .chat-inputbar {
-  position: absolute;
-  left: 0; right: 0;
-  bottom: 173rpx;                        /* 90px */
-  z-index: 30;
+  position: relative;                   /* 无偏移，仅恢复旧 z30 层序（流内元素低于定位兄弟层） */
+  z-index: 30;                          /* 原语义：输入条恒盖消息区（msg-list z25 / guide z25） */
+  flex-shrink: 0;                       /* 不参与 flex 压缩：保持内容自然高度 */
   display: flex;
   flex-direction: column;
   background: var(--tabbar-bg);
   border-top: 2rpx solid var(--line-soft);  /* 1px */
   padding: 17rpx 27rpx 19rpx;            /* 9px 14px 10px */
 }
-/* 额度条展示时输入条增高（~42rpx）→ 消息列表底部联动让位（qb-on 挂在 .screen）。
-   注（B4-1-fix Minor）：.screen 恒带内联 --inputbar-h（JS _updateInputBarH 注入，
-   内联优先于类规则）→ 本规则实际不生效，仅作 JS 失效时的兜底；
-   真实增高由 JS INPUTBAR_QBON=42 驱动（wxml L1 挂 class、L2 内联变量）。 */
-.screen.qb-on { --inputbar-h: 172rpx; }
 /* v2026-08-17：输入条上方快捷 chip 排（chip-row/quickchip）已删
    （wxml 同步移除；示例问题已在引导区，无需重复入口）。
-   quickAsk 函数保留（引导区示例问题使用）；输入条现仅输入行 + 内边距，
-   --inputbar-h 已同步降为 130rpx，msg-list/引导区底部联动不变 */
+   quickAsk 函数保留（引导区示例问题使用）；k6-P1：输入条高度随内容（流内），
+   不再有 --inputbar-h 变量与 msg-list/引导区/安全条 calc 联动 */
 .input-row { display: flex; align-items: center; gap: 17rpx; }  /* 9px */
 
 /* B4-1 输入框外壳（对齐豆包：内嵌 相机|文本区|小话筒；边框/圆角/底移到此层） */
 .input-shell {
   flex: 1;
+  min-width: 0;                          /* k6-P3：flex 子项默认 min-width:auto → 内嵌原生 textarea 固有
+                                            宽使外壳拒绝收缩、挤出右侧钮；归零允许收缩（仓库 .db-mid 同款先例） */
   min-height: 81rpx;                     /* 42px：与旧单行输入等高 */
   box-sizing: border-box;
   display: flex;
@@ -887,10 +919,14 @@
   border-color: var(--acc);
   box-shadow: 0 0 0 6rpx var(--acc-soft);  /* 3px */
 }
-/* B4-1 自动长高文本区：auto-height，行高 40rpx，5.5 行封顶（max-height 220rpx）；
-   bindlinechange 行数 → JS 联动 --inputbar-h（增量 = (行数-1) × 40rpx，封顶 +200rpx） */
+/* B4-1 自动长高文本区：auto-height，行高 40rpx，5.5 行封顶（max-height 220rpx）。
+   k6-P1：不再 bindlinechange / JS 联动——auto-height 原生长高由 .chat-inputbar
+   （流内）+ .chat-mid（flex:1）自然吸收，打字过程零 setData / 零重排 / 零滚动 */
 .chat-input {
   flex: 1;
+  min-width: 0;                          /* k6-P3：textarea 原生固有宽（~300px 级）不随 flex 份额收缩，
+                                            会挤出/叠压右侧 .in-mic——归零允许收缩 */
+  width: 100%;                           /* k6-P3：等价显式宽度约束兜底（native 层非 flex 约束时仍收进外壳） */
   min-height: 44rpx;                     /* 单行（行高 40rpx） */
   max-height: 220rpx;                    /* 5.5 行封顶，超出内部滚动 */
   height: auto;
@@ -1172,46 +1208,9 @@
   color: var(--ink-faint);
 }
 /* v1.3 操作菜单项改造（PM 反馈：图标不明显/看不懂）：
-   图标+文字并排（大众认知），图标调大、墨色图标+中墨文字（宣纸/墨/朱砂，无灰） */
-.act-grid {
-  display: flex;
-  flex-wrap: wrap;
-}
-.act-item {
-  width: 33.333%;
-  box-sizing: border-box;
-  display: flex;
-  flex-direction: row;                   /* 图标+文字并排 */
-  align-items: center;
-  justify-content: center;
-  gap: 14rpx;
-  padding: 24rpx 6rpx;
-  border-radius: 10rpx;
-  background: transparent;               /* button 默认样式重置（分享项） */
-  border: none;
-  line-height: 1;
-  margin: 0;
-  text-align: center;
-  font-size: inherit;
-}
-.act-item::after { border: none; }       /* button 伪边框移除（分享项） */
-.act-item-active { background: var(--acc-soft); }
-.act-ic { width: 54rpx; height: 54rpx; flex-shrink: 0; }   /* 调大 */
-.act-glyph {
-  width: 54rpx; height: 54rpx;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-song);
-  font-size: 28rpx;
-  color: var(--ink);
-  border: 2rpx solid var(--line-med);
-  border-radius: 8rpx;
-  box-sizing: border-box;
-}
-.act-glyph-multi { color: var(--acc); border-color: var(--acc-line); }   /* 多选：朱砂提示 */
-.act-glyph-emoji { font-size: 36rpx; border-color: transparent; }        /* emoji 字号加大、去框 */
+   图标+文字并排（大众认知），图标调大、墨色图标+中墨文字（宣纸/墨/朱砂，无灰）。
+   k6 波2 P4.6：旧 fbMenu 原因网格整体退役 → .act-grid/.act-item/.act-ic/.act-glyph*
+   死样式一并清除（wxml 零引用，grep 验证） */
 .act-label {
   font-family: var(--font-song);
   font-size: 23rpx;                      /* 调大 */
@@ -1249,7 +1248,6 @@
   color: var(--ink-faint);
 }
 .act-cancel-active { color: var(--acc); }
-.fb-grid .act-item { width: 50%; }       /* 意见反馈原因：2×2 */
 
 /* ═══ v2.0 长按菜单竖排行（元宝式：图标+文字每行并排，分隔线分组，朱砂强调） ═══
    B6-1：图标由 emoji 全面更换为墨韵线性 png（ic-up/down/keep/reaction/copy/edit/check/
@@ -1281,6 +1279,20 @@
   width: 52rpx;
   height: 52rpx;
   flex-shrink: 0;
+}
+/* k6 波2 P4.1：菜单文字字形图标位（↻ 重新生成——仓库先例：jz-retry 用 ↻ 字形、
+   react-add 用 ＋；零新增图片资产红线内） */
+.act-em-glyph {
+  width: 52rpx;
+  height: 52rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-lat);
+  font-size: 36rpx;
+  line-height: 1;
+  color: var(--ink-mid);
 }
 .act-sep {
   height: 2rpx;
@@ -1619,12 +1631,181 @@
 /* UX批1 M-7：语音插件未配置时 mic 入口置灰（点按即提示，不用等长按） */
 .mic-off { opacity: .35; }
 
-/* ── 12356 心理援助安全条 ── */
+/* ═══ k6 波2 P4.6 元宝式反馈面板（fbs-*；IMG_4510 文字描述的最小合理版）═══
+   顶部感谢行 + 分组多选原因 chips（针对问题/回答/格式）+「我要补充」+ 底部提交。
+   待图复核：布局/文案以用户实机图为准微调。 */
+.fbs-sheet { padding-bottom: calc(22rpx + env(safe-area-inset-bottom)); }
+.fbs-head { margin-bottom: 12rpx; }
+.fbs-title {
+  font-family: var(--font-song);
+  font-size: 26rpx;
+  letter-spacing: .06em;
+  line-height: 1.7;
+  color: var(--ink);
+  text-align: center;
+}
+.fbs-groups { max-height: 46vh; overflow-y: auto; }
+.fbs-group { margin-bottom: 24rpx; }
+.fbs-g-label {
+  display: block;
+  margin-bottom: 12rpx;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .16em;
+  color: var(--ink-faint);
+}
+.fbs-chips { display: flex; flex-wrap: wrap; gap: 14rpx; }
+.fbs-chip {
+  box-sizing: border-box;
+  padding: 12rpx 26rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-med);
+  border-radius: 30rpx;
+}
+.fbs-chip-txt {
+  font-family: var(--font-song);
+  font-size: 24rpx;
+  letter-spacing: .06em;
+  color: var(--ink-mid);
+}
+.fbs-chip.on {
+  background: var(--acc);
+  border-color: var(--acc);
+}
+.fbs-chip.on .fbs-chip-txt { color: #FBF6E8; }
+.fbs-chip-active { opacity: .82; transform: scale(.97); }
+
+.fbs-note-wrap {
+  margin-top: 6rpx;
+  padding: 16rpx 20rpx 20rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--line-soft);
+  border-radius: 12rpx;
+}
+.fbs-note-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 8rpx; }
+.fbs-note-label {
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .16em;
+  color: var(--ink-soft);
+}
+.fbs-note-opt {
+  font-family: var(--font-song);
+  font-size: 18rpx;
+  letter-spacing: .1em;
+  color: var(--ink-faint);
+}
+.fbs-note {
+  width: 100%;
+  height: 108rpx;
+  box-sizing: border-box;
+  padding: 10rpx 4rpx 0;
+  font-family: var(--font-song);
+  font-size: 25rpx;
+  line-height: 1.7;
+  color: var(--ink);
+}
+
+.fbs-actions {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin-top: 18rpx;
+}
+.fbs-cancel { flex: 1; margin-top: 0; padding: 18rpx 0; }
+.fbs-submit {
+  flex: 1.6;
+  padding: 20rpx 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--acc);
+  border-radius: 12rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(0,0,0,.1);
+}
+.fbs-submit-txt {
+  font-family: var(--font-song);
+  font-size: 26rpx;
+  letter-spacing: .3em;
+  text-indent: .3em;
+  color: #FBF6E8;
+}
+.fbs-submit.off {
+  background: var(--ink-faint);
+  box-shadow: none;
+  opacity: .55;
+}
+.fbs-submit-active { transform: scale(.97); background: var(--acc-deep); }
+.fbs-submit.off.fbs-submit-active { background: var(--ink-faint); }
+
+/* ═══ k10-C 文字选取：甲（段落高亮 + 引导小字）与乙（textarea 覆盖层）═══ */
+
+/* 甲 · 气泡顶部引导小字（选取模式 + 已锁定段落时显示，替代旧 toast）：
+   说明为何需要在此段落上二次长按——微信无 API 可编程唤起 <text> 系统选择，
+   只能由用户本人长按触发（平台限制，勿试图突破） */
+.sel-guide {
+  margin: 0 0 14rpx;
+  padding: 8rpx 0;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .16em;
+  color: var(--acc);
+  background: var(--acc-soft);
+  border-radius: 6rpx;
+}
+
+/* 甲 · 被按段落高亮定位（p/h/quote/列表整体；code/table 不参与段落） */
+.md-p.md-hl,
+.md-h.md-hl,
+.md-quote.md-hl,
+.md-list.md-hl {
+  background: var(--acc-soft);
+  border-radius: 6rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(169, 58, 44, .16);
+}
+
+/* 乙 · textarea 覆盖层（模态；mask 承接「点外部退出」，textarea 为原生层不吃 mask） */
+.sel-overlay {
+  position: fixed;
+  left: 0; top: 0; right: 0; bottom: 0;
+  z-index: 200;                        /* 高于 act-sheet 130 / cite-drawer 110 */
+}
+.sel-mask {
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(58, 44, 30, .07);   /* 极淡墨色：提示模态，不抢正文 */
+}
+/* AI 正文区覆盖（.jz-body 实测矩形，无内边距——文字起点与原 md 文本对齐） */
+.sel-ov-area {
+  position: absolute;
+  box-sizing: border-box;
+  background: var(--paper-card);
+  border: 2rpx solid var(--acc);       /* 朱砂描边：可拖选区范围提示 */
+  border-radius: 10rpx;
+  box-shadow: 0 4rpx 15rpx var(--shadow-sm);
+  color: var(--ink-mid);
+  font-family: var(--poem);
+  font-size: 30rpx;
+  line-height: 1.95;
+  letter-spacing: .03em;
+  padding: 0;
+}
+/* 用户气泡覆盖（.user-note 实测矩形含内边距——按 note 原 padding 复原文字起点） */
+.sel-ov-area.is-user {
+  padding: 19rpx 27rpx;
+  font-family: var(--font-song);
+  font-size: 29rpx;
+  line-height: 1.8;
+  color: var(--ink);
+}
+
+/* ── 12356 心理援助安全条（k6-P1：.chat-mid 内覆盖层，wxml 已移入 chat-mid） ── */
 .safety-card {
   position: absolute;
   left: 35rpx;
   right: 35rpx;
-  bottom: calc(173rpx + var(--inputbar-h) + 20rpx);
+  bottom: 20rpx;                     /* k6-P1：mid 底边 = 输入条顶边（原 calc 尾部 +20rpx，输入条长高自动让位） */
   z-index: 40;
   padding: 21rpx 25rpx;
   background: var(--paper-card);
