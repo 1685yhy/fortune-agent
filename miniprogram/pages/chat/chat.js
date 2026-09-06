@@ -75,13 +75,16 @@ const NEAR_BOTTOM_PX = 50;        // 兜底阈值：50px（375px 宽屏的 100rp
 const CLIENTH_MEASURE_MS = 1500;  // 可视区高度周期校准间隔：键盘弹起等布局变化会让 msg-list
                                   // 高度改变，滚动中每 ~1.5s 重测一次防阈值失真
 
-/* B4-1 输入条动态高度（rpx）：--inputbar-h = 基线 + 额度条 + 文本区增长
-   基线 130rpx（与既有常量一致）；行高 40rpx（chat.wxss .chat-input）；
-   5.5 行封顶 → 增长封顶 5 行 × 40 = 200rpx */
-const INPUTBAR_BASE = 130;
-const INPUTBAR_QBON = 42;        // 额度条展示时增高量（原 .qb-on 172-130）
-const INPUTBAR_LINE_H = 40;      // 文本区每增一行的增高量（40rpx 行高）
-const INPUTBAR_MAX_LINES = 6;    // 5.5 行封顶 → 行数封顶 6
+/* ═══ k6-P1 输入条行高机件整体退役 ═══
+   B4-1 曾以 JS 常量估算输入条总高并 setData --inputbar-h（wxml L1 内联 CSS 变量，
+   wxss L6/L867 兜底）→ 打字每增一行：bindlinechange → setData → msg-list/引导区/
+   安全条三处 calc 全页重排 + scroll-into-view 动画补滚——键盘弹出期间被 JS 打断
+   （用户实诉：输入打到快满一行被中断、键盘直接关闭）。
+   结构性修复：输入条改普通文档流（.screen flex 列内，见 chat.wxss .screen 注释），
+   额度条显隐与 textarea auto-height 增行由 flex 自然吸收——本批移除：
+   INPUTBAR_* 常量、_inputLines 状态、_updateInputBarH/onInputLineChange/_onInputGrow、
+   wxml bindlinechange 与 --inputbar-h/inputBarH/qb-on、wxss 变量兜底与三处 calc。
+   流式/发送既有自动滚动路径（scrollInto 'btm'）一律未动。 */
 
 Page({
   data: {
@@ -137,9 +140,6 @@ Page({
     saveBanner: false,
     /* L5-1/L5-2 对话额度条：免费用户「今日 X/15」；超限降级 → 精简提示 + 会员引导 */
     quotaBar: { show: false, text: '', downgraded: false },
-    /* B4-1 输入条动态高度（rpx，注入 .screen --inputbar-h，联动 msg-list/引导区/安全条）：
-       130 基线 + 额度条 42 + 文本区增长 (行数-1)×40，封顶 +200 */
-    inputBarH: 130,
     /* B4-1 「+」更多面板：拍照 / 从相册选择 */
     morePanel: { show: false },
   },
@@ -150,9 +150,6 @@ Page({
        旧基础库无 wx.getWindowInfo → getSystemInfoSync 兜底 → 仍无则 50px 常量兜底。 */
     const win = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
     this._nearBottomPx = win.windowWidth ? win.windowWidth / 750 * 100 : NEAR_BOTTOM_PX;
-    /* B4-1 输入条动态高度：文本区行数（bindlinechange）初始 1 行 */
-    this._inputLines = 1;
-    this._updateInputBarH(1);
     /* ═══ Task 8 · 深夜模式进入（夜色主题/灯笼/挽留劝睡/灯语卡/要我记得吗/12356） ═══ */
     options = options || {};
     const app = getApp();
@@ -321,13 +318,11 @@ Page({
   _refreshQuota() {
     api.getChatQuota()
       .then((q) => {
-        // B4-1-fix Minor：语音模式下按住说话条恒为 1 行高 → 额度条高度按 1 行算
-        // （文本行数仅文字输入态有意义，避免语音模式底部空隙过大）
-        const lines = this.data.inputMode === 'voice' ? 1 : (this._inputLines || 1);
+        // k6-P1：额度条在流内输入条内（.chat-mid flex:1 承压）——显隐由 flex 自然让位，
+        // 不再需要 JS 高度联动（旧 B4-1 注释/INPUTBAR_QBON 计算已随机件一并移除）
         if (!q || q.is_member || q.limit == null) {
           if (this.data.quotaBar.show) {
             this.setData({ quotaBar: { show: false, text: '', downgraded: false } });
-            this._updateInputBarH(lines); // B4-1：额度条消失 → 输入条回落
           }
           return;
         }
@@ -342,7 +337,6 @@ Page({
               : `今日 ${left}/${q.limit} 条`,
           },
         });
-        this._updateInputBarH(lines); // B4-1：额度条出现 → 输入条抬高
       })
       .catch(() => { /* 额度查询失败：静默隐藏（不打扰对话） */ });
   },
@@ -895,30 +889,10 @@ Page({
     wx.previewImage({ current: url, urls: [url] });
   },
 
-  /* 输入条动态高度：--inputbar-h = 130(基线) + 42(额度条) + 40×(行数-1)（封顶 5 行增量）。
-     注入 .screen 内联变量 → msg-list/引导区/安全条三处 calc 自动联动 */
-  _updateInputBarH(lines) {
-    const n = Math.max(1, Math.min(lines || 1, INPUTBAR_MAX_LINES));
-    const extra = (n - 1) * INPUTBAR_LINE_H;
-    const qb = this.data.quotaBar && this.data.quotaBar.show ? INPUTBAR_QBON : 0;
-    const h = INPUTBAR_BASE + qb + extra;
-    if (h !== this.data.inputBarH) this.setData({ inputBarH: h });
-  },
-
-  /* textarea 行数变化（bindlinechange）→ 高度联动 + 若此前贴底则补一次贴底滚动 */
-  onInputLineChange(e) {
-    const lines = (e.detail && e.detail.lineCount) || this._inputLines || 1;
-    const changed = lines !== this._inputLines;
-    this._inputLines = lines;
-    this._updateInputBarH(lines);
-    if (changed) this._onInputGrow();
-  },
-
-  /* 输入条变高 → 消息区可视高度收缩：若用户此前在底部，补滚贴底（上滑查看不打扰） */
-  _onInputGrow() {
-    const near = this._isNearBottom(this._scrollTop, this._scrollHeight, this._clientH);
-    if (near) this._scrollBottom();
-  },
+  /* ═══ k6-P1：以下输入条行高机件已整体退役（结构修复见文件头注释与
+     chat.wxss .screen/.chat-mid——输入条为流内 flex 子项，原生长高自然让位）：
+     _updateInputBarH / onInputLineChange / _onInputGrow 已删除；wxml 不再绑定
+     bindlinechange；--inputbar-h 变量、data.inputBarH、_inputLines、qb-on 全清 ═══ */
 
   /* 思考路径折叠/展开（宿主持久化） */
   toggleThink(e) {
@@ -1592,9 +1566,62 @@ Page({
       this._finishRecording(false);
     }
     this.setData({ inputMode: mode, inputFocused: false });
-    // B4-1：语音模式按住说话条固定高 → 输入条回落基线；切回文字恢复文本区行数高度
-    if (mode === 'voice') this._updateInputBarH(1);
-    else this._updateInputBarH(this._inputLines || 1);
+    // k6-P1：输入条高由流内 flex 自然决定（voice 按住条 / 文字行数差异自动吸收），
+    // 不再有 JS 高度机件（旧 B4-1 _updateInputBarH 调用已随结构修复移除）
+  },
+
+  /* ═══ k6-P2 文字态长按小话筒直达录音（不必先切语音模式） ═══
+     微信 bindlongpress(≈350ms) 与 bindtap 天然互斥：短按仍走 switchInputMode 切
+     语音模式，长按直达「按住说话」。流程：守卫 → 走既有 switchInputMode 内部路径
+     切 voice 态（textarea 整块卸载 → 键盘自然收起，仓库既有收键盘机制）→
+     _ensureRecordPermission → _startRecording（手指仍按住，rec-bar 接住 touchend，
+     voice-hold→rec-bar 中途切换为生产已验证模式）。语音/流式状态机核心零改动，
+     本方法只加入口与触摸会话簿记；会话结束复位见 _clearLongPressVoice（发送完成/
+     取消/太短/识别失败/中断等一切收尾路径均会经过）。 */
+  micLongPress(e) {
+    if (this.data.isRecording || this.data.converting || this.data.streaming) return;
+    if (!this.data.micAvailable) return;      // 置灰态（.in-ic-off）：不响应（短按同规则）
+    if ((this.data.inputText || '').trim()) {
+      wx.showToast({ title: '请先发送或清空输入，再长按说话', icon: 'none' });
+      return;
+    }
+    const t = (e.touches && e.touches[0]) || {};
+    this._voiceFromLongPress = true;          // 会话结束 → 回文字态（见 _clearLongPressVoice）
+    this._touchActive = true;                 // 触摸会话簿记（与 micTouchStart 同口径）
+    this._touchY = t.clientY || 0;
+    this._touchStartAt = Date.now();
+    this.switchInputMode({ currentTarget: { dataset: { mode: 'voice' } } });
+    this._ensureRecordPermission((ok) => {
+      if (!ok) {
+        // 授权被拒/弹窗：本次触摸已被消耗（长按不会再来 touchend）——
+        // 留在 voice 态（可再点按住条），清标记防止后续会话误复位
+        this._voiceFromLongPress = false;
+        return;
+      }
+      if (!this._touchActive) {
+        // 授权弹窗消耗了本次长按（触摸已结束）：不自动开录，按既有口径提示
+        this._voiceFromLongPress = false;
+        if (Date.now() - this._touchStartAt < REC_MIN_MS) {
+          wx.showToast({ title: '说话时间太短', icon: 'none' });
+        } else {
+          wx.showToast({ title: '已授权，请再次长按说话', icon: 'none' });
+        }
+        return;
+      }
+      this._startRecording();
+    });
+  },
+
+  /* k6-P2 收尾复位：长按直达语音的一切会话结束路径（发送完成/取消/太短/识别失败/
+     中断/清理）调用本方法——若来自文字态长按入口（_voiceFromLongPress）→
+     复位 inputMode='text' 并清标记（inputFocus 恒 false，不自动弹键盘）；
+     短按手动进语音模式（无标记）不受影响。 */
+  _clearLongPressVoice() {
+    if (!this._voiceFromLongPress) return;
+    this._voiceFromLongPress = false;
+    if (this.data.inputMode !== 'text') {
+      this.setData({ inputMode: 'text', inputFocused: false });
+    }
   },
 
   /* ════════════════════════════════════════════════════════════
@@ -1772,6 +1799,7 @@ Page({
       this._dropResult = true;
       this.setData({ isRecording: false, recCanceling: false, recSeconds: 0 });
       try { this._recMgr && this._recMgr.stop(); } catch (e) { /* ignore */ }
+      this._clearLongPressVoice(); // k6-P2：长按会话取消/太短 → 复位回文字态
       return;
     }
     this.setData({ isRecording: false, recCanceling: false, recSeconds: 0, converting: true });
@@ -1781,6 +1809,7 @@ Page({
       console.warn('[Chat] 录音停止失败:', e);
       this.setData({ converting: false });
       wx.showToast({ title: '录音停止失败，请重试', icon: 'none' });
+      this._clearLongPressVoice(); // k6-P2：异常路径同样收尾复位
     }
   },
 
@@ -1788,21 +1817,32 @@ Page({
   _handleRecognitionResult(res) {
     this._cleanupTimer();
     this.setData({ isRecording: false, converting: false, recCanceling: false });
-    if (this._dropResult) { this._dropResult = false; return; }
+    if (this._dropResult) {
+      this._dropResult = false;
+      this._clearLongPressVoice(); // k6-P2：识别结果被丢弃（取消会话）→ 复位回文字态
+      return;
+    }
     const text = ((res && res.result) || '').trim();
     if (!text) {
       wx.showToast({ title: '没听清，请再试一次', icon: 'none' });
+      this._clearLongPressVoice(); // k6-P2：识别为空 = 会话结束 → 复位回文字态
       return;
     }
     this._send(text);
+    this._clearLongPressVoice(); // k6-P2：发送完成 → 复位回文字态（键盘不自动弹出）
   },
 
   _handleRecognitionError(res) {
     this._cleanupTimer();
     this.setData({ isRecording: false, converting: false, recCanceling: false });
-    if (this._dropResult) { this._dropResult = false; return; }
+    if (this._dropResult) {
+      this._dropResult = false;
+      this._clearLongPressVoice(); // k6-P2：错误结果被丢弃 → 复位回文字态
+      return;
+    }
     console.warn('[Chat] 语音识别失败:', res);
     wx.showToast({ title: '识别失败，请再试一次', icon: 'none' });
+    this._clearLongPressVoice(); // k6-P2：识别失败 = 会话结束 → 复位回文字态
   },
 
   _cleanupTimer() {
@@ -1819,6 +1859,7 @@ Page({
       try { this._recMgr.stop(); } catch (e) { /* ignore */ }
     }
     this.setData({ isRecording: false, converting: false, recCanceling: false, recSeconds: 0 });
+    this._clearLongPressVoice(); // k6-P2：录音会话被中断（切走/清空/新开）→ 清标记并复位
   },
 
   /* ════════════════════════════════════════════════════════════
