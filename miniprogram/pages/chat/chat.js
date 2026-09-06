@@ -1211,6 +1211,13 @@ Page({
     });
   },
 
+  /* 公共别名（review F1）：wxml .sel-mask 绑定名为公共方法（事件绑定不解析私有
+     下划线方法——此前找不到方法会静默失败，「点外部退出」失效），js 内统一走
+     私有 _closeTextOverlay 单实现 */
+  closeTextOverlay() {
+    this._closeTextOverlay();
+  },
+
   /* 覆盖层聚焦（textarea 无 readonly、聚焦必弹键盘）→ 立即 hideKeyboard 尽力抑制。
      iOS 程序聚焦下是否保留选区手柄不保证（平台限制注释见文件头 k10-C）——真机验证
      不可靠时由主会话将 TEXT_SEL_ENGINE 拨回 'a'（甲默认）。 */
