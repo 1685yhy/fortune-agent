@@ -153,7 +153,8 @@ Page({
     /* 阶段 5·引用交互：底部抽屉（半屏↔全屏） */
     citeDrawer: { show: false, full: false, msgId: '', items: [] },
     /* v1.1 气泡长按操作菜单（墨韵弹层） */
-    actionMenu: { show: false, msgId: '', role: '', paraKey: '' },   // paraKey: k10-C 被按段落键
+    actionMenu: { show: false, msgId: '', role: '', paraKey: '', canRegen: false, canCite: false },
+    // paraKey: k10-C 被按段落键；canRegen/canCite: k6 波2 P4.1/4.2 可见条件（开菜单时计算）
     fbMenu: { show: false, msgId: '' },   // 意见反馈原因弹层
     selectMsgId: '',                      // 选取模式：该气泡 text 动态加 selectable
     /* k10-C 文字选取：甲（段落高亮 + 引导）与乙（textarea 覆盖层）共用状态 */
@@ -956,18 +957,23 @@ Page({
     return map[type] || map.book;
   },
 
-  /* 点角标 [n]/🔗 → 打开底部抽屉（该条回复的来源列表） */
+  /* 点角标 [n]/🔗 → 打开底部抽屉（该条回复的来源列表）。
+     k6 波2 P4.2：长按菜单「查看引用」复用同一打开逻辑（_openCiteDrawer） */
   onCiteTap(e) {
     if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
-    const { msgid, idx } = e.currentTarget.dataset;
-    const msg = this._findMessage(msgid);
+    this._openCiteDrawer(e.currentTarget.dataset.msgid);
+  },
+
+  _openCiteDrawer(msgId) {
+    if (!msgId) return;
+    const msg = this._findMessage(msgId);
     const items = (msg && Array.isArray(msg.citations)) ? msg.citations : [];
     if (!items.length) {
       wx.showToast({ title: '本条回复暂无参考资料', icon: 'none' });
       return;
     }
     this._drawerRestore = null;
-    this.setData({ citeDrawer: { show: true, full: false, msgId: msgid, items } });
+    this.setData({ citeDrawer: { show: true, full: false, msgId, items } });
   },
 
   closeCiteDrawer() {
@@ -1056,11 +1062,33 @@ Page({
     const hit = this._lastParaHit;
     const paraKey = (hit && hit.msgId === id) ? hit.key : '';
     this._lastParaHit = null;
-    this.setData({ actionMenu: { show: true, msgId: id, role, kept: !!(msg && msg.kept), paraKey } });
+    // k6 波2 P4.1/4.2 可见条件（开菜单时一次算定）：
+    //   canRegen：AI + 非失败 + 非流式 + 宿主空闲 + 是本消息列表中最后一条 AI 回复
+    //     （重生成会移除原消息并在底部重流——只有「末条 AI」语义才成立）
+    //   canCite：msg.citations 为非空数组（引用抽屉数据层已齐，见 streamHost done 事件）
+    const lastAiOk = msg && !msg.error && !msg.streaming && !streamHost.active
+      && !!msg.retryText && this._isLastAiMessage(id);
+    const citeOk = msg && Array.isArray(msg.citations) && msg.citations.length > 0;
+    this.setData({
+      actionMenu: {
+        show: true, msgId: id, role, kept: !!(msg && msg.kept), paraKey,
+        canRegen: !!(role === 'ai' && lastAiOk),
+        canCite: !!(role === 'ai' && citeOk),
+      },
+    });
+  },
+
+  /* P4.1 可见条件辅助：msgId 是否为本消息列表中最后一条 AI 回复 */
+  _isLastAiMessage(id) {
+    const msgs = this.data.messages || [];
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].role === 'ai') return msgs[i].id === id;
+    }
+    return false;
   },
 
   closeActionMenu() {
-    this.setData({ actionMenu: { show: false, msgId: '', role: '', paraKey: '' } });
+    this.setData({ actionMenu: { show: false, msgId: '', role: '', paraKey: '', canRegen: false, canCite: false } });
   },
 
   /* 消息区点击：选取模式自动退出（多选模式不退出——勾选由气泡点按负责）。
@@ -1205,6 +1233,16 @@ Page({
       // E2-2-FIX：长按菜单朗读与气泡直接朗读（speakMessage）同口径——
       // 走剥标记后的纯文本，[card:…] 标记不被 TTS 读出（标记不暴露三出口之一）
       this._playWithTts(msgId, cardUtil.stripCardMarkers(msg.content), true);
+    } else if (k === 'regen') {
+      // k6 波2 P4.1 重新生成：移除原消息 → 用原提问重流（streamHost.retry）。
+      // 无确认弹窗（元宝/豆包即时感）；宿主 active 时内部静默 return，菜单侧已按
+      // canRegen 不可见兜底防静默空点。P4.5 作废旧 consultation 行需后端接口
+      // （voidConsultation 不存在，见 k10 报告后续项）——本批不接作废。
+      if (streamHost.active) return;
+      streamHost.retry(msg.id, String(msg.retryText || ''), msg.tag || '');
+    } else if (k === 'cite') {
+      // k6 波2 P4.2 查看引用：复用角标同款引用抽屉（空态由可见条件挡掉，双保险仍判）
+      this._openCiteDrawer(msgId);
     } else if (k === 'feedback') {
       this.setData({ fbMenu: { show: true, msgId } });
     } else if (k === 'delete') {
@@ -1277,6 +1315,15 @@ Page({
     this._toggleFbCore(msgId, k);
   },
 
+  /* k6 波2 P4.3：AI footer 复制钮——与菜单「复制」同一行为（E2-2 口径：
+     stripCardMarkers 后写剪贴板，卡片标记不暴露；系统自带「内容已复制」提示） */
+  footerCopyText(e) {
+    if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
+    const msg = this._findMessage(e.currentTarget.dataset.id);
+    if (!msg) return;
+    wx.setClipboardData({ data: cardUtil.stripCardMarkers(msg.content) });
+  },
+
   /* ═══ v1.3 多选收藏 / 分享（长按菜单「多选」→ 勾选模式 → 批量收藏 / 分享页） ═══ */
 
   /* 进入勾选模式：顶部出现操作条（已选 N 条/全选/收藏/分享/取消），气泡左上角出勾选框 */
@@ -1289,7 +1336,7 @@ Page({
       multiAll: false,
       selectMsgId: '',
       selParaKey: '',
-      actionMenu: { show: false, msgId: '', role: '', paraKey: '' },
+      actionMenu: { show: false, msgId: '', role: '', paraKey: '', canRegen: false, canCite: false },
     });
   },
 
@@ -1678,7 +1725,7 @@ Page({
       streaming: false,
       speakingId: '',
       citeDrawer: { show: false, full: false, msgId: '', items: [] },
-      actionMenu: { show: false, msgId: '', role: '', paraKey: '' },
+      actionMenu: { show: false, msgId: '', role: '', paraKey: '', canRegen: false, canCite: false },
       fbMenu: { show: false, msgId: '' },
       selectMsgId: '',
       selParaKey: '',

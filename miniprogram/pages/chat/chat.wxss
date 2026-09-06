@@ -769,6 +769,10 @@
 }
 .jz-fb-btn image { width: 38rpx; height: 38rpx; }  /* 17px → v1.3 调大（新图标 192px 更清晰） */
 .jz-fb-btn.keep image { width: 36rpx; height: 36rpx; }  /* 16px */
+/* k6 波2 P4.3 footer 复制钮：图标与 keep 同档 36rpx；
+   宽度核算：5 钮 ×62 + 4×4 gap = 326rpx + timewrap(时间~113 + gap10 + speak52 ≈ 175)
+   = 501rpx ≤ 气泡内容宽 511rpx（569 − 29×2）——留 ~10rpx 余量，无需压缩钮尺寸 */
+.jz-fb-btn.copy image { width: 36rpx; height: 36rpx; }
 .jz-fb-active { background: var(--acc-soft); }
 .jz-fb-btn.on { background: var(--acc-soft); }
 
@@ -1313,6 +1317,20 @@
   width: 52rpx;
   height: 52rpx;
   flex-shrink: 0;
+}
+/* k6 波2 P4.1：菜单文字字形图标位（↻ 重新生成——仓库先例：jz-retry 用 ↻ 字形、
+   react-add 用 ＋；零新增图片资产红线内） */
+.act-em-glyph {
+  width: 52rpx;
+  height: 52rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-lat);
+  font-size: 36rpx;
+  line-height: 1;
+  color: var(--ink-mid);
 }
 .act-sep {
   height: 2rpx;

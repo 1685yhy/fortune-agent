@@ -243,6 +243,11 @@
               <view class="jz-fb-btn react-add" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" bindtap="openEmojiSheet">
                 <text class="react-add-txt">＋</text>
               </view>
+              <!-- k6 波2 P4.3：footer 复制钮（第 5 钮，尺寸对齐 keep 钮；行为=菜单「复制」
+                   同链：stripCardMarkers 后写剪贴板 → footerCopyText/_copyCleanText） -->
+              <view class="jz-fb-btn copy" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" bindtap="footerCopyText">
+                <image src="/assets/images/ic-copy.png"></image>
+              </view>
             </view>
           </view>
         </view>
@@ -488,6 +493,16 @@
       <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="feedback" bindtap="actItem">
         <image class="act-em-ic" src="/assets/images/ic-chat.png"></image>
         <text class="act-label">意见反馈</text>
+      </view>
+      <!-- k6 波2 P4.1/4.2 增补（AI 专属）：重新生成（仅末条 AI + 非流式/非失败/宿主空闲）/
+           查看引用（msg.citations 非空）——可见条件在 chat.js onBubbleLongPress 计算 -->
+      <view wx:if="{{actionMenu.canRegen}}" class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="regen" bindtap="actItem">
+        <view class="act-em-glyph">↻</view>
+        <text class="act-label">重新生成</text>
+      </view>
+      <view wx:if="{{actionMenu.canCite}}" class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="cite" bindtap="actItem">
+        <image class="act-em-ic" src="/assets/images/ic-link.png"></image>
+        <text class="act-label">查看引用</text>
       </view>
     </block>
     <view class="act-del" hover-class="act-del-active" hover-stay-time="0" data-k="delete" bindtap="actItem">
