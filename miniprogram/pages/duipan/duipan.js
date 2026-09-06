@@ -6,6 +6,9 @@
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const lunar = require('../../utils/lunar');
+// k9（R2-5 Minor③）：lunarDateToSolar 收敛进 utils/lunar.js（paipan/duipan/
+// hehun 三页共用单点，函数体逐字节不变），本页只做模块级别名
+const lunarDateToSolar = lunar.lunarDateToSolar;
 
 /* ── 静态表 ── */
 
@@ -17,17 +20,6 @@ const HOUR_OPTIONS = ['未填', '子时(23-01)', '丑时(01-03)', '寅时(03-05)
 const PILLAR_NAMES = ['年柱', '月柱', '日柱', '时柱'];
 const WX_ORDER = ['金', '木', '水', '火', '土'];          // 五行行序（排盘页同序）
 const WX_CLS = { 金: 'jin', 木: 'mu', 水: 'shui', 火: 'huo', 土: 'tu' };
-
-/** 农历生辰 → 公历 'YYYY-MM-DD'（多盘对比引擎契约=公历输入；转换失败回落原文，与 paipan 同款） */
-function lunarDateToSolar(dateStr) {
-  const parts = String(dateStr || '').split('-');
-  const y = parseInt(parts[0], 10) || 0;
-  const m = parseInt(parts[1], 10) || 0;
-  const d = parseInt(parts[2], 10) || 0;
-  const s = lunar.lunar2solar(y, m, d, false);
-  if (!s) return dateStr;
-  return `${s.year}-${String(s.month).padStart(2, '0')}-${String(s.day).padStart(2, '0')}`;
-}
 
 Page({
   data: {

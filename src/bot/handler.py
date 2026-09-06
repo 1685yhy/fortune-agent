@@ -7345,10 +7345,15 @@ class MessageHandler:
 
         # 3. 重新排盘
         try:
+            # k9（R2-6 遗留 minors 实测暴露）：引擎实参归一化与 _feed_birth/
+            # _map_user_bazi_for_zeri 等消费方同口径——minute 缺省 0、city/gender
+            # 缺省显式化（bazi_info 行可能无 minute：时辰建档 → None 直喂引擎
+            # TypeError → 用户拿「重新计算失败」而非建议）。
             result = self.engine.calculate(
-                saved["year"], saved["month"], saved["day"],
-                saved["hour"], saved["minute"], saved["city"],
-                saved["gender"],
+                int(saved["year"]), int(saved["month"]), int(saved["day"]),
+                int(saved.get("hour") or 0), int(saved.get("minute") or 0),
+                str(saved.get("city") or ""),
+                str(saved.get("gender") or "unknown"),
             )
         except Exception as e:
             return f"⚠️ 命盘重新计算失败：{str(e)[:100]}"

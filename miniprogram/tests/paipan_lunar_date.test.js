@@ -22,6 +22,7 @@ const api = require('../utils/api');
 
 const PAIPAN_JS = path.join(__dirname, '../pages/paipan/paipan.js');
 const DUIPAN_JS = path.join(__dirname, '../pages/duipan/duipan.js');
+const LUNAR_JS = path.join(__dirname, '../utils/lunar.js');
 
 /* ── 1. 接线源码断言（与既有测试同款正则口径） ── */
 
@@ -29,8 +30,22 @@ test('R2-5 paipan：onPaipan 提交前 bCal lunar → lunarDateToSolar 转公历
   const src = fs.readFileSync(PAIPAN_JS, 'utf8');
   assert.match(src, /let date = this\.data\.bDate;[\s\S]{0,200}?if \(this\.data\.bCal === 'lunar'\) date = lunarDateToSolar\(date\) \|\| date;/,
     'onPaipan 必须：bCal===' + "'lunar'" + ' 时 date=lunarDateToSolar(date)||date（转换失败回落，与 helper 注释契约一致）');
-  assert.match(src, /const parts = String\(date \|\| ''\)\.split\('-'\);/,
-    'parts 必须从「转换后 date」拆分（此前直接拆 bDate → 阴历当公历直排）');
+});
+
+test('k9 收敛：lunarDateToSolar 单点实现已迁入 utils/lunar.js（paipan 页只留别名调用）', () => {
+  const utilSrc = fs.readFileSync(LUNAR_JS, 'utf8');
+  assert.match(utilSrc, /const parts = String\(dateStr \|\| ''\)\.split\('-'\);/,
+    'utils/lunar.js 必须持有唯一实现：parts 从入参 dateStr 拆分（R2-5 修复语义，k9 自 paipan/duipan/hehun 三页收敛）');
+  assert.match(utilSrc, /lunar2solar\(y, m, d, false\)/,
+    '实现必须复用本模块 lunar2solar（单点，行为逐字节不变）');
+  assert.match(utilSrc, /lunarDateToSolar,/, 'utils/lunar.js 必须导出 lunarDateToSolar');
+  // 三页不得再各自持有本地 function 实现（收敛后只允许模块级别名）
+  for (const page of [PAIPAN_JS, DUIPAN_JS, path.join(__dirname, '../pages/hehun/hehun.js')]) {
+    const pageSrc = fs.readFileSync(page, 'utf8');
+    assert.ok(!/function lunarDateToSolar\(/.test(pageSrc), page + ' 不得残留本地 function 实现');
+    assert.match(pageSrc, /lunarDateToSolar = lunar\.lunarDateToSolar;/,
+      page + ' 必须以模块级别名引用 utils/lunar.js 单点');
+  }
 });
 
 test('R2-5 paipan：表单展示态不回改（bDate/bCal 保持用户输入，仅 payload 用公历）', () => {

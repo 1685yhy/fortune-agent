@@ -38,6 +38,12 @@ from src.storage.birth_profile import to_solar_date  # noqa: E402
 ARCHIVE_LUNAR = {"year": 1999, "month": 3, "day": 28, "hour": 9,
                  "minute": None, "city": "吉林省长春市", "gender": "男",
                  "calendar": "lunar"}
+# 问真逐字（hour=11, 真太阳时修正后）→ "出生后2年4月22天0时起运"。
+# 口径关系（R2-5 Minor② 注释锚定，勿互相「修齐」）：同档案同月同日 hour=9 →
+# "出生后2年4月12天0时起运"（B2/F2 用例域，断言 "2年4月" 前缀或与同参直算
+# 等值）——两时辰同为「2年4月」岁月前缀、天数恰差 10 天（22-12），是同日不同
+# 时辰（巳/午时域）节气距分差的正常口径差异，两数均已对问真逐字各自验证，
+# 校准断言见 tests/test_k9_r2_minors.py::TestQiyunHour9Vs11Calibration。
 NORTH_STAR = "出生后2年4月22天0时起运"  # 问真逐字（hour=11, 真太阳时修正后）
 
 
@@ -256,6 +262,9 @@ class TestB2ArchiveFallback:
         assert args[:5] == (1999, 5, 13, 9, 0), \
             f"引擎应收公历 (1999,5,13,9,0)，实收 {args[:5]}"
         assert args[5] == "吉林省长春市" and args[6] == "男"
+        # hour=9 同参直算 = "出生后2年4月12天0时起运"（问真逐字；与 NORTH_STAR
+        # hour=11 的 "…22天0时起运" 恰差 10 天，同日两时辰正常口径——见
+        # NORTH_STAR 常量处注释锚定，勿互相「修齐」）
         ref = BaziEngine().calculate(1999, 5, 13, 9, 0, "长春", "男")
         assert rec.results[0].qiyun_desc == ref.qiyun_desc
         assert "2年4月" in rec.results[0].qiyun_desc

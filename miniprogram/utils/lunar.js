@@ -195,6 +195,20 @@ function lunar2solar(lYear, lMonth, lDay, isLeap) {
   return { year: dt.getUTCFullYear(), month: dt.getUTCMonth() + 1, day: dt.getUTCDate() };
 }
 
+/* 'YYYY-MM-DD' 农历日期串 → 公历 'YYYY-MM-DD'（排盘/合盘/多盘对比引擎契约=
+ * 公历输入；转换失败回落原文——非闰月序号换算，闰月需走 lunar2solar 带
+ * isLeap）。k9：自 paipan/duipan/hehun 三页收敛为本模块单点（R2-5 Minor③），
+ * 函数体逐字节不变，三页改引本导出。 */
+function lunarDateToSolar(dateStr) {
+  const parts = String(dateStr || '').split('-');
+  const y = parseInt(parts[0], 10) || 0;
+  const m = parseInt(parts[1], 10) || 0;
+  const d = parseInt(parts[2], 10) || 0;
+  const s = lunar2solar(y, m, d, false);
+  if (!s) return dateStr;
+  return `${s.year}-${String(s.month).padStart(2, '0')}-${String(s.day).padStart(2, '0')}`;
+}
+
 /* 农历月名：如「正月」「闰四月」「腊月」 */
 function lunarMonthName(y, m, isLeap) {
   return (isLeap ? '闰' : '') + MONTH_NAMES[m - 1] + '月';
@@ -282,6 +296,7 @@ module.exports = {
   lunarDayName,
   lunarDateText,
   solarDateText,
+  lunarDateToSolar,
   formatLunarDate,
   getTermDay,
   getTermName,

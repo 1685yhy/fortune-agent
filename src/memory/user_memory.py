@@ -51,13 +51,33 @@ def format_birth_line(bazi: Optional[dict]) -> str:
 
     输入为含 year/month/day/hour/minute/city/gender 的 dict（可缺键）；
     字段缺失部分不写；全部缺失返回空串（无档案不增加任何内容）。
+
+    日历语义（k9，R2-6 遗留①：直渲染矛盾收敛单点）：画像行是 LLM 上下文消费方，
+    日期口径必须与引擎实际排盘一致 = 公历（画像公历行同框不再矛盾）——
+    - calendar=='lunar'（存储层原始输入事实源，persons/bazi_info/chart 原始
+      y/m/d + 标记）→ 日期段先经 to_solar_date 转公历再渲染；
+    - lunar 但转换失败（非法农历日等）→ 保留原始日期并显式加「农历」前缀
+      （值仍是农历时按需标注，绝不冒充公历）；
+    - solar / 无 calendar 键（旧档案缺省 solar；记忆层 bazi_info 恒公历值
+      不带键）→ 原样渲染，逐字节不变。
     """
     if not bazi:
         return ""
     parts = []
     y, m, d = bazi.get("year"), bazi.get("month"), bazi.get("day")
     if y and m and d:
-        parts.append(f"{y}年{m}月{d}日")
+        date_text = f"{y}年{m}月{d}日"
+        if str(bazi.get("calendar") or "solar") == "lunar":
+            try:
+                from src.storage.birth_profile import to_solar_date
+                _sol = to_solar_date(bazi)
+            except Exception:
+                _sol = None
+            if _sol:
+                date_text = f"{_sol[0]}年{_sol[1]}月{_sol[2]}日"
+            else:
+                date_text = "农历" + date_text  # 转换失败：保留原值+显式标注
+        parts.append(date_text)
     hour = bazi.get("hour")
     if hour not in (None, ""):
         shichen = _hour_to_shichen(hour)
