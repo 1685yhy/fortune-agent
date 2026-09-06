@@ -16,17 +16,9 @@ const HOUR_OPTIONS = ['未填', '子时(23-01)', '丑时(01-03)', '寅时(03-05)
 const RELATIONS = ['恋人', '暧昧', '夫妻', '朋友', '暗恋'];
 
 const lunar = require('../../utils/lunar');
-
-/** 农历生辰 → 公历 'YYYY-MM-DD'（合盘引擎只吃公历；转换失败回落原文） */
-function lunarDateToSolar(dateStr) {
-  const parts = String(dateStr || '').split('-');
-  const y = parseInt(parts[0], 10) || 0;
-  const m = parseInt(parts[1], 10) || 0;
-  const d = parseInt(parts[2], 10) || 0;
-  const s = lunar.lunar2solar(y, m, d, false);
-  if (!s) return dateStr;
-  return `${s.year}-${String(s.month).padStart(2, '0')}-${String(s.day).padStart(2, '0')}`;
-}
+// k9（R2-5 Minor③）：lunarDateToSolar 收敛进 utils/lunar.js（paipan/duipan/
+// hehun 三页共用单点，函数体逐字节不变），本页只做模块级别名
+const lunarDateToSolar = lunar.lunarDateToSolar;
 
 Page({
   data: {

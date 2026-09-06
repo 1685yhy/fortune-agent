@@ -10,6 +10,9 @@ const theme = require('../../utils/theme');
 const persons = require('../../utils/persons');
 const guide = require('../../utils/guide');
 const lunar = require('../../utils/lunar');
+// k9（R2-5 Minor③）：lunarDateToSolar 收敛进 utils/lunar.js（paipan/duipan/
+// hehun 三页共用单点，函数体逐字节不变），本页只做模块级别名
+const lunarDateToSolar = lunar.lunarDateToSolar;
 
 /* ── 静态表 ── */
 
@@ -52,17 +55,6 @@ const KNOW_CATS = {
 };
 
 function _pad(n) { return String(n).padStart(2, '0'); }
-
-/** 农历生辰 → 公历 'YYYY-MM-DD'（排盘引擎只吃公历；转换失败回落原文，与 hehun 同款） */
-function lunarDateToSolar(dateStr) {
-  const parts = String(dateStr || '').split('-');
-  const y = parseInt(parts[0], 10) || 0;
-  const m = parseInt(parts[1], 10) || 0;
-  const d = parseInt(parts[2], 10) || 0;
-  const s = lunar.lunar2solar(y, m, d, false);
-  if (!s) return dateStr;
-  return `${s.year}-${String(s.month).padStart(2, '0')}-${String(s.day).padStart(2, '0')}`;
-}
 
 Page({
   data: {
