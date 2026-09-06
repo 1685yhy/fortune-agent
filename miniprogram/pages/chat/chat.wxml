@@ -325,11 +325,14 @@
           </view>
           <!-- B4-1 自动长高：textarea auto-height，5.5 行封顶。k6-P1：不再 bindlinechange——
                原生长高由流内 .chat-inputbar + .chat-mid(flex:1) 自然吸收（打字零 setData/零重排） -->
+          <!-- k10-B 多行输入（2026-09-06）：去掉 confirm-type="send"——键盘右下角回归
+               微信惯例「换行」键（textarea 下该键即输入 \n），发送统一走右侧朱砂发送钮
+               （对齐元宝/豆包：发送在条上）。bindconfirm/onConfirm 保留为无害兜底
+               （仅当某输入法仍提供「发送」键时才会触发，走既有 _send 链）。 -->
           <textarea class="chat-input" placeholder="{{nightMode ? '慢慢说，我听着。' : '写下一句心事…'}}"
             placeholder-class="input-ph" value="{{inputText}}" focus="{{inputFocus}}"
             auto-height maxlength="500" cursor-spacing="20"
-            bindinput="onInput" bindfocus="onFocus" bindblur="onBlur" bindconfirm="onConfirm"
-            confirm-type="send" />
+            bindinput="onInput" bindfocus="onFocus" bindblur="onBlur" bindconfirm="onConfirm" />
           <!-- 内嵌小话筒图标：短按切「按住说话」模式（再点键盘图标切回）；长按（k6-P2）直达
                录音——切 voice 态（textarea 卸载、键盘自然收起）→ 授权 → 直接开录，
                松开发送/取消等一切结束路径自动复位回文字态（micLongPress/_clearLongPressVoice） -->
