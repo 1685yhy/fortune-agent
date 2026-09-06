@@ -13,6 +13,7 @@ const theme = require('../../utils/theme');
 const streamHost = require('../../utils/streamHost');
 const md = require('../../utils/md');
 const cardUtil = require('../../utils/card');   // E2-2 对话卡片化：卡片标记解析
+const chatSelect = require('../../utils/chatSelect'); // k10-C 文字选取：段落模型（乙覆盖层/甲高亮/复制本段共用事实源）
 
 /* 原型 aiComplete 精选文案（dir_b.html 532-537 行 CURATED，后端不可用时兜底） */
 const CURATED = {
@@ -75,6 +76,29 @@ const NEAR_BOTTOM_PX = 50;        // 兜底阈值：50px（375px 宽屏的 100rp
 const CLIENTH_MEASURE_MS = 1500;  // 可视区高度周期校准间隔：键盘弹起等布局变化会让 msg-list
                                   // 高度改变，滚动中每 ~1.5s 重测一次防阈值失真
 
+/* ═══ k10-C 文字选取（用户 2026-09-04 实诉：点「选取文字」后没有默认选区） ═══
+   平台限制（勿试图突破，官方无解）：
+   ① `<text selectable>` 只能「允许用户自己长按」唤起系统选择——没有任何 API 可
+      编程唤起选区/全选/预设选区（无 DOM Range/setSelection）；
+   ② `<textarea>` 支持 selection-start/end，但仅在自身聚焦时生效；textarea 无
+      readonly 属性（input 亦无）——程序 focus 必然弹键盘，只能 focus 后立即
+      wx.hideKeyboard 尽力抑制，iOS 只读/程序聚焦下是否保留手柄不保证；
+   ③ selectable 与自定义 bindlongpress 在同一元素互斥 → 现状「模式开关」让位原生，
+      代价是菜单消费第一次长按、用户需第二次长按（甲兜底正为此引导）。
+   双路径（乙=用户拍板主路径，甲=自动降级）：
+   乙：点「选取文字」→ 被按气泡正文以只读 textarea 覆盖层呈现纯文本，程序
+       focus + selection-start/end 选中长按所在段落 → 可拖动两端焦点的观感；
+       （结构见 chat.wxml .sel-overlay；键盘抑制/失焦/点外部退出/滚动联动见
+       _openSelOverlay/_closeTextOverlay）
+   甲：乙运行时不可靠/平台不支持 → 段落高亮定位 + 气泡顶部引导小字
+       「长按这段文字即可拖动选择」+ 菜单「复制本段」（一键复制被按段）。
+   引擎开关与降级阈值：真机验证乙在 Android 表现后，若可靠可将
+   TEXT_SEL_IOS_OVERLAY 置 true 或用 TEXT_SEL_ENGINE='a' 全量回甲。 */
+const TEXT_SEL_ENGINE = 'b';          // 'b' = 乙优先（不满足条件自动降甲）| 'a' = 强制甲
+const TEXT_SEL_IOS_OVERLAY = false;   // iOS 覆盖层实验开关：默认关（iOS 不保证只读选中行为）
+const TEXT_SEL_MAX_TEXT = 900;        // 覆盖层文本超过该长度 → 甲（超长段落会落在首屏外）
+const TEXT_SEL_MAX_PARA_START = 500;  // 目标段落起始偏移超过 → 甲（同上，textarea 无法预滚）
+
 /* ═══ k6-P1 输入条行高机件整体退役 ═══
    B4-1 曾以 JS 常量估算输入条总高并 setData --inputbar-h（wxml L1 内联 CSS 变量，
    wxss L6/L867 兜底）→ 打字每增一行：bindlinechange → setData → msg-list/引导区/
@@ -129,9 +153,15 @@ Page({
     /* 阶段 5·引用交互：底部抽屉（半屏↔全屏） */
     citeDrawer: { show: false, full: false, msgId: '', items: [] },
     /* v1.1 气泡长按操作菜单（墨韵弹层） */
-    actionMenu: { show: false, msgId: '', role: '' },
+    actionMenu: { show: false, msgId: '', role: '', paraKey: '' },   // paraKey: k10-C 被按段落键
     fbMenu: { show: false, msgId: '' },   // 意见反馈原因弹层
     selectMsgId: '',                      // 选取模式：该气泡 text 动态加 selectable
+    /* k10-C 文字选取：甲（段落高亮 + 引导）与乙（textarea 覆盖层）共用状态 */
+    selParaKey: '',                       // 甲模式：当前高亮段落键（'md:2'/'card:0'/'user:0'）
+    selOverlay: {                         // 乙模式：只读 textarea 覆盖层（几何/选区）
+      show: false, msgId: '', text: '', start: 0, end: 0,
+      top: 0, left: 0, width: 0, height: 0, focus: false,
+    },
     /* v1.2 表情反应：{消息id: [emoji...]} 持久化 + 选择弹层 */
     reactions: {},
     EMOJIS,
@@ -349,6 +379,9 @@ Page({
 
   /* 宿主状态 → 页面镜像（segments 由页面重算，引用分段渲染在页面侧） */
   _onHostState(state) {
+    // k10-C：流式增量/消息变更会推移覆盖层矩形 → 先退出乙覆盖层（甲态高亮保留，
+    // 用户仍可二次长按）。state.notice 等提示类事件不触发（tick 未变时下方早退）
+    if (this.data.selOverlay.show && typeof state.tick === 'number') this._closeTextOverlay();
     if (state.notice) {
       wx.showToast({ title: state.notice, icon: 'none' });
       streamHost.clearNotice();
@@ -658,8 +691,13 @@ Page({
      回到距底 ≤ 阈值 → 恢复自动跟随；流结束（done）同规则：本就在底部则停在底部，
      自行上滑过则不再拽回（流结束不强制滚）。 */
 
-  /* scroll-view 滚动事件：只记录位置与内容总高（WXML bindscroll 每帧触发，不做重活） */
+  /* scroll-view 滚动事件：只记录位置与内容总高（WXML bindscroll 每帧触发，不做重活）。
+     k10-C：乙覆盖层打开期间消息列表若发生滚动（mask 已阻断触摸滚动，此处兜底
+     程序性滚动/流式位移）→ 退出覆盖层（覆盖层矩形随之失效） */
   onScroll(e) {
+    if (this.data.selOverlay.show) {
+      this._closeTextOverlay();
+    }
     const d = e.detail || {};
     if (typeof d.scrollTop === 'number') this._scrollTop = d.scrollTop;
     if (typeof d.scrollHeight === 'number') this._scrollHeight = d.scrollHeight;
@@ -992,6 +1030,19 @@ Page({
      B3-3 D 修复：选取模式中长按一律静默返回——不弹菜单、不 toast、不震动，
      让系统原生文字选择正常出现（此前 toast/震动会盖在 iOS 原生选择 UI 上
      打断选取流程，即用户反馈「选取文字用不了」的主因之一）。 */
+  /* k10-C 段落长按记录（md 段落 / user 正文的 data-para-id，冒泡先于气泡级
+      onBubbleLongPress）：只做簿记，不拦事件、不震动——菜单仍由气泡级长按打开，
+      菜单打开时读此记录判定「复制本段/高亮/乙预设选区」的目标段落。
+     选取模式/多选模式中不记录（选取模式静默让位系统原生选择，B3-3 语义） */
+  onParaLongPress(e) {
+    if (this.data.multiMode) return;
+    if (this.data.selectMsgId) return;
+    const ds = (e.currentTarget && e.currentTarget.dataset) || {};
+    const key = ds.paraId || '';
+    if (!key || !ds.msgid) return;
+    this._lastParaHit = { msgId: ds.msgid, key };
+  },
+
   onBubbleLongPress(e) {
     const { id, role } = e.currentTarget.dataset;
     if (this.data.multiMode) return;   // v1.3 多选：长按不弹菜单，避免与勾选混淆
@@ -1001,11 +1052,15 @@ Page({
     // 分享目标在开菜单时锁定（分享按钮 open-type=share 会在菜单关闭后读取）
     // E2-2：分享标题走剥标记后的纯文本（卡片标记不暴露给用户）
     this._shareTarget = msg ? cardUtil.stripCardMarkers(msg.content) : '';
-    this.setData({ actionMenu: { show: true, msgId: id, role, kept: !!(msg && msg.kept) } });
+    // k10-C：本次长按是否落在段落上（段落键仅对同一条消息有效，防跨气泡陈旧命中）
+    const hit = this._lastParaHit;
+    const paraKey = (hit && hit.msgId === id) ? hit.key : '';
+    this._lastParaHit = null;
+    this.setData({ actionMenu: { show: true, msgId: id, role, kept: !!(msg && msg.kept), paraKey } });
   },
 
   closeActionMenu() {
-    this.setData({ actionMenu: { show: false, msgId: '', role: '' } });
+    this.setData({ actionMenu: { show: false, msgId: '', role: '', paraKey: '' } });
   },
 
   /* 消息区点击：选取模式自动退出（多选模式不退出——勾选由气泡点按负责）。
@@ -1014,23 +1069,131 @@ Page({
      点气泡外空白/输入区仍可退出选取模式（保留逃生出口）。 */
   onListTap() {
     if (this.data.multiMode) return;
-    if (this.data.selectMsgId) this.setData({ selectMsgId: '' });
+    if (this.data.selectMsgId) this.setData({ selectMsgId: '', selParaKey: '' });
   },
 
-  /* 菜单普通项：复制 / 选取文字 / 朗读 / 意见反馈 / 删除 */
+  /* ═══ k10-C 文字选取：乙覆盖层（可行时）→ 甲兜底（高亮+引导+复制本段） ═══ */
+
+  /* 菜单「选取文字」点击：
+     - 长按落在段落上且乙可行 → _openSelOverlay（textarea 覆盖层预设该段选区）
+     - 段落存在但乙不可行/异常 → 甲：selectMsgId + 段落高亮（md-hl）+ 气泡顶部
+       引导小字（wxml .sel-guide：「长按这段文字即可拖动选择」——说明为何需
+       二次长按：系统原生选择只能由用户自己长按唤起，无 API 预设）
+     - 长按落在空白/装饰区（无段落）→ 保持旧语义：整泡 selectable + toast 引导 */
+  _enterTextSelect(msgId, paraKey) {
+    const msg = this._findMessage(msgId);
+    if (!msg) return;
+    const model = chatSelect.paragraphModel(msg);
+    const para = (paraKey && model.byKey[paraKey]) ? model.byKey[paraKey] : null;
+    if (!para) {
+      this.setData({ selectMsgId: msgId, selParaKey: '' });
+      wx.showToast({ title: '长按文字即可选取', icon: 'none', duration: 2000 });
+      return;
+    }
+    if (this._textOverlayFeasible(msg, model, para)) {
+      this._openSelOverlay(msgId, model, para);
+      return;
+    }
+    this.setData({ selectMsgId: msgId, selParaKey: para.key });
+  },
+
+  /* 乙可行性判定（清晰可测：常量开关 + 平台名单 + 文本/偏移阈值 + 能力/异常兜底） */
+  _textOverlayFeasible(msg, model, para) {
+    try {
+      if (TEXT_SEL_ENGINE === 'a') return false;
+      const sys = wx.getSystemInfoSync ? wx.getSystemInfoSync() : {};
+      if ((sys.platform || '') === 'ios' && !TEXT_SEL_IOS_OVERLAY) return false;
+      if (!para || !model || !model.text) return false;
+      if (msg.image) return false;                               // 图片+文字混合：几何不可靠
+      if (model.text.length > TEXT_SEL_MAX_TEXT) return false;   // 超长：段落落在首屏外
+      if (para.start > TEXT_SEL_MAX_PARA_START) return false;    // 同上（textarea 无法预滚）
+      if (typeof this.createSelectorQuery !== 'function') return false;
+      return true;
+    } catch (e) {
+      return false;                                              // 异常 → 甲
+    }
+  },
+
+  /* 乙：打开覆盖层。先落甲态（高亮+引导，任何失败都停留在甲可继续二次长按），
+     测量 .jz-body/.user-note 实际矩形后以纯文本 textarea 原位垫上并 focus +
+     selection-start/end 预设长按段落 → 用户可见两端可拖选区。
+     滚动联动：全屏 mask 阻断页面滚动；流式更新/程序滚动触发 _closeTextOverlay。 */
+  _openSelOverlay(msgId, model, para) {
+    const msg = this._findMessage(msgId);
+    if (!msg) return;
+    this.setData({ selectMsgId: msgId, selParaKey: para.key });
+    let done = false;
+    const finish = (rect) => {
+      if (done) return;
+      done = true;
+      if (!rect || !rect.width || !rect.height) return;   // 测量失败 → 停留甲态
+      const L = model.text.length;
+      this.setData({
+        selOverlay: {
+          show: true, msgId, role: msg.role || 'ai', text: model.text,
+          start: Math.max(0, Math.min(para.start, L)),
+          end: Math.max(0, Math.min(para.end, L)),
+          top: Math.round(rect.top), left: Math.round(rect.left),
+          width: Math.round(rect.width), height: Math.round(rect.height),
+          focus: true,
+        },
+      });
+    };
+    try {
+      this.createSelectorQuery()
+        .select('.sel-body-' + msgId)
+        .boundingClientRect(finish)
+        .exec();
+    } catch (e) { /* 落 catch 外兜底 */ finish(null); }
+    setTimeout(() => finish(null), 600);   // 测量兜底超时：不弹覆盖层，甲态保留
+  },
+
+  /* 关闭乙覆盖层（点外部/失焦/滚动/流式更新）：恢复原气泡；甲态（selectMsgId +
+     高亮 + 引导）保留，用户仍可二次长按走系统原生选择 */
+  _closeTextOverlay() {
+    if (!this.data.selOverlay.show) return;
+    this.setData({
+      selOverlay: {
+        show: false, msgId: '', role: '', text: '', start: 0, end: 0,
+        top: 0, left: 0, width: 0, height: 0, focus: false,
+      },
+    });
+  },
+
+  /* 覆盖层聚焦（textarea 无 readonly、聚焦必弹键盘）→ 立即 hideKeyboard 尽力抑制。
+     iOS 程序聚焦下是否保留选区手柄不保证（平台限制注释见文件头 k10-C）——真机验证
+     不可靠时由主会话将 TEXT_SEL_ENGINE 拨回 'a'（甲默认）。 */
+  onSelOvFocus() {
+    try {
+      if (wx.hideKeyboard) wx.hideKeyboard({});
+    } catch (e) { /* ignore */ }
+  },
+
+  onSelOvBlur() {
+    // 延迟关闭：允许聚焦/失焦抖动自愈；期间 mask 点击同样走 closeTextOverlay（幂等）
+    setTimeout(() => this._closeTextOverlay(), 150);
+  },
+
+  /* 菜单普通项：复制本段 / 复制 / 选取文字 / 朗读 / 意见反馈 / 删除 */
   actItem(e) {
     const k = e.currentTarget.dataset.k;
-    const { msgId } = this.data.actionMenu;
+    const { msgId, paraKey } = this.data.actionMenu;
     const msg = this._findMessage(msgId);
     this.closeActionMenu();
     if (!msg) return;
-    if (k === 'select') {
-      // 选取模式：该气泡 text 动态加 selectable，长按文字出系统选择手柄
-      this.setData({ selectMsgId: msgId });
-      wx.showToast({ title: '长按文字即可选取', icon: 'none', duration: 2000 });
+    if (k === 'copyPara') {
+      // k10-C 甲兜底：复制被按段落全文（与复制全文同一清洗管线：段落模型由
+      // stripCardMarkers 后同款文本构建——卡片标记/装饰不暴露给用户）
+      const para = chatSelect.paragraphModel(msg).byKey[paraKey];
+      if (para) wx.setClipboardData({ data: para.text });
+      return;
     } else if (k === 'copy') {
       // E2-2：复制走剥标记后的纯文本（卡片标记不暴露给用户）
       wx.setClipboardData({ data: cardUtil.stripCardMarkers(msg.content) });
+    } else if (k === 'select') {
+      // k10-C：乙 textarea 覆盖层（可行时）→ 预设长按段落选区；否则甲兜底
+      // （selectMsgId + 段落高亮 + 气泡顶部引导小字，替代旧 toast 引导）
+      this._enterTextSelect(msgId, paraKey || '');
     } else if (k === 'emoji') {
       // v1.2 表情反应：打开 emoji 选择弹层
       this._openEmojiFor(msgId);
@@ -1118,13 +1281,15 @@ Page({
 
   /* 进入勾选模式：顶部出现操作条（已选 N 条/全选/收藏/分享/取消），气泡左上角出勾选框 */
   _enterMulti() {
+    this._closeTextOverlay();
     this.setData({
       multiMode: true,
       multiSel: {},
       multiCount: 0,
       multiAll: false,
       selectMsgId: '',
-      actionMenu: { show: false, msgId: '', role: '' },
+      selParaKey: '',
+      actionMenu: { show: false, msgId: '', role: '', paraKey: '' },
     });
   },
 
@@ -1502,6 +1667,7 @@ Page({
     }
     this._speakSeq = (this._speakSeq || 0) + 1;   // 使在途 TTS 请求失效（播新停旧语义）
     this._drawerRestore = null;
+    this._closeTextOverlay();
     const emptyMirror = this._mirror([]);  // 与订阅路径同口径（空列表，引导区接管）
     this.setData({
       messages: emptyMirror,
@@ -1512,9 +1678,10 @@ Page({
       streaming: false,
       speakingId: '',
       citeDrawer: { show: false, full: false, msgId: '', items: [] },
-      actionMenu: { show: false, msgId: '', role: '' },
+      actionMenu: { show: false, msgId: '', role: '', paraKey: '' },
       fbMenu: { show: false, msgId: '' },
       selectMsgId: '',
+      selParaKey: '',
       inputMode: 'text',
       inputText: '',
       emojiSheet: { show: false, msgId: '', cur: [], curMap: {} },

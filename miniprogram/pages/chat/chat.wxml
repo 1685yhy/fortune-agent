@@ -125,6 +125,11 @@
             <text wx:if="{{multiSel[item.id]}}" class="mc-mark">✓</text>
           </view>
           <view class="jz-tag">{{item.tag}}</view>
+          <!-- k10-C 甲兜底引导小字：选取模式 + 已锁定段落 → 气泡顶部提示（替代旧 toast
+               引导——常驻可见，无需在点击「选取文字」后猜第二次长按的位置） -->
+          <view wx:if="{{selectMsgId === item.id && selParaKey}}" class="sel-guide">
+            <text>长按这段文字即可拖动选择</text>
+          </view>
           <!-- Task 3 思考步骤（元宝「深度思考」样式，v2026-08-17 重做）：
                顶部折叠胶囊（呼吸墨点 + 状态文案 + 用时秒数），展开后是分步列表
                （✓ 已完成 / ● 进行中）；流式中逐条累积上屏——每来一步新事件
@@ -151,7 +156,7 @@
                v1.2 图片消息预留：msg.image → 圆角墨框图片
                E2-2 对话卡片化：item.card 非空 → 卡片壳渲染（标题条 + 正文区 + 收藏按钮
                + 卡外引导语）；无标记/降级 → 保持原 md-block 渲染（零回归） -->
-          <view class="jz-body">
+          <view class="jz-body sel-body-{{item.id}}">
             <image wx:if="{{item.image && item.image.url}}" class="msg-img"
               src="{{item.image.url}}" mode="widthFix"
               style="{{item.image.width ? 'max-width:' + item.image.width + 'rpx;' : ''}}"
@@ -159,7 +164,7 @@
             <block wx:if="{{item.card}}">
               <!-- 前置内容（流式重发重复前缀已由镜像丢弃；此处仅兜底非重复前置） -->
               <view wx:if="{{item.cardPrefixNodes && item.cardPrefixNodes.length}}" class="card-prefix">
-                <template is="md-block" data="{{nodes: item.cardPrefixNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
+                <template is="md-block" data="{{nodes: item.cardPrefixNodes, msgId: item.id, sel: selectMsgId === item.id, paraKey: 'pre', paraSel: (selectMsgId === item.id) ? selParaKey : ''}}" />
               </view>
               <view class="card-shell">
                 <view class="card-head">
@@ -167,7 +172,7 @@
                   <text class="card-title">{{item.cardTitle}}</text>
                 </view>
                 <view class="card-body">
-                  <template is="md-block" data="{{nodes: item.cardNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
+                  <template is="md-block" data="{{nodes: item.cardNodes, msgId: item.id, sel: selectMsgId === item.id, paraKey: 'card', paraSel: (selectMsgId === item.id) ? selParaKey : ''}}" />
                 </view>
                 <!-- E2-2 收藏按钮（仅卡片定格后；复用现有收藏逻辑：data-k=keep → toggleFb） -->
                 <view wx:if="{{item.cardFinal}}" class="card-fav" hover-class="card-fav-active" hover-stay-time="0"
@@ -177,10 +182,10 @@
               </view>
               <!-- 卡外引导语（"还想了解…"等，渲染在卡片容器外） -->
               <view wx:if="{{item.cardTailNodes && item.cardTailNodes.length}}" class="card-tail">
-                <template is="md-block" data="{{nodes: item.cardTailNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
+                <template is="md-block" data="{{nodes: item.cardTailNodes, msgId: item.id, sel: selectMsgId === item.id, paraKey: 'tail', paraSel: (selectMsgId === item.id) ? selParaKey : ''}}" />
               </view>
             </block>
-            <template wx:else is="md-block" data="{{nodes: item.mdNodes, msgId: item.id, sel: selectMsgId === item.id}}" />
+            <template wx:else is="md-block" data="{{nodes: item.mdNodes, msgId: item.id, sel: selectMsgId === item.id, paraKey: 'md', paraSel: (selectMsgId === item.id) ? selParaKey : ''}}" />
             <text wx:if="{{item.streaming && item.content}}" class="jz-cursor"></text>
           </view>
           <!-- 2026-08-18 生成中断分级：网络中断/超时/失败 → 气泡底部浅色小字（正文保留，不覆盖为失败） -->
@@ -242,7 +247,7 @@
           </view>
         </view>
         <!-- v1.1 排队消息立即上屏：pending 灰态 + 「排队中」小标 -->
-        <view wx:else class="user-note {{item.pending ? 'pending' : ''}} {{selectMsgId === item.id ? 'select-mode' : ''}} {{multiMode && multiSel[item.id] ? 'multi-on' : ''}}"
+        <view wx:else class="user-note sel-body-{{item.id}} {{item.pending ? 'pending' : ''}} {{selectMsgId === item.id ? 'select-mode' : ''}} {{multiMode && multiSel[item.id] ? 'multi-on' : ''}}"
           bindlongpress="onBubbleLongPress" bindtap="onMsgTap" catchtap="noop" data-id="{{item.id}}" data-role="user">
           <!-- v1.3 多选勾选框（气泡左上角圆形，点按勾选/取消） -->
           <view wx:if="{{multiMode}}" class="msg-check {{multiSel[item.id] ? 'on' : ''}}" data-id="{{item.id}}" catchtap="onMsgTap">
@@ -253,7 +258,13 @@
             src="{{item.image.url}}" mode="widthFix"
             style="{{item.image.width ? 'max-width:' + item.image.width + 'rpx;' : ''}}"
             data-url="{{item.image.url}}" catchtap="previewMsgImage"></image>
-          <text selectable="{{selectMsgId === item.id}}">{{item.content}}</text>
+          <!-- k10-C：user 消息整体视为一段（'user:0'）——长按正文记录段落，供
+               菜单「复制本段」与甲兜底定位；事件冒泡到 .user-note 的 onBubbleLongPress 开菜单 -->
+          <text selectable="{{selectMsgId === item.id}}" data-msgid="{{item.id}}" data-para-id="user:0"
+            bindlongpress="onParaLongPress">{{item.content}}</text>
+          <view wx:if="{{selectMsgId === item.id && selParaKey}}" class="sel-guide">
+            <text>长按这段文字即可拖动选择</text>
+          </view>
           <view class="u-meta">
             <text class="u-time">我 · {{item.time}}</text>
             <text wx:if="{{item.pending}}" class="u-badge">排队中</text>
@@ -374,6 +385,27 @@
     </view>
   </view>
 
+  <!-- ═══ k10-C 方案乙 · 只读 textarea 覆盖层（模拟「点一下即有默认选区可拖」） ═══
+       仅在降级判定不命中的机型/场景出现（见 chat.js k10-C 常量与 _textOverlayFeasible）；
+       命中平台限制/异常 → 自动走甲（selectMsgId + 段落高亮 + 引导小字）。
+       覆盖层把被按气泡的正文区（.jz-body 实测矩形）以纯文本 textarea 垫在原位：
+       focus + selection-start/end = 用户长按所在段落 → 呈现可拖动两端焦点的观感。
+       键盘抑制：textarea 无 readonly 属性、聚焦必弹键盘 → bindfocus 后立即 wx.hideKeyboard
+       尽力抑制（真机验证项；不可靠时引擎开关回甲，见 chat.js 常量注释）。
+       滚动联动：覆盖层为全屏模态（mask catchtouchmove 阻断滚动），消息滚动/流式更新
+       触发时 _closeTextOverlay 自动退出恢复。点外部/失焦 → 退出恢复。 -->
+  <view wx:if="{{selOverlay.show}}" class="sel-overlay">
+    <!-- 退出热区：点覆盖层内、textarea 外的任何位置 → 关闭恢复（textarea 为原生/同层
+         组件，自身触摸不冒泡到本 mask；mask 单独承接退出，避免点选区误关） -->
+    <view class="sel-mask" catchtap="closeTextOverlay" catchtouchmove="noop"></view>
+    <textarea class="sel-ov-area {{selOverlay.role === 'user' ? 'is-user' : ''}}" value="{{selOverlay.text}}" focus="{{selOverlay.focus}}"
+      selection-start="{{selOverlay.start}}" selection-end="{{selOverlay.end}}"
+      maxlength="-1" disable-default-padding adjust-position="{{false}}"
+      show-confirm-bar="{{false}}" cursor-spacing="10" auto-height="{{false}}"
+      style="top:{{selOverlay.top}}px;left:{{selOverlay.left}}px;width:{{selOverlay.width}}px;height:{{selOverlay.height}}px;"
+      bindfocus="onSelOvFocus" bindblur="onSelOvBlur"></textarea>
+  </view>
+
   <!-- 阶段 5·引用抽屉（元宝式）：半屏 ↔ 全屏，分类列表 → 详情页 -->
   <view wx:if="{{citeDrawer.show}}" class="cite-mask" bindtap="closeCiteDrawer" catchtouchmove="noop"></view>
   <view wx:if="{{citeDrawer.show}}" class="cite-drawer {{citeDrawer.full ? 'full' : ''}}" catchtouchmove="noop">
@@ -425,7 +457,11 @@
       </view>
       <view class="act-sep"></view>
     </block>
-    <!-- 组二 · 文字处理（通用）：复制 / 选取文字 / 多选 -->
+    <!-- 组二 · 文字处理（通用）：复制本段（k10-C，长按落在段落上时） / 复制 / 选取文字 / 多选 -->
+    <view wx:if="{{actionMenu.paraKey}}" class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="copyPara" bindtap="actItem">
+      <image class="act-em-ic" src="/assets/images/ic-copy.png"></image>
+      <text class="act-label">复制本段</text>
+    </view>
     <view class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="copy" bindtap="actItem">
       <image class="act-em-ic" src="/assets/images/ic-copy.png"></image>
       <text class="act-label">复制</text>
@@ -518,7 +554,12 @@
     <view class="act-cancel" hover-class="act-cancel-active" hover-stay-time="0" bindtap="closeMorePanel">取消</view>
   </view>
 
-  <!-- ═══ v1.2 Markdown 渲染模板（utils/md.js 节点树 → 逐节点 view/text，墨韵样式） ═══ -->
+  <!-- ═══ v1.2 Markdown 渲染模板（utils/md.js 节点树 → 逐节点 view/text，墨韵样式） ═══
+       k10-C 段落定位参数：md-block 顶层每次渲染携带 paraKey（zone 前缀：md/pre/card/tail）
+       与 paraSel（当前选取段落键，如 'md:2'；非选取态为 ''）——顶层块视图按
+       paraKey+':'+index 拼出 data-para-id（长按记录段落，供菜单「复制本段」/甲高亮/乙预设
+       选区），并在自身为被选段时挂 md-hl 高亮类。quote 递归以 paraKey='' 关闭内层捕获
+       （引用整体为一段）；code/table 不参与段落（code 自带复制钮）。 -->
   <!-- 行内节点：text / strong / em / code / link / cite（引用角标可点开抽屉） -->
   <template name="md-inline">
     <block wx:for="{{node.children}}" wx:for-item="it" wx:key="index">
@@ -541,16 +582,20 @@
   <!-- 块级节点：p / h / quote（递归） / ul·ol / code（深墨底可复制） / table（细线网格） -->
   <template name="md-block">
     <block wx:for="{{nodes}}" wx:for-item="blk" wx:key="index">
-      <view wx:if="{{blk.t === 'p'}}" class="md-p">
+      <view wx:if="{{blk.t === 'p'}}" class="md-p {{paraSel && paraKey && paraSel === (paraKey + ':' + index) ? 'md-hl' : ''}}"
+        data-msgid="{{msgId}}" data-para-id="{{paraKey ? paraKey + ':' + index : ''}}" bindlongpress="onParaLongPress">
         <template is="md-inline" data="{{node: blk, msgId: msgId, sel: sel}}" />
       </view>
-      <view wx:elif="{{blk.t === 'h'}}" class="md-h md-h{{blk.level}}">
+      <view wx:elif="{{blk.t === 'h'}}" class="md-h md-h{{blk.level}} {{paraSel && paraKey && paraSel === (paraKey + ':' + index) ? 'md-hl' : ''}}"
+        data-msgid="{{msgId}}" data-para-id="{{paraKey ? paraKey + ':' + index : ''}}" bindlongpress="onParaLongPress">
         <template is="md-inline" data="{{node: blk, msgId: msgId, sel: sel}}" />
       </view>
-      <view wx:elif="{{blk.t === 'quote'}}" class="md-quote">
-        <template is="md-block" data="{{nodes: blk.children, msgId: msgId, sel: sel}}" />
+      <view wx:elif="{{blk.t === 'quote'}}" class="md-quote {{paraSel && paraKey && paraSel === (paraKey + ':' + index) ? 'md-hl' : ''}}"
+        data-msgid="{{msgId}}" data-para-id="{{paraKey ? paraKey + ':' + index : ''}}" bindlongpress="onParaLongPress">
+        <template is="md-block" data="{{nodes: blk.children, msgId: msgId, sel: sel, paraKey: '', paraSel: paraSel}}" />
       </view>
-      <view wx:elif="{{blk.t === 'ul' || blk.t === 'ol'}}" class="md-list md-list-{{blk.t}}">
+      <view wx:elif="{{blk.t === 'ul' || blk.t === 'ol'}}" class="md-list md-list-{{blk.t}} {{paraSel && paraKey && paraSel === (paraKey + ':' + index) ? 'md-hl' : ''}}"
+        data-msgid="{{msgId}}" data-para-id="{{paraKey ? paraKey + ':' + index : ''}}" bindlongpress="onParaLongPress">
         <view wx:for="{{blk.items}}" wx:for-item="li" wx:key="index" class="md-li">
           <text class="md-li-mark">{{blk.t === 'ol' ? li.n + '.' : '·'}}</text>
           <view class="md-li-body">

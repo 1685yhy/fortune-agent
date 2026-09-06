@@ -1651,6 +1651,68 @@
 /* UX批1 M-7：语音插件未配置时 mic 入口置灰（点按即提示，不用等长按） */
 .mic-off { opacity: .35; }
 
+/* ═══ k10-C 文字选取：甲（段落高亮 + 引导小字）与乙（textarea 覆盖层）═══ */
+
+/* 甲 · 气泡顶部引导小字（选取模式 + 已锁定段落时显示，替代旧 toast）：
+   说明为何需要在此段落上二次长按——微信无 API 可编程唤起 <text> 系统选择，
+   只能由用户本人长按触发（平台限制，勿试图突破） */
+.sel-guide {
+  margin: 0 0 14rpx;
+  padding: 8rpx 0;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 19rpx;
+  letter-spacing: .16em;
+  color: var(--acc);
+  background: var(--acc-soft);
+  border-radius: 6rpx;
+}
+
+/* 甲 · 被按段落高亮定位（p/h/quote/列表整体；code/table 不参与段落） */
+.md-p.md-hl,
+.md-h.md-hl,
+.md-quote.md-hl,
+.md-list.md-hl {
+  background: var(--acc-soft);
+  border-radius: 6rpx;
+  box-shadow: inset 0 0 0 2rpx rgba(169, 58, 44, .16);
+}
+
+/* 乙 · textarea 覆盖层（模态；mask 承接「点外部退出」，textarea 为原生层不吃 mask） */
+.sel-overlay {
+  position: fixed;
+  left: 0; top: 0; right: 0; bottom: 0;
+  z-index: 200;                        /* 高于 act-sheet 130 / cite-drawer 110 */
+}
+.sel-mask {
+  position: absolute;
+  left: 0; top: 0; right: 0; bottom: 0;
+  background: rgba(58, 44, 30, .07);   /* 极淡墨色：提示模态，不抢正文 */
+}
+/* AI 正文区覆盖（.jz-body 实测矩形，无内边距——文字起点与原 md 文本对齐） */
+.sel-ov-area {
+  position: absolute;
+  box-sizing: border-box;
+  background: var(--paper-card);
+  border: 2rpx solid var(--acc);       /* 朱砂描边：可拖选区范围提示 */
+  border-radius: 10rpx;
+  box-shadow: 0 4rpx 15rpx var(--shadow-sm);
+  color: var(--ink-mid);
+  font-family: var(--poem);
+  font-size: 30rpx;
+  line-height: 1.95;
+  letter-spacing: .03em;
+  padding: 0;
+}
+/* 用户气泡覆盖（.user-note 实测矩形含内边距——按 note 原 padding 复原文字起点） */
+.sel-ov-area.is-user {
+  padding: 19rpx 27rpx;
+  font-family: var(--font-song);
+  font-size: 29rpx;
+  line-height: 1.8;
+  color: var(--ink);
+}
+
 /* ── 12356 心理援助安全条（k6-P1：.chat-mid 内覆盖层，wxml 已移入 chat-mid） ── */
 .safety-card {
   position: absolute;
