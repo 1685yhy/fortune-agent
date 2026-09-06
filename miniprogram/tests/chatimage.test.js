@@ -1,4 +1,4 @@
-// 易理明灯 — B4-1 输入区改版（批次 4）：图片消息链路 + 语音入口 + 自动长高
+// 易理明灯 — 输入区/图片链路（B4-1 + k6 波1 语义回归）
 // 运行：node --test miniprogram/tests/chatimage.test.js
 // 覆盖：
 //   1. streamHost.sendImage → 用户图片笺（msg.image）+ message_type=image/image_url 请求
@@ -7,13 +7,16 @@
 //   4. api.chatStream 透传 image_url（payload.message_type=image + data.image_url）
 //   5. api.uploadChatImage 走 wx.uploadFile（字段名 file、/api/chat/upload、Bearer）
 //   6. chat 页：chooseImage → uploadChatImage → sendImage 全链路
-//   7. chat 页：switchInputMode 语音入口（micAvailable 置灰时仅 toast 不切换）
-//   8. chat 页：_updateInputBarH 公式（基线/额度条/行数/封顶）
-//   9. chat 页：onInputLineChange → inputBarH 联动 + 贴底补滚
+//   7. chat 页：switchInputMode 语音入口（micAvailable 置灰时仅 toast 不切换；
+//      模式切换不再触碰任何输入条高度机件——k6-P1 语义回归）
+//   8. chat 页：k6-P1 行高机件整体退役（_updateInputBarH/onInputLineChange/
+//      _onInputGrow/inputBarH 不复存在；setData 不再含 inputBarH/补滚）
+//   9. chat 页：micLongPress 长按直达录音（守卫/授权→开录），M-1 窗口口径
+//      （_touchStartAt 回拨 ~350ms 对齐按住条起算）
 //   10. chat 页：+ 面板开合、图片点击预览
-//   11. chat 页：retryStream AI 气泡重试 → 回溯 user 消息透传 image（页面接线，B4-1-fix I1）
+//   11. chat 页：retryStream AI 气泡重试 → 回溯 user 消息透传 image（接线路径，B4-1-fix I1）
 //   12. chat 页：图片消息后的文字追问重试 → 不误挂旧图（就近回溯）
-//   13. chat 页：_refreshQuota 语音模式额度条高度按 1 行（B4-1-fix Minor）
+//   13. chat 页：_refreshQuota 额度条展示（k6-P1：不再联动输入条高度）
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const api = require('../utils/api');
@@ -27,7 +30,12 @@ try {
 } finally {
   global.Page = savedPage;
 }
-assert.ok(pageCfg && typeof pageCfg._updateInputBarH === 'function', 'chat.js 页面配置应可加载');
+assert.ok(pageCfg && typeof pageCfg.sendMessage === 'function', 'chat.js 页面配置应可加载');
+/* k6-P1：输入条行高机件已整体退役——这些符号必须不存在（review I-1 跟进清理） */
+assert.equal(typeof pageCfg._updateInputBarH, 'undefined', '行高机件 _updateInputBarH 应已退役');
+assert.equal(typeof pageCfg.onInputLineChange, 'undefined', '行高机件 onInputLineChange 应已退役');
+assert.equal(typeof pageCfg._onInputGrow, 'undefined', '行高机件 _onInputGrow 应已退役');
+assert.equal(pageCfg.data.inputBarH, undefined, 'data.inputBarH 应已移除');
 
 /* ── wx/登录桩（不影响其它测试文件的全局） ── */
 const savedWx = global.wx;
@@ -46,18 +54,21 @@ function makePage(extra) {
   const page = Object.assign({}, pageCfg);
   page.data = Object.assign({
     quotaBar: { show: false, text: '', downgraded: false },
-    inputBarH: 130,
     morePanel: { show: false },
     inputMode: 'text',
     inputFocused: false,
     micAvailable: true,
+    isRecording: false,
+    converting: false,
+    streaming: false,
     multiMode: false,
     nightMode: false,
     inputText: '',
     scrollInto: '',
+    actionMenu: { show: false, msgId: '', role: '' },
   }, extra || {});
   const sets = [];
-  page.setData = function (upd) { sets.push(upd); Object.assign(this.data, upd); };
+  page.setData = function (upd, cb) { sets.push(upd); Object.assign(this.data, upd); if (typeof cb === 'function') cb(); };
   page._getSets = () => sets;
   return page;
 }
@@ -204,20 +215,19 @@ test('chat 页：chooseImage → 上传 → 发图片消息（全链路）', asy
   assert.ok(calls.sentImg && calls.sentImg.url === 'http://x/uploads/cam.jpg');
 });
 
-test('chat 页：switchInputMode 语音入口（话筒置灰时仅 toast 不切换）', () => {
+test('chat 页：switchInputMode 语音入口（置灰仅 toast 不切换；切换零高度机件）', () => {
   const toasts = [];
   installWx({ showToast: (o) => toasts.push(o) });
   const page = makePage();
   try {
-    // 正常切换：text → voice，输入条回落基线
+    // 正常切换：text → voice；k6-P1：不产生任何 inputBarH / 高度 setData
     page.switchInputMode({ currentTarget: { dataset: { mode: 'voice' } } });
     assert.equal(page.data.inputMode, 'voice');
-    assert.equal(page.data.inputBarH, 130);
-    // 语音 → 文字：恢复文本区行数高度（_inputLines=3 → 130+80=210）
-    page._inputLines = 3;
+    const sets = page._getSets();
+    assert.ok(!sets.some((s) => 'inputBarH' in s), '模式切换不得触碰输入条高度机件（k6-P1）');
+    // 语音 → 文字
     page.switchInputMode({ currentTarget: { dataset: { mode: 'text' } } });
     assert.equal(page.data.inputMode, 'text');
-    assert.equal(page.data.inputBarH, 210);
     // 话筒置灰：点按不切换 + toast 提示
     const page2 = makePage({ micAvailable: false });
     page2.switchInputMode({ currentTarget: { dataset: { mode: 'voice' } } });
@@ -228,38 +238,81 @@ test('chat 页：switchInputMode 语音入口（话筒置灰时仅 toast 不切�
   }
 });
 
-test('chat 页：_updateInputBarH 公式（基线/额度条/行数/封顶）', () => {
+test('chat 页：k6-P1 行高机件退役语义（增行不再触发高度联动/补滚 setData）', () => {
   const page = makePage();
-  // 无额度条：130 + (行数-1)×40
-  page._updateInputBarH(1);
-  assert.equal(page.data.inputBarH, 130);
-  page._updateInputBarH(3);
-  assert.equal(page.data.inputBarH, 210);
-  page._updateInputBarH(6);
-  assert.equal(page.data.inputBarH, 330);
-  // 6 行封顶（5.5 行 → 行数 6）：再多行不增
-  page._updateInputBarH(10);
-  assert.equal(page.data.inputBarH, 330);
-  // 额度条出现：+42
-  page.data.quotaBar = { show: true, text: '', downgraded: false };
-  page._updateInputBarH(1);
-  assert.equal(page.data.inputBarH, 172);
-  page._updateInputBarH(4);
-  assert.equal(page.data.inputBarH, 292);
+  // 模拟 auto-height 打字增行最接近页面的旧行为入口（bindlinechange）已不存在；
+  // 断言旧机件符号在实例上也不可调用（防半退役残留）
+  assert.equal(typeof page._updateInputBarH, 'undefined');
+  assert.equal(typeof page.onInputLineChange, 'undefined');
+  assert.equal(typeof page._onInputGrow, 'undefined');
+  assert.equal(page.data.inputBarH, undefined);
+  assert.equal(page._inputLines, undefined);
+  // 既有滚动路径仍独立存在（与行高机件解耦）：直接强制贴底正常执行
+  const sets0 = page._getSets().length;
+  page._scrollBottom(true);
+  const tail = page._getSets().slice(sets0);
+  assert.ok(tail.some((s) => s.scrollInto === 'btm'), '强制贴底滚动路径应保留（流式/发送滚动零改动）');
 });
 
-test('chat 页：onInputLineChange → inputBarH 联动 + 贴底补滚', () => {
+test('chat 页：micLongPress 输入非空 → toast 提示且不切模式（k6-P2 守卫）', () => {
+  const toasts = [];
+  installWx({ showToast: (o) => toasts.push(o) });
+  const page = makePage({ inputText: '  还有半句没发  ' });
+  try {
+    page.micLongPress({ touches: [{ clientY: 100 }] });
+  } finally {
+    restoreGlobals();
+  }
+  assert.equal(page.data.inputMode, 'text', '输入非空不得切换语音模式');
+  assert.ok(toasts.some((t) => (t.title || '').indexOf('请先发送或清空输入') !== -1));
+});
+
+test('chat 页：micLongPress 生成/录音中 / 话筒置灰 → 静默不响应（k6-P2 守卫）', () => {
+  const toasts = [];
+  installWx({ showToast: (o) => toasts.push(o) });
+  try {
+    for (const over of [
+      { streaming: true },
+      { isRecording: true },
+      { converting: true },
+      { micAvailable: false },
+    ]) {
+      const page = makePage(over);
+      page.micLongPress({ touches: [{ clientY: 100 }] });
+      assert.equal(page.data.inputMode, 'text', `守卫静默：${JSON.stringify(over)}`);
+    }
+  } finally {
+    restoreGlobals();
+  }
+  assert.equal(toasts.length, 0, '生成/录音中/置灰守卫应完全静默');
+});
+
+test('chat 页：micLongPress 授权通过 → 切 voice 态并开录（k6-P2）+ M-1 窗口口径', () => {
+  let recStarted = 0;
+  installWx({
+    showToast: () => {},
+    vibrateShort: () => {},
+    getSetting: (o) => o.success && o.success({ authSetting: { 'scope.record': true } }),
+  });
   const page = makePage();
-  // 在底部：_scrollTop/_scrollHeight/_clientH 未知 → 保守跟随 → 补滚
-  page.onInputLineChange({ detail: { lineCount: 3 } });
-  assert.equal(page._inputLines, 3);
-  assert.equal(page.data.inputBarH, 210);
-  const sets = page._getSets();
-  assert.ok(sets.some((s) => s.scrollInto === 'btm'), '输入条变高后应补一次贴底滚动');
-  // 行数未变：不触发补滚
-  const n = sets.length;
-  page.onInputLineChange({ detail: { lineCount: 3 } });
-  assert.equal(sets.length, n);
+  page._speechPlugin = { getRecordRecognitionManager: () => page._recMgr };
+  page._recMgr = { start: () => { recStarted++; }, stop: () => {} };
+  try {
+    const before = Date.now();
+    page.micLongPress({ touches: [{ clientY: 88 }] });
+    // 守卫通过 → 走既有 switchInputMode 内部路径进 voice 态
+    assert.equal(page.data.inputMode, 'voice', '长按应切到按住说话态');
+    assert.equal(page.data.isRecording, true, '授权通过且手指未松 → 直接开录');
+    assert.equal(recStarted, 1);
+    // M-1：_touchStartAt 回拨 ~350ms（longpress 触发延迟）→ 与按住条（touchstart 起算）
+    // 同一口径：真实按住 ≥0.8s 松手即可发送，不被误判「太短」
+    const back = before - page._touchStartAt;
+    assert.ok(back >= 320 && back <= 390, `_touchStartAt 应回拨≈350ms（实测 ${back}ms）`);
+    assert.equal(page._voiceFromLongPress, true, '应置长按来源标记（收尾复位用）');
+  } finally {
+    try { page._cleanupVoice(); } catch (e) { /* ignore */ }
+    restoreGlobals();
+  }
 });
 
 test('chat 页：+ 面板开合 + 图片点击预览', () => {
@@ -332,12 +385,11 @@ test('chat 页：图片消息后的文字追问重试 → 不误挂旧图（B4-1
   assert.ok(!calls[0][3], '文字追问重试不得误挂更早图片消息的 image');
 });
 
-test('chat 页：_refreshQuota 语音模式额度条高度按 1 行算（B4-1-fix Minor）', async () => {
+test('chat 页：_refreshQuota 额度条展示（k6-P1：不再联动输入条高度）', async () => {
   const origQuota = api.getChatQuota;
   api.getChatQuota = () => Promise.resolve({ is_member: false, limit: 15, used: 3, downgraded: false });
   installWx({ setStorageSync: () => {} });
   const page = makePage({ inputMode: 'voice' });
-  page._inputLines = 4;   // 语音模式文本行数无意义 → 高度必须按 1 行
   try {
     await page._refreshQuota();
   } finally {
@@ -345,5 +397,8 @@ test('chat 页：_refreshQuota 语音模式额度条高度按 1 行算（B4-1-fi
     restoreGlobals();
   }
   assert.equal(page.data.quotaBar.show, true);
-  assert.equal(page.data.inputBarH, 172);   // 130 + 42（额度条），而非 130+42+120=292
+  assert.equal(page.data.quotaBar.text, '今日 12/15 条');
+  assert.equal(page.data.inputBarH, undefined, '额度条不再写输入条高度机件（k6-P1）');
+  const sets = page._getSets();
+  assert.ok(!sets.some((s) => 'inputBarH' in s), '额度刷新不得产生 inputBarH setData');
 });

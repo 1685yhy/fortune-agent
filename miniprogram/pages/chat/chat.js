@@ -1589,7 +1589,11 @@ Page({
     this._voiceFromLongPress = true;          // 会话结束 → 回文字态（见 _clearLongPressVoice）
     this._touchActive = true;                 // 触摸会话簿记（与 micTouchStart 同口径）
     this._touchY = t.clientY || 0;
-    this._touchStartAt = Date.now();
+    // k6 wave1 review M-1：bindlongpress 在手指按下约 350ms 后才触发，此刻才起算
+    // 会让「真实按住 ≥0.8s 即发送」的按住条语义变成 ≥~1.15s（0.8–1.15s 波段的
+    // 长按松手被误判「说话时间太短」取消）。_touchStartAt 回拨 350ms ≈ 手指真正
+    // 按下时刻，与 voice-hold（micTouchStart 于 touchstart 起算）完全同一口径。
+    this._touchStartAt = Date.now() - 350;
     this.switchInputMode({ currentTarget: { dataset: { mode: 'voice' } } });
     this._ensureRecordPermission((ok) => {
       if (!ok) {
