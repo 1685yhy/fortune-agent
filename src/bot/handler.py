@@ -208,6 +208,10 @@ from src.rag.faiss_retriever import get_faiss_retriever
 # 回答后校验（不相关引用剔除）；网络检索（智谱 Web Search，可用才宣传）
 from src.rag.citation import make_citation, verify_citations, public_citation, type_label
 from src.rag.web_search import search_web, web_search_available
+# k11b 联网搜索语义触发：触发判定 + 来源痕迹确定性尾注（纯函数模块，无网络依赖；
+# 判定=实体层/时效层/研究白名单正信号 − 金融排除 − 命理本地锚，见模块注释）
+from src.rag.search_trigger import append_source_trace
+from src.rag.search_trigger import decide_search as _decide_search
 
 # 方案 B·引擎结果注入（AI 原生统一）：_handle_* 分析回复的系统尾巴
 # （反馈提示/版本页脚）——润色时先剥离、润色后原样回接，防 LLM 改写
@@ -216,6 +220,31 @@ from src.rag.web_search import search_web, web_search_available
 _FEEDBACK_PROMPT = "———\n这个分析对你有帮助吗？可回复「准」或「不准」告诉我"
 # 旧版 emoji 反馈尾（_add_feedback_prompt 曾输出此格式；润色剥离/回接兼容）
 _FEEDBACK_PROMPT_EMOJI = "———\n💬 这个分析对你有帮助吗？👍 有帮助  👎 不太准"
+
+# ============================================================
+# k11b 联网搜索语义触发：引擎意图域自动检索的注入/降级文案（确定性，单一事实源；
+# 禁裸 JSON/工具标签——注入内容全为纯文本，走 k11 stream-guard scrub 出口）
+# ============================================================
+# 检索命中的使用要求段（extra_hint 追加；来源痕迹要求 LLM 执行 + 回复层尾注兜底）
+_GROUND_USE_REQUIREMENT = (
+    "（上述检索结果使用要求：回答中涉及该外部实体/事实的信息（背景/主营业务/规模/"
+    "口碑/新闻等）须以上述检索结果为准，禁止凭记忆编造；引用检索信息处标注 [n]；"
+    "回复末尾用一行注明信息来源（格式如「（信息来源：以上为网络公开搜索结果，"
+    "仅供参考，具体请以官方渠道为准）」）。若检索结果为空或与问题无关：如实告诉用户"
+    "你已帮忙联网查过但公开信息有限，建议以官方渠道为准（检索结果含官网/百科链接时"
+    "给出）；不要叫用户自己去查证，也不要编造。)")
+# 频控超限降级注（不静默不甩锅）
+_GROUND_RATE_NOTE = (
+    "（联网查询较频繁：本轮未发起新的联网检索）若用户问的是外部实体/事实的最新"
+    "公开信息，如实告诉用户「稍等一下我再帮你查」，不要编造外部事实，也不要让用户"
+    "自己去查证。)")
+# 检索空/失败降级注（graceful degrade，非「自己查」甩锅）
+_GROUND_EMPTY_NOTE = (
+    "（系统已尝试联网检索该话题，公开渠道未找到有效结果或通道暂不可用）回答时如实"
+    "向用户说明：已帮忙查过公开信息但比较有限/查无结果，建议以官方渠道为准（若检索"
+    "结果里有官网/百科类链接则给出）；不要凭记忆编造外部事实，也不要推诿让用户自己"
+    "去查证。)"
+)
 
 
 class _FaissChunk:
@@ -793,6 +822,13 @@ class MessageHandler:
         # R1-2（评测 T008）：性别纠正固定回执暂存（user_id → ack），润色后
         # 幂等重挂——纠正回执（含新性别断言）必须存活于最终回复（零 LLM）
         self._gender_acks: dict = {}
+        # k11b：本轮引擎意图域已自动联网检索事实（user_id → {entity, query,
+        # domains, ok, text}）——LLM 再发同 query 搜索工单时 executor 直取首查
+        # 结果（防二次真实检索/引用编号分裂）；每轮 process 入口清空
+        self._turn_grounded: dict = {}
+        # k11b：联网检索频控护栏（护栏 3 次/60s/用户；判定不计数，只在真实
+        # 发起检索前计数——见 _search_rate_ok）
+        self._search_ticks: dict = {}
 
         # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除）：
         # 不再初始化 SimilarityEngine（原 data/wenzhen_charts.db 44k 命例对照），
@@ -1335,29 +1371,20 @@ class MessageHandler:
     # AI 原生（Phase 1）— <tool_call> 工具调用循环（方案 3.2/3.3）
     # ============================================================
 
-    # R1-3（评测 T074 修复·无关问题误调 web_search）：研究类话题白名单
-    # （需实时信息的合理语境）之外的问题禁止触发联网搜索——评测实锤
-    # 「今天股市行情怎么样」（chat 域）被 needs_search → web_search 工单
-    # 误调（L1 期望零工具实际 1 次，基线误调率 8.3% 来源）。白名单词：
-    # 公司/行业/政策/新闻/最新/数据/报告/研究/人物/事件/天气/航班/比赛/
-    # 赛事/比分/电影/产品/品牌/评测/排名/价格/楼盘/地产/学校/专业/医院/
-    # 职位/薪资/招聘/招聘/面试/考试（新闻/政策/行业/数据可查证类）；
-    # 金融行情词（股市/行情/股票/基金/大盘/指数/股价/涨跌）显式排除——
+    # R1-3（评测 T074 修复·无关问题误调 web_search）：金融行情词
+    # （股市/行情/股票/基金/大盘/指数/股价/涨跌/炒股/收盘/开盘）显式排除——
     # 本产品无行情数据源，行情问题只能诚实说明，不得搜索不得编造。
-    _WEB_SEARCH_RESEARCH_RE = re.compile(
-        r"公司|行业|政策|新闻|最新|数据|报告|研究|人物|事件|天气|航班|比赛|"
-        r"赛事|比分|电影|产品|品牌|评测|排名|价格|楼盘|地产|学校|专业|医院|"
-        r"职位|薪资|招聘|面试|考试|世界杯|发布会")
-    _WEB_SEARCH_FINANCE_EXCLUDE_RE = re.compile(
-        r"股市|行情|股票|基金|大盘|指数|股价|涨跌|炒股|收盘|开盘")
+    # k11b（2026-09-07）：原「研究类话题关键词硬门控」（_WEB_SEARCH_RESEARCH_RE）
+    # 降级为语义触发判定（src/rag/search_trigger.py）的一部分——词表原文迁移到
+    # 该模块 RESEARCH_WHITELIST_RE 作兜底层；判定改为实体层/时效层/白名单正信号
+    # − 金融排除 − 命理本地锚（防「今年运势如何」乱搜回归）。触发判定不经频控/
+    # 长度/域名护栏（护栏在执行侧：_search_rate_ok、_parse_result_domains、
+    # 结果块长度钳制）。
 
     def _web_search_allowed(self, msg: str) -> bool:
-        """消息是否允许触发联网搜索（研究类白名单 + 金融行情显式排除）。"""
-        if not msg:
-            return False
-        if self._WEB_SEARCH_FINANCE_EXCLUDE_RE.search(msg):
-            return False
-        return bool(self._WEB_SEARCH_RESEARCH_RE.search(msg))
+        """消息是否允许触发联网搜索（k11b 起=语义触发判定，chat 域 tool-loop/
+        needs_search 引导共用；金融行情/命理本地概念仍硬否决，T074 语义沿袭）。"""
+        return _decide_search(msg, llm_needs_search=False).should_search
 
     def _tool_loop_analysis_hint(self, analysis: Optional[MessageAnalysis],
                                  msg: str = "") -> str:
@@ -2266,23 +2293,41 @@ class MessageHandler:
         )
         return ToolResult("检索", True, "\n".join(lines))
 
-    def _tool_web_search(self, params: str, user_id: str = "") -> ToolResult:
-        """工具「搜索」（阶段 5·网络检索）：智谱 Web Search API → Top 3-5。
+    def _tool_web_search(self, params: str, user_id: str = "",
+                         _rate_count: bool = True) -> ToolResult:
+        """工具「搜索」（阶段 5·网络检索）：Bing 免费搜索 → Top 3-5。
 
         结果带来源 URL（type="web"）注入；服务不可用 → 标 unavailable
         （prompt 不宣传，执行时自然降级，不阻断对话）。
+        k11b：① 本轮引擎意图域已自动联网检索同 query → 直接复用首查结果文本
+        （防 LLM 工单二次真实检索与引用编号分裂）；② 护栏频控（_rate_count=False
+        表示调用方已计数——引擎域自动检索路径自带计数，不双计）。
         """
+        query = (params or "").strip()
+        # k11b-①：同 query 复用（自动检索文本已在首次注册 citations/编号）
+        _gr = getattr(self, "_turn_grounded", {}) or {}
+        gr = _gr.get(user_id)
+        if (gr and gr.get("ok") and gr.get("query")
+                and self._same_search_query(gr.get("query", ""), query)):
+            return ToolResult("搜索", True, gr.get("text") or query)
+        if not query:
+            return ToolResult(
+                "搜索", False,
+                "请像朋友聊天一样自然地向用户询问想搜索哪方面的内容。",
+                needs_info=True,
+            )
         if not web_search_available():
             # C6：搜索不可用 → 明说降级（明确告知用户实时信息受限），不静默
             return ToolResult(
                 "搜索", False, SEARCH_UNAVAILABLE_HINT,
                 needs_info=True,
             )
-        query = (params or "").strip()
-        if not query:
+        # k11b-②：护栏频控（只在真实发起检索前计数；超限按受限降级，不静默）
+        if _rate_count and not self._search_rate_ok(user_id):
             return ToolResult(
                 "搜索", False,
-                "请像朋友聊天一样自然地向用户询问想搜索哪方面的内容。",
+                "联网检索过于频繁（60 秒内已多次），本次未执行新的联网查询。"
+                "请如实告知用户稍后再查或直接简要作答，不要编造外部实时信息。",
                 needs_info=True,
             )
         results = search_web(query, limit=5)
@@ -2309,6 +2354,95 @@ class MessageHandler:
             "引用网络信息时在陈述后标注编号 [n]；不相关的内容忽略。）"
         )
         return ToolResult("搜索", True, "\n".join(lines))
+
+    # ============================================================
+    # k11b 联网搜索语义触发（引擎意图域·实体 QA 自动检索；plan
+    # docs/superpowers/plans/2026-09-07-k11b-search-trigger.md）
+    # ============================================================
+
+    _SEARCH_RATE_LIMIT = 3      # 护栏：联网检索频控（次/60s/用户）
+    _SEARCH_RATE_WINDOW_S = 60.0
+    _GROUND_BLOCK_MAX_CHARS = 2400  # 护栏：检索结果注入块长度钳制
+
+    def _search_rate_ok(self, user_id: str) -> bool:
+        """护栏·频控：真实发起联网检索前调用（判定不计数，执行才计数）。
+
+        超过 3 次/60s/用户 → False（调用方按"检索受限"降级话术处理，
+        不静默不阻断对话）。object.__new__ 装配的测试实例无 __init__ 状态 →
+        setdefault 惰性初始化。
+        """
+        import collections
+        import time as _time
+        ticks = self.__dict__.setdefault("_search_ticks", {})
+        q = ticks.setdefault(user_id or "", collections.deque())
+        now = _time.monotonic()
+        while q and now - q[0] >= self._SEARCH_RATE_WINDOW_S:
+            q.popleft()
+        if len(q) >= self._SEARCH_RATE_LIMIT:
+            return False
+        q.append(now)
+        return True
+
+    def _same_search_query(self, a: str, b: str) -> bool:
+        """query 归一后比较（去空白/句读/语气词）——同 query 复用去重判据。"""
+        import re as _re
+        _norm = lambda s: _re.sub(r"[\s，。！？、.,!?]|吗$|呢$|啊$|呀$", "", s or "").lower()
+        return bool(a and b and _norm(a) == _norm(b))
+
+    def _parse_result_domains(self, text: str, limit: int = 5) -> list:
+        """护栏·域名：从检索结果文本（executor 行内 URL）抽站点域名（剥 www.）。"""
+        import re as _re
+        out = []
+        for m in _re.finditer(r"https?://([a-zA-Z0-9][a-zA-Z0-9.-]*)", text or ""):
+            host = (m.group(1) or "").lower()
+            if host.startswith("www."):
+                host = host[4:]
+            if host and host not in out and not host.endswith("bing.com"):
+                out.append(host)
+            if len(out) >= limit:
+                break
+        return out
+
+    def _engine_domain_ground_search(self, msg: str, user_id: str,
+                                     analysis: Optional[MessageAnalysis]) -> dict:
+        """k11b：引擎意图域·外部实体/时效触发 → 执行一次联网检索并准备注入块。
+
+        - 触发判定：decide_search(msg, llm_needs_search=analysis.needs_search)
+          （实体层/时效层/研究白名单 正信号 − 金融排除 − 命理本地锚；LLM 信号=
+          分析器同一调用产出的 needs_search，OR 叠加，无新增二判 LLM——取舍见 plan）
+        - 不触发 → {"skip": True}（调用方维持旧 analysis_hint 通道，零漂移）
+        - 触发 → 复用 search executor _tool_web_search（真实检索 + citations
+          type=web 注册单一编号源；禁新建 HTTP 通道），注入块 ≤2400 字符；
+          同 query 由 executor 复用表去重（本轮 LLM 再发工单不再真实检索）
+        - 频控超限/检索空/通道不可用 → 对应降级注（graceful degrade 非甩锅）
+        - 返回: {skip, block, entity, domains, ok, query}
+        """
+        dec = _decide_search(msg, llm_needs_search=bool(
+            getattr(analysis, "needs_search", False)))
+        if not dec.should_search:
+            return {"skip": True}
+        query = (dec.query or "").strip()[:70]
+        if not query:
+            return {"skip": True}
+        # 护栏·频控（执行前计数；超限 → 降级注，不发起检索）
+        if not self._search_rate_ok(user_id):
+            return {"block": _GROUND_RATE_NOTE, "entity": dec.entity or "",
+                    "domains": [], "ok": False, "query": query, "skip": False}
+        tr = self._tool_web_search(query, user_id, _rate_count=False)
+        if not tr.ok or not tr.text:
+            return {"block": _GROUND_EMPTY_NOTE, "entity": dec.entity or "",
+                    "domains": [], "ok": False, "query": query, "skip": False}
+        block = "【网络检索结果】\n" + tr.text
+        if len(block) > self._GROUND_BLOCK_MAX_CHARS:  # 护栏·长度钳制
+            block = block[: self._GROUND_BLOCK_MAX_CHARS].rsplit("\n", 1)[0] + "…"
+        domains = self._parse_result_domains(tr.text)
+        # 复用表：LLM 后续再发同 query 搜索工单 → executor 直取（防二次真实检索）
+        self.__dict__.setdefault("_turn_grounded", {})[user_id] = {
+            "entity": dec.entity or "", "query": query, "domains": domains,
+            "ok": True, "text": tr.text,
+        }
+        return {"block": block, "entity": dec.entity or "", "domains": domains,
+                "ok": True, "query": query, "skip": False}
 
     def _get_dream_retriever(self):
         """解梦检索器：276 万 FAISS 生产主路径优先（设计文档阶段 0），
@@ -3766,6 +3900,12 @@ class MessageHandler:
                 "mianxiang": False, "qimen": False, "dream": False}
         # 阶段 5：清理上一轮残留的引用来源（早退分支不注册，防泄漏）
         self._citations.pop(user_id, None)
+        # k11b：清理上轮自动联网检索事实（同 query 复用表只属于触发它的那轮；
+        # object.__new__ 装配的测试实例可能无该属性——getattr 兜底）
+        try:
+            self._turn_grounded.pop(user_id, None)
+        except (AttributeError, KeyError):
+            pass
 
         # Step -2: Cache check (D2 speed optimization)
         # 终审：deepNight 请求跳过缓存读写——夜里语气/陪伴类回复不可命中白天缓存，
@@ -4222,6 +4362,9 @@ class MessageHandler:
         # 「根据你1976年5月13日在上海出生的命盘…」；D2 因对手文案干支声明
         # 不足 4 个早退、且 chart_records 最新恰为朋友盘，无法兜底）。
         engine_draft = None
+        # k11b：引擎意图域自动检索事实（_will_polish 块内赋值；False 分支零引用
+        # ——兜底 None，下方来源尾注块跳过）
+        _k11b_ground = None
         _r1_self_fortune_turn = (
             not self._is_third_party_birth_request(msg)
             and bool(_SELF_FORTUNE_RE.search(msg)))
@@ -4245,11 +4388,35 @@ class MessageHandler:
                     stream_cb("chunk", _payload)
         if _will_polish:
             engine_draft = reply
+            # k11b（search-trigger）：命理意图域主链遇到外部实体/时效事实问题
+            # （「易宝支付这家公司怎么样」）→ 在引擎草稿之外确定性自动联网检索
+            # 一次，结果块注入润色上下文（引用已注册本轮 citations，LLM 标 [n]）；
+            # 触发判定=实体层/时效层/白名单 − 金融排除 − 命理本地锚（decide_search，
+            # 复用分析器 needs_search LLM 信号为 OR，无新增二判 LLM——取舍见 plan）。
+            # 已自动检索 → 压制旧 search_hint 的「先输出 web_search 工单」硬性
+            # 要求（结果已在上下文；LLM 若再发同 query 工单由 _tool_web_search
+            # 复用表去重，不二次真实检索）。
+            _k11b_ground = None
+            try:
+                _k11b_ground = self._engine_domain_ground_search(
+                    msg, user_id, analysis)
+            except Exception as e:
+                logger.warning("k11b 引擎域自动检索异常 user=%s err=%s",
+                               user_id, str(e)[:120])
+            if not _k11b_ground or _k11b_ground.get("skip"):
+                _k11b_ground = None
+            _k11b_block = (_k11b_ground or {}).get("block") or ""
+            _extra_parts = [h for h in (topic_hint,
+                                        ("" if _k11b_ground else analysis_hint),
+                                        _k11b_block) if h]
+            if _k11b_block and _k11b_ground and _k11b_ground.get("ok"):
+                _extra_parts.append(_GROUND_USE_REQUIREMENT)
             try:
                 reply = self._polish_with_engine_draft(
                     msg, user_id, reply, stream_cb,
-                    extra_hint="\n".join(h for h in (topic_hint, analysis_hint) if h),
-                    search_hint=analysis_hint, session_id=session_id)
+                    extra_hint="\n".join(_extra_parts),
+                    search_hint=("" if _k11b_ground else analysis_hint),
+                    session_id=session_id)
             except Exception:
                 pass  # 润色异常 → 保留引擎原稿（静默降级，行为不劣于现状）
 
@@ -4320,6 +4487,17 @@ class MessageHandler:
                     reply = _s
             except Exception:
                 pass
+        # k11b：实体 QA 已自动联网检索（有结果）→ 回复必须带来源痕迹（禁裸
+        # JSON 禁泄漏——来源尾注为确定性纯文本，已走 k11 scrub/stream-guard
+        # 出口）；LLM 漏写来源且回复未含检索站点痕迹时确定性补尾注（回复须含
+        # 实体名才补，防无关尾注；反馈提示「准/不准」行保留在尾注之后不被挤开）。
+        if _k11b_ground and _k11b_ground.get("ok") and _k11b_ground.get("entity"):
+            try:
+                reply = append_source_trace(
+                    reply, entity=_k11b_ground.get("entity", ""),
+                    domains=_k11b_ground.get("domains") or [])
+            except Exception:
+                pass  # 尾注兜底异常 → 保持原文（来源抽屉仍有 web 引用）
         # 阶段 2：本轮工具调用日志 → 落库字段
         tool_log = self._pop_tool_log(user_id)
         # E2-1 卡片化：统一出口包装（落库/缓存/返回值一致携带卡片标记；
