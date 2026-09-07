@@ -52,6 +52,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+from typing import Optional
 
 _REPO = Path(__file__).resolve().parent.parent.parent
 _HERE = Path(__file__).resolve().parent
@@ -127,6 +128,206 @@ def eval_reply_checks(task: dict, reply: str) -> list:
         out.append({"name": "min_len", "expect": ml, "ok": ok,
                     "detail": "" if ok else
                               f"回复长度 {len(reply)} < 要求 {ml}"})
+    return out
+
+
+# ================================================================
+# k11-F：派生数值断言（reply_checks.derived）——纯规则零 LLM。
+# 事实源 = setup.persons[0] 出生 → BaziEngine 本地复算（与主链同引擎同口径）；
+# 运行时派生 age/dayun/gender/shensha，断言回复中的"当前年龄声明/当前大运声明/
+# 男性称谓/神煞引用/工具 JSON 泄漏"。报告 §③-6 六条用例中 entity_qa_search
+# （待 k11b 搜索通道）、hour_boundary（待 k11c 口径拍板）未挂任务行。
+# ================================================================
+
+# 当前年龄声明式表述（前缀式；"岁"裸数字规则用标点前瞻排除大运表 3/13/23/33 岁段）
+_AGE_CLAIM_RES = (
+    re.compile(r"(?:今年|现在|如今|目前|本人|我已经|我今年|命主|用户|你今年|你现在)"
+               r"\s*(?:周岁|虚岁)?\s*(\d{1,2})\s*岁"),
+    re.compile(r"(?:周岁|虚岁)\s*(\d{1,2})\s*岁"),
+    # "28虚岁/27周岁"（单位后置口语）——大运表形如 "23岁丙寅"，不会命中本型
+    re.compile(r"(?<![\d岁至→>])(\d{1,2})\s*(?:周岁|虚岁)"),
+    # 裸 "27岁。"（数字+岁+句读）——review r1-2（Important）：前置排除须覆盖
+    # 大运段端点语境（到/从/至/走/换/止/起/进/交 + 区间连字符 -–—），否则
+    # 「丙寅运走到32岁，」「从23岁到32岁，」「23-32岁。」类真实合格回复被误报
+    re.compile(r"(?<![\d岁至→>到从走换止起进交\-–—])(\d{1,2})\s*岁"
+               r"(?=[，。！？；、,.!?\s]|$)"),
+)
+_DAYUN_CURRENT_RES = (
+    re.compile(r"(?:当前|现在|目前|今年)\s*(?:走|行|处(?:于|在)|正走|进入?)?"
+               r"\s*(?:大运|运程)\s*[^，。\n]{0,6}?"
+               r"([甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥])"),
+    re.compile(r"刚\s*进(?:入)?\s*"
+               r"([甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥])"),
+)
+_TOOL_JSON_LEAK_RES = (
+    "<tool_calls", "<tool_call", "[{\"tool\"", "{\"tool\"", "\\\"tool\\\"",
+)
+
+
+def derive_facts(task: dict) -> Optional[dict]:
+    """从 setup.persons[0] 出生档案派生命理事实（BaziEngine 本地复算，零 LLM）。
+
+    setup 无 persons → None（derived 断言 vacuous 跳过，validator 已前置要求
+    persons）。engine 异常/旧数据 → None。口径与主链一致（同引擎同 now），
+    同一次评测运行内回复与断言不会因时钟漂移失配。
+    """
+    try:
+        persons = (task.get("setup") or {}).get("persons") or []
+        if not persons:
+            return None
+        p = persons[0]
+        m = re.match(r"^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2}))?",
+                     str(p.get("birth") or ""))
+        if not m:
+            return None
+        y, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        h = int(m.group(4) or 0)
+        mi = int(m.group(5) or 0)
+        from src.engines.bazi import BaziEngine
+        r = BaziEngine().calculate(
+            y, mo, d, h, mi, str(p.get("city") or "北京"),
+            str(p.get("gender") or "unknown"))
+        cs = getattr(r, "current_stage", None) or {}
+        facts = {
+            "gender": getattr(r, "gender", "") or "unknown",
+            "shensha": list(getattr(r, "shensha", None) or []),
+            "age_zhousui": cs.get("age_zhousui"),
+            "age_xusui": cs.get("age_xusui"),
+            "dayun_ganzhi": cs.get("dayun_ganzhi"),
+            "dayun_sui_start": cs.get("dayun_sui_start"),
+        }
+        return facts
+    except Exception:
+        return None
+
+
+def _age_claim_check(reply: str, facts: dict, spec: dict) -> dict:
+    lo, hi = facts.get("age_zhousui"), facts.get("age_xusui")
+    if lo is None or hi is None:
+        return {"name": "derived.age_claim", "expect": "facts", "ok": True,
+                "detail": "派生事实缺失，跳过"}
+    window = (lo - 1, hi + 1)
+    claims = []
+    for rx in _AGE_CLAIM_RES:
+        claims += [int(n) for n in rx.findall(reply) if n]
+    claims = list(dict.fromkeys(c for c in claims if 3 <= c <= 120))
+    bad = [n for n in claims if not (window[0] <= n <= window[1])]
+    want = spec.get("params") or {}
+    if bad:
+        return {"name": "derived.age_claim", "expect": f"当前年龄∈[{window[0]},{window[1]}]",
+                "ok": False,
+                "detail": f"当前年龄声明超出窗口: {bad} 岁（档案实龄 {lo} 周岁/"
+                          f"{hi} 虚岁）——把换运岁数当当前年龄属 k11 事故同类"}
+    if want.get("require_mention") and not any(
+            window[0] <= c <= window[1] for c in claims):
+        return {"name": "derived.age_claim", "expect": "回复提及当前年龄",
+                "ok": False,
+                "detail": f"问题询问年龄但回复未出现 {lo}/{hi} 岁表述"}
+    return {"name": "derived.age_claim", "expect": f"无窗口外年龄声明[{window[0]},{window[1]}]",
+            "ok": True, "detail": ""}
+
+
+def _dayun_claim_check(reply: str, facts: dict, spec: dict) -> dict:
+    cur = facts.get("dayun_ganzhi")
+    if not cur:
+        return {"name": "derived.dayun_claim", "expect": "facts", "ok": True,
+                "detail": "派生事实缺失，跳过"}
+    hits = []
+    for rx in _DAYUN_CURRENT_RES:
+        for gz in rx.findall(reply):
+            if gz != cur:
+                hits.append(gz)
+    if hits:
+        return {"name": "derived.dayun_claim",
+                "expect": f"当前大运={cur}",
+                "ok": False,
+                "detail": f"回复把当前大运说成 {hits}（引擎当前段为 {cur}）"}
+    return {"name": "derived.dayun_claim", "expect": f"当前大运={cur}",
+            "ok": True, "detail": ""}
+
+
+def _gender_addr_check(reply: str, facts: dict, spec: dict) -> dict:
+    g = facts.get("gender")
+    if g == "女":
+        return {"name": "derived.gender_addr", "expect": "女命放行", "ok": True,
+                "detail": ""}
+    try:
+        from src.utils.fact_guard import FEMALE_ADDRESS_TERMS
+    except Exception:
+        return {"name": "derived.gender_addr", "expect": "词表", "ok": True,
+                "detail": "词表加载失败跳过"}
+    hits = [t for t in FEMALE_ADDRESS_TERMS if t in reply]
+    if hits:
+        return {"name": "derived.gender_addr",
+                "expect": "男/未知命无女性称谓",
+                "ok": False,
+                "detail": f"回复含女性称谓词: {hits}"}
+    return {"name": "derived.gender_addr", "expect": "男/未知命无女性称谓",
+            "ok": True, "detail": ""}
+
+
+def _shensha_refs_check(reply: str, facts: dict, spec: dict) -> dict:
+    allow = set(facts.get("shensha") or ())
+    if not allow:
+        return {"name": "derived.shensha_refs", "expect": "facts", "ok": True,
+                "detail": "本盘神煞全集缺失，跳过"}
+    try:
+        from src.utils.fact_guard import shensha_lexicon
+        lex = shensha_lexicon()
+    except Exception:
+        lex = ()
+    if not lex:
+        return {"name": "derived.shensha_refs", "expect": "词典", "ok": True,
+                "detail": "词典加载失败跳过"}
+    hits = [w for w in lex if w not in allow and w in reply]
+    if hits:
+        return {"name": "derived.shensha_refs",
+                "expect": f"只允许引用本盘神煞（{len(allow)} 个）",
+                "ok": False,
+                "detail": f"回复引用了白名单外神煞: {hits[:8]}"}
+    return {"name": "derived.shensha_refs", "expect": "无白名单外神煞",
+            "ok": True, "detail": ""}
+
+
+def _tool_json_check(reply: str, facts: dict, spec: dict) -> dict:
+    hits = [s for s in _TOOL_JSON_LEAK_RES if s in reply]
+    if hits:
+        return {"name": "derived.tool_json", "expect": "回复不含工具 JSON",
+                "ok": False, "detail": f"工具 JSON/标签残留: {hits[:5]}"}
+    return {"name": "derived.tool_json", "expect": "回复不含工具 JSON",
+            "ok": True, "detail": ""}
+
+
+_DERIVED_CHECKERS = {
+    "age_claim": _age_claim_check,
+    "dayun_claim": _dayun_claim_check,
+    "gender_addr": _gender_addr_check,
+    "shensha_refs": _shensha_refs_check,
+    "tool_json": _tool_json_check,
+}
+
+
+def eval_derived_checks(task: dict, reply: str, facts: dict = None) -> list:
+    """reply_checks.derived 断言（k11-F）：逐条纯规则判定，零 LLM。"""
+    rc = task.get("reply_checks") or {}
+    specs = rc.get("derived") or []
+    if not specs:
+        return []
+    if facts is None:
+        facts = derive_facts(task)
+    out = []
+    for spec in specs:
+        fn = _DERIVED_CHECKERS.get(spec.get("type"))
+        if fn is None:
+            out.append({"name": "derived.unknown", "expect": spec.get("type"),
+                        "ok": False, "detail": f"未知 derived type: {spec}"})
+            continue
+        try:
+            out.append(fn(reply, facts or {}, spec))
+        except Exception as e:  # noqa: BLE001 — 断言自身异常视为失败（宁可显式）
+            out.append({"name": "derived." + str(spec.get("type")),
+                        "expect": spec.get("params"), "ok": False,
+                        "detail": f"断言执行异常: {type(e).__name__}: {str(e)[:120]}"})
     return out
 
 
@@ -308,6 +509,9 @@ def _run_one_task(task: dict, R: dict, model_route: str, keep_tmp: bool) -> dict
                        "detail": f"异常: {result['exception']}"})
     else:
         checks += eval_reply_checks(task, full)
+        # k11-F：派生数值断言（age/dayun/gender/shensha/tool_json）——事实源
+        # 运行时引擎复算（setup.persons），纯规则零 LLM
+        checks += eval_derived_checks(task, full)
         checks += eval_multi_turn(task, replies)
         if before:
             after = snapshot_unchanged(str(db_path), state_checks)

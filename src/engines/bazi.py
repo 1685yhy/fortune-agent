@@ -111,6 +111,73 @@ def liunian_table(birth_year: int, year_pillar: str, years: int = 30) -> List[di
     } for i in range(years)]
 
 
+def current_stage_facts(birth_year: int, birth_month: int, birth_day: int,
+                        dayun: list, jiaoyun: dict = None,
+                        liunian_rel: dict = None, now: dt = None) -> dict:
+    """当前年龄/当前大运段确定性派生事实（k11-A，供 prompt 事实包引用）。
+
+    口径（与既有事实源逐一同源，勿另起炉灶）：
+    - 周岁 = 当前公历年 − 出生公历年 −（今年生日未到 ? 1 : 0）
+    - 虚岁 = 当前公历年 − 出生公历年 + 1（同 _calc_qiyun_start_age 的虚岁口径：
+      bazi.py:1117 qy.year − birth.year + 1，公历年份差）
+    - 当前大运段 = dayun[(sui, ganzhi)...] 中最后满足 sui <= 虚岁 的段；起止年份 =
+      jiaoyun.years 按 sui 查（问真交运年）兜底 出生年+sui−1（api/paipan.py:311
+      大运展开同款公式）；下段同法。
+    - 当前流年 = liunian_rel {year, ganzhi}（引擎内已立春界定）。
+    返回 dict；字段缺失/越界一律缺键不抛错（消费方 getattr/或 key 判断降级）。
+    now 仅测试注入；生产 None = 取调用时刻（与引擎 calculate 同刻，口径自洽）。
+    """
+    now = now or dt.now()
+    cy = now.year
+    out = {
+        "year": cy,
+        "date_iso": now.strftime("%Y-%m-%d"),
+        "age_xusui": cy - birth_year + 1,
+        "age_zhousui": cy - birth_year - (
+            1 if (now.month, now.day) < (birth_month, birth_day) else 0),
+    }
+    # 交运年表（jiaoyun.years = [{sui, year,...}]，问真口径）→ 虚岁起点 → 公历年
+    jy_by_sui = {}
+    try:
+        for _y in (jiaoyun or {}).get("years") or []:
+            if isinstance(_y, dict) and _y.get("sui") is not None:
+                jy_by_sui[_y["sui"]] = _y.get("year")
+    except Exception:
+        jy_by_sui = {}
+    if not isinstance(dayun, (list, tuple)):
+        return out
+    idx = None
+    for i in range(len(dayun) - 1, -1, -1):
+        try:
+            if dayun[i][0] <= out["age_xusui"]:
+                idx = i
+                break
+        except Exception:
+            continue
+    if idx is None:
+        return out
+    try:
+        sui, gz = dayun[idx]
+    except Exception:
+        return out
+    _start_y = jy_by_sui.get(sui) or (birth_year + sui - 1)
+    _end_sui = sui + 9
+    out.update(
+        dayun_index=idx, dayun_ganzhi=gz,
+        dayun_sui_start=sui, dayun_sui_end=_end_sui,
+        dayun_year_start=_start_y,
+        dayun_year_end=(jy_by_sui.get(sui + 10) or (birth_year + sui + 10 - 1)) - 1,
+    )
+    if idx + 1 < len(dayun):
+        _ns, _ngz = dayun[idx + 1]
+        out.update(next_ganzhi=_ngz, next_sui=_ns,
+                   next_year=jy_by_sui.get(_ns) or (birth_year + _ns - 1))
+    if isinstance(liunian_rel, dict) and liunian_rel.get("ganzhi"):
+        out["liunian_year"] = liunian_rel.get("year") or cy
+        out["liunian_ganzhi"] = liunian_rel["ganzhi"]
+    return out
+
+
 def liuyue(year_ganzhi: str) -> List[str]:
     """流月十二干支（五虎遁：年干定月干首——甲己之年丙作首…；月支固定 寅=正月）。
 
@@ -476,6 +543,12 @@ class BaziResult:
     # 每步大运神煞（问真 dyshensha 口径，P2-2 补全）：[[大运干支, [神煞名...]], ...]
     # 与 dayun 同序同位（shensha_of_dayun，语料 8658 例全量对齐 100%）
     dyshensha: list = field(default_factory=list)
+    # k11 事实纪律（A）：当前年龄/当前大运段等确定性派生事实——引擎 calculate 时
+    # 一次性计算并挂载（见 current_stage_facts，口径与 api/paipan.py 大运展开同源：
+    # jiaoyun years 优先、兜底 出生年+sui-1）。对话 prompt（主链 _format_chart /
+    # advisor 事实包）直接引用 result.current_stage 渲染事实包，两链禁止另算口径
+    # （数据一致性铁律：单一事实源）。None = 老对象/手工构造，消费方 getattr 降级。
+    current_stage: Optional[dict] = None
 
     def rel_with(self, ganzhi: str) -> list:
         """大运/流年干支与原局各柱的干支关系（问真点大运流年同款入口，P0-3）。
@@ -639,6 +712,10 @@ class BaziEngine:
           判定基于实际排盘时刻（solar_time 开（含默认）= 真太阳时修正后；
           用户显式关闭 = 北京时间）。
         """
+        # k11-A：原始输入时刻快照——必须在 DST/真太阳时/晚子时任何修正之前捕获，
+        # 供事实包「出生档案（公历）」回显用户提供口径（与排盘卡头 birth_info 一致，
+        # 不得把修正后时刻冒充用户档案时间）
+        input_birth = (year, month, day, hour, minute)
         # P1-3: Handle unknown gender — default to 男 for calculation
         # G1（2026-08-29 P0-A）：性别契约统一 —— 兼容历史 male/female
         # （前端旧 genderCode 产出）→ 中文；其余（unknown/None/空）→ 男
@@ -948,6 +1025,34 @@ class BaziEngine:
         result.liushi = liushi_now
         result.dayun_rel = [{"sui": sui, "ganzhi": gz, "rel": result.rel_with(gz)}
                             for sui, gz in dayun]
+        # k11-A 事实包注入点（勿在别处另算）：当前年龄/当前大运段在当前文件本体内
+        # 一次算好挂到 result.current_stage——本函数作用域含 orig 出生公历年月日时/
+        # city/农历/日柱四柱等全部事实，口径见 current_stage_facts 文档（与 paipan
+        # 大运展开同源）。异常绝不阻塞排盘主流程（事实缺失只影响 prompt 可选注入）。
+        try:
+            # review r1-1（Important）：年龄派生必须用 input_birth 原始快照（修正前
+            # 年月日）——本行下方 year/month/day 已被真太阳时修正/晚子时归日改写，
+            # 直接传入会让 12-31 23:xx 跨年出生虚岁整年 off-by-one（27 vs 28）、
+            # 生日当天 23:xx 周岁 off-by-one，且与「出生档案」行自相矛盾；大运段仍
+            # 以同一虚岁口径段选（chart 本身按修正后时刻排，此处置不受影响）。
+            result.current_stage = current_stage_facts(
+                input_birth[0], input_birth[1], input_birth[2],
+                dayun, jiaoyun, result.liunian_rel)
+            # birth_solar = 用户提供的原始公历时刻（修正前快照 input_birth，
+            # 与排盘卡头 birth_info 同口径）；chart_hhmm = 实际排盘口径时刻
+            # （真太阳时修正/晚子时归日后的时刻，corrected_time 同源字符串）
+            result.current_stage["birth_solar"] = input_birth
+            result.current_stage["birth_city"] = city
+            result.current_stage["chart_hhmm"] = corrected_time
+            # review r1-5（Minor 注记）：农历行取排盘口径（修正/归日后）的 lunar；
+            # 与原始档案日期跨日时（23:xx 晚子时/真太阳时跨日）显式注记口径差异
+            result.current_stage["birth_lunar"] = (
+                lunar_disp.get("year"), lunar_disp.get("month"),
+                lunar_disp.get("day_text", ""))
+            result.current_stage["lunar_date_shifted"] = (
+                (year, month, day) != input_birth[:3])
+        except Exception as e:  # noqa: BLE001 — 事实包是增强非必需
+            logger.warning("current_stage 计算失败（忽略，排盘不受影响）: %s", e)
         return result
 
     def _calc_shishen(self, day_gan: str, target_gan: str) -> str:

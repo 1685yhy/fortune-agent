@@ -419,12 +419,58 @@ class ChatStreamer:
             before_id = None
         out_box: dict = {}  # 阶段 5：worker 线程回传引用来源（done 事件携带）
 
-        def stream_cb(evt_type: str, payload: dict):
-            """worker 线程回调 → 投递到事件循环队列（线程安全）。"""
+        # k11-E（JSON 泄漏 chunk 级过滤 · 发送总闸）：对每个发送 chunk 先过
+        # ToolJsonChunkFilter（polish 开场工单/工具循环 GLM 先吐 JSON 的竞态在
+        # 任何路径都到不了用户），再做本轮称谓/神煞 scrub（B/C，handler 排盘轮
+        # 才登记事实上下文 → 无上下文不 scrub，自由对话不受影响）。双层与
+        # handler 内 polish/tool-loop 的调用点过滤幂等叠加。过滤后文本与
+        # chunk_texts/剩余模拟流一致（否则收尾重发会带回已滤残渣）。
+        try:
+            from src.bot.stream_guard import ToolJsonChunkFilter
+            _json_filter = ToolJsonChunkFilter()
+        except Exception:
+            _json_filter = None
+        _scrub_h = getattr(self, "handler", None)
+
+        def _send_guard(evt_type: str, payload: dict):
+            """单请求级 cb 包装：工具 JSON 过滤 + 事实 scrub 后投递。"""
             try:
+                if evt_type != "chunk" and _json_filter is not None:
+                    # review r1-4（Minor）：thinking/tool 等事件 = LLM 子流边界
+                    # （引擎阶段→润色/工具循环各成一段）。某子流被 max_tokens 截断
+                    # 在未闭合 JSON 时，悬挂缓冲会吞掉下一子流头部——边界处 finish()
+                    # 丢弃残块（宁漏不泄），下一子流从头计数
+                    _json_filter.finish()
+                if evt_type == "chunk" and isinstance(payload, dict):
+                    raw = (payload.get("text") if "text" in payload
+                           else payload.get("content", ""))
+                    if isinstance(raw, str) and raw:
+                        cleaned = raw
+                        if _json_filter is not None:
+                            cleaned = _json_filter.feed(raw)
+                        if _scrub_h is not None and cleaned:
+                            try:
+                                cleaned = _scrub_h._scrub_turn_text(
+                                    cleaned, user_id) or cleaned
+                            except Exception:
+                                pass
+                        if not cleaned:
+                            return  # 全过滤/缓冲中：本 chunk 不透传
+                        if cleaned != raw:
+                            # text/content 双键历史形态（k7 键名归一）：同步覆盖，
+                            # 防 chunk_texts（content 优先）收脏而事件收净
+                            p2 = dict(payload)
+                            for _k in ("text", "content"):
+                                if _k in p2:
+                                    p2[_k] = cleaned
+                            payload = p2
                 loop.call_soon_threadsafe(queue.put_nowait, (evt_type, payload))
             except RuntimeError:
                 disconnected["flag"] = True  # 事件循环已关（客户端断开）
+
+        def stream_cb(evt_type: str, payload: dict):
+            """worker 线程回调 → 投递到事件循环队列（线程安全）。"""
+            _send_guard(evt_type, payload)
 
         def _run() -> str:
             """executor 线程内跑核心逻辑 + 成功即扣配额（与 /api/chat 一致）。

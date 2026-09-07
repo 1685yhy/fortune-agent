@@ -651,6 +651,14 @@ class FortuneLLM:
         # 失败）。与 format_compact_card 同口径：无括号计数字符串。
         _wuxing = r.wuxing or {}
         _wuxing_str = " ".join(f"{k}{v}" for k, v in _wuxing.items()) or "无"
+        # k11-A/C：神煞喂全集（与用户可见排盘卡同集合，显示端已改全量展示——
+        # 集合一致性是硬契约，见 bazi_formatter 两卡与事实包注释）+ 追加确定性
+        # 事实包（当前年龄/当前大运段等，engine result.current_stage 单一事实源）
+        try:
+            from src.engines.bazi_formatter import format_fact_pack_block
+            _fact_block = format_fact_pack_block(r)
+        except Exception:
+            _fact_block = ""
         return f"""八字：{' '.join(r.bazi)}
 日主：{r.day_master}
 五行：{_wuxing_str}
@@ -658,7 +666,8 @@ class FortuneLLM:
 格局：{r.geju}
 用神：{r.yongshen}{gender_line}
 大运：{' → '.join(f'{age}岁{ganzhi}' for age, ganzhi in r.dayun[:5])}
-神煞：{'、'.join(r.shensha) if r.shensha else '无'}"""
+神煞：{'、'.join(r.shensha) if r.shensha else '无'}
+{_fact_block}""".rstrip()
 
     def _format_references(self, refs: List[ChunkResult]) -> str:
         lines = []

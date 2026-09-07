@@ -297,6 +297,9 @@ def _run_attempt(task: dict, R: dict, attempt_idx: int) -> dict:
     else:
         full = "\n".join(replies)
         checks += l2_eval.eval_reply_checks(task, full)
+        # k11-F：派生数值断言（derived：age/dayun/gender/shensha/tool_json）——
+        # 与独立 l2 运行同源，统一运行器同样执行（纯规则零 LLM）
+        checks += l2_eval.eval_derived_checks(task, full)
         checks += l2_eval.eval_multi_turn(task, replies)
         if l2_before:
             l2_after = l2_eval.snapshot_unchanged(str(db_path), state_checks)

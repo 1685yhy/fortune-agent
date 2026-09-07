@@ -8,9 +8,9 @@ validate_tasks.py — E1 评估集 schema 校验器（纯标准库，零新增�
 
 校验内容：
     1. 逐条 schema（id 唯一性 / 必填字段 / category / severity / pass_k /
-       expected_tools 结构 / no_tool 互斥 / reply_checks 四键 + 四占位符 /
-       turns / state_checks / setup 已知键）
-    2. 覆盖矩阵（category 分布表 / no_tool >= 10 / 链路任务 >= 5 / 总数 == 100）
+       expected_tools 结构 / no_tool 互斥 / reply_checks 四键 + 四占位符 +
+       derived 派生断言键（k11-F 扩展）/ turns / state_checks / setup 已知键）
+    2. 覆盖矩阵（category 分布表 / no_tool >= 10 / 链路任务 >= 5 / 总数 == 103）
 
 退出码：
     0 = 全绿（含分布达标）
@@ -32,6 +32,9 @@ CATEGORIES = [
     "qian", "liuyao", "ziwei", "chat", "edge",
 ]
 SEVERITIES = ["P0", "P1", "P2"]
+# k11-F：reply_checks.derived 断言类型（执行见 scripts/eval_agent/l2_eval.py）
+DERIVED_TYPES = ("age_claim", "dayun_claim", "gender_addr",
+                 "shensha_refs", "tool_json")
 MATCH_LEVELS = ["exact", "partial", "any"]
 ROLES = ["user", "assistant"]
 NEG_PLACEHOLDERS = ["{", "undefined", "NaN", "null"]
@@ -52,7 +55,7 @@ DIST_TARGETS = {
 }
 MIN_NO_TOOL = 10
 MIN_CHAIN = 5
-TOTAL_EXPECTED = 100
+TOTAL_EXPECTED = 103  # 100 基线 + k11-F 事实断言批 T101-T103
 
 # 链路任务判定（4.4）：turns >= 2 且含 建档 -> 排盘 -> 测算 -> 收藏 四步
 CHAIN_SETUP_RE = re.compile(r"199\d年|19[7-9]\d年|20\d\d年|出生|生辰")
@@ -79,7 +82,7 @@ def check_task(t, out):
             return
     # id
     if not re.match(r"^T\d{3}$", t["id"]):
-        out.append("[%s] id 必须形如 T001-T100" % t["id"])
+        out.append("[%s] id 必须形如 T001-T103" % t["id"])
     if not isinstance(t["title"], str) or not t["title"].strip():
         out.append("[%s] title 必须为非空字符串" % t["id"])
     # category
@@ -135,6 +138,33 @@ def check_task(t, out):
             for ph in NEG_PLACEHOLDERS:
                 if ph not in rc["neg_checks"]:
                     out.append("[%s] neg_checks 缺少占位符 %r（{/undefined/NaN/null 四件套）" % (t["id"], ph))
+        # k11-F：reply_checks.derived 可选键（派生数值断言，L2 纯规则层执行）
+        # 元素 = {type, params?}；type ∈ DERIVED_TYPES。age_claim/dayun_claim/
+        # gender_addr/shensha_refs 需要 setup.persons 出生档案做运行时引擎派生
+        # 事实源（tool_json 不需要）。schema 校验器只查结构，执行在 l2_eval。
+        if "derived" in rc:
+            if not isinstance(rc["derived"], list):
+                out.append("[%s] reply_checks.derived 必须为数组" % t["id"])
+            else:
+                need_persons = ("age_claim", "dayun_claim", "gender_addr",
+                                "shensha_refs")
+                has_persons = bool((t.get("setup") or {}).get("persons"))
+                for i, dv in enumerate(rc["derived"]):
+                    if not isinstance(dv, dict) or not isinstance(
+                            dv.get("type"), str):
+                        out.append("[%s] derived[%d] 必须为含 type 的对象"
+                                   % (t["id"], i))
+                        continue
+                    if dv["type"] not in DERIVED_TYPES:
+                        out.append("[%s] derived[%d].type=%r 非法（%s）"
+                                   % (t["id"], i, dv["type"], DERIVED_TYPES))
+                    if "params" in dv and not isinstance(dv["params"], dict):
+                        out.append("[%s] derived[%d].params 必须为对象"
+                                   % (t["id"], i))
+                    if dv["type"] in need_persons and not has_persons:
+                        out.append("[%s] derived[%d].type=%s 需要 setup.persons"
+                                   "（运行时引擎派生事实源）" % (t["id"], i,
+                                                              dv["type"]))
     # turns
     if not isinstance(t["turns"], list) or len(t["turns"]) == 0:
         out.append("[%s] turns 必须为非空数组" % t["id"])

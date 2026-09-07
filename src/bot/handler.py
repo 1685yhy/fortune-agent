@@ -1726,10 +1726,12 @@ class MessageHandler:
                     new_reply = _extract_native_text(data)
                 else:
                     # GLM/其他 provider：保持现状（流式文本路径）
+                    # k11-E：流式转发前包 chunk 级工具 JSON 过滤（1732 先流式
+                    # 1747 后 strip 的竞态——JSON 若先出已到前端，此处拦截）
                     new_reply = deepseek_anthropic_completion(
                         api_key, messages, model=_llm_model,
                         max_tokens=2000, temperature=0.7, timeout=60.0,
-                        stream_cb=stream_cb,
+                        stream_cb=self._wrap_ctx_scrub_cb(stream_cb, user_id),
                     )
             except Exception:
                 break  # LLM 调用失败 → 静默降级返回原文
@@ -1960,13 +1962,16 @@ class MessageHandler:
         _t0 = time.monotonic()
         try:
             from src.llm.client import deepseek_anthropic_completion
+            # k11-E：polish 全程真流式且 search_hint 时被要求先输出 JSON 工单
+            # （1960-1965）——转发前包 chunk 级过滤，开场 JSON 不落用户可见流
+            _polish_cb = self._wrap_ctx_scrub_cb(stream_cb, user_id)
             polished = deepseek_anthropic_completion(
                 api_key, messages, model=model,
                 # k7d：polish 输入为引擎完整稿（实测最长 ~2600 字符），2000 token
                 # 上限会截断润色输出（实测断于 1140 字符半句），用户实时流看到
                 # 半句稿 → 4000（实测 2870-3382 字符长流完整）。
                 max_tokens=4000, temperature=0.7, timeout=60.0,
-                stream_cb=stream_cb,
+                stream_cb=_polish_cb,
             )
             logger.info("[timing] stage=polish duration=%.1fs",
                         time.monotonic() - _t0)
@@ -3037,6 +3042,78 @@ class MessageHandler:
         return bool(_TOOL_DESC_ECHO_RE.search(text)
                     or _JSON_PARAM_LEAK_RE.search(text))
 
+    # ============================================================
+    # k11 事实纪律：本轮事实上下文 + 输出后称谓/神煞校验（纯规则）
+    # ============================================================
+
+    def _set_fact_ctx(self, user_id: str, gender, shensha) -> None:
+        """记录本轮命理事实上下文（gender + 本盘神煞全集 allow），供流式出口
+        chunk scrub 与整段 scrub 使用（chat_stream 出口逐 chunk 消费）。
+
+        gender: 引擎归一结果（男/女/unknown）；shensha: 引擎算出全集（白名单）。
+        无上下文的轮次（自由对话/非命理意图）不 scrub，防误伤。
+        """
+        try:
+            self.__dict__.setdefault("_fact_ctx", {})[user_id] = {
+                "gender": str(gender or ""),
+                "shensha": [str(s) for s in (shensha or ())],
+            }
+        except Exception:
+            pass
+
+    def _pop_fact_ctx(self, user_id: str) -> None:
+        """每轮 process 入口清空（上下文只属于触发它的那一轮排盘）。"""
+        try:
+            self.__dict__.get("_fact_ctx", {}).pop(user_id, None)
+        except Exception:
+            pass
+
+    def _scrub_turn_text(self, text: str, user_id: str) -> str:
+        """整段文本称谓/神煞 scrub（B/C 输出后校验器；纯规则，无上下文不 scrub）。"""
+        if not text:
+            return text
+        try:
+            ctx = (self.__dict__.get("_fact_ctx", {}) or {}).get(user_id)
+            if not ctx:
+                return text
+            from src.utils.fact_guard import scrub_turn
+            return scrub_turn(text, ctx.get("gender"), ctx.get("shensha"))
+        except Exception:
+            return text  # scrub 是增强：异常原样放行
+
+    def _wrap_ctx_scrub_cb(self, stream_cb, user_id: str):
+        """给 stream_cb 包一层"工具 JSON 过滤 + 本轮称谓/神煞 scrub"（chunk 级）。
+
+        k11-E：LLM 流式先把 <tool_calls> JSON 工单/裸 JSON 吐出来时逐块拦截，
+        任何 {tool…} JSON 不落用户可见流（与 chat_stream 出口同一过滤器语义，
+        此处贴近生产 LLM 调用点再加一道，双层幂等）。
+        """
+        if stream_cb is None:
+            return None
+        try:
+            from src.bot.stream_guard import wrap_chunk_filter as _wrap_json
+            cb1 = _wrap_json(stream_cb)
+
+            def _wrapped(evt_type: str, payload: dict) -> None:
+                if evt_type == "chunk" and isinstance(payload, dict):
+                    raw = (payload.get("text") if "text" in payload
+                           else payload.get("content", ""))
+                    if isinstance(raw, str) and raw:
+                        cleaned = self._scrub_turn_text(raw, user_id)
+                        if cleaned != raw:
+                            # text/content 双键历史形态：同步覆盖防收尾比对错位
+                            p2 = dict(payload)
+                            for _k in ("text", "content"):
+                                if _k in p2:
+                                    p2[_k] = cleaned
+                            cb1(evt_type, p2)
+                            return
+                cb1(evt_type, payload)
+
+            return _wrapped
+        except Exception:
+            return stream_cb
+
     def _extract_zeri_exclude_dates(self, params) -> Optional[list]:
         """解析「换一批」去重日期 → select_lucky_days 的 exclude_dates 参数。
 
@@ -3675,6 +3752,9 @@ class MessageHandler:
         self._downgraded[user_id] = bool(downgraded)
         # 清理上一轮残留的工具日志（xuetang/advisor/confidant 等早退分支不消费）
         self._pop_tool_log(user_id)
+        # k11-B/C：每轮清空事实上下文——本轮排盘重新 _set_fact_ctx 后才对输出
+        # 生效（称谓/神煞 scrub 只作用于命理轮，自由对话无上下文不 scrub）
+        self._pop_fact_ctx(user_id)
         # E2-1 卡片化：重置本轮卡片判定上下文（引擎/直读路径会写入记录；
         # object.__new__ 装配的测试实例无该属性时跳过——卡片化纯增量，不阻断主流程）
         _turn = getattr(self, "_card_turn", None)
@@ -4096,7 +4176,21 @@ class MessageHandler:
 
                     def _gated_cb(evt_type: str, payload: dict) -> None:
                         if evt_type == "chunk":
-                            _draft_chunks.append(payload)  # 草稿正文：暂存
+                            # k11-B/C：草稿正文暂存前 scrub（本轮事实上下文已由
+                            # _do_bazi_analysis 在排盘后设置）——后续 flush（草稿
+                            # 即最终稿分支）与 engine_draft（润色输入）都基于净文本
+                            _p = payload
+                            if isinstance(payload, dict):
+                                raw = (payload.get("text") if "text" in payload
+                                       else payload.get("content", ""))
+                                if isinstance(raw, str) and raw:
+                                    _clean = self._scrub_turn_text(raw, user_id)
+                                    if _clean != raw:
+                                        _p = dict(payload)
+                                        for _k in ("text", "content"):
+                                            if _k in _p:
+                                                _p[_k] = _clean
+                            _draft_chunks.append(_p)  # 草稿正文：暂存
                             return
                         _real_cb(evt_type, payload)  # thinking/tool：透传
                 else:
@@ -4216,6 +4310,16 @@ class MessageHandler:
                 lambda m: m.group(0).replace("{", "").replace("}", "")
                 .replace("'", "").replace('"', ""),
                 reply)
+        # k11-B/C（输出后校验器·引擎意图出口）：润色/工具循环把引擎稿重写后，
+        # 称谓与神煞白名单可能被再次破坏——整段再 scrub 一道（纯规则，无上下文
+        # 的意图不 scrub；已含本轮回执"女命/男命"标注不受影响——非女性称谓词）。
+        if analysis.intent in ("bazi", "career"):
+            try:
+                _s = self._scrub_turn_text(reply, user_id)
+                if _s:
+                    reply = _s
+            except Exception:
+                pass
         # 阶段 2：本轮工具调用日志 → 落库字段
         tool_log = self._pop_tool_log(user_id)
         # E2-1 卡片化：统一出口包装（落库/缓存/返回值一致携带卡片标记；
@@ -5576,6 +5680,10 @@ class MessageHandler:
         # 1. 排盘（流式模式先发进度事件，避免引擎阶段长沉默触发看门狗）
         self._emit_stream_event(stream_cb, "thinking", "正在排盘…")
         result = self.engine.calculate(year, month, day, hour, minute, city, gender)
+        # k11-B/C：本轮事实上下文（称谓 scrub 用 gender + 神煞 scrub 用全集 allow）
+        # ——process 入口已清空；仅命理轮在此重建，供流式出口/整段 scrub 消费。
+        self._set_fact_ctx(user_id, getattr(result, "gender", ""),
+                           getattr(result, "shensha", None))
         # R2-6：落库 birth 字典——arch_raw 提供时保留原始 y/m/d + calendar
         # 标记；否则引擎参数即事实。hour/minute/city/gender 恒取引擎参数
         # （农历转换只作用于 y/m/d，时间/地点/性别不受影响原样持久化）。
@@ -5741,6 +5849,19 @@ class MessageHandler:
             logger.info("[timing] stage=main_analysis duration=%.1fs",
                         time.monotonic() - _t0)
 
+        # k11-B/C（输出后校验器第二道，正文层）：主分析 LLM 正文称谓/神煞 scrub
+        # ——prompt 有事实包与白名单条款（第一道），此处兜底（真幻觉 文昌贵人 案：
+        # 纯规则去词，零 LLM）。advice 字段已在 AdaptiveAdvisor.generate 内 scrub。
+        try:
+            from src.utils.fact_guard import scrub_turn as _scrub
+            _gen_g = getattr(result, "gender", "") or ""
+            _gen_allow = list(getattr(result, "shensha", None) or [])
+            _resp = getattr(analysis, "response", "")
+            if _resp:
+                analysis.response = _scrub(_resp, _gen_g, _gen_allow)
+        except Exception:
+            pass
+
         # 6. 生成命盘图片
         chart_url = ""
         try:
@@ -5858,11 +5979,29 @@ class MessageHandler:
         # 命例相似度分析已移除（2026-08-09 方案 v5 选 A：SimilarityEngine 停用，
         # 未问"像谁"不再输出命例对照）
 
+        # k11-B/C：秒回安抚/下文引导同为 LLM 产物，拼接前 scrub（纯规则）
+        try:
+            from src.utils.fact_guard import scrub_turn as _scrub2
+            _g2 = getattr(result, "gender", "") or ""
+            _a2 = list(getattr(result, "shensha", None) or [])
+            if instant_reply:
+                instant_reply = _scrub2(instant_reply, _g2, _a2)
+        except Exception:
+            pass
+
         if instant_reply:
             reply = instant_reply + "\n\n---\n\n" + reply
 
         # 9. AI 生成下文引导（替代硬编码的「还想了解什么？」）
         followup = self._gen_followup_questions(result, question)
+        # k11-B/C：引导语 scrub（须在生成之后）
+        try:
+            if followup:
+                from src.utils.fact_guard import scrub_turn as _scrub3
+                followup = _scrub3(followup, getattr(result, "gender", "") or "",
+                                   list(getattr(result, "shensha", None) or []))
+        except Exception:
+            pass
         if followup:
             reply += "\n\n" + followup
 
@@ -6346,6 +6485,15 @@ class MessageHandler:
                 wuxing_str = " ".join(f"{k}{v}" for k, v in wuxing.items())
                 chart_info_parts.append(f"五行: {wuxing_str}")
             chart_info = "，".join(chart_info_parts)
+            # k11-B：秒回安抚同为 LLM 产物（报告 §五#3 低危同类）——补性别与
+            # 称谓规则；输出后另有 _do_bazi_analysis 拼装前 scrub 兜底
+            _ig = str(getattr(result, "gender", "") or "").strip()
+            _gender_note = ""
+            if _ig in ("男", "女", "male", "female"):
+                _gender_note = f"用户性别：{'男' if _ig in ('男', 'male') else '女'}；"
+                if _ig in ("男", "male"):
+                    _gender_note += ("使用中性称谓（你/朋友），"
+                                     "禁止女性称谓与闺蜜口吻（姐妹/亲爱的等）。")
 
             prompt = (
                 f"用户的命盘排出来了：{chart_info}。\n"
@@ -6353,7 +6501,8 @@ class MessageHandler:
                 "1. 先展示八字和日主\n"
                 "2. 从命盘中找一个最亮眼的亮点（神煞、格局、五行特色等），用温暖现代的语气说出来\n"
                 "3. 风格：像朋友发来的消息，不要用'小友''老夫'等老气称呼\n"
-                "4. 结尾用🌟\n"
+                + (_gender_note + "\n" if _gender_note else "")
+                + "4. 结尾用🌟\n"
                 "直接返回开场白文本，不要引号不要JSON。"
             )
 
@@ -7358,6 +7507,10 @@ class MessageHandler:
         except Exception as e:
             return f"⚠️ 命盘重新计算失败：{str(e)[:100]}"
 
+        # k11-B/C：advisor 直答面同样登记本轮事实上下文（称谓/神煞出口校验用）
+        self._set_fact_ctx(user_id, getattr(result, "gender", ""),
+                           getattr(result, "shensha", None))
+
         # 4. 调用 AdaptiveAdvisor 生成建议
         api_key = getattr(self.llm, 'api_key', '') if self.llm else ''
         try:
@@ -7422,6 +7575,15 @@ class MessageHandler:
 
         # 6. 反馈提示
         reply = self._add_feedback_prompt(reply)
+
+        # k11-B/C（输出后校验器·advisor 直答面）：建议文案已由 generate 内 scrub，
+        # 此处对拼装后的整段再做一道称谓/神煞校验（纯规则；无 result → 原样）。
+        try:
+            _sr = self._scrub_turn_text(reply, user_id)
+            if _sr:
+                reply = _sr
+        except Exception:
+            pass
 
         # 7. 保存咨询记录
         self.dao.save_consultation(user_id, msg, result, intent="advisor")

@@ -185,10 +185,14 @@ def format_detailed_chart(result, birth_info: dict = None) -> str:
         lines.append("")
 
     # ===== Level 5: 神煞 =====
+    # k11-C（事实纪律）：显示端全量（折行）——喂给 LLM 的神煞集合 = 用户实际可见集合，
+    # 杜绝"卡内引用看不到的神煞"观感编造（2026-09-06 事故：排盘卡 [:12]/[:6] 截断而
+    # advisor 喂全集，孤辰寡宿/童子煞/金神等引用用户看不到）。全集通常 14-20 项，
+    # 微信自动折行一行为限；不再做任何截断（若未来超长需截断必须同步改 prompt 侧集合）。
     shensha = getattr(result, 'shensha', []) or []
     if shensha:
         lines.append("⭐ **神煞**")
-        lines.append("  " + "、".join(str(s) for s in shensha[:12]))
+        lines.append("  " + "、".join(str(s) for s in shensha))
         lines.append("")
 
     # ===== Level 6: 流年 =====
@@ -247,15 +251,116 @@ def format_compact_card(result, birth_info: dict = None) -> str:
         dy_str = " → ".join(f"{a}岁{g}" for a, g in dayun[:4])
         lines.append(f"📅 大运：{dy_str}")
 
-    # 神煞
+    # 神煞 —— k11-C：显示端全量（与详细卡/LLM 事实包同一集合，禁截断；
+    # 截断裂缝=观感编造事故根因，见 format_detailed_chart 同款注释）
     ss = getattr(result, 'shensha', []) or []
     if ss:
-        lines.append(f"⭐ 神煞：{'、'.join(str(s) for s in ss[:6])}")
+        lines.append(f"⭐ 神煞：{'、'.join(str(s) for s in ss)}")
 
     lines.append("")
     lines.append("💡 回复「详细排盘」查看完整命盘")
 
     return "\n".join(lines)
+
+
+# ============================================================
+# k11-A 事实包（LLM prompt 注入块，两链共用单一事实源）
+# ============================================================
+
+_LUNAR_MONTH_CN = ("正月", "二月", "三月", "四月", "五月", "六月",
+                   "七月", "八月", "九月", "十月", "十一月", "腊月")
+
+
+def format_fact_pack_block(result) -> str:
+    """确定性事实包文本（k11-A）——主链 _format_chart 与 advisor prompt 共同注入。
+
+    内容只读 BaziResult：current_stage（引擎 calculate 内 current_stage_facts 计算，
+    口径见 bazi.py 该函数文档）+ liunian_rel/liunian_full 兜底。prompt 侧纪律：
+    年龄/大运/换运年份/神煞只许引用本包与命盘数据行，禁止自行推算或编造。
+    任何字段缺失 → 该行缺席或改为"勿推算"提示，绝不抛错、绝不编数值。
+    """
+    try:
+        cs = getattr(result, "current_stage", None) or {}
+        lines = []
+        parts = []
+        # 1) 当前日期 + 当前流年（立春界定，引擎 liunian_rel 同源）
+        _yr = (cs.get("year") if cs else None) or (
+            (getattr(result, "liunian_rel", None) or {}).get("year"))
+        _ln_gz = (cs.get("liunian_ganzhi") if cs else None) or (
+            (getattr(result, "liunian_rel", None) or {}).get("ganzhi"))
+        _date = cs.get("date_iso") if cs else None
+        seg = []
+        if _date:
+            seg.append(f"当前日期：{_date}")
+        if _yr:
+            seg.append(f"当前流年：{_yr} 年 {_ln_gz or '?'}（干支年，以立春为界）")
+        # 2) 出生档案（公历=引擎排盘输入；农历=归一化后农历，与四柱自洽）
+        _bs = cs.get("birth_solar") if cs else None
+        _city = (cs.get("birth_city") if cs else None) or ""
+        _bl = (cs.get("birth_lunar") if cs else None)
+        if isinstance(_bs, (tuple, list)) and len(_bs) >= 5:
+            _y, _m, _d, _h, _mi = _bs[:5]
+            # 排盘口径时刻注记：真太阳时修正/晚子时归日与用户提供时刻不同才显示
+            _hhmm = cs.get("chart_hhmm") if cs else None
+            _note = ""
+            try:
+                if _hhmm and _hhmm != "%02d:%02d" % (_h, _mi):
+                    _note = f"（排盘口径 {_hhmm}）"
+            except Exception:
+                pass
+            seg.append("出生档案（公历）：%d年%d月%d日 %02d:%02d%s%s"
+                       % (_y, _m, _d, _h, _mi,
+                          f" {_city}" if _city else "", _note))
+        if isinstance(_bl, (tuple, list)) and len(_bl) >= 3 and _bl[0]:
+            _lm, _ld = _bl[1], _bl[2]
+            _lm_txt = (_LUNAR_MONTH_CN[_lm - 1]
+                       if isinstance(_lm, int) and 1 <= _lm <= 12 else str(_lm))
+            _yp = getattr(result, "bazi", None)
+            _yg = _yp[0] + "年" if _yp and _yp[0] else ""
+            # review r1-5：晚子时归日/真太阳时跨日（23:xx 出生）时农历取自排盘口径
+            # 的次日/修正日——与「出生档案（公历）」行并排时显式注记口径，防歧义
+            _shift_note = ("（按排盘口径日期）" if (cs or {}).get("lunar_date_shifted")
+                           else "")
+            seg.append(f"出生（农历）：{_yg}{_lm_txt}{_ld}{_shift_note}")
+        # 3) 当前年龄/当前大运段（核心修复：杜绝把换运岁数当当前年龄）
+        if cs and cs.get("age_zhousui") is not None:
+            seg.append("命主当前年龄：周岁 %s 岁（虚岁 %s）"
+                       % (cs["age_zhousui"], cs["age_xusui"]))
+        if cs and cs.get("dayun_ganzhi"):
+            seg.append(
+                "当前大运：%s（虚岁 %s-%s，约 %s-%s 年）%s"
+                % (cs["dayun_ganzhi"], cs.get("dayun_sui_start"),
+                   cs.get("dayun_sui_end"), cs.get("dayun_year_start"),
+                   cs.get("dayun_year_end"),
+                   ("；下一步：%s（虚岁 %s 起，约 %s 年起）"
+                    % (cs.get("next_ganzhi"), cs.get("next_sui"),
+                       cs.get("next_year"))
+                    if cs.get("next_ganzhi") else "")))
+        # 4) 神煞白名单纪律（名单本身在命盘数据段，两链均已注入）
+        _ss = getattr(result, "shensha", None) or []
+        if seg:
+            lines.append("【确定性事实包（以下为排盘引擎按当前日期确定性算出的数值，"
+                         "只许引用，禁止自行推算或编造）】")
+            for s in seg:
+                lines.append(f"- {s}")
+            if _ss:
+                lines.append("- 神煞纪律：本盘神煞全集见上方命盘数据（共 %d 个）；"
+                             "只许引用名单内神煞，禁止自造或引用名单外的任何神煞名"
+                             % len(_ss))
+        # 5) 无事实包字段时的防编造提示（老对象/手工 mock/降级对象兜底）
+        else:
+            _hint = "【提示】本次未提供当前年龄/大运/换运年份等确定性数值，" \
+                    "回答涉及年龄与大运时只引用上方命盘数据已有内容，" \
+                    "不得自行推算编造年龄或换运年份。"
+            if _ss:
+                _hint += "（本盘神煞 %d 个：名单见上方命盘数据，只许引用名单内神煞）" \
+                         % len(_ss)
+            lines.append(_hint)
+        return "\n".join(lines)
+    except Exception:
+        # 事实包是 prompt 增强：任何异常返回最小防编造提示，不阻塞主流程
+        return "【提示】本次未提供当前年龄/大运等确定性数值，回答时不得自行推算编造。"
+
 
 # ============================================================
 # 补全：空亡、星运、藏干十神、自坐、对比函数

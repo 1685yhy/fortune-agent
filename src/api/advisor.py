@@ -131,6 +131,12 @@ async def get_advisor(req: AdvisorRequest, uid: str = Depends(require_user)):
     #     保留响应字段向后兼容前端，不再填充任何名人数据）
     celeb_matches = []
 
+    # review r1-3（Minor，k11 round1）：narrative_text 原为未赋值变量（自 2026-08-10
+    # 名人匹配层移除即成死引用 NameError，/api/advisor 命中即 500）。本端点
+    # miniprogram 未调用（既有死路径，见 plan 后续项——k11b 起评估是否接入）；
+    # 最小修复 = 恒空串对齐响应契约 + 真实状态注记，勿宣称"该路径已覆盖 LLM 建议链路"。
+    narrative_text = ""
+
     # 4b. 领域建议 — 按域过滤 & 转换
     domain_map = {
         "事业": "career",
