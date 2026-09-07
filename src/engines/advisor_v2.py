@@ -81,7 +81,15 @@ class AdaptiveAdvisor:
                 "style_notes": "..."
             }
         """
-        personality_label = "毒舌闺蜜"
+        # k11-B（性别称谓修复）：persona 按用户性别分支——毒舌闺蜜（女性口吻）只
+        # 限女性用户；男/未知一律中性"理性分析师"（2026-09-06 实锤：男命收到
+        # 「醒醒吧姐妹…」）。产品可调：女性档可改"温柔陪伴者"、男性档如需
+        # 男性向口吻（如"靠谱兄弟"式）在此扩展分支，勿改硬规则段。
+        _g_raw = str(getattr(bazi_result, "gender", "") or "").strip().lower()
+        if _g_raw in ("女", "female", "f"):
+            personality_label = "毒舌闺蜜"
+        else:
+            personality_label = "理性分析师"
 
         try:
             # 1. 构建 LLM Prompt（无名人匹配段）
@@ -106,6 +114,26 @@ class AdaptiveAdvisor:
                     {"category": d, "advice": FALLBACK_ADVICE[d][0], "timing": "近期", "confidence": "medium"}
                     for d in LIFE_DOMAINS
                 ]
+
+            # k11-B/C（输出后校验器·建议卡字段层）：称谓（男/未知命女性词）与
+            # 神煞白名单（本盘引擎全集）去词兜底——prompt 事实纪律之外的第二道，
+            # 纯规则零 LLM。三消费点（handler 5675/5771、7364、api/advisor）全部
+            # 经过 generate() → 单点覆盖。
+            try:
+                from src.utils.fact_guard import scrub_turn
+                _g = getattr(bazi_result, "gender", "") or ""
+                _allow = list(getattr(bazi_result, "shensha", None) or [])
+                for _a in result.get("actions") or []:
+                    if isinstance(_a, dict):
+                        for _k in ("advice", "timing", "concrete_steps",
+                                   "success_metric"):
+                            if isinstance(_a.get(_k), str):
+                                _a[_k] = scrub_turn(_a[_k], _g, _allow)
+                for _k in ("serendipity", "daily_tip", "style_notes"):
+                    if isinstance(result.get(_k), str):
+                        result[_k] = scrub_turn(result[_k], _g, _allow)
+            except Exception:
+                pass  # scrub 是增强：异常静默，不阻塞建议返回
 
             return result
 
@@ -155,11 +183,55 @@ class AdaptiveAdvisor:
             ),
         }.get(personality_label, "")
 
+        # k11-B：性别（引擎归一：男/女/unknown；主链 client.py:648 同构先例）
+        _g = str(getattr(result, "gender", "") or "").strip().lower()
+        _gender_cn = {"男": "男", "女": "女", "male": "男", "female": "女"}.get(
+            _g, "未知（请用中性表述，勿假设性别）")
+        # k11-A：确定性事实包（当前年龄/当前大运段/换运年份/出生档案——引擎
+        # result.current_stage 单一事实源，bazi_formatter 单一渲染，两链共用）
+        try:
+            from src.engines.bazi_formatter import format_fact_pack_block
+            fact_block = format_fact_pack_block(result)
+        except Exception:
+            fact_block = ""
+        # k11-D：引擎方向要点（确定性基线）——与择业工具卡同表同函数
+        # （src/tools/career_dir.py：行业五行映射 INDUSTRY_WUXING / 方位
+        # ELEMENT_DIRECTION / 喜用 helpful_elements / 忌神 forbidden_elements /
+        # 日主强弱 day_master_strength_of），防口径分裂。
+        direction_block = ""
+        try:
+            from src.tools.career_dir import (helpful_elements, forbidden_elements,
+                                              day_master_strength_of,
+                                              forbidden_reason, INDUSTRY_WUXING,
+                                              ELEMENT_DIRECTION)
+            _hl = helpful_elements(result)
+            _fb = forbidden_elements(result)
+            _st = day_master_strength_of(result)
+            _lines = [f"日主强弱：{_st}"]
+            if _hl:
+                _lines.append("喜用五行（应补/宜从事之五行）："
+                              + "、".join(_hl))
+            if _fb:
+                _lines.append("忌神五行（{reason}）：{fb}".format(
+                    reason=forbidden_reason(_st), fb="、".join(_fb)))
+            _lines.append("行业五行映射（命理通识，与择业卡同表）：")
+            for _wx in ("金", "木", "水", "火", "土"):
+                _labels = "、".join(label for label, _ in INDUSTRY_WUXING.get(_wx, []))
+                if _labels:
+                    _lines.append(f"  {_wx} → {_labels}")
+            _lines.append("方位映射：" + "、".join(
+                f"{w}→{ELEMENT_DIRECTION[w]}" for w in ("木", "火", "土", "金", "水")
+                if w in ELEMENT_DIRECTION))
+            direction_block = "\n".join(_lines)
+        except Exception:
+            pass  # 基线缺失不阻塞（prompt 其余部分照常）
+
         prompt = f"""重要：当前年份是{current_year}年。所有时间建议必须以{current_year}年之后的具体日期为准。
 你是一位精通子平八字的命理顾问，现在需要为一位用户生成个性化的行动建议。
 
 ## 用户命盘数据
 
+性别：{_gender_cn}
 八字四柱：{bazi_str}
 日主：{result.day_master}
 纳音：{nayin_str}
@@ -179,6 +251,35 @@ class AdaptiveAdvisor:
 
 当前模式：{personality_label}
 {style_instructions}
+"""
+        # k11-B：称谓硬规则（男/未知 → 中性；女 → 才可闺蜜式）——独立追加段，
+        # 确保在风格要求之后仍显式覆盖 persona 的性别倾向
+        if _gender_cn not in ("男", "女") or _gender_cn == "男":
+            prompt += """
+## 称谓硬规则（必须遵守）
+
+用户性别：男 或 未知。所有建议正文一律使用中性称谓（「你」「朋友」「这位朋友」）；
+严禁任何女性向称谓或闺蜜口吻（如「姐妹」「闺蜜」「亲爱的」「姑娘」「集美」等），
+严禁以女性身份自称。语气保持专业、直接、温暖即可。"""
+        if fact_block:
+            prompt += "\n\n" + fact_block + """
+涉及「今年几岁/现在走哪步大运/几岁换运/哪个年龄段」的判断只许引用上方事实包数值，
+禁止自行推算或另起口径。"""
+        if direction_block:
+            prompt += """
+## 引擎方向要点（确定性基线——建议方向不得与下列事实冲突或反转）
+
+""" + direction_block + """
+
+【硬约束条款】以上为排盘引擎与命理规则层确定性产出的方向基线：
+1. 建议的补泄/行业/方位方向不得与基线相悖（例：喜用补 X 时不得主荐大补忌神五行的
+   方向；某行业五行归类一律按映射表，不得自定口径后与表冲突）；
+2. 五行盛衰以事实包五行分布为准（例：缺某五行 = 平衡要点，不得说成充足或无关）；
+3. 基线未覆盖处可正常展开命理分析，但任何展开不得推翻基线的既有结论；
+4. 行业建议给出方向的同时，若该方向属忌神/官杀压力类，可如实提示压力与风险，
+   但不得把「压力行业」说成「更旺你」而反转基线。"""
+
+        prompt += """
 
 ## 输出格式要求
 

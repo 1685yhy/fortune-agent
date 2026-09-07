@@ -329,7 +329,7 @@ def test_select_tasks_category_all():
     edge = l2_eval.select_task_ids(tasks, _Args(category="edge"))
     assert all(t["category"] == "edge" for t in tasks
                if t["id"] in edge) and len(edge) == 20
-    assert len(l2_eval.select_task_ids(tasks, _Args(all_=True))) == 100
+    assert len(l2_eval.select_task_ids(tasks, _Args(all_=True))) == 103  # k11-F
 
 
 # ================================================================
