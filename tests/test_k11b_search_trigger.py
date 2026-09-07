@@ -186,6 +186,38 @@ class TestDecideSearch:
             d = decide_search(msg)
             assert not d.should_search, (msg, d)
 
+    def test_local_fortune_r1_reproductions_zero(self):
+        """k11b-r1 审查复现句式（P1-A）零触发：
+        ①「X运」族（工作运/事业运/桃花运…）+最近/今年前缀（timely 误触修复）；
+        ② 个人决策族+决策问句 cue（跳槽/换工作+什么时候/时机）；
+        ③ 开公司/行业词/银行/金融+个人适配 cue（白名单裸词"公司"误触修复）；
+        ④ 命理主题句（五行/行业+适合…吗 → 也不抽垃圾实体，见抽取测试）。"""
+        for msg in ("最近工作运怎么样", "今年工作运怎么样", "最近事业运如何",
+                    "最近桃花运怎么样", "帮我看看什么时候适合跳槽",
+                    "想跳槽 帮我看看时机", "什么时候适合搬家",
+                    "我该不该换工作", "去开公司适合我吗",
+                    "五行属水的行业适合开公司吗", "金融行业适合我吗",
+                    "银行工作适合我吗", "我适合去银行工作吗",
+                    "在银行还是互联网公司适合我", "我适合去国企吗"):
+            d = decide_search(msg)
+            assert not d.should_search, (msg, d)
+
+    def test_external_timely_news_policy_allowed_r1(self):
+        """k11b-r1（P2-B 决策记录）：新闻/政策/行业类合法外部时效问放行——
+        本地锚只拦「命理本地/个人决策」问，不拦纯外部时效事实（chat 域与引擎域
+        同一判定）。"""
+        for msg in ("最近有什么行业新闻", "最近有什么行业政策",
+                    "最近有什么政策变化", "帮我查一下最近的行业新闻",
+                    "最近有什么新闻"):
+            d = decide_search(msg)
+            assert d.should_search, (msg, d)
+
+    def test_named_entity_timing_question_searchable_r1(self):
+        """真实命名实体 + 外部时效问（什么时候发财报）→ 实体层放行——
+        口语决策族只拦无命名实体的本地问，不误伤命名实体时效问。"""
+        d = decide_search("XX科技公司什么时候发财报")
+        assert d.should_search and d.entity == "XX科技"
+
     def test_finance_hard_exclude(self):
         """T074：金融行情永不搜（产品无行情数据源）。"""
         for msg in ("今天股市行情怎么样", "帮我查一下大盘指数",
@@ -233,6 +265,16 @@ class TestDecideSearch:
         assert extract_entity_mentions("培训机构靠谱吗") == []
         assert "腾讯" in extract_entity_mentions("腾讯怎么样")
         assert extract_entity_mentions("易宝支付") == ["易宝支付"]
+
+    def test_extract_junk_candidates_r1(self):
+        """k11b-r1（P2-C/P1-A）：句子功能词/命理主题词内嵌的名称串 = 垃圾候选；
+        「某/某些」泛化指代 head 剥离；真实品牌（中国太保/美的）不误伤。"""
+        for msg in ("五行属水的行业适合开公司吗", "去开公司适合我吗",
+                    "在银行还是互联网公司适合我", "某公司怎么样", "某平台靠谱吗"):
+            assert extract_entity_mentions(msg) == [], msg
+        assert extract_entity_mentions("中国太保集团怎么样") == ["中国太保集团"]
+        assert extract_entity_mentions("美的集团怎么样") == ["美的集团"]
+        assert extract_entity_mentions("易宝支付这家公司怎么样") == ["易宝支付"]
 
 
 # ============================================================
@@ -539,6 +581,8 @@ class TestProcessT105LocalZeroSearch:
         ("今年运势如何", "bazi"),
         ("我明年财运怎么样", "career"),
         ("这个月适合搬家吗", "bazi"),
+        # k11b-r1（P1-A）：X运族 + 最近前缀（timely 误触发修复）引擎域零搜索
+        ("最近工作运怎么样", "bazi"),
     ])
     def test_local_fortune_never_searches(self, monkeypatch, msg, intent):
         """运势/财运/择日类本地计算问题全链路零搜索。"""

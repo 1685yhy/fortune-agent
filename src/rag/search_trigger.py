@@ -48,9 +48,32 @@ LOCAL_FORTUNE_ANCHOR_RE = re.compile(
     r"合婚|合八字|合不合|配不配|般配|婚配|配对|"
     r"风水|阳宅|阴宅|面相|手相|紫微|斗数|六爻|摇卦|占卦|卜卦|奇门|遁甲|"
     r"解梦|梦见|梦到|抽签|解签|塔罗|占星|星座|"
-    r"桃花|姻缘|正缘|感情运|事业运|学业运|健康运|"
+    r"桃花|姻缘|正缘|感情运|事业运|职业运|工作运|财运|桃花运|婚姻运|姻缘运|"
+    r"健康运|学业运|考试运|考运|官运|升迁运|生意运|"
     r"喜用神|日主|十神|用神|生肖|属相|"
     r"手机号|手机号码|车牌号|门牌号|尾号|数字吉凶")
+
+# 命理本地问句口语模式（k11b-r1 审查 P1-A 扩面，真实复现必须零触发）：
+# ① 「X运」族已进上表；② 个人决策族（跳槽/换工作/求职/创业/开公司/搬家/出行/
+#    考编…）+ 决策问句 cue（适合…吗/好不好/该不该/什么时候/怎么选…）同句；
+# ③ 命理主题词（行业/方位/公司/岗位/五行…）+ 个人适配 cue。
+# 三族命中 → 本地命理问句（引擎域与 chat 域一致抑制，不搜）；
+# 例外：命名实体 + 强实体问词（"易宝支付适合我吗"）由实体层优先放行（需事实查证）。
+_LOCAL_DECISION_VERB_RE = re.compile(
+    r"跳槽|换工作|找工作|求职|创业|开公司|开个公司|做生意|自己干|单干|"
+    r"升职|晋升|考编|考公|考研|考公务员|考公职|搬家|出行|入职|离职|面试")
+# 决策问句 cue：适合…吗（≤8 字内）|适合我/我适合|适不适合|好不好|该不该|要不要|
+# 应不应该|可不可以|能不能|什么时候|何时|哪个方向|怎么选|去不去|值不值得|行不行|
+# 时机|合不合适
+_LOCAL_ASK_CUE_RE = re.compile(
+    r"适合[^，。！？?]{0,8}吗|合适[^，。！？?]{0,8}吗|适合我|我适合|适不适合|好不好|"
+    r"该不该|要不要|应不应该|可不可以|能不能|什么时候|何时|哪个方向|怎么选|"
+    r"去不去|值不值得|行不行|时机|合不合适")
+# 命理主题词（与 cue 搭配表示"本地命理决策问"，非外部事实查询）——
+# 含泛行业词（银行/金融/公务员/国企… 无命名实体的"行业词+命理问"归本地）
+_LOCAL_FORTUNE_THEME_RE = re.compile(
+    r"行业|方位|公司|单位|岗位|职位|职业|事业|工作|五行|喜用|喜忌|命理|八字|"
+    r"银行|金融|公务员|国企|央企|事业单位|体制内|教师|医生|互联网")
 
 # ============================================================
 # 实体层：机构后缀族（最长优先 alternation；定中指代清理见 _clean_entity_name）
@@ -79,10 +102,25 @@ _TAIL_DEICTIC_RE = re.compile(
     r"(?:这|那|该|哪)(?:家|个|所|间|些|款|款产品)?$|^我(?:们)?(?:家|公司|单位)?$")
 _TAIL_LONG_JOIN_RE = re.compile(r"(?:的|和|与|及|或|叫|为|是)$")
 # 名称串起点清理（从头剥）：对话虚词前缀（说/想/觉得 等绝不会出现在公司名首）
+# k11b-r1（P2-C）：补 某/某些 等泛化指代（「某公司/某些平台」→ 无命名实体）
 _HEAD_DEICTIC_RE = re.compile(
     r"^(?:我|你|他|她|我们|你们|他们|她们|这|那|该|哪|谁|有|是|叫|说|想|觉得|"
     r"听说|看到|梦见|梦到|请问|想问|想了解|了解一下|介绍一下|查一下|搜一下|帮我|"
-    r"看看|在|到|去)*")
+    r"看看|在|到|去|某|些)*")
+
+# 名称串可性过滤器（k11b-r1 P1-A/P2-C）：候选名称内嵌句子功能词/命理主题词/
+# 行业语料词 → 判定为垃圾候选（「五行属水的行业适合开公司吗」不得抽出
+# 「五行属水的行业适合开」这类伪实体）。只查词/单字的存在性：
+# - 多字 token（适合/行业/五行/怎么样…）任何位置命中即拒；
+# - 单字只查「内部位」（非首非尾）——「美的集团」的 的、末尾 的 规则另在
+#   _clean_entity_name；真实品牌名内部几乎不含这类字，句子虚词必中招。
+_ENTITY_JUNK_TOKEN_RE = re.compile(
+    r"适合|行业|五行|喜用|喜忌|跳槽|怎么样|如何|还是|属于|成立|什么|哪里|哪个|"
+    r"为什么|干嘛|做啥|属于|请问|帮我|这(?:家|个|些|款)|那(?:家|个|些|款)")
+_ENTITY_JUNK_INTERIOR_CHARS = frozenset(
+    "属我你他她它谁吗呢吧啊这那哪某些是想能要不要会是")
+# 注：单字集刻意保守（首尾位豁免；太/最/更/应/和/与/及/或/到 等不收入——
+# 「中国太保」「新和成」「得到」类真实品牌内部会命中，宁漏勿伤）
 
 # 通用标签后缀（公司/机构/平台/品牌/产品/学校/单位/企业…）：实体名优先取
 # 去掉标签后的名称部分（「易宝支付这家公司」→ 易宝支付 而非 易宝支付这家公司）；
@@ -125,6 +163,7 @@ _ENTITY_ASK_STRONG_RE = re.compile(
     r"是做什么|做什么的|做啥的|干啥的|主营业务|主营|业务范围|"
     r"查一下|查查|帮我查|搜一下|搜搜|帮我搜|了解一下|了解下|介绍下|介绍一下|"
     r"多少钱|价格|贵不贵|值不值得|值得(?:去|进|投|买|考)?|适不适合|适合我吗|适合我|"
+    r"合不合适|合适吗|合适我吗|合适我|"
     r"能进吗|好进吗|难进吗|怎么进|面试|招聘|校招|社招|内推|"
     r"官网|网址|官网地址|总部|电话|法人|CEO|ceo|总裁|董事长|发展前景|前景")
 # 注：时效/查证词（最新/最近/今年/新闻/政策/消息/近况/动态）刻意不进强问词——
@@ -153,10 +192,13 @@ RESEARCH_WHITELIST_RE = re.compile(
 
 # 纯指代无命名主体（「这家公司/哪个公司/什么样的工作」）——白名单/时效层不得
 # 为这类无实体的泛化表述产出搜索（query 无检索价值）；命名实体由实体层先捕获
+# k11b-r1（P2-B）：行业/方向 不入表——「最近有什么行业新闻」是合法外部时效问
+# （什么+行业 的泛化表述有检索价值），须放行；个人适配类由命理主题族（本地锚）
+# 拦截
 _DEICTIC_NAME_RE = re.compile(
     r"(?:这|那|哪|该|什么|啥|几)(?:[家个所种些款类样]{0,3})?"
-    r"(?:公司|机构|平台|品牌|产品|单位|企业|医院|学校|专业|行业|职位|岗位|"
-    r"工作|部门|楼盘|电影|比赛|项目|方向|城市|地方)")
+    r"(?:公司|机构|平台|品牌|产品|单位|企业|医院|学校|专业|职位|岗位|"
+    r"工作|部门|楼盘|电影|比赛|项目|城市|地方)")
 
 
 def _is_deictic_only(text: str) -> bool:
@@ -205,13 +247,30 @@ def _clean_entity_name(name: str) -> str:
     return n.strip()
 
 
+def _entity_candidate_plausible(name: str) -> bool:
+    """垃圾候选过滤：名称串内嵌句子功能词/命理主题词 → 非命名实体。
+
+    k11b-r1（P1-A 复现③「五行属水的行业适合开公司吗」会抽到
+    「五行属水的行业适合开」伪实体）：多字 token 任何位置命中即拒；
+    单字只查内部位（首尾豁免——「中国太保」的 太/「美的」的 的 不误伤）。
+    """
+    if not name:
+        return False
+    if _ENTITY_JUNK_TOKEN_RE.search(name):
+        return False
+    inner = name[1:-1] if len(name) > 2 else ""
+    return not any(ch in _ENTITY_JUNK_INTERIOR_CHARS for ch in inner)
+
+
 def extract_entity_mentions(text: str) -> List[str]:
     """实体抽取：返回命名实体候选列表（已去重保序）。
 
     覆盖：① 后缀族（机构/支付/银行/平台/APP/大学…），自动剥离定中指代与虚词；
     ② 主流实体名表（无后缀大厂形态）。
     通用标签后缀（公司/平台…）且名称部分过短或为泛化词干（培训/教育…）→ 不算
-    命名实体（「哪个公司靠谱」无实体可搜）。仅探测，不做归一/消歧。
+    命名实体（「哪个公司靠谱」无实体可搜）；名称串含句子功能词/命理主题词
+    （适合/行业/五行/是/的…内嵌）→ 垃圾候选不算（「去开公司适合我吗」不抽出
+    「开公司」类伪实体）。仅探测，不做归一/消歧。
     """
     if not text:
         return []
@@ -220,6 +279,8 @@ def extract_entity_mentions(text: str) -> List[str]:
         raw = m.group(1)
         name = _clean_entity_name(raw)
         if len(name) < 2 or len(name) > 16:
+            continue
+        if not _entity_candidate_plausible(name):
             continue
         suffix = m.group(0)[len(raw):]
         if suffix in _GENERIC_TAG_SUFFIXES:
@@ -246,8 +307,26 @@ def has_entity_ask(text: str) -> tuple:
 
 
 def has_local_fortune_anchor(text: str) -> bool:
-    """命理本地概念锚（运势/流年/取名/择日/合婚/解梦/风水…）→ True。"""
-    return bool(LOCAL_FORTUNE_ANCHOR_RE.search(text or ""))
+    """命理本地判定（k11b-r1 P1-A 扩面，三层任一命中 → True，调用方零搜索）：
+
+    ① 本地概念词表（运势/流年/取名/择日/合婚/解梦/风水… + 「X运」族：
+       工作运/事业运/财运/桃花运/婚姻运/健康运/学业运/考试运/官运…）；
+    ② 个人决策族动词（跳槽/换工作/求职/创业/开公司/搬家/出行/考编/面试…）
+       与决策问句 cue（适合…吗/我适合/好不好/该不该/什么时候/怎么选…）同句；
+    ③ 命理主题词（行业/方位/公司/五行/银行/金融/公务员…）+ cue 同句。
+    例外：命名实体+强实体问词（「易宝支付适合我吗」）由实体层优先放行——
+    实体层需要该实体的外部事实（见 decide_search 顺序注释）。
+    """
+    if not text:
+        return False
+    if LOCAL_FORTUNE_ANCHOR_RE.search(text):
+        return True
+    cue = _LOCAL_ASK_CUE_RE.search(text)
+    if not cue:
+        return False
+    if _LOCAL_DECISION_VERB_RE.search(text):
+        return True
+    return bool(_LOCAL_FORTUNE_THEME_RE.search(text))
 
 
 def is_finance_excluded(text: str) -> bool:
@@ -282,7 +361,14 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
         return SearchDecision(False, reason="finance")
     entities = extract_entity_mentions(msg)
     strong, weak = has_entity_ask(msg)
-    local = has_local_fortune_anchor(msg)
+    # 命理本地判定分两档（k11b-r1 P1-A/P2-B）：
+    # - calc = 硬锚（运势/流年/X运/取名/择日/合婚/解梦…词表）——无论有无命名实体
+    #   都否决（实体只是背景：『在易宝支付上班 今年运势怎么样』不搜）；
+    # - local = 硬锚 + 口语决策族/命理主题族（跳槽+什么时候、行业词+适合我吗…
+    #   无命名实体时否决；有真实命名实体时不拦——『XX科技公司什么时候发财报』
+    #   是合法外部时效问，实体层负责放行）
+    calc = bool(LOCAL_FORTUNE_ANCHOR_RE.search(msg))
+    local = calc or has_local_fortune_anchor(msg)
     # 层 2：实体层
     if entities:
         entity = entities[0]
@@ -290,23 +376,24 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
         if strong:
             return SearchDecision(True, query=build_search_query(msg, entity),
                                   entity=entity, reason="entity")
-        # 弱问词（怎么样/如何）须无本地锚才搜——「在易宝支付上班，今年运势怎么样」
-        # 的怎么样挂在运势上，实体只是背景（层 3 否决）
-        if not local and weak:
+        # 弱问词（怎么样/如何）须无硬锚才搜——「在易宝支付上班，今年运势怎么样」
+        # 的怎么样挂在运势上，实体只是背景（硬锚否决）
+        if not calc and weak:
             return SearchDecision(True, query=build_search_query(msg, entity),
                                   entity=entity, reason="entity")
         # 实体 + 时效/查证词（易宝支付 最近新闻…）→ 搜（query=实体名）
-        if not local and (_TIMELY_EXTERNAL_RE.search(msg)
-                          or RESEARCH_WHITELIST_RE.search(msg)):
+        if not calc and (_TIMELY_EXTERNAL_RE.search(msg)
+                         or RESEARCH_WHITELIST_RE.search(msg)):
             return SearchDecision(True, query=build_search_query(msg, entity),
                                   entity=entity, reason="entity")
         # 实体纯陈述（无任何问词）+ LLM 判需实时 → 搜（对话续问形态）
-        if not local and llm_needs_search:
+        if not calc and llm_needs_search:
             return SearchDecision(True, query=build_search_query(msg, entity),
                                   entity=entity, reason="entity")
-        # 其余（纯陈述 / 本地问挂靠）→ 不搜
-        return SearchDecision(False, reason="local" if local else "none")
-    # 层 3：命理本地概念锚（无命名实体时：本地计算问题绝不触发）
+        # 其余（纯陈述 / 硬锚本地问挂靠）→ 不搜
+        return SearchDecision(False, reason="local" if calc else "none")
+    # 层 3：命理本地判定（无命名实体时：本地计算/决策问句绝不触发——
+    # 含口语决策族与命理主题族，见 has_local_fortune_anchor 注释）
     if local:
         return SearchDecision(False, reason="local")
     # 层 4：时效/查证层（纯指代泛化表述——无命名主体，query 无检索价值——不触发）
@@ -359,8 +446,8 @@ def append_source_trace(reply: str, entity: str, domains: list) -> str:
         return reply
     if any(s in reply for s in sites):  # 正文已含站点域名 → 有来源痕迹
         return reply
-    note = (f"\n\n（信息来源：{'、'.join(sites)} 等公开网络搜索结果，仅供参考，"
-            "具体请以官方渠道核实为准）")
+    note = (f"\n\n（信息来源：{'、'.join(sites)} 等第三方公开网络内容，"
+            "仅供参考，具体请以官方渠道核实为准）")
     # 回复以反馈提示收尾（———…准/不准）时，尾注插在反馈提示之前，
     # 保证「准/不准」交互位不被来源行挤开；其余情况追加在末尾
     idx = reply.rfind(_FEEDBACK_PROMPT_MARK)

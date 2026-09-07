@@ -2370,6 +2370,9 @@ class MessageHandler:
         超过 3 次/60s/用户 → False（调用方按"检索受限"降级话术处理，
         不静默不阻断对话）。object.__new__ 装配的测试实例无 __init__ 状态 →
         setdefault 惰性初始化。
+        k11b-r1（P3 记录）：失败检索（无结果/通道不可用）同样消耗频控次数——
+        意图=限制 Bing 抓取成本总量，失败也产生了网络尝试；护栏只管频度，
+        质量降级由降级话术兜底（取舍记 plan）。
         """
         import collections
         import time as _time
