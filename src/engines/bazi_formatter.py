@@ -317,7 +317,11 @@ def format_fact_pack_block(result) -> str:
                        if isinstance(_lm, int) and 1 <= _lm <= 12 else str(_lm))
             _yp = getattr(result, "bazi", None)
             _yg = _yp[0] + "年" if _yp and _yp[0] else ""
-            seg.append(f"出生（农历）：{_yg}{_lm_txt}{_ld}")
+            # review r1-5：晚子时归日/真太阳时跨日（23:xx 出生）时农历取自排盘口径
+            # 的次日/修正日——与「出生档案（公历）」行并排时显式注记口径，防歧义
+            _shift_note = ("（按排盘口径日期）" if (cs or {}).get("lunar_date_shifted")
+                           else "")
+            seg.append(f"出生（农历）：{_yg}{_lm_txt}{_ld}{_shift_note}")
         # 3) 当前年龄/当前大运段（核心修复：杜绝把换运岁数当当前年龄）
         if cs and cs.get("age_zhousui") is not None:
             seg.append("命主当前年龄：周岁 %s 岁（虚岁 %s）"

@@ -435,6 +435,12 @@ class ChatStreamer:
         def _send_guard(evt_type: str, payload: dict):
             """单请求级 cb 包装：工具 JSON 过滤 + 事实 scrub 后投递。"""
             try:
+                if evt_type != "chunk" and _json_filter is not None:
+                    # review r1-4（Minor）：thinking/tool 等事件 = LLM 子流边界
+                    # （引擎阶段→润色/工具循环各成一段）。某子流被 max_tokens 截断
+                    # 在未闭合 JSON 时，悬挂缓冲会吞掉下一子流头部——边界处 finish()
+                    # 丢弃残块（宁漏不泄），下一子流从头计数
+                    _json_filter.finish()
                 if evt_type == "chunk" and isinstance(payload, dict):
                     raw = (payload.get("text") if "text" in payload
                            else payload.get("content", ""))

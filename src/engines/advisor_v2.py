@@ -117,8 +117,9 @@ class AdaptiveAdvisor:
 
             # k11-B/C（输出后校验器·建议卡字段层）：称谓（男/未知命女性词）与
             # 神煞白名单（本盘引擎全集）去词兜底——prompt 事实纪律之外的第二道，
-            # 纯规则零 LLM。三消费点（handler 5675/5771、7364、api/advisor）全部
-            # 经过 generate() → 单点覆盖。
+            # 纯规则零 LLM。消费点（handler 5675/5771、7364 为真实链路；api/advisor
+            # REST 为既有死路径——narrative NameError 已于 k11-r1 修复，是否接入
+            # 待 k11b 评估）：凡到达 generate() 的调用即被此单点覆盖。
             try:
                 from src.utils.fact_guard import scrub_turn
                 _g = getattr(bazi_result, "gender", "") or ""

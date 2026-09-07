@@ -218,14 +218,29 @@ GLM 路径 1732 先流式、1747 后 strip；chat_stream.py:455 出口兜底追�
 test_g1_gender_contract.py、test_k9_r2_minors.py、test_bazi_dash_format_regression.py、
 test_engine_shensha.py、test_calendar_persons_read.py、test_eval_l2.py、test_eval_e6.py
 
+## k11-r1 审查修复（2026-09-07，独立审查 /tmp/k11-review-20260907.md，提交见 k11 第二 commit）
+- r1-1 [Important] bazi.py current_stage_facts 出生月日改传 input_birth[:3] 原始快照
+  （真太阳时/晚子时归日只影响 chart 段，不影响年龄事实）——12-31 23:xx 虚岁整年
+  off-by-one（27vs28）、生日当天 23:xx 周岁 off-by-one 根治；补 2 条引擎边界测试锁定
+- r1-2 [Important·评测] l2_eval age_claim 裸"岁+句读"规则前置排除增补
+  到/从/至/走/换/止/起/进/交 + 区间连字符 ——「走到32岁，」「从23岁到32岁，」
+  「23-32岁。」3 个真实复现样例固化测试
+- r1-3 [Minor] api/advisor.py narrative_text NameError = 一行修复（恒空串对齐响应契约
+  + 死路径注记，勿宣称已覆盖）；advisor_v2 注释批注改正（api/advisor 为既有死路径）
+- r1-4 [Minor] chat_stream 请求级 filter 在 thinking/tool 事件（LLM 子流边界）处
+  finish() 丢弃未闭合残块，防截断悬挂吞下一子流头部（≤4096）
+- r1-5 [Minor] 事实包农历行在归日/修正跨日时注记「（按排盘口径日期）」——
+  engine current_stage 增 lunar_date_shifted 标志
+
 ## 后续项（挂账，不在本批）
 - k11b：命理意图域实体 QA 必触发联网搜索（chat 域 tool-loop → career/bazi 域通道 +
-  T104 评测行 + 禁甩锅句断言）
+  T104 评测行 + 禁甩锅句断言）+ api/advisor REST 是否接入评估（narrative NameError
+  已修；persons-first 直读改造同批）
 - k11c：真太阳时默认开/关口径产品拍板（10:55 巳午跨界敏感窗口提示 + hour_boundary
-  评测行 + 双口径并存杜绝）
+  评测行 + 双口径并存杜绝；换运年岁首 vs 交运时刻精确切段口径同挂）
 - 重试去重后端护栏（服务端幂等去重）、P4.7 图标视觉重绘
-- `_handle_advisor`/api/advisor 直读点 persons-first 改造（G1 残留）+ api/advisor.py
-  narrative_text NameError 疑似（未在范围，待独立批）
+- `_handle_advisor` 直读点 persons-first 改造（G1 残留，api/advisor 同批评估）
 - advisor unknown 性别中性档的"产品可调"入口注释放产品拍板
+- advisor insight 字段不在 scrub 清单（现恒为静态文案零风险；LLM 化时须补）
 - 秒回安抚预生成路径 prompt 同步（6317+ 已含性别行，预生成 1274-1353 线程复用
   _gen_instant_reply 的同步版 → 已覆盖）

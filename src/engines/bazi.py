@@ -1030,17 +1030,27 @@ class BaziEngine:
         # city/农历/日柱四柱等全部事实，口径见 current_stage_facts 文档（与 paipan
         # 大运展开同源）。异常绝不阻塞排盘主流程（事实缺失只影响 prompt 可选注入）。
         try:
+            # review r1-1（Important）：年龄派生必须用 input_birth 原始快照（修正前
+            # 年月日）——本行下方 year/month/day 已被真太阳时修正/晚子时归日改写，
+            # 直接传入会让 12-31 23:xx 跨年出生虚岁整年 off-by-one（27 vs 28）、
+            # 生日当天 23:xx 周岁 off-by-one，且与「出生档案」行自相矛盾；大运段仍
+            # 以同一虚岁口径段选（chart 本身按修正后时刻排，此处置不受影响）。
             result.current_stage = current_stage_facts(
-                year, month, day, dayun, jiaoyun, result.liunian_rel)
+                input_birth[0], input_birth[1], input_birth[2],
+                dayun, jiaoyun, result.liunian_rel)
             # birth_solar = 用户提供的原始公历时刻（修正前快照 input_birth，
             # 与排盘卡头 birth_info 同口径）；chart_hhmm = 实际排盘口径时刻
             # （真太阳时修正/晚子时归日后的时刻，corrected_time 同源字符串）
             result.current_stage["birth_solar"] = input_birth
             result.current_stage["birth_city"] = city
             result.current_stage["chart_hhmm"] = corrected_time
+            # review r1-5（Minor 注记）：农历行取排盘口径（修正/归日后）的 lunar；
+            # 与原始档案日期跨日时（23:xx 晚子时/真太阳时跨日）显式注记口径差异
             result.current_stage["birth_lunar"] = (
                 lunar_disp.get("year"), lunar_disp.get("month"),
                 lunar_disp.get("day_text", ""))
+            result.current_stage["lunar_date_shifted"] = (
+                (year, month, day) != input_birth[:3])
         except Exception as e:  # noqa: BLE001 — 事实包是增强非必需
             logger.warning("current_stage 计算失败（忽略，排盘不受影响）: %s", e)
         return result

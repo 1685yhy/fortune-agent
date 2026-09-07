@@ -114,6 +114,51 @@ class TestFactPack:
         block = format_fact_pack_block(r)
         assert "不得自行推算编造" in block or "禁止自行推算或编造" in block
 
+    # ---- k11-r1（审查 Important #1）：晚子时/真太阳时归日不得污染年龄事实 ----
+
+    def _exp(self, by, bm, bd):
+        """测试运行日口径期望（与 current_stage_facts 同式，跨年自洽）。"""
+        from datetime import date
+        today = date.today()
+        xusui = today.year - by + 1
+        zhousui = today.year - by - (
+            1 if (today.month, today.day) < (bm, bd) else 0)
+        return xusui, zhousui
+
+    def test_engine_boundary_dec31_late_child_snapshot(self, engine):
+        """1999-12-31 23:30（晚子时归日为 2000-01-01）：年龄按原始快照 12-31。"""
+        r = engine.calculate(1999, 12, 31, 23, 30, "北京", "男")
+        xusui, zhousui = self._exp(1999, 12, 31)
+        cs = r.current_stage
+        assert cs["age_xusui"] == xusui      # 2026 年 = 28（归日口径曾误 27）
+        assert cs["age_zhousui"] == zhousui
+        assert cs["birth_solar"][:5] == (1999, 12, 31, 23, 30)
+        assert cs["lunar_date_shifted"] is True  # 农历/四柱按排盘口径次日
+        block = format_fact_pack_block(r)
+        assert "周岁 %s 岁（虚岁 %s）" % (zhousui, xusui) in block
+        assert "（按排盘口径日期）" in block
+
+    def test_engine_boundary_birthday_day_late_child(self, engine):
+        """生日当天 23:30（归日次日）：周岁按生日已到计（不因归日 -1）。"""
+        r = engine.calculate(1999, 9, 7, 23, 30, "北京", "男")
+        _x, zhousui = self._exp(1999, 9, 7)
+        assert r.current_stage["age_zhousui"] == zhousui
+        assert r.current_stage["age_xusui"] == _x
+
+    def test_pure_boundary_now_fixed(self):
+        """纯函数（固定 now）：跨年 23:xx 虚岁与生日当天周岁边界。"""
+        dayun = [(3, "戊辰"), (13, "丁卯"), (23, "丙寅"), (33, "乙丑")]
+        f = current_stage_facts(1999, 12, 31, dayun,
+                                now=datetime(2026, 9, 7, 12, 0))
+        assert f["age_xusui"] == 28 and f["age_zhousui"] == 26
+        f2 = current_stage_facts(1999, 9, 7, dayun,
+                                 now=datetime(2026, 9, 7, 12, 0))
+        assert f2["age_xusui"] == 28 and f2["age_zhousui"] == 27  # 当天生日
+        # 非跨日时段不受影响（原单测不变式）
+        f3 = current_stage_facts(1999, 5, 13, dayun,
+                                 now=datetime(2026, 9, 7, 12, 0))
+        assert f3["age_xusui"] == 28 and f3["age_zhousui"] == 27
+
     def test_main_chain_format_chart_injects_fact_pack(self, golden):
         """主链 _format_chart 注入事实包（A）+ 性别行（B 主链先例保持）。"""
         from src.llm.client import FortuneLLM
@@ -354,6 +399,32 @@ class TestEvalDerived:
         res = {c["name"]: c for c in _eval_derived(r)}
         assert res["derived.age_claim"]["ok"] is True
         assert res["derived.dayun_claim"]["ok"] is True
+
+    # ---- k11-r1（审查 Important #2）：大运段端点岁数不得被裸"岁+句读"误报 ----
+
+    def test_review_reproductions_dayun_endpoint_ages_pass(self):
+        """审查 3 个真实复现（真实合格回复曾被判 FAIL）：全部放行。"""
+        cases = [
+            "丙寅大运走到32岁，然后2031年33岁换乙丑",
+            "丙寅运从23岁到32岁，属于黄金十年",
+            "当前大运是丙寅（23-32岁），明年交乙丑。",
+        ]
+        for rep in cases:
+            res = {c["name"]: c for c in _eval_derived(rep)}
+            assert res["derived.age_claim"]["ok"] is True, rep
+            assert res["derived.dayun_claim"]["ok"] is True, rep
+
+    def test_review_real_current_age_claims_still_caught(self):
+        """收紧后真实当前年龄声明仍拦截（事故同款表述）。"""
+        bad = "你今年33岁，刚进乙丑大运，命带文昌贵人。"
+        res = {c["name"]: c for c in _eval_derived(bad)}
+        assert res["derived.age_claim"]["ok"] is False  # 33 在窗 [26,29] 外
+        assert res["derived.dayun_claim"]["ok"] is False  # 乙丑≠丙寅
+        assert res["derived.shensha_refs"]["ok"] is False
+        good = "你现在27岁（虚岁28），正走丙寅大运，明年换乙丑。"
+        res2 = {c["name"]: c for c in _eval_derived(good)}
+        assert res2["derived.age_claim"]["ok"] is True
+        assert res2["derived.dayun_claim"]["ok"] is True
 
     def test_require_mention(self):
         spec = {"contains": [], "neg_checks": ["{"], "regex": [], "min_len": 1,
