@@ -13,6 +13,7 @@ const EMPTY_DRAFT = () => ({
   hourIndex: 0,
   gender: '女',
   place: '',
+  solarOn: true,          // k11c：真太阳时修正开关（档案级，默认开=产品口径）
 });
 
 Page({
@@ -74,11 +75,14 @@ Page({
     }));
   },
 
-  /* 视图 → 契约 payload（字段结构与原先一致：year/month/day + calendar 标记） */
+  /* 视图 → 契约 payload（字段结构与原先一致：year/month/day + calendar 标记）。
+     k11c F1（审查）：solar_time 只在用户真实改动时携带——编辑未碰开关保存 =
+     不带字段 → 服务端 update 合并保留既有开关（本地缓存陈旧/缺字段场景绝不把
+     0 静默写回成 1）；显式翻转（0↔1）才随请求落档 */
   _payload() {
     const d = this.data;
     const parts = String(d.dDate || '').split('-');
-    return {
+    const payload = {
       name: d.dName.trim(),
       relation: d.dRel,
       gender: persons.genderCode(d.dGender),
@@ -90,6 +94,8 @@ Page({
       calendar: d.dCal,
       city: (d.dPlace || '').trim(),
     };
+    if (d.solarOn !== this._origSolar) payload.solar_time = d.solarOn ? 1 : 0;
+    return payload;
   },
 
   // ---- 列表交互 ----
@@ -99,6 +105,8 @@ Page({
     const id = e.currentTarget.dataset.id;
     const raw = this._rawById(id);
     if (!raw) return;
+    // k11c：档案真太阳时开关回显（solar_time=0 关；缺失/旧档案 → 默认开）
+    this._origSolar = raw.solar_time !== 0;
     this.setData({
       mode: 'form',
       editing: raw,
@@ -109,6 +117,7 @@ Page({
       dHourIndex: persons.hourToShichenIndex(raw.birth_hour),
       dGender: persons.genderCN(raw.gender),
       dPlace: raw.city || '',
+      solarOn: raw.solar_time !== 0,
       saving: false,
     }, () => this._refreshForm());
   },
@@ -119,9 +128,16 @@ Page({
 
   /* 新增 */
   onAdd() {
+    this._origSolar = true;   // 新档案无「切换」语义（默认开）
     this.setData(Object.assign({ mode: 'form', editing: null }, EMPTY_DRAFT(), {
       saving: false,
     }), () => this._refreshForm());
+  },
+
+  /* 真太阳时修正开关（k11c 档案级）：开=按出生地经度换算真太阳时定时辰；
+     关=按本地时间直接排。默认开=产品口径，切换随保存落档案、重排生效 */
+  onSolarTimeChange(e) {
+    this.setData({ solarOn: !!e.detail.value });
   },
 
   /* 返回列表 */
@@ -203,6 +219,7 @@ Page({
   async onSave() {
     if (!this.data.filled || this.data.saving) return;
     this.setData({ saving: true });
+    const solarChanged = this.data.solarOn !== this._origSolar;
     const payload = this._payload();
     const editing = this.data.editing;
 
@@ -212,7 +229,12 @@ Page({
         const res = await api.updatePerson(editing.id, payload);
         if (!res || !res.person) throw new Error('服务端未返回档案');
         saved = res.person;
-        wx.showToast({ title: `已保存 · ${saved.name || payload.name}`, icon: 'none' });
+        // k11c：切换了真太阳时开关 → 提示重排生效（开关随档案保存）
+        if (solarChanged) {
+          wx.showToast({ title: '已更新，重新排盘生效', icon: 'none', duration: 2200 });
+        } else {
+          wx.showToast({ title: `已保存 · ${saved.name || payload.name}`, icon: 'none' });
+        }
       } else {
         const res = await api.createPerson(payload);
         if (!res || !res.person) throw new Error('服务端未返回档案');

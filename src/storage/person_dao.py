@@ -18,9 +18,27 @@ logger = logging.getLogger(__name__)
 
 # 出生信息在 persons 表内的加密键（birth_enc 解出的 JSON 字段名）
 BIRTH_KEYS = ("gender", "birth_year", "birth_month", "birth_day",
-              "birth_hour", "birth_minute", "calendar", "city")
+              "birth_hour", "birth_minute", "calendar", "city",
+              "solar_time")
 
 RELATION_VALUES = ("自己", "父母", "伴侣", "子女", "朋友", "其他")
+
+
+def solar_time_on(raw) -> int:
+    """solar_time 读口径 → 0/1：缺失/旧行/非法 → 1（默认开=产品口径 R2-4）。
+
+    k11c（2026-09-08）：档案级真太阳时开关存 birth_enc 密文内（新列需迁移，
+    密文内字段零迁移）；读路径在此统一归一——persons 存储层只可能写入
+    int 0/1（_birth_dict），历史行无该键/None/非法值一律按默认开兼容。
+    """
+    if raw is None:
+        return 1
+    try:
+        if str(raw).strip().lower() in ("0", "false", "off"):
+            return 0
+        return 1
+    except Exception:
+        return 1
 
 
 def _normalize_gender(g) -> str:
@@ -57,6 +75,17 @@ def _birth_dict(**kw) -> dict:
             continue
         if k == "gender":
             out[k] = _normalize_gender(v or "unknown")
+            continue
+        if k == "solar_time":
+            # k11c：档案级真太阳时开关。None/空/非法 → 省略（不落库）——
+            # 读路径 solar_time_on 对缺失/旧行默认开=1，与「未提供=默认开」
+            # 语义一致；写侧绝不让 None 覆盖既有 0（update 合并时视为未提供）。
+            if v is None or v == "":
+                continue
+            try:
+                out[k] = 1 if int(v) else 0
+            except (TypeError, ValueError):
+                pass  # 非法值省略，读路径默认开兜底
             continue
         try:
             n = int(v or 0)
@@ -108,6 +137,8 @@ class PersonDAO:
             "birth_minute": birth.get("birth_minute"),
             "calendar": birth.get("calendar", "solar"),
             "city": birth.get("city", ""),
+            # k11c：真太阳时开关（档案级）；密文内缺失/旧行 → 1=默认开
+            "solar_time": solar_time_on(birth.get("solar_time")),
             "created_at": row[6] if len(row) > 6 else "",
             "updated_at": row[7] if len(row) > 7 else "",
         }
@@ -271,6 +302,9 @@ class PersonDAO:
                              (user_id,))
             sets.append("is_default=?")
             args.append(1 if is_default else 0)
+        # k11c r1（F3）：开关翻转标记——本次更新是否真实改动了 solar_time
+        # （merged 恒含 0/1；仅显式携带且与既有不同才置位，普通更新零镜像）
+        _solar_flipped = False
         if birth:
             new_birth = _birth_dict(**birth)
             # 占位符不覆盖既有值 —— 与 save_bazi_info 的 gender 保护约定一致
@@ -284,6 +318,8 @@ class PersonDAO:
                 for k in BIRTH_KEYS:
                     nv = new_birth.get(k)
                     merged[k] = nv if nv is not None else existing.get(k)
+                if merged.get("solar_time") != existing.get("solar_time"):
+                    _solar_flipped = True
                 sets.append("birth_enc=?")
                 args.append(_encrypt_text(json.dumps(merged, ensure_ascii=False)))
         if not sets:
@@ -298,6 +334,37 @@ class PersonDAO:
         )
         conn.commit()
         conn.close()
+        if _solar_flipped:
+            # k11c r1（F3 镜像）：开关翻转时同步镜像 users.bazi_info（② 源），
+            # 防默认命主删除后 ② 源回弹默认开。直接 SQL 读写密文行（不经
+            # UserDAO.save_user_bazi——避开 consultation_count+1 副作用）；
+            # 仅行存在且含出生年才镜像，失败仅告警不阻塞。
+            try:
+                _mconn = self._connect()
+                try:
+                    _mrow = _mconn.execute(
+                        "SELECT bazi_info FROM users WHERE user_id = ?",
+                        (user_id,)).fetchone()
+                    if _mrow and _mrow[0]:
+                        try:
+                            _mdata = json.loads(
+                                _decrypt_or_plain(_mrow[0]) or "{}")
+                        except (ValueError, TypeError):
+                            _mdata = {}
+                        if isinstance(_mdata, dict) and _mdata.get("year"):
+                            _mdata["solar_time"] = merged.get("solar_time")
+                            _mconn.execute(
+                                "UPDATE users SET bazi_info=?, updated_at=? "
+                                "WHERE user_id=?",
+                                (_encrypt_text(json.dumps(
+                                    _mdata, ensure_ascii=False)),
+                                 datetime.now().isoformat(), user_id))
+                            _mconn.commit()
+                finally:
+                    _mconn.close()
+            except Exception as e:
+                logger.warning("k11c 开关镜像 bazi_info 失败 user=%s: %s",
+                               user_id, str(e)[:160])
         return self.get_person(user_id, person_id)
 
     def delete_person(self, user_id: str, person_id) -> bool:

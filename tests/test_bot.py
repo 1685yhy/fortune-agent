@@ -270,8 +270,8 @@ def test_process_bazi_missing_info_uses_saved():
 
     assert "八字分析结果" in result
     mock_engine.calculate.assert_called_once_with(
-        1990, 5, 20, 15, 0, "北京", "男",
-    )
+        1990, 5, 20, 15, 0, "北京", "男", solar_time=True,
+    )  # k11c: _do_bazi_analysis 显式透传档案真太阳时开关（默认开）
     mock_dao.save_user_bazi.assert_called_once()
     mock_dao.save_consultation.assert_called_once()
     # Task 10 快路径：已存盘 → 跳过 RAG 预检索（LLM 需要古籍时经 tool_loop 兜底）
@@ -327,13 +327,13 @@ def test_process_bazi_with_extracted_info():
     _patch_intent(handler, "bazi")
     # 禁用秒回预生成：消息含完整出生信息会触发后台 pregen worker 重复
     # engine.calculate + llm.analyze（本测试只验证主流程，禁用避免竞态）
-    handler._start_pregen_instant = lambda msg: None
+    handler._start_pregen_instant = lambda msg, user_id="": None  # k11c: 契约 +user_id（档案开关口径）
     result = handler.process("帮我看看八字 1990年5月20日15点 北京 男", "user123")
 
     assert "八字分析结果" in result
     mock_engine.calculate.assert_called_once_with(
-        1990, 5, 20, 15, 0, "北京", "男",
-    )
+        1990, 5, 20, 15, 0, "北京", "男", solar_time=True,
+    )  # k11c: _do_bazi_analysis 显式透传档案真太阳时开关（默认开）
     mock_dao.save_user_bazi.assert_called_once()
     mock_dao.save_consultation.assert_called_once()
     # Task 10 快路径：_save_bazi_records 已先落 chart_records →

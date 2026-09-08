@@ -471,6 +471,17 @@ button::after { border: none; }
   letter-spacing: .1em;
   color: var(--ink-faint);
 }
+/* k11c 真太阳时修正开关行（档案级；沿用既有 form-group/form-label tokens） */
+.solar-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+.solar-line .solar-label {
+  margin-bottom: 0;   /* form-label 默认下间距 15rpx，开关行内取消 */
+  flex-shrink: 0;
+}
 /* 性别：男/女 并排大按钮（与 paipan 同款：选中朱砂底白字，未选宣纸墨框） */
 .gender-group {
   display: flex;

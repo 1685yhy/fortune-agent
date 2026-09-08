@@ -114,6 +114,15 @@
 
         <view class="form-label">出生地</view>
         <place-picker value="{{dPlace}}" placeholder="选择省 / 市" bindchange="onPlaceChange" />
+
+        <!-- k11c 真太阳时修正开关（档案级，默认开=按出生地经度校准；关=北京时间直排） -->
+        <view class="solar-group">
+          <view class="solar-head">
+            <text>真太阳时修正</text>
+            <switch checked="{{solarOn}}" bindchange="onSolarTimeChange" color="#A93A2C" />
+          </view>
+          <view class="solar-hint">按出生地经度把当地时间换算真太阳时再定时辰；关闭则按本地时间直接排</view>
+        </view>
       </view>
 
       <view class="form-hint">

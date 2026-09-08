@@ -71,8 +71,9 @@ Page({
     bCity: '',            // 展示用 '省·市'
     bCityName: '',        // 请求用裸市名（真太阳时修正可命中）
     bCitySet: false,
-    // R2-4 真太阳时开关（产品口径：默认开=按出生地经度校准时辰；关=北京时间直排。
-    // 页面会话级状态，开关值持久化是未来项——重进页面回到默认开）
+    // R2-4 真太阳时开关（产品口径：默认开=按出生地经度校准时辰；关=北京时间直排）。
+    // k11c：档案预填（_fillFromPerson）时回显默认命主档案的 solar_time 开关值
+    // （档案级持久化）；未预填（手动表单）→ 本页会话级默认开
     bSolarTime: true,
     hourOptions: HOUR_OPTIONS,
 
@@ -187,6 +188,10 @@ Page({
       patch.bCityName = '';
       patch.bCitySet = false;
     }
+    // k11c：档案级真太阳时开关随预填回显（solar_time=0 关；缺失/旧档案 → 默认开）。
+    // 原来「开关持久化是未来项」的注记由档案开关承接——默认命主档案里的开关
+    // 即该命主的持久化设置，预填后本页排盘与档案口径一致
+    patch.bSolarTime = p.solar_time !== 0;
     patch.prefillNote = p.name ? `已从档案预填：${p.name}` : '已从档案预填';
     this.setData(patch);
   },

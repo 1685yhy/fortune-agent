@@ -114,7 +114,7 @@ def _make_handler(db_path, engine=None, llm=None, session=None):
         mianxiang_engine=Mock(), zeri_engine=Mock(), retriever=Mock(),
         hehun_engine=Mock(), llm=llm, dao=dao, session_dao=session,
     )
-    handler._start_pregen_instant = lambda msg: None
+    handler._start_pregen_instant = lambda msg, user_id="": None  # k11c: 契约 +user_id（档案开关口径）
     return handler, dao
 
 

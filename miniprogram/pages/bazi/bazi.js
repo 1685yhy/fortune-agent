@@ -70,6 +70,8 @@ Page({
     hourIndex: 0,
     gender: 'male',
     city: '',
+    // k11c：真太阳时修正开关（档案级，默认开=产品口径；切后随档案保存、重排生效）
+    solarOn: true,
     hasBazi: false,              // 已有档案（标题「更正档案」）
     formTitle: '设置档案',        // 表单导航标题
     currentPerson: null,         // {id,name,relation} 当前排盘命主（档案直选）
@@ -281,15 +283,20 @@ Page({
       hourIndex: m.mHourIndex || 0,
       gender: m.mGender === '女' ? 'female' : 'male',
       city: m.mPlace || '',
+      solarOn: true,          // 临时排盘不落档案：随表单一次排盘，默认开
       hasBazi: false,
       saving: false,
     });
+    this._origSolar = true;
   },
 
   /* 命主（档案/刚保存）→ 表单回显 */
   _enterForm(p) {
     if (!p) { this._prefill(); return; }
     const hourIndex = persons.hourToShichenIndex(p.birth_hour);
+    // k11c：档案真太阳时开关回显（solar_time=0 关；缺失/旧档案 → 默认开）
+    const solarOn = p.solar_time !== 0;
+    this._origSolar = solarOn;
     this.setData({
       mode: 'form',
       currentPerson: { id: p.id, name: p.name || '未命名', relation: p.relation || '' },
@@ -299,10 +306,17 @@ Page({
       hourIndex,
       gender: persons.genderCode(p.gender),
       city: p.city || '',
+      solarOn,
       hasBazi: true,
       saving: false,
     });
     try { wx.setStorageSync(CURRENT_KEY, p.id); } catch (e) { /* ignore */ }
+  },
+
+  /* 真太阳时修正开关（k11c 档案级）：开=按出生地经度换算真太阳时再定时辰；
+     关=按本地时间直接排。默认开；切换随保存落档案 */
+  onSolarTimeChange(e) {
+    this.setData({ solarOn: !!e.detail.value });
   },
 
   /* 切换命主：回到选择页（保留当前表单不动） */
@@ -396,12 +410,17 @@ Page({
     const y = b.year || b.birthYear;
     const mo = b.month || b.birthMonth;
     const da = b.day || b.birthDay;
+    // k11c F1（审查）：solar_time 优先取真值（bazi_info 带出时读之；旧契约无
+    // 该键 → 默认开展示，但见 onSave：未真实改动不携带开关 → 不静默写回 1）
+    const solarOn = b.solar_time !== undefined && b.solar_time !== null ? b.solar_time !== 0 : true;
+    this._origSolar = solarOn;
     this.setData({
       birthDate: y ? _fmtDate(y, mo || 1, da || 1) : '1990-01-01',
       calendar: b.calendar === 'lunar' ? 'lunar' : 'solar',
       hourIndex,
       gender: b.gender === '女' ? 'female' : (b.gender === '男' ? 'male' : (b.gender || 'male')),
       city: b.city || '',
+      solarOn,
       hasBazi: true,
       formTitle: '更正档案',
     });
@@ -433,6 +452,7 @@ Page({
 
     this.setData({ saving: true });
     const bd = _parseDate(d.birthDate);
+    const solarChanged = this._origSolar !== d.solarOn;
     const baziData = {
       birth_year: bd.year,
       birth_month: bd.month,
@@ -443,6 +463,10 @@ Page({
       calendar: d.calendar,
       city: (d.city || '').trim(),
     };
+    // k11c F1（审查）：开关只在用户真实改动时携带（1=开=经度校准；0=关=本地
+    // 直排）。未改动保存 = 不带字段 → 服务端 update 合并保留既有开关——离线/
+    // 列表空场景无档案真值可回显（默认开展示）时，绝不把 0 静默写回成 1
+    if (solarChanged) baziData.solar_time = d.solarOn ? 1 : 0;
 
     try {
       const cp = d.currentPerson;
@@ -461,12 +485,20 @@ Page({
           persons.saveLocalPersons(list);
         }
         this._syncGlobal(baziData);
-        wx.showToast({ title: `「${cp.name}」档案已保存`, icon: 'success' });
+        if (solarChanged) {
+          wx.showToast({ title: '已更新，重新排盘生效', icon: 'none', duration: 2200 });
+        } else {
+          wx.showToast({ title: `「${cp.name}」档案已保存`, icon: 'success' });
+        }
       } else {
         // 临时命主 / 旧路径：POST /api/user/bazi（用户本人档案）
         await api.updateBazi(baziData);
         this._syncGlobal(baziData);
-        wx.showToast({ title: '八字档案已保存', icon: 'success' });
+        if (solarChanged) {
+          wx.showToast({ title: '已更新，重新排盘生效', icon: 'none', duration: 2200 });
+        } else {
+          wx.showToast({ title: '八字档案已保存', icon: 'success' });
+        }
       }
       setTimeout(() => wx.navigateBack(), 700);
     } catch (err) {
