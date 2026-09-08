@@ -169,6 +169,7 @@ class StreamHost {
     this.curText = '';
     this.curTag = '';
     this.curImg = null;          // B4-1 图片消息：当前流的图片 {url}（message_type=image）
+    this.curRegen = false;       // k13：本轮回流是否为重试/重新生成（请求带 regen 标记；收尾复位）
     this.chunkAccum = '';
     this.flushTimer = null;
     this.watchdog = null;
@@ -378,7 +379,15 @@ class StreamHost {
       if (imgFor) userMsg.image = { url: imgFor.url };
       this.messages = this.messages.concat([userMsg]);
     }
-    const aiMsg = {
+    const aiMsg = this._buildAiMessage(text, tag);
+    this.messages = this.messages.concat([aiMsg]);
+    this._beginStream(aiMsg, text, tag, imgFor, false);
+  }
+
+  /* 组装新 AI 消息对象（发送/重试原地 regenerate 共用；正文/思考由后续事件续写） */
+  _buildAiMessage(text, tag) {
+    const now = Date.now();
+    return {
       id: 'a' + now,
       role: 'ai',
       tag: tag || '',
@@ -387,20 +396,27 @@ class StreamHost {
       streaming: true,     // 生成中：闪烁光标 + 停止钮
       thinking: [],        // 思考路径步骤 [{text, state:'doing'|'done'}]
       error: false,
-      retryText: text,     // 重试时原样重发
+      retryText: text,     // 重试/重新生成时原样同轮重流
       consultationId: null,
       segments: [],        // 页面镜像时重算（引用分段）
       mdNodes: [],         // v1.2 页面镜像时重算（Markdown 节点树）
       citations: [],
       suggestions: [],     // v1.2 建议卡片：回复后的推荐追问（done 事件携带）
     };
-    this.messages = this.messages.concat([aiMsg]);
+  }
+
+  /* 流状态机启动（_startStream 追加新轮 / retry 同轮原地 regenerate 共用）：
+     置本轮上下文 → 上屏保存 → 看门狗/慢提示 → 发请求。
+     regen（k13）：重试/重新生成同轮标记 → 请求 payload.regen=true
+     （后端同会话同文不再新插 user 行，补答既有轮次） */
+  _beginStream(aiMsg, text, tag, imgFor, regen) {
     this.streaming = true;
     this.typing = true;    // 首个 chunk 前显示「研墨中」
     this.msgId = aiMsg.id;
     this.curText = text;
     this.curTag = tag || '';
-    this.curImg = imgFor;  // B4-1 图片消息：请求随附 message_type=image + image_url
+    this.curImg = imgFor || null;  // B4-1 图片消息：请求随附 message_type=image + image_url
+    this.curRegen = !!regen;       // k13：随流携带（含失败回退请求），收尾复位
     this.chunkAccum = '';
     this.gotData = false;
     this.fallbackStarted = false;
@@ -430,6 +446,8 @@ class StreamHost {
                      // B4-1 图片消息：后端按 message_type=image → _handle_image
                      messageType: img ? 'image' : 'text',
                      imageUrl: img ? img.url : '',
+                     // k13：重试/重新生成同轮标记 → 后端不新插 user 行（补答既有轮次）
+                     regen: this.curRegen,
                    })
       .then((handle) => {
         this.task = handle;
@@ -451,13 +469,42 @@ class StreamHost {
     }
   }
 
-  /* 重试：丢弃失败气泡，用原消息重发（img 可选：图片消息重试保持图片链路） */
+  /* k13 重试语义（2026-09-09，失败气泡「重试」钮 / k10「重新生成」菜单 /
+     中断恢复自动重发三入口共用）：同一轮次原地 regenerate——
+     保留该轮唯一 user 提问笺，把目标 AI 气泡原位替换为新 streaming AI 笺重流，
+     不再复制用户气泡重发（旧实现 = 重发整条用户消息 → 本地复制提问 + 后端
+     每 POST 新增一条 user 行 = 用户实锤「点重试出现多条重复消息」）。
+     请求带 regen 标记 → 后端同会话同文不再新插 user 行（补答既有轮次）。
+     img（可选，B4-1）：图片轮次保持原图链路；未传时自动从提问笺回取（修复
+     中断恢复图片轮丢图）。目标 AI 气泡已消失（连点第二次）→ 静默 no-op；
+     轮次提问笺缺失（异常态）→ 回退旧语义补建用户笺重发（保完整）。 */
   retry(msgId, text, tag, img) {
     const t = (text || '').trim();
     if (!t || this.streaming) return;
-    this.messages = this.messages.filter((m) => m.id !== msgId);
-    this._save();
-    this._startStream(t, tag || '', null, img || null);
+    const idx = this._indexOf(msgId);
+    if (idx < 0) return;             // 目标气泡已不在（重复点击）→ 忽略，防幽灵重发
+    let uIdx = -1;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (this.messages[i].role === 'user') { uIdx = i; break; }
+    }
+    if (uIdx < 0) {
+      // 异常态：轮次提问笺已不存在（被删除等）→ 旧语义：移除目标并重发
+      this.messages = this.messages.filter((m) => m.id !== msgId);
+      this._save();
+      this._startStream(t, tag || '', null, img || null);
+      return;
+    }
+    const userMsg = this.messages[uIdx];
+    const imgFor = (img && img.url) ? { url: img.url }
+      : (userMsg.image && userMsg.image.url ? { url: userMsg.image.url } : null);
+    const aiMsg = this._buildAiMessage(t, tag || '');
+    this.messages = this.messages.slice();
+    // 提问笺与本次文本不一致（同轮理论上恒一致）→ 就地同步，防显示与请求失配
+    if (String(userMsg.content || '').trim() !== t) {
+      this.messages[uIdx] = Object.assign({}, userMsg, { content: t });
+    }
+    this.messages.splice(idx, 1, aiMsg);   // 原位替换失败/旧 AI 笺，不新增 user 笺
+    this._beginStream(aiMsg, t, tag || '', imgFor, true);
   }
 
   /* 删除一条消息（气泡菜单）：生成中的消息 → 中止；排队中的用户消息 → 出队 */
@@ -627,6 +674,7 @@ class StreamHost {
     this.streaming = false;
     this.typing = false;
     this.task = null;
+    this.curRegen = false;   // k13：本轮收尾，标记复位（防泄漏到下一轮普通发送）
     this.tick++;
     this._emit({ autoScroll: true });
     this._save();
@@ -651,6 +699,7 @@ class StreamHost {
     this.streaming = false;
     this.typing = false;
     this.task = null;
+    this.curRegen = false;   // k13：本轮收尾，标记复位（防泄漏到下一轮普通发送）
     this.tick++;
     this._emit();
     this._save();
@@ -685,6 +734,8 @@ class StreamHost {
                                      // B4-1 图片消息：回退普通请求同样走 image 链路
                                      messageType: img ? 'image' : 'text',
                                      imageUrl: img ? img.url : '',
+                                     // k13：失败回退同样是同一轮次 → 带同轮标记
+                                     regen: this.curRegen,
                                    });
         const content = (res && (res.reply || res.content || '')) || '';
         const cur = this._find(this.msgId);
@@ -703,6 +754,7 @@ class StreamHost {
         this.streaming = false;
         this.typing = false;
         this.task = null;
+        this.curRegen = false;   // k13：本轮收尾，标记复位（防泄漏到下一轮普通发送）
         this.tick++;
         this._emit({ autoScroll: true });
         this._save();
@@ -726,6 +778,7 @@ class StreamHost {
     this.streaming = false;
     this.typing = false;
     this.task = null;
+    this.curRegen = false;   // k13：本轮收尾，标记复位（防泄漏到下一轮普通发送）
     this.tick++;
     this._emit();
     this._save();

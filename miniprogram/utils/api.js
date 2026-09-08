@@ -464,6 +464,7 @@ function chat(message, scenario = '', history = [], options = {}) {
   if (options.deepNight) data.deep_night = true;  // Task 8 深夜倾诉：临时不记录 + 深夜语气层
   if (options.sessionId) data.session_id = options.sessionId;  // 会话隔离
   if (options.imageUrl) data.image_url = options.imageUrl;     // B4-1 图片消息：message_type=image
+  if (options.regen) data.regen = true;  // k13：重试/重新生成同轮标记（后端不新插 user 行）
   // chat 冷启动最慢 59s：单独长超时 60s（微信平台单请求上限），其余请求 30s
   return waitForLogin().then(() => {
     data.user_id = resolveUserId(); // 登录定型后取最新统一身份
@@ -499,6 +500,7 @@ function chatStream(message, handlers = {}, options = {}) {
   if (options.deepNight) data.deep_night = true;  // Task 8 深夜倾诉：临时不记录 + 深夜语气层
   if (options.sessionId) data.session_id = options.sessionId;  // 会话隔离
   if (options.imageUrl) data.image_url = options.imageUrl;     // B4-1 图片消息：message_type=image
+  if (options.regen) data.regen = true;  // k13：重试/重新生成同轮标记（后端不新插 user 行）
 
   return waitForLogin().then(ensureBaseURL).then(() => {
     data.user_id = resolveUserId(); // 登录定型后取最新统一身份

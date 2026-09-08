@@ -408,6 +408,9 @@ class ChatStreamer:
         # 断点续传：会话标识（text 路径透传；voice/image 无会话维度 → None）
         session_id = (normalize_session_id(getattr(req, "session_id", "") or "")
                       if req.message_type == "text" else None)
+        # k13 重试去重：前端重试/重新生成同轮标记（text 路径透传 → process →
+        # 同会话同文不新插 user 行，正常生成链补 assistant；voice/image 忽略）
+        regen = bool(getattr(req, "regen", False))
         # 生成开始前该会话最后一条消息 id——离线标记只打本轮新增的消息
         # （缓存命中/反馈等不落库分支不会误标记上一轮未标记的回复）
         before_id = None
@@ -491,10 +494,12 @@ class ChatStreamer:
                 else:
                     # 会话隔离：session_id 透传（新开对话 → 全新上下文；空/非法 → 旧行为）
                     # L5-1 降级：对话额度用尽 → 精简 prompt + GLM 模型
+                    # k13：regen 同轮标记透传（重试不新插 user 行，补答既有轮）
                     reply = self.handler.process(
                         req.message, user_id, stream_cb=stream_cb,
                         deep_night=bool(getattr(req, "deep_night", False)),
-                        session_id=session_id, downgraded=downgraded)
+                        session_id=session_id, downgraded=downgraded,
+                        regen=regen)
                 # 兜底：回复出口强制清理 TOOL 标签残留（格式变体/未知工具名/
                 # 未闭合标签——handler 工具循环已清，这里对最终 reply 再 strip 一次，
                 # 后续「剩余文本模拟流式」与 done 内容都基于清理后的文本）

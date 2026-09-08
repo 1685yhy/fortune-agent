@@ -213,7 +213,7 @@
               wx:for="{{item.reactions}}" wx:for-item="em" wx:key="index"
               data-id="{{item.id}}" data-em="{{em}}" bindtap="removeReaction">{{em}}</view>
           </view>
-          <!-- v8 阶段 3：失败重试（保留输入与已输出） -->
+          <!-- v8 阶段 3：失败重试（k13 同轮原地 regenerate：提问不复制、AI 原位重流） -->
           <view wx:if="{{item.error}}" class="jz-retry" hover-class="jz-fb-active" hover-stay-time="0" data-id="{{item.id}}" data-text="{{item.retryText}}" bindtap="retryStream">
             <text class="jz-retry-icon">↻</text><text class="jz-retry-label">重试</text>
           </view>

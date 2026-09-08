@@ -24,6 +24,19 @@ logger = logging.getLogger(__name__)
 # L2 增量摘要负责运行时压缩，存储层不丢弃原文。
 MAX_MESSAGES_PER_USER = 2000
 
+# k13 重试去重窗口（秒）：同一 (user_id, session_id) 下、同 role=user、
+# 规范化内容相同的消息，距最近一条同会话同文 user 行 ≤ 本窗口 → 判定重试/
+# 重复提交 → 不新插 user 行（该轮 assistant 由正常生成链补上）。
+# 依据（plan §B3）：双击/连点/双端同发为秒级；用户阅读+再发 ≥ 数十秒——
+# 20s 误伤面极小。实测重复节奏（2-5 分钟/次）由前端 regen 标记覆盖
+# （重试入口全部带标记），本窗口仅兜底无标记重复（旧客户端/竞态），
+# 故不放大窗口（放大即吞掉超窗真重复提问的审计行——全量留存红线）。
+RETRY_DEDUP_WINDOW_SECONDS = 20
+
+# 去重判定向前回看的同会话 user 行数上限（content 加密落库，须取回解密后
+# Python 侧比对；上限防全表解密，2000 条/用户软上限下 10 条足够覆盖窗口）
+_DEDUP_LOOKBACK = 10
+
 # 密文格式：v1:base64 / dev:base64（AES-256-GCM，见 dao.py 同款写法）
 # 用严格正则匹配整串，避免把含 ":" 的普通明文（如 "12:30 见"）误判为密文去解密。
 _CIPHER_RE = re.compile(r"^(v\d+|dev):[A-Za-z0-9+/=]+$")
@@ -160,6 +173,126 @@ class SessionDAO:
         finally:
             conn.close()
         self._cleanup(user_id)
+
+    # ------------------------------------------------------------
+    # k13 重试去重（2026-09-09，用户实锤：点「重试」同一句用户消息存 4 份 user 行）
+    # ------------------------------------------------------------
+
+    @staticmethod
+    def normalize_dedup_text(text: Optional[str]) -> str:
+        """重试去重比较用的规范化（纯函数）。
+
+        规则：按 Unicode isspace 剥首尾空白——覆盖半角空格/全角空格（　）/
+        换行（\r\n）；**内部空白不折叠**（不过度归并，防异文同判：
+        "帮我 看看" ≠ "帮我看看"）。与 handler 落库前 message.strip() 同口径，
+        兼容历史行首尾带空白（解密后比对）。
+        """
+        return (text or "").strip()
+
+    def add_user_message_dedup(
+        self,
+        user_id: str,
+        content: str,
+        *,
+        intent: Optional[str] = None,
+        emotion: Optional[str] = None,
+        tool_calls: Optional[str] = None,
+        retrieval_hit: Optional[str] = None,
+        model: Optional[str] = None,
+        safety_flag: Optional[str] = None,
+        temp: bool = False,
+        session_id: Optional[str] = None,
+        regen: bool = False,
+        window_seconds: float = RETRY_DEDUP_WINDOW_SECONDS,
+    ) -> dict:
+        """原子写入一条 role=user 消息（k13 重试去重护栏）。
+
+        语义（判定 + 插入在同一个 BEGIN IMMEDIATE 事务内——并发下检查与
+        写入原子，WAL 单写者 + busy_timeout 排队；多进程/多线程安全，
+        窗口基于 DB created_at 计算，无内存态）。
+        **匹配范围限定口径（review Minor-1/M-2）**：regen 与窗口判定都只回看
+        「同作用域（同 user_id + 同 session_id 取值）最近 _DEDUP_LOOKBACK(10)
+        条 user 行」——
+        - 10 行之前更早的失败轮重试（regen）查不到匹配 → 照插（审计完整，
+          不误伤超深历史）；窗口路径不受影响（20s 窗口内同文提交必在最近
+          若干行内，回看深度只防全表解密）。
+        - session_id=NULL（旧行为作用域）时窗口去重对全部无会话标记行生效
+          （跨「全会话」）；反之旧 NULL 行不在任何具名会话作用域内——具名
+          会话的 regen/窗口判定看不到它们（两个作用域互相独立，均不误伤）。
+        - regen=True（前端重试/重新生成标记，plan §B2-1）：上述作用域内最近
+          10 条中存在规范化同文 user 行 → 不新插（该轮 assistant 由调用方
+          正常生成链补上）；无匹配行（缓存命中轮等从未落库 / 超回看深度）→
+          照插（审计完整）。
+        - regen=False：同作用域最近规范化同文 user 行距其 created_at
+          ≤ window_seconds → 判定重试/双击重复 → 不新插；跨会话/异文/
+          超窗同文（用户真重复提问）→ 正常插入。
+        - 异常（如锁超时）向上抛，由调用方退回 add_message（全量留存铁律，
+          宁重勿丢）。
+
+        content 加密落库（同 add_message）。返回
+        {"inserted": bool, "matched_id": Optional[int]}。
+        """
+        norm = self.normalize_dedup_text(content)
+        if norm == "":
+            # 空内容防御：与 add_message 同语义直接落（不做去重判定）
+            self.add_message(user_id, "user", content, intent=intent,
+                             emotion=emotion, tool_calls=tool_calls,
+                             retrieval_hit=retrieval_hit, model=model,
+                             safety_flag=safety_flag, temp=temp,
+                             session_id=session_id)
+            return {"inserted": True, "matched_id": None}
+        content_enc = _encrypt_text(content)
+        temp_expire_at = ""
+        if temp:
+            from datetime import datetime, timedelta
+            temp_expire_at = (datetime.utcnow() + timedelta(hours=24)).isoformat()
+        conn = self._connect()
+        try:
+            # BEGIN IMMEDIATE：进入前即取写锁——并发提交者在此排队，等锁释放后
+            # 必然看到先提交者刚插入的行 → 判定不插（查插原子）
+            conn.execute("BEGIN IMMEDIATE")
+            rows = conn.execute(
+                """SELECT id, content,
+                          (julianday('now') - julianday(created_at)) * 86400.0
+                   FROM sessions
+                   WHERE user_id = ?
+                     AND role = 'user'
+                     AND (? IS NULL OR session_id = ?)
+                   ORDER BY id DESC LIMIT ?""",
+                (user_id, session_id, session_id, _DEDUP_LOOKBACK),
+            ).fetchall()
+            matched_id = None
+            within = False
+            for rid, rcontent, age_sec in rows:
+                if self.normalize_dedup_text(
+                        _decrypt_or_plain(rcontent) or "") == norm:
+                    matched_id = rid
+                    # created_at 异常（NULL）→ 不按窗口去重（宁插勿吞，审计完整）
+                    within = (age_sec is not None
+                              and age_sec <= window_seconds)
+                    break
+            if matched_id is not None and (regen or within):
+                conn.commit()  # 只读判定（判定窗口不插行），提交释放锁
+                logger.info(
+                    "chat user-msg dedup: user=%s session=%s regen=%s "
+                    "matched_id=%s content=%.30s",
+                    user_id, session_id, bool(regen), matched_id, norm)
+                return {"inserted": False, "matched_id": matched_id}
+            conn.execute(
+                """INSERT INTO sessions
+                   (user_id, role, content, intent, emotion, tool_calls,
+                    retrieval_hit, model, safety_flag, temp, temp_expire_at,
+                    session_id)
+                   VALUES (?, 'user', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (user_id, content_enc, intent, emotion, tool_calls,
+                 retrieval_hit, model, safety_flag, 1 if temp else 0,
+                 temp_expire_at, session_id),
+            )
+            conn.commit()
+            self._cleanup(user_id)  # 与 add_message 同口径：超上限软清理
+            return {"inserted": True, "matched_id": matched_id}
+        finally:
+            conn.close()
 
     # ------------------------------------------------------------
     # 断点续传（生成断点续传）：客户端断开后服务端继续生成并落库，
