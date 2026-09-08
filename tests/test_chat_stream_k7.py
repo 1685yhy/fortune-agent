@@ -241,7 +241,7 @@ class _K7Handler:
         return []
 
     def process(self, message, user_id, stream_cb=None, deep_night=False,
-                session_id=None, downgraded=False):
+                session_id=None, downgraded=False, regen=False):  # k13 契约：同轮重试标记
         if stream_cb is not None:
             for piece in _LIVE_PIECES:
                 stream_cb("chunk", {self.key: piece})
@@ -263,7 +263,7 @@ class _K7CiteHandler:
         return []
 
     def process(self, message, user_id, stream_cb=None, deep_night=False,
-                session_id=None, downgraded=False):
+                session_id=None, downgraded=False, regen=False):  # k13 契约：同轮重试标记
         if stream_cb is not None:
             for piece in _CITE_PIECES:
                 stream_cb("chunk", {self.key: piece})

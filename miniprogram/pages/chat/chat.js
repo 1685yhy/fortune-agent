@@ -845,7 +845,9 @@ Page({
     streamHost.stop();
   },
 
-  /* 重试：丢弃失败气泡，用原消息重发（B4-1：图片消息重试保持图片链路） */
+  /* k13 重试（2026-09-09）：同轮原地 regenerate——失败气泡替换为新流，提问笺不复制
+     （旧语义=重发整条用户消息 → 重复已发送消息实锤，详见 streamHost.retry 注释）。
+     B4-1：图片消息重试保持图片链路（streamHost 内自动从提问笺回取原图） */
   retryStream(e) {
     if (this.data.multiMode) return;   // v1.3 多选：气泡内交互不响应
     const text = (e.currentTarget.dataset.text || '').trim();
@@ -1264,7 +1266,8 @@ Page({
       // 走剥标记后的纯文本，[card:…] 标记不被 TTS 读出（标记不暴露三出口之一）
       this._playWithTts(msgId, cardUtil.stripCardMarkers(msg.content), true);
     } else if (k === 'regen') {
-      // k6 波2 P4.1 重新生成：移除原消息 → 用原提问重流（streamHost.retry）。
+      // k6 波2 P4.1 重新生成（k13 语义=同轮原地 regenerate，streamHost.retry）：
+      // 移除目标 AI 笺原位重流、提问笺不复制、请求带 regen 标记（后端不新插 user 行）。
       // 无确认弹窗（元宝/豆包即时感）；宿主 active 时内部静默 return，菜单侧已按
       // canRegen 不可见兜底防静默空点。P4.5 作废旧 consultation 行需后端接口
       // （voidConsultation 不存在，见 k10 报告后续项）——本批不接作废。

@@ -3898,10 +3898,53 @@ class MessageHandler:
             logger.warning("卡片化失败（保持原文）user=%s: %s", user_id, e)
             return reply
 
+    def _persist_user_turn(self, user_id: str, msg: str, analysis,
+                           deep: bool, session_id: Optional[str],
+                           regen: bool = False) -> None:
+        """k13：用户消息落库（重试去重 + regen 同轮标记）。
+
+        走 SessionDAO.add_user_message_dedup（原子判定+插入，plan §B2）：
+        - regen=True（前端重试/重新生成）且同会话存在规范化同文 user 行 →
+          不新插（生成链照常对既有轮次补 assistant）；
+        - 无标记但同会话同文距最近行 ≤ 窗口（默认 20s）→ 不新插（双击/旧客户端）；
+        - 其余照插。
+        去重判定或落库异常（锁超时等）→ 退回原 add_message 直插
+        （sessions 全量留存铁律：宁重勿丢，绝不让用户消息因护栏丢失）。
+        """
+        if not self.session_dao:
+            return
+        try:
+            self.session_dao.add_user_message_dedup(
+                user_id, msg,
+                intent=analysis.intent if analysis else None,
+                emotion=(analysis.emotion_label if analysis else None),
+                model=getattr(self.llm, 'model', '') or '',
+                safety_flag=self._safety_flag(msg),
+                temp=deep, session_id=session_id,
+                regen=bool(regen),
+            )
+        except Exception as e:
+            logger.warning(
+                "chat user-msg dedup guard failed, fallback plain insert: "
+                "user=%s err=%s", user_id, e)
+            try:
+                self.session_dao.add_message(
+                    user_id, "user", msg,
+                    intent=analysis.intent if analysis else None,
+                    emotion=(analysis.emotion_label if analysis else None),
+                    model=getattr(self.llm, 'model', '') or '',
+                    safety_flag=self._safety_flag(msg),
+                    temp=deep, session_id=session_id,
+                )
+            except Exception:
+                logger.exception("chat user-msg plain insert failed: user=%s",
+                                 user_id)
+
     def process(self, message: str, user_id: str,
                 stream_cb: Optional[Callable] = None, deep_night: bool = False,
                 session_id: Optional[str] = None,
-                downgraded: bool = False) -> str:
+                downgraded: bool = False,
+                regen: bool = False) -> str:
         """处理用户消息，返回回复。
 
         stream_cb（v8 流式阶段 3）：提供时把生成过程实时回调出去——
@@ -3914,6 +3957,11 @@ class MessageHandler:
 
         session_id（会话隔离）：前端新开对话时生成新会话标识，AI 上下文只取本会话
         消息（不带上个对话内容）；None = 旧行为（按用户全量取上下文）。
+
+        regen（k13 重试去重，2026-09-09）：前端重试/重新生成标记 = 对既有轮次的
+        同轮 regenerate——用户消息不新插行（同会话存在规范化同文 user 行时，
+        由正常生成链对既有轮次补 assistant 行）；无匹配行照插（审计完整）。
+        普通新提问不带该标记。
         """
         msg = message.strip()
         self._deep_night[user_id] = bool(deep_night)
@@ -4167,15 +4215,11 @@ class MessageHandler:
 
         # Save user message to session history（阶段 2：emotion/model/安全标记落库；
         # Task 5 deepNight：用户消息带 temp 标记）
-        if self.session_dao:
-            self.session_dao.add_message(
-                user_id, "user", msg, intent=analysis.intent,
-                emotion=analysis.emotion_label,
-                model=getattr(self.llm, 'model', '') or '',
-                safety_flag=self._safety_flag(msg),
-                temp=deep,
-                session_id=session_id,
-            )
+        # k13 重试去重（2026-09-09，用户实锤点「重试」同一句消息存 4 份 user 行）：
+        # 用户消息落库改走 _persist_user_turn —— regen 标记/同会话同文窗口去重，
+        # 判定+插入原子（BEGIN IMMEDIATE），异常退回原 add_message（宁重勿丢）
+        self._persist_user_turn(user_id, msg, analysis, deep, session_id,
+                                regen=bool(regen))
 
         # 流式模式（v8 阶段 3）："欢迎回来"开场提前生成并作为首个正文块流出，
         # 让回头客在正文生成前就有内容可读（秒回感知）；后续不再重复拼接。

@@ -1468,6 +1468,7 @@ class ChatRequest(BaseModel):
     voice_text: str = ""  # 语音转文字结果（message_type=voice 时）
     deep_night: bool = False  # Task 5: 深夜倾诉模式(默认临时不记录+深夜语气层)
     session_id: str = ""  # 会话隔离：新开对话 → 新 session_id（AI 上下文只取本会话）
+    regen: bool = False  # k13: 前端重试/重新生成同轮标记——同会话同文不新插 user 行(补答既有轮次)
 
 
 class ChatResponse(BaseModel):
@@ -1600,7 +1601,8 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
                 None, lambda: handler.process(
                     req.message, req.user_id, deep_night=req.deep_night,
                     session_id=normalize_session_id(req.session_id),
-                    downgraded=downgraded))
+                    downgraded=downgraded,
+                    regen=bool(getattr(req, "regen", False))))
         # 兜底：回复出口强制清理 TOOL 标签残留（格式变体/未知工具名/未闭合标签
         # 统一在返回前端前 strip 一次，双保险——handler 工具循环已清，这里再兜底）
         reply = strip_tool_calls(reply) or reply
