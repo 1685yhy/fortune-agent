@@ -1280,20 +1280,8 @@
   height: 52rpx;
   flex-shrink: 0;
 }
-/* k6 波2 P4.1：菜单文字字形图标位（↻ 重新生成——仓库先例：jz-retry 用 ↻ 字形、
-   react-add 用 ＋；零新增图片资产红线内） */
-.act-em-glyph {
-  width: 52rpx;
-  height: 52rpx;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-lat);
-  font-size: 36rpx;
-  line-height: 1;
-  color: var(--ink-mid);
-}
+/* k6 波2 P4.1 重新生成行图标：k12 起由文字字形 ↻ 换为 ic-regen 线性资产（与 .act-em-ic
+   同尺寸档），本类随 wxml 引用归零而删除（k12-icon-redraw） */
 .act-sep {
   height: 2rpx;
   background: var(--line-med);          /* 分组分隔线略深，分组更易读（vision 评审反馈） */

@@ -497,7 +497,8 @@
       <!-- k6 波2 P4.1/4.2 增补（AI 专属）：重新生成（仅末条 AI + 非流式/非失败/宿主空闲）/
            查看引用（msg.citations 非空）——可见条件在 chat.js onBubbleLongPress 计算 -->
       <view wx:if="{{actionMenu.canRegen}}" class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="regen" bindtap="actItem">
-        <view class="act-em-glyph">↻</view>
+        <!-- k12：↻ 文字字形 → ic-regen 线性资产（与菜单其余行同族；k12-icon-redraw） -->
+        <image class="act-em-ic" src="/assets/images/ic-regen.png"></image>
         <text class="act-label">重新生成</text>
       </view>
       <view wx:if="{{actionMenu.canCite}}" class="act-row" hover-class="act-row-active" hover-stay-time="0" data-k="cite" bindtap="actItem">
