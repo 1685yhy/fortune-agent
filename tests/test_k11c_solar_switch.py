@@ -334,6 +334,29 @@ def test_persons_api_solar_time_roundtrip(tmp_path):
         "name": "小晚", "gender": "男",
     }, headers=headers)
     assert r3.json()["person"]["solar_time"] == 1
+    # 切 0 后未传 solar_time 的普通保存 → 仍保持 0（r1 F1：不静默写回 1）
+    r4 = client.put(f"/api/persons/{pid}", json={
+        "name": "小晚", "gender": "男", "solar_time": 0,
+    }, headers=headers)
+    assert r4.json()["person"]["solar_time"] == 0
+    r5 = client.put(f"/api/persons/{pid}", json={
+        "name": "小晚", "gender": "男",
+    }, headers=headers)
+    assert r5.json()["person"]["solar_time"] == 0
+
+
+def test_persons_api_create_without_solar_time_defaults_on(tmp_path):
+    """创建不带 solar_time（旧调用方/前端未改动路径）→ 默认开=1（r1 F1 兜底）。"""
+    client, udao, db = _api(tmp_path, "k11c_api_default")
+    headers = _api_headers("u_k11c_def")
+    r = client.post("/api/persons", json={
+        "name": "小晚", "relation": "自己", "gender": "男",
+        "birth_year": 1999, "birth_month": 5, "birth_day": 13,
+        "birth_hour": 10, "birth_minute": 55,
+        "calendar": "solar", "city": "长春",
+    }, headers=headers)
+    assert r.status_code == 200, r.text
+    assert r.json()["person"]["solar_time"] == 1
 
 
 def test_user_bazi_api_solar_time_roundtrip(tmp_path):
@@ -362,3 +385,119 @@ def test_user_bazi_api_solar_time_roundtrip(tmp_path):
     # profile 出参（读取链）带 solar_time
     prof = client.get("/api/user/profile", headers=headers).json()
     assert prof["bazi_info"]["year"] == 1999
+
+
+# ───────────────────────── k11c r1 审查修复：F2/F3 ─────────────────────────
+# F2（对齐）：_tool_bazi 文本直排路径随档案开关（本人同年 → 与 _handle_bazi
+# parsed 直排同口径）；F3（镜像）：persons PUT 开关翻转 → users.bazi_info 同步镜像。
+
+class _RecordingEngine:
+    """记录 calculate 实参并透传真实 BaziEngine 结果（r1 F2 用）。"""
+
+    def __init__(self):
+        self.real = BaziEngine()
+        self.calls = []
+
+    def calculate(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        return self.real.calculate(*args, **kwargs)
+
+
+def _tool_handler(tmp_path, uid="u_f2", db_path=None):
+    """object.__new__ 装配（R2-6 同款）：真实 DAO + 记录引擎（0 LLM）。
+
+    db_path：persons/users 同库路径（与测试种子同一文件）；缺省自建。
+    """
+    from src.bot.handler import MessageHandler
+    from src.storage.dao import UserDAO
+    from src.storage.chart_dao import ChartDAO
+    h = object.__new__(MessageHandler)
+    h.dao = UserDAO(db_path or str(tmp_path / "t.db"))
+    h.chart_dao = ChartDAO(str(tmp_path / "tc.db"))
+    h.memory_system = None
+    h.memory = None
+    h._analysis_facts = {}
+    h._citations = {}
+    h._downgraded = {}
+    h._deep_night = {}
+    h._gender_acks = {}
+    h.session_dao = None
+    h.llm = None
+    rec = _RecordingEngine()
+    h.engine = rec
+    return h, rec
+
+
+def _seed_f2_person(pdao, uid, solar_time):
+    return pdao.create_person(uid, name="我", relation="自己",
+                              is_default=True, birth={
+                                  "gender": "男", "birth_year": 1999,
+                                  "birth_month": 5, "birth_day": 13,
+                                  "birth_hour": 10, "birth_minute": 55,
+                                  "calendar": "solar", "city": "长春",
+                                  "solar_time": solar_time})
+
+
+def test_tool_bazi_text_path_follows_archive_solar(tmp_path):
+    """r1 F2：_tool_bazi 文本直排（本人同年）随档案开关——档案关(0) → 引擎
+    solar_time=False（辛巳）；档案开(1)/无档案/消息年份不同 → 默认 True（壬午）。"""
+    from src.storage.person_dao import PersonDAO
+    db = str(tmp_path / "f2.db")
+    udao = UserDAO(db)
+    pdao = PersonDAO(db)
+
+    def _run(uid, msg, solar=None):
+        if solar is not None:
+            _seed_f2_person(pdao, uid, solar)
+        h, rec = _tool_handler(tmp_path, uid, db_path=db)
+        tr = h._tool_bazi(msg, uid)
+        assert tr and tr.ok, tr.text if tr else "tool 未执行"
+        assert rec.calls, "应调用引擎"
+        return rec.calls[0][1]
+
+    # 档案关(0) + 同年自我文本 → solar_time=False
+    kw1 = _run("u_f2_off", "1999年5月13日 10:55 长春 男", solar=0)
+    assert kw1["solar_time"] is False
+    # 档案开(1) + 同年自我文本 → True
+    kw2 = _run("u_f2_on", "1999年5月13日 10:55 长春 男", solar=1)
+    assert kw2["solar_time"] is True
+    # 无档案（新用户）→ 引擎默认开
+    kw3 = _run("u_f2_new", "1999年5月13日 10:55 长春 男")
+    assert kw3["solar_time"] is True
+    # 消息年份与档案不同（第三方/他人盘）→ 默认开（不随本人档案）
+    kw4 = _run("u_f2_other", "1998年5月13日 10:55 长春 男", solar=0)
+    assert kw4["solar_time"] is True
+
+
+def test_person_dao_solar_flip_mirrors_bazi_info(tmp_path):
+    """r1 F3：persons 开关翻转 → users.bazi_info 同步镜像（② 源防回弹默认开）；
+    无关字段更新不触发镜像；行无出生年 → 跳过不崩。"""
+    db = str(tmp_path / "mirror.db")
+    udao = UserDAO(db)
+    pdao = PersonDAO(db)
+    udao.save_user_bazi("u_m", {"year": 1999, "month": 5, "day": 13,
+                                "hour": 10, "minute": 55, "gender": "男",
+                                "calendar": "solar", "city": "长春"})
+    p = pdao.create_person("u_m", "我", "自己", birth={
+        "gender": "男", "birth_year": 1999, "birth_month": 5, "birth_day": 13,
+        "birth_hour": 10, "birth_minute": 55, "calendar": "solar",
+        "city": "长春", "solar_time": 1})
+    assert udao.get_user_bazi("u_m").get("solar_time") is None  # 前置：无键
+    # 无关更新（仅城市）→ 不镜像（bazi_info 保持无键/原值）
+    pdao.update_person("u_m", p["id"], birth={"city": "北京"})
+    assert udao.get_user_bazi("u_m").get("solar_time") is None
+    # 显式切关 → persons 0 且 bazi_info 镜像 0
+    p2 = pdao.update_person("u_m", p["id"], birth={"solar_time": 0})
+    assert p2["solar_time"] == 0
+    assert udao.get_user_bazi("u_m")["solar_time"] == 0
+    # 切回 1 → bazi_info 镜像 1（bazi_info 更新为最新，不残留旧 0）
+    pdao.update_person("u_m", p["id"], birth={"solar_time": 1})
+    assert udao.get_user_bazi("u_m")["solar_time"] == 1
+    # 无 bazi_info 行（另用户）→ 镜像跳过不崩
+    pdao.create_person("u_none", "我", "自己", birth={
+        "gender": "男", "birth_year": 1999, "birth_month": 5, "birth_day": 13,
+        "birth_hour": 10, "birth_minute": 55, "calendar": "solar",
+        "city": "长春", "solar_time": 1})
+    pdao.update_person("u_none", pdao.list_persons("u_none")[0]["id"],
+                       birth={"solar_time": 0})
+    assert udao.get_user_bazi("u_none") is None

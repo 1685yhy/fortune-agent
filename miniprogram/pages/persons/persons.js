@@ -75,12 +75,14 @@ Page({
     }));
   },
 
-  /* 视图 → 契约 payload（字段结构与原先一致：year/month/day + calendar 标记；
-     k11c 起携带档案级 solar_time 开关 1/0） */
+  /* 视图 → 契约 payload（字段结构与原先一致：year/month/day + calendar 标记）。
+     k11c F1（审查）：solar_time 只在用户真实改动时携带——编辑未碰开关保存 =
+     不带字段 → 服务端 update 合并保留既有开关（本地缓存陈旧/缺字段场景绝不把
+     0 静默写回成 1）；显式翻转（0↔1）才随请求落档 */
   _payload() {
     const d = this.data;
     const parts = String(d.dDate || '').split('-');
-    return {
+    const payload = {
       name: d.dName.trim(),
       relation: d.dRel,
       gender: persons.genderCode(d.dGender),
@@ -91,8 +93,9 @@ Page({
       birth_minute: 0,
       calendar: d.dCal,
       city: (d.dPlace || '').trim(),
-      solar_time: d.solarOn ? 1 : 0,
     };
+    if (d.solarOn !== this._origSolar) payload.solar_time = d.solarOn ? 1 : 0;
+    return payload;
   },
 
   // ---- 列表交互 ----
@@ -216,6 +219,7 @@ Page({
   async onSave() {
     if (!this.data.filled || this.data.saving) return;
     this.setData({ saving: true });
+    const solarChanged = this.data.solarOn !== this._origSolar;
     const payload = this._payload();
     const editing = this.data.editing;
 
@@ -226,7 +230,7 @@ Page({
         if (!res || !res.person) throw new Error('服务端未返回档案');
         saved = res.person;
         // k11c：切换了真太阳时开关 → 提示重排生效（开关随档案保存）
-        if (this._origSolar !== (payload.solar_time === 1)) {
+        if (solarChanged) {
           wx.showToast({ title: '已更新，重新排盘生效', icon: 'none', duration: 2200 });
         } else {
           wx.showToast({ title: `已保存 · ${saved.name || payload.name}`, icon: 'none' });

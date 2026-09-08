@@ -410,14 +410,17 @@ Page({
     const y = b.year || b.birthYear;
     const mo = b.month || b.birthMonth;
     const da = b.day || b.birthDay;
-    this._origSolar = true;   // 旧 bazi_info 无开关字段 → 默认开
+    // k11c F1（审查）：solar_time 优先取真值（bazi_info 带出时读之；旧契约无
+    // 该键 → 默认开展示，但见 onSave：未真实改动不携带开关 → 不静默写回 1）
+    const solarOn = b.solar_time !== undefined && b.solar_time !== null ? b.solar_time !== 0 : true;
+    this._origSolar = solarOn;
     this.setData({
       birthDate: y ? _fmtDate(y, mo || 1, da || 1) : '1990-01-01',
       calendar: b.calendar === 'lunar' ? 'lunar' : 'solar',
       hourIndex,
       gender: b.gender === '女' ? 'female' : (b.gender === '男' ? 'male' : (b.gender || 'male')),
       city: b.city || '',
-      solarOn: true,
+      solarOn,
       hasBazi: true,
       formTitle: '更正档案',
     });
@@ -459,9 +462,11 @@ Page({
       gender: d.gender === 'female' ? '女' : '男',
       calendar: d.calendar,
       city: (d.city || '').trim(),
-      // k11c：档案级真太阳时开关随保存落档（1=开=经度校准；0=关=本地直排）
-      solar_time: d.solarOn ? 1 : 0,
     };
+    // k11c F1（审查）：开关只在用户真实改动时携带（1=开=经度校准；0=关=本地
+    // 直排）。未改动保存 = 不带字段 → 服务端 update 合并保留既有开关——离线/
+    // 列表空场景无档案真值可回显（默认开展示）时，绝不把 0 静默写回成 1
+    if (solarChanged) baziData.solar_time = d.solarOn ? 1 : 0;
 
     try {
       const cp = d.currentPerson;

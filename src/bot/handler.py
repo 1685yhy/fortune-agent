@@ -2089,10 +2089,20 @@ class MessageHandler:
         # R2-5：档案兜底持久化原始值标记（lunar 转公历排盘后不把原始输入
         # 改写/抹标——persons 全量替换回写路径防自毁；文本解析路径恒 None）
         _arch_raw = None
-        # k11c：真太阳时开关——文本解析路径无档案开关语义 → 引擎默认开（现
-        # 行为不变）；档案兜底路径随档案 solar_time（0=关=北京时间直排）。
+        # k11c（r1 审查 F2 对齐）：真太阳时开关——文本解析路径同样先查档案：
+        # 本人（档案年份与消息一致）→ 随档案 solar_time（0=关=北京时间直排），
+        # 与 _handle_bazi parsed 直排同口径（同句自我生辰经 tool/直达两路由
+        # 四柱一致）；第三方消息/无档案 → 引擎默认开（消息级无开关语义）。
+        # 档案兜底路径（parsed None）在下方分支内另行随档案取值。
         _solar_tool = True
         parsed = self._extract_bazi_info(params)
+        if parsed is not None:
+            try:
+                _sp = self._get_user_birth_profile(user_id)
+                if _sp and _sp.get("year") and _sp["year"] == parsed[0]:
+                    _solar_tool = (_sp.get("solar_time") not in (0, "0", False))
+            except Exception:
+                _solar_tool = True
         if parsed is None:
             # Task 1 排盘档案打通：解析失败先试档案（bazi_info + persons 兜底）填参，
             # 年/月/日至少齐才排盘；hour/minute 缺省 0（与 _extract_bazi_info 缺时辰一致）

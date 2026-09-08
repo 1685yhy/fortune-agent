@@ -49,17 +49,20 @@ test('k11c bazi 页：开关默认开（data solarOn:true）+ bindchange 写入�
     'switch bindchange → onSolarTimeChange → setData solarOn');
 });
 
-test('k11c bazi 页：保存 payload 带 solar_time（1/0）并回显档案开关', () => {
+test('k11c bazi 页：开关仅在真实改动时携带 solar_time；_enterForm/_applyBazi 回显档案开关', () => {
   const js = fs.readFileSync(BAZI_JS, 'utf8');
-  assert.match(js, /solar_time: d\.solarOn \? 1 : 0,/, 'baziData 必须带 solar_time（随 /api/user/bazi 与 /api/persons PUT 落档案）');
-  assert.match(js, /const solarOn = p\.solar_time !== 0;/, '档案回显：solar_time=0 关；缺失/旧档案 → 默认开');
+  assert.match(js, /if \(solarChanged\) baziData\.solar_time = d\.solarOn \? 1 : 0;/,
+    'F1（r1）：payload 只在用户真实改动时带 solar_time（未改动 = 服务端合并保留既有，0 不被静默写回 1）');
+  assert.match(js, /const solarOn = p\.solar_time !== 0;/, '_enterForm 档案回显：solar_time=0 关；缺失/旧档案 → 默认开');
+  assert.match(js, /b\.solar_time !== 0/, '_applyBazi 回显读 bazi_info 真值（无键 → 默认开展示）');
 });
 
-test('k11c persons 页：开关默认开、payload 带 solar_time、编辑回显、切换提示文案', () => {
+test('k11c persons 页：开关默认开、payload 改动才带 solar_time、编辑回显、切换提示文案', () => {
   const js = fs.readFileSync(PERSONS_JS, 'utf8');
   assert.match(js, /solarOn: true,/, '新增 draft 开关默认开');
   assert.match(js, /solarOn: raw\.solar_time !== 0,/, '编辑回显：raw.solar_time=0 → 关；旧档案缺字段 → 开');
-  assert.match(js, /solar_time: d\.solarOn \? 1 : 0,/, '_payload 必须带 solar_time');
+  assert.match(js, /if \(d\.solarOn !== this\._origSolar\) payload\.solar_time = d\.solarOn \? 1 : 0;/,
+    'F1（r1）：_payload 只在真实改动时带 solar_time（未改动 = 不带字段，0 不被静默写回 1）');
   assert.match(js, /已更新，重新排盘生效/, '切换后保存提示文案（C 要求逐字）');
 });
 
@@ -176,20 +179,42 @@ test('k11c bazi 页：档案 solar_time=0 回显关；翻转开保存 → PUT so
   }
 });
 
-test('k11c bazi 页：未切换开关保存 → 常规「档案已保存」提示（零误报）', async () => {
+test('k11c bazi 页：未切换开关保存 → 不携带 solar_time（F1：不静默写回）+ 常规提示', async () => {
   const { toasts, bodies } = installWx();
   const page = Object.assign({}, pageCfgs.bazi);
   page.data = cloneData(pageCfgs.bazi);
   page.setData = dottedSetData;
   try {
-    page._enterForm(Object.assign({}, rawPerson, { solar_time: 1 }));  // 档案开
-    assert.equal(page.data.solarOn, true);
+    page._enterForm(Object.assign({}, rawPerson, { solar_time: 0 }));  // 档案关
+    assert.equal(page.data.solarOn, false);
     page.onSave();                                    // 不动开关
     await new Promise((r) => setTimeout(r, 780));
     assert.equal(bodies.length, 1);
-    assert.equal(bodies[0].solar_time, 1);
+    assert.ok(!('solar_time' in bodies[0]),
+      '未改动保存不带 solar_time → 服务端 update 合并保留既有 0（F1 不静默写回 1）');
     const last = toasts[toasts.length - 1];
     assert.notEqual(last.title, '已更新，重新排盘生效');
+  } finally {
+    global.wx = { getStorageSync: () => undefined };
+  }
+});
+
+test('k11c bazi 页：回显无真值（bazi_info 无键）未改动保存也不携带 solar_time', async () => {
+  // F1 回归：_prefill（GET /api/user/profile bazi_info 无 solar_time 键）路径
+  // 展示默认开，但用户未真实改动 → payload 不带字段 → 服务端保留既有值
+  const { bodies } = installWx();
+  const page = Object.assign({}, pageCfgs.bazi);
+  page.data = cloneData(pageCfgs.bazi);
+  page.setData = dottedSetData;
+  try {
+    page._applyBazi({ year: 1999, month: 5, day: 13, hour: 10, gender: '男', city: '长春' });
+    assert.equal(page.data.solarOn, true, '无真值 → 默认开展示');
+    assert.equal(page._origSolar, true);
+    page.onSave();                                    // 未改动开关
+    await new Promise((r) => setTimeout(r, 780));
+    assert.equal(bodies.length, 1);
+    assert.ok(!('solar_time' in bodies[0]),
+      '无真值回显且未改动 → 不带 solar_time（不把未知的 0 写回成 1）');
   } finally {
     global.wx = { getStorageSync: () => undefined };
   }
@@ -238,21 +263,43 @@ test('k11c persons 页：编辑回显（关）+ 翻转保存 → PUT solar_time:
   }
 });
 
-test('k11c 新增命主：开关默认开且 payload solar_time:1', async () => {
-  const { bodies } = installWx();
-  const page = Object.assign({}, pageCfgs.persons);
-  page.data = cloneData(pageCfgs.persons);
-  page.setData = dottedSetData;
+test('k11c 新增命主：未改动开关 → 不携带 solar_time（后端缺省默认开）；显式切关 → solar_time:0', async () => {
+  // 未改动：POST 不带 solar_time → 后端 create 缺省开（F1 语义：只有真实
+  // 改动才携带，未改动的默认开展示绝不靠 payload 写死）
+  const { bodies: bodiesA } = installWx();
+  const pageA = Object.assign({}, pageCfgs.persons);
+  pageA.data = cloneData(pageCfgs.persons);
+  pageA.setData = dottedSetData;
   try {
-    page.onAdd();
-    assert.equal(page.data.solarOn, true, '新增 draft 默认开');
-    page.setData({ dName: '新命', dDate: '1999-05-13', dCal: 'solar' });
-    page._refreshForm();
-    assert.equal(page.data.filled, true);
-    page.onSave();
+    pageA.onAdd();
+    assert.equal(pageA.data.solarOn, true, '新增 draft 默认开');
+    pageA.setData({ dName: '新命', dDate: '1999-05-13', dCal: 'solar' });
+    pageA._refreshForm();
+    assert.equal(pageA.data.filled, true);
+    pageA.onSave();
     await new Promise((r) => setTimeout(r, 60));
-    assert.equal(bodies.length, 1);
-    assert.equal(bodies[0].solar_time, 1, '新档案默认开必须随创建请求落库');
+    assert.equal(bodiesA.length, 1);
+    assert.ok(!('solar_time' in bodiesA[0]),
+      '未改动新增不带 solar_time（后端缺省开=产品口径）');
+  } finally {
+    global.wx = { getStorageSync: () => undefined };
+  }
+
+  // 显式切关：新增时真实改动 → 携带 solar_time:0（关=本地直排落档）
+  const { bodies: bodiesB } = installWx();
+  const pageB = Object.assign({}, pageCfgs.persons);
+  pageB.data = cloneData(pageCfgs.persons);
+  pageB.setData = dottedSetData;
+  try {
+    pageB.onAdd();
+    pageB.onSolarTimeChange({ detail: { value: false } });   // 新建即关
+    assert.equal(pageB.data.solarOn, false);
+    pageB.setData({ dName: '新命', dDate: '1999-05-13', dCal: 'solar' });
+    pageB._refreshForm();
+    pageB.onSave();
+    await new Promise((r) => setTimeout(r, 60));
+    assert.equal(bodiesB.length, 1);
+    assert.equal(bodiesB[0].solar_time, 0, '真实切关必须显式携带 solar_time:0');
   } finally {
     global.wx = { getStorageSync: () => undefined };
   }

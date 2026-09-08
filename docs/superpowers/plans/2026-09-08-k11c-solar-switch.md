@@ -135,3 +135,29 @@ k11 plan 报告 §③ 用例 6 待本批裁决后挂行；挂载执行列入后�
   data/eval/results/ 目录等预存脏态禁 add；不 push 不重启不碰生产库不改 .env 不动
   tool_calls.py。
 - progress.md 追加 k11c 段。
+
+## k11c-r1 审查修复（2026-09-08，/tmp/k11c-review-20260908.md：有条件通过，条件 1=F1 修 + 条件 2=F2/F3 拍板记录）
+
+- **F1（修·C 回显漏洞）**：`_applyBazi`（bazi 页 _prefill 回显路径）不再硬编码默认开——
+  有真值读真值（`b.solar_time !== 0`），无键（default_person_bazi_info 保持旧 8 键
+  契约不剥离变更，legacy shape 测试锁死）才默认开；**保存 payload 语义由「恒携带 1/0」
+  改为「仅在用户真实改动时携带」**（bazi/persons 两表单同规则：未改动保存不带字段 →
+  服务端 update 合并保留既有开关，离线/空列表等无真值可回显场景绝不把 0 静默写回成
+  1；新建缺省开由后端兜底）。测试：node 增「回显无真值未改动不带字段」用例 + bazi 未
+  切换保存断言改为「不带 solar_time」；后端增 API 无字段创建默认开 1 / PUT 无字段保持 0。
+- **F2（对齐·拍板记录）**：_tool_bazi 文本直排路径与 _handle_bazi parsed 直排同口径——
+  本人（档案年份与消息一致）→ 随档案 solar_time；第三方/异年消息/无档案 → 引擎默认开
+  （消息级无开关语义）。拍板：同句自我生辰经 tool/直达两路由四柱一致，档案开关即用户
+  全局设置。测试：tests/test_k11c_solar_switch.py 增 _tool_bazi 四场景（关→False/开→
+  True/无档案→True/异年第三方→True）。
+- **F3（镜像·一行不可修→实现最小镜像）**：persons update_person 开关翻转时对
+  users.bazi_info 密文行直接 SQL 镜像（不经 UserDAO.save_user_bazi——避开其
+  consultation_count+1 副作用）；无关字段更新不镜像、行无出生年跳过、失败仅告警。
+  删除默认命主后 ② 源回弹默认开场景：有 bazi_info 行的用户已被镜像 → 回弹消除；
+  纯 persons 用户（无 bazi_info 行）删除默认后 ② 无源 → 无档案默认开 = 产品正确
+  行为（新用户默认开口径），记录在案。
+- 独立复跑：k11c 后端 16 passed（r1 新增 3）+ 邻接 213 passed（person_sync/profile_
+  consistency/g1×2/calendar_persons_read/calendar_today_cache/bazi_residual_paths/
+  chart_write_points/lunar_birth_solar_convert/capability_registry/k9_r2_minors/
+  partial_birth）+ node 70 passed（k11c 10 用例 r1 更新 + g2_save_integrity/
+  paipan_history_prefill/paipan_solar_time/paipan_noarch）。
