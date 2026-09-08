@@ -1307,7 +1307,7 @@ class MessageHandler:
             pass
         return None
 
-    def _start_pregen_instant(self, msg: str):
+    def _start_pregen_instant(self, msg: str, user_id: str = ""):
         """消息含完整出生信息且意图为排盘（bazi）→ 排盘 + 秒回安抚提交后台线程。
 
         返回 Future（_do_bazi_analysis 消费）；非排盘意图/无出生信息/启动失败 → None。
@@ -1317,6 +1317,8 @@ class MessageHandler:
         Task 2 终审修复：提交前先用 _quick_intent（MessageAnalyzer fast path，
         无 LLM 调用）判定意图——仅排盘类（bazi）才预生成；含意图提示词的
         hehun/ziwei/自由聊天等消息直接跳过（不再产生被丢弃的调用）。
+        k11c：本人（非第三方）且消息年份与档案一致 → 秒回预生成随档案
+        真太阳时开关排盘（与主链路 _handle_bazi 同口径，防回复引错时柱）。
         """
         try:
             # 排盘意图门控：fast path 未判 bazi（含意图词/无出生日期）→ 跳过
@@ -1326,16 +1328,26 @@ class MessageHandler:
             if not parsed:
                 return None
             year, month, day, hour, minute, city, gender = parsed
+            _solar_pre = True
+            if user_id and not self._is_third_party_birth_request(msg):
+                try:
+                    _prof = self._get_user_birth_profile(user_id)
+                    if (_prof and _prof.get("year") == year
+                            and _prof.get("year")):
+                        _solar_pre = (_prof.get("solar_time")
+                                      not in (0, "0", False))
+                except Exception:
+                    _solar_pre = True
             return self._pregen_pool.submit(
                 self._pregen_instant_worker,
-                year, month, day, hour, minute, city, gender,
+                year, month, day, hour, minute, city, gender, _solar_pre,
             )
         except Exception:
             logger.warning("秒回预生成启动失败（回退同步生成）", exc_info=True)
             return None
 
     def _pregen_instant_worker(self, year, month, day, hour, minute,
-                               city, gender) -> str:
+                               city, gender, solar_time=True) -> str:
         """后台线程：排盘 + 秒回安抚生成（与意图分析重叠执行）。
 
         线程安全：engine.calculate 为确定性本地计算（无共享可变状态）；
@@ -1343,7 +1355,8 @@ class MessageHandler:
         """
         try:
             result = self.engine.calculate(year, month, day, hour, minute,
-                                           city, gender)
+                                           city, gender,
+                                           solar_time=solar_time)
             return self._gen_instant_reply(result)
         except Exception as e:
             logger.warning("预生成失败: %s", e)
@@ -2076,11 +2089,16 @@ class MessageHandler:
         # R2-5：档案兜底持久化原始值标记（lunar 转公历排盘后不把原始输入
         # 改写/抹标——persons 全量替换回写路径防自毁；文本解析路径恒 None）
         _arch_raw = None
+        # k11c：真太阳时开关——文本解析路径无档案开关语义 → 引擎默认开（现
+        # 行为不变）；档案兜底路径随档案 solar_time（0=关=北京时间直排）。
+        _solar_tool = True
         parsed = self._extract_bazi_info(params)
         if parsed is None:
             # Task 1 排盘档案打通：解析失败先试档案（bazi_info + persons 兜底）填参，
             # 年/月/日至少齐才排盘；hour/minute 缺省 0（与 _extract_bazi_info 缺时辰一致）
             profile = self._get_user_birth_profile(user_id)
+            _st_raw = (profile or {}).get("solar_time")
+            _solar_tool = (_st_raw not in (0, "0", False)) if profile else True
             if profile and profile.get("year") and profile.get("month") and profile.get("day"):
                 _hour = (profile.get("hour") if profile.get("hour") is not None else 0)
                 _minute = (profile.get("minute")
@@ -2118,7 +2136,9 @@ class MessageHandler:
                 )
         year, month, day, hour, minute, city, gender = parsed
         try:
-            result = self.engine.calculate(year, month, day, hour, minute, city, gender)
+            result = self.engine.calculate(
+                year, month, day, hour, minute, city, gender,
+                solar_time=_solar_tool)
         except Exception as e:
             return ToolResult("排盘", False, f"排盘引擎执行失败：{str(e)[:100]}")
         # 持久化：与 _do_bazi_analysis 保持一致的记忆/画像逻辑
@@ -3373,8 +3393,10 @@ class MessageHandler:
         无八字 → None, 引擎走无八字兜底; 推导失败保持现状(引擎兜底 24)。
         """
         if saved is None:
+            # k11c：统一档案读取（G3c 同源）——persons 建档用户 solar_time
+            # 开关生效；原直读 users.bazi_info 拿不到 persons 权威值
             try:
-                saved = self.dao.get_user_bazi(user_id)
+                saved = self._get_user_birth_profile(user_id)
             except Exception:
                 saved = None
         if not saved:
@@ -3386,10 +3408,12 @@ class MessageHandler:
         # 表单选填八字: 解析字段 dict 无四柱 → 排盘补全(引擎异常 → 放弃, None 兜底不误伤)
         if not bazi and saved.get("year"):
             try:
+                # k11c：档案 solar_time 随重排补全（0=关=北京时间直排；缺省开）
                 result = self.engine.calculate(
                     int(saved["year"]), int(saved["month"]), int(saved["day"]),
                     int(saved.get("hour") or 0), int(saved.get("minute") or 0),
-                    str(saved.get("city") or "北京"), str(saved.get("gender") or "unknown"))
+                    str(saved.get("city") or "北京"), str(saved.get("gender") or "unknown"),
+                    solar_time=(saved.get("solar_time") not in (0, "0", False)))
                 saved = dict(saved)
                 saved["bazi"] = result.bazi
                 saved["wuxing"] = result.wuxing   # 引擎五行表口径, 与 Fix4 推导一致
@@ -4019,7 +4043,7 @@ class MessageHandler:
         # L5-2（I-1）：降级链路禁用付费前置调用——不提交「排盘+秒回安抚」预生成
         # （worker 内 _gen_instant_reply 为 LLM 调用）；意图分析改规则快判。
         if not downgraded:
-            self._pregen_instant[user_id] = self._start_pregen_instant(msg)
+            self._pregen_instant[user_id] = self._start_pregen_instant(msg, user_id)
         else:
             self._pregen_instant.pop(user_id, None)  # 清掉残留 Future，防泄漏
         # v2026-08-17（思考过程元宝式）：意图分析（~1s）此前无思考事件，
@@ -5159,8 +5183,14 @@ class MessageHandler:
         # 第三方，不询问（与既有 parsed 直排语义一致）。
         _is_correction = False
         _ack = ""
+        # k11c：parsed 直排路径的档案真太阳时开关——本人（非第三方）且档案
+        # 年份与消息一致（冲突时已在上方拦截）→ 随档案开关排；第三方/无档案
+        # → 引擎默认开（与既有消息直排语义零变化）。
+        _solar_self = True
         if not self._is_third_party_birth_request(msg):
             saved = self._get_user_birth_profile(user_id)
+            _st_raw = (saved or {}).get("solar_time")
+            _solar_self = (_st_raw not in (0, "0", False)) if saved else True
             if (saved and saved.get("year") and saved.get("month")
                     and saved.get("day") and saved["year"] != year):
                 cur = {"year": year, "month": month, "day": day}
@@ -5190,6 +5220,7 @@ class MessageHandler:
         result = self._do_bazi_analysis(
             year, month, day, hour, minute, city, gender, msg, user_id,
             stream_cb=stream_cb, force_gender=_is_correction,
+            solar_time=_solar_self,
         )
         return _ack + "\n\n" + result if _ack else result
 
@@ -5237,19 +5268,23 @@ class MessageHandler:
         持久化保留原始值 + 标记（不改写原值不抹标记，与 R2-5 _tool_bazi
         同口径）。solar/无标记 → 零行为变化（原值直喂、arch_raw=None）。
         转换失败 → 安全回落原值 + warning（_solarize_birth 内），不阻塞。
+        solar_time（k11c）：src 携带档案开关（get_user_birth_profile 出参
+        0/1；F2 渐进累积/第三方部分信息无键 → 引擎默认开现行为不变）。
         """
         _p = self._solarize_birth(src)
         _arch = None
         if str(src.get("calendar") or "solar") == "lunar":
             _arch = {"year": src.get("year"), "month": src.get("month"),
                      "day": src.get("day"), "calendar": "lunar"}
+        _st = (src or {}).get("solar_time")
         return self._do_bazi_analysis(
             _p.get("year"), _p.get("month"), _p.get("day"),
             _p.get("hour") if _p.get("hour") is not None else 0,
             _p.get("minute") if _p.get("minute") is not None else 0,
             _p.get("city") or "", _p.get("gender") or "unknown",
             question, user_id, stream_cb=stream_cb,
-            force_gender=force_gender, arch_raw=_arch)
+            force_gender=force_gender, arch_raw=_arch,
+            solar_time=(_st not in (0, "0", False)))
 
     # ── D9 无档案问事：先答通用知识，再要档案 ──────────────────────
     # 问事句式兜底词（知识关键词匹配优先；这里是句式级兜底）：
@@ -5847,6 +5882,7 @@ class MessageHandler:
         stream_cb: Optional[Callable] = None,
         force_gender: bool = False,
         arch_raw: Optional[dict] = None,
+        solar_time: bool = True,
     ) -> str:
         """执行八字分析
 
@@ -5857,10 +5893,15 @@ class MessageHandler:
         落库（bazi_info/persons/chart_records）保留原始 y/m/d + 标记
         （存储=原始输入事实源，不改写原值不抹标记——B1/B2/F2 残余直喂点与
         R2-5 _tool_bazi 同口径）。None = 普通公历路径，行为零变化。
+        solar_time（k11c）：档案级真太阳时开关 → 引擎（True=按出生地经度+
+        均时差修正=默认开现行为；False=用户档案关闭=北京时间直排）。
+        默认 True：消息直排/无档案等无开关语义路径零行为变化。
         """
         # 1. 排盘（流式模式先发进度事件，避免引擎阶段长沉默触发看门狗）
         self._emit_stream_event(stream_cb, "thinking", "正在排盘…")
-        result = self.engine.calculate(year, month, day, hour, minute, city, gender)
+        result = self.engine.calculate(
+            year, month, day, hour, minute, city, gender,
+            solar_time=solar_time)
         # k11-B/C：本轮事实上下文（称谓 scrub 用 gender + 神煞 scrub 用全集 allow）
         # ——process 入口已清空；仅命理轮在此重建，供流式出口/整段 scrub 消费。
         self._set_fact_ctx(user_id, getattr(result, "gender", ""),
@@ -7658,11 +7699,17 @@ class MessageHandler:
     def _handle_advisor(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """处理 AI 建议请求 — 基于八字 + 用户处境生成个性化建议."""
         # 1. 检查用户八字是否已保存
-        saved = self.dao.get_user_bazi(user_id)
+        # k11c：残余 bazi_info 直读 → 统一档案读取（G3c 同源，同 _handle_calendar
+        # /_handle_hourly）——persons 建档用户与档案 solar_time 开关同源生效，
+        # 不再只认 users.bazi_info（persons 新档案无 bazi_info 行 → 旧路径误
+        # 引导建档，T089 同款问题的 advisor 面）。
+        saved = self._get_user_birth_profile(user_id)
         if not saved:
             return ("💡 想为你生成专属建议，需要先了解你的命盘哦～\n"
                     "请提供你的出生信息：出生年月日时、出生地、性别\n\n"
                     "例如：1990年5月20日 下午3点 北京 男")
+        # k11c：档案真太阳时开关（1=开=引擎默认；0=关=北京时间直排）
+        _solar_adv = (saved.get("solar_time") not in (0, "0", False))
         # R2-6（同类残余直喂点）：存储档案可能为 lunar 原始 y/m/d → 重排盘前
         # 单点转公历（引擎契约=公历输入；阴历当公历算错日主/四柱，建议全链错）
         saved = self._solarize_birth(saved)
@@ -7684,6 +7731,7 @@ class MessageHandler:
                 int(saved.get("hour") or 0), int(saved.get("minute") or 0),
                 str(saved.get("city") or ""),
                 str(saved.get("gender") or "unknown"),
+                solar_time=_solar_adv,
             )
         except Exception as e:
             return f"⚠️ 命盘重新计算失败：{str(e)[:100]}"
@@ -7798,11 +7846,13 @@ class MessageHandler:
                 # 算错日主，daily/hourly 展示全链跟着错）。转换失败 → 回落
                 # 原值 + warning（_solarize_birth 内），不阻塞主流程。
                 saved = self._solarize_birth(saved)
+                # k11c：真太阳时开关随档案（0=关=北京时间直排；缺省/旧行=开）
                 bz = self.engine.calculate(
                     saved["year"], saved["month"], saved["day"],
                     saved.get("hour") or 0, saved.get("minute") or 0,
                     saved.get("city") or "",
-                    _GENDER_CN.get(str(saved.get("gender") or "").lower(), "男"))
+                    _GENDER_CN.get(str(saved.get("gender") or "").lower(), "男"),
+                    solar_time=(saved.get("solar_time") not in (0, "0", False)))
                 saved = dict(saved)
                 saved["bazi"] = list(bz.bazi)
                 saved["day_master"] = bz.day_master
@@ -7881,11 +7931,13 @@ class MessageHandler:
                 # 档案原始 y/m/d → 单点转公历再补齐四柱（见 _handle_calendar
                 # 注释；时辰运势的日主/时辰干支依赖正确四柱）
                 saved = self._solarize_birth(saved)
+                # k11c：真太阳时开关随档案（0=关=北京时间直排；缺省/旧行=开）
                 bz = self.engine.calculate(
                     saved["year"], saved["month"], saved["day"],
                     saved.get("hour") or 0, saved.get("minute") or 0,
                     saved.get("city") or "",
-                    _GENDER_CN.get(str(saved.get("gender") or "").lower(), "男"))
+                    _GENDER_CN.get(str(saved.get("gender") or "").lower(), "男"),
+                    solar_time=(saved.get("solar_time") not in (0, "0", False)))
                 saved = dict(saved)
                 saved["bazi"] = list(bz.bazi)
                 saved["day_master"] = bz.day_master

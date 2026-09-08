@@ -561,8 +561,10 @@ def test_g1_c2b_parsed_path_full_chain(tmp_path):
     _calls = {}
 
     def _fake_analysis(year, month, day, hour, minute, city, gender,
-                       question, user_id, stream_cb=None, force_gender=False):
-        _calls.update(gender=gender, force_gender=force_gender)
+                       question, user_id, stream_cb=None, force_gender=False,
+                       solar_time=True):  # k11c：契约含档案真太阳时开关
+        _calls.update(gender=gender, force_gender=force_gender,
+                      solar_time=solar_time)
         h._save_bazi_records(_ResultStub(), {
             "year": year, "month": month, "day": day,
             "hour": hour, "minute": minute,

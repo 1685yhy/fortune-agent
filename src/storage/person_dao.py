@@ -18,9 +18,27 @@ logger = logging.getLogger(__name__)
 
 # 出生信息在 persons 表内的加密键（birth_enc 解出的 JSON 字段名）
 BIRTH_KEYS = ("gender", "birth_year", "birth_month", "birth_day",
-              "birth_hour", "birth_minute", "calendar", "city")
+              "birth_hour", "birth_minute", "calendar", "city",
+              "solar_time")
 
 RELATION_VALUES = ("自己", "父母", "伴侣", "子女", "朋友", "其他")
+
+
+def solar_time_on(raw) -> int:
+    """solar_time 读口径 → 0/1：缺失/旧行/非法 → 1（默认开=产品口径 R2-4）。
+
+    k11c（2026-09-08）：档案级真太阳时开关存 birth_enc 密文内（新列需迁移，
+    密文内字段零迁移）；读路径在此统一归一——persons 存储层只可能写入
+    int 0/1（_birth_dict），历史行无该键/None/非法值一律按默认开兼容。
+    """
+    if raw is None:
+        return 1
+    try:
+        if str(raw).strip().lower() in ("0", "false", "off"):
+            return 0
+        return 1
+    except Exception:
+        return 1
 
 
 def _normalize_gender(g) -> str:
@@ -57,6 +75,17 @@ def _birth_dict(**kw) -> dict:
             continue
         if k == "gender":
             out[k] = _normalize_gender(v or "unknown")
+            continue
+        if k == "solar_time":
+            # k11c：档案级真太阳时开关。None/空/非法 → 省略（不落库）——
+            # 读路径 solar_time_on 对缺失/旧行默认开=1，与「未提供=默认开」
+            # 语义一致；写侧绝不让 None 覆盖既有 0（update 合并时视为未提供）。
+            if v is None or v == "":
+                continue
+            try:
+                out[k] = 1 if int(v) else 0
+            except (TypeError, ValueError):
+                pass  # 非法值省略，读路径默认开兜底
             continue
         try:
             n = int(v or 0)
@@ -108,6 +137,8 @@ class PersonDAO:
             "birth_minute": birth.get("birth_minute"),
             "calendar": birth.get("calendar", "solar"),
             "city": birth.get("city", ""),
+            # k11c：真太阳时开关（档案级）；密文内缺失/旧行 → 1=默认开
+            "solar_time": solar_time_on(birth.get("solar_time")),
             "created_at": row[6] if len(row) > 6 else "",
             "updated_at": row[7] if len(row) > 7 else "",
         }

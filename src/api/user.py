@@ -192,6 +192,9 @@ class BaziRequest(BaseModel):
     gender: str = "unknown"
     calendar: str = "solar"  # "solar" or "lunar"
     city: str = ""
+    # k11c：档案级真太阳时开关（1=开默认；0=关=北京时间直排）。None/未传 =
+    # 不更新（update 合并保留既有值 / create 缺省开）。
+    solar_time: Optional[int] = None
 
 
 class SubscriptionRequest(BaseModel):
@@ -223,6 +226,9 @@ class PersonRequest(BaseModel):
     birth_minute: int = 0
     calendar: str = "solar"  # solar/lunar
     city: str = ""
+    # k11c：档案级真太阳时开关（1=开默认；0=关=按本地时间直排）。None/未传 =
+    # update 不覆盖既有值 / create 缺省开（读路径默认开兼容）。
+    solar_time: Optional[int] = None
 
 
 class CancelRequest(BaseModel):
@@ -675,6 +681,10 @@ async def user_update_bazi(req: BaziRequest, uid: str = Depends(require_user), u
         "calendar": req.calendar,
         "city": req.city,
     }
+    # k11c：solar_time 仅显式携带时写入（0/1 均有效；None=旧调用方不传 →
+    # 保持旧字段形态，persons 侧 update 合并保留既有开关值）
+    if req.solar_time is not None:
+        bazi_info["solar_time"] = 1 if req.solar_time else 0
 
     if _dao:
         # P2 多人档案：写入默认命主（无档案时自动迁移/新建）
@@ -691,6 +701,8 @@ async def user_update_bazi(req: BaziRequest, uid: str = Depends(require_user), u
                     "birth_minute": req.birth_minute or None,
                     "calendar": req.calendar,
                     "city": req.city,
+                    "solar_time": (None if req.solar_time is None
+                                   else (1 if req.solar_time else 0)),
                 }
                 if default:
                     pdao.update_person(user_id, default["id"], birth=birth)
@@ -907,6 +919,11 @@ def _person_birth(req: PersonRequest) -> dict:
         "birth_minute": req.birth_minute or None,
         "calendar": req.calendar,
         "city": (req.city or "").strip() or None,
+        # k11c：solar_time 透传（None=未提供：update 不覆盖 / create 缺省开）。
+        # 0 必须显式携带（不可被 `or None` 吞掉——关=0 是有效值）。
+        # getattr 兜底：测试/旧调用方的鸭子类型 request 可无该字段（G1 防御同款）
+        "solar_time": (None if getattr(req, "solar_time", None) is None
+                       else (1 if int(getattr(req, "solar_time")) else 0)),
     }
 
 

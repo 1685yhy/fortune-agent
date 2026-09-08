@@ -274,6 +274,27 @@ button::after { border: none; }
   text-align: center;
 }
 
+/* k11c 真太阳时修正开关（档案级，墨韵 tokens：宣纸/墨/朱砂，禁灰系） */
+.solar-group { margin: 31rpx 4rpx 0; }
+.solar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-song);
+  font-size: 21rpx;
+  letter-spacing: .26em;
+  color: var(--ink-soft);
+}
+.solar-hint {
+  margin-top: 11rpx;
+  font-family: var(--font-song);
+  font-size: 18rpx;
+  letter-spacing: .1em;
+  line-height: 1.9;
+  color: var(--ink-faint);
+  text-align: left;
+}
+
 /* 按钮 */
 .btn {
   height: 88rpx;

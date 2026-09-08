@@ -165,6 +165,16 @@
           <place-picker value="{{city}}" placeholder="选择省 / 市（用于真太阳时校准）" bindchange="onCityChange" />
           <text class="form-hint">不选默认按北京 · 仅用于真太阳时校准</text>
         </view>
+
+        <!-- k11c 真太阳时修正开关（档案级，默认开=按出生地经度校准时辰；关=北京时间直排）
+             切换随「保存」落档案：本页档案保存后返回，重新排盘/问运势即按新设置生效 -->
+        <view class="form-group">
+          <view class="solar-line">
+            <text class="form-label solar-label">真太阳时修正</text>
+            <switch checked="{{solarOn}}" bindchange="onSolarTimeChange" color="#A93A2C" />
+          </view>
+          <text class="form-hint">按出生地经度把当地时间换算真太阳时再定时辰；关闭则按本地时间直接排</text>
+        </view>
       </view>
 
       <!-- 保存 -->

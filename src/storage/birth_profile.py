@@ -13,6 +13,20 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
+def _pick_solar_time(pick: dict) -> int:
+    """person 行/档案 dict → 真太阳时开关 0/1（k11c，默认开=1）。
+
+    读口径委托 person_dao.solar_time_on 单一实现（存储层同口径）：persons
+    密文内 0/1 / 缺失 / 旧行 → 缺省开。bazi_info/chart_records 源无本键 →
+    直接默认 1（旧行默认开兼容）。
+    """
+    try:
+        from src.storage.person_dao import solar_time_on
+        return solar_time_on((pick or {}).get("solar_time"))
+    except Exception:
+        return 1
+
+
 def profile_fingerprint(profile: Optional[dict]) -> str:
     """档案指纹（R1-2 T089 同源）：对话/calendar 缓存键分键共用函数。
 
@@ -21,7 +35,8 @@ def profile_fingerprint(profile: Optional[dict]) -> str:
 
     - 无档案/缺出生 → "none"：通用版与个性化版天然分键；
     - 有档案 → 内容排序 JSON 的 md5（year/month/day/hour/minute/city/
-      gender 全参与）：建档/改八字/改城市 → 指纹变化 → 当日立即重算。
+      gender/solar_time 全参与，calendar 等其余出参键同源）：建档/改八字/
+      改城市/切真太阳时开关 → 指纹变化 → 当日立即重算。
     """
     if not profile:
         return "none"
@@ -86,6 +101,11 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
                     # 消费方据此决定是否 to_solar_date 转公历；year/month/day
                     # 保持原始值不改（保存回写路径 3243/3381/4679 消费原值安全）。
                     "calendar": pick.get("calendar") or "solar",
+                    # k11c：档案级真太阳时开关 0/1（persons 密文内，缺省=1 开；
+                    # 读路径与存储层 _row_to_person 同口径默认开）。指纹
+                    # profile_fingerprint 输出含本键 → 开/关切换换缓存键，
+                    # 当日立即重算（排盘/运势/calendar:today 同源失效）。
+                    "solar_time": _pick_solar_time(pick),
                 }
                 # 自愈：bazi_info 缺失/与 persons 不一致 → persons 单向回写。
                 # k8（2026-09-05 根因）：合并语义由「dict(旧行) 起手只覆写不等
@@ -151,6 +171,8 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
         out = dict(bazi)
         # R2-5：bazi_info 源 out 透传 calendar（源值，旧行缺省 solar）
         out.setdefault("calendar", "solar")
+        # k11c：bazi_info 源无 solar_time 键（旧行/未镜像）→ 默认开=1
+        out.setdefault("solar_time", 1)
         return out
     # ③ chart_records 排盘结果兜底（D8 保留）：已排盘落库（重看 0 重跑
     # 数据）即视为有档案，问事直接走档案快路径，不再引导建档。
@@ -167,6 +189,8 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
                         "city", "gender")}
                 # R2-5：chart 源 out 透传 calendar（行内值，缺省 solar）
                 out["calendar"] = b.get("calendar") or "solar"
+                # k11c：chart_records 源无 solar_time（盘不存开关）→ 默认开
+                out.setdefault("solar_time", 1)
                 bazi = (chart.get("bazi_json") or {}).get("bazi") or []
                 if bazi:
                     out["bazi"] = bazi
@@ -268,6 +292,8 @@ def get_user_birth_profile_full(dao, user_id: str,
            ("year", "month", "day", "hour", "minute",
             "city", "gender", "calendar")}
     out["calendar"] = profile.get("calendar") or "solar"
+    # k11c：全量形态同步透传真太阳时开关（画像/报告等显示消费方同源）
+    out["solar_time"] = _pick_solar_time(profile)
     try:
         if chart_dao is None:
             from src.storage.chart_dao import ChartDAO

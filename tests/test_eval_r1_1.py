@@ -75,7 +75,7 @@ def _make_handler(db_path, engine=None, llm_response="您的八字分析结果�
         llm=llm, dao=dao, session_dao=session,
     )
     # 禁用秒回预生成：避免后台线程重复 engine.calculate + llm.analyze 竞态
-    handler._start_pregen_instant = lambda msg: None
+    handler._start_pregen_instant = lambda msg, user_id="": None  # k11c: 契约 +user_id（档案开关口径）
     return handler, dao
 
 
@@ -329,7 +329,7 @@ def _make_polish_spy_handler(db_path, monkeypatch, polish_calls):
         retriever=Mock(), llm=llm, dao=dao,
         session_dao=SessionDAO(db_path))
     # 禁用秒回预生成：避免后台线程重复 engine.calculate + llm.analyze 竞态
-    handler._start_pregen_instant = lambda msg: None
+    handler._start_pregen_instant = lambda msg, user_id="": None  # k11c: 契约 +user_id（档案开关口径）
     _orig_polish = handler._polish_with_engine_draft
 
     def _polish_spy(*a, **k):
