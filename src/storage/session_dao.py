@@ -209,11 +209,21 @@ class SessionDAO:
 
         语义（判定 + 插入在同一个 BEGIN IMMEDIATE 事务内——并发下检查与
         写入原子，WAL 单写者 + busy_timeout 排队；多进程/多线程安全，
-        窗口基于 DB created_at 计算，无内存态）：
-        - regen=True（前端重试/重新生成标记，plan §B2-1）：同会话存在规范化
-          同文 user 行 → 不新插（该轮 assistant 由调用方正常生成链补上）；
-          无匹配行（缓存命中轮等从未落库）→ 照插（审计完整）。
-        - regen=False：同会话最近规范化同文 user 行距其 created_at
+        窗口基于 DB created_at 计算，无内存态）。
+        **匹配范围限定口径（review Minor-1/M-2）**：regen 与窗口判定都只回看
+        「同作用域（同 user_id + 同 session_id 取值）最近 _DEDUP_LOOKBACK(10)
+        条 user 行」——
+        - 10 行之前更早的失败轮重试（regen）查不到匹配 → 照插（审计完整，
+          不误伤超深历史）；窗口路径不受影响（20s 窗口内同文提交必在最近
+          若干行内，回看深度只防全表解密）。
+        - session_id=NULL（旧行为作用域）时窗口去重对全部无会话标记行生效
+          （跨「全会话」）；反之旧 NULL 行不在任何具名会话作用域内——具名
+          会话的 regen/窗口判定看不到它们（两个作用域互相独立，均不误伤）。
+        - regen=True（前端重试/重新生成标记，plan §B2-1）：上述作用域内最近
+          10 条中存在规范化同文 user 行 → 不新插（该轮 assistant 由调用方
+          正常生成链补上）；无匹配行（缓存命中轮等从未落库 / 超回看深度）→
+          照插（审计完整）。
+        - regen=False：同作用域最近规范化同文 user 行距其 created_at
           ≤ window_seconds → 判定重试/双击重复 → 不新插；跨会话/异文/
           超窗同文（用户真重复提问）→ 正常插入。
         - 异常（如锁超时）向上抛，由调用方退回 add_message（全量留存铁律，

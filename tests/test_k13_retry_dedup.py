@@ -220,6 +220,21 @@ def test_regen_without_match_inserts(db_path):
     assert len(_user_row_ids(dao)) == 2
 
 
+def test_regen_match_beyond_lookback_depth_inserts(db_path):
+    """review Minor-1 限定口径锁定：regen 只回看最近 _DEDUP_LOOKBACK(10) 条
+    同作用域 user 行——10 行之前更早的失败轮重试查不到匹配 → 照插（不误伤
+    超深历史，审计完整）。"""
+    dao = SessionDAO(db_path)
+    _submit(dao, MSG)                    # 最旧同文轮（第 11 行）
+    for i in range(10):                  # 其后 10 行其他内容
+        _submit(dao, f"其他问题第 {i} 条")
+    assert len(_user_row_ids(dao)) == 11
+    # 回看深度 = 10 → MSG 行（第 11 行）不在最近 10 条内 → regen 照插
+    r = _submit(dao, MSG, regen=True)
+    assert r["inserted"] is True, "超回看深度的更早轮次 regen 查不到匹配 → 照插"
+    assert len(_user_row_ids(dao)) == 12
+
+
 def test_regen_and_dedup_path_encrypt_content(db_path):
     dao = SessionDAO(db_path)
     _submit(dao, MSG)

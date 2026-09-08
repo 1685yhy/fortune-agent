@@ -72,6 +72,13 @@ retry(msgId, text, tag, img) {
 - 边界四（mid-list 失败气泡重试）：少见路径——原地重流（气泡位置不变）；后端行照尾追加，与现状一致。
 - 边界五（中断恢复自动重发）：_recoverInterrupted 无输出残留轮 → 自动重发改为**自动 regenerate**（带 regen 标记），恢复节奏无论快慢都不再新增 user 行。
 - 不拦的：跨会话同文（新开对话重问）、超窗同文（真重复提问）、异文。
+- **匹配范围限定口径（review Minor-1/M-2，session_dao docstring 已补）**：regen 与
+  窗口判定都只回看「同作用域（同 user_id + 同 session_id 取值）最近 _DEDUP_LOOKBACK
+  (10) 条 user 行」——10 行之前更早的失败轮重试（regen）查不到匹配 → 照插
+  （审计完整，不误伤超深历史；窗口路径不受影响，20s 窗口内同文提交必在最近
+  若干行内，回看深度只为防全表解密）；session_id=NULL（旧行为作用域）时窗口
+  去重对全部无会话标记行生效（跨「全会话」），旧 NULL 行不在任何具名会话作用域内
+  （两作用域互相独立，均不误伤）。测试锁定：test_regen_match_beyond_lookback_depth_inserts。
 
 ### B4. 并发安全（C）
 `BEGIN IMMEDIATE` 事务内「查最近同文行 → 判定 → INSERT」原子化；并发第二提交者等锁（busy_timeout 10s）后必然看见第一提交者刚插入的行 → 判定不插。测试用双线程真并发打点（同文件两连接）。
