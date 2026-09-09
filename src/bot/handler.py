@@ -2179,7 +2179,7 @@ class MessageHandler:
                 self.dao.save_user_bazi(user_id, _bazi_save)
             # P2 多人档案：对话建档（subject=self 年份不同→新建命主N；other 按关系/姓名）
             self._sync_person_profile(user_id, _persist, subject=_subject,
-                                      facts=_facts_this)
+                                      facts=_facts_this, birth_ctx=params)
             self.dao.save_consultation(user_id, params, result)
             # 排盘结果落库 chart_records（与 _save_bazi_records 同口径）
             self._persist_chart_result(user_id, result, _persist, _subject)
@@ -3726,7 +3726,8 @@ class MessageHandler:
 
     def _sync_person_profile(self, user_id: str, birth: dict,
                              subject: str = "self",
-                             facts: Optional[dict] = None) -> None:
+                             facts: Optional[dict] = None,
+                             birth_ctx: str = "") -> None:
         """P2 多人档案：排盘后同步建档（对话建档，方案 v5）。
 
         - subject=self：默认命主为唯一事实源——出生信息以最新排盘为准
@@ -3734,6 +3735,8 @@ class MessageHandler:
           无档案 → 建档 name="我" relation="自己"（含旧单档案自动迁移）
         - subject=other：按 facts 关系/姓名建 person；已存在同生日 person 则复用。
         先有先用保护照旧（gender 冲突不覆盖逻辑仍在 save_bazi_info / users.bazi_info 层）。
+        - birth_ctx（k19 ④-4）：用户消息上下文片段 → person_dao 年份守卫
+          （明示纠正句式豁免告警）；调用方传本轮消息/工具参原文。
         """
         if not self.dao:
             return
@@ -3757,10 +3760,12 @@ class MessageHandler:
                 default = pdao.get_default_person(user_id)
                 if default:
                     # 单一事实源：默认命主唯一，出生信息以最新排盘为准（年份不同也更新）
-                    pdao.update_person(user_id, default["id"], birth=b)
+                    pdao.update_person(user_id, default["id"], birth=b,
+                                       birth_ctx=birth_ctx)
                 else:
                     pdao.create_person(user_id, name="我", relation="自己",
-                                       is_default=True, birth=b)
+                                       is_default=True, birth=b,
+                                       birth_ctx=birth_ctx)
             else:
                 # subject=other：同生日 person 复用；否则按 facts 关系/姓名建档
                 f = facts or {}
@@ -6401,7 +6406,8 @@ class MessageHandler:
         if birth.get("calendar") == "lunar":
             _person_sync["calendar"] = "lunar"
         self._sync_person_profile(user_id, _person_sync,
-                                  subject=_subject, facts=_facts_this)
+                                  subject=_subject, facts=_facts_this,
+                                  birth_ctx=question)
         self.dao.save_consultation(user_id, question, result)
         # 排盘结果落库 chart_records（重看 0 重跑；subject=other 也落库但归属本人名下）
         self._persist_chart_result(user_id, result, birth, _subject)
@@ -6886,7 +6892,7 @@ class MessageHandler:
                 _z_birth = {"year": year, "month": month, "day": day,
                             "hour": hour, "minute": minute,
                             "city": city or "", "gender": gender}
-                self._sync_person_profile(user_id, _z_birth)
+                self._sync_person_profile(user_id, _z_birth, birth_ctx=question)
                 self._persist_chart_result(user_id, result, _z_birth)
             except Exception as e:
                 logger.warning("紫微排盘落库失败（不阻塞主流程）: %s", e)

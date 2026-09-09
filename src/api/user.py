@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from src.storage.dao import UserDAO
 from src.storage.session_dao import SessionDAO
 from src.storage.preference_dao import PreferenceDAO
-from src.storage.person_dao import PersonDAO
+from src.storage.person_dao import PersonDAO, FORM_EXPLICIT_CTX
 from src.storage.models import connect as db_connect
 from src.security.auth import require_user
 
@@ -705,10 +705,12 @@ async def user_update_bazi(req: BaziRequest, uid: str = Depends(require_user), u
                                    else (1 if req.solar_time else 0)),
                 }
                 if default:
-                    pdao.update_person(user_id, default["id"], birth=birth)
+                    pdao.update_person(user_id, default["id"], birth=birth,
+                                       birth_ctx=FORM_EXPLICIT_CTX)
                 else:
                     pdao.create_person(user_id, name="我", relation="自己",
-                                       is_default=True, birth=birth)
+                                       is_default=True, birth=birth,
+                                       birth_ctx=FORM_EXPLICIT_CTX)
             except Exception as e:
                 logger.warning("写入默认命主失败 user=%s: %s", user_id, e)
         # 旧字段同步保留（users.bazi_info 仍被推送/报告等旧模块读取）
@@ -951,7 +953,8 @@ async def create_person(req: PersonRequest, uid: str = Depends(require_user)):
     if not (req.name or "").strip():
         raise HTTPException(status_code=400, detail="姓名不能为空")
     person = pdao.create_person(
-        uid, name=req.name, relation=req.relation, birth=_person_birth(req))
+        uid, name=req.name, relation=req.relation, birth=_person_birth(req),
+        birth_ctx=FORM_EXPLICIT_CTX)
     if person is None:
         raise HTTPException(status_code=500, detail="创建失败")
     return {"status": "ok", "message": "命主已创建", "person": person}
@@ -969,6 +972,7 @@ async def update_person(person_id: str, req: PersonRequest, uid: str = Depends(r
         name=name or None,
         relation=req.relation or None,
         birth=_person_birth(req),
+        birth_ctx=FORM_EXPLICIT_CTX,
     )
     if person is None:
         raise HTTPException(status_code=404, detail="命主不存在或无权操作")

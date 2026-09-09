@@ -2,7 +2,10 @@
 // 契约字段（后端并行实现中，已定稿）：
 //   person = { id, name, relation, gender, birth_year, birth_month, birth_day,
 //              birth_hour, birth_minute, calendar, city, is_default, created_at }
-//   gender: '男' | '女' | 'unknown'；birth_hour: 时辰代表整点（23/1/3/…/21）；calendar: 'solar'|'lunar'
+//   gender: '男' | '女' | 'unknown'；birth_hour: 时辰代表整点（23/1/3/…/21，
+//   只知时辰的表单行）或真实时钟小时 0-23（钟表时间/对话解析行，k19 起分钟
+//   档必为时钟语义，如 10:55）；birth_minute: 0-59（0=未提供分钟）。
+//   calendar: 'solar'|'lunar'
 // 接口未就绪时：页面级优雅降级，本地缓存 ylm_persons 兜底（不阻塞）。
 
 const LOCAL_KEY = 'ylm_persons';      // 本地缓存（接口失败时的读兜底 + 乐观写）
@@ -19,14 +22,51 @@ const HOUR_LABELS = [
 const HOUR_VALUES = [23, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21];
 const HOUR_CN = ['子时', '丑时', '寅时', '卯时', '辰时', '巳时', '午时', '未时', '申时', '酉时', '戌时', '亥时'];
 
-/** 时辰字段（整点或旧序号）→ 时辰序号 0-11（无法识别 → 0 子时） */
-function hourToShichenIndex(hour) {
+/* k19 分钟精度：钟表时间选择器列（0-23 时 / 0-59 分）与时辰窗口映射。
+   时辰窗口（前端 picker 标签口径，起点与 utils HOUR_VALUES 一致）：
+   子[23,1) 丑[1,3) 寅[3,5) 卯[5,7) 辰[7,9) 巳[9,11) 午[11,13) 未[13,15)
+   申[15,17) 酉[17,19) 戌[19,21) 亥[21,23) → 序号 0-11 */
+const HOUR24 = [];
+const MINUTE60 = [];
+for (let _h = 0; _h < 24; _h++) HOUR24.push(`${_h}时`);
+for (let _m = 0; _m < 60; _m++) MINUTE60.push(`${_m}分`);
+const SHICHEN_WINDOWS = [  // [起点小时, 终点小时(不含), 时辰序号]
+  [23, 1, 0], [1, 3, 1], [3, 5, 2], [5, 7, 3], [7, 9, 4], [9, 11, 5],
+  [11, 13, 6], [13, 15, 7], [15, 17, 8], [17, 19, 9], [19, 21, 10],
+  [21, 23, 11],
+];
+
+/** 时钟小时 0-23 → 时辰序号 0-11（子=0 … 亥=11）；非法 → 0 */
+function shichenIndexFromClockHour(h) {
+  const v = parseInt(h, 10);
+  if (Number.isNaN(v) || v < 0 || v > 23) return 0;
+  for (let i = 0; i < SHICHEN_WINDOWS.length; i++) {
+    const w = SHICHEN_WINDOWS[i];
+    if (v >= w[0] && v < w[1]) return w[2];
+    if (w[0] === 23 && (v === 23 || v === 0)) return 0; // 子时跨日
+  }
+  return 0;
+}
+
+/** 出生小时（+可选分钟）→ 时辰序号 0-11。
+
+    画像口径（k19 归一）：birth_hour 只存在两形态——时辰代表整点
+    （HOUR_VALUES 奇数集，表单「只知时辰」写入）与真实时钟小时 0-23
+    （对话解析/精确表单写入，如 10:55）。读回一律按此判定：
+    - HOUR_VALUES 代表整点（1/3/…/23）→ 序号查表（起点小时必属本时辰，
+      与时钟窗口同义，两形态重合）；
+    - 其余 0-23（含 minute>0 行与 12-22、整点时钟行）→ 时钟窗口映射。
+      修旧缺陷：10 曾被当旧序号 10=戌时 显示（实为巳时）；12-22 曾被
+      漏判落到 子时；12:00 曾显 子时。
+    无法识别 → 0（子时）。
+    注：P2 前的「旧序号 0-11」直存形态（约 2026-08 前，写路径早已绝迹）
+    随本口径按时钟小时读回——属既有近似残余，见 k19 plan 留档。 */
+function hourToShichenIndex(hour, minute) {
   const h = parseInt(hour, 10);
   if (Number.isNaN(h) || h < 0) return 0;
-  const idx = HOUR_VALUES.indexOf(h);
-  if (idx !== -1) return idx;
-  if (h <= 11) return h;      // 旧数据：直接存了时辰序号
-  return 0;
+  const repIdx = HOUR_VALUES.indexOf(h);
+  if (repIdx !== -1) return repIdx;          // 代表整点（含晚子时 23）
+  return shichenIndexFromClockHour(h);       // 时钟小时（分钟/12-22/整点行）
 }
 
 /** 时辰序号 → 代表整点（存档用） */
@@ -51,22 +91,35 @@ function genderCode(g) {
   return g === '女' ? '女' : (g === '男' ? '男' : 'unknown');
 }
 
+/** 出生时刻显示文本：时辰 + （有精确分钟时附钟表时间 10:55）。 */
+function timeText(p) {
+  if (!p) return '';
+  const h = p.birth_hour;
+  if (h === undefined || h === null || h === '') return '';
+  const idx = hourToShichenIndex(h, p.birth_minute);
+  const base = shichenCN(idx);
+  const m = parseInt(p.birth_minute, 10);
+  if (!Number.isNaN(m) && m > 0) {
+    // 精确钟表行：分钟>0 必为时钟小时语义 → 直接拼 HH:MM
+    return `${base} ${h}:${String(m).padStart(2, '0')}`;
+  }
+  return base;
+}
+
 /** 生辰摘要（原型 birthLine / prof-birth）：公历 1998年5月12日 卯时 女 · 北京 */
 function birthSummary(p) {
   if (!p) return '';
   const cal = p.calendar === 'lunar' ? '农历' : '公历';
-  const shi = p.birth_hour !== undefined && p.birth_hour !== null && p.birth_hour !== ''
-    ? shichenCN(hourToShichenIndex(p.birth_hour)) + ' '
-    : '';
+  const tt = timeText(p);
+  const shi = tt ? tt + ' ' : '';
   return `${cal} ${p.birth_year}年${p.birth_month}月${p.birth_day}日 ${shi}${genderCN(p.gender)} · ${p.city || '未填出生地'}`;
 }
 
 /** 列表页摘要（原型 prof-birth 简版）：1998 年 5 月 12 日 · 卯时 · 女 · 北京 */
 function birthBrief(p) {
   if (!p) return '';
-  const shi = p.birth_hour !== undefined && p.birth_hour !== null && p.birth_hour !== ''
-    ? shichenCN(hourToShichenIndex(p.birth_hour)) + ' · '
-    : '';
+  const tt = timeText(p);
+  const shi = tt ? tt + ' · ' : '';
   return `${p.birth_year} 年 ${p.birth_month} 月 ${p.birth_day} 日 · ${shi}${genderCN(p.gender)} · ${p.city || '未填'}`;
 }
 
@@ -166,15 +219,19 @@ module.exports = {
   HOUR_LABELS,
   HOUR_VALUES,
   HOUR_CN,
+  HOUR24,
+  MINUTE60,
   LOCAL_KEY,
   hasLocalArchive,
   hourToShichenIndex,
+  shichenIndexFromClockHour,
   shichenIndexToHour,
   shichenCN,
   genderCN,
   genderCode,
   birthSummary,
   birthBrief,
+  timeText,
   sealChar,
   getLocalPersons,
   saveLocalPersons,

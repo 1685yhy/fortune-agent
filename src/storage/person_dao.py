@@ -23,6 +23,58 @@ BIRTH_KEYS = ("gender", "birth_year", "birth_month", "birth_day",
 
 RELATION_VALUES = ("自己", "父母", "伴侣", "子女", "朋友", "其他")
 
+# ────────────────────────────────────────────────────────────────────
+# ④-4 档案年份合理性守卫（k19，2026-09-10，保守版——默认仅告警）。
+# 背景：21:44 事故前置根因 A = 默认命主 persons 曾整 2.5 周存错年份
+# （1995 实为 1999），来源是 QA/对话期某次带错年份的写入。本守卫在
+# 「默认命主行被改写出生年且与既有年份差 > 2」时默认只打告警日志
+# （绝不拒绝——防误伤用户真纠正），并留下可审计痕迹；「明示纠正句式」
+# （对话上下文含 不是/其实/更正 等）视为用户主动纠正 → 不告警。
+# YEAR_SHIFT_REJECT = True 为预留参数位：未来产品拍板后可开「拒绝写入」，
+# 语义 = 非明示纠正的大差年份写入被拦下（调用方得到原样返回+warning）。
+# 明示纠正/表单显式提交（FORM_EXPLICIT_CTX 哨兵 ctx）永远豁免，拒绝模式
+# 不误伤真纠正。
+# ────────────────────────────────────────────────────────────────────
+YEAR_SHIFT_MAX_GAP = 2
+YEAR_SHIFT_REJECT = False
+
+# 明示纠正句式（对话路径判定；子串命中即视为纠正声明，宁可漏报不可误伤）
+_CORRECTION_MARKERS = (
+    "不是", "不对", "错了", "弄错", "记错", "说错", "填错", "写错",
+    "更正", "纠正", "其实是", "实际上", "应该是", "应为",
+    "重新说", "改一下", "修改", "准确", "确认一下",
+)
+
+# 表单/显式编辑哨兵（api/user.py 传参）：用户亲手提交表单 = 明示动作，
+# 与「明示纠正句式」同权豁免（对话解析误写才是 1995 事故的真正来源）。
+FORM_EXPLICIT_CTX = "[表单显式提交]"
+
+
+def is_correction_text(text: str) -> bool:
+    """上下文文本是否表示明示纠正/显式提交（子串命中；空文本 → False）。
+
+    对话路径传用户消息原文（含「我其实是1999年…不是1995」等句式命中）；
+    api/user.py 表单路径传 FORM_EXPLICIT_CTX 哨兵（用户亲手编辑=显式）。
+    """
+    t = str(text or "")
+    if not t:
+        return False
+    if t == FORM_EXPLICIT_CTX:
+        return True
+    return any(m in t for m in _CORRECTION_MARKERS)
+
+
+def year_shift_exceeds(old_year, new_year, max_gap: int = YEAR_SHIFT_MAX_GAP) -> bool:
+    """年份差是否超过阈值（1995 vs 1999 = 4 > 2 → True 可拦截族）。"""
+    try:
+        a = int(old_year or 0)
+        b = int(new_year or 0)
+    except (TypeError, ValueError):
+        return False
+    if not a or not b:
+        return False
+    return abs(a - b) > max_gap
+
 
 def solar_time_on(raw) -> int:
     """solar_time 读口径 → 0/1：缺失/旧行/非法 → 1（默认开=产品口径 R2-4）。
@@ -251,22 +303,65 @@ class PersonDAO:
     # 写操作
     # ------------------------------------------------------------
 
+    def _year_shift_guard(self, user_id: str, existing: Optional[dict],
+                          new_birth_year, birth_ctx: str = "") -> bool:
+        """④-4 年份守卫（保守版，仅默认命主行）：返回 True = 写入被拒绝。
+
+        - existing 为默认命主且带既有 birth_year、新 year 与之差 > 2，
+          且上下文非明示纠正（is_correction_text）→ 触发；默认仅告警
+          （YEAR_SHIFT_REJECT=False）；预留参数位开拒绝时返回 True。
+        - 正常建档（无既有年份）/ 差 ≤ 2 / 明示纠正 / 表单显式提交 → 放行。
+        """
+        if not existing or not existing.get("is_default"):
+            return False
+        if not year_shift_exceeds(existing.get("birth_year"), new_birth_year):
+            return False
+        if is_correction_text(birth_ctx):
+            # 明示纠正/表单显式 → 豁免（拒绝模式同样豁免，防误伤真纠正）
+            return False
+        gap = abs(int(existing.get("birth_year") or 0) - int(new_birth_year or 0))
+        reject = bool(YEAR_SHIFT_REJECT)
+        logger.warning(
+            "④-4 年份守卫%s：默认命主出生年改写 %s → %s（差 %s 年 > %s）"
+            "user=%s person=%s ctx=%s",
+            "拒绝" if reject else "告警", existing.get("birth_year"),
+            new_birth_year, gap, YEAR_SHIFT_MAX_GAP, user_id,
+            existing.get("name") or existing.get("id"), (birth_ctx or "")[:80])
+        return reject
+
     def create_person(self, user_id: str, name: str, relation: str = "其他",
                       birth: Optional[dict] = None,
-                      is_default: Optional[bool] = None) -> Optional[dict]:
-        """创建命主（首个自动 is_default=True；is_default=True 时清旧默认）。"""
+                      is_default: Optional[bool] = None,
+                      birth_ctx: str = "") -> Optional[dict]:
+        """创建命主（首个自动 is_default=True；is_default=True 时清旧默认）。
+
+        birth_ctx（k19 ④-4）：写入上下文（对话原文/表单哨兵），年份守卫用。
+        """
         name = (name or "").strip()[:32] or "未命名"
         if relation not in RELATION_VALUES:
             relation = "其他"
-        birth_json = _encrypt_text(json.dumps(
-            _birth_dict(**(birth or {})), ensure_ascii=False))
         conn = self._connect()
         now = datetime.now().isoformat()
         if is_default is None:
             is_default = self.count_persons(user_id) == 0
         if is_default:
+            # ④-4：新建默认前先取既有默认行（若存在）供年份守卫比对——
+            # 仅「顶替既有默认命主」场景有可比对象（无默认=正常建档放行）
+            prev_default = conn.execute(
+                "SELECT id, user_id, name, relation, is_default, birth_enc, "
+                "created_at, updated_at FROM persons "
+                "WHERE user_id = ? AND is_default = 1 ORDER BY id ASC LIMIT 1",
+                (user_id,)).fetchone()
+            prev_row = self._row_to_person(prev_default) if prev_default else None
+            if self._year_shift_guard(user_id, prev_row,
+                                      (birth or {}).get("birth_year"),
+                                      birth_ctx=birth_ctx):
+                conn.close()
+                return prev_row or None
             conn.execute("UPDATE persons SET is_default=0 WHERE user_id=?",
                          (user_id,))
+        birth_json = _encrypt_text(json.dumps(
+            _birth_dict(**(birth or {})), ensure_ascii=False))
         cursor = conn.execute(
             """INSERT INTO persons (user_id, name, relation, is_default, birth_enc,
                                     created_at, updated_at)
@@ -281,8 +376,13 @@ class PersonDAO:
 
     def update_person(self, user_id: str, person_id, name: str = None,
                       relation: str = None, birth: Optional[dict] = None,
-                      is_default: Optional[bool] = None) -> Optional[dict]:
-        """更新命主（归属校验：只能改自己的）。None 字段不更新。"""
+                      is_default: Optional[bool] = None,
+                      birth_ctx: str = "") -> Optional[dict]:
+        """更新命主（归属校验：只能改自己的）。None 字段不更新。
+
+        birth_ctx（k19 ④-4）：写入上下文（对话原文/表单哨兵），年份守卫用；
+        未传 = 旧调用方（守卫按「无纠正声明」处理，默认仍只告警不拒绝）。
+        """
         existing = self.get_person(user_id, person_id)
         if existing is None:
             return None
@@ -318,6 +418,13 @@ class PersonDAO:
                 for k in BIRTH_KEYS:
                     nv = new_birth.get(k)
                     merged[k] = nv if nv is not None else existing.get(k)
+                # ④-4 年份守卫：默认命主行出生年大差改写 → 默认仅告警日志
+                # （YEAR_SHIFT_REJECT=True 时拒绝整次写入并返回原行）
+                if self._year_shift_guard(user_id, existing,
+                                          merged.get("birth_year"),
+                                          birth_ctx=birth_ctx):
+                    conn.close()
+                    return existing
                 if merged.get("solar_time") != existing.get("solar_time"):
                     _solar_flipped = True
                 sets.append("birth_enc=?")

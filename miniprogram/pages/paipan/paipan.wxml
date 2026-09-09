@@ -42,6 +42,21 @@
           <text>{{hourOptions[bHourIdx]}}</text>
         </view>
       </picker>
+      <!-- k19 分钟精度：只知时辰选上面；记得钟表时间（如 10:55）→ 开精确档，
+           时辰边界 + 真太阳时修正可跨时辰，需要真实分钟 -->
+      <view class="clock-mode" bindtap="onClockToggle">
+        <view class="clock-mode-check {{bClockSet ? 'is-on' : ''}}"></view>
+        <text class="clock-mode-t">{{bClockSet ? '使用钟表时间（点击返回时辰档）' : '记不清时辰？填钟表时间更准'}}</text>
+      </view>
+      <view wx:if="{{bClockSet}}" class="clock-pickers">
+        <picker class="clock-picker" mode="selector" range="{{clockHourLabels}}" value="{{bClockHIdx}}" bindchange="onClockHourChange">
+          <view class="clock-picker-box">{{clockHourLabels[bClockHIdx]}}</view>
+        </picker>
+        <picker class="clock-picker" mode="selector" range="{{clockMinuteLabels}}" value="{{bClockMIdx}}" bindchange="onClockMinuteChange">
+          <view class="clock-picker-box">{{clockMinuteLabels[bClockMIdx]}}</view>
+        </picker>
+        <text class="clock-derived">对应 {{hourOptions[bHourIdx]}} · 真太阳时修正可能落在相邻时辰</text>
+      </view>
     </view>
 
     <!-- R2-4 真太阳时开关（产品口径 2026-09-03：所有排盘统一默认开=按出生地经度

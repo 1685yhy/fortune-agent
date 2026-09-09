@@ -340,3 +340,39 @@ button::after { border: none; }
   line-height: 1;
 }
 .del-link-active { background: var(--acc-soft); }
+
+/* k19 分钟精度：钟表时间档（10:55 场景）——时辰 chips 下的精确输入 */
+.clock-mode {
+  display: flex; align-items: center; gap: 12rpx;
+  margin-top: 18rpx; padding: 14rpx 18rpx;
+  background: var(--paper); border: 2rpx dashed var(--line-input);
+  border-radius: 10rpx;
+}
+.clock-mode-check {
+  width: 22rpx; height: 22rpx; border-radius: 50%;
+  border: 2rpx solid var(--ink-faint);
+  box-sizing: border-box; flex: none;
+}
+.clock-mode-check.is-on {
+  border: 6rpx solid var(--acc);
+  background: var(--paper);
+}
+.clock-mode-t {
+  font-family: var(--font-song); font-size: 22rpx;
+  letter-spacing: .05em; color: var(--ink-mid);
+}
+.clock-pickers {
+  display: flex; align-items: center; gap: 16rpx;
+  margin-top: 16rpx; flex-wrap: wrap;
+}
+.clock-picker { flex: 1; min-width: 200rpx; }
+.clock-picker-box {
+  padding: 20rpx 10rpx; text-align: center;
+  background: var(--paper); border: 2rpx solid var(--line-input);
+  border-radius: 10rpx; font-size: 26rpx; color: var(--ink);
+}
+.clock-derived {
+  flex-basis: 100%;
+  font-family: var(--font-song); font-size: 20rpx;
+  letter-spacing: .04em; color: var(--ink-faint);
+}
