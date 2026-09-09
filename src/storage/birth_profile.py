@@ -48,7 +48,8 @@ def profile_fingerprint(profile: Optional[dict]) -> str:
         return "none"
 
 
-def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
+def get_user_birth_profile(dao, user_id: str, chart_dao=None,
+                           allow_chart_fallback: bool = True) -> Optional[dict]:
     """获取用户出生信息档案（G1 P0-B 修复：persons 默认档案 = 单一事实源）。
 
     读取顺序（2026-08-29 G1 拍板，原 bazi_info 优先 → 编辑页改 persons 永不
@@ -68,6 +69,11 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
         user_id: 用户 id（JWT sub）。
         chart_dao: ③ 级兜底用 ChartDAO；None 时按 dao.db_path 自建
             （生产 handler 与 calendar 共用同一 db_path，等价）。
+        allow_chart_fallback（k18）：是否允许 ③ chart_records 兜底（默认 True
+            保持引导类消费点语义：已排盘落库即视为有档案）。「档案存在性」
+            类判断（如 handler._should_fastpath 的 RAG 快路径门控）语义只认
+            persons/bazi_info 真实档案（③ 可能只是他人/择时盘，不构成跳过
+            预检索的依据，k9 契约）→ 传 False 只走 ①② 两源。
     """
     if not dao:
         return None
@@ -176,6 +182,10 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None) -> Optional[dict]:
         return out
     # ③ chart_records 排盘结果兜底（D8 保留）：已排盘落库（重看 0 重跑
     # 数据）即视为有档案，问事直接走档案快路径，不再引导建档。
+    # k18：allow_chart_fallback=False 时跳过本源（档案存在性类判断专用，
+    # 见函数 docstring——③ 行可能只是他人/择时盘）。
+    if not allow_chart_fallback:
+        return None
     try:
         if chart_dao is None:
             from src.storage.chart_dao import ChartDAO

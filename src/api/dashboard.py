@@ -23,8 +23,17 @@ def build_dashboard(user_id: str, handler) -> dict:
     }
 
     # 1. Profile (八字概览)
+    # k18：原 handler.dao.get_user_bazi() 只读 users.bazi_info → persons-only
+    # 建档用户（09-04 wipe 后画像清零人群）误报「未设置八字」；盘面键
+    # （bazi/day_master）改经统一档案链全量读取（persons 优先 + 四柱只取
+    # 出生档案匹配的 chart_records 盘，k8 语义），birth 键照常同源。
     if handler.dao:
-        saved = handler.dao.get_user_bazi(user_id)
+        from src.storage.birth_profile import get_user_birth_profile_full
+        saved = None
+        try:
+            saved = get_user_birth_profile_full(handler.dao, user_id)
+        except Exception:
+            saved = None
         if saved:
             dashboard["profile"] = {
                 "has_bazi": True,
@@ -88,8 +97,14 @@ def build_dashboard(user_id: str, handler) -> dict:
         dashboard["preferences"] = {"mature": False, "hint": "使用越多，越懂你的偏好"}
 
     # 5. Today's calendar (summary only)
+    # k18：同 profile 块——统一档案链全量读取（盘面键只取匹配 chart_records）。
     if handler.dao:
-        saved = handler.dao.get_user_bazi(user_id)
+        from src.storage.birth_profile import get_user_birth_profile_full
+        saved = None
+        try:
+            saved = get_user_birth_profile_full(handler.dao, user_id)
+        except Exception:
+            saved = None
         if saved:
             try:
                 api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''

@@ -98,8 +98,16 @@ async def get_hourly_fortune_api(
     # 计算当日干支
     day_stem, day_branch = _day_stem_branch(date)
 
-    # 获取用户八字
-    saved = _dao.get_user_bazi(user_id)
+    # 获取用户八字（k18：原 _dao.get_user_bazi() 只读 users.bazi_info →
+    # persons-only 建档用户误报 no_bazi；日主是盘面键 → 改经统一档案链
+    # 全量读取（persons 优先 + 四柱只取出生档案匹配的 chart_records 盘，
+    # k8 语义——09-04 wipe 后 bazi_info 无行但 chart_records 在的用户经
+    # 此恢复真实日主）。读取顺序/兜底语义与 chat _handle_hourly 同源。
+    from src.storage.birth_profile import get_user_birth_profile_full
+    try:
+        saved = get_user_birth_profile_full(_dao, user_id)
+    except Exception:
+        saved = None
     if not saved:
         return {
             "status": "no_bazi",

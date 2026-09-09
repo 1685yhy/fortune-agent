@@ -2014,8 +2014,15 @@ async def get_daily_calendar(req: CalendarRequest, uid: str = Depends(require_us
 
     user_id = uid
 
-    # Get user's bazi
-    saved = handler.dao.get_user_bazi(user_id) if handler.dao else None
+    # Get user's profile & chart（k18：原 handler.dao.get_user_bazi() 只读
+    # users.bazi_info → persons-only 建档用户（09-04 wipe 后画像清零人群）
+    # 被误报 no_bazi（T089 同类 calendar legacy 面）；LuckyCalendar.daily 是
+    # 盘面键消费者（bazi/day_master/wuxing/dayun）→ 统一改走
+    # get_user_birth_profile_full（persons 默认档案优先，四柱只取出生档案
+    # 匹配的 chart_records，k8 语义——旧 bazi_info 行 bazi 键不再被消费）。
+    from src.storage.birth_profile import get_user_birth_profile_full
+    saved = (get_user_birth_profile_full(handler.dao, user_id)
+             if handler.dao else None)
     if not saved:
         return {
             "status": "no_bazi",
@@ -2052,7 +2059,11 @@ async def get_week_calendar(req: CalendarRequest, uid: str = Depends(require_use
         raise HTTPException(status_code=503, detail="Service not ready")
 
     user_id = uid
-    saved = handler.dao.get_user_bazi(user_id) if handler.dao else None
+    # k18：同 /api/calendar/daily —— 统一档案链读取（persons 优先 + 四柱只取
+    # 匹配 chart_records 盘），persons-only 建档用户不再误报 no_bazi。
+    from src.storage.birth_profile import get_user_birth_profile_full
+    saved = (get_user_birth_profile_full(handler.dao, user_id)
+             if handler.dao else None)
     if not saved:
         return {"status": "no_bazi", "message": "请先设置八字信息"}
 
@@ -2347,7 +2358,12 @@ async def get_share_card(user_id: str, style: str = "dark", uid: str = Depends(r
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     try:
-        saved = handler.dao.get_user_bazi(user_id) if handler.dao else None
+        # k18：分享卡是盘面显示面 → 统一档案链全量读取（persons 优先 + 四柱
+        # 只取匹配 chart_records 盘，k8 语义）；原裸读 bazi_info 旧行 bazi
+        # 键（可能为他人盘污染）且 persons-only 建档用户误报 no_bazi。
+        from src.storage.birth_profile import get_user_birth_profile_full
+        saved = (get_user_birth_profile_full(handler.dao, user_id)
+                 if handler.dao else None)
         if not saved:
             return {"status": "no_bazi", "message": "请先设置八字"}
 
