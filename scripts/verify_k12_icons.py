@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-k12 图标重绘 · 像素断言验证（配合 scripts/gen_k12_icons.py）
+k12/k14 图标族 · 像素断言验证（配合 scripts/gen_k12_icons.py）
 ============================================================
-断言（对应 docs/superpowers/plans/2026-09-08-k12-icon-redraw.md §5.1）：
+断言（对应 docs/superpowers/plans/2026-09-08-k12-icon-redraw.md §5.1 +
+2026-09-09-k14-tab-icons.md §5）：
   1. 每目标文件存在、RGBA、尺寸=既有档位、非空（不透明像素占比 >1%）
   2. 主色命中色族：常态=#756E63 中灰带、on=#A93A2C、delete=#8C2E22、send=#FAF5E7
-  3. 笔画覆盖率合理区间（常态细线条 6%≤cov≤25%；send 实心 ≥15%）
+  3. 笔画覆盖率合理区间（常态细线条 6%≤cov≤25%；send 实心 ≥15%；
+     k14 chev/kebab 低覆盖属造型本质（单笔/三点），下界按实测放宽）
   4. 主笔划实宽（行/列最大连续不透明段）≥5px@96 档 / ≥10px@192 档（杜绝发虚）
   5. 无 legacy 淡棕残留：不透明像素中 #9A8B71/#988878 邻域占比 <1%
   6. 96/192 同源：192 档 LANCZOS 降采样至 96 与直接 96 渲染 RMSE<2.0
+k14 节 = FAMILY 字典尾部 13 条目（tab/导航族；ic-chat-on 与 ic-chat 同几何仅换色）。
 用法：python3 scripts/verify_k12_icons.py
 """
 import math
@@ -32,6 +35,15 @@ FAMILY = {  # 文件名 -> (色族, 覆盖率下限, 覆盖率上限, 覆盖阈�
     'ic-mic': ('GRAY', 6, 26), 'ic-keyboard': ('GRAY', 6, 24),
     'ic-camera': ('GRAY', 6, 26), 'ic-camera-soft': ('GRAY', 6, 26),
     'ic-plus': ('GRAY', 6, 20), 'ic-send': ('PAPER', 15, 60),
+    # k14 · tab/导航图标族（实测覆盖：lantern13.9/book2 19.7/seal15.1/chat-on11.9/
+    # bell17.5/moon20.3/book23.4/back9.3/chev5.0/kebab1.4 —— 同形两态同带）
+    'ic-lantern': ('GRAY', 8, 20), 'ic-lantern-on': ('ACC', 8, 20),
+    'ic-book2': ('GRAY', 12, 26), 'ic-book2-on': ('ACC', 12, 26),
+    'ic-seal': ('GRAY', 8, 22), 'ic-seal-on': ('ACC', 8, 22),
+    'ic-chat-on': ('ACC', 6, 22),
+    'ic-bell': ('GRAY', 10, 24), 'ic-moon': ('GRAY', 12, 26),
+    'ic-book': ('GRAY', 14, 28), 'ic-back': ('GRAY', 4, 14),
+    'ic-chev': ('GRAY', 2, 10), 'ic-kebab': ('GRAY', 0.5, 6),
 }
 REF = {'GRAY': (0x75, 0x6E, 0x63), 'ACC': (0xA9, 0x3A, 0x2C),
        'DEEP': (0x8C, 0x2E, 0x22), 'PAPER': (0xFA, 0xF5, 0xE7)}
