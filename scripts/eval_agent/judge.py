@@ -6,7 +6,7 @@
   python3 scripts/eval_agent/judge.py                        # 默认 30 条校准抽样（P0/P1/P2 各 10 覆盖 10 域）
   python3 scripts/eval_agent/judge.py --tasks T001,T019      # 指定任务
   python3 scripts/eval_agent/judge.py --category fortune     # 指定域
-  python3 scripts/eval_agent/judge.py --all                  # 全量 100 条
+  python3 scripts/eval_agent/judge.py --all                  # 全量 108 条
   python3 scripts/eval_agent/judge.py --out <dir>            # 结果目录（默认 data/eval/results/l3-<时间戳>/）
 
 退出码：0 = 跑完且零判卷失败 / 1 = 有任务判卷失败（judge_error）或跳过（主链未产出回复）
@@ -734,7 +734,7 @@ def main(argv=None) -> int:
     ap.add_argument("--category", default="",
                     help="只跑指定域（paipan/fortune/zeri/hehun/xingming/"
                          "qian/liuyao/ziwei/chat/edge）")
-    ap.add_argument("--all", action="store_true", help="跑全量 100 条")
+    ap.add_argument("--all", action="store_true", help="跑全量 108 条")
     ap.add_argument("--out", default="",
                     help="结果目录（默认 data/eval/results/l3-<时间戳>/）")
     ap.add_argument("--keep-tmp", action="store_true",

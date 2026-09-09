@@ -424,7 +424,7 @@ def test_validate_eval_set_still_green():
     assert not out, out[:5]
     cerrs, stats = validate_tasks.coverage_errors(tasks)
     assert not cerrs
-    assert stats["total"] == 103  # 100 基线 + k11-F T101-T103
+    assert stats["total"] == 108  # 100 基线 + k11-F T101-T103 + k15 T104-T108
 
 
 # ================================================================
@@ -726,7 +726,7 @@ def test_select_scope_full_and_explicit():
     tasks = _load_tasks()
     args = type("A", (), {"tasks": "", "category": "", "all": False})()
     ids, smoke = runner._select_scope(tasks, "full", args)
-    assert len(ids) == 103 and smoke == {}  # 100 基线 + k11-F T101-T103
+    assert len(ids) == 108 and smoke == {}  # 100 基线 + k11-F T101-T103 + k15 T104-T108
     args = type("A", (), {"tasks": "T001,T017", "category": "", "all": False})()
     ids, smoke = runner._select_scope(tasks, "full", args)
     assert ids == ["T001", "T017"] and smoke == {}
