@@ -306,6 +306,34 @@ def has_entity_ask(text: str) -> tuple:
             bool(_ENTITY_ASK_WEAK_RE.search(text or "")))
 
 
+def _local_fortune_verdict(text: str) -> tuple:
+    """命理本地判定两档语义（k17-3：单扫 LOCAL_FORTUNE_ANCHOR_RE，去重装饰开销）。
+
+    原实现 decide_search 内先整扫一次算出 calc（硬锚）再经 has_local_fortune_anchor
+    内再整扫同一正则（软路径如「跳槽什么时候合适」=同正则两遍，k11b-r1 审查残留
+    P3 记录）。抽本函数后 has_local_fortune_anchor / decide_search 共用一次扫描。
+
+    语义（k11b-r1 P1-A/P2-B 两档，逐字未变）：
+    - calc（硬锚）= 本地概念词表命中（运势/流年/X运/取名/择日/合婚/解梦/风水…），
+      无论有无命名实体都否决（实体只是背景：「在易宝支付上班 今年运势怎么样」不搜）；
+    - local = calc 或 口语决策族/命理主题族（跳槽+什么时候、行业词+适合我吗…
+      无命名实体时否决；有真实命名实体时不拦——「XX科技公司什么时候发财报」是
+      合法外部时效问，实体层负责放行）。
+    返回 (calc, local)。
+    """
+    if not text:
+        return (False, False)
+    hard = bool(LOCAL_FORTUNE_ANCHOR_RE.search(text))
+    if hard:
+        return (True, True)
+    cue = _LOCAL_ASK_CUE_RE.search(text)
+    if not cue:
+        return (False, False)
+    if _LOCAL_DECISION_VERB_RE.search(text):
+        return (False, True)
+    return (False, bool(_LOCAL_FORTUNE_THEME_RE.search(text)))
+
+
 def has_local_fortune_anchor(text: str) -> bool:
     """命理本地判定（k11b-r1 P1-A 扩面，三层任一命中 → True，调用方零搜索）：
 
@@ -316,17 +344,10 @@ def has_local_fortune_anchor(text: str) -> bool:
     ③ 命理主题词（行业/方位/公司/五行/银行/金融/公务员…）+ cue 同句。
     例外：命名实体+强实体问词（「易宝支付适合我吗」）由实体层优先放行——
     实体层需要该实体的外部事实（见 decide_search 顺序注释）。
+
+    k17-3：实现委托 _local_fortune_verdict()[1]（单扫，语义逐字未变）。
     """
-    if not text:
-        return False
-    if LOCAL_FORTUNE_ANCHOR_RE.search(text):
-        return True
-    cue = _LOCAL_ASK_CUE_RE.search(text)
-    if not cue:
-        return False
-    if _LOCAL_DECISION_VERB_RE.search(text):
-        return True
-    return bool(_LOCAL_FORTUNE_THEME_RE.search(text))
+    return _local_fortune_verdict(text)[1]
 
 
 def is_finance_excluded(text: str) -> bool:
@@ -361,14 +382,14 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
         return SearchDecision(False, reason="finance")
     entities = extract_entity_mentions(msg)
     strong, weak = has_entity_ask(msg)
-    # 命理本地判定分两档（k11b-r1 P1-A/P2-B）：
+    # 命理本地判定分两档（k11b-r1 P1-A/P2-B；k17-3 单扫，语义逐字未变，
+    # 见 _local_fortune_verdict 注释）：
     # - calc = 硬锚（运势/流年/X运/取名/择日/合婚/解梦…词表）——无论有无命名实体
     #   都否决（实体只是背景：『在易宝支付上班 今年运势怎么样』不搜）；
     # - local = 硬锚 + 口语决策族/命理主题族（跳槽+什么时候、行业词+适合我吗…
     #   无命名实体时否决；有真实命名实体时不拦——『XX科技公司什么时候发财报』
     #   是合法外部时效问，实体层负责放行）
-    calc = bool(LOCAL_FORTUNE_ANCHOR_RE.search(msg))
-    local = calc or has_local_fortune_anchor(msg)
+    calc, local = _local_fortune_verdict(msg)
     # 层 2：实体层
     if entities:
         entity = entities[0]
@@ -401,6 +422,13 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
         return SearchDecision(True, query=build_search_query(msg),
                               reason="timely")
     # 层 5：研究白名单兜底（向后兼容 chat 域旧门控语义；纯指代不触发）
+    # k17-4（k11b-r1 P2-B 残留语义记录）：「这个行业怎么样」类——行业/公司 为旧
+    # handler._WEB_SEARCH_RESEARCH_RE 头号词，行业移出 _DEICTIC_NAME_RE 后经本层
+    # 触发 = 与旧关键词硬门控语义等价（非回归），query=整句精简（「这个行业」类
+    # 泛化词，检索价值有限但走真实检索+来源尾注，绝不甩锅）。方向建议（宁搜勿漏
+    # 为本位——PM 实诉「你自己查」教训；收紧须先有实体/主题解析覆盖证据）：
+    # 后续收紧候选 = 语义路由（semantic-router，k11b plan §七备选）或本层加
+    # 「可检索主体」启发（纯指代句 + 无时效词才考虑拦），待实体解析增强批评估。
     if RESEARCH_WHITELIST_RE.search(msg) and not _is_deictic_only(msg):
         return SearchDecision(True, query=build_search_query(msg),
                               reason="whitelist")
