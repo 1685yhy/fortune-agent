@@ -120,9 +120,16 @@ def current_stage_facts(birth_year: int, birth_month: int, birth_day: int,
     - 周岁 = 当前公历年 − 出生公历年 −（今年生日未到 ? 1 : 0）
     - 虚岁 = 当前公历年 − 出生公历年 + 1（同 _calc_qiyun_start_age 的虚岁口径：
       bazi.py:1117 qy.year − birth.year + 1，公历年份差）
-    - 当前大运段 = dayun[(sui, ganzhi)...] 中最后满足 sui <= 虚岁 的段；起止年份 =
-      jiaoyun.years 按 sui 查（问真交运年）兜底 出生年+sui−1（api/paipan.py:311
-      大运展开同款公式）；下段同法。
+    - 当前大运段（k16-B 口径，2026-09-10 统一为精确交运时刻切段）=
+      jiaoyun.years[].time（出生后第 X 年交运日时刻，R2 起运分解/_calendar_add_raw
+      节气精确交运同源，与排盘卡 jiaoyun 展开逐字同刻）中最后满足 time <= now 的
+      段，对应 dayun 内同 sui 的一步；起止年份 = 该段交运年（jiaoyun.years[].year，
+      立春界定）兜底 出生年+sui−1（api/paipan.py 大运展开同款公式）；下段同法。
+      k11 曾按虚岁段选（虚岁在 1 月 1 日即满 → 早于交运日切段，如 2021-01-01 已报
+      丙寅而实际 2021-09-25 09:25 才交），与精确交运口径不一致，本批统一；
+      now 早于首段交运时刻（起运前）→ 无当前大运段（缺键，语义同 k11 起运前）。
+      jiaoyun 缺失/无 time 字段（旧数据/手工构造）→ 兜底虚岁段选（k11 原行为）；
+      越过交运年表末段（约 90 岁档后）→ 段内仍按末段，再后按虚岁口径（表外近似）。
     - 当前流年 = liunian_rel {year, ganzhi}（引擎内已立春界定）。
     返回 dict；字段缺失/越界一律缺键不抛错（消费方 getattr/或 key 判断降级）。
     now 仅测试注入；生产 None = 取调用时刻（与引擎 calculate 同刻，口径自洽）。
@@ -136,24 +143,66 @@ def current_stage_facts(birth_year: int, birth_month: int, birth_day: int,
         "age_zhousui": cy - birth_year - (
             1 if (now.month, now.day) < (birth_month, birth_day) else 0),
     }
-    # 交运年表（jiaoyun.years = [{sui, year,...}]，问真口径）→ 虚岁起点 → 公历年
+    # 交运年表（jiaoyun.years = [{sui, year, time, ganzhi}...]，问真口径）：
+    # year = 交运年（立春界定，展示用，与 paipan 大运展开同源）；
+    # time = 精确交运时刻 "YYYY-MM-DD HH:MM"（k16 换运切段用）
     jy_by_sui = {}
+    jy_time = {}
     try:
         for _y in (jiaoyun or {}).get("years") or []:
             if isinstance(_y, dict) and _y.get("sui") is not None:
-                jy_by_sui[_y["sui"]] = _y.get("year")
+                _s = _y["sui"]
+                if _y.get("year") is not None:
+                    jy_by_sui[_s] = _y["year"]
+                _t = _y.get("time")
+                if isinstance(_t, str) and len(_t) >= 16:
+                    try:
+                        jy_time[_s] = dt(int(_t[:4]), int(_t[5:7]), int(_t[8:10]),
+                                         int(_t[11:13]), int(_t[14:16]))
+                    except (ValueError, TypeError):
+                        pass  # 时刻串损坏：该条仅按年兜底，不参与精确切段
     except Exception:
-        jy_by_sui = {}
+        jy_by_sui, jy_time = {}, {}
     if not isinstance(dayun, (list, tuple)):
         return out
-    idx = None
-    for i in range(len(dayun) - 1, -1, -1):
+    _sui_at = {}
+    for _i, _seg in enumerate(dayun):
         try:
-            if dayun[i][0] <= out["age_xusui"]:
-                idx = i
-                break
+            _sui_at[int(_seg[0])] = _i
         except Exception:
             continue
+    idx = None
+    # k16-B 换运切段（精确交运时刻）：当前段 = 表内最后一条 time <= now 的交运段
+    # （交运时刻整点算新段已交）。now 早于首段交运时刻（含起运前）→ 无当前大运。
+    _timed = None
+    if jy_time:
+        try:
+            _timed = sorted((_t, _sui_at[_s]) for _s, _t in jy_time.items()
+                            if _s in _sui_at)
+        except Exception:
+            _timed = None
+    if _timed:
+        if _timed[0][1] == 0 and now < _timed[0][0]:
+            return out  # 起运前：首段交运时刻未到，尚无当前大运段（缺键契约）
+        _past = [(t, i) for (t, i) in _timed if t <= now]
+        if _past:
+            idx = _past[-1][1]
+            if now >= _timed[-1][0]:
+                # 已越过交运年表末段（约 90 岁档）：表内段已尽，后续段按虚岁口径兜底
+                for _i in range(idx + 1, len(dayun)):
+                    if dayun[_i][0] <= out["age_xusui"]:
+                        idx = _i
+                    else:
+                        break
+    if idx is None:
+        # 兜底：无精确时刻可用（jiaoyun 缺失/无 time 字段）→ 虚岁段选（k11 原行为）
+        for i in range(len(dayun) - 1, -1, -1):
+            try:
+                if dayun[i][0] <= out["age_xusui"]:
+                    idx = i
+                    break
+            except Exception:
+                continue
     if idx is None:
         return out
     try:
@@ -316,14 +365,20 @@ JIE_OF_MONTH = {
 # 12 节（交运时刻所在节月判定用，非中气）
 JIE_NAMES = ["立春", "惊蛰", "清明", "立夏", "芒种", "小暑", "立秋", "白露", "寒露", "立冬", "大雪", "小寒"]
 
-# 中国夏令时 1986-1991（G5，问真未解码、按公开史实建表；开关默认关=零行为变化）
-# 史实规则：每年 4 月中旬第 2 个星期日 02:00 起，至 9 月中旬第 2 个星期日 02:00 止；
-# 1986 为首年，从 5 月第 1 个星期日（05-04）开始。各年起止日均为星期日，与规则自洽。
-# 来源核实（2026-08-30）：知乎《历史上中国夏令时的时间段》
-#   （zhuanlan.zhihu.com/p/25733756）、360doc《夏令时丨中国夏令时的时间表》
-#   （360doc.com/content/25/0407/15/30138949_1150746493.shtml）、百度文库
-#   《中国夏令时时间对照表，转自百科，仅供参考》
-#   （wenku.baidu.com/view/adba987c7b3e0912a21614791711cc7931b778fa）一致：
+# 中国夏令时 1986-1991（G5 建表 + k16 锁定：问真 API 直查 2026-09-10 实证默认忽略
+# 夏令时——不减 1 小时、无开关参数，故开关默认关=对齐问真默认，见
+# tests/test_k16_calendar_dst.py 与 docs/superpowers/plans/2026-09-10-k16-calendar-dst.md）
+# 史实规则（人民日报 1986-04-19《在全国范围内实行夏时制的通知》新华社电）：
+# 1986 首年 05-04（5 月第 1 个星期日）02:00 起；1987 年起每年 4 月中旬第 1 个
+# 星期日 02:00 起（官方逐年日期落在 04-10~04-16），至 9 月中旬第 1 个星期日
+# 02:00 止（逐年 09-11~09-17），1992 年起停行。
+# 来源核实（2026-08-30 + 2026-09-10 补充权威源）：人民日报电子版 1986-04-19
+#   （cn.govopendata.com/renminribao/1986/4/19/1）、澎湃《那些年，我国也实行过
+#   夏时制》（thepaper.cn/newsDetail_forward_7961174，含逐年日期）、知乎《历史上
+#   中国夏令时的时间段》（zhuanlan.zhihu.com/p/25733756）、360doc《夏令时丨中国
+#   夏令时的时间表》（360doc.com/content/25/0407/15/30138949_1150746493.shtml）、
+#   百度文库《中国夏令时时间对照表》（wenku.baidu.com/view/adba987c7b3e0912a216
+#   14791711cc7931b778fa）一致：
 #   1986: 05-04~09-14；1987: 04-12~09-13；1988: 04-10~09-11；
 #   1989: 04-16~09-17；1990: 04-15~09-16；1991: 04-14~09-15。
 #   （公开资料对起止时刻有 01:00 / 02:00 两说，本项目按问真口径 02:00 建表，
@@ -1033,8 +1088,9 @@ class BaziEngine:
             # review r1-1（Important）：年龄派生必须用 input_birth 原始快照（修正前
             # 年月日）——本行下方 year/month/day 已被真太阳时修正/晚子时归日改写，
             # 直接传入会让 12-31 23:xx 跨年出生虚岁整年 off-by-one（27 vs 28）、
-            # 生日当天 23:xx 周岁 off-by-one，且与「出生档案」行自相矛盾；大运段仍
-            # 以同一虚岁口径段选（chart 本身按修正后时刻排，此处置不受影响）。
+            # 生日当天 23:xx 周岁 off-by-one，且与「出生档案」行自相矛盾；大运段选
+            # 同取 input_birth 年份所对的 dayun/jiaoyun（k16 起按精确交运时刻切段，
+            # chart 本身按修正后时刻排，与 jiaoyun 时刻同源，此处不受影响）。
             result.current_stage = current_stage_facts(
                 input_birth[0], input_birth[1], input_birth[2],
                 dayun, jiaoyun, result.liunian_rel)
