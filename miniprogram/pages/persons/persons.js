@@ -14,6 +14,10 @@ const EMPTY_DRAFT = () => ({
   gender: '女',
   place: '',
   solarOn: true,          // k11c：真太阳时修正开关（档案级，默认开=产品口径）
+  // k19 分钟精度：钟表时间模式（10:55 场景）——true 时按 时钟小时+分钟 存
+  dClockMode: false,
+  dClockH: -1,            // 0-23 时钟小时（-1=未选）
+  dClockM: 0,             // 0-59 分（未选=0 分）
 });
 
 Page({
@@ -35,6 +39,11 @@ Page({
     dGender: '女',
     dPlace: '',
     hourLabels: persons.HOUR_LABELS,
+    clockHourLabels: persons.HOUR24,     // k19：钟表时间 0-23 时列
+    clockMinuteLabels: persons.MINUTE60, // k19：0-59 分列
+    dClockMode: false,
+    dClockH: -1,               // 0-23 时钟小时（-1=未选）
+    dClockM: 0,
     relations: persons.RELATIONS,
     filled: false,
     hint: '',
@@ -78,10 +87,13 @@ Page({
   /* 视图 → 契约 payload（字段结构与原先一致：year/month/day + calendar 标记）。
      k11c F1（审查）：solar_time 只在用户真实改动时携带——编辑未碰开关保存 =
      不带字段 → 服务端 update 合并保留既有开关（本地缓存陈旧/缺字段场景绝不把
-     0 静默写回成 1）；显式翻转（0↔1）才随请求落档 */
+     0 静默写回成 1）；显式翻转（0↔1）才随请求落档。
+     k19 分钟精度：钟表模式（dClockH ≥ 0）→ 存真实时钟小时+分钟（10:55
+     场景——档案 minute 参与后续排盘的真太阳时校准）；否则时辰代表整点+0 分 */
   _payload() {
     const d = this.data;
     const parts = String(d.dDate || '').split('-');
+    const clockMode = d.dClockMode && d.dClockH >= 0;
     const payload = {
       name: d.dName.trim(),
       relation: d.dRel,
@@ -89,8 +101,9 @@ Page({
       birth_year: parseInt(parts[0], 10) || 0,
       birth_month: parseInt(parts[1], 10) || 0,
       birth_day: parseInt(parts[2], 10) || 0,
-      birth_hour: persons.shichenIndexToHour(d.dHourIndex),
-      birth_minute: 0,
+      birth_hour: clockMode ? d.dClockH
+        : persons.shichenIndexToHour(d.dHourIndex),
+      birth_minute: clockMode ? d.dClockM : 0,
       calendar: d.dCal,
       city: (d.dPlace || '').trim(),
     };
@@ -107,6 +120,13 @@ Page({
     if (!raw) return;
     // k11c：档案真太阳时开关回显（solar_time=0 关；缺失/旧档案 → 默认开）
     this._origSolar = raw.solar_time !== 0;
+    // k19：精确钟表行（minute>0 或 hour 非时辰代表整点）→ 回显钟表模式，
+    // 时辰 chips 高亮按 hourToShichenIndex(小时,分钟) 时钟口径推导（修旧误读）
+    const rawClockRow = (parseInt(raw.birth_minute, 10) > 0)
+      || (raw.birth_hour !== undefined && raw.birth_hour !== null
+        && raw.birth_hour !== ''
+        && persons.HOUR_VALUES.indexOf(parseInt(raw.birth_hour, 10)) === -1);
+    const clockH = rawClockRow ? (parseInt(raw.birth_hour, 10) || 0) : -1;
     this.setData({
       mode: 'form',
       editing: raw,
@@ -114,10 +134,13 @@ Page({
       dRel: raw.relation || '自己',
       dCal: raw.calendar === 'lunar' ? 'lunar' : 'solar',
       dDate: raw.birth_year ? this._fmtDate(raw.birth_year, raw.birth_month, raw.birth_day) : '',
-      dHourIndex: persons.hourToShichenIndex(raw.birth_hour),
+      dHourIndex: persons.hourToShichenIndex(raw.birth_hour, raw.birth_minute),
       dGender: persons.genderCN(raw.gender),
       dPlace: raw.city || '',
       solarOn: raw.solar_time !== 0,
+      dClockMode: rawClockRow,
+      dClockH: clockH,
+      dClockM: rawClockRow ? (parseInt(raw.birth_minute, 10) || 0) : 0,
       saving: false,
     }, () => this._refreshForm());
   },
@@ -200,7 +223,12 @@ Page({
     if (filled) {
       const parts = String(d.dDate).split('-');
       const p2 = (s) => parseInt(s, 10) || 0;
-      hint = `「${d.dName}」 ${d.dCal === 'solar' ? '公历' : '农历'} ${p2(parts[0])}年${p2(parts[1])}月${p2(parts[2])}日 ${persons.shichenCN(d.dHourIndex)} · ${d.dGender} · ${d.dPlace || '未填出生地'}`;
+      // k19：钟表模式 → 显示「巳时 10:55」；否则时辰名
+      let timeTxt = persons.shichenCN(d.dHourIndex);
+      if (d.dClockMode && d.dClockH >= 0) {
+        timeTxt = `${timeTxt} ${d.dClockH}:${String(d.dClockM || 0).padStart(2, '0')}`;
+      }
+      hint = `「${d.dName}」 ${d.dCal === 'solar' ? '公历' : '农历'} ${p2(parts[0])}年${p2(parts[1])}月${p2(parts[2])}日 ${timeTxt} · ${d.dGender} · ${d.dPlace || '未填出生地'}`;
     } else {
       hint = '填写姓名与出生年月日后可保存';
     }
@@ -211,8 +239,40 @@ Page({
   onRelChange(e) { this.setData({ dRel: e.currentTarget.dataset.rel }, () => this._refreshForm()); },
   onBirthDateChange(e) { this.setData({ dCal: e.detail.calendar, dDate: e.detail.date }, () => this._refreshForm()); },
   onPlaceChange(e) { this.setData({ dPlace: e.detail.full }, () => this._refreshForm()); },
-  onHourChange(e) { this.setData({ dHourIndex: parseInt(e.currentTarget.dataset.idx, 10) || 0 }, () => this._refreshForm()); },
+  onHourChange(e) {
+    // 手选时辰 = 只知时辰档 → 退出钟表模式（代表整点 + 0 分）
+    this.setData({
+      dHourIndex: parseInt(e.currentTarget.dataset.idx, 10) || 0,
+      dClockMode: false,
+    }, () => this._refreshForm());
+  },
   onGenderChange(e) { this.setData({ dGender: e.currentTarget.dataset.g }, () => this._refreshForm()); },
+  /* k19 分钟精度：钟表时间模式。开 → 以当前时辰代表整点起始（无则 12:00）；
+     选时/分 → 自动推导时辰 chips 高亮（只作展示与语义归属，存档按时钟存） */
+  onClockModeToggle() {
+    const d = this.data;
+    if (d.dClockMode) {
+      this.setData({ dClockMode: false }, () => this._refreshForm());
+      return;
+    }
+    const startH = d.dHourIndex > 0 ? persons.HOUR_VALUES[d.dHourIndex] : 12;
+    this.setData({
+      dClockMode: true,
+      dClockH: startH,
+      dClockM: 0,
+    }, () => this._refreshForm());
+  },
+  onClockHourChange(e) {
+    const h = parseInt(e.detail.value, 10) || 0;
+    this.setData({
+      dClockH: h,
+      dClockM: this.data.dClockM || 0,
+      dHourIndex: persons.shichenIndexFromClockHour(h),  // 时辰 chips 联动
+    }, () => this._refreshForm());
+  },
+  onClockMinuteChange(e) {
+    this.setData({ dClockM: parseInt(e.detail.value, 10) || 0 }, () => this._refreshForm());
+  },
 
   /* 保存：新增 POST / 编辑 PUT；成功以服务端确认响应（res.person）为准（G2 A1）：
      失败 → 明确失败提示 + 不写本地缓存 + 停留表单页可重试；绝不「本地假保存」+ 无同步机制 */

@@ -46,6 +46,10 @@ class BaziInput(BaseModel):
     birthMonth: Optional[int] = None
     birthDay: Optional[int] = None
     birthHour: Optional[int] = None
+    # k19：birthHour 为钟表时钟小时（0-23）的显式声明——配合 birthMinute
+    # 0-59；True 时 0-11 不再按时辰序号映射（10:55 / 10 点整场景）。旧调用
+    # 方不传 → False → 0-11 时辰序号语义不变（零行为变化）。
+    birthClock: bool = False
 
 
 class HehunRequest(BaseModel):
@@ -184,7 +188,10 @@ def _resolve_person(data: Optional[BaziInput]) -> BaziInput:
     hour = data.birthHour if data.birthHour is not None else data.hour
     return BaziInput(
         year=int(year), month=int(month), day=int(day),
-        hour=normalize_hour(hour), minute=data.minute,
+        # k19：birthClock 显式声明 = 钟表时间 → 0-11 时钟小时直通（10:55）；
+        # minute 恒为随附分钟、不参与 hour 判定（旧契约 idx+偏置 语义保留）
+        hour=normalize_hour(hour, data.birthClock),
+        minute=data.minute,
         city=data.city, gender=normalize_gender(data.gender),
         daylightSaving=data.daylightSaving, lateChildHour=data.lateChildHour,
         solarTime=data.solarTime,

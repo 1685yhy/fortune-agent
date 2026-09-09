@@ -105,6 +105,23 @@
             class="seg-btn shichen-btn {{dHourIndex === index ? 'on' : ''}}"
             data-idx="{{index}}" bindtap="onHourChange">{{item}}</view>
         </view>
+        <!-- k19 分钟精度：记得钟表时间（如 10:55）→ 钟表模式，时辰边界+真太阳
+             时修正需要真实分钟；开启后自动按所选时间推算时辰 -->
+        <view class="clock-mode" bindtap="onClockModeToggle">
+          <view class="clock-mode-check {{dClockMode ? 'is-on' : ''}}"></view>
+          <text class="clock-mode-t">{{dClockMode ? '使用钟表时间（点此返回时辰档）' : '记不清时辰？填钟表时间更准（10:55）'}}</text>
+        </view>
+        <view wx:if="{{dClockMode}}" class="clock-pickers">
+          <picker class="clock-picker" mode="selector" range="{{clockHourLabels}}"
+            value="{{dClockH < 0 ? 0 : dClockH}}" bindchange="onClockHourChange">
+            <view class="clock-picker-box">{{dClockH < 0 ? '选择时' : clockHourLabels[dClockH]}}</view>
+          </picker>
+          <picker class="clock-picker" mode="selector" range="{{clockMinuteLabels}}"
+            value="{{dClockM}}" bindchange="onClockMinuteChange">
+            <view class="clock-picker-box">{{clockMinuteLabels[dClockM]}}</view>
+          </picker>
+          <text class="clock-derived">时辰随所选自动对应 · 出生地不同可跨时辰边界</text>
+        </view>
 
         <view class="form-label">性别</view>
         <view class="seg">

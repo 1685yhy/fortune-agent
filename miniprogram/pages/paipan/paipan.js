@@ -76,6 +76,13 @@ Page({
     // （档案级持久化）；未预填（手动表单）→ 本页会话级默认开
     bSolarTime: true,
     hourOptions: HOUR_OPTIONS,
+    // k19 分钟精度：钟表时间（0-23 时 / 0-59 分）双 picker——10:55 场景
+    // （时辰边界 + 真太阳时修正跨时辰需要真实钟表分钟；只知时辰可不用）
+    clockHourLabels: persons.HOUR24,
+    clockMinuteLabels: persons.MINUTE60,
+    bClockSet: false,      // 使用钟表时间模式（birthHour 届时按时钟小时发送）
+    bClockHIdx: 0,         // 0-23 时下标
+    bClockMIdx: 0,         // 0-59 分下标
 
     /* ── 状态 ── */
     loading: false,
@@ -170,13 +177,23 @@ Page({
         : '',
       bGender: p.gender === 'female' ? 'female' : 'male',
     };
-    // 时辰（选填）：档案有时辰才回填
+    // 时辰（选填）：档案有时辰才回填。k19：档案 birth_minute>0 或 hour 非
+    // 时辰代表整点（HOUR_VALUES 奇数集）→ 精确钟表行 → 回填钟表模式
+    // （hourToShichenIndex 同步按分钟/时钟窗口映射，不再把 10 误读成 戌时）
     if (p.birth_hour !== undefined && p.birth_hour !== null && p.birth_hour !== '') {
-      patch.bHourIdx = persons.hourToShichenIndex(p.birth_hour) + 1;
+      patch.bHourIdx = persons.hourToShichenIndex(p.birth_hour, p.birth_minute) + 1;
       patch.bHourSet = true;
+      const isClockRow = parseInt(p.birth_minute, 10) > 0
+        || persons.HOUR_VALUES.indexOf(parseInt(p.birth_hour, 10)) === -1;
+      patch.bClockSet = isClockRow;
+      if (isClockRow) {
+        patch.bClockHIdx = parseInt(p.birth_hour, 10) || 0;
+        patch.bClockMIdx = parseInt(p.birth_minute, 10) || 0;
+      }
     } else {
       patch.bHourIdx = 0;
       patch.bHourSet = false;
+      patch.bClockSet = false;
     }
     // 出生地（选填）：展示用「省·市」，请求用裸市名（真太阳时修正可命中）
     if (p.city) {
@@ -207,7 +224,39 @@ Page({
   },
   onHourChange(e) {
     const idx = parseInt(e.detail.value, 10);
-    this.setData({ bHourIdx: idx, bHourSet: idx > 0 });
+    // 手选时辰 = 只知时辰 → 退出钟表模式（代表整点 + 0 分）
+    this.setData({ bHourIdx: idx, bHourSet: idx > 0, bClockSet: false });
+  },
+  /* k19：钟表时间模式开关/时/分选择。
+     - 开：初始值为「当前时辰代表整点 + 0 分」（已有预填时辰则从其开始微调），
+       无时辰选择时从 12:00（午时中点，产品习惯默认）开始；
+     - 选时/分 → 自动推导并点亮时辰（bHourIdx 供既有校验与预填文案复用）。 */
+  onClockToggle() {
+    if (this.data.bClockSet) {
+      this.setData({ bClockSet: false });
+      return;
+    }
+    const startH = this.data.bHourIdx > 0
+      ? persons.HOUR_VALUES[this.data.bHourIdx - 1]
+      : 12;
+    this.setData({
+      bClockSet: true,
+      bClockHIdx: startH || 12,
+      bClockMIdx: 0,
+      bHourIdx: persons.shichenIndexFromClockHour(startH || 12) + 1,
+      bHourSet: true,
+    });
+  },
+  onClockHourChange(e) {
+    const hi = parseInt(e.detail.value, 10);
+    this.setData({
+      bClockHIdx: hi,
+      bHourIdx: persons.shichenIndexFromClockHour(hi) + 1,  // 联动时辰
+      bHourSet: true,
+    });
+  },
+  onClockMinuteChange(e) {
+    this.setData({ bClockMIdx: parseInt(e.detail.value, 10) || 0 });
   },
   onCityChange(e) {
     this.setData({ bCity: e.detail.full, bCityName: e.detail.city, bCitySet: !!e.detail.city });
@@ -246,11 +295,16 @@ Page({
     let date = this.data.bDate;
     if (this.data.bCal === 'lunar') date = lunarDateToSolar(date) || date;
     const parts = String(date || '').split('-');
+    const clockMode = this.data.bClockSet;
     const payload = {
       birthYear: parseInt(parts[0], 10),
       birthMonth: parseInt(parts[1], 10),
       birthDay: parseInt(parts[2], 10),
-      birthHour: this.data.bHourIdx - 1,          // 时辰序号 0-11
+      // k19：钟表模式 → birthHour=时钟小时 0-23 + minute + birthClock 声明
+      // （0-11 直通引擎做真太阳时校准，10:55 场景）；否则时辰序号 0-11
+      birthHour: clockMode ? this.data.bClockHIdx : this.data.bHourIdx - 1,
+      minute: clockMode ? this.data.bClockMIdx : 0,
+      birthClock: clockMode,
       gender: this.data.bGender,
       city: this.data.bCityName || '北京',
       solarTime: this.data.bSolarTime,            // R2-4：默认开=真太阳时校准；关=北京时间直排

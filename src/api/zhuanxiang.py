@@ -130,6 +130,8 @@ def _resolve_birth(birth: BirthInput) -> BirthInput:
     hour = birth.birthHour if birth.birthHour is not None else birth.hour
     return BirthInput(
         year=year, month=month, day=day,
+        # k19：minute 恒为随附分钟、不参与 hour 判定（旧契约 idx+偏置保留；
+        # 本接口暂无钟表档调用方 → 不传 clock_signal）
         hour=normalize_hour(hour), minute=birth.minute,
         city=birth.city, gender=normalize_gender(birth.gender),
     )

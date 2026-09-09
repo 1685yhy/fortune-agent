@@ -39,15 +39,26 @@ def normalize_gender(gender: Union[int, str, None]) -> str:
     return str(gender)
 
 
-def normalize_hour(hour: Optional[int]) -> int:
+def normalize_hour(hour: Optional[int], clock_signal: bool = False) -> int:
     """时辰归一化：0-11 视为时辰序号（小程序 picker 的取值）映射为时钟小时；
-    12-23 视为时钟小时原样返回；缺省取 12（午时）。"""
+    12-23 视为时钟小时原样返回；缺省取 12（午时）。
+
+    clock_signal（k19 分钟精度）：调用方显式声明该 hour 为**钟表时钟小时**
+    （表单选了精确钟表时间档，如 10:55）时——0-23 全部原样直通引擎做真太
+    阳时校准，不再把 0-11 当时辰序号。**只认显式声明**：旧 BaziInput 契约
+    的 birthHour 0-11=时辰序号 + minute=时辰内偏置（如 6+25 = 午时 25 分，
+    k19 review 回归：m>0 误判为时钟 6:25 → 时柱壬午错成己卯），minute 本
+    身不携带语义、不参与判定；新前端钟表档必带 birthClock=True（k19 前端
+    已实现），非钟表调用方不带 → 行为零变化。
+    """
     if hour is None:
         return 12
     try:
         h = int(hour)
     except (TypeError, ValueError):
         return 12
+    if clock_signal:
+        return max(0, min(23, h))  # 钟表时间 → 时钟小时直通
     if 0 <= h <= 11:
         return SHICHEN_TO_HOUR[h]
     return max(0, min(23, h))

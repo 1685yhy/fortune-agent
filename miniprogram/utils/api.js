@@ -930,6 +930,9 @@ function paipan(payload) {
     city: p.city || '北京',
   };
   if (p.minute != null) data.minute = parseInt(p.minute, 10);
+  // k19：birthHour 为钟表时钟小时的显式声明（0-23 直通，10:55 场景）。
+  // nullish 守卫：旧调用方不带 → 服务端 birthClock=False → 0-11 时辰序号语义不变。
+  if (p.birthClock != null) data.birthClock = !!p.birthClock;
   // R2-4-fix：真太阳时开关透传（此前白名单静默丢弃 solarTime → 用户「关」无效果，
   // 恒出修正盘）。nullish 守卫：未传该字段的调用方（页面上仅 paipan 页有开关）
   // 保持不带参 → 服务端 BaziInput 默认 True 语义不变。

@@ -28,7 +28,8 @@ test('B3-4 预填：_fillFromPerson 回填表单（日期/时辰序号/性别/�
   const js = fs.readFileSync(PAIPAN_JS, 'utf8');
   assert.match(js, /date = `\$\{p\.birth_year\}-\$\{pad\(p\.birth_month\)\}-\$\{pad\(p\.birth_day\)\}`/, '出生日期应回填为 YYYY-MM-DD');
   assert.match(js, /lunarDateToSolar/, '农历档案应换算公历（排盘引擎只吃公历）');
-  assert.match(js, /persons\.hourToShichenIndex\(p\.birth_hour\) \+ 1/, '时辰应转时辰序号（picker 下标 1-12）');
+  // k19：带 birth_minute 回填（精确钟表行按时钟口径映射，语义超集）
+  assert.match(js, /persons\.hourToShichenIndex\(p\.birth_hour(,\s*p\.birth_minute)?\) \+ 1/, '时辰应转时辰序号（picker 下标 1-12）');
   assert.match(js, /patch\.bHourSet = true/, '有时辰应置 bHourSet');
   assert.match(js, /bGender: p\.gender === 'female' \? 'female' : 'male'/, '性别应归一为 male/female');
   assert.match(js, /split\('·'\)\.pop\(\)/, '城市请求名应取「省·市」后段裸市名');

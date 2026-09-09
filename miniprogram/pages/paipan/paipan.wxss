@@ -84,6 +84,41 @@ page {
   color: var(--ink-mid);
 }
 .form-picker-empty { color: var(--ink-faint); }
+/* k19 分钟精度：钟表时间档（10:55 场景）——时辰 picker 下补充精确输入 */
+.clock-mode {
+  display: flex; align-items: center; gap: 12rpx;
+  margin-top: 16rpx; padding: 14rpx 18rpx;
+  background: var(--paper); border: 2rpx dashed var(--line-input);
+  border-radius: 12rpx;
+}
+.clock-mode-check {
+  width: 22rpx; height: 22rpx; border-radius: 50%;
+  border: 2rpx solid var(--ink-faint);
+  box-sizing: border-box; flex: none;
+}
+.clock-mode-check.is-on {
+  border: 6rpx solid var(--acc);
+  background: var(--paper);
+}
+.clock-mode-t {
+  font-family: var(--font-song); font-size: 22rpx;
+  letter-spacing: .05em; color: var(--ink-mid);
+}
+.clock-pickers {
+  display: flex; align-items: center; gap: 16rpx;
+  margin-top: 16rpx; flex-wrap: wrap;
+}
+.clock-picker { flex: 1; min-width: 170rpx; }
+.clock-picker-box {
+  padding: 20rpx 10rpx; text-align: center;
+  background: var(--paper); border: 2rpx solid var(--line-input);
+  border-radius: 12rpx; font-size: 26rpx; color: var(--ink);
+}
+.clock-derived {
+  flex-basis: 100%;
+  font-family: var(--font-song); font-size: 20rpx;
+  letter-spacing: .04em; color: var(--ink-faint);
+}
 /* R2-4 真太阳时开关行：左文案右 switch（产品口径：默认开=按出生地经度校准；关=北京时间直排） */
 .solar-row { display: flex; align-items: center; gap: 24rpx; }
 .solar-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
