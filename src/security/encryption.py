@@ -10,6 +10,11 @@ Key management:
 - Encryption key from environment variable (ENCRYPTION_KEY)
 - Key rotation support via key versioning
 - Each encryption operation uses a unique nonce
+
+算法审计（2026-09-10 k20 收口确认）：本模块为 AES-256-GCM 认证加密
+（AES-256 = 32 字节密钥，GCM 标准 12 字节 nonce，cryptography AESGCM），
+不存在 XOR/自定义混淆路径；密钥轮换 = v1:key,v2:key 版本化解析、末键为
+当前加密钥、旧键保留供解密。
 """
 import os
 import base64
@@ -39,7 +44,8 @@ class DataEncryptor:
 
         Key format (from ENCRYPTION_KEY env var):
         - Single key: base64-encoded 32-byte key
-        - Versioned: v1:base64key,v2:base64key (current key is last)
+        - Versioned: v1:base64key,v2:base64key (current key is last)；
+          单个带标签键 "v1:base64key" 亦合法（k20 审计确认）
         """
         # Bugfix: _key_size/_nonce_size 必须在 _parse_keys 之前初始化，
         # 否则 _parse_keys 读 self._key_size 抛 AttributeError，
@@ -81,16 +87,45 @@ class DataEncryptor:
         keys = {}
         current_version = "v1"
 
-        if "," in key_str and ":" in key_str:
+        # k20 修复（2026-09-10 审计）：任何含 ':' 的都按版本化解析——
+        # base64 字母表不含 ':'，单钥裸 base64 不可能含冒号；旧判据
+        # ("," and ":") 把单键带标签形态 "v1:KEY"（无逗号）误落单钥分支 →
+        # base64 解码失败 → 静默 SHA-256 派生错误密钥（本轮测试实证）。
+        if ":" in key_str:
             # Versioned keys
+            # 逐项解析必须容错——坏项告警并跳过，
+            # 不能抛异常（DataEncryptor() 在 main.py lifespan 直建，异常=启动崩）；
+            # 全坏时降级 SHA-256 派生并大声告警（与下方单钥兜底同一哲学：不崩、
+            # 告警可查）。无 ":" 的裸段同样告警跳过（原来被静默忽略）。
             for entry in key_str.split(","):
                 entry = entry.strip()
-                if ":" in entry:
-                    version, key_b64 = entry.split(":", 1)
+                if not entry:
+                    continue
+                if ":" not in entry:
+                    logger.warning(
+                        "ENCRYPTION_KEY 段缺少 ':' 已跳过: %.20s...", entry)
+                    continue
+                version, key_b64 = entry.split(":", 1)
+                try:
                     key_bytes = base64.b64decode(key_b64)
-                    if len(key_bytes) == self._key_size:
-                        keys[version.strip()] = key_bytes
-                        current_version = version.strip()
+                except Exception:
+                    logger.warning(
+                        "ENCRYPTION_KEY 段 %r base64 非法已跳过（其余键不受影响）",
+                        version.strip())
+                    continue
+                if len(key_bytes) == self._key_size:
+                    keys[version.strip()] = key_bytes
+                    current_version = version.strip()
+                else:
+                    logger.warning(
+                        "ENCRYPTION_KEY 段 %r 解码 %d 字节（需 %d）已跳过",
+                        version.strip(), len(key_bytes), self._key_size)
+            if not keys:
+                keys["v1"] = hashlib.sha256(key_str.encode()).digest()
+                logger.warning(
+                    "ENCRYPTION_KEY 无任何合法版本键，已派生降级密钥——"
+                    "已有密文行将无法解密！请检查 ENCRYPTION_KEY 格式"
+                    "（v1:base64key,v2:base64key）")
         else:
             # Single key
             try:
@@ -132,14 +167,13 @@ class DataEncryptor:
 
         # Encrypt
         plaintext_bytes = plaintext.encode("utf-8")
+        # AESGCM.encrypt(nonce, data, aad) 返回 ct||tag（tag 固定 16 字节）
         ciphertext = aesgcm.encrypt(nonce, plaintext_bytes, aad)
 
-        # Format: nonce (12) + ciphertext + tag (16)
-        # AESGCM.encrypt returns nonce|ciphertext|tag concatenated
-        # Actually, we pass nonce separately and get ciphertext+tag
-        # So aesgcm.encrypt(nonce, data, aad) returns ciphertext+tag (16 byte tag)
-
-        # Store as: version:base64(nonce + ciphertext + tag)
+        # 落库格式（k20 审计确认，2026-09-10）：
+        #   {version}:{base64(nonce(12) || ciphertext || tag(16))}
+        # 无内嵌 aad——解密必须传同一 aad（全仓消费点均为 aad=b""）；
+        # 认证由 tag 保证：篡改任意一字节 → decrypt 抛 InvalidTag → 返回 None。
         combined = nonce + ciphertext
         result = f"{self._current_version}:{base64.b64encode(combined).decode()}"
 
@@ -158,6 +192,12 @@ class DataEncryptor:
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
         try:
+            # 空值/异常输入防御（k20 审计，2026-09-10）：与类型标注一致，
+            # None 与空串返回 None，不抛异常——调用方守卫外再兜一层。
+            if not ciphertext_str:
+                return None
+            if not isinstance(ciphertext_str, str):
+                return None
             # Parse format
             if ":" not in ciphertext_str:
                 logger.error("Invalid ciphertext format (no version)")
