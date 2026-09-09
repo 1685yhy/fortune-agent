@@ -168,3 +168,37 @@ test_k15_eval_tails / test_adaptive_advisor / test_k11c_solar_switch）。
 - data/ 预存脏态（data/memory/.json、ledger.json、comparison_runs.jsonl、
   data/eval/results/*）不 add；
 - progress.md 非 git（.superpowers/sdd/.gitignore），仅本地追加。
+
+---
+
+## 实施记录（2026-09-10，k17 完成）
+
+提交（4 个，均本地未 push）：
+- 4127745 fix: k17 advisor REST persons-first read（项 1：api/advisor.py + 测试 6）
+- f85f104 fix: k17 search_trigger calc 单扫去重 + 白名单语义注记（项 3+4，测试 7）
+- 0b73881 fix: k17 jiaoyun 部分段缺 time 防御兜底 + DST_TABLE 措辞（项 5+8，测试 9）
+- a66214d fix: k17 age_claim 岁字省略形态补拦（项 6，测试 18）
+
+逐项实现说明与实施中新增发现：
+- 项 1：advisor_v2 核实零直读（接收 BaziResult，import 核对）；_handle_advisor 已在
+  k11c 改过——唯一改造点 = api/advisor.py。残余直读清单（main.py 2018/2055/2350、
+  dashboard.py 27/92、hourly.py 102）记录待后续批，本批未动。
+- 项 3：双扫只发生在**软路径**（硬锚命中短路只扫 1 次）——探针「跳槽什么时候合适」
+  = 2 遍；抽 `_local_fortune_verdict` 后恒 1 遍（计数测试锁定）。
+- 项 5：缺口分两形——年表**有条目但 time 缺失/损坏** = 缺口告警过渡；**整条不在
+  年表**（与表外段不可区分）＝静默按虚岁兜底（k16 表末语义自然延伸）。首段缺 time
+  且 now 早于首条已知时刻 → 整体虚岁兜底 + 告警（行为与改造前一致，仅补可见性，
+  探针实证）。全量数据多 now 零告警零漂移（2021/2026/2081/2095 对照 k16 语义）。
+- 项 6 实施中新增发现（记录在案，非本批修复）：「虚岁33岁时进入乙丑大运」被
+  pattern2 误拦 = **base 既有**（k15 双单位收紧的复现样例未覆盖「时」连接词，前瞻
+  排除缺 时）——git stash 对比实测（base 同样 FAIL）；本批未扩未改，建议后续批给
+  pattern2 前瞻补 时/际 字符（与 k17-6 新增 pattern 的排除面对齐）。另「你虚岁33了？
+  不，我今年28岁。」反问否定句 = k15 已记录既有误拦族（岁字版同误拦）的同形态延伸。
+- 测试实跑数字（collect-only 口径，pytest 实跑）：
+  - k17 四文件 40 passed（6+7+9+18）
+  - 邻接：k16_calendar_dst+jiaoyun+qiyun 56 / k11_fact_discipline+k15_eval_tails 52
+    / k11b_search_trigger+web_search 56 / adaptive_advisor+k11_fact 53（5 skipped）
+    / k11c_solar_switch+calendar_persons_read+r13_profile_routing+bazi 等 95 passed
+    （1 starlette import 警告既有）——合计 k17 首测即全绿，无回归。
+- 纪律：git add 每批仅本批文件；data/ 预存脏态未 add；不 push 不重启不碰生产库
+  不改 .env 不动 tool_calls.py；progress.md（非 git）追加 k17 段见主会话侧。
