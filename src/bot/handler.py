@@ -1276,7 +1276,11 @@ class MessageHandler:
         except Exception:
             pass
         try:
-            saved = self.dao.get_user_bazi(user_id) if self.dao else None
+            # k18：存在性判断改走统一档案链（persons 默认档案 → bazi_info →
+            # chart_records 兜底）——persons-only 建档用户（09-04 wipe 后画像
+            # 清零人群）不再被误当「无八字」引导建档（T089 同类问候面）。
+            saved = (self._get_user_birth_profile(user_id)
+                     if self.dao else None)
             if saved:
                 return '欢迎回来！您的八字信息已保存，有什么想了解的可以直接问～'
         except Exception:
@@ -2565,7 +2569,9 @@ class MessageHandler:
         ② 意图判定（选日子/择日/哪天/吉日/挑个时间/好日子/换一批…）——场景在但无意图 →
            澄清反问, 不调引擎、不扣额度
         ③ 额度检查（_check_quota, 澄清不扣）——引擎调用成功后才扣减（异常不占额度）
-        ④ user_bazi（dao.get_user_bazi → shengxiao/day_gan/month_zhi 映射）
+        ④ user_bazi（k9/k18 起经 _get_user_birth_profile 统一档案链 →
+           _map_user_bazi_for_zeri shengxiao/day_gan/month_zhi 映射，
+           persons 建档用户不漏读；不再裸读 users.bazi_info）
         ⑤ select_lucky_days(scene, start, end, user_bazi, exclude_dates) → 结构化卡片文本
         ⑥ 末尾选择问句 + /pages/zeri/zeri 深链（前端 navFor 渲染跳转按钮）
         """
@@ -4890,15 +4896,21 @@ class MessageHandler:
         return self._handle_bazi(msg, user_id, stream_cb=stream_cb,
                                  session_id=session_id)
 
-    def _get_user_birth_profile(self, user_id: str) -> Optional[dict]:
+    def _get_user_birth_profile(self, user_id: str,
+                                allow_chart_fallback: bool = True) -> Optional[dict]:
         """获取用户出生信息档案（G1 P0-B 修复：persons 默认档案 = 单一事实源）。
 
         G3c：委托 src.storage.birth_profile.get_user_birth_profile ——
         calendar 今日运势（api/calendar.py）与对话路径共用同一实现，
         读取顺序零漂移（数据一致性铁律），缓存指纹与读取源同源。
+
+        allow_chart_fallback（k18 透传，默认 True）：档案「存在性」类判断
+        （_should_fastpath RAG 快路径门控）传 False——只认 persons/bazi_info
+        真实档案，chart_records 兜底可能只是他人/择时盘（k9 契约）。
         """
         return get_user_birth_profile(
-            self.dao, user_id, chart_dao=getattr(self, "chart_dao", None))
+            self.dao, user_id, chart_dao=getattr(self, "chart_dao", None),
+            allow_chart_fallback=allow_chart_fallback)
 
     def _profile_cache_fingerprint(self, user_id: str) -> str:
         """今日运势类聊天缓存键的档案指纹（G3b H-7 同口径，R1-2 T089）。
@@ -5925,7 +5937,14 @@ class MessageHandler:
                             and _cb.get("month") == birth.get("month")
                             and _cb.get("day") == birth.get("day")):
                         return True
-            if self.dao.get_user_bazi(user_id):
+            # k18：「档案」存在性判断改走统一档案链（persons 优先，与文档
+            # 语义「或档案时跳过 RAG 预检索」一致）——原裸读 bazi_info 把
+            # persons-only 建档用户漏成无档案（T089 同类的 fastpath 面）。
+            # allow_chart_fallback=False：③ chart_records 兜底不算档案——
+            # ③ 行可能只是他人/择时盘，且 chart 同生辰比对（上方第一条件）
+            # 已覆盖「已存同盘」场景（k9 契约：chart 不匹配 + 无档案 → False）。
+            if self._get_user_birth_profile(user_id,
+                                            allow_chart_fallback=False):
                 return True
         except Exception:
             pass
@@ -7606,10 +7625,18 @@ class MessageHandler:
                 dream_text = dream_text[:idx].strip()
                 break
 
-        # 2. 获取用户八字
+        # 2. 获取用户八字（日主个性化上下文）
         bazi_info = None
         try:
-            saved = self.dao.get_user_bazi(user_id)
+            # k18：日主是盘面键 → 改经 get_user_birth_profile_full（k8 语义：
+            # 四柱只取「出生档案匹配的 chart_records」）——原裸读 bazi_info
+            # 旧行 bazi 键可能为历史他人盘污染（21:44 事故族），且 persons-
+            # only 建档用户（bazi_info 无行）永远拿不到个性化；显示格式保持
+            # 原样（bazi[2] 日柱串，如「戊午」+ 当前大运占位）。
+            from src.storage.birth_profile import get_user_birth_profile_full
+            saved = get_user_birth_profile_full(
+                self.dao, user_id,
+                chart_dao=getattr(self, "chart_dao", None))
             if saved:
                 bazi_info = {"day_master": f"{saved.get('bazi', ['?'])[2]}", "current_dayun": "当前"}
         except Exception:
@@ -7722,8 +7749,17 @@ class MessageHandler:
         retriever = self.retriever if hasattr(self, 'retriever') else None
         bazi_data = None
         try:
+            # k18（REST /api/xuetang 同款，k8 语义）：四柱/盘面键只取
+            # get_user_birth_profile_full 的「出生档案匹配 chart_records 盘」
+            # ——原裸读 users.bazi_info.bazi（旧行 bazi 键可能为历史他人盘
+            # 污染，21:44 事故源；无匹配盘 → 通用课程，不把他人盘四柱用于
+            # 个性化）；persons-only 建档用户 bazi_info 无行也可经 persons
+            # → chart_records 读取链获得个性化。
             if self.dao:
-                saved = self.dao.get_user_bazi(user_id)
+                from src.storage.birth_profile import get_user_birth_profile_full
+                saved = get_user_birth_profile_full(
+                    self.dao, user_id,
+                    chart_dao=getattr(self, "chart_dao", None))
                 if saved and saved.get("bazi"):
                     bazi_data = {
                         "day_master": saved.get("day_master", ""),
@@ -8311,7 +8347,16 @@ class MessageHandler:
         # 引导门——否则工具链入口被掐断，LLM 永远看不到工具清单。
         has_year = bool(re.search(r'\d{4}', msg))
         has_gender = bool(re.search(r'(?:^|[^\w])[男女](?:$|[^\w])', msg))
-        saved_bazi = self.dao.get_user_bazi(user_id) if self.dao else None
+        # k18：「用户是否已有档案」改走统一档案链（persons 默认档案 →
+        # bazi_info → chart_records 兜底，G3c 同源）——原裸读 bazi_info 把
+        # persons-only 建档用户误判为「无八字」→ 重复引导建档/注入渐进引导
+        # hint（T089 同类自由对话面）。fail-open：链内异常回落 None 走原
+        # 无档案分支，绝不因档案读取错误阻塞自由对话。
+        try:
+            saved_bazi = (self._get_user_birth_profile(user_id)
+                          if self.dao else None)
+        except Exception:
+            saved_bazi = None
         if (has_year or has_gender) and not saved_bazi and not scene_hint:
             # F2（2026-08-26）：先看是否已在会话中累积部分出生信息——有则
             # 渐进引导（回显已确认项 + 只问缺失项，不要求完整格式）；无则
