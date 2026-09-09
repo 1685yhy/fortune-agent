@@ -1,24 +1,29 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-k12 · 对话页图标重绘生成器（P4.7 执行批）
-============================================
+k12 · 对话页图标重绘生成器（P4.7 执行批）+ k14 · tab/导航图标族（C1/C2 收口）
+==============================================================================
 单一事实源 = 本文件内嵌的 96u 几何 + 颜色 token。生成管线：
   SVG(96u) → cairosvg 4x 超采样(768px) → PIL LANCZOS 降采样 → 目标档 RGBA png。
 
-风格规范（docs/superpowers/plans/2026-09-08-k12-icon-redraw.md §1）：
+风格规范（docs/superpowers/plans/2026-09-08-k12-icon-redraw.md §1；
+k14 追加 docs/superpowers/plans/2026-09-09-k14-tab-icons.md §1）：
   浅色细线条、圆头端点、常态中灰 #756E63、点亮 #A93A2C(--acc)、
   删除 #8C2E22(--acc-deep)、发送钮反白 #FAF5E7。
   主轮廓 7.0u@96（26px 菜单位≈1.9px CSS）；内细节 5.6u。
+
+k14 节：tabbar 双态（lantern/book2/seal + on，chat-on 复用 k12 geo_chat 换 ACC）
++ legacy 淡棕带（bell/moon/book）+ 导航族（back/chev/kebab）入族，13 枚全 96px。
 
 用法：
   python3 scripts/gen_k12_icons.py            # 写入 miniprogram/assets/images/（按既有档位）
   python3 scripts/gen_k12_icons.py --qa DIR   # 出 QA 拼贴（真实显示档+宣纸底/朱砂底），不写资产
 依赖：python3 + cairosvg + Pillow
 
-造型出处：ic-up/up-on/down/down-on/speak/share/mic/check 八枚的路径几何取自
-Lucide 图标集（ISC License, https://lucide.dev）对应基础符号，并按本族
-笔画/配色规范（灰 #756E63、点亮 #A93A2C）着色；其余为本脚本自绘几何。
+造型出处：ic-up/up-on/down/down-on/speak/share/mic/check（k12 八枚）与
+k14 五枚 ic-bell/moon/book/back/chev 的路径几何取自 Lucide 图标集
+（ISC License, https://lucide.dev）对应基础符号，并按本族笔画/配色规范
+（灰 #756E63、点亮 #A93A2C）着色；其余为本脚本自绘几何。
 """
 import math, os, sys
 
@@ -37,6 +42,11 @@ SIZE = {  # 每文件名目标物理尺寸（保持既有档位；ic-regen 新�
     'ic-edit': 96, 'ic-check': 96, 'ic-chat': 96, 'ic-delete': 96,
     'ic-link': 96, 'ic-mic': 96, 'ic-keyboard': 96, 'ic-camera': 96,
     'ic-camera-soft': 96, 'ic-plus': 96, 'ic-send': 96, 'ic-regen': 96,
+    # k14 · tab/导航图标族（沿用既有 96 档位）
+    'ic-lantern': 96, 'ic-lantern-on': 96, 'ic-book2': 96, 'ic-book2-on': 96,
+    'ic-seal': 96, 'ic-seal-on': 96, 'ic-chat-on': 96,
+    'ic-bell': 96, 'ic-moon': 96, 'ic-book': 96, 'ic-back': 96,
+    'ic-chev': 96, 'ic-kebab': 96,
 }
 
 S = 7.0    # 主轮廓笔划（96u 空间）
@@ -149,8 +159,51 @@ def lv_check(color):
             f'stroke-linecap="round" stroke-linejoin="round"/>')
 
 
+# ── k14 · tab/导航族 Lucide 标准符号（ISC，出处见脚本头注；24 格 → 96 空间） ──
+
+def lv_bell(color):
+    # lucide bell：钟身 + 铃舌短弧
+    return (f'<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" fill="none" '
+            f'stroke="{color}" stroke-width="{LUCIDE_MAIN}" stroke-linejoin="round"/>'
+            f'<path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" fill="none" '
+            f'stroke="{color}" stroke-width="{LUCIDE_MAIN}" stroke-linecap="round"/>')
+
+
+def lv_moon(color):
+    # lucide moon 弯月 + 右上四芒星点（自绘，45° 十字读作星光而非加号）
+    return (f'<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" fill="none" '
+            f'stroke="{color}" stroke-width="{LUCIDE_MAIN}" stroke-linejoin="round"/>'
+            f'<path d="M19.13 3.33 L21.67 5.87 M21.67 3.33 L19.13 5.87" stroke="{color}" '
+            f'stroke-width="{LUCIDE_DET}" stroke-linecap="round"/>')
+
+
+def lv_book_open(color):
+    # lucide book-open：双翼展开书
+    return (f'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" fill="none" '
+            f'stroke="{color}" stroke-width="{LUCIDE_MAIN}" stroke-linejoin="round"/>'
+            f'<path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" fill="none" '
+            f'stroke="{color}" stroke-width="{LUCIDE_MAIN}" stroke-linejoin="round"/>')
+
+
+def lv_arrow_left(color):
+    # lucide arrow-left：导航返回
+    return (f'<path d="m12 19-7-7 7-7" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_MAIN}" stroke-linecap="round" stroke-linejoin="round"/>'
+            f'<path d="M19 12H5" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_MAIN}" stroke-linecap="round"/>')
+
+
+def lv_chevron_right(color):
+    # lucide chevron-right：行尾箭头
+    return (f'<path d="m9 18 6-6-6-6" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_MAIN}" stroke-linecap="round" stroke-linejoin="round"/>')
+
+
 LUCIDE = {'ic-up': lv_up, 'ic-up-on': lv_up, 'ic-down': lv_down, 'ic-down-on': lv_down,
-          'ic-speak': lv_speak, 'ic-share': lv_share, 'ic-mic': lv_mic, 'ic-check': lv_check}
+          'ic-speak': lv_speak, 'ic-share': lv_share, 'ic-mic': lv_mic, 'ic-check': lv_check,
+          # k14 · tab/导航族
+          'ic-bell': lv_bell, 'ic-moon': lv_moon, 'ic-book': lv_book_open,
+          'ic-back': lv_arrow_left, 'ic-chev': lv_chevron_right}
 
 
 def geo_keep():
@@ -233,6 +286,42 @@ def geo_regen():
     return out
 
 
+# ── k14 · tab/导航族自绘几何（灯笼/封皮书/印章/竖三点；保持既有语义） ──────────
+
+def geo_lantern():
+    # 竖灯笼：顶挂柱 + 冬瓜形鼓身 + 穗。轮廓按旧 ic-lantern 逐行实测拟合：
+    # 挂柱 x45-50 y12-19 → 口沿(顶缘)宽36 y20 → 肩扩 46 → 直腰宽50（y40-57）→
+    # 收口 ~32 y76 → 穗结 y84-89 → 穗尖 y90-92；全高 y5..92.4 守 ≥3.5 边距
+    out = [P('M48,13 L48,21.5', D),               # 顶挂柱（入上口沿）
+           P('M33,23.5 C29.5,29 27,34 27,40 L27,57 C27.5,66 31,73 36.5,78 '
+             'Q48,82.5 59.5,78 C65,73 68.5,66 69,57 L69,40 C69,34 66.5,29 63,23.5 Z', S),  # 灯身
+           P('M48,81.5 L48,84', D),               # 穗绳
+           F(48, 86.2, 3.2),                      # 穗结
+           P('M46.1,90.2 L48,87.8 M49.9,90.2 L48,87.8', D)]  # 穗尖（V 形，至 y93 同旧）
+    return out
+
+
+def geo_book2():
+    # 测算 = 封皮书（封面圆角+中缝+右上书签，旧 ic-book2 语义「书+小签」）
+    return [P(rr(26, 32, 44, 44, 8), S),          # 封面 x26..70 y32..76
+            P('M48,32 V76', D),                   # 中缝
+            P('M34,46 L42,46', D), P('M34,56 L42,56', D),   # 左页两道细线
+            P('M54,46 L62,46', D), P('M54,56 L62,56', D),   # 右页两道细线
+            P(rr(55, 19, 15, 16, 4), S)]          # 右上书签（贴于封面上缘）
+
+
+def geo_seal():
+    # 我的 = 方印（圆角外框+内印文框+十字四宫，旧 ic-seal 语义）
+    return [P(rr(27, 27, 42, 42, 9), S),          # 印体
+            P(rr(40, 40, 16, 16, 3.5), D),        # 印文内框
+            P('M40,48 H56', D), P('M48,40 V56', D)]  # 十字格 → 四宫印文
+
+
+def geo_kebab():
+    # 竖三点（导航右钮/行删除钮/设置行，旧 ic-kebab 语义）
+    return [F(48, 20, 3.6), F(48, 48, 3.6), F(48, 76, 3.6)]
+
+
 SPEC = {  # name -> (几何, 颜色)
     'ic-up': (None, GRAY), 'ic-up-on': (None, ACC),
     'ic-down': (None, GRAY), 'ic-down-on': (None, ACC),
@@ -246,6 +335,14 @@ SPEC = {  # name -> (几何, 颜色)
     'ic-camera': (geo_camera, GRAY), 'ic-camera-soft': (lambda: geo_camera(True), GRAY),
     'ic-plus': (geo_plus, GRAY), 'ic-send': (geo_send, PAPER),
     'ic-regen': (geo_regen, GRAY),
+    # k14 · tab/导航图标族（13 枚入族：同形两态 on 仅换色）
+    'ic-lantern': (geo_lantern, GRAY), 'ic-lantern-on': (geo_lantern, ACC),
+    'ic-book2': (geo_book2, GRAY), 'ic-book2-on': (geo_book2, ACC),
+    'ic-seal': (geo_seal, GRAY), 'ic-seal-on': (geo_seal, ACC),
+    'ic-chat-on': (geo_chat, ACC),        # 与 k12 ic-chat 同一几何，点亮色
+    'ic-bell': (None, GRAY), 'ic-moon': (None, GRAY), 'ic-book': (None, GRAY),
+    'ic-back': (None, GRAY), 'ic-chev': (None, GRAY),
+    'ic-kebab': (geo_kebab, GRAY),
 }
 
 
