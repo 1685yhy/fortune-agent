@@ -26,13 +26,24 @@
 ## 1. 加密说明
 
 - 加密算法：AES-256-GCM，密钥来自 `ENCRYPTION_KEY`（base64 32 字节）。
-- 密文格式：`v1:<base64(nonce+ciphertext+tag)>`（dev 模式为 `dev:<...>`）。
+- 密文格式：`{version}:<base64(nonce(12)+ciphertext+tag(16))>`（dev 模式为
+  `dev:<...>`）。
+- 密钥轮换：`v1:key,v2:key` 逗号分隔，末键为当前加密钥，旧键保留供解密
+  （单个带标签键 `v1:key` 亦合法）。
 - 读取路径自动解密；旧明文数据读取时懒迁移为密文（不改变业务计数）。
 - 解密失败降级：按原样返回（兼容旧数据/密钥轮换期），`DataEncryptor.decrypt`
   会记 ERROR 日志（见 `src/security/encryption.py`）。
-- **加密字段（敏感）**：`users.bazi_info`、`users.session_key_enc`、
-  `consultations.question / chart_data / analysis`、`sessions.content`。
+- **加密字段（敏感，2026-09-10 k20 审计逐点核实，无明文旁路）**：
+  - `users.bazi_info`、`users.session_key_enc`、`users.phone_enc`
+  - `persons.birth_enc / bazi_enc`（默认命主档案）
+  - `chart_records.birth_enc / bazi_enc`（排盘记录）
+  - `consultations.question / chart_data / analysis`
+  - `sessions.content`（聊天消息正文）
+  - `jian_cards.card_enc`（晨笺卡片）
+  - L3 用户记忆文件 `fact_entries_enc / topic_evolution_enc`（文件内整段加密）
 - **明文字段**：其余全部为明文（含 `users.user_id`——由 openid 派生，需用于关联查询，不加密）。
+- 备注：`users.ziwei_info` 为 schema 预留列、当前无任何写入代码；启用写入时
+  必须走 `_encrypt_text`（与 bazi_info 同款加密），禁止明文落库。
 
 ## 2. 表结构明细
 

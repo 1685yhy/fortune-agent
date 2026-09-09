@@ -4,6 +4,12 @@
 // 直接读出明文（防随手可读/肩窥），不具备真正的密码学强度。真正的端侧加密
 // （AES-GCM 等）需引入加密库（如 crypto-js），属需 PM 拍板的依赖决策
 // （红线：本批次零新依赖）；服务端传输/存储由后端 HTTPS + 服务端加密承担。
+// 审计确认（2026-09-10 k20 加密层收口）：本文件是唯一残留 XOR 混淆实现，
+// 仅作用于小程序端本地 storage（auth/userProfile/love 草稿等），属客户端
+// 本地混淆层（客户端无法持有真密钥），不在服务端 at-rest 加密范围内；
+// 服务端全部敏感字段加密 = AES-256-GCM（src/security/encryption.py，
+// 消费点清单见 docs/superpowers/plans/2026-09-10-k20-aes-encryption.md）。
+// 认知保持：混淆≠加密；升级为真端侧加密（crypto-js/微信安全存储）待 PM 拍板。
 
 const STORAGE_PREFIX = 'ylm_enc_';
 
