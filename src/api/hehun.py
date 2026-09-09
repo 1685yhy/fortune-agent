@@ -188,8 +188,9 @@ def _resolve_person(data: Optional[BaziInput]) -> BaziInput:
     hour = data.birthHour if data.birthHour is not None else data.hour
     return BaziInput(
         year=int(year), month=int(month), day=int(day),
-        # k19：birthClock/min>0 = 钟表时间信号 → 0-11 时钟小时直通（10:55）
-        hour=normalize_hour(hour, data.minute, data.birthClock),
+        # k19：birthClock 显式声明 = 钟表时间 → 0-11 时钟小时直通（10:55）；
+        # minute 恒为随附分钟、不参与 hour 判定（旧契约 idx+偏置 语义保留）
+        hour=normalize_hour(hour, data.birthClock),
         minute=data.minute,
         city=data.city, gender=normalize_gender(data.gender),
         daylightSaving=data.daylightSaving, lateChildHour=data.lateChildHour,
