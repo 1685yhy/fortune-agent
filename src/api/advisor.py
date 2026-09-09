@@ -95,22 +95,41 @@ async def get_advisor(req: AdvisorRequest, uid: str = Depends(require_user)):
 
     req.user_id = uid
 
-    # 1. 获取用户八字
-    saved = _dao.get_user_bazi(req.user_id)
+    # 1. 获取用户出生档案（persons 优先统一读取链）
+    # k17（G1 残留收口，k11c 已改 handler._handle_advisor，本端点为剩余直读面）：
+    # 原 _dao.get_user_bazi() 只读 users.bazi_info → persons 建档新用户无 bazi_info
+    # 行被误报「未设置八字信息」（T089 同款问题的 advisor REST 面）。改走
+    # get_user_birth_profile（persons 默认档案 → bazi_info → chart_records 兜底，
+    # 与 handler._handle_advisor/_handle_calendar 同源，读取链语义见
+    # src/storage/birth_profile.py），并补齐原路径另两处口径缺口：
+    # ① lunar 档案消费前单点转公历（引擎契约=公历输入，to_solar_date 单一实现，
+    #    与 handler._solarize_birth 同语义）；② k11c 档案真太阳时开关 solar_time
+    #    透传引擎（0=关=北京时间直排，缺省开）。
+    from ..storage.birth_profile import get_user_birth_profile, to_solar_date
+    saved = get_user_birth_profile(_dao, req.user_id)
     if not saved:
         raise HTTPException(
             status_code=400,
             detail="用户未设置八字信息，请先通过聊天接口设置出生信息",
         )
+    if str(saved.get("calendar") or "solar") == "lunar":
+        _sol = to_solar_date(saved)
+        if _sol:
+            saved = dict(saved)
+            saved["year"], saved["month"], saved["day"] = _sol
+    _solar_adv = (saved.get("solar_time") not in (0, "0", False))
 
-    # 2. 排盘
+    # 2. 排盘（实参归一与 handler._feed_birth/_handle_advisor 同口径：minute 缺省
+    # 0、city/gender 缺省显式化，见 handler k9 注释）
     from src.engines.bazi import BaziEngine
     engine = BaziEngine()
     try:
         result = engine.calculate(
-            saved["year"], saved["month"], saved["day"],
-            saved["hour"], saved["minute"], saved["city"],
-            saved["gender"],
+            int(saved["year"]), int(saved["month"]), int(saved["day"]),
+            int(saved.get("hour") or 0), int(saved.get("minute") or 0),
+            str(saved.get("city") or ""),
+            str(saved.get("gender") or "unknown"),
+            solar_time=_solar_adv,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"排盘失败：{str(e)[:200]}")

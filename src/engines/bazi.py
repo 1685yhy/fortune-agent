@@ -130,6 +130,9 @@ def current_stage_facts(birth_year: int, birth_month: int, birth_day: int,
       now 早于首段交运时刻（起运前）→ 无当前大运段（缺键，语义同 k11 起运前）。
       jiaoyun 缺失/无 time 字段（旧数据/手工构造）→ 兜底虚岁段选（k11 原行为）；
       越过交运年表末段（约 90 岁档后）→ 段内仍按末段，再后按虚岁口径（表外近似）。
+      部分段缺 time（k17-5 防御，引擎恒全量仅手工/旧数据可达）→ 缺口段在虚岁
+      岁首（sui <= 虚岁）后按 k11 兜底口径过渡计入并 logger.warning 告警一次；
+      首段缺 time 且 now 早于首条已知时刻 → 整体虚岁兜底 + 告警（k11 原行为）。
     - 当前流年 = liunian_rel {year, ganzhi}（引擎内已立春界定）。
     返回 dict；字段缺失/越界一律缺键不抛错（消费方 getattr/或 key 判断降级）。
     now 仅测试注入；生产 None = 取调用时刻（与引擎 calculate 同刻，口径自洽）。
@@ -148,10 +151,12 @@ def current_stage_facts(birth_year: int, birth_month: int, birth_day: int,
     # time = 精确交运时刻 "YYYY-MM-DD HH:MM"（k16 换运切段用）
     jy_by_sui = {}
     jy_time = {}
+    jy_seen = set()  # k17-5：年表出现过的 sui（含 time 缺失/损坏），缺口告警判别用
     try:
         for _y in (jiaoyun or {}).get("years") or []:
             if isinstance(_y, dict) and _y.get("sui") is not None:
                 _s = _y["sui"]
+                jy_seen.add(_s)
                 if _y.get("year") is not None:
                     jy_by_sui[_s] = _y["year"]
                 _t = _y.get("time")
@@ -162,7 +167,7 @@ def current_stage_facts(birth_year: int, birth_month: int, birth_day: int,
                     except (ValueError, TypeError):
                         pass  # 时刻串损坏：该条仅按年兜底，不参与精确切段
     except Exception:
-        jy_by_sui, jy_time = {}, {}
+        jy_by_sui, jy_time, jy_seen = {}, {}, set()
     if not isinstance(dayun, (list, tuple)):
         return out
     _sui_at = {}
@@ -187,13 +192,42 @@ def current_stage_facts(birth_year: int, birth_month: int, birth_day: int,
         _past = [(t, i) for (t, i) in _timed if t <= now]
         if _past:
             idx = _past[-1][1]
-            if now >= _timed[-1][0]:
-                # 已越过交运年表末段（约 90 岁档）：表内段已尽，后续段按虚岁口径兜底
-                for _i in range(idx + 1, len(dayun)):
-                    if dayun[_i][0] <= out["age_xusui"]:
-                        idx = _i
-                    else:
-                        break
+            # k17-5（k16 审查 Minor-2 防御）：交运年表部分段缺 time（引擎恒全量，
+            # 仅手工构造/旧数据/时刻串损坏可达）时精确链在缺口处断开——now 越过
+            # 缺口段虚岁岁首后若仍停在上一段即「过期展示」。统一向后兜底走：
+            # 自 idx 后凡无有效交运时刻的段（年表缺口段或年表未覆盖的表外段），
+            # 在虚岁已满（sui <= 虚岁，k11 兜底口径）后过渡计入；遇有效时刻段
+            # 即停（其时刻必 > now，否则已在 _past 内）。k16 的「表末已尽按虚岁
+            # 兜底」为该走的前提特例（全量数据下每次直接命中有效时刻段即停，
+            # 行为逐分支等价、零告警——test_k16_calendar_dst 全绿背书）。
+            for _i in range(idx + 1, len(dayun)):
+                try:
+                    _ss = int(dayun[_i][0])
+                except Exception:
+                    break
+                if _ss in jy_time:
+                    break  # 后续段有精确交运时刻（未到）→ 精确链在此恢复，不估
+                if _ss > out["age_xusui"]:
+                    break  # 虚岁未满 → 段未开始，不估
+                if _ss in jy_seen:
+                    logger.warning(
+                        "k17-5 jiaoyun 年表 sui=%s 段缺 time（缺失/损坏），段选自"
+                        "虚岁岁首起按 k11 兜底过渡——引擎产出恒全量，仅手工/旧"
+                        "数据可达", _ss)
+                idx = _i
+        else:
+            # k17-5（k16 审查 Minor-2）：首段（dayun[0]）time 缺失/损坏 →
+            # _timed[0][1] != 0，起运前守卫不适用；now 早于首条已知精确时刻 →
+            # 精确链从头断裂，整体走虚岁兜底（k11 原行为，含起运前缺键语义），
+            # 告警一次暴露降级（现行为与改造前一致，仅补可见性）。
+            try:
+                _head_sui = int(dayun[0][0])
+            except Exception:
+                _head_sui = None
+            logger.warning(
+                "k17-5 jiaoyun 首段（sui=%s）缺 time，now 早于首条已知交运时刻"
+                "→ 段选降级虚岁兜底（k11 原行为）；引擎产出恒全量，仅手工/旧"
+                "数据可达", _head_sui)
     if idx is None:
         # 兜底：无精确时刻可用（jiaoyun 缺失/无 time 字段）→ 虚岁段选（k11 原行为）
         for i in range(len(dayun) - 1, -1, -1):
@@ -369,9 +403,11 @@ JIE_NAMES = ["立春", "惊蛰", "清明", "立夏", "芒种", "小暑", "立秋
 # 夏令时——不减 1 小时、无开关参数，故开关默认关=对齐问真默认，见
 # tests/test_k16_calendar_dst.py 与 docs/superpowers/plans/2026-09-10-k16-calendar-dst.md）
 # 史实规则（人民日报 1986-04-19《在全国范围内实行夏时制的通知》新华社电）：
-# 1986 首年 05-04（5 月第 1 个星期日）02:00 起；1987 年起每年 4 月中旬第 1 个
-# 星期日 02:00 起（官方逐年日期落在 04-10~04-16），至 9 月中旬第 1 个星期日
-# 02:00 止（逐年 09-11~09-17），1992 年起停行。
+# 1986 首年 05-04（5 月第 1 个星期日）02:00 起；1987 年起按「4 月中旬第 1 个
+# 星期日 02:00 起、至 9 月中旬第 1 个星期日 02:00 止」逐年官方通告执行
+# （1992 年起停行）。字面核对注记（k17-8，k16 审查 Minor-3）：逐年日期以官方
+# 通告为准——1988-04-10 为 4 月第 2 个星期日（上旬末，非中旬首周），与通则
+# 措辞不符属官方特例；官方逐年日期整体落在 04-10~04-16 / 09-11~09-17。
 # 来源核实（2026-08-30 + 2026-09-10 补充权威源）：人民日报电子版 1986-04-19
 #   （cn.govopendata.com/renminribao/1986/4/19/1）、澎湃《那些年，我国也实行过
 #   夏时制》（thepaper.cn/newsDetail_forward_7961174，含逐年日期）、知乎《历史上
