@@ -145,6 +145,13 @@ Severity Levels:
 
 ### Encryption Key Rotation
 
+> 审计确认（2026-09-10 k20）：落库算法 = AES-256-GCM（`DataEncryptor`，
+> 32 字节密钥 + 12 字节随机 nonce + 16 字节 tag，认证加密——篡改即解密
+> 失败）；密文格式 `v{ver}:{base64(nonce||ct||tag)}`；解析规则：含 `:`
+> 即按版本化处理（单键裸 base64 不含冒号），多个版本用逗号分隔、**末键为
+> 当前加密钥、旧键必须保留否则历史密文不可解**。见
+> docs/superpowers/plans/2026-09-10-k20-aes-encryption.md。
+
 ```bash
 # 1. Generate new 32-byte encryption key
 NEW_KEY=$(openssl rand -base64 32)
