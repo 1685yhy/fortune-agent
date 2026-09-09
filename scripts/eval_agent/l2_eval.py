@@ -6,7 +6,7 @@
   python3 scripts/eval_agent/l2_eval.py                    # 默认冒烟子集
   python3 scripts/eval_agent/l2_eval.py --tasks T001,T017  # 指定任务
   python3 scripts/eval_agent/l2_eval.py --category fortune # 指定域
-  python3 scripts/eval_agent/l2_eval.py --all              # 全量 100 条
+  python3 scripts/eval_agent/l2_eval.py --all              # 全量 108 条
   python3 scripts/eval_agent/l2_eval.py --model deepseek   # 生产模型路由
 
 退出码：0 = 达标（断言通过率 = 100%，spec §5.2 硬门禁）/
@@ -140,16 +140,24 @@ def eval_reply_checks(task: dict, reply: str) -> list:
 # ================================================================
 
 # 当前年龄声明式表述（前缀式；"岁"裸数字规则用标点前瞻排除大运表 3/13/23/33 岁段）
+# k15：双单位变体「虚岁23岁到32岁。」类（单位前缀型 + 区间/段连接词）——
+# review r1-2 Minor（k11b 复审记录）：pattern2 仍对窗口外端点 23/32 误报。
+# 修法=前后双向排除段连接语境：左侧排除「…到虚岁32岁。」型（前置 到/至/走…），
+# 右侧排除「虚岁23岁到32岁/至/起/走/换/进/交/止/后」与区间符（～~--）型，
+# 均属大运段端点；真实当前年龄声明（句首/句读收尾的 虚岁28岁。）不受影响。
 _AGE_CLAIM_RES = (
     re.compile(r"(?:今年|现在|如今|目前|本人|我已经|我今年|命主|用户|你今年|你现在)"
                r"\s*(?:周岁|虚岁)?\s*(\d{1,2})\s*岁"),
-    re.compile(r"(?:周岁|虚岁)\s*(\d{1,2})\s*岁"),
+    re.compile(r"(?<![\d岁到从走换进交止起至后])(?:周岁|虚岁)\s*(\d{1,2})\s*岁"
+               r"(?![\d到至起走换进交止后～~\-–—－])"),
     # "28虚岁/27周岁"（单位后置口语）——大运表形如 "23岁丙寅"，不会命中本型
     re.compile(r"(?<![\d岁至→>])(\d{1,2})\s*(?:周岁|虚岁)"),
     # 裸 "27岁。"（数字+岁+句读）——review r1-2（Important）：前置排除须覆盖
-    # 大运段端点语境（到/从/至/走/换/止/起/进/交 + 区间连字符 -–—），否则
-    # 「丙寅运走到32岁，」「从23岁到32岁，」「23-32岁。」类真实合格回复被误报
-    re.compile(r"(?<![\d岁至→>到从走换止起进交\-–—])(\d{1,2})\s*岁"
+    # 大运段端点语境（到/从/至/走/换/止/起/进/交 + 区间连字符 -–—～~），否则
+    # 「丙寅运走到32岁，」「从23岁到32岁，」「23-32岁。」「虚岁23岁～32岁。」
+    # 类真实合格回复被误报（～~ 为 r1-2 后补区间符，k15 补齐句读收尾的
+    # 「23～32岁。」端点，见测试复现 ③）
+    re.compile(r"(?<![\d岁至→>到从走换止起进交\-–—～~])(\d{1,2})\s*岁"
                r"(?=[，。！？；、,.!?\s]|$)"),
 )
 _DAYUN_CURRENT_RES = (
@@ -679,7 +687,7 @@ def main(argv=None) -> int:
     ap.add_argument("--category", default="",
                     help="只跑指定域（paipan/fortune/zeri/hehun/xingming/"
                          "qian/liuyao/ziwei/chat/edge）")
-    ap.add_argument("--all", action="store_true", help="跑全量 100 条")
+    ap.add_argument("--all", action="store_true", help="跑全量 108 条")
     ap.add_argument("--p0-sample", type=int, default=10,
                     help="冒烟子集 P0 抽样条数（默认 10）")
     ap.add_argument("--model", default="glm", choices=["glm", "deepseek"],

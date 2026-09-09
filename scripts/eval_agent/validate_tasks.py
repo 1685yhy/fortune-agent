@@ -10,7 +10,7 @@ validate_tasks.py — E1 评估集 schema 校验器（纯标准库，零新增�
     1. 逐条 schema（id 唯一性 / 必填字段 / category / severity / pass_k /
        expected_tools 结构 / no_tool 互斥 / reply_checks 四键 + 四占位符 +
        derived 派生断言键（k11-F 扩展）/ turns / state_checks / setup 已知键）
-    2. 覆盖矩阵（category 分布表 / no_tool >= 10 / 链路任务 >= 5 / 总数 == 103）
+    2. 覆盖矩阵（category 分布表 / no_tool >= 10 / 链路任务 >= 5 / 总数 == 108）
 
 退出码：
     0 = 全绿（含分布达标）
@@ -55,7 +55,9 @@ DIST_TARGETS = {
 }
 MIN_NO_TOOL = 10
 MIN_CHAIN = 5
-TOTAL_EXPECTED = 103  # 100 基线 + k11-F 事实断言批 T101-T103
+# 100 基线 + k11-F 事实断言 T101-T103 + k15 评测尾巴 T104-T108
+# （entity_qa_search 正例×2/负例 + hour_boundary 开关双行）
+TOTAL_EXPECTED = 108
 
 # 链路任务判定（4.4）：turns >= 2 且含 建档 -> 排盘 -> 测算 -> 收藏 四步
 CHAIN_SETUP_RE = re.compile(r"199\d年|19[7-9]\d年|20\d\d年|出生|生辰")
@@ -82,7 +84,7 @@ def check_task(t, out):
             return
     # id
     if not re.match(r"^T\d{3}$", t["id"]):
-        out.append("[%s] id 必须形如 T001-T103" % t["id"])
+        out.append("[%s] id 必须形如 T001-T108" % t["id"])
     if not isinstance(t["title"], str) or not t["title"].strip():
         out.append("[%s] title 必须为非空字符串" % t["id"])
     # category
@@ -213,6 +215,15 @@ def check_task(t, out):
                         for k in ("name", "birth", "city"):
                             if k in p and not isinstance(p[k], str):
                                 out.append("[%s] setup.persons.%s 必须为字符串" % (t["id"], k))
+                        # k11c/k15：persons.solar_time 真太阳时档案开关（可选键；
+                        # 缺省=默认开语义）。合法值 int 0/1（0=关 显式携带）；
+                        # 布尔/字符串/越界值 → schema 错误（种子注入歧义）
+                        if "solar_time" in p and not (
+                                isinstance(p["solar_time"], int)
+                                and not isinstance(p["solar_time"], bool)
+                                and p["solar_time"] in (0, 1)):
+                            out.append("[%s] setup.persons.solar_time 必须为 int 0/1"
+                                       % (t["id"],))
             for k in ("favorites", "qian_saves", "zeri_plans", "chart_records"):
                 if k in st and not isinstance(st[k], list):
                     out.append("[%s] setup.%s 必须为数组" % (t["id"], k))

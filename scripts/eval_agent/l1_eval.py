@@ -6,7 +6,7 @@
   python3 scripts/eval_agent/l1_eval.py                    # 默认冒烟子集
   python3 scripts/eval_agent/l1_eval.py --tasks T001,T017  # 指定任务
   python3 scripts/eval_agent/l1_eval.py --category fortune # 指定域
-  python3 scripts/eval_agent/l1_eval.py --all              # 全量 100 条
+  python3 scripts/eval_agent/l1_eval.py --all              # 全量 108 条
   python3 scripts/eval_agent/l1_eval.py --model deepseek   # 生产模型路由
 
 退出码：0 = 阈值达标 / 1 = 有任务失败（未达阈值）/ 2 = 评估集校验失败或前置失败。
@@ -248,6 +248,12 @@ def seed_task_setup(db_path: str, user_id: str, setup: dict):
                 birth = parse_birth_components(p.get("birth", ""))
                 birth["city"] = p.get("city") or ""
                 birth["gender"] = p.get("gender") or "unknown"
+                # k15（T107 hour_boundary 关档）：persons.solar_time 显式 0/1
+                # → 透传建档（校验器已前置约束 int 0/1；缺省不携带 = 默认开语义，
+                # 与读路径 solar_time_on 兜底一致）
+                if isinstance(p.get("solar_time"), int) \
+                        and not isinstance(p.get("solar_time"), bool):
+                    birth["solar_time"] = p["solar_time"]
                 r = dao.create_person(
                     user_id, (p.get("name") or "测试用户").strip()[:32],
                     birth=birth)
@@ -705,7 +711,7 @@ def main(argv=None) -> int:
     ap.add_argument("--category", default="",
                     help="只跑指定域（paipan/fortune/zeri/hehun/xingming/"
                          "qian/liuyao/ziwei/chat/edge）")
-    ap.add_argument("--all", action="store_true", help="跑全量 100 条")
+    ap.add_argument("--all", action="store_true", help="跑全量 108 条")
     ap.add_argument("--p0-sample", type=int, default=10,
                     help="冒烟子集 P0 抽样条数（默认 10）")
     ap.add_argument("--model", default="glm", choices=["glm", "deepseek"],

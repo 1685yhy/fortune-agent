@@ -6,7 +6,7 @@ B 性别称谓：advisor persona 分支（男/unknown=理性分析师中性、�
 C 神煞一致性：排盘卡显示全量 == 引擎全集；白名单去词校验器；词典单一事实源
 D 建议卡基线：prompt 含引擎方向要点 + 防反转硬约束条款
 E JSON 泄漏：ToolJsonChunkFilter 任意切块无残留；流式 wrap 协议保持
-F 评测派生断言：l2_eval derived 五类型纯函数 + validate_tasks schema + T101-T103 行
+F 评测派生断言：l2_eval derived 五类型纯函数 + validate_tasks schema + T101-T108 行
 
 运行：cd /mnt/e/fortune-agent-deploy && OMP_NUM_THREADS=4 \
   /home/a/fortune-agent/.venv/bin/python -m pytest tests/test_k11_fact_discipline.py -q -p no:cacheprovider
@@ -426,6 +426,42 @@ class TestEvalDerived:
         assert res2["derived.age_claim"]["ok"] is True
         assert res2["derived.dayun_claim"]["ok"] is True
 
+    # ---- k15（k11b review r1-2 Minor）：双单位变体（虚岁23岁到32岁）误报 ----
+
+    def test_review_double_unit_range_variants_pass(self):
+        """3 个复现样例（真实合格回复曾被判 FAIL）：双单位（单位前缀+段连接）变体
+        全部放行——23/32 是大运段端点，不是当前年龄声明。"""
+        cases = [
+            "丙寅大运虚岁23岁到32岁。",
+            "虚岁23岁至32岁，属于黄金十年，机会很多。",
+            "虚岁23岁～32岁，是我人生的黄金十年。",
+        ]
+        for rep in cases:
+            res = {c["name"]: c for c in _eval_derived(rep)}
+            assert res["derived.age_claim"]["ok"] is True, rep
+        # 反式前置连接（「从23岁到虚岁32岁」类端点同样不得误报）
+        res = {c["name"]: c for c in
+               _eval_derived("丙寅运从23岁到虚岁32岁。")}
+        assert res["derived.age_claim"]["ok"] is True
+
+    def test_double_unit_fix_real_claims_still_caught(self):
+        """双单位收紧后真实事故句仍拦截（既有真实断言回归锁定）。"""
+        bad = [
+            "你今年33岁，刚进乙丑大运，命带文昌贵人。",
+            "我现在33岁了。",
+            "命主今年33岁，正走乙丑运。",
+            "命主虚岁33岁，正走乙丑运。",
+        ]
+        for rep in bad:
+            res = {c["name"]: c for c in _eval_derived(rep)}
+            assert res["derived.age_claim"]["ok"] is False, rep
+        # 窗口内合法当前年龄表述不受收紧影响（边界: 句末/句读后接）
+        good = ["你今年虚岁28岁。", "虚岁28岁，现在走丙寅大运。",
+                "你今年28虚岁，正走丙寅大运。"]
+        for rep in good:
+            res = {c["name"]: c for c in _eval_derived(rep)}
+            assert res["derived.age_claim"]["ok"] is True, rep
+
     def test_require_mention(self):
         spec = {"contains": [], "neg_checks": ["{"], "regex": [], "min_len": 1,
                 "derived": [{"type": "age_claim",
@@ -450,16 +486,17 @@ class TestEvalDerived:
 
 
 class TestEvalSchema:
-    def test_eval_set_valid_and_total_103(self):
-        """评估集全绿且总数 = 103（100 基线 + k11-F T101-T103）。"""
+    def test_eval_set_valid_and_total_108(self):
+        """评估集全绿且总数 = 108（100 基线 + k11-F T101-T103 + k15 T104-T108）。"""
         import validate_tasks as vt
         errs, tasks = vt.validate_file(str(_REPO / "data/eval/agent_tasks.jsonl"))
         assert not errs, errs[:5]
         cerrs, stats = vt.coverage_errors(tasks)
         assert not cerrs, cerrs
-        assert stats["total"] == 103
+        assert stats["total"] == 108
         ids = [t["id"] for t in tasks]
-        for tid in ("T101", "T102", "T103"):
+        for tid in ("T101", "T102", "T103", "T104", "T105",
+                    "T106", "T107", "T108"):
             assert tid in ids
 
     def test_derived_schema_validation(self):
