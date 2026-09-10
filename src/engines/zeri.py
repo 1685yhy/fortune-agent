@@ -337,16 +337,22 @@ class ZeriEngine:
         - ``select()`` → ``ZeriResult.yi/ji``（chat/工具/意图路径）;
         - ``_build_lucky_card()`` → ``LuckyDayCard.yi/ji``（计划路径）。
 
+        哨兵值过滤（k23 补丁 F3）: lunar-python 当日“无忌事/无宜事”时 getDayYi/
+        getDayJi 返回哨兵 ``['无']``（2020-2035 扫描: 忌 377 天、宜 10 天; 2026 年
+        忌 13 天, 如 2026-02-10）—— 它不是事项词, 直接合并会让用户面出现「忌：无」。
+        此处按侧过滤 ``无``; “诸事不宜/馀事勿取”是语义词, 不在此列（K3-A1 单独处理）。
+
         Args:
             jianchu: 建除十二神名（建/除/…/闭）
             lunar: 当日 lunar-python Lunar 对象
         Returns:
-            (yi, ji) 两个已去重的字符串列表
+            (yi, ji) 两个已去重（且已滤哨兵）的字符串列表
         """
-        lunar_yi = list(lunar.getDayYi())
+        lunar_yi = [x for x in lunar.getDayYi() if x != "无"]
+        lunar_ji = [x for x in lunar.getDayJi() if x != "无"]
         yi = list(dict.fromkeys(list(JIANCHU_YI_JI[jianchu]["yi"]) + lunar_yi))
         ji = [j for j in dict.fromkeys(
-            list(JIANCHU_YI_JI[jianchu]["ji"]) + list(lunar.getDayJi()))
+            list(JIANCHU_YI_JI[jianchu]["ji"]) + lunar_ji)
             if j not in lunar_yi]
         return yi, ji
 
