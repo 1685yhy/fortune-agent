@@ -123,14 +123,27 @@ def ref_title(ref) -> str:
     「正官格案例十一：乙木生于申月，官星得地」），FAISS 侧 `title` 是书名（如
     「秘传刘伯温家藏接骨金疮禁方 - 殆知阁」），而 FAISS 的 `source` 是语料 slug
     （如 daizhige）——给人看的引用一律优先 title。
+
+    裸字符串（解梦引擎等会传纯文本片段）单列一支：否则 `getattr(ref, "title")`
+    会命中 `str.title` **方法对象**，渲染出「<built-in method title of str
+    object at 0x…>」这种垃圾出处。字符串本身没有出处可言 → "古籍"。
     """
+    if isinstance(ref, (str, bytes)):
+        return "古籍"
     if isinstance(ref, dict):
         return str(ref.get("title") or ref.get("source") or "古籍")
     return str(getattr(ref, "title", "") or getattr(ref, "source", "") or "古籍")
 
 
 def ref_text(ref) -> str:
-    """检索结果 → 正文。兼容 dict 与对象两种形态（ChunkResult/_FaissChunk/dict）。"""
+    """检索结果 → 正文。兼容 dict 与对象两种形态（ChunkResult/_FaissChunk/dict）。
+
+    裸字符串即正文本身（解梦引擎的 interpretations 就是纯文本列表）→ 原样返回；
+    若不单列这一支，`getattr(ref, "text")` 取不到值会返回空串，该条引用被
+    消费点按「无正文」静默丢弃。
+    """
+    if isinstance(ref, (str, bytes)):
+        return str(ref)
     if isinstance(ref, dict):
         return str(ref.get("text") or ref.get("content") or "")
     return str(getattr(ref, "text", "") or getattr(ref, "content", "") or "")

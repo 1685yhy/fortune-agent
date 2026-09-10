@@ -101,6 +101,67 @@ class TestRefAccessContract:
         assert _ref_title_text(r) == ("出处", "正文")
         assert _ref_title_text({"text": "正文", "title": "出处"}) == ("出处", "正文")
 
+    # --- k24 补丁二：裸字符串入参守卫 -----------------------------------
+
+    def test_ref_title_bare_string_never_returns_bound_method(self):
+        """裸字符串：getattr(ref,'title') 会命中 str.title **方法对象** → 渲染出
+        「<built-in method title of str object at 0x…>」。必须守卫。"""
+        s = "解梦引擎传入的纯文本片段"
+        assert ref_title(s) == "古籍"
+        assert "built-in method" not in ref_title(s)
+
+    def test_ref_text_bare_string_returns_the_text(self):
+        """裸字符串即正文（解梦引擎 interpretations 是纯文本列表）→ 原样返回；
+        否则取不到 .text 得空串，该条引用被消费点按「无正文」静默丢弃。"""
+        s = "梦见发大水，主财运将至"
+        assert ref_text(s) == s
+
+    def test_ref_access_bare_bytes_safe(self):
+        assert ref_title(b"raw bytes") == "古籍"
+        assert ref_text(b"raw bytes") == str(b"raw bytes")
+
+
+# ── 1b. 引用注册：FAISS dict 也必须走出处契约（P3-a 锁死）──────────────
+
+class TestRegisterBookCitationsContract:
+    @staticmethod
+    def _capture():
+        from src.bot.handler import MessageHandler
+        captured = {}
+        h = MessageHandler.__new__(MessageHandler)
+        h._alloc_citations = lambda uid, n: 0
+        h._append_citations = lambda uid, items: captured.setdefault("items", items)
+        return h, captured
+
+    def test_faiss_dict_uses_title_not_slug(self):
+        """FAISS dict 进 _register_book_citations 必须取 title 作书名，
+        不得露出语料 slug（source='daizhige'）——原实现只读 source。"""
+        h, captured = self._capture()
+        refs = [{"text": "乾造：癸卯 庚申 丙寅 庚寅", "source": "daizhige",
+                 "title": "滴天髓阐微命例011", "score": 0.7}]
+        h._register_book_citations("u1", refs)
+        cited = str(captured["items"][0])
+        assert "滴天髓阐微命例011" in cited, "必须用 title 作书名"
+        assert "daizhige" not in cited, "不得把语料 slug 当书名展示"
+        assert "built-in method" not in cited
+
+    def test_falls_back_to_caller_title_when_no_source_info(self):
+        """无出处信息（契约兜底 "古籍"）时回落到调用方给定的分类标题，
+        不渲染成《古籍》。"""
+        h, captured = self._capture()
+        h._register_book_citations("u1", [{"text": "无出处片段"}],
+                                   title="紫微 · 古籍参考")
+        cited = str(captured["items"][0])
+        assert "紫微 · 古籍参考" in cited
+        assert "《古籍》" not in cited
+
+    def test_bare_string_ref_not_dropped(self):
+        """纯文本 refs（解梦引擎）此前 ref_text 取不到 → 被静默丢弃。"""
+        h, captured = self._capture()
+        h._register_book_citations("u1", ["梦见发大水，主财运将至"])
+        assert captured["items"], "纯文本引用不得被静默丢弃"
+        assert "梦见发大水" in str(captured["items"][0])
+
 
 # ── 2. 手相/面相报告生成：非空 refs 下不得崩溃（P0 回归本体）────────────
 

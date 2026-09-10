@@ -1867,19 +1867,24 @@ class MessageHandler:
                                  title: str = "古籍参考", source: str = "古籍库") -> None:
         """阶段 5·来源体系 ①：处理器内部检索到的古籍片段注册为 book 来源。
 
-        refs: retriever.search 返回的 ChunkResult 列表（也兼容 dict）。
+        refs: retriever.search 返回的 ChunkResult 列表（也兼容 dict / 纯文本）。
         """
         if not refs:
             return
         items = []
         start = self._alloc_citations(user_id, min(limit, len(refs)))
         for i, ref in enumerate(list(refs)[:limit], start=start):
-            src = ref.get("source") if isinstance(ref, dict) else getattr(ref, "source", "")
-            text = ref.get("text") if isinstance(ref, dict) else getattr(ref, "text", "")
-            src = src or ""
-            text = (text or "")[:400]
+            # k24 补丁二：本函数此前自行 isinstance 归一化且**只读 source** ——
+            # 与「读取检索结果只走 ref_title/ref_text」的契约自相矛盾，FAISS dict
+            # 进来会渲染《daizhige》这类语料 slug。改用契约。
+            # 契约的兜底值 "古籍" 表示「无出处信息」→ 回落到调用方给定的分类标题
+            # （如「紫微 · 古籍参考」），保持原有语义不劣化。
+            src = ref_title(ref)
+            text = ref_text(ref)[:400]
             if not text:
                 continue
+            if src == "古籍":
+                src = ""
             items.append(make_citation(
                 i, "book", text,
                 title=(f"《{src}》" if src and "《" not in src else src) or title,
