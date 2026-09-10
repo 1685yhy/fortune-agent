@@ -183,8 +183,8 @@ class ZeriResult:
     jianchu: str              # 建除十二神: 建/除/满/平/定/执/破/危/成/收/开/闭
     ershibaxiu: str           # 二十八宿名
     xiu_jixiong: str          # 二十八宿吉凶
-    yi: List[str]             # 宜
-    ji: List[str]             # 忌
+    yi: List[str]             # 宜（建除表宜 + 神煞级黄历宜, 引擎在前; 见 _day_yi_ji）
+    ji: List[str]             # 忌（K3-A3 神煞级优先: 与当日黄历宜冲突的建除表忌已剔除）
     chong: str                # 冲生肖
     overall: str              # 吉/凶/平
     raw_data: dict = field(default_factory=dict)
@@ -223,10 +223,12 @@ class ZeriEngine:
 
         # ---- 建除十二神 ----
         jianchu = self._calc_jianchu_with_jieqi(month_zhi, day_zhi, lunar.getJieQi() or "")
-        yi = list(JIANCHU_YI_JI[jianchu]["yi"])
-        ji = list(JIANCHU_YI_JI[jianchu]["ji"])
 
-        # 根据purpose调整宜忌
+        # ---- 单日宜忌: 单一事实源（K3-A3 神煞级优先）----
+        # 本方法（chat/工具/意图路径）与计划路径（_build_lucky_card）共用, 禁止各自再合并/过滤。
+        yi, ji = self._day_yi_ji(jianchu, lunar)
+
+        # 根据purpose调整宜忌（在合并后的单一事实源上排序/补位）
         if purpose:
             yi, ji = self._adjust_by_purpose(purpose, yi, ji)
 
@@ -314,6 +316,45 @@ class ZeriEngine:
         return xiu_name, xiu_jixiong
 
     # ---- 宜忌调整 ----
+
+    def _day_yi_ji(self, jianchu: str, lunar) -> tuple:
+        """单日宜忌单一事实源（K3-A3 神煞级优先）—— chat/工具路径与计划路径共用。
+
+        宜 = 建除表宜（JIANCHU_YI_JI, 引擎在前） + lunar-python 当日神煞级黄历宜
+             （lunar.getDayYi, 通胜逐日宜忌表）, 按序去重;
+        忌 = 建除表忌 + lunar.getDayJi 按序去重后, 剔除全部出现在当日神煞级黄历宜
+             中的词 —— K3-A3: 建除表忌为 12 日周期的粗粒度近似, 与神煞级明示之宜
+             冲突时以当日黄历宜为准。
+
+        实证（2026-08-30 择吉批 K3-A3, 权威 lhl/xzw 仲裁）:
+        - 2026-10-01 闭日: 建除表忌 入宅/移徙, 但当日黄历宜=冠笄沐浴出行修造动土
+          移徙入宅破土安葬, 且为权威搬家吉日 → 出行/入宅/移徙 从忌中移除;
+        - 2026-10-14 同为闭日: 当日黄历宜无入宅/移徙 → 忌仍保留（对照不受影响）。
+        同类方向冲突修复覆盖 chat 路径此前未接修正的 4 日（10-01 出行/入宅/移徙、
+        2027-01-01 出行/移徙、10-14 嫁娶、09-20 安葬）。
+
+        消费方（两者输出必须同源, 不得各自再合并/过滤）:
+        - ``select()`` → ``ZeriResult.yi/ji``（chat/工具/意图路径）;
+        - ``_build_lucky_card()`` → ``LuckyDayCard.yi/ji``（计划路径）。
+
+        哨兵值过滤（k23 补丁 F3）: lunar-python 当日“无忌事/无宜事”时 getDayYi/
+        getDayJi 返回哨兵 ``['无']``（2020-2035 扫描: 忌 377 天、宜 10 天; 2026 年
+        忌 13 天, 如 2026-02-10）—— 它不是事项词, 直接合并会让用户面出现「忌：无」。
+        此处按侧过滤 ``无``; “诸事不宜/馀事勿取”是语义词, 不在此列（K3-A1 单独处理）。
+
+        Args:
+            jianchu: 建除十二神名（建/除/…/闭）
+            lunar: 当日 lunar-python Lunar 对象
+        Returns:
+            (yi, ji) 两个已去重（且已滤哨兵）的字符串列表
+        """
+        lunar_yi = [x for x in lunar.getDayYi() if x != "无"]
+        lunar_ji = [x for x in lunar.getDayJi() if x != "无"]
+        yi = list(dict.fromkeys(list(JIANCHU_YI_JI[jianchu]["yi"]) + lunar_yi))
+        ji = [j for j in dict.fromkeys(
+            list(JIANCHU_YI_JI[jianchu]["ji"]) + lunar_ji)
+            if j not in lunar_yi]
+        return yi, ji
 
     def _adjust_by_purpose(self, purpose: str, yi: List[str], ji: List[str]) -> tuple:
         """根据用途调整宜忌列表"""
@@ -460,15 +501,12 @@ class ZeriEngine:
 
         # 复用已有引擎单日分析（不传 purpose, 保持自然宜忌）
         r = self.select(d.year, d.month, d.day)
+        # 宜忌单一事实源: select() 已按 K3-A3(神煞级优先) 合并建除表 + 神煞级黄历宜忌
+        # （见 _day_yi_ji）, 此处直接消费, 不得再自行合并/过滤（数据一致性铁律）。
+        yi, ji = r.yi, r.ji
+        # 场景准入评分输入（K3-A5）: 只算 lunar-python 当日神煞级黄历宜, 与上面宜忌
+        # 事实源无关 —— 建除表宜仅展示、不驱动场景分（见 _scene_score）。
         lunar_yi = list(lunar.getDayYi())
-        # 宜忌 = 建除宜忌(引擎在前) + lunar-python 当日黄历宜忌（去重）
-        yi = list(dict.fromkeys(r.yi + lunar_yi))
-        # K3-A3(神煞级优先): 建除表忌与当日神煞级黄历宜冲突时以当日黄历宜为准。
-        # 建除表忌为 12 日周期的粗粒度近似, 不覆盖神煞级明示之宜 —— 实证:
-        # 2026-10-01 闭日(建除表忌入宅/移徙), 但 lhl 当日神煞级黄历宜=…移徙入宅…,
-        # 且为权威搬家吉日; 若按建除表忌执行 ji_hits 排除将漏掉该权威吉日
-        # (10-14 同日闭日、神煞级宜无入宅移徙 → 忌仍保留, 不受影响)。
-        ji = [j for j in dict.fromkeys(r.ji + lunar.getDayJi()) if j not in lunar_yi]
 
         # ---- 排除规则 ----
         # K3-A1: 诸事不宜/馀事勿取日直接排除 —— 权威判定标准「排除破日、危日与
@@ -643,7 +681,8 @@ class ZeriEngine:
 #           这一可确定性计算的黄历视角; 其余空亡流派规则不纳入。
 #   - 冲生肖: 日支冲 user_bazi 生肖时排除（无生肖信息则跳过该判定, 不误伤）
 # 宜忌数据: 复用建除十二神宜忌 + lunar-python 黄历 getDayYi/getDayJi 合并（引擎在前）,
-#           保证与当日黄历一致且可离线确定性计算。
+#           保证与当日黄历一致且可离线确定性计算。合并与 K3-A3 神煞级优先冲突消解
+#           统一在 ZeriEngine._day_yi_ji()（chat/工具路径与计划路径单一事实源）。
 # 吉时/方位: 均取 lunar-python 内建数据（LunarTime 黄道黑道 / getDayPositionXi|CaiDesc）。
 # ============================================================
 
