@@ -160,6 +160,16 @@ JIEQI_JIE = {
     "立秋", "白露", "寒露", "立冬", "大雪", "小寒",
 }
 
+# 宜忌哨兵（lunar-python 当日「无忌事/无宜事」→ getDayYi/getDayJi 返回 ['无']）。
+# 单一实现：本模块 _day_yi_ji（chat/工具/计划路径）与 wannianli 的合并入口共用，
+# 不得各自再写一套过滤（两套口径即分裂 —— k23 只修了 zeri 面，万年历面漏到 k26）。
+YI_JI_SENTINEL = "无"
+
+
+def filter_yi_ji_sentinel(items) -> list:
+    """剔除宜忌哨兵「无」（保留其余词与顺序）。"""
+    return [x for x in items if x != YI_JI_SENTINEL]
+
 
 @dataclass
 class LuckyDayCard:
@@ -348,8 +358,8 @@ class ZeriEngine:
         Returns:
             (yi, ji) 两个已去重（且已滤哨兵）的字符串列表
         """
-        lunar_yi = [x for x in lunar.getDayYi() if x != "无"]
-        lunar_ji = [x for x in lunar.getDayJi() if x != "无"]
+        lunar_yi = filter_yi_ji_sentinel(lunar.getDayYi())
+        lunar_ji = filter_yi_ji_sentinel(lunar.getDayJi())
         yi = list(dict.fromkeys(list(JIANCHU_YI_JI[jianchu]["yi"]) + lunar_yi))
         ji = [j for j in dict.fromkeys(
             list(JIANCHU_YI_JI[jianchu]["ji"]) + lunar_ji)
@@ -506,7 +516,10 @@ class ZeriEngine:
         yi, ji = r.yi, r.ji
         # 场景准入评分输入（K3-A5）: 只算 lunar-python 当日神煞级黄历宜, 与上面宜忌
         # 事实源无关 —— 建除表宜仅展示、不驱动场景分（见 _scene_score）。
-        lunar_yi = list(lunar.getDayYi())
+        # k26：这里同样不得绕过哨兵过滤（与 _day_yi_ji 同一实现/同一口径）——
+        # 「宜侧哨兵日」getDayYi()==['无']，未过滤即把哨兵当评分输入（同一事实源
+        # 两套口径；实测该日被排除规则提前拦下故用户侧无可见差异，属口径收口）。
+        lunar_yi = filter_yi_ji_sentinel(lunar.getDayYi())
 
         # ---- 排除规则 ----
         # K3-A1: 诸事不宜/馀事勿取日直接排除 —— 权威判定标准「排除破日、危日与

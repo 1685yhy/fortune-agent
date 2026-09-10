@@ -296,7 +296,10 @@ class Retriever:
                             # k24：库内无 source 键（只有 category/title/verified），
                             # 旧代码一律回落 "未知" → 引用全标【未知】。改用 title，
                             # 让 LLM 拿到真实出处，杜绝凭记忆补出处。
-                            source=meta.get("source", "") or title or "未知",
+                            # k26：两者都缺（237 条空 title 语料）时**留空**，不得
+                            # 再伪造成字面书名 —— 出处兜底是读取契约（ref_title）
+                            # 的职责，检索器只搬运库内真实值。
+                            source=meta.get("source", "") or title,
                             score=round(score, 4),
                             chunk_id=chunk_id,
                             category=meta.get("category", ""),
@@ -339,7 +342,8 @@ class Retriever:
                     title = meta.get("title", "") or ""
                     scored.append(ChunkResult(
                         text=doc[:500],
-                        source=meta.get("source", "") or title or "未知",
+                        # k26：不注入伪字面量「未知」（同 _vector_search）
+                        source=meta.get("source", "") or title,
                         score=round(min(score, 0.99), 4),
                         chunk_id=all_docs["ids"][i],
                         category=meta.get("category", ""),
@@ -367,7 +371,8 @@ class Retriever:
                         title = meta.get("title", "") or ""
                         scored.append(ChunkResult(
                             text=doc[:500],
-                            source=meta.get("source", "") or title or "未知",
+                            # k26：不注入伪字面量「未知」（同 _vector_search）
+                            source=meta.get("source", "") or title,
                             score=round(score, 4),
                             chunk_id=all_docs["ids"][i],
                             category=meta.get("category", ""),

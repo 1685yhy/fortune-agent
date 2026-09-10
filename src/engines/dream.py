@@ -286,7 +286,9 @@ class DreamEngine:
                 _search(f"梦 {kw}", top_k=2)
 
         all_results.sort(key=lambda r: r.score, reverse=True)
-        sources = list(set(r.source for r in all_results[:15]))
+        # k26：空出处不参与来源拼接（retriever 侧不再伪造字面量「未知」→ 出处
+        # 可为空串；不过滤则 "、".join 会渲染出悬空顿号）。
+        sources = [s for s in set(r.source for r in all_results[:15]) if s]
 
         # 5. 吉凶骨架 + 象征/元素/情绪字段
         symbols, elements, element_notes = [], [], []
