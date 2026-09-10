@@ -563,3 +563,202 @@ def test_k25i1_set_default_row_missing_returns_false(tmp_path):
     b = pdao.create_person("u4", name="爸", relation="父母", birth=dict(PERSON_B))
     assert pdao.set_default("other_user", b["id"]) is False
     assert pdao.set_default("u4", "no-such-id") is False
+
+
+# ================================================================
+# 6. 【审查 I-1】解梦路径同样走 ref_text 契约（k26 ② 未闭环收口）
+# ================================================================
+# 审查实测：`src/engines/dream.py:312` 直存原始 `r.text`（绕过本批新增的
+# `ref_text` 契约）→ 命中空 title 语料（27k 集合含 237 条 `": 正文"` 形态，
+# 且解梦检索不设 category）时用户面仍出现悬空冒号：
+#   ① 工具引用抽屉（handler 2562）与工具正文行（2565）；
+#   ② chat 引用抽屉（7716-7721）、送 LLM 的 prompt 块（7764-7765）、
+#      回复「📖 古籍记载：」（7776-7778）；③ dream.format_dream_prompt（512）。
+# 修在源头（interpretations 构造处走契约）→ 上列消费点全部收敛，
+# 不在各处复制剥离逻辑（单一实现铁律）。
+
+# 真实语料形态（只读副本实测的 237 条之一样本，勿改）
+DREAM_DOC_HANGING_COLON = (
+    ": 生命线长、深、红润者，生命力强，对疾病抵抗力强；反之，纹浅、弱则体质较弱。"
+)
+DREAM_DOC_CLEAN = "生命线长、深、红润者，生命力强，对疾病抵抗力强；反之，纹浅、弱则体质较弱。"
+
+
+def _dream_stub_retriever(texts):
+    """解梦检索器替身：返回空 title 语料形态的 ChunkResult（零检索/零网络）。"""
+    class _R:
+        def search(self, query, top_k=5, **kw):
+            return [
+                ChunkResult(text=t, source="", score=0.9 - i * 0.01,
+                            chunk_id=f"c{i}", category="三大主线", title="")
+                for i, t in enumerate(texts)
+            ]
+    return _R()
+
+
+def _bare_dream_handler(texts):
+    """最小装配的解梦 handler（只跑 _tool_dream 渲染段，其余打桩）。"""
+    from src.bot.handler import MessageHandler
+    from src.engines.dream import DreamEngine
+    from unittest.mock import Mock
+
+    h = MessageHandler.__new__(MessageHandler)
+    h.dream_engine = DreamEngine()
+    h._get_dream_retriever = lambda: _dream_stub_retriever(texts)
+    h.llm = Mock()
+    h.llm.api_key = ""
+    h.dao = Mock()
+    h._citations = {}
+    return h
+
+
+def test_review_i1_dream_interpretations_follow_ref_text_contract():
+    """引擎面：interpretations 必须走 ref_text 契约（剥行首悬空冒号）。
+
+    旧行为：`interpretations=[r.text for r in all_results[:15]]` 直存原始
+    r.text → 本用例首项以 `": "` 开头（悬空冒号原样进入全部下游）。"""
+    from src.engines.dream import DreamEngine
+
+    res = DreamEngine().analyze("梦见手",
+                                _dream_stub_retriever([DREAM_DOC_HANGING_COLON]))
+    assert res.interpretations, "测试前提：检索结果应进入 interpretations"
+    assert res.interpretations[0] == DREAM_DOC_CLEAN, res.interpretations[:1]
+    assert not res.interpretations[0].startswith(":")
+
+
+def test_review_i1_dream_tool_face_no_hanging_colon():
+    """工具面：引用抽屉 text 与工具正文行均不得以悬空冒号开头。"""
+    h = _bare_dream_handler([DREAM_DOC_HANGING_COLON])
+    out = h._tool_dream("梦见手", "u_k26")
+
+    assert out.ok, out.text
+    assert ": 生命线" not in out.text, out.text
+    assert DREAM_DOC_CLEAN[:20] in out.text
+    drawer = h.pop_citations("u_k26")
+    assert drawer, "测试前提：应注册 book 引用"
+    assert drawer[0]["text"] == DREAM_DOC_CLEAN, drawer[0]["text"]
+    assert not drawer[0]["text"].startswith(":")
+
+
+def test_review_i1_dream_chat_and_prompt_faces_no_hanging_colon(monkeypatch):
+    """chat 面：引用抽屉 / LLM prompt 块 / 📖 回复 三处一并收敛。
+
+    （handler 7716-7721 / 7764-7765 / 7776-7778 与 dream.format_dream_prompt
+    共用同一份 interpretations，源头收口即全族收敛。）"""
+    from src.engines.dream import DreamEngine, format_dream_prompt
+
+    res = DreamEngine().analyze("梦见手",
+                                _dream_stub_retriever([DREAM_DOC_HANGING_COLON]))
+
+    # 7764-7765：送 LLM 的依据块（_format_dream_for_llm 形态）
+    from src.bot.handler import MessageHandler
+    h = MessageHandler.__new__(MessageHandler)
+    llm_block = h._format_dream_for_llm(res, "梦见手")
+    # 7776-7778：最终回复
+    reply = h._format_dream_response("梦见手", res, "AI解读正文")
+    # dream.py:512-515：prompt 注入
+    prompt = format_dream_prompt("梦见手", res)
+
+    for name, blob in (("llm_block", llm_block), ("reply", reply),
+                       ("prompt", prompt)):
+        for line in blob.splitlines():
+            assert ": 生命线" not in line, f"{name} 悬空冒号漏面: {line!r}"
+        assert "📖 古籍记载：\n  1. :" not in blob, blob
+
+
+# ================================================================
+# 7. 【审查 I-2】delete_person 提升默认命主接写侧镜像漏斗（同类一并修）
+# ================================================================
+# 审查实测：`delete_person`（删默认命主 → 裸 SQL 提升剩余最早者）未接 k25
+# 写侧镜像漏斗 → ② 源 users.bazi_info 在「读路径自愈」前仍持**已删除命主**
+# 的档案（与本批 set_default 同源缺陷，属 k25 审查 I-1 同类第 4 条）。
+# 语义必须与既有漏斗一致：无出生年不镜像（不清空既有 ② 源）、失败仅告警不抛。
+
+def test_review_i2_delete_default_person_mirrors_promoted(tmp_path):
+    """删除默认命主 → ② 源立即换成被提升者的出生数据。
+
+    旧行为：delete_person 只写 persons（不镜像）→ bazi_info 仍是已删除的 A
+    （1968 != 1999，本用例必失败）→ 窗口期内直读 ② 源的消费点拿到已删档案。"""
+    dao, pdao, db = _db(tmp_path)
+    a = pdao.create_person("u5", name="我", relation="自己", is_default=True,
+                           birth=dict(PERSON_A))
+    b = pdao.create_person("u5", name="爸", relation="父母",
+                           birth=dict(PERSON_B))
+    dao.save_user_bazi("u5", _legacy_bazi_info())        # ② 源 = 已删除的 A
+
+    assert pdao.delete_person("u5", a["id"]) is True
+    assert pdao.get_default_person("u5")["id"] == b["id"], "剩余最早者应被提升"
+    row = dao.get_user_bazi("u5")
+    assert row["year"] == 1968 and row["gender"] == "男", row
+    assert row["city"] == "北京" and row["calendar"] == "solar"
+    assert row["solar_time"] == 1                        # 写侧镜像契约（k25）
+    assert "bazi" not in row                             # k8：四柱键不入 ② 源
+    # 下一次读路径自愈判定为「非 stale」→ 零写（收敛）
+    from src.storage.dao import UserDAO
+    assert UserDAO(db).get_user_bazi("u5") == row
+
+
+def test_review_i2_delete_default_person_without_birth_year_keeps_bazi_info(
+        tmp_path):
+    """被提升者无出生年 → 不得以空 payload 清空既有 ② 源。"""
+    dao, pdao, _ = _db(tmp_path)
+    a = pdao.create_person("u6", name="我", relation="自己", is_default=True,
+                           birth=dict(PERSON_A))
+    placeholder = pdao.create_person("u6", name="宝宝", relation="子女",
+                                     birth={"gender": "男"})    # 无出生年
+    assert placeholder["birth_year"] is None
+    dao.save_user_bazi("u6", _legacy_bazi_info())
+
+    assert pdao.delete_person("u6", a["id"]) is True
+    row = dao.get_user_bazi("u6")
+    assert row["year"] == 1999, "无出生年默认行不得清空 ② 源"
+    assert row["gender"] == "女"
+
+
+def test_review_i2_delete_last_person_keeps_bazi_info(tmp_path):
+    """删光命主 → 保留既有 ② 源（既有语义：下次访问据此自动重建默认）。"""
+    dao, pdao, _ = _db(tmp_path)
+    a = pdao.create_person("u7", name="我", relation="自己", is_default=True,
+                           birth=dict(PERSON_A))
+    dao.save_user_bazi("u7", _legacy_bazi_info())
+
+    assert pdao.delete_person("u7", a["id"]) is True
+    assert pdao.list_persons("u7") == []
+    row = dao.get_user_bazi("u7")
+    assert row["year"] == 1999 and row["gender"] == "女", row
+
+
+def test_review_i2_delete_default_person_mirror_failure_does_not_break(
+        tmp_path, monkeypatch):
+    """镜像失败（返回 False）→ delete_person 仍成功返回（失败仅告警不抛）。
+
+    同时钉住「确实调用了镜像」：旧代码（未接线）calls == [] → 断言失败。"""
+    from src.storage import person_dao as pd
+
+    _, pdao, _ = _db(tmp_path)
+    a = pdao.create_person("u8", name="我", relation="自己", is_default=True,
+                           birth=dict(PERSON_A))
+    b = pdao.create_person("u8", name="爸", relation="父母",
+                           birth=dict(PERSON_B))
+    calls = []
+    monkeypatch.setattr(pd, "mirror_bazi_info_to_users",
+                        lambda *args, **kw: calls.append(args) or False)
+    assert pdao.delete_person("u8", a["id"]) is True
+    assert calls, "删除默认命主应触发写侧镜像（旧代码不接线）"
+    assert pdao.get_default_person("u8")["id"] == b["id"]
+
+
+def test_review_i2_delete_non_default_person_no_mirror(tmp_path, monkeypatch):
+    """正对照：删非默认命主 → 默认身份未变，不触发镜像（零多余写）。"""
+    from src.storage import person_dao as pd
+
+    _, pdao, _ = _db(tmp_path)
+    pdao.create_person("u9", name="我", relation="自己", is_default=True,
+                       birth=dict(PERSON_A))
+    b = pdao.create_person("u9", name="爸", relation="父母",
+                           birth=dict(PERSON_B))
+    calls = []
+    monkeypatch.setattr(pd, "mirror_bazi_info_to_users",
+                        lambda *args, **kw: calls.append(args) or True)
+    assert pdao.delete_person("u9", b["id"]) is True
+    assert calls == [], f"删非默认命主不得镜像（默认未换人）: {calls}"
