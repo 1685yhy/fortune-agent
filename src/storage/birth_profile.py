@@ -56,16 +56,23 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None,
     生效，P15 生产实测）：① persons 表主档案（默认优先，逻辑不变）→
     ② users.bazi_info → ③ chart_records 最近排盘（D8 保留）→ ④ None。
 
-    自愈（G1 + k8）：① 命中且 users.bazi_info 缺失/与 persons 不一致时，
-    用 persons 单向回写刷新 bazi_info（k8 起为全量重建 8 个 birth 键，旧行
+    自愈（G1 + k8 + k25 ④-6）：① 命中且 users.bazi_info 缺失/与 persons 不一致
+    时，用 persons 单向回写刷新 bazi_info（k8 起为全量重建 8 个 birth 键，旧行
     bazi 四柱键等非 birth 键一律丢弃——四柱只属于 chart_records，21:44 事故
     即「保留旧 bazi 键」所致）——编辑页改动立即生效，消除两库永久分歧；
     bazi_info 不再当权威（gender 沿用档案中文契约 男/女，不产出 male/female）。
 
+    k25 收口：回写不再经 UserDAO.save_user_bazi —— 改直写 SQL 镜像
+    （person_dao.mirror_bazi_info_to_users，k11c F3 镜像同款），绕开
+    consultation_count+1 副作用与写守卫复算；读路径写形态不变（仍全量重建、
+    仍首建缺失行，行缺失时 consultation_count 落 DEFAULT 0）。收敛时机已随
+    k25 (b) 前移到写侧（默认行改档/建档即镜像）→ 本自愈为低频兜底
+    （仅历史分裂与外部直写 bazi_info 场景）。
+
     不回写 persons（persons 是唯一权威，单向打通）。
 
     Args:
-        dao: UserDAO（须有 db_path / get_user_bazi / save_user_bazi）。
+        dao: UserDAO（须有 db_path / get_user_bazi）。
         user_id: 用户 id（JWT sub）。
         chart_dao: ③ 级兜底用 ChartDAO；None 时按 dao.db_path 自建
             （生产 handler 与 calendar 共用同一 db_path，等价）。
@@ -79,7 +86,9 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None,
         return None
     # ① persons 档案优先（单一事实源；db_path 访问已置于守卫内）
     try:
-        from src.storage.person_dao import PersonDAO
+        from src.storage.person_dao import (
+            PersonDAO, bazi_info_of_person, mirror_bazi_info_to_users,
+        )
         pdao = PersonDAO(dao.db_path)
         persons = pdao.list_persons(user_id)
         if persons:
@@ -95,24 +104,17 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None,
                     # 选最近更新的有出生数据的档案（updated_at 降序取最大者）
                     pick = max(candidates, key=lambda p: p.get("updated_at") or "")
             if pick:
-                out = {
-                    "year": pick.get("birth_year"),
-                    "month": pick.get("birth_month"),
-                    "day": pick.get("birth_day"),
-                    "hour": pick.get("birth_hour"),
-                    "minute": pick.get("birth_minute"),
-                    "city": pick.get("city") or "",
-                    "gender": pick.get("gender") or "unknown",
-                    # R2-5：三源 out 统一透传 calendar（源值，缺省 solar）——
-                    # 消费方据此决定是否 to_solar_date 转公历；year/month/day
-                    # 保持原始值不改（保存回写路径 3243/3381/4679 消费原值安全）。
-                    "calendar": pick.get("calendar") or "solar",
-                    # k11c：档案级真太阳时开关 0/1（persons 密文内，缺省=1 开；
-                    # 读路径与存储层 _row_to_person 同口径默认开）。指纹
-                    # profile_fingerprint 输出含本键 → 开/关切换换缓存键，
-                    # 当日立即重算（排盘/运势/calendar:today 同源失效）。
-                    "solar_time": _pick_solar_time(pick),
-                }
+                # k25 ④-6：out 与自愈回写 payload、写侧镜像 payload 同一实现
+                # （person_dao.bazi_info_of_person）——三处由构造保证同构，
+                # 写侧镜像后本函数自愈判定必为非 stale → 读路径零写。
+                # R2-5：三源 out 统一透传 calendar（源值，缺省 solar）——
+                # 消费方据此决定是否 to_solar_date 转公历；year/month/day
+                # 保持原始值不改（保存回写路径 3243/3381/4679 消费原值安全）。
+                # k11c：档案级真太阳时开关 0/1（persons 密文内，缺省=1 开；
+                # 读路径与存储层 _row_to_person 同口径默认开）。指纹
+                # profile_fingerprint 输出含本键 → 开/关切换换缓存键，
+                # 当日立即重算（排盘/运势/calendar:today 同源失效）。
+                out = bazi_info_of_person(pick)
                 # 自愈：bazi_info 缺失/与 persons 不一致 → persons 单向回写。
                 # k8（2026-09-05 根因）：合并语义由「dict(旧行) 起手只覆写不等
                 # birth 键、保留旧 bazi 键」改为「以 persons 全量重建 8 个 birth
@@ -145,8 +147,14 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None,
                         _had_bazi_key = bool(bazi and bazi.get("bazi"))
                         # k8：全量重建 birth 键（persons 权威），不携带旧行
                         # 任何非 birth 键（含 bazi 四柱键——四柱只存 chart_records）。
-                        new_info = dict(out)
-                        dao.save_user_bazi(user_id, new_info)
+                        # k25 ④-6(a)：回写改直写镜像（k11c F3 镜像同款，单点
+                        # person_dao.mirror_bazi_info_to_users）——绕开
+                        # UserDAO.save_user_bazi 的 consultation_count+1 副作用
+                        # 与 _guard_bazi_pillars 复算；行缺失（persons-only）仍
+                        # 首建，consultation_count 落 DEFAULT 0（读不是咨询）。
+                        mirror_bazi_info_to_users(
+                            dao.db_path, user_id, out,
+                            create_if_missing=True)
                         if bazi and (bazi.get("year") or _had_bazi_key):
                             # 不一致重建（旧行有出生数据或含 bazi 键）→ warning
                             logger.warning(
@@ -291,7 +299,8 @@ def get_user_birth_profile_full(dao, user_id: str,
     get_user_birth_profile 负责，与既有语义一致）。
 
     Args:
-        dao: UserDAO（须有 db_path / get_user_bazi / save_user_bazi）。
+        dao: UserDAO（须有 db_path / get_user_bazi——k25 起读路径自愈不再
+            经 save_user_bazi，写由 person_dao 直写镜像承担）。
         user_id: 用户 id（JWT sub）。
         chart_dao: 显式 ChartDAO（None 时按 dao.db_path 自建）。
     """

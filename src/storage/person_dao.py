@@ -108,6 +108,89 @@ def _normalize_gender(g) -> str:
     return "unknown"
 
 
+# ────────────────────────────────────────────────────────────────────
+# k25 ④-6 自愈收口（2026-09-10）：persons → users.bazi_info 镜像单点实现。
+# 评估依据：docs/superpowers/plans/2026-09-10-k19-profile-migration.md §4。
+# 背景：users.bazi_info 是「默认档案」的 ② 兼容源，历史上只有两条写路径——
+# ① 读路径自愈（birth_profile.get_user_birth_profile，走 UserDAO.save_user_bazi
+# → 每次回写 bump consultation_count+1 + 过写守卫复算）；② k11c 开关翻转镜像
+# （本文件 update_person 内联，直写 SQL 绕开副作用）。
+# 本批把①改为与②同款的直写镜像，并把收敛时机从「读时」前移到「写时」
+# （默认行/建档 → 立即镜像），读路径自愈降为低频兜底（仅历史分裂与外部
+# 直写场景）。对外行为不变：镜像 payload 与读路径 out = bazi_info_of_person
+# 同构，两库一致后读路径零写。
+# ────────────────────────────────────────────────────────────────────
+
+def bazi_info_of_person(person: Optional[dict]) -> dict:
+    """person 行（_row_to_person 形态）→ users.bazi_info birth 镜像 dict。
+
+    读路径（birth_profile.get_user_birth_profile 的 persons 源 out）与
+    写侧镜像（默认行/建档）共用本实现——单一事实源铁律：三处（读返回、
+    读路径自愈回写、写侧镜像漏斗）payload 由构造保证同构，两库一致后
+    自愈判定必然为「非 stale」→ 读路径零写。
+
+    键集 = 8 birth 键 + k11c solar_time（与读路径 out 完全一致）：
+    hour/minute 沿用 persons 存储层 0→None 折叠、city 空串、gender 缺省
+    unknown、calendar 缺省 solar、solar_time 缺省开=1。
+    """
+    p = person or {}
+    return {
+        "year": p.get("birth_year"),
+        "month": p.get("birth_month"),
+        "day": p.get("birth_day"),
+        "hour": p.get("birth_hour"),
+        "minute": p.get("birth_minute"),
+        "city": p.get("city") or "",
+        "gender": p.get("gender") or "unknown",
+        "calendar": p.get("calendar") or "solar",
+        "solar_time": solar_time_on(p.get("solar_time")),
+    }
+
+
+def mirror_bazi_info_to_users(db_path: str, user_id: str, payload: dict,
+                              create_if_missing: bool = False) -> bool:
+    """persons → users.bazi_info 直写镜像（k25 ④-6 单点；k11c F3 镜像同款）。
+
+    - 直接 SQL 读写密文行，**不经 UserDAO.save_user_bazi**：绕开
+      consultation_count+1 副作用与 _guard_bazi_pillars 复算（镜像 payload
+      恒为 birth 形态无 bazi 四柱键，守卫对无 bazi 键写入本就不介入）。
+    - 行存在 → UPDATE 全量重建（k8 语义：旧行 bazi 四柱键等非 birth 键一律
+      丢弃——四柱只属于 chart_records）。
+    - 行缺失 → create_if_missing=True 才 INSERT（读路径自愈首建契约）；
+      consultation_count 不写入 → 落库 DEFAULT 0（读不是咨询，绝不 +1）；
+      False 则 no-op（写侧镜像只镜像既有 ② 源，不代建档）。
+    - 失败仅告警返回 False，绝不抛（调用方主流程不受阻）。
+    """
+    try:
+        conn = db_connect(db_path)
+        try:
+            now = datetime.now().isoformat()
+            enc = _encrypt_text(json.dumps(dict(payload or {}),
+                                           ensure_ascii=False))
+            row = conn.execute("SELECT user_id FROM users WHERE user_id = ?",
+                               (user_id,)).fetchone()
+            if row:
+                conn.execute(
+                    "UPDATE users SET bazi_info=?, updated_at=? "
+                    "WHERE user_id=?", (enc, now, user_id))
+            elif create_if_missing:
+                conn.execute(
+                    "INSERT INTO users (user_id, bazi_info, created_at, "
+                    "updated_at) VALUES (?,?,?,?)",
+                    (user_id, enc, now, now))
+            else:
+                conn.close()
+                return False
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("k25 bazi_info 镜像失败 user=%s: %s",
+                       user_id, str(e)[:160])
+        return False
+
+
 def _birth_dict(**kw) -> dict:
     """构造出生信息字典（只保留合法键；birth_year 等为 0/None 时置 None）。
 
@@ -332,10 +415,16 @@ class PersonDAO:
     def create_person(self, user_id: str, name: str, relation: str = "其他",
                       birth: Optional[dict] = None,
                       is_default: Optional[bool] = None,
-                      birth_ctx: str = "") -> Optional[dict]:
+                      birth_ctx: str = "",
+                      mirror: bool = True) -> Optional[dict]:
         """创建命主（首个自动 is_default=True；is_default=True 时清旧默认）。
 
         birth_ctx（k19 ④-4）：写入上下文（对话原文/表单哨兵），年份守卫用。
+        mirror（k25 ④-6(b)）：默认行建档后是否立即镜像 users.bazi_info（② 源）。
+        默认 True = 用户建档（API/对话）语义：写时收敛，读路径自愈降为兜底。
+        **兼容迁移 migrate_legacy_bazi 必须传 False**——迁移是 ② 源 → person
+        的反向路径，镜像回写会原地重写（丢旧行 bazi 四柱键、solar_time 归一）
+        并破坏 k19 迁移脚本 dry-run 的「只分类不改进数据」语义。
         """
         name = (name or "").strip()[:32] or "未命名"
         if relation not in RELATION_VALUES:
@@ -372,7 +461,15 @@ class PersonDAO:
         conn.commit()
         pid = cursor.lastrowid
         conn.close()
-        return self.get_person(user_id, pid)
+        created = self.get_person(user_id, pid)
+        # k25 ④-6(b)：建档即镜像（默认行 + 有出生年）——收敛时机从「读时」
+        # 前移到「写时」，读路径自愈降为低频兜底。只镜像既有 ② 源行
+        # （create_if_missing=False，不代建档）；失败仅告警不阻塞建档。
+        # mirror=False（兼容迁移反向路径）跳过。
+        if (mirror and created and is_default and created.get("birth_year")):
+            mirror_bazi_info_to_users(
+                self.db_path, user_id, bazi_info_of_person(created))
+        return created
 
     def update_person(self, user_id: str, person_id, name: str = None,
                       relation: str = None, birth: Optional[dict] = None,
@@ -405,6 +502,10 @@ class PersonDAO:
         # k11c r1（F3）：开关翻转标记——本次更新是否真实改动了 solar_time
         # （merged 恒含 0/1；仅显式携带且与既有不同才置位，普通更新零镜像）
         _solar_flipped = False
+        # k25 ④-6(b)：本次是否写入出生数据（镜像漏斗触发条件之一）
+        _birth_written = False
+        # k25 ④-6(b)：本次是否显式改动了默认标记（提升为默认 → ② 源换人镜像）
+        _default_set = is_default is not None
         if birth:
             new_birth = _birth_dict(**birth)
             # 占位符不覆盖既有值 —— 与 save_bazi_info 的 gender 保护约定一致
@@ -427,6 +528,7 @@ class PersonDAO:
                     return existing
                 if merged.get("solar_time") != existing.get("solar_time"):
                     _solar_flipped = True
+                _birth_written = True
                 sets.append("birth_enc=?")
                 args.append(_encrypt_text(json.dumps(merged, ensure_ascii=False)))
         if not sets:
@@ -441,11 +543,30 @@ class PersonDAO:
         )
         conn.commit()
         conn.close()
-        if _solar_flipped:
+        updated = self.get_person(user_id, person_id)
+        # k25 ④-6(b)：默认命主写侧镜像漏斗——出生数据被改写 / 本行被提升为
+        # 默认时立即镜像 users.bazi_info（收敛时机从「读时」前移到「写时」，
+        # 读路径自愈降为低频兜底）。只镜像既有 ② 源行（create_if_missing=
+        # False，不代建档）；非默认行绝不写 ② 源（bazi_info 恒为默认档案
+        # 镜像，不能被他人的出生数据覆盖）。
+        # k25 自审补口（与 create_person 同条件）：必须「默认行 **且有出生年**」
+        # ——无出生年的默认行（如仅填了真太阳时开关/仅改默认标记）镜像会写出
+        # 全 None birth payload，覆盖 ② 源既有档案（k11c 原块以 _mdata.get("year")
+        # 保护过同一场景，本漏斗不得放宽）；此情形交由下方 k11c 块按旧语义处理
+        # （仅行存在且含出生年才单键镜像 solar_time），行为语义与 k11c 一致。
+        _mirrored = False
+        if (updated and updated.get("is_default")
+                and updated.get("birth_year")
+                and (_birth_written or _default_set)):
+            _mirrored = mirror_bazi_info_to_users(
+                self.db_path, user_id, bazi_info_of_person(updated))
+        if _solar_flipped and not _mirrored:
             # k11c r1（F3 镜像）：开关翻转时同步镜像 users.bazi_info（② 源），
             # 防默认命主删除后 ② 源回弹默认开。直接 SQL 读写密文行（不经
             # UserDAO.save_user_bazi——避开 consultation_count+1 副作用）；
             # 仅行存在且含出生年才镜像，失败仅告警不阻塞。
+            # k25 ④-6：默认行已由上方镜像漏斗全量覆盖（含 solar_time）→ 本块
+            # 退为非默认行的单键镜像路径，行为语义不变。
             try:
                 _mconn = self._connect()
                 try:
@@ -472,7 +593,7 @@ class PersonDAO:
             except Exception as e:
                 logger.warning("k11c 开关镜像 bazi_info 失败 user=%s: %s",
                                user_id, str(e)[:160])
-        return self.get_person(user_id, person_id)
+        return updated
 
     def delete_person(self, user_id: str, person_id) -> bool:
         """删除命主（归属校验：只能删自己的）。
@@ -541,6 +662,9 @@ class PersonDAO:
             return None
         return self.create_person(
             user_id, name="我", relation="自己", is_default=True,
+            # k25 ④-6(b)：反向路径不镜像（② 源 → person，无需回写；且回写会
+            # 破坏 k19 迁移脚本 dry-run 的只分类语义与旧行 bazi 键保留判定）
+            mirror=False,
             birth={
                 "gender": data.get("gender", "unknown"),
                 "birth_year": data.get("year"),
