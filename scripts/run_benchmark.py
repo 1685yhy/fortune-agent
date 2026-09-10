@@ -52,7 +52,7 @@ OUR_API_TIMEOUT = 120.0
 # DeepSeek for scoring
 DEEPSEEK_API_KEY = "sk-REPLACED-REMOVED-KEY"
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEEPSEEK_MODEL = "deepseek-flash"
 DEEPSEEK_TIMEOUT = 60.0
 
 logging.basicConfig(

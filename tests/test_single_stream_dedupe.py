@@ -214,7 +214,7 @@ def _make_handler(tmp_path):
 
     mock_llm = Mock()
     mock_llm.api_key = ""
-    mock_llm.model = "deepseek-v4-flash"
+    mock_llm.model = "deepseek-flash"
     mock_llm.analyze.return_value = Mock(response="分析结果")
     mock_llm.chat.return_value = Mock(response="🔮 回复")
     mock_llm.chat_conversation.return_value = "🔮 回复"

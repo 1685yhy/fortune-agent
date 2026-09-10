@@ -95,7 +95,7 @@ event|用户正在找工作|0.9|90
     def __init__(
         self,
         api_key: str = "",
-        model: str = "deepseek-v4-flash",
+        model: str = "deepseek-flash",
         window_limit: int = 16384,
         trigger_ratio: float = 0.7,
         chunk_ratio: float = 0.25,

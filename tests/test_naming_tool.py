@@ -371,7 +371,7 @@ def test_naming_chain_reachability_json_workorder():
     bot = _make_bot()
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None
@@ -415,7 +415,7 @@ def test_naming_native_tool_use_loop():
     bot = _make_bot()
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None

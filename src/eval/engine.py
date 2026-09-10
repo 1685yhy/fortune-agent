@@ -78,7 +78,7 @@ class BenchmarkRunner:
         self,
         api_key: str,
         our_api_url: str = "http://124.221.233.214:8765/api/chat",
-        scorer_model: str = "deepseek-v4-flash",
+        scorer_model: str = "deepseek-flash",
         scorer_api_base: str = "https://api.deepseek.com/v1",
         our_api_key: Optional[str] = None,
     ):

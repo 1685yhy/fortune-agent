@@ -34,7 +34,7 @@ from src.storage.chart_dao import ChartDAO  # noqa: E402
 from src.storage.dao import UserDAO  # noqa: E402
 from src.storage.person_dao import PersonDAO  # noqa: E402
 
-ANALYZER = MessageAnalyzer("", model="deepseek-v4-flash")  # api_key="" → 无 LLM 兜底
+ANALYZER = MessageAnalyzer("", model="deepseek-flash")  # api_key="" → 无 LLM 兜底
 
 
 # ============================================================

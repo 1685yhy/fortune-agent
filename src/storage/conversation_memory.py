@@ -95,7 +95,7 @@ class ConversationMemory:
             return deepseek_anthropic_completion(
                 self.api_key,
                 [{"role": "user", "content": prompt}],
-                model="deepseek-v4-flash",
+                model="deepseek-flash",
                 max_tokens=100,
                 temperature=0.3,
                 timeout=15.0,

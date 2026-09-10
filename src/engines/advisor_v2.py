@@ -33,7 +33,7 @@ FALLBACK_SERENDIPITY = ""
 FALLBACK_INSIGHT = ""
 
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEEPSEEK_MODEL = "deepseek-flash"
 
 
 # ============================================================
@@ -346,7 +346,7 @@ class AdaptiveAdvisor:
     def _call_llm(self, prompt: str, api_key: str) -> str:
         """调用 DeepSeek Flash API（Anthropic 兼容端点 + thinking disabled）。
 
-        Bugfix: 原生 /v1/chat/completions 下 deepseek-v4-flash 是推理模型，
+        Bugfix: 原生 /v1/chat/completions 下 deepseek-flash 是推理模型，
         reasoning_content 占满 max_tokens 导致 content 为空或 30s 读超时
         （"The read operation timed out"）；改用与 src/llm/client.py 一致的
         端点与配置，内容稳定返回。

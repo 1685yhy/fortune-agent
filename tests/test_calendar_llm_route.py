@@ -15,7 +15,8 @@
 - LLM 内容含 emoji → 日历侧幂等 strip 兜底生效；
 - fortune4 缺失/非法 → _sanitize_fortune4 规则兜底（yi/ji 仍用 LLM 值）；
 - 同值性静态护栏：client 层 ANTHROPIC_MESSAGES_URL 常量 == 旧硬编码 URL、
-  _anthropic_model_name("deepseek-v4-flash") == "deepseek-v4-flash[1m]"；
+  _anthropic_model_name("deepseek-flash") == "deepseek-flash[1m]"
+  （k22 随官方模型改名，旧名已弃用）；
 - 结构护栏：calendar 模块不得有顶层 deepseek_anthropic_completion 属性
   （顶层 from-import 会绑定 patch 前函数对象，评测 patch 不生效 → 复发）。
 """
@@ -31,7 +32,7 @@ import src.llm.client as llm_client  # noqa: E402
 import src.engines.calendar as calendar_mod  # noqa: E402
 
 OLD_URL = "https://api.deepseek.com/anthropic/v1/messages"
-OLD_MODEL = "deepseek-v4-flash[1m]"
+OLD_MODEL = "deepseek-flash[1m]"  # k22 随官方模型改名后
 
 USER_BAZI = {
     "bazi": ["庚午", "辛巳", "乙酉", "癸未"],
@@ -62,7 +63,7 @@ class _Capture:
         self.result = result
         self.calls = []
 
-    def __call__(self, api_key, messages, model="deepseek-v4-flash",
+    def __call__(self, api_key, messages, model="deepseek-flash",
                  max_tokens=1000, temperature=0.7, timeout=60.0, **kw):
         self.calls.append({
             "api_key": api_key, "messages": messages, "model": model,
@@ -95,7 +96,7 @@ def test_daily_mock_json_uses_llm_personalized_content(cal, monkeypatch):
     assert fake.calls, "统一层函数必须被调用（不得再 httpx 直连）"
     # 调用参数与旧直调逐项同值（等价性契约）
     call = fake.calls[0]
-    assert call["model"] == "deepseek-v4-flash", call  # 映射后 == [1m]，见静态护栏
+    assert call["model"] == "deepseek-flash", call  # 映射后 == [1m]，见静态护栏
     assert call["max_tokens"] == 2000
     assert call["temperature"] == 1.0
     assert call["timeout"] == 60.0
@@ -118,7 +119,7 @@ def test_daily_mock_json_uses_llm_personalized_content(cal, monkeypatch):
 def test_daily_route_constants_match_old_literals():
     """同值性静态护栏：client 层常量/映射产出 == 旧硬编码字面量。"""
     assert llm_client.ANTHROPIC_MESSAGES_URL == OLD_URL
-    assert llm_client._anthropic_model_name("deepseek-v4-flash") == OLD_MODEL
+    assert llm_client._anthropic_model_name("deepseek-flash") == OLD_MODEL
 
 
 def test_calendar_module_has_no_top_level_client_binding():

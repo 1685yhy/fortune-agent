@@ -22,7 +22,7 @@ CATEGORIES = [
 
 # DeepSeek API 配置
 DEEPSEEK_API_URL = "https://api.deepseek.com/v1/chat/completions"
-DEFAULT_MODEL = "deepseek-v4-flash"
+DEFAULT_MODEL = "deepseek-flash"
 
 # 系统提示词 - Query Enhancement
 SYSTEM_PROMPT = """你是一位专业的中国命理学（玄学）查询增强助手。你的任务是将用户的日常口语化问题改写成专业、精准的命理学术语查询，以便后续的 RAG（检索增强生成）系统能检索到最相关的古籍和知识内容。

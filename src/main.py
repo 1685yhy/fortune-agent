@@ -810,7 +810,7 @@ async def lifespan(app: FastAPI):
             logger.info("注销账号归档清理: %s", _cancel_stats)
     except Exception as e:
         logger.warning("注销账号归档清理失败: %s", e)
-    llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-v4-flash", deep_model="deepseek-v4-flash", provider="deepseek",
+    llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-flash", deep_model="deepseek-flash", provider="deepseek",
                      glm_api_key=settings.zhipu_api_key)  # L5-1 降级链路：GLM-4-Flash
 
     # ── Init Narrative Service ──────────────────────────────────
@@ -2380,7 +2380,7 @@ async def get_share_card(user_id: str, style: str = "dark", uid: str = Depends(r
                 quote = deepseek_anthropic_completion(
                     api_key,
                     [{"role": "user", "content": prompt}],
-                    model="deepseek-v4-flash",
+                    model="deepseek-flash",
                     max_tokens=200,
                     temperature=0.9,
                     timeout=20.0,

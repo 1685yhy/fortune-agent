@@ -41,7 +41,7 @@ _SYSTEM_PROMPT = (
     "{\"stage\": \"提前3天|提前1天|当天\", \"text\": \"事项文案\"}, 不要输出任何其他文字。"
 )
 
-_LLM_MODEL = "deepseek-v4-flash"
+_LLM_MODEL = "deepseek-flash"
 _LLM_MAX_TOKENS = 1500
 _LLM_TEMPERATURE = 0.7
 _LLM_TIMEOUT = 30.0

@@ -37,7 +37,7 @@ import httpx
 
 API_KEY = "sk-REPLACED-REMOVED-KEY"
 API_URL = "https://api.deepseek.com/v1/chat/completions"
-MODEL_PRO = "deepseek-v4-flash"
+MODEL_PRO = "deepseek-flash"
 OUTPUT_FILE = "benchmark_queries_v2.jsonl"
 SCRIPT_DIR = Path(__file__).parent
 

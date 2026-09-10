@@ -20,7 +20,7 @@ from src.rag.retriever import ChunkResult
 # 供统一模型层与各引擎直调点共用。
 from src.utils.text_clean import strip_emoji
 
-# Bugfix: 原生 /v1/chat/completions 下 deepseek-v4-flash 是推理模型，
+# Bugfix: 原生 /v1/chat/completions 下 deepseek-flash 是推理模型，
 # reasoning_content 会占满 max_tokens 导致 content 为空（finish_reason=length，
 # 日志 "Empty/short reply (0 chars)"）。统一改用 Anthropic 兼容端点并显式
 # 关闭 thinking（与 src/engines/calendar.py 的修复方式一致），内容稳定返回。
@@ -68,7 +68,7 @@ def _anthropic_payload(messages: list, model: str, max_tokens: int,
 async def deepseek_anthropic_completion_stream(
     api_key: str,
     messages: list,
-    model: str = "deepseek-v4-flash",
+    model: str = "deepseek-flash",
     max_tokens: int = 1000,
     temperature: float = 0.7,
     timeout: float = 60.0,
@@ -76,7 +76,7 @@ async def deepseek_anthropic_completion_stream(
     """DeepSeek Anthropic 兼容端点的真实 SSE 流式调用（stream: true）。
 
     逐段 yield 文本增量（content_block_delta / text_delta）；上游错误抛异常。
-    实测 deepseek-v4-flash[1m] 支持 Anthropic 原生流式（message_start →
+    实测 deepseek-flash[1m] 支持 Anthropic 原生流式（message_start →
     content_block_delta* → message_stop），故优先真实流式而非分句模拟。
     """
     payload = _anthropic_payload(messages, model, max_tokens, temperature, stream=True)
@@ -168,7 +168,7 @@ def _run_stream_feed_callback(
 def deepseek_anthropic_completion(
     api_key: str,
     messages: list,
-    model: str = "deepseek-v4-flash",
+    model: str = "deepseek-flash",
     max_tokens: int = 1000,
     temperature: float = 0.7,
     timeout: float = 60.0,
@@ -212,7 +212,7 @@ def deepseek_anthropic_completion(
 def deepseek_anthropic_messages(
     api_key: str,
     messages: list,
-    model: str = "deepseek-v4-flash",
+    model: str = "deepseek-flash",
     max_tokens: int = 1000,
     temperature: float = 0.7,
     timeout: float = 60.0,
@@ -242,8 +242,8 @@ def deepseek_anthropic_messages(
 
 def _anthropic_model_name(model: str) -> str:
     """推理模型在 Anthropic 兼容端点上的模型名（1M 上下文变体，实测最快最稳）。"""
-    if model == "deepseek-v4-flash":
-        return "deepseek-v4-flash[1m]"
+    if model == "deepseek-flash":
+        return "deepseek-flash[1m]"
     return model
 
 
@@ -429,8 +429,8 @@ class FortuneLLM:
     # Limit concurrent Pro model calls to prevent server overload
     _pro_semaphore = threading.Semaphore(3)
 
-    def __init__(self, api_key: str, model: str = "deepseek-v4-flash", provider: str = "deepseek",
-                 deep_model: str = "deepseek-v4-flash", glm_api_key: str = ""):
+    def __init__(self, api_key: str, model: str = "deepseek-flash", provider: str = "deepseek",
+                 deep_model: str = "deepseek-flash", glm_api_key: str = ""):
         self.api_key = api_key
         self.model = model          # 快速模型 (日常聊天)
         self.deep_model = deep_model  # 深度模型 (命理分析)

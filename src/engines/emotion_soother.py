@@ -51,7 +51,7 @@ class EmotionSoother:
     prompt optimized for detection + generation in one pass.
     """
 
-    def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):
+    def __init__(self, api_key: str, model: str = "deepseek-flash"):
         self.api_key = api_key
         self.model = model
         self._cache: Dict[str, SootherResult] = {}

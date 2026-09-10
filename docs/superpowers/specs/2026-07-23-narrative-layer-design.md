@@ -41,7 +41,7 @@ class NarrativeService:
 
 ## LLM Setup
 
-- Model: `deepseek-v4-flash` (fast, ~3-5s)
+- Model: `deepseek-flash` (fast, ~3-5s)
 - Temperature: 0.7 (creative but grounded)
 - Max tokens: 600 (concise narratives)
 - Each fortune type has its own system prompt template in `src/llm/prompts.py`

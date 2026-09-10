@@ -103,8 +103,8 @@ def build_handler() -> Tuple[MessageHandler, str]:
     member_dao = MemberDAO(db_path)
     session_dao = SessionDAO(db_path)
 
-    llm = FortuneLLM(api_key=api_key, model="deepseek-v4-flash",
-                     deep_model="deepseek-v4-flash", provider="deepseek")
+    llm = FortuneLLM(api_key=api_key, model="deepseek-flash",
+                     deep_model="deepseek-flash", provider="deepseek")
 
     handler = MessageHandler(
         engine, ziwei, liuyao, fengshui, mianxiang, zeri,

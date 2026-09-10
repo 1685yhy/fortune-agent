@@ -48,7 +48,7 @@ class BaselinePipeline:
             from src.llm.client import FortuneLLM
             from src.config import load_settings
             s = load_settings()
-            self._llm = FortuneLLM(api_key=s.claude_api_key, model="deepseek-v4-flash",
+            self._llm = FortuneLLM(api_key=s.claude_api_key, model="deepseek-flash",
                                    deep_model="deepseek-v4-pro", provider="deepseek")
         return self._llm
 

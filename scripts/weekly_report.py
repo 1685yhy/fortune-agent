@@ -55,7 +55,7 @@ def generate_weekly(user_bazi: dict, user_id: str, retriever, api_key: str = "")
         resp = httpx.post(
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}],
+            json={"model": "deepseek-flash", "messages": [{"role": "user", "content": prompt}],
                   "max_tokens": 400, "temperature": 0.7},
             timeout=30.0,
         )

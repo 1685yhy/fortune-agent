@@ -139,7 +139,7 @@ class LLMScorer:
     def __init__(
         self,
         api_key: str,
-        model: str = "deepseek-v4-flash",
+        model: str = "deepseek-flash",
         api_base: str = "https://api.deepseek.com/v1",
         timeout: float = 30.0,
     ):

@@ -388,11 +388,11 @@ def _init_runtime(model_route: str = "glm") -> dict:
 
     import src.llm.client as llm_client  # noqa: E402
     _MODEL = llm_client.GLM_DEFAULT_MODEL
-    _DS_MODEL = "deepseek-v4-flash"  # FortuneLLM 默认生产模型
+    _DS_MODEL = "deepseek-flash"  # FortuneLLM 默认生产模型
     _REAL_DEEPSEEK = llm_client.deepseek_anthropic_completion
     _ROUTE = {"model": model_route}
 
-    def _routed(api_key, messages, model="deepseek-v4-flash", max_tokens=1000,
+    def _routed(api_key, messages, model="deepseek-flash", max_tokens=1000,
                 temperature=0.7, timeout=60.0, client=None, stream_cb=None,
                 tools=None, tool_choice=None):
         """deepseek_anthropic_completion → 按路由分发（镜像 verify_qa_scenarios）。

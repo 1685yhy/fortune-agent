@@ -112,5 +112,45 @@
         "skipped": []
       }
     }
+  },
+  {
+    "run_id": "unified-20260903-191731",
+    "run_at": "2026-09-03 19:17:31 +0800",
+    "mode": "quick",
+    "thresholds_mode": "capability",
+    "repo_version": "495722f",
+    "scope_count": 4,
+    "gate_verdict": false,
+    "gate_mode": "capability",
+    "metrics": {
+      "l1": {
+        "tool_selection_accuracy": 1.0,
+        "param_accuracy": 1.0,
+        "false_call_rate": null,
+        "executed": 4,
+        "skipped": []
+      },
+      "l2": {
+        "assertion_pass_rate": 1.0,
+        "executed": 4,
+        "skipped": []
+      },
+      "l3": {
+        "weighted_avg": 7.037,
+        "weighted_avg_incl_errors": 7.037,
+        "p0_avg": 6.9,
+        "judged": 4,
+        "judge_error": []
+      },
+      "l4": {
+        "tsr": 1.0,
+        "passk_rate": 1.0,
+        "p0_passk_rate": 1.0,
+        "tsr_denominator": 4,
+        "executed_with_checks": 4,
+        "no_state_checks": [],
+        "skipped": []
+      }
+    }
   }
 ]

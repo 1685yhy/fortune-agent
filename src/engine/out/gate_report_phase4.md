@@ -15,7 +15,7 @@
 | e2e 真实体系链合成 | **2/2**（四链合成三分类非空无硬造共识 + ziwei/qimen 同生日真实分歧）|
 | 阶段2/3 考卷回归 | **不破**（e2e 八字 25/25、四体系 unit 8/8/9/12 等，见全量回归）|
 | 真实冒烟（真实排盘+推演链 → synthesize）| **成功**：bazi 7 步 + ziwei 5 步 + liuyao 5 步 + qimen 空链（未提供排盘结果）→ 共识 1 / 分歧 1 / 不可比较 3，见下 |
-| LLM 冒烟（key 门控）| **真实调用成功**：compose_multi_report 追加「LLM 综合解读」，deepseek-v4-flash，报告 4864 字符（含确定性三分类节 + LLM 解读节）|
+| LLM 冒烟（key 门控）| **真实调用成功**：compose_multi_report 追加「LLM 综合解读」，deepseek-flash，报告 4864 字符（含确定性三分类节 + LLM 解读节）|
 
 ## 真实冒烟行（合成层）
 
@@ -33,7 +33,7 @@
 - 分歧 1：**五行不同：水、金**（六爻世爻申金为官鬼，三说并存各带出处，note 固定说明）
 - 不可比较 3：八字/紫微/六爻 与 奇门（空链）均"无公共比较维度…不硬造共识"
 
-**LLM 冒烟**：key 有 → `compose_multi_report(llm=FortuneLLM(deepseek-v4-flash))` 真实调用成功，
+**LLM 冒烟**：key 有 → `compose_multi_report(llm=FortuneLLM(deepseek-flash))` 真实调用成功，
 报告 = 各体系节 + 共识节 + 分歧节 + 不可比较节 + LLM 综合解读节（4864 字符），解读开头：
 "先说说结论：**今年财运有起色，但钱来得不轻松…**"（真实模型输出）。
 

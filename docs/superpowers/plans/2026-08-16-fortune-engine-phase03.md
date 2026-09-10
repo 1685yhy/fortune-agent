@@ -261,7 +261,7 @@ def evaluate(result) -> dict
 
 **规格覆盖**：Task 1-8 全部完成——六壬排盘引擎（月将加时/天地盘/四课三传/贵人旬空，涉害孟仲季降级如实标注）、四规则库（紫微 11 函数/六爻 11/奇门 10/六壬 9，均只做确定性查表不产断语）、四 unit 考卷（8/8/9/12 条，与真实排盘引擎输出交叉验证）、deduce 多体系分支（system 参数，bazi 默认行为阶段2 完全一致，四体系各 5 步链 + 未覆盖明示）、e2e 多体系考卷与断言参数化（4 条 + 体系前缀路由）。门禁：回归 122/122、unit 8/8/9/12、e2e 4/4、八字 25/25 不破、真实冒烟四体系链非空、LLM 冒烟真实调用成功。coverage.py 追加 phase3 段（含 phase2 段保持可再生成），gate_report_phase3.md 已出。
 
-**诚实边界**：四体系不做证据检索（evidence.py 八字专属），链 coverage 明示"未举证"；六壬涉害深浅未实现 → 孟仲季简便法 + raw_data["降级"] + 链未覆盖转记，绝不装懂；紫微五行局以命宫纳音为准（实证与引擎一致，任务书生年纳音口径不符已注明）；六爻六亲双口径在要点中明示；LLM/嵌入冒烟按既有门控，失败只记录原因——本次 LLM 冒烟真实成功（deepseek-v4-flash 分析文本非空），无任何伪造。
+**诚实边界**：四体系不做证据检索（evidence.py 八字专属），链 coverage 明示"未举证"；六壬涉害深浅未实现 → 孟仲季简便法 + raw_data["降级"] + 链未覆盖转记，绝不装懂；紫微五行局以命宫纳音为准（实证与引擎一致，任务书生年纳音口径不符已注明）；六爻六亲双口径在要点中明示；LLM/嵌入冒烟按既有门控，失败只记录原因——本次 LLM 冒烟真实成功（deepseek-flash 分析文本非空），无任何伪造。
 
 **类型一致性**：deduce(pills, engine_result, question, system) 签名兼容阶段2（默认 "bazi" 行为不变）；各引擎结果 dataclass（ZiweiResult/LiuyaoResult/QimenResult/LiurenResult）与规则库 evaluate/analyze 输入一致（另兼容 dict）；e2e 断言参数化按 expected.system 路由，SYSTEM_PREFIXES 覆盖 bazi/ziwei/liuyao/qimen/liuren 五体系；coverage.py write_coverage 原签名兼容（新增可选 phase3 参数，test_engine_coverage.py 全绿）。
 

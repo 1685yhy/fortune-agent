@@ -225,7 +225,7 @@ def generate_palm_report(metrics: PalmMetrics, retriever=None, api_key: str = ""
             resp = httpx.post(
                 "https://api.deepseek.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}],
+                json={"model": "deepseek-flash", "messages": [{"role": "user", "content": prompt}],
                       "max_tokens": 400, "temperature": 0.7}, timeout=30.0)
             llm = resp.json()["choices"][0]["message"]["content"]
             return strip_emoji(f"✋ **手相分析报告**\n\n{llm}\n\n{lines_text}\n{refs_text}")

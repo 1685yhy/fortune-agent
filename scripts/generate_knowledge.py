@@ -94,7 +94,7 @@ def call_llm(prompt: str, max_tokens: int = 300) -> str:
             "https://api.deepseek.com/v1/chat/completions",
             headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
             json={
-                "model": "deepseek-v4-flash",
+                "model": "deepseek-flash",
                 "messages": [{"role": "user", "content": prompt}],
                 "max_tokens": max_tokens,
                 "temperature": 0.7,

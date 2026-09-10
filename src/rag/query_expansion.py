@@ -103,7 +103,7 @@ def llm_expand(query: str, api_key: str = "") -> List[str]:
         content = deepseek_anthropic_completion(
             api_key,
             [{"role": "user", "content": prompt}],
-            model="deepseek-v4-flash",
+            model="deepseek-flash",
             max_tokens=LLM_MAX_TOKENS,
             temperature=0.4,
             timeout=LLM_TIMEOUT,

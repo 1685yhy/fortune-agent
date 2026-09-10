@@ -31,8 +31,8 @@ import httpx
 
 API_KEY = "sk-REPLACED-REMOVED-KEY"
 API_URL = "https://api.deepseek.com/v1/chat/completions"
-MODEL_PRO = "deepseek-v4-flash"
-MODEL_FLASH = "deepseek-v4-flash"
+MODEL_PRO = "deepseek-flash"
+MODEL_FLASH = "deepseek-flash"
 OUTPUT_FILE = "benchmark_queries.jsonl"
 
 SCRIPT_DIR = Path(__file__).parent
@@ -697,7 +697,7 @@ def main():
     )
     parser.add_argument(
         "--pro", action="store_true",
-        help="Use deepseek-v4-flash (unified model)"
+        help="Use deepseek-flash (unified model)"
     )
     args = parser.parse_args()
 

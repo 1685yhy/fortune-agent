@@ -15,7 +15,7 @@
   - 排盘：`BaziEngine().calculate(year, month, day, hour, minute, city, gender)`
   - 检索：`retriever.search(f"{result.day_master} {question}", category="bazi", top_k=15)`（retriever 走 `EMBEDDING_COLLECTION` 环境，空库守卫同 evidence.py 模式）
   - 综合：`llm.analyze(result, refs, question)`（无 extra_system_prompt——这就是"检索式"的本质差异点）
-  - `FortuneLLM` 构造按 main.py:764 先例：`FortuneLLM(api_key=settings.claude_api_key, model="deepseek-v4-flash", deep_model="deepseek-v4-pro", provider="deepseek")`（用 `load_settings()`，不用模块级 settings）
+  - `FortuneLLM` 构造按 main.py:764 先例：`FortuneLLM(api_key=settings.claude_api_key, model="deepseek-flash", deep_model="deepseek-v4-pro", provider="deepseek")`（用 `load_settings()`，不用模块级 settings）
 - **诚实边界**：对比报告**不做"准"判分**（预测准确率不可验证）；评估维度 = 推理过程/依据出处/具体度/稳定性/覆盖面，人读不自动打分
 - 案例：mingli e2e 考卷中选 4 条代表（事业/财运/婚姻/健康各 1，按 e2e_cases.jsonl 顺序确定性取）+ 滴天髓 pills-only 1 条（e2e_tds_0001 起）
 - 中文注释/报告；提交 `feat(engine): ...`；不 push；**绝不 add 工作区并发流文件**；分支被并发流切走先确认再 `git checkout engine-v1`
@@ -147,7 +147,7 @@ class BaselinePipeline:
             from src.llm.client import FortuneLLM
             from src.config import load_settings
             s = load_settings()
-            self._llm = FortuneLLM(api_key=s.claude_api_key, model="deepseek-v4-flash",
+            self._llm = FortuneLLM(api_key=s.claude_api_key, model="deepseek-flash",
                                    deep_model="deepseek-v4-pro", provider="deepseek")
         return self._llm
 
@@ -345,7 +345,7 @@ def _get_llm(use_real: bool):
     if not key:
         return None
     from src.llm.client import FortuneLLM
-    return FortuneLLM(api_key=key, model="deepseek-v4-flash",
+    return FortuneLLM(api_key=key, model="deepseek-flash",
                       deep_model="deepseek-v4-pro", provider="deepseek")
 
 
