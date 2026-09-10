@@ -1,7 +1,10 @@
 admin_key: fortune-admin-2024
 claude_model: claude-opus-4-8
 data_dir: /mnt/d/fortune-data
-embedding_collection: fortune_v6
+# 权威古籍库集合（单一事实源: src/book_categories.py::BOOKS_COLLECTION）。
+# 曾误配为 fortune_v6 —— 该集合与旧 fortune_books 均为 chroma 实测 0 条的空集合，
+# 导致 8 项能力 refs=0、LLM 凭记忆编造古籍引文（k24 事故）。
+embedding_collection: fortune_books_v2
 push:
   enabled: true
   max_users_per_batch: 50

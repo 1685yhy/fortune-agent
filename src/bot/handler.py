@@ -203,6 +203,7 @@ ZERI_SCENE_QUESTION = "您是给哪件事选日子？搬家/嫁娶/开业/晋升
 # inner_product）。检索工具只走 FAISS；不可用/无结果时走 LLM 自然对话兜底，
 # 不降级关键词检索（见 _tool_search）。
 from src.rag.faiss_retriever import get_faiss_retriever
+from src.book_categories import ref_text, ref_title
 
 # 阶段 5·来源体系与引用校验（方案 §3.0/§3.2 ③）：四类来源统一角标 +
 # 回答后校验（不相关引用剔除）；网络检索（智谱 Web Search，可用才宣传）
@@ -254,10 +255,13 @@ class _FaissChunk:
     与 FaissRetriever 返回结构不同，解梦等内部检索经此适配统一。
     """
 
-    __slots__ = ("text", "source", "score", "category")
+    # k24 补丁：补 title —— FAISS 结果里 title 是书名（source 只是语料 slug，
+    # 如 daizhige），漏掉它则引用只能显示 slug 或「未知」。
+    __slots__ = ("text", "source", "title", "score", "category")
 
     def __init__(self, d: dict):
         self.text = d.get("text") or ""
+        self.title = d.get("title") or ""
         self.source = d.get("source") or d.get("title") or ""
         self.score = float(d.get("score") or 0.0)
         self.category = d.get("category") or ""
@@ -275,6 +279,22 @@ class _ChunkSearchAdapter:
 
     def search(self, query: str, top_k: int = 5, **kw):
         return [_FaissChunk(d) for d in self._fr.search(query, top_k=top_k, **kw)]
+
+
+def _ref_title_text(ref) -> tuple:
+    """检索结果 → (出处, 正文)，兼容 dict 与对象两种形态（k24）。
+
+    生产上同一条检索链会返回两类形态：FAISS 路径的 `_FaissChunk`/dict 与
+    legacy 路径的 `ChunkResult`。只认 dict 的消费点会把对象形态整体丢弃 →
+    「检索到了但等于没检索」。
+
+    k24 补丁：实现收敛到 src/book_categories.py 的读取契约（ref_title/ref_text），
+    本函数只做组合。此前两支优先级不一致（dict 支 title→source、对象支
+    source→title），且下游还有消费点读了两边都不存在的 `.content` 字段导致
+    P0 崩溃 —— 统一到一个实现后这类分叉不可能再出现。
+    """
+    return ref_title(ref), ref_text(ref)
+
 
 # L2 会话增量摘要（方案 §5.4）— 触发式滚动压缩，<summary>+<memories>
 from src.bot.memory_compactor import MemoryCompactor
@@ -1847,19 +1867,24 @@ class MessageHandler:
                                  title: str = "古籍参考", source: str = "古籍库") -> None:
         """阶段 5·来源体系 ①：处理器内部检索到的古籍片段注册为 book 来源。
 
-        refs: retriever.search 返回的 ChunkResult 列表（也兼容 dict）。
+        refs: retriever.search 返回的 ChunkResult 列表（也兼容 dict / 纯文本）。
         """
         if not refs:
             return
         items = []
         start = self._alloc_citations(user_id, min(limit, len(refs)))
         for i, ref in enumerate(list(refs)[:limit], start=start):
-            src = ref.get("source") if isinstance(ref, dict) else getattr(ref, "source", "")
-            text = ref.get("text") if isinstance(ref, dict) else getattr(ref, "text", "")
-            src = src or ""
-            text = (text or "")[:400]
+            # k24 补丁二：本函数此前自行 isinstance 归一化且**只读 source** ——
+            # 与「读取检索结果只走 ref_title/ref_text」的契约自相矛盾，FAISS dict
+            # 进来会渲染《daizhige》这类语料 slug。改用契约。
+            # 契约的兜底值 "古籍" 表示「无出处信息」→ 回落到调用方给定的分类标题
+            # （如「紫微 · 古籍参考」），保持原有语义不劣化。
+            src = ref_title(ref)
+            text = ref_text(ref)[:400]
             if not text:
                 continue
+            if src == "古籍":
+                src = ""
             items.append(make_citation(
                 i, "book", text,
                 title=(f"《{src}》" if src and "《" not in src else src) or title,
@@ -2301,7 +2326,9 @@ class MessageHandler:
         # 展示用相对相关度（池内最佳=1.00），原始分数保留在引用数据里
         top1 = max((r.get("score") or 0.0) for r in refs) if refs else 1.0
         for i, ref in enumerate(refs, start=start):
-            src = ref.get("source") or ref.get("title") or "古籍"
+            # k24 补丁：改用统一读取契约（title→source）。原 source→title 在 FAISS
+            # 路径上会把语料 slug（如 daizhige）当书名展示给用户。
+            src = ref_title(ref)
             rel = (ref.get("score") or 0.0) / top1 if top1 > 0 else 1.0
             items.append(make_citation(
                 i, "book", ref["text"][:400],
@@ -5387,14 +5414,18 @@ class MessageHandler:
         try:
             r = self.retriever.search(msg, category="bazi", top_k=5)
             if isinstance(r, (list, tuple)):
-                refs = [x for x in r if isinstance(x, dict) and x.get("content")]
+                # k24：旧判据 isinstance(x, dict) 只认 dict，而 retriever 返回的是
+                # ChunkResult / _FaissChunk 对象 —— 检索再准也被整体丢弃，本分支
+                # 恒不执行（同类断链）。改为兼容两种形态并保留有正文的条目。
+                refs = [
+                    x for x in (_ref_title_text(item) for item in r) if x[1]
+                ]
         except Exception:
             refs = []
         if refs:
             try:
                 ref_text = "\n".join(
-                    f"- {x.get('title', '古籍')}：{str(x.get('content'))[:200]}"
-                    for x in refs[:3])
+                    f"- {t}：{text[:200]}" for t, text in refs[:3])
                 composed = self._quick_flash(
                     f"用户问：「{msg}」，但还没有提供出生信息。\n"
                     f"以下是古籍检索到的相关资料：\n{ref_text}\n\n"

@@ -9,6 +9,8 @@ into examples and explanations.
 
 import re
 
+from src.book_categories import ref_text, ref_title
+
 # Structured curriculum — topics with search keywords for RAG
 CURRICULUM = {
     "入门": {
@@ -208,8 +210,11 @@ def get_lesson(topic: str, retriever=None) -> str:
         lines.append("---")
         lines.append("📖 **古籍参考**：")
         for r in refs[:2]:
-            text = r.content if hasattr(r, 'content') else str(r)[:200]
-            lines.append(f"> {text[:200]}")
+            # k24 补丁：原 hasattr(r,'content') 守卫恒假 → 退化为 str(r)（dataclass
+            # repr，含全部字段名与截断值），用户看到的是对象转储而非古籍原文。
+            # 空库时代 refs 恒空故潜伏。统一走 ref_text/ref_title 读取契约。
+            text = ref_text(r)
+            lines.append(f"> 《{ref_title(r)}》{text[:200]}")
 
     lines.append("")
     lines.append(f"💡 回复「学堂」查看更多教程 | 回复「{topic} 详解」深入探索")

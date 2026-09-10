@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 import yaml
 
+from .book_categories import BOOKS_COLLECTION
+
 
 def load_env_file(path: str = ".env"):
     """Load a .env file into os.environ (never overrides existing variables).
@@ -42,7 +44,10 @@ class Settings:
     claude_api_key: str = ""
     claude_model: str = "claude-sonnet-5"
     embedding_model: str = "BAAI/bge-m3"
-    embedding_collection: str = "fortune_books"
+    # k24：默认值必须指向真实有数据的古籍库（BOOKS_COLLECTION 单一事实源）。
+    # 旧默认值 "fortune_books" 是 chroma 实测 0 条的空集合——线上 8 项能力
+    # refs=0 的根因之一（yaml 的 embedding_collection 当时根本没被读取）。
+    embedding_collection: str = BOOKS_COLLECTION
     embedding_dimension: int = 1024
     # Push settings
     push_enabled: bool = True
@@ -97,6 +102,11 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
                 settings.claude_api_key = data["claude_api_key"]
             if "claude_model" in data:
                 settings.claude_model = data["claude_model"]
+            # k24：yaml 的 embedding_collection 此前被漏读（只支持 env 覆盖），
+            # 配置写了也不生效、静默落到空集合默认值。补上读取，保持
+            # 「yaml 配置 < 环境变量」的既有优先级。
+            if data.get("embedding_collection"):
+                settings.embedding_collection = str(data["embedding_collection"])
             push_cfg = data.get("push", {})
             if "enabled" in push_cfg:
                 settings.push_enabled = push_cfg["enabled"]

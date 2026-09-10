@@ -13,6 +13,7 @@ import os
 import numpy as np
 import cv2
 
+from src.book_categories import ref_text, ref_title
 from src.utils.text_clean import strip_emoji
 
 # ============================================================
@@ -384,7 +385,12 @@ def generate_report(metrics: FaceMetrics, retriever=None, api_key: str = "") -> 
     mt += "\n\n**⚠️ 关注：**\n" + "\n".join(f"- {f}" for f in metrics.improvement_areas)
     rtxt = ""
     if refs:
-        rtxt = "\n\n**📖 古籍依据：**\n" + "\n".join(f"- {r.content[:200]}" for r in refs[:4])
+        # k24 补丁（P0 回归）：原读 r.content —— ChunkResult/_FaissChunk 都没有该
+        # 字段。空库时代 refs 恒空 → 该行永不执行 → 潜伏；检索修好后立刻
+        # AttributeError：聊天路径报告静默消失，/api/face-reading 把异常文本
+        # 透给前端。统一走 ref_text/ref_title 读取契约。
+        rtxt = "\n\n**📖 古籍依据：**\n" + "\n".join(
+            f"- 《{ref_title(r)}》{ref_text(r)[:200]}" for r in refs[:4])
     if api_key:
         try:
             import httpx
