@@ -392,7 +392,7 @@ def generate_report(metrics: FaceMetrics, retriever=None, api_key: str = "") -> 
             resp = httpx.post(
                 "https://api.deepseek.com/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": "deepseek-v4-flash", "messages": [{"role": "user", "content": prompt}],
+                json={"model": "deepseek-flash", "messages": [{"role": "user", "content": prompt}],
                       "max_tokens": 500, "temperature": 0.7}, timeout=30.0)
             return strip_emoji(f"📷 **面相分析报告**\n\n{resp.json()['choices'][0]['message']['content']}\n\n{mt}{rtxt}")
         except Exception:

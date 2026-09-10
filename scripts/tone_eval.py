@@ -57,7 +57,7 @@ RESULTS_DIR = PROJECT_DIR / "data" / "eval" / "results"
 
 DEFAULT_API_URL = "http://127.0.0.1:8767/api/chat"
 DEEPSEEK_ENDPOINT = "https://api.deepseek.com/v1/chat/completions"
-DEFAULT_EVAL_MODEL = "deepseek-v4-flash"
+DEFAULT_EVAL_MODEL = "deepseek-flash"
 
 # 达标线：总分(20制) ≥ 16 且 L1(情绪回应) ≥ 4
 PASS_TOTAL_20 = 16.0
@@ -389,8 +389,8 @@ class LocalEngine(Engine):
             except Exception as e:
                 print(f"[local] 警告: SessionDAO/MemberDAO 初始化失败({e})")
 
-        llm = FortuneLLM(api_key=api_key, model="deepseek-v4-flash",
-                         deep_model="deepseek-v4-flash", provider="deepseek")
+        llm = FortuneLLM(api_key=api_key, model="deepseek-flash",
+                         deep_model="deepseek-flash", provider="deepseek")
 
         self._handler = MessageHandler(
             engine, ziwei, liuyao, fengshui, mianxiang, zeri,
@@ -491,7 +491,7 @@ class Judge:
                     json={
                         "model": self.model,
                         "messages": [{"role": "user", "content": self._prompt(sample, reply)}],
-                        # deepseek-v4-flash 是推理模型：reasoning_content 会吃掉大量
+                        # deepseek-flash 是推理模型：reasoning_content 会吃掉大量
                         # token，预算不足会出现 finish_reason=length 且 content 为空，
                         # 所以 max_tokens 要给足（推理 + 最终 JSON）
                         "max_tokens": 2500,

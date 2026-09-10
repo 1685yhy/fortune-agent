@@ -213,7 +213,7 @@ class MessageAnalyzer:
         r'看日子|好日子|吉日|哪天|换一批|重新选'
     )
 
-    def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):
+    def __init__(self, api_key: str, model: str = "deepseek-flash"):
         self.api_key = api_key
         self.model = model
         self._cache: Dict[str, MessageAnalysis] = {}

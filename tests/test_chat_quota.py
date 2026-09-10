@@ -248,7 +248,7 @@ class TestDowngradeChain:
         reply = llm.chat_conversation([{"role": "user", "content": "hi"}])
         assert reply == "正常完整回复"
         assert calls[0][0] == ANTHROPIC_MESSAGES_URL  # deepseek 端点
-        assert calls[0][1]["json"]["model"].startswith("deepseek-v4-flash")
+        assert calls[0][1]["json"]["model"].startswith("deepseek-flash")
 
     def test_lite_fallback_to_deepseek(self, monkeypatch):
         """GLM key 未配置/调用失败 → 回退 DeepSeek（同精简 prompt，绝不崩）。"""

@@ -24,7 +24,7 @@ PHASE3 = {
     "rules": {"ziwei": 11, "liuyao": 11, "qimen": 10, "liuren": 9},
     "cases": {"ziwei": 8, "liuyao": 8, "qimen": 9, "liuren": 12, "e2e_phase3": 4},
     "gate": "回归122/122全绿 + unit 8/8/9/12 + e2e 4/4(四体系) + 八字25/25不破"
-            " + 真实冒烟四体系链5步非空 + LLM冒烟真实输出(deepseek-v4-flash)",
+            " + 真实冒烟四体系链5步非空 + LLM冒烟真实输出(deepseek-flash)",
 }
 
 

@@ -169,8 +169,8 @@ def build_handler(tmp: str) -> MessageHandler:
     handler = MessageHandler(
         BaziEngine(), ZiweiEngine(), LiuyaoEngine(), FengshuiEngine(),
         MianxiangEngine(), ZeriEngine(), StubRetriever(),
-        FortuneLLM(api_key="test-key", model="deepseek-v4-flash",
-                   deep_model="deepseek-v4-flash", provider="deepseek"),
+        FortuneLLM(api_key="test-key", model="deepseek-flash",
+                   deep_model="deepseek-flash", provider="deepseek"),
         UserDAO(db_path),
         dream_engine=DreamEngine(), hehun_engine=HehunEngine(),
         qimen_engine=QimenEngine(), xingming_engine=XingmingEngine(),

@@ -28,7 +28,7 @@
 ```json
 // Request
 {
-  "model": "deepseek-v4-flash",
+  "model": "deepseek-flash",
   "messages": [{"role": "user", "content": "你好"}],
   "max_tokens": 500
 }

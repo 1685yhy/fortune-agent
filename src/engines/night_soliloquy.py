@@ -150,7 +150,7 @@ def build_soliloquy(user_id: str, date_str: str, session_dao, llm_fn=None,
     for attempt in (1, 2):
         try:
             text = (fn(api_key, [{"role": "user", "content": prompt}],
-                       model="deepseek-v4-flash", max_tokens=600, temperature=0.8,
+                       model="deepseek-flash", max_tokens=600, temperature=0.8,
                        timeout=30.0) or "").strip()
         except Exception as e:
             logger.warning("灯语生成失败(尝试 %s) user=%s: %s", attempt, user_id, e)

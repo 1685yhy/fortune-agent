@@ -16,7 +16,7 @@
 | e2e 多体系（fake llm 双注入）| **4/4**（e2e_zw/ly/qm/lr_0001，按 expected.system 路由 + 体系前缀断言 + 链非空 + 断语要点非空）|
 | e2e 八字（阶段2 考卷回归）| **25/25 不破** |
 | 真实冒烟（四体系真实排盘+规则链）| **4/4 链非空**（各 5 步，末步断语要点非空，见下）|
-| LLM 冒烟（key 门控）| **真实调用成功**：compose_report 生产综合层 → FortuneLLM(api_key=settings.claude_api_key)，模型 deepseek-v4-flash，分析文本非空（两轮实测 1246/1381 字符）|
+| LLM 冒烟（key 门控）| **真实调用成功**：compose_report 生产综合层 → FortuneLLM(api_key=settings.claude_api_key)，模型 deepseek-flash，分析文本非空（两轮实测 1246/1381 字符）|
 
 ## 真实冒烟行（四体系各 1 条）
 

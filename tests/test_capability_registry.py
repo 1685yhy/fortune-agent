@@ -452,10 +452,10 @@ def test_anthropic_payload_tools_optional():
     """_anthropic_payload：tools/tool_choice 不传不写入（行为与现状完全一致）。"""
     from src.llm.client import _anthropic_payload
     base = _anthropic_payload([{"role": "user", "content": "hi"}],
-                              "deepseek-v4-flash", 100, 0.7)
+                              "deepseek-flash", 100, 0.7)
     assert "tools" not in base and "tool_choice" not in base
     p = _anthropic_payload([{"role": "user", "content": "hi"}],
-                           "deepseek-v4-flash", 100, 0.7,
+                           "deepseek-flash", 100, 0.7,
                            tools=[{"name": "web_search"}],
                            tool_choice={"type": "auto"})
     assert p["tools"] == [{"name": "web_search"}]
@@ -530,7 +530,7 @@ def test_native_tool_use_loop_end_to_end():
     bot = MessageHandler.__new__(MessageHandler)
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None
@@ -612,7 +612,7 @@ def test_native_dedup_two_blocks_same_params_run_once():
     bot = MessageHandler.__new__(MessageHandler)
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None
@@ -695,7 +695,7 @@ def test_native_two_blocks_diff_params_run_once_messages():
     bot = MessageHandler.__new__(MessageHandler)
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None
@@ -773,7 +773,7 @@ def test_native_dedup_blocks_different_params_both_run():
     bot = MessageHandler.__new__(MessageHandler)
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None
@@ -842,7 +842,7 @@ def test_native_tool_use_loop_chain_failure_no_replay():
     bot = MessageHandler.__new__(MessageHandler)
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None
@@ -917,7 +917,7 @@ def test_json_workorder_round_duplicate_dedup():
     bot = MessageHandler.__new__(MessageHandler)
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None
@@ -987,7 +987,7 @@ def test_text_tag_json_params_cross_protocol_dedup():
     bot = MessageHandler.__new__(MessageHandler)
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None
@@ -1181,7 +1181,7 @@ def test_max_iterations_2_guard_drops_iteration2_blocks():
     bot = MessageHandler.__new__(MessageHandler)
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None
@@ -1448,7 +1448,7 @@ def test_native_tool_use_loop_exception_falls_back_to_json():
     bot = MessageHandler.__new__(MessageHandler)
     llm = Mock()
     llm.api_key = "test-key"
-    llm.model = "deepseek-v4-flash"
+    llm.model = "deepseek-flash"
     llm.provider = "deepseek"
     bot.llm = llm
     bot.session_dao = None

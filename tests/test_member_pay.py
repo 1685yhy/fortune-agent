@@ -414,7 +414,7 @@ def _make_handler_with_llm():
     from src.bot.handler import MessageHandler
     mock_llm = Mock()
     mock_llm.api_key = ""
-    mock_llm.model = "deepseek-v4-flash"
+    mock_llm.model = "deepseek-flash"
     mock_llm.chat_conversation.return_value = "🔮 精简回复"
     mock_llm.chat.return_value = Mock(response="🔮 精简回复")
     mock_dao = Mock()

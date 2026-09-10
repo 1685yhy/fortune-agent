@@ -50,7 +50,7 @@ class MoodDetector:
         'Return ONLY JSON: {"mood":"<pick one>","confidence":0.0-1.0,"emotion":"<their apparent emotion>"}'
     )
 
-    def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):
+    def __init__(self, api_key: str, model: str = "deepseek-flash"):
         self.api_key = api_key
         self.model = model
         self._cache: Dict[str, MoodResult] = {}

@@ -223,7 +223,7 @@ def _make_light_handler(**kw):
 
     mock_llm = Mock()
     mock_llm.api_key = ""
-    mock_llm.model = "deepseek-v4-flash"
+    mock_llm.model = "deepseek-flash"
     mock_llm.chat_conversation.return_value = "🔮 精简回复"
     mock_llm.chat.return_value = Mock(response="🔮 精简回复")
     mock_dao = Mock()
@@ -408,7 +408,7 @@ def test_e2e_scene_routing_tool_ticket_executed(monkeypatch):
 
     mock_llm = Mock()
     mock_llm.api_key = "test-key"
-    mock_llm.model = "deepseek-v4-flash"
+    mock_llm.model = "deepseek-flash"
     mock_llm.provider = "glm"  # 非 deepseek → JSON 工单路径
     mock_llm.chat_conversation.return_value = "（占位）"
     mock_dao = Mock()

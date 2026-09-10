@@ -313,8 +313,8 @@ def test_integration_tool_loop():
     if not api_key:
         report("E2E LLM key 可用", False, "（无 ANTHROPIC_API_KEY，跳过）")
         return
-    llm = FortuneLLM(api_key=api_key, model="deepseek-v4-flash",
-                     deep_model="deepseek-v4-flash", provider="deepseek")
+    llm = FortuneLLM(api_key=api_key, model="deepseek-flash",
+                     deep_model="deepseek-flash", provider="deepseek")
     from src.rag.retriever import Retriever
     from src.rag.embedder import Embedder
     embedder = Embedder(model_name=settings.embedding_model)

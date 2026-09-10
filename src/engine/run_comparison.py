@@ -20,7 +20,7 @@ def _get_llm(use_real: bool):
     if not key:
         return None
     from src.llm.client import FortuneLLM
-    return FortuneLLM(api_key=key, model="deepseek-v4-flash",
+    return FortuneLLM(api_key=key, model="deepseek-flash",
                       deep_model="deepseek-v4-pro", provider="deepseek")
 
 

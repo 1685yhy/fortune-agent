@@ -2,7 +2,7 @@
 
 - 生成时间: 2026-08-08 09:19:14
 - 被测目标: local handler.process
-- 评卷模型: DeepSeek (deepseek-v4-flash)
+- 评卷模型: DeepSeek (deepseek-flash)
 - 评测样本: 21/22 条评分成功
 - 达标线: 总分(20制) ≥ 16 且 L1(情绪回应) ≥ 4
 

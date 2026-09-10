@@ -142,7 +142,7 @@ def sample_records(records: list[dict], n: int) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 DEEPSEEK_API_KEY = "sk-REPLACED-REMOVED-KEY"
-DEEPSEEK_MODEL = "deepseek-v4-flash"
+DEEPSEEK_MODEL = "deepseek-flash"
 DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
 
 

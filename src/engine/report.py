@@ -33,7 +33,7 @@ def compose_report(chain: DeductionChain, question: str, llm=None,
         # 按 main.py:764 先例构造：api_key 必填无默认值，其余参数与生产入口保持一致
         _settings = load_settings()
         llm = FortuneLLM(api_key=_settings.claude_api_key,
-                         model="deepseek-v4-flash",
+                         model="deepseek-flash",
                          deep_model="deepseek-v4-pro",
                          provider="deepseek")
 

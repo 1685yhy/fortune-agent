@@ -285,14 +285,14 @@ class LuckyCalendar:
             # httpx 直连硬编码 deepseek 端点 → 评测环境 key 失效（401）→ 静默降级规则模板。
             # 端点/模型同值性（与旧直调逐项对照，生产零行为差异）：
             # - URL：client 层常量 ANTHROPIC_MESSAGES_URL == 旧硬编码字面量（同值）；
-            # - model：传 "deepseek-v4-flash"，client 层 _anthropic_model_name 映射为
-            #   "deepseek-v4-flash[1m]"（== 旧硬编码字面量）；
+            # - model：传 "deepseek-flash"，client 层 _anthropic_model_name 映射为
+            #   "deepseek-flash[1m]"（k22 随官方模型改名，旧名已弃用）；
             # - thinking：_anthropic_payload 恒带 {"type": "disabled"}（与旧直调同语义）；
             # - max_tokens=2000 / timeout=60.0 与旧直调同值；旧直调省略 temperature →
             #   DeepSeek 服务端默认（官方文档推荐 1.0），此处显式传 1.0 同值；
             # - messages 结构与旧直调等价（单 user 消息，prompt 原样内联）。
-            # 注：旧直调走 Anthropic 兼容端点 + deepseek-v4-flash[1m] + thinking disabled
-            # 的历史原因（仍适用）：原生 /v1/chat/completions 下 deepseek-v4-flash 为推理
+            # 注：旧直调走 Anthropic 兼容端点 + [1m] 变体 + thinking disabled
+            # 的历史原因（仍适用）：原生 /v1/chat/completions 下 deepseek-flash 为推理
             # 模型，reasoning_content 占满 max_tokens → content 为空；[1m] 变体实测约 4.5s
             # 返回完整 JSON。client 层 _anthropic_payload 与上述语义一致，等效保留。
             # 空/错误响应：client 层空文本抛 ValueError、上游错误抛 RuntimeError →
@@ -304,7 +304,7 @@ class LuckyCalendar:
             content = deepseek_anthropic_completion(
                 self.api_key,
                 messages=[{"role": "user", "content": prompt}],
-                model="deepseek-v4-flash",
+                model="deepseek-flash",
                 max_tokens=2000,
                 temperature=1.0,
                 timeout=60.0,

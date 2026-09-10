@@ -88,12 +88,12 @@ if not _GLM_KEY or not _DS_KEY:
 import src.llm.client as llm_client  # noqa: E402
 
 _MODEL = llm_client.GLM_DEFAULT_MODEL  # "glm-4-flash"
-_DS_MODEL = "deepseek-v4-flash"  # FortuneLLM 默认生产模型（client.py 同款）
+_DS_MODEL = "deepseek-flash"  # FortuneLLM 默认生产模型（client.py 同款）
 _REAL_DEEPSEEK = llm_client.deepseek_anthropic_completion  # patch 前捕获
 _CURRENT_ROUTE = {"model": "glm"}  # 每场景切换（run_scenario 内设置）
 
 
-def _routed(api_key, messages, model="deepseek-v4-flash", max_tokens=1000,
+def _routed(api_key, messages, model="deepseek-flash", max_tokens=1000,
             temperature=0.7, timeout=60.0, client=None, stream_cb=None,
             tools=None, tool_choice=None):
     """deepseek_anthropic_completion → 按场景路由（显式签名镜像）。

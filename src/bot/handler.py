@@ -792,7 +792,7 @@ class MessageHandler:
         api_key = getattr(llm, 'api_key', '') if llm else ''
         self.memory = ConversationMemory(api_key) if api_key else None
         # L2 会话增量摘要（方案 §5.4）— 上下文超阈值触发，分块滚动压缩
-        self.compactor = MemoryCompactor(api_key, model=getattr(llm, 'model', 'deepseek-v4-flash')) if api_key else None
+        self.compactor = MemoryCompactor(api_key, model=getattr(llm, 'model', 'deepseek-flash')) if api_key else None
         # L1/L2/L3 运行时状态：工具调用日志（本轮 <tool_call> 记录，落库用）
         self._tool_logs: dict = {}
         # E2-1 对话消息卡片化：本轮卡片判定上下文（user_id → {scenario, paipan,
@@ -1174,9 +1174,9 @@ class MessageHandler:
     # Task A4: 意图分级路由（轻量路由器，预算感知）— 0 LLM 纯正则
     # ============================================================
     # 模型矩阵（现状盘点 2026-08-27，未新增模型/key）：
-    #   - 主链-快聊：deepseek-v4-flash（FortuneLLM.model，Anthropic 兼容端点）
+    #   - 主链-快聊：deepseek-flash（FortuneLLM.model，Anthropic 兼容端点）
     #     → 自由对话 / 意图分析(MessageAnalyzer) / 润色 / 秒回安抚 / 工具循环
-    #   - 主链-深度：deepseek-v4-flash（FortuneLLM.deep_model，当前与快聊同款）
+    #   - 主链-深度：deepseek-flash（FortuneLLM.deep_model，当前与快聊同款）
     #     → 命理深度分析（use_pro）
     #   - 降级链：glm-4-flash（ZHIPU_API_KEY 免费，OpenAI 兼容端点），失败
     #     回退 deepseek → 降级用户精简对话（chat_lite，L5-1）
@@ -1533,9 +1533,9 @@ class MessageHandler:
         use_native = getattr(self.llm, 'provider', None) == 'deepseek'
         native_messages: Optional[list] = None
         native_pending: list = []
-        _llm_model = self.llm.model or "deepseek-v4-flash"
+        _llm_model = self.llm.model or "deepseek-flash"
         if not isinstance(_llm_model, str):
-            _llm_model = "deepseek-v4-flash"
+            _llm_model = "deepseek-flash"
 
         def _extract_native_text(data: dict) -> str:
             """从完整响应 dict 提取首段 text（与 deepseek_anthropic_completion 同规则）。"""
@@ -1894,9 +1894,9 @@ class MessageHandler:
         # Mock 兼容：Mock 对象不是 str（单元测试用 Mock llm 时不发起真实网络调用）
         if not isinstance(api_key, str) or not api_key:
             return draft
-        model = getattr(self.llm, 'model', '') or "deepseek-v4-flash"
+        model = getattr(self.llm, 'model', '') or "deepseek-flash"
         if not isinstance(model, str):
-            model = "deepseek-v4-flash"
+            model = "deepseek-flash"
 
         # 1) 剥离系统尾巴（版本页脚/反馈提示），润色后原样回接
         body = draft
@@ -6587,7 +6587,7 @@ class MessageHandler:
             return deepseek_anthropic_completion(
                 api_key,
                 [{"role": "user", "content": prompt}],
-                model="deepseek-v4-flash",
+                model="deepseek-flash",
                 max_tokens=max_tokens,
                 temperature=temperature,
                 timeout=20.0,
@@ -6629,7 +6629,7 @@ class MessageHandler:
             raw = deepseek_anthropic_completion(
                 api_key,
                 [{"role": "user", "content": prompt}],
-                model=getattr(self.llm, 'model', '') or "deepseek-v4-flash",
+                model=getattr(self.llm, 'model', '') or "deepseek-flash",
                 max_tokens=160, temperature=0.8, timeout=8.0,
             ) or ""
             out: list = []
@@ -8099,7 +8099,7 @@ class MessageHandler:
                         summary = deepseek_anthropic_completion(
                             api_key,
                             [{"role": "user", "content": prompt}],
-                            model="deepseek-v4-flash",
+                            model="deepseek-flash",
                             max_tokens=200,
                             temperature=0.7,
                             timeout=20.0,
@@ -8226,7 +8226,7 @@ class MessageHandler:
             reply = deepseek_anthropic_completion(
                 api_key,
                 messages,
-                model="deepseek-v4-flash",
+                model="deepseek-flash",
                 max_tokens=2000,
                 temperature=0.8,
                 timeout=30.0,

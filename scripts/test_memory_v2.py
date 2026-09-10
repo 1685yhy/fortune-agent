@@ -72,8 +72,8 @@ def build_handler() -> MessageHandler:
     dao = UserDAO(TMP_DB)
     member_dao = MemberDAO(TMP_DB)
     session_dao = SessionDAO(TMP_DB)
-    llm = FortuneLLM(api_key="test-key", model="deepseek-v4-flash",
-                     deep_model="deepseek-v4-flash", provider="deepseek")
+    llm = FortuneLLM(api_key="test-key", model="deepseek-flash",
+                     deep_model="deepseek-flash", provider="deepseek")
     handler = MessageHandler(
         None, None, None, None, None, None, None, llm, dao,
         dream_engine=None, hehun_engine=None, qimen_engine=None,
@@ -214,7 +214,7 @@ def test_l2_compactor(handler: MessageHandler):
             return scripted["second"]
         return scripted["first"]
 
-    compactor = MemoryCompactor(api_key="fake", model="deepseek-v4-flash",
+    compactor = MemoryCompactor(api_key="fake", model="deepseek-flash",
                                 window_limit=1000, trigger_ratio=0.7,
                                 chunk_ratio=0.25, llm_fn=fake_llm)
 
@@ -270,7 +270,7 @@ def test_l2_compactor(handler: MessageHandler):
     # 5) 摘要落库往返（session_summaries 加密存取）
     uid = "mem_l2_sum"
     handler.session_dao.save_summary(uid, res.summary_text, res.memories,
-                                     model="deepseek-v4-flash",
+                                     model="deepseek-flash",
                                      message_count=120, token_count=res.total_tokens)
     got = handler.session_dao.get_summary(uid)
     check("L2 摘要落库往返一致",
@@ -534,10 +534,10 @@ def test_export_scripts():
            VALUES ('mem_l3_user', '帮我看看事业运', 'bazi', '', '事业运势分析：明年有升职机会，注意与上级沟通。', 'positive')""")
     conn.execute(
         """INSERT INTO sessions (user_id, role, content, intent, emotion, retrieval_hit, model)
-           VALUES ('mem_l3_user', 'user', '你好，我的openid是oabc1234567890defghijklmn，想算感情', 'free_chat', 'neutral', 'unused', 'deepseek-v4-flash')""")
+           VALUES ('mem_l3_user', 'user', '你好，我的openid是oabc1234567890defghijklmn，想算感情', 'free_chat', 'neutral', 'unused', 'deepseek-flash')""")
     conn.execute(
         """INSERT INTO sessions (user_id, role, content, intent, emotion, retrieval_hit, model)
-           VALUES ('mem_l3_user', 'assistant', '你好呀，感情的事咱们慢慢聊，电话13712345678别告诉别人。', 'free_chat', 'neutral', 'unused', 'deepseek-v4-flash')""")
+           VALUES ('mem_l3_user', 'assistant', '你好呀，感情的事咱们慢慢聊，电话13712345678别告诉别人。', 'free_chat', 'neutral', 'unused', 'deepseek-flash')""")
     conn.commit()
     conn.close()
 

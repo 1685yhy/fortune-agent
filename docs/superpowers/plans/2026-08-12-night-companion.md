@@ -8,7 +8,7 @@
 
 **Architecture:** 复用晨笺全部底座:后端沿用 `_daily_jian_precompute`/`_send_jian_batch`/`_daily_push_worker` 的 worker 框架(灯语 22:30 预生成、晚安推送 night 分支改深夜版、temp 消息 24h 清理各加一个 worker);灯语生成管线独立 `src/engines/night_soliloquy.py`(L2 摘要→分类级锚点→LLM 独白→红线校验→兜底→TTS),灯语库/深夜偏好独立 DAO(与 jian_dao 同模式);倾诉走现有对话管线但 deepNight 时跳过 L2/L3/演化链写入并给会话消息打 temp 标记;前端三版(墨韵为准)新增夜色主题 token、深夜入口横幅、聊天页深夜模式(灯笼动效/挽留劝睡/灯语卡/要我记得吗按钮/12356 安全条)、灯下印记页、设置页深夜陪伴区。
 
-**Tech Stack:** FastAPI + httpx + sqlite(现有 dao 模式)、deepseek-v4-flash(Anthropic 兼容端点,复用 `src/llm/client.deepseek_anthropic_completion`)、TTS 8768(edge-tts,柔缓女声 rate=-10%)、L2 摘要(SessionDAO.get_summary)、L3 记忆(UserMemory.add_entry)、微信服务号模板消息(复用 wechat_mp)、小程序原生(三版)、测试用 scripts/test_*.py 脚本(TestClient+断言,无网络依赖)。
+**Tech Stack:** FastAPI + httpx + sqlite(现有 dao 模式)、deepseek-flash(Anthropic 兼容端点,复用 `src/llm/client.deepseek_anthropic_completion`)、TTS 8768(edge-tts,柔缓女声 rate=-10%)、L2 摘要(SessionDAO.get_summary)、L3 记忆(UserMemory.add_entry)、微信服务号模板消息(复用 wechat_mp)、小程序原生(三版)、测试用 scripts/test_*.py 脚本(TestClient+断言,无网络依赖)。
 
 ## Global Constraints
 
@@ -640,7 +640,7 @@ def build_soliloquy(user_id: str, date_str: str, session_dao, llm_fn=None,
     for attempt in (1, 2):
         try:
             text = (fn(api_key, [{"role": "user", "content": prompt}],
-                       model="deepseek-v4-flash", max_tokens=600, temperature=0.8,
+                       model="deepseek-flash", max_tokens=600, temperature=0.8,
                        timeout=30.0) or "").strip()
         except Exception as e:
             logger.warning("灯语生成失败(尝试 %s) user=%s: %s", attempt, user_id, e)
@@ -1056,7 +1056,7 @@ from src.bot.night_persona import NIGHT_TONE_HINT
 
 class FakeLLM:
     api_key = ""
-    model = "deepseek-v4-flash"
+    model = "deepseek-flash"
 class FakeDAO:
     db_path = path
 

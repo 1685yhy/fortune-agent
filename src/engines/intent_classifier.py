@@ -53,7 +53,7 @@ class IntentClassifier:
     # Fast path: if message contains a birth date pattern, it's bazi — no AI call needed
     BIRTH_DATE_PATTERN = re.compile(r'\d{4}\s*[年/-]\s*\d{1,2}\s*[月/-]\s*\d{1,2}')
 
-    def __init__(self, api_key: str, model: str = "deepseek-v4-flash"):
+    def __init__(self, api_key: str, model: str = "deepseek-flash"):
         self.api_key = api_key
         self.model = model
         self._cache: Dict[str, str] = {}

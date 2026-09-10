@@ -283,7 +283,7 @@ def unit_tool_event():
 
     # 轻量实例：只挂 _run_tool_loop 需要的属性
     h = object.__new__(MessageHandler)
-    h.llm = type("L", (), {"api_key": "x", "model": "deepseek-v4-flash"})()
+    h.llm = type("L", (), {"api_key": "x", "model": "deepseek-flash"})()
     h.session_dao = None
     h._tool_logs = {}
     h._citations = {}
@@ -295,7 +295,7 @@ def unit_tool_event():
     calls = []
     streamed = []
 
-    def fake_completion(api_key, messages, model="deepseek-v4-flash", max_tokens=1000,
+    def fake_completion(api_key, messages, model="deepseek-flash", max_tokens=1000,
                         temperature=0.7, timeout=60.0, client=None, stream_cb=None):
         # 模拟真实流式：分两次回调增量
         if stream_cb:

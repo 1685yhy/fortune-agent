@@ -2,7 +2,7 @@
 """验证 deepseek Anthropic 兼容端点是否支持原生 tool_use（批次 1 Task 1）。
 
 用法: FORTUNE_API_KEY=<key> python scripts/verify_deepseek_tool_use.py [model]
-默认模型与生产一致: deepseek-v4-flash；也可传 deepseek-chat / deepseek-reasoner。
+默认模型与生产一致: deepseek-flash；也可传 deepseek-chat / deepseek-reasoner。
 退出码: 0=原生支持 1=无工具调用（纯文本回复） 2=缺 key 3=网络/协议错误 4=未知
 """
 import json
@@ -29,7 +29,7 @@ TOOLS = [{
 
 
 def main() -> int:
-    model = sys.argv[1] if len(sys.argv) > 1 else "deepseek-v4-flash"
+    model = sys.argv[1] if len(sys.argv) > 1 else "deepseek-flash"
     api_key = os.environ.get("FORTUNE_API_KEY")
     if not api_key:
         print("FATAL: 需要 FORTUNE_API_KEY 环境变量")

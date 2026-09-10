@@ -1063,7 +1063,7 @@ def _llm_generate_names(surname: str, gender_abbr: str, styles: List[str],
         {"role": "user", "content": prompt},
     ]
     raw = deepseek_anthropic_completion(
-        api_key, messages, model="deepseek-v4-flash",
+        api_key, messages, model="deepseek-flash",
         max_tokens=800, temperature=0.8, timeout=timeout)
     return _parse_names(raw)
 

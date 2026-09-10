@@ -37,7 +37,7 @@ from src.bot.night_persona import NIGHT_TONE_HINT
 
 class FakeLLM:
     api_key = ""
-    model = "deepseek-v4-flash"
+    model = "deepseek-flash"
 class FakeDAO:
     db_path = path
 
