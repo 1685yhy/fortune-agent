@@ -79,6 +79,21 @@ def e2e_db(tmp_path):
                               "birth_month": 3, "birth_day": 28,
                               "birth_hour": 9, "birth_minute": 0,
                               "city": "长春", "calendar": "solar"})
+    # k25 ④-6(b)：persons 写侧镜像漏斗改档/建档即收敛 bazi_info——本库要复现的
+    # 是「历史分裂行」（迁移脚本的目标态，由 k25 前的旧代码 W1/W2/W3 直写 ② 源
+    # 产生），必须按旧写入顺序显式构造：persons 建好后再直写脏 bazi_info。
+    # （本人 birth 1995 + 他人盘 bazi + solar_time=0，21:44 族；persons 已修为
+    # 1999 → stale_contradicts。）
+    conn = sqlite3.connect(db)
+    conn.execute(
+        "UPDATE users SET bazi_info=? WHERE user_id=?",
+        (_encrypt_text(json.dumps({
+            "year": 1995, "month": 3, "day": 28, "hour": 9, "minute": 0,
+            "city": "长春", "gender": "男", "calendar": "solar",
+            "solar_time": 0, "bazi": POLLUTED}, ensure_ascii=False)),
+         "u_polluted"))
+    conn.commit()
+    conn.close()
     return db
 
 

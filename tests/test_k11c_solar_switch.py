@@ -471,7 +471,14 @@ def test_tool_bazi_text_path_follows_archive_solar(tmp_path):
 
 def test_person_dao_solar_flip_mirrors_bazi_info(tmp_path):
     """r1 F3：persons 开关翻转 → users.bazi_info 同步镜像（② 源防回弹默认开）；
-    无关字段更新不触发镜像；行无出生年 → 跳过不崩。"""
+    行无出生年 → 跳过不崩。
+
+    k25 ④-6(b) 语义同步：默认行出生数据改写（含仅城市）改为「写侧镜像漏斗」
+    立即全量收敛 bazi_info（收敛时机从「读时」前移到「写时」）——旧契约
+    「非开关更新零镜像」随 k25 作废（读路径自愈本就覆盖同款改写，只是晚一次
+    读）；镜像 payload = 8 birth 键 + solar_time，与读路径自愈同构。不涉出生
+    数据的更新（仅名字/关系）仍零镜像。
+    """
     db = str(tmp_path / "mirror.db")
     udao = UserDAO(db)
     pdao = PersonDAO(db)
@@ -482,10 +489,19 @@ def test_person_dao_solar_flip_mirrors_bazi_info(tmp_path):
         "gender": "男", "birth_year": 1999, "birth_month": 5, "birth_day": 13,
         "birth_hour": 10, "birth_minute": 55, "calendar": "solar",
         "city": "长春", "solar_time": 1})
-    assert udao.get_user_bazi("u_m").get("solar_time") is None  # 前置：无键
-    # 无关更新（仅城市）→ 不镜像（bazi_info 保持无键/原值）
+    # k25 ④-6(b)：建档即镜像（默认行 + 出生年）——bazi_info 立即全量收敛，
+    # solar_time 落地为档案生效值 1（旧契约「建档不镜像、无 solar_time 键」
+    # 随 k25 作废）
+    assert udao.get_user_bazi("u_m")["solar_time"] == 1
+    # k25 ④-6(b)：默认行出生数据改写（仅城市）→ 写侧镜像漏斗立即全量收敛
+    # （8 birth 键 + solar_time=档案生效值 1，与读路径自愈 payload 同构）
     pdao.update_person("u_m", p["id"], birth={"city": "北京"})
-    assert udao.get_user_bazi("u_m").get("solar_time") is None
+    assert udao.get_user_bazi("u_m")["city"] == "北京"
+    assert udao.get_user_bazi("u_m")["solar_time"] == 1
+    # 不涉出生数据的更新（仅名字）→ 零镜像（bazi_info 原样）
+    _before_name_upd = udao.get_user_bazi("u_m")
+    pdao.update_person("u_m", p["id"], name="新名字")
+    assert udao.get_user_bazi("u_m") == _before_name_upd
     # 显式切关 → persons 0 且 bazi_info 镜像 0
     p2 = pdao.update_person("u_m", p["id"], birth={"solar_time": 0})
     assert p2["solar_time"] == 0
