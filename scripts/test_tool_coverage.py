@@ -95,9 +95,11 @@ def build_handler() -> Tuple[MessageHandler, str]:
     xingming = XingmingEngine()
 
     embedder = Embedder(model_name=settings.embedding_model)
-    # 测试用真实向量库：vectordb_v2/fortune_books（27k 条，检索可出结果）
-    retriever = Retriever(str(Path("/mnt/d/fortune-data/vectordb_v2")), embedder)
-    retriever._collection_name = "fortune_books"
+    # 测试用真实向量库：vectordb_v2/fortune_books_v2（27,115 条，检索可出结果）
+    # k24：原写死 "fortune_books"（实测 0 条），改用权威古籍库单一事实源。
+    from src.book_categories import BOOKS_COLLECTION
+    retriever = Retriever(str(Path("/mnt/d/fortune-data/vectordb_v2")), embedder,
+                          collection_name=BOOKS_COLLECTION)
 
     dao = UserDAO(db_path)
     member_dao = MemberDAO(db_path)
@@ -458,7 +460,7 @@ def main() -> int:
     args = ap.parse_args()
 
     handler, api_key = build_handler()
-    print(f"装配完成：api_key={'已配置' if api_key else '缺失'} | 向量库=vectordb_v2/fortune_books")
+    print(f"装配完成：api_key={'已配置' if api_key else '缺失'} | 向量库=vectordb_v2/{BOOKS_COLLECTION}")
 
     if args.group in ("C", "ALL"):
         group_c(handler)

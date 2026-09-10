@@ -211,6 +211,119 @@ def test_retriever_search_ef_conflict_collection_safe(tmp_path, caplog):
         "集合不可用时应记 warning 而非静默/抛异常"
 
 
+# --- k24：古籍检索断链修复 ------------------------------------------------
+
+
+def test_resolve_categories_maps_handler_words_to_real_categories():
+    """k24 映射表：handler 过滤词 → 库内元数据 category 实际值。
+
+    防回归：`bazi` 在库内实测 0 条（实为 bazi_case），这类错配曾让 8 项能力
+    里的 5 项（八字/风水/面相/择吉/姓名外的错配项）即使集合正确也 refs=0。
+    """
+    from src.book_categories import resolve_categories
+
+    assert resolve_categories("bazi") == ("bazi_case",)
+    assert "fengshui_guide" in resolve_categories("fengshui")
+    assert "mianxiang_features" in resolve_categories("mianxiang")
+    assert "八门" in resolve_categories("qimen")
+    # 库内无对应类目 → 空元组（表示「无类目可过滤」，调用方必须走全库）
+    assert resolve_categories("zeri") == ()
+    assert resolve_categories("hehun") == ()
+    # 未知词按原样透传（兼容调用方直接传真实类目名）
+    assert resolve_categories("bazi_case") == ("bazi_case",)
+    assert resolve_categories(None) == ()
+    assert resolve_categories("") == ()
+
+
+def test_where_filter_supports_multi_category():
+    """多类目 → chroma $in；单类目 → 精确匹配；空 → 不过滤。"""
+    from src.rag.retriever import Retriever
+
+    r = Retriever("/tmp", _M3StubEmbedder())
+    assert r._where_filter(None) is None
+    assert r._where_filter(()) is None
+    assert r._where_filter("bazi") == {"category": "bazi_case"}
+    assert r._where_filter(["a", "b"]) == {"category": {"$in": ["a", "b"]}}
+
+
+def test_search_category_miss_falls_back_to_full_library():
+    """k24 核心：类目过滤 0 命中时必须退回全库检索，而不是返回空。
+
+    旧行为是「类目对不上 = 静默 refs=0」→ LLM 无古籍依据只能凭记忆编造引文。
+    """
+    from src.rag.retriever import ChunkResult, Retriever
+
+    r = Retriever("/tmp", _M3StubEmbedder())
+    calls = []
+
+    def fake_vec(query, cats, top_k, min_score):
+        calls.append(cats)
+        if cats:
+            return []  # 类目下无命中
+        return [ChunkResult(text="全库命中", source="古籍", score=0.9, chunk_id="c1")]
+
+    r._vector_search = fake_vec
+    r._keyword_search = lambda q, c, k: []
+    out = r.search("乙木生于申月", category="bazi")
+    assert calls == [("bazi_case",), None], f"必须先类目后全库，实际 {calls}"
+    assert len(out) == 1 and out[0].text == "全库命中"
+
+
+def test_search_no_category_alias_goes_straight_to_full_library():
+    """库内无对应类目（zeri/hehun）→ 不做无谓的类目检索，直接全库。"""
+    from src.rag.retriever import ChunkResult, Retriever
+
+    r = Retriever("/tmp", _M3StubEmbedder())
+    calls = []
+    r._vector_search = lambda q, c, k, m: (calls.append(c), [
+        ChunkResult(text="全库命中", source="古籍", score=0.9, chunk_id="c1")])[1]
+    r._keyword_search = lambda q, c, k: []
+    out = r.search("择吉 嫁娶 黄道吉日", category="zeri")
+    assert calls == [None], f"无对应类目应直接全库，实际 {calls}"
+    assert len(out) == 1
+
+
+def test_search_category_hit_does_not_widen_to_full_library():
+    """类目有命中时不得放宽（避免用全库结果稀释领域精度）。"""
+    from src.rag.retriever import ChunkResult, Retriever
+
+    r = Retriever("/tmp", _M3StubEmbedder())
+    calls = []
+    r._vector_search = lambda q, c, k, m: (calls.append(c), [
+        ChunkResult(text="类目命中", source="古籍", score=0.9, chunk_id="c1")])[1]
+    r._keyword_search = lambda q, c, k: []
+    out = r.search("命宫", category="ziwei")
+    assert calls == [("ziwei",)]
+    assert out[0].text == "类目命中"
+
+
+def test_retriever_default_collection_is_not_known_empty(monkeypatch):
+    """k24 护栏：Retriever 的默认集合名必须指向权威古籍库。"""
+    from src.book_categories import BOOKS_COLLECTION, KNOWN_EMPTY_COLLECTIONS
+    from src.rag.retriever import Retriever
+
+    monkeypatch.delenv("EMBEDDING_COLLECTION", raising=False)
+    r = Retriever("/tmp", _M3StubEmbedder())
+    assert r._collection_name == BOOKS_COLLECTION
+    assert r._collection_name not in KNOWN_EMPTY_COLLECTIONS
+    # 显式传入优先于环境变量与默认值
+    r2 = Retriever("/tmp", _M3StubEmbedder(), collection_name="explicit_coll")
+    assert r2._collection_name == "explicit_coll"
+
+
+def test_known_empty_collection_self_heals_with_warning(tmp_path, caplog):
+    """指向已知空集合 → 自愈到权威古籍库并记 warning（绝不静默返回空）。"""
+    import logging
+    from src.rag.retriever import Retriever
+
+    r = Retriever(str(tmp_path), _M3StubEmbedder(), collection_name="fortune_books")
+    with caplog.at_level(logging.WARNING, logger="src.rag.retriever"):
+        r._ensure_non_empty_collection()
+    # 权威库在本 tmp 目录不存在 → 无法自愈，但必须留下明确告警
+    assert any("fortune_books" in rec.getMessage() for rec in caplog.records), \
+        "空集合必须留下 warning，不能静默"
+
+
 # --- QueryEnhancer tests ---
 
 def test_enhanced_query_dataclass():

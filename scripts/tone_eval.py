@@ -370,9 +370,11 @@ class LocalEngine(Engine):
 
         embedder = Embedder(model_name=settings.embedding_model)
         # 本仓库为 ChromaDB 检索器（search 用 query_texts 自动嵌入，无需加载模型）
-        # 评测使用有数据的真实向量库：vectordb_v2/fortune_books
-        retriever = Retriever("/mnt/d/fortune-data/vectordb_v2", embedder)
-        retriever._collection_name = "fortune_books"
+        # 评测使用有数据的真实向量库：vectordb_v2/fortune_books_v2（27,115 条）
+        # k24：原写死 "fortune_books"（实测 0 条），改用权威古籍库单一事实源。
+        from src.book_categories import BOOKS_COLLECTION
+        retriever = Retriever("/mnt/d/fortune-data/vectordb_v2", embedder,
+                              collection_name=BOOKS_COLLECTION)
 
         dao = None
         try:

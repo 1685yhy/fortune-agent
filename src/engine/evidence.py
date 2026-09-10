@@ -1,17 +1,15 @@
 """举证层：把推演链要点转化为检索查询，古籍检索降级为证据引用。"""
 from __future__ import annotations
 
-import os
-
+from src.book_categories import BOOKS_COLLECTION, KNOWN_EMPTY_COLLECTIONS
 from src.engine.deduction import DeductionChain
 
 # 库内命例实际分类：fortune_books_v2 全量实测 bazi_case=4934 条、bazi=0 条
 # （2026-08-15 chroma 精确计数），chroma where 精确匹配必须用 bazi_case。
 DEFAULT_CATEGORY = "bazi_case"
-# Retriever 未设 EMBEDDING_COLLECTION 时的默认集合，实测 count=0 空库；
-# 真实数据 27115 条全在 fortune_books_v2。
-EMPTY_DEFAULT_COLLECTION = "fortune_books"
-REAL_BOOKS_COLLECTION = "fortune_books_v2"
+# 集合名常量收敛到单一事实源（k24）：本模块不再自带字面量副本，避免分裂。
+EMPTY_DEFAULT_COLLECTION = "fortune_books"  # 兼容旧引用（测试/外部脚本）
+REAL_BOOKS_COLLECTION = BOOKS_COLLECTION
 
 
 class EvidenceProvider:
@@ -22,13 +20,16 @@ class EvidenceProvider:
     def _get_retriever(self):
         if self._retriever is not None:
             return self._retriever
-        # 空库守卫：EMBEDDING_COLLECTION 未显式设置时，Retriever 默认指向
-        # fortune_books（chroma 实测 count=0），生产必然 0 命中——在构造真实
-        # Retriever 之前直接抛可操作错误；compose_report 的 try/except 会降级
-        # []，直接调用方则看到明确指引。
-        if os.environ.get("EMBEDDING_COLLECTION", EMPTY_DEFAULT_COLLECTION) == EMPTY_DEFAULT_COLLECTION:
+        # 空库守卫（k24 改版）：判据从「EMBEDDING_COLLECTION 未设置」改为
+        # 「解析后的集合名落在已知空集合里」——因为配置已能真正生效（yaml +
+        # 默认值都指向 fortune_books_v2），「未设置 env」不再是错误状态。
+        # 显式指向空集合才是错的：在构造真实 Retriever 之前抛可操作错误；
+        # compose_report 的 try/except 会降级 []，直接调用方看到明确指引。
+        from src.config import load_settings  # 无模块级单例，按 main.py:627 先例
+        _settings = load_settings()
+        if _settings.embedding_collection in KNOWN_EMPTY_COLLECTIONS:
             raise RuntimeError(
-                f"EMBEDDING_COLLECTION 未设置或指向空库 {EMPTY_DEFAULT_COLLECTION}；"
+                f"embedding_collection 指向空库 {_settings.embedding_collection}；"
                 f"请设为 {REAL_BOOKS_COLLECTION}（27115条古籍库）"
             )
         # 生产懒加载（注入优先，避免测试加载重模型）
@@ -36,9 +37,11 @@ class EvidenceProvider:
         from src.rag.embedder import Embedder
         embedder = Embedder(model_name="BAAI/bge-m3")
         embedder.load()
-        from src.config import load_settings  # 无模块级单例，按 main.py:627 先例
-        _settings = load_settings()
-        self._retriever = Retriever(str(_settings.vectordb_dir), embedder)
+        # 显式传入配置的集合名（k24：此前只靠 env，yaml 配置驱动不了检索器）
+        self._retriever = Retriever(
+            str(_settings.vectordb_dir), embedder,
+            collection_name=_settings.embedding_collection,
+        )
         return self._retriever
 
     def _build_queries(self, chain: DeductionChain, question: str) -> list[str]:

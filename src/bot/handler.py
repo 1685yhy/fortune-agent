@@ -276,6 +276,25 @@ class _ChunkSearchAdapter:
     def search(self, query: str, top_k: int = 5, **kw):
         return [_FaissChunk(d) for d in self._fr.search(query, top_k=top_k, **kw)]
 
+
+def _ref_title_text(ref) -> tuple:
+    """检索结果 → (出处, 正文)，兼容 dict 与对象两种形态（k24）。
+
+    生产上同一条检索链会返回两类形态：FAISS 路径的 `_FaissChunk`/dict 与
+    legacy 路径的 `ChunkResult`。只认 dict 的消费点会把对象形态整体丢弃 →
+    「检索到了但等于没检索」。此处统一，调用方不必再各自 isinstance 判断。
+    """
+    if isinstance(ref, dict):
+        return (
+            ref.get("title") or ref.get("source") or "古籍",
+            str(ref.get("content") or ref.get("text") or ""),
+        )
+    return (
+        getattr(ref, "source", "") or getattr(ref, "title", "") or "古籍",
+        str(getattr(ref, "text", "") or ""),
+    )
+
+
 # L2 会话增量摘要（方案 §5.4）— 触发式滚动压缩，<summary>+<memories>
 from src.bot.memory_compactor import MemoryCompactor
 
@@ -5387,14 +5406,18 @@ class MessageHandler:
         try:
             r = self.retriever.search(msg, category="bazi", top_k=5)
             if isinstance(r, (list, tuple)):
-                refs = [x for x in r if isinstance(x, dict) and x.get("content")]
+                # k24：旧判据 isinstance(x, dict) 只认 dict，而 retriever 返回的是
+                # ChunkResult / _FaissChunk 对象 —— 检索再准也被整体丢弃，本分支
+                # 恒不执行（同类断链）。改为兼容两种形态并保留有正文的条目。
+                refs = [
+                    x for x in (_ref_title_text(item) for item in r) if x[1]
+                ]
         except Exception:
             refs = []
         if refs:
             try:
                 ref_text = "\n".join(
-                    f"- {x.get('title', '古籍')}：{str(x.get('content'))[:200]}"
-                    for x in refs[:3])
+                    f"- {t}：{text[:200]}" for t, text in refs[:3])
                 composed = self._quick_flash(
                     f"用户问：「{msg}」，但还没有提供出生信息。\n"
                     f"以下是古籍检索到的相关资料：\n{ref_text}\n\n"

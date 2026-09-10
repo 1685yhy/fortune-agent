@@ -1,8 +1,9 @@
 """检索式基线管线：复刻生产主链路（排盘→检索→LLM），无推演链注入——对比报告的对照组。"""
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
+
+from src.book_categories import BOOKS_COLLECTION, KNOWN_EMPTY_COLLECTIONS
 
 
 @dataclass
@@ -30,17 +31,22 @@ class BaselinePipeline:
     def _get_retriever(self):
         if self._retriever is not None:
             return self._retriever
-        # 与 evidence.py 同款空库守卫（EMBEDDING_COLLECTION 未设 → 指向空库 fortune_books）
-        collection = os.environ.get("EMBEDDING_COLLECTION", "fortune_books")
-        if collection == "fortune_books":
+        # 与 evidence.py 同款空库守卫（k24 改版：判据为「解析后的集合名是
+        # 已知空集合」，配置经 yaml/默认值已能生效，未设 env 不再是错误状态）
+        from src.config import load_settings
+        _settings = load_settings()
+        if _settings.embedding_collection in KNOWN_EMPTY_COLLECTIONS:
             raise RuntimeError(
-                "EMBEDDING_COLLECTION 未设置或指向空库 fortune_books；请设为 fortune_books_v2（27115条古籍库）")
+                f"embedding_collection 指向空库 {_settings.embedding_collection}；"
+                f"请设为 {BOOKS_COLLECTION}（27115条古籍库）")
         from src.rag.retriever import Retriever
         from src.rag.embedder import Embedder
         embedder = Embedder(model_name="BAAI/bge-m3")
         embedder.load()
-        from src.config import load_settings
-        self._retriever = Retriever(str(load_settings().vectordb_dir), embedder)
+        self._retriever = Retriever(
+            str(_settings.vectordb_dir), embedder,
+            collection_name=_settings.embedding_collection,
+        )
         return self._retriever
 
     def _get_llm(self):

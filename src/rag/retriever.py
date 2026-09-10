@@ -9,6 +9,11 @@ from chromadb.config import Settings as ChromaSettings
 
 from .embedder import Embedder
 from .chunker import Chunk
+from src.book_categories import (
+    BOOKS_COLLECTION,
+    KNOWN_EMPTY_COLLECTIONS,
+    resolve_categories,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +25,10 @@ class ChunkResult:
     score: float
     chunk_id: str
     category: str = ""
+    # k24：库内元数据有 title（如「《穷通宝鉴》从格-张居正命」）与 verified，
+    # 此前被检索器丢弃 → 送给 LLM 的引用全标【未知】，模型只能自己「想起」
+    # 出处（编造引文的温床）。带上 title，让引用可溯源。
+    title: str = ""
 
 
 class _AppEmbeddingFunction:
@@ -50,13 +59,81 @@ class _AppEmbeddingFunction:
 class Retriever:
     """混合检索器"""
 
-    def __init__(self, persist_dir: str, embedder: Embedder):
+    def __init__(self, persist_dir: str, embedder: Embedder,
+                 collection_name: Optional[str] = None):
+        """collection_name: 显式集合名（优先级最高）。
+
+        k24：此前只有 env 与 _collection_name 赋值两条路，settings.yaml 的
+        embedding_collection 无法驱动检索器（main.py 靠事后赋值补丁，engine
+        侧则漏了）——「配置写了不生效」这一类 bug 的公共形态。现支持构造期
+        传入，调用方一律用 settings.embedding_collection。
+        优先级：collection_name > EMBEDDING_COLLECTION 环境变量 > 权威古籍库。
+        """
         self.persist_dir = persist_dir
         self.embedder = embedder
         self._client = None
         self._collection = None
-        # 集合名可通过环境变量覆盖（如指向重建后的 fortune_books_v2）
-        self._collection_name = os.environ.get("EMBEDDING_COLLECTION", "fortune_books")
+        self._collection_checked = False
+        self._collection_name = (
+            collection_name
+            or os.environ.get("EMBEDDING_COLLECTION")
+            or BOOKS_COLLECTION
+        )
+
+    @property
+    def collection_name(self) -> str:
+        """实际生效的集合名（空集合自愈后的结果）。"""
+        self._ensure_non_empty_collection()
+        return self._collection_name
+
+    def _ensure_non_empty_collection(self) -> None:
+        """空集合自愈（k24）：目标集合无数据时回退到权威古籍库。
+
+        配置/环境变量指向空集合（fortune_books / fortune_v6）时，旧行为是
+        静默返回空列表 → 8 项能力 refs=0 → LLM 凭记忆编造引文。这里改为
+        一次性检测：已知空集合无需查询，其余按 count()==0 判定；命中则改用
+        BOOKS_COLLECTION 并记 warning（绝不静默）。权威库同样为空才放弃
+        （真·无数据，交由调用方按「未检索到」处理）。
+        """
+        if self._collection_checked:
+            return
+        self._collection_checked = True
+        name = self._collection_name
+        if name in KNOWN_EMPTY_COLLECTIONS:
+            reason = "已知空集合"
+        elif name == BOOKS_COLLECTION:
+            return
+        else:
+            try:
+                if self._raw_count(name) > 0:
+                    return
+                reason = "count()==0"
+            except Exception as e:  # 集合不存在/不可用 → 走自愈
+                reason = f"不可用: {e}"
+        try:
+            if self._raw_count(BOOKS_COLLECTION) <= 0:
+                logger.warning(
+                    "古籍集合自愈失败: '%s'（%s）无数据，权威集合 '%s' 也为空",
+                    name, reason, BOOKS_COLLECTION,
+                )
+                return
+        except Exception as e:
+            logger.warning(
+                "古籍集合自愈失败: '%s'（%s）无数据，权威集合 '%s' 不可用: %s",
+                name, reason, BOOKS_COLLECTION, e,
+            )
+            return
+        logger.warning(
+            "古籍集合 '%s' %s、无检索价值 → 自动改用权威古籍库 '%s'；"
+            "请修正 embedding_collection 配置（yaml 或 EMBEDDING_COLLECTION）",
+            name, reason, BOOKS_COLLECTION,
+        )
+        self._collection_name = BOOKS_COLLECTION
+        self._collection = None  # 丢弃已缓存的空集合句柄
+
+    def _raw_count(self, name: str) -> int:
+        """指定集合的条数（不触发自愈，避免递归）。"""
+        return self.client.get_collection(name).count()
 
     @property
     def client(self):
@@ -69,6 +146,7 @@ class Retriever:
 
     @property
     def collection(self):
+        self._ensure_non_empty_collection()
         if self._collection is None:
             self._collection = self.client.get_or_create_collection(
                 name=self._collection_name,
@@ -118,20 +196,44 @@ class Retriever:
     ) -> List[ChunkResult]:
         """混合检索：先语义检索，无结果则用BM25关键词检索
 
+        类目处理（k24）：`category` 是**产品语义过滤词**（bazi/fengshui/
+        mianxiang…），库内元数据 category 是**数据语义值**（bazi_case/
+        fengshui_guide/mianxiang_features…）。两者按 src/book_categories.py
+        的映射表对齐后检索；映射为空（库内无对应类目，如 zeri/hehun）直接
+        走全库。
+
+        **无类目兜底（k24 核心）**：类目过滤后的检索若无命中，退回全库检索，
+        而不是返回空列表。旧行为是「类目对不上 = 静默 refs=0」→ 8 项能力
+        集体断链 → LLM 凭记忆编造引文。
+
         **kw：兼容 FAISS 检索接口的扩展参数（expand/rerank/original_query 等），
         本检索器无查询扩展与精排，静默忽略（调用方在两类检索器间可透明切换）。
 
         集合为空/缺失/配置不兼容（如旧脚本创建的无 embedding_function 集合）时
         不抛异常：安全返回空列表并记 warning——legacy 兜底缺失，FAISS 主路径
-        不受影响，调用方（handler/api/engine）零改动。
+        不受影响，调用方（handler/api/engine）零改动。集合为空时另有一层
+        自愈（见 _ensure_non_empty_collection）。
         """
         try:
-            # Try vector search first
-            chunk_results = self._vector_search(query, category, top_k, min_score)
+            cats = resolve_categories(category)
 
-            # If vector search returned nothing, fall back to keyword search
+            if cats:
+                # ① 先按类目精确检索（语义 → 关键词）
+                chunk_results = self._vector_search(query, cats, top_k, min_score)
+                if not chunk_results:
+                    chunk_results = self._keyword_search(query, cats, top_k)
+                if chunk_results:
+                    return chunk_results
+                # ② 类目无命中 → 无类目兜底（返回空才是断链，见 docstring）
+                logger.info(
+                    "类目 '%s'（映射 %s）无命中 → 退回全库检索: query=%r",
+                    category, list(cats), query[:40],
+                )
+
+            # 无类目（或类目兜底）：全库检索
+            chunk_results = self._vector_search(query, None, top_k, min_score)
             if not chunk_results:
-                chunk_results = self._keyword_search(query, category, top_k)
+                chunk_results = self._keyword_search(query, None, top_k)
         except Exception as e:
             logger.warning(
                 "Legacy retriever search degraded: collection '%s' unavailable "
@@ -141,12 +243,35 @@ class Retriever:
             chunk_results = []
         return chunk_results
 
-    def _vector_search(self, query, category, top_k, min_score):
-        """语义向量检索 — 使用 ChromaDB 原生查询，自动匹配维度"""
+    @staticmethod
+    def _as_category_tuple(categories):
+        """兼容入参：None / str（过滤词或真实类目名）/ 类目元组。
+
+        私有检索方法（_vector_search/_keyword_search）历史上接受单个类目字符串，
+        外部脚本/测试仍按老签名调用；这里统一归一化，避免调用方各自翻译。
+        """
+        if not categories:
+            return ()
+        if isinstance(categories, str):
+            return resolve_categories(categories)
+        return tuple(categories)
+
+    def _where_filter(self, categories):
+        """类目 → chroma where 子句（多值用 $in，单值用精确匹配）。"""
+        categories = self._as_category_tuple(categories)
+        if not categories:
+            return None
+        if len(categories) == 1:
+            return {"category": categories[0]}
+        return {"category": {"$in": list(categories)}}
+
+    def _vector_search(self, query, categories, top_k, min_score):
+        """语义向量检索 — 使用 ChromaDB 原生查询，自动匹配维度
+
+        categories: 库内真实类目元组；None/空 表示不过滤（全库）。
+        """
         try:
-            where_filter = None
-            if category:
-                where_filter = {"category": category}
+            where_filter = self._where_filter(categories)
 
             # 显式 query_embeddings：与写入端 (add_chunks) 使用同一个 bge-m3
             # embedder，保证查询/写入维度一致 (1024)，不再依赖 chroma 内置
@@ -164,23 +289,36 @@ class Retriever:
                 for i, chunk_id in enumerate(results["ids"][0]):
                     score = 1 - results["distances"][0][i]
                     if score >= min_score:
-                        meta = results["metadatas"][0][i]
+                        meta = results["metadatas"][0][i] or {}
+                        title = meta.get("title", "") or ""
                         chunk_results.append(ChunkResult(
                             text=results["documents"][0][i],
-                            source=meta.get("source", "未知"),
+                            # k24：库内无 source 键（只有 category/title/verified），
+                            # 旧代码一律回落 "未知" → 引用全标【未知】。改用 title，
+                            # 让 LLM 拿到真实出处，杜绝凭记忆补出处。
+                            source=meta.get("source", "") or title or "未知",
                             score=round(score, 4),
                             chunk_id=chunk_id,
                             category=meta.get("category", ""),
+                            title=title,
                         ))
             return sorted(chunk_results, key=lambda r: r.score, reverse=True)
         except Exception:
             return []
 
-    def _keyword_search(self, query, category, top_k):
-        """BM25关键词检索（不需要模型下载）"""
+    def _keyword_search(self, query, categories, top_k):
+        """BM25关键词检索（不需要模型下载）
+
+        categories: 库内真实类目元组；None/空 表示不过滤（全库）。
+        k24：类目过滤下推到 chroma `where`（原实现全量 get 后在 Python 侧过滤，
+        27k 条全读既慢又浪费内存）。
+        """
         try:
-            # Get all documents
-            all_docs = self.collection.get(include=["documents", "metadatas"])
+            # Get documents (类目过滤下推到 chroma)
+            all_docs = self.collection.get(
+                where=self._where_filter(categories),
+                include=["documents", "metadatas"],
+            )
             if not all_docs["ids"]:
                 return []
 
@@ -191,9 +329,6 @@ class Retriever:
             scored = []
             for i in range(len(all_docs["ids"])):
                 meta = all_docs["metadatas"][i] if all_docs["metadatas"] else {}
-                if category and meta.get("category") != category:
-                    continue
-
                 doc = all_docs["documents"][i] if all_docs["documents"] else ""
                 doc_words = set(jieba.cut(doc))
 
@@ -201,12 +336,14 @@ class Retriever:
                 overlap = query_words & doc_words
                 if overlap:
                     score = len(overlap) / len(query_words) if query_words else 0
+                    title = meta.get("title", "") or ""
                     scored.append(ChunkResult(
                         text=doc[:500],
-                        source=meta.get("source", "未知"),
+                        source=meta.get("source", "") or title or "未知",
                         score=round(min(score, 0.99), 4),
                         chunk_id=all_docs["ids"][i],
                         category=meta.get("category", ""),
+                        title=title,
                     ))
 
             return sorted(scored, key=lambda r: r.score, reverse=True)[:top_k]
@@ -214,11 +351,12 @@ class Retriever:
             # Fallback: simple substring matching
             scored = []
             try:
-                all_docs = self.collection.get(include=["documents", "metadatas"])
+                all_docs = self.collection.get(
+                    where=self._where_filter(categories),
+                    include=["documents", "metadatas"],
+                )
                 for i in range(len(all_docs["ids"])):
                     meta = all_docs["metadatas"][i] if all_docs["metadatas"] else {}
-                    if category and meta.get("category") != category:
-                        continue
                     doc = all_docs["documents"][i] if all_docs["documents"] else ""
                     # Score by character overlap
                     query_chars = set(query)
@@ -226,12 +364,14 @@ class Retriever:
                     overlap = query_chars & doc_chars
                     if overlap:
                         score = len(overlap) / len(query_chars)
+                        title = meta.get("title", "") or ""
                         scored.append(ChunkResult(
                             text=doc[:500],
-                            source=meta.get("source", "未知"),
+                            source=meta.get("source", "") or title or "未知",
                             score=round(score, 4),
                             chunk_id=all_docs["ids"][i],
                             category=meta.get("category", ""),
+                            title=title,
                         ))
                 return sorted(scored, key=lambda r: r.score, reverse=True)[:top_k]
             except Exception:

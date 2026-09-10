@@ -33,13 +33,31 @@ def test_gather_dedupe_and_limit():
     assert len(results) <= 3
 
 
-def test_gather_default_collection_guard_raises(monkeypatch):
-    """未显式设置 EMBEDDING_COLLECTION 时，默认指向空库 fortune_books（chroma count=0），
-    守卫必须在构造真实 Retriever 前抛 RuntimeError 给出可操作指引（指向 fortune_books_v2）。"""
+def test_gather_empty_collection_guard_raises(monkeypatch):
+    """显式指向已知空集合时，守卫必须在构造真实 Retriever 前抛 RuntimeError
+    给出可操作指引（指向 fortune_books_v2）。
+
+    k24 语义变更：判据从「EMBEDDING_COLLECTION 未设置」改为「解析后的集合名落在
+    已知空集合里」。因为配置已能真正生效（yaml + dataclass 默认值都指向
+    fortune_books_v2），「未设环境变量」不再是错误状态；显式指向空集合才是。
+    """
     import pytest
-    monkeypatch.delenv("EMBEDDING_COLLECTION", raising=False)
+    monkeypatch.setenv("EMBEDDING_COLLECTION", "fortune_books")
     chain = deduce(["庚午", "乙酉", "甲午", "丁卯"])
     provider = EvidenceProvider()  # 不注入 fake，走真实懒加载路径触发守卫
     with pytest.raises(RuntimeError) as excinfo:
         provider.gather(chain)
     assert "fortune_books_v2" in str(excinfo.value)
+
+
+def test_default_settings_never_point_at_empty_collection(monkeypatch):
+    """k24 回归护栏：不设任何 env 时，load_settings 解析出的集合名必须不是
+    已知空集合（曾经默认值 fortune_books 实测 0 条 → 8 项能力 refs=0）。"""
+    from src.book_categories import BOOKS_COLLECTION, KNOWN_EMPTY_COLLECTIONS
+    from src.config import load_settings
+
+    monkeypatch.delenv("EMBEDDING_COLLECTION", raising=False)
+    resolved = load_settings().embedding_collection
+    assert resolved not in KNOWN_EMPTY_COLLECTIONS, \
+        f"默认集合落到已知空集合 {resolved}（线上 refs=0 事故根因）"
+    assert resolved == BOOKS_COLLECTION

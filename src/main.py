@@ -793,9 +793,11 @@ async def lifespan(app: FastAPI):
     validation = cm.validate()
     _log_collection_validation(logger, validation, settings.embedding_collection)
 
-    retriever = Retriever(str(settings.vectordb_dir), embedder)
-    # 设置 retriever 使用新集合
-    retriever._collection_name = settings.embedding_collection
+    # k24：集合名构造期传入（此前靠事后改私有属性补丁，engine 侧漏改即断链）
+    retriever = Retriever(
+        str(settings.vectordb_dir), embedder,
+        collection_name=settings.embedding_collection,
+    )
     dao = UserDAO(str(settings.db_path))
     member_dao = MemberDAO(str(settings.db_path))
     session_dao = SessionDAO(str(settings.db_path))
