@@ -296,6 +296,21 @@ def _ref_title_text(ref) -> tuple:
     return ref_title(ref), ref_text(ref)
 
 
+def _yi_ji_render_lines(yi, ji) -> list:
+    """宜/忌展示行（k26）：列表为空 → **整行不渲染**，宜/忌各自独立判断。
+
+    2026-02-10 实测择吉忌列表为空（哨兵过滤 + K3-A3 神煞级消解后）→ 旧代码
+    输出悬空的「忌：」。不新造文案（「诸事不宜」等属产品项，留台账待拍板）。
+    调用方：计划路径卡片、chat 择日正文、引擎来源引用卡（三处同一实现）。
+    """
+    lines = []
+    if yi:
+        lines.append(f"宜：{'、'.join(yi)}")
+    if ji:
+        lines.append(f"忌：{'、'.join(ji)}")
+    return lines
+
+
 # L2 会话增量摘要（方案 §5.4）— 触发式滚动压缩，<summary>+<memories>
 from src.bot.memory_compactor import MemoryCompactor
 
@@ -2329,14 +2344,16 @@ class MessageHandler:
             # k24 补丁：改用统一读取契约（title→source）。原 source→title 在 FAISS
             # 路径上会把语料 slug（如 daizhige）当书名展示给用户。
             src = ref_title(ref)
+            # k26：正文同样走读取契约（悬空冒号在入口剥离，此处不再直读 ref["text"]）
+            body = ref_text(ref)
             rel = (ref.get("score") or 0.0) / top1 if top1 > 0 else 1.0
             items.append(make_citation(
-                i, "book", ref["text"][:400],
+                i, "book", body[:400],
                 title=f"《{src}》" if "《" not in src else src,
                 source=str(ref.get("title") or src),
             ))
             lines.append(
-                f"[{i}] 【古籍】《{src}》\"{ref['text'][:200]}\""
+                f"[{i}] 【古籍】《{src}》\"{body[:200]}\""
                 f"（相关度 {rel:.2f}）"
             )
         for j, m in enumerate(mem_refs, start=start + len(refs)):
@@ -2652,8 +2669,8 @@ class MessageHandler:
             marks = "①②③"
             for i, c in enumerate(cards[:3], start=0):
                 lines.append(f"{marks[i]} {c.date} {c.lunar_text}")
-                lines.append(f"宜：{'、'.join(c.yi)}")
-                lines.append(f"忌：{'、'.join(c.ji)}")
+                # k26：宜/忌各自为空即整行不渲染（空忌日不得输出悬空「忌：」）
+                lines.extend(_yi_ji_render_lines(c.yi, c.ji))
                 lines.append(f"吉时：{c.jishi}｜喜神：{c.xi_fangwei}｜财神：{c.cai_fangwei}")
                 lines.append(f"理由：{c.reason_source}（总分{c.total}）")
                 lines.append("")
@@ -7316,11 +7333,12 @@ class MessageHandler:
 
         # 阶段 5·来源体系（方案 §3.0）：择日结果 → 引擎来源；检索古籍 → book 来源
         try:
+            _yi_ji = _yi_ji_render_lines(result.yi, result.ji)
             self._register_engine_citation(
                 user_id,
                 f"择日分析：{year}年{month}月{day}日，建除十二神{result.jianchu}，"
-                f"二十八宿{result.ershibaxiu}（{result.xiu_jixiong}），"
-                f"宜：{'、'.join(result.yi)}；忌：{'、'.join(result.ji)}",
+                f"二十八宿{result.ershibaxiu}（{result.xiu_jixiong}）"
+                + (f"，{'；'.join(_yi_ji)}" if _yi_ji else ""),
                 title="择日分析结果", source="择日引擎",
             )
             self._register_book_citations(user_id, refs, title="择日 · 古籍参考")
@@ -7341,8 +7359,8 @@ class MessageHandler:
         lines.append(f"建除十二神：{r.jianchu}")
         lines.append(f"二十八宿：{r.ershibaxiu}（{r.xiu_jixiong}）")
         lines.append(f"冲：{r.chong}")
-        lines.append(f"宜：{'、'.join(r.yi)}")
-        lines.append(f"忌：{'、'.join(r.ji)}")
+        # k26：空宜/空忌整行不渲染（2026-02-10 忌=[] 实测：旧代码输出「忌：」）
+        lines.extend(_yi_ji_render_lines(r.yi, r.ji))
         lines.append(f"综合判定：{r.overall}")
         return '\n'.join(lines)
 

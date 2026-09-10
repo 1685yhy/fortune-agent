@@ -27,6 +27,9 @@
        （如 2026-08-21 既宜又忌"嫁娶"），按忌优先（保守口径——通书惯例：忌示
        不宜行事，宁可错忌不可错宜；见 _resolve_yi_ji_conflicts）从宜中剔除、
        保留于忌。月视图 yi_short/ji_short 与日详情 yi/ji 同一消解。
+  哨兵过滤（k26）：黄历侧哨兵「无」（无忌事/无宜事日）在合并入口统一剔除，
+       与择吉侧同源同语义（zeri.filter_yi_ji_sentinel 单一实现）——k23 只修了
+       择吉面，用户面万年历仍放行「忌：无」（2026-11-07 忌第 4 项实证）。
   黄黑道 = lunar-python 十二值神: 青龙/明堂/金匮/天德/玉堂/司命 为黄道（吉）；
            天刑/朱雀/白虎/天牢/玄武/勾陈 为黑道（凶）。
   值日吉凶 quality = 建除十二神吉凶（JIANCHU_QUALITY: 吉/平/凶）。
@@ -38,7 +41,12 @@ from typing import Any, Dict, List
 
 from lunar_python import Solar
 
-from src.engines.zeri import JIANCHU_QUALITY, JIANCHU_YI_JI, ZeriEngine
+from src.engines.zeri import (
+    JIANCHU_QUALITY,
+    JIANCHU_YI_JI,
+    ZeriEngine,
+    filter_yi_ji_sentinel,
+)
 
 BJT = timezone(timedelta(hours=8))
 MIN_YEAR, MAX_YEAR = 1900, 2100  # lunar-python 历法支持范围
@@ -78,8 +86,14 @@ def _chong_parse(desc: str) -> Dict[str, str]:
 
 
 def _merge_yi_ji(jianchu_yi: List[str], day_yi: List[str]) -> List[str]:
-    """宜/忌合并: 建除在前 + lunar-python 当日黄历，按序去重（与 zeri.py 同口径）。"""
-    return list(dict.fromkeys(list(jianchu_yi) + list(day_yi)))
+    """宜/忌合并: 建除在前 + lunar-python 当日黄历，按序去重（与 zeri.py 同口径）。
+
+    k26：黄历侧（day_yi 入参，调用点恒传 lunar.getDayYi/getDayJi）的哨兵「无」
+    在此剔除 —— 与 zeri._day_yi_ji 共用同一实现（filter_yi_ji_sentinel），
+    修复万年历面「忌：无」泄漏；建除表侧无哨兵词条（表内实证无「无」）。
+    """
+    return list(dict.fromkeys(
+        list(jianchu_yi) + filter_yi_ji_sentinel(day_yi)))
 
 
 def _resolve_yi_ji_conflicts(yi: List[str], ji: List[str]) -> tuple:

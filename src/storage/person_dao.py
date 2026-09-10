@@ -600,6 +600,17 @@ class PersonDAO:
 
         删除的是默认命主时：剩余最早者提升为默认（若无剩余则保留 users.bazi_info
         旧档案，下次访问自动重建默认 person）。
+
+        k26（k25 审查 I-1 同类收口）：删除默认命主 = 默认身份换人 → 被提升者的
+        出生数据必须同步镜像到 ② 源（users.bazi_info）。本路径此前直接用裸 SQL
+        提升默认、未接写侧镜像漏斗 → 下一次读路径自愈前，直读 ② 源的消费点会
+        拿到**已删除命主**的档案（与 set_default 同源缺陷，故同批收口）。
+
+        语义与 k25 漏斗完全一致（复用单点，不手写 payload dict）：
+        - 无出生年不镜像（不得以空 payload 清空既有 ② 源；删光命主的场景本就
+          保留旧 ② 源，下次访问据此自动重建默认 person）；
+        - 失败仅告警不抛（mirror_bazi_info_to_users 内部兜底返回 False）。
+        删非默认命主时默认身份未变 → 不镜像（零多余写）。
         """
         existing = self.get_person(user_id, person_id)
         if existing is None:
@@ -615,10 +626,29 @@ class PersonDAO:
             )
         conn.commit()
         conn.close()
+        if existing["is_default"]:
+            # 提升后的新默认命主。auto_migrate=False：本路径绝不代建档
+            # （无剩余命主 → None → 不镜像，保留既有 ② 源）。
+            promoted = self.get_default_person(user_id, auto_migrate=False)
+            if promoted and promoted.get("birth_year"):
+                mirror_bazi_info_to_users(
+                    self.db_path, user_id, bazi_info_of_person(promoted))
         return True
 
     def set_default(self, user_id: str, person_id) -> bool:
-        """设默认（事务：清旧默认 → 置新默认）。归属校验。"""
+        """设默认（事务：清旧默认 → 置新默认）。归属校验。
+
+        k26（k25 审查 I-1 收口）：置默认成功后把**新默认命主**的出生数据镜像到
+        ② 源（users.bazi_info）——「提升为默认」是生产入口（api/user.py 的
+        POST /api/persons/{id}/default），k25 只把 update_person 默认行/建档接了
+        写侧漏斗，此路径漏接 → 在下一次读路径自愈前，直读 ② 源的消费点会读到
+        旧默认档案（默认人员与出生数据混用的窗口）。
+
+        语义与 k25 漏斗一致（单点复用，不手写 payload dict）：
+        - 无出生年不镜像（不得以空 payload 清空既有 ② 源）；
+        - 失败仅告警不抛（mirror_bazi_info_to_users 内部兜底并返回 False，
+          主流程与返回值不受影响，与 update_person 走同一条路径）。
+        """
         existing = self.get_person(user_id, person_id)
         if existing is None:
             return False
@@ -630,6 +660,11 @@ class PersonDAO:
         )
         conn.commit()
         conn.close()
+        # k26：写侧镜像漏斗（与 update_person 默认行同条件、同 payload 实现）
+        updated = self.get_person(user_id, person_id)
+        if updated and updated.get("birth_year"):
+            mirror_bazi_info_to_users(
+                self.db_path, user_id, bazi_info_of_person(updated))
         return True
 
     # ------------------------------------------------------------

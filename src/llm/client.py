@@ -13,6 +13,10 @@ logger = logging.getLogger(__name__)
 from .prompts import SYSTEM_PROMPT, CHAT_PROMPT, USER_CONTEXT_TEMPLATE
 from src.engines.bazi import BaziResult
 from src.rag.retriever import ChunkResult
+# k26：引用读取只走读取契约（title→source→"古籍" + 正文行首分隔符剥离）。
+# _format_references 此前直读 ref.source / ref.text —— 空出处时 LLM 拿到
+# 【未知】，语料行首的悬空冒号也会原样进入依据块（可能被回显给用户）。
+from src.book_categories import ref_text, ref_title
 
 # emoji 强收敛（v2026-08-17，PM 反馈回复 emoji 过多显 low）：
 # 所有 LLM 输出在客户端统一后处理剔除 emoji——提示词兜底 + 此处硬兜底。
@@ -674,9 +678,11 @@ class FortuneLLM:
         for i, ref in enumerate(refs[:15], 1):
             if isinstance(ref, str):
                 # 兼容调用方传入纯文本片段（如解梦引擎的 interpretations 列表）
-                lines.append(f"{i}. \"{ref[:300]}\"")
+                lines.append(f"{i}. \"{ref_text(ref)[:300]}\"")
             else:
-                lines.append(f"{i}. 【{ref.source}】\"{ref.text[:300]}...\" (相关度: {ref.score:.2f})")
+                # k26：出处/正文一律走读取契约（空出处 →「古籍」；悬空冒号已剥）
+                lines.append(f"{i}. 【{ref_title(ref)}】"
+                             f"\"{ref_text(ref)[:300]}...\" (相关度: {ref.score:.2f})")
         if not lines:
             return "（未找到直接相关古籍记载）"
         return "\n".join(lines)

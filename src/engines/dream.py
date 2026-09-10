@@ -14,6 +14,8 @@ from dataclasses import dataclass, field
 from typing import List, Tuple
 import re
 
+from src.book_categories import ref_text
+
 
 @dataclass
 class DreamResult:
@@ -286,7 +288,9 @@ class DreamEngine:
                 _search(f"梦 {kw}", top_k=2)
 
         all_results.sort(key=lambda r: r.score, reverse=True)
-        sources = list(set(r.source for r in all_results[:15]))
+        # k26：空出处不参与来源拼接（retriever 侧不再伪造字面量「未知」→ 出处
+        # 可为空串；不过滤则 "、".join 会渲染出悬空顿号）。
+        sources = [s for s in set(r.source for r in all_results[:15]) if s]
 
         # 5. 吉凶骨架 + 象征/元素/情绪字段
         symbols, elements, element_notes = [], [], []
@@ -307,7 +311,13 @@ class DreamEngine:
             original_text=dream_text,
             dream_type=dream_type,
             keywords=keywords,
-            interpretations=[r.text for r in all_results[:15]],
+            # k26 审查 I-1：interpretations 是本引擎对外的「古籍正文」唯一出口
+            # （工具引用抽屉/正文行、chat 引用抽屉、送 LLM 的 prompt 块、
+            # 「📖 古籍记载：」回复、format_dream_prompt 全部复用同一份），
+            # 必须走 book_categories.ref_text 契约 —— 命中空 title 语料
+            # （237 条 `": 正文"` 形态，解梦检索不设 category、降级回落 27k
+            # 集合）时由契约剥掉行首悬空冒号，绝不在各消费点复制剥离逻辑。
+            interpretations=[ref_text(r) for r in all_results[:15]],
             source="、".join(sources) if sources else "",
             symbols=symbols,
             emotions=emotions,

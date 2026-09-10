@@ -28,6 +28,8 @@
 """
 from __future__ import annotations
 
+import re
+
 # ---------------------------------------------------------------------------
 # 集合名
 # ---------------------------------------------------------------------------
@@ -116,6 +118,21 @@ def resolve_categories(name: str | None) -> tuple[str, ...]:
 # 异常被 except 吞掉（报告整体消失），API 路径把异常文本透给前端。
 # 结论：读取检索结果**只走本模块这两个函数**，禁止再直接访问属性名。
 
+# 空出处伪字面量（k26）：title/source 均缺失时旧检索链注入的「未知」——
+# 它不是书名，视同「无出处」（参见 ref_title）。
+_NO_SOURCE_LITERALS = frozenset({"未知"})
+
+# 正文行首分隔符（k26）：空 title 语料的 document 前缀（title + ": " + 正文）。
+# 只匹配行首、只吃冒号（半角/全角）与其紧邻空白，正文中间的冒号不受影响。
+_LEADING_SEPARATOR_RE = re.compile(r"^\s*[:：]+\s*")
+
+
+def _defined_source(value) -> str:
+    """出处取值归一：空/空白/伪字面量「未知」→ ""（无出处），其余原样（去空白）。"""
+    s = str(value or "").strip()
+    return "" if s in _NO_SOURCE_LITERALS else s
+
+
 def ref_title(ref) -> str:
     """检索结果 → 引用出处（书名/标题）。
 
@@ -127,12 +144,20 @@ def ref_title(ref) -> str:
     裸字符串（解梦引擎等会传纯文本片段）单列一支：否则 `getattr(ref, "title")`
     会命中 `str.title` **方法对象**，渲染出「<built-in method title of str
     object at 0x…>」这种垃圾出处。字符串本身没有出处可言 → "古籍"。
+
+    空出处哨兵（k26 收口，k24 遗留面）：检索链在 title/source 均缺失时曾把
+    `source` 填成字面量「未知」（retriever.py 三处 + bm25_retriever.py 一处），
+    它不是书名，却让本函数的 "古籍" 兜底永远不可达（渲染《未知》），并使
+    handler 的「古籍 → 回落调用方分类标题」分支失效。契约内统一视同「无出处」
+    —— 任何生产方再注入该字面量也不会泄漏到用户面。
     """
     if isinstance(ref, (str, bytes)):
         return "古籍"
     if isinstance(ref, dict):
-        return str(ref.get("title") or ref.get("source") or "古籍")
-    return str(getattr(ref, "title", "") or getattr(ref, "source", "") or "古籍")
+        return (_defined_source(ref.get("title"))
+                or _defined_source(ref.get("source")) or "古籍")
+    return (_defined_source(getattr(ref, "title", ""))
+            or _defined_source(getattr(ref, "source", "")) or "古籍")
 
 
 def ref_text(ref) -> str:
@@ -141,9 +166,16 @@ def ref_text(ref) -> str:
     裸字符串即正文本身（解梦引擎的 interpretations 就是纯文本列表）→ 原样返回；
     若不单列这一支，`getattr(ref, "text")` 取不到值会返回空串，该条引用被
     消费点按「无正文」静默丢弃。
+
+    悬空冒号（k26）：237 条空 title 语料的 document 以 `": "` 开头（入库时
+    title + ": " + 正文，title 空 ⇒ 前缀无处可落）——「空标题 + 悬空冒号」是
+    同一个数据形态的两面。契约内在正文入口剥离行首分隔符（只剥行首、只剥
+    冒号与其前后空白），消费点无需各自清理。
     """
     if isinstance(ref, (str, bytes)):
-        return str(ref)
-    if isinstance(ref, dict):
-        return str(ref.get("text") or ref.get("content") or "")
-    return str(getattr(ref, "text", "") or getattr(ref, "content", "") or "")
+        text = str(ref)
+    elif isinstance(ref, dict):
+        text = str(ref.get("text") or ref.get("content") or "")
+    else:
+        text = str(getattr(ref, "text", "") or getattr(ref, "content", "") or "")
+    return _LEADING_SEPARATOR_RE.sub("", text)
