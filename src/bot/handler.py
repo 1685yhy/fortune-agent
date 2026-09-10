@@ -203,6 +203,7 @@ ZERI_SCENE_QUESTION = "您是给哪件事选日子？搬家/嫁娶/开业/晋升
 # inner_product）。检索工具只走 FAISS；不可用/无结果时走 LLM 自然对话兜底，
 # 不降级关键词检索（见 _tool_search）。
 from src.rag.faiss_retriever import get_faiss_retriever
+from src.book_categories import ref_text, ref_title
 
 # 阶段 5·来源体系与引用校验（方案 §3.0/§3.2 ③）：四类来源统一角标 +
 # 回答后校验（不相关引用剔除）；网络检索（智谱 Web Search，可用才宣传）
@@ -254,10 +255,13 @@ class _FaissChunk:
     与 FaissRetriever 返回结构不同，解梦等内部检索经此适配统一。
     """
 
-    __slots__ = ("text", "source", "score", "category")
+    # k24 补丁：补 title —— FAISS 结果里 title 是书名（source 只是语料 slug，
+    # 如 daizhige），漏掉它则引用只能显示 slug 或「未知」。
+    __slots__ = ("text", "source", "title", "score", "category")
 
     def __init__(self, d: dict):
         self.text = d.get("text") or ""
+        self.title = d.get("title") or ""
         self.source = d.get("source") or d.get("title") or ""
         self.score = float(d.get("score") or 0.0)
         self.category = d.get("category") or ""
@@ -282,17 +286,14 @@ def _ref_title_text(ref) -> tuple:
 
     生产上同一条检索链会返回两类形态：FAISS 路径的 `_FaissChunk`/dict 与
     legacy 路径的 `ChunkResult`。只认 dict 的消费点会把对象形态整体丢弃 →
-    「检索到了但等于没检索」。此处统一，调用方不必再各自 isinstance 判断。
+    「检索到了但等于没检索」。
+
+    k24 补丁：实现收敛到 src/book_categories.py 的读取契约（ref_title/ref_text），
+    本函数只做组合。此前两支优先级不一致（dict 支 title→source、对象支
+    source→title），且下游还有消费点读了两边都不存在的 `.content` 字段导致
+    P0 崩溃 —— 统一到一个实现后这类分叉不可能再出现。
     """
-    if isinstance(ref, dict):
-        return (
-            ref.get("title") or ref.get("source") or "古籍",
-            str(ref.get("content") or ref.get("text") or ""),
-        )
-    return (
-        getattr(ref, "source", "") or getattr(ref, "title", "") or "古籍",
-        str(getattr(ref, "text", "") or ""),
-    )
+    return ref_title(ref), ref_text(ref)
 
 
 # L2 会话增量摘要（方案 §5.4）— 触发式滚动压缩，<summary>+<memories>
@@ -2320,7 +2321,9 @@ class MessageHandler:
         # 展示用相对相关度（池内最佳=1.00），原始分数保留在引用数据里
         top1 = max((r.get("score") or 0.0) for r in refs) if refs else 1.0
         for i, ref in enumerate(refs, start=start):
-            src = ref.get("source") or ref.get("title") or "古籍"
+            # k24 补丁：改用统一读取契约（title→source）。原 source→title 在 FAISS
+            # 路径上会把语料 slug（如 daizhige）当书名展示给用户。
+            src = ref_title(ref)
             rel = (ref.get("score") or 0.0) / top1 if top1 > 0 else 1.0
             items.append(make_citation(
                 i, "book", ref["text"][:400],

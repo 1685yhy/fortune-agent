@@ -10,6 +10,7 @@ from typing import Optional, Dict, List, Tuple
 import numpy as np
 import cv2
 
+from src.book_categories import ref_text, ref_title
 from src.utils.text_clean import strip_emoji
 
 
@@ -216,7 +217,12 @@ def generate_palm_report(metrics: PalmMetrics, retriever=None, api_key: str = ""
 
     refs_text = ""
     if refs:
-        refs_text = "\n📖 古籍依据:\n" + "\n".join(f"- {r.content[:200]}" for r in refs[:3])
+        # k24 补丁（P0 回归）：原读 r.content —— ChunkResult/_FaissChunk 都没有该
+        # 字段。空库时代 refs 恒空 → 该行永不执行 → 潜伏；检索修好后立刻
+        # AttributeError，因本函数被 except 包裹 → 整个手相报告静默消失。
+        # 统一走 ref_text/ref_title 读取契约。
+        refs_text = "\n📖 古籍依据:\n" + "\n".join(
+            f"- 《{ref_title(r)}》{ref_text(r)[:200]}" for r in refs[:3])
 
     if api_key:
         try:

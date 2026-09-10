@@ -78,8 +78,11 @@ CATEGORY_ALIASES: dict[str, tuple[str, ...]] = {
     ),
     # 姓名学：直接对齐（1249 条）
     "xingming": ("xingming",),
-    # 解梦：直接对齐（14083 条）
-    "dream": ("dream",),
+    # 注意：不列 "dream"。库内确有 dream 类目（14083 条），但生产解梦路径走的是
+    # FAISS 主检索器（handler._get_dream_retriever → _ChunkSearchAdapter），
+    # 且 DreamEngine 调 search 时不传 category —— 写了也没有调用方（死映射）。
+    # 万一将来有调用方传 category="dream"，resolve_categories 的「未知词原样
+    # 透传」会得到完全相同的 ("dream",)，故删除不改变任何行为。
     # 合婚：库内无对应类目 → 空元组 = 明示「无类目可过滤」，走全库检索
     "hehun": (),
     # 择吉：库内无对应类目（择日内容散落在奇门/通书类文档中，无独立 category）
@@ -99,3 +102,35 @@ def resolve_categories(name: str | None) -> tuple[str, ...]:
     if not name:
         return ()
     return CATEGORY_ALIASES.get(name, (name,))
+
+
+# ---------------------------------------------------------------------------
+# 检索结果读取契约（k24 补丁 — P0 回归修复）
+# ---------------------------------------------------------------------------
+# 全仓有两条检索链，返回两类形态：
+#   - legacy chroma：`ChunkResult`（src/rag/retriever.py）—— text/source/title/…
+#   - FAISS：`_FaissChunk`（src/bot/handler.py）或原始 dict —— text/source/title/…
+# 历史教训（k24 P0 回归）：消费点各自 isinstance/getattr 判断，且有人读 `.content`
+# —— 这个字段**两条链都不存在**。空库时代 refs 恒为空 → 该行永不执行 → 潜伏；
+# 一旦检索修好（refs 非空）立刻炸：手相/面相报告生成 AttributeError，聊天路径
+# 异常被 except 吞掉（报告整体消失），API 路径把异常文本透给前端。
+# 结论：读取检索结果**只走本模块这两个函数**，禁止再直接访问属性名。
+
+def ref_title(ref) -> str:
+    """检索结果 → 引用出处（书名/标题）。
+
+    优先级统一为 **title → source → "古籍"**：库内 `title` 是具体篇目（如
+    「正官格案例十一：乙木生于申月，官星得地」），FAISS 侧 `title` 是书名（如
+    「秘传刘伯温家藏接骨金疮禁方 - 殆知阁」），而 FAISS 的 `source` 是语料 slug
+    （如 daizhige）——给人看的引用一律优先 title。
+    """
+    if isinstance(ref, dict):
+        return str(ref.get("title") or ref.get("source") or "古籍")
+    return str(getattr(ref, "title", "") or getattr(ref, "source", "") or "古籍")
+
+
+def ref_text(ref) -> str:
+    """检索结果 → 正文。兼容 dict 与对象两种形态（ChunkResult/_FaissChunk/dict）。"""
+    if isinstance(ref, dict):
+        return str(ref.get("text") or ref.get("content") or "")
+    return str(getattr(ref, "text", "") or getattr(ref, "content", "") or "")
