@@ -307,6 +307,12 @@ def get_user_birth_profile_full(dao, user_id: str,
     profile = get_user_birth_profile(dao, user_id, chart_dao=chart_dao)
     if not profile:
         return None
+    # k28（k25 审查 M-5 结论：保留 + 注释）：下方 8 键是**派生展示投影**，
+    # 不是第四处 payload 事实源——取值全部来自上面单点读返回 profile
+    # （=bazi_info_of_person 形态），不自行构造/归一任何值；末尾追加的
+    # bazi/day_master 等键来自 birth 匹配的 chart_records（k8：四柱不属于
+    # birth payload）。因此与「读返回 out / 自愈回写 / 写侧镜像」三处站点
+    # 无分歧风险（同一入参 dict，逐键取值不可漂移）。
     out = {k: profile.get(k) for k in
            ("year", "month", "day", "hour", "minute",
             "city", "gender", "calendar")}

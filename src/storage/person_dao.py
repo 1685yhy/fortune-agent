@@ -179,7 +179,8 @@ def mirror_bazi_info_to_users(db_path: str, user_id: str, payload: dict,
                     "updated_at) VALUES (?,?,?,?)",
                     (user_id, enc, now, now))
             else:
-                conn.close()
+                # k28（k25 审查 M-1）：行缺失且不代建档 = no-op。连接关闭统一由
+                # 外层 finally 承担（此处不再 close，去掉同一连接的双重关闭）。
                 return False
             conn.commit()
             return True
@@ -505,6 +506,11 @@ class PersonDAO:
         # k25 ④-6(b)：本次是否写入出生数据（镜像漏斗触发条件之一）
         _birth_written = False
         # k25 ④-6(b)：本次是否显式改动了默认标记（提升为默认 → ② 源换人镜像）
+        # k28（k25 审查 M-3，保留+注释）：`is_default=` 形参目前**无生产调用方**
+        # ——全 src/ grep 仅本函数声明；4 个调用点（api/user.py:723/987、
+        # handler.py:3807/3818）均不传，生产「提升为默认」走 set_default（k26
+        # 已接漏斗）。本分支保留为防御面（测试覆盖 update_person(is_default=)
+        # 语义），若将来生产提升改走本函数无需再补漏斗。
         _default_set = is_default is not None
         if birth:
             new_birth = _birth_dict(**birth)
@@ -629,7 +635,16 @@ class PersonDAO:
         if existing["is_default"]:
             # 提升后的新默认命主。auto_migrate=False：本路径绝不代建档
             # （无剩余命主 → None → 不镜像，保留既有 ② 源）。
-            promoted = self.get_default_person(user_id, auto_migrate=False)
+            # k28（k26 审查 m-6）：读调用包异常守卫——与同类读（归属校验
+            # get_person 之外的下游读）对齐：读取失败只告警，不回退删除结果
+            # （persons 侧删除已是终态，② 源交给读路径自愈兜底），绝不把
+            # 异常抛给调用方。
+            try:
+                promoted = self.get_default_person(user_id, auto_migrate=False)
+            except Exception as e:
+                promoted = None
+                logger.warning("k28 删除默认命主后读取新默认失败 user=%s: %s",
+                               user_id, str(e)[:160])
             if promoted and promoted.get("birth_year"):
                 mirror_bazi_info_to_users(
                     self.db_path, user_id, bazi_info_of_person(promoted))
