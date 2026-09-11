@@ -110,11 +110,15 @@ def test_default_person_bazi_info_same_fields_as_legacy(tmp_path):
 
     注意 persons 侧既有归一约定（P2 _birth_dict：数值 0/None 归一为 None 并省略
     输出），故 minute=0 不输出——与旧字段语义兼容（缺省即 0 分）。
+
+    k30：投影新增 `solar_time`（档案级真太阳时开关，缺省开=1；见
+    tests/test_k30_solar_projection.py）——纯增量键，旧消费方逐键读取零变化。
     """
     db = str(tmp_path / "same_fields.db")
     UserDAO(db).save_user_bazi("u1", dict(LEGACY_BAZI))
     info = PersonDAO(db).default_person_bazi_info("u1")
     expected = {k: v for k, v in LEGACY_BAZI.items() if v}  # minute=0 → 省略
+    expected["solar_time"] = 1  # k30：旧行无该键 → 读口径缺省开
     assert info == expected
     assert "minute" not in info  # 0 分按归一约定省略（不输出 None 键）
 
@@ -180,7 +184,9 @@ def test_login_returns_bazi_for_legacy_user(tmp_path, monkeypatch):
     assert body["user"]["id"] == uid
     assert body["user"]["is_new"] is False
     # minute=0 → None → 省略（P2 归一约定；与 default_person_bazi_info 同源契约一致）
-    assert body["bazi"] == {k: v for k, v in LEGACY_BAZI.items() if v}
+    # k30：登录 bazi 同步带档案级真太阳时开关（此用户旧行无该键 → 缺省开=1）
+    assert body["bazi"] == {**{k: v for k, v in LEGACY_BAZI.items() if v},
+                            "solar_time": 1}
     assert "minute" not in body["bazi"]
     # 登录触发老用户迁移：persons 已补建「我/自己」
     p = PersonDAO(db).get_default_person(uid)
