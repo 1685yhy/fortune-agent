@@ -136,9 +136,9 @@ Page({
         yiDot: (d.yi_short[0] || '').slice(0, 2),   // 宜忌点（简表首项）
         jiDot: (d.ji_short[0] || '').slice(0, 2),
         huanghedao: d.huanghedao,      // 黄道/黑道
-        jianchu: d.jianchu,
-        quality: d.quality,            // 吉/平/凶（建除口径）
-        qCls: { 吉: 'q-ji', 平: 'q-ping', 凶: 'q-xiong' }[d.quality] || 'q-ping',
+        jianchu: d.jianchu,            // 值日名（建除十二神）
+        // k27c（产品 2026-09-11 拍板）: 不再透传/预计算建除吉凶（原 quality +
+        // qCls 颜色映射）—— 万年历面不展示吉/凶判定; 吉凶总评只在择吉/聊天给。
         // P1-1 审查 C2: is_today 以设备时钟自算为准（后端月视图缓存 24h，
         // 服务端 is_today/today 可能过期——23:59 渲染的缓存次日会标错"今日"）
         isToday: d.date === this.data.todayDate,
@@ -258,10 +258,10 @@ Page({
     this.setData({ detailDate: date, detailLoading: true, detail: null, detailVisible: true });
     api.getWannianliDay(date)
       .then((data) => {
-        // WXML 不支持方法调用/复杂嵌套：旬空与建除颜色 class 预计算
+        // WXML 不支持方法调用/复杂嵌套：旬空预计算
         data.xunkongText = (data.xunkong || []).join('、');
-        const jq = (data.jianchu || {}).quality;
-        data.jcCls = jq === '吉' ? 'ws-zhi-huang' : (jq === '凶' ? 'ws-zhi-hei' : '');
+        // k27c: 原按建除吉凶预计算 jcCls（吉=朱砂/凶=淡墨）—— 已下线, 不再消费
+        // 后端 quality 字段（该字段同时从后端删除, 见 src/engines/wannianli.py）
         this.setData({ detail: data, detailLoading: false });
         this._setSummary(data);          // 摘要行与详情同一次请求
       })

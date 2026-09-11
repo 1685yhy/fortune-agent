@@ -122,7 +122,11 @@ JIANCHU_YI_JI = {
     },
 }
 
-# 建除十二神吉凶判定
+# 建除十二神吉凶判定（传统通书口径, 建除表参考数据）。
+# k27c（2026-09-11）: 万年历面已下线该表派生的 `quality` 吉凶标签 —— 本表**不再有
+# src 消费方**（仅 tests/test_zeri.py 的表完整性锚点引用）; 保留为历法参考数据。
+# 注: `JIANCHU_QUALITY["危"]="吉"` 与 K3 权威口径「排除危日」相抵, 故不参与
+# overall/卡片判定（见 _judge_overall）。
 JIANCHU_QUALITY = {
     "建": "平",   # 太岁同位，不宜动土
     "除": "吉",   # 除旧布新
@@ -509,7 +513,12 @@ class ZeriEngine:
           `_purpose_hit_words(purpose)` —— 该词表来自 `SCENES` 的 yi_hits, 与卡片场景
           准入 `_scene_score(cfg, jianchu, lunar_yi)` 同一输入表（K3-A5: 建除表宜
           仅展示、不驱动评分）;
-        - **平**: 其余。
+          **不带用途时（k27c, 产品 2026-09-11 拍板）**: 非凶且**权威宜表非空**即判吉
+          —— 通用吉信号, 与卡片/用途分支同一输入 `lunar_yi`（不另写第三套判据）;
+          该分支**只在 `purpose` 为空时生效**（带用途但未命中一律平, 不因权威宜表
+          非空而抬成吉）;
+        - **平**: 其余（含无用途且权威宜表为空 —— 权威当日「无宜事」, 见
+          `_authority_yi_ji` 哨兵过滤）。
 
         被替换的 k23 语义（5.0 基准 + 建除 quality ±2 + 二十八宿 ±1 + 用途 ±1, 阈值
         6/3）与卡片判据无一处同维度: 2026-10-01 搬家 —— 卡片 total=64（权威吉日,
@@ -541,6 +550,12 @@ class ZeriEngine:
                 veto = SCENES[scene]["ji_hits"] if scene else ()
                 if not any(kw in j for j in ji for kw in veto):
                     return "吉"
+        # k27c 通用吉信号（**只在无用途分支生效**, 产品 2026-09-11 拍板）: 不带用途
+        # 泛问「今天怎么样」也要有肯定答复 —— 非凶且**权威宜表非空** → 吉; 权威当日
+        # 「无宜事」（`getDayYi()==['无']` 滤哨兵后为空）→ 平。判据复用同一输入
+        # `lunar_yi`（与用途分支/卡片 `_scene_score` 同源表）, 不另写词表。
+        if not purpose and lunar_yi:
+            return "吉"
         return "平"
 
     # ---- 择吉日: 多日扫描 + 三层评分 + Top3 ----

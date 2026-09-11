@@ -39,7 +39,7 @@ function makePage() {
 
 const flush = async () => { await Promise.resolve(); await Promise.resolve(); };
 
-// 假月视图（后端 month_view 口径）：days_in_month 天，首日周日对齐
+// 假月视图（后端 month_view 口径，k27c: 不含建除吉凶 `quality`）：days_in_month 天，首日周日对齐
 // 未显式传天数时按当月真实天数生成（selectedDate=设备时钟今日，30 天假月会在
 // 每月 30/31 日跑挂 —— todayCell 不在月视图中）
 function fakeMonth(y, m, daysInMonth) {
@@ -54,7 +54,7 @@ function fakeMonth(y, m, daysInMonth) {
       day_ganzhi: '甲子', jieqi: '', festival: '',
       yi_short: ['祈福', '求嗣'], ji_short: ['出行'],
       huanghedao: '黄道', tianshen: '明堂', jianchu: '建',
-      quality: '吉', is_today: false,
+      is_today: false,
     });
   }
   return { year: y, month: m, days_in_month: daysInMonth, first_weekday: 0, today: `${y}-${String(m).padStart(2, '0')}-01`, days };
@@ -67,7 +67,7 @@ function fakeDetail(date) {
     lunar: { year: '丙午年', month: '七月', day: '初七', leap: false, full: '丙午年七月 初七' },
     ganzhi: { year: '丙午', month: '丙申', day: '乙丑' },
     nayin: { year: '天河水', month: '', day: '海中金' },
-    jianchu: { name: '执', quality: '吉', desc: '持守进退' },
+    jianchu: { name: '执', desc: '持守进退' },       // k27c: 无建除吉凶 quality
     huanghedao: { type: '黄道', tianshen: '明堂', luck: '吉' },
     ershibaxiu: { name: '轸', jixiong: '吉' },
     yi: ['祈福', '求嗣', '订婚', '嫁娶', '出行', '求财'],
@@ -234,6 +234,39 @@ test('onTapDay：选中态 + 摘要行同步 + 详情打开', async (t) => {
   page.onTapDay({ currentTarget: { dataset: { date: '2000-05-05', blank: false } } });
   assert.equal(page.data.detailVisible, true);
   assert.equal(api.getWannianliDay.mock.calls.length, before, '同日重开不重复拉取');
+});
+
+test('k27c：页面不再向渲染层输出建除吉凶标签（无 qCls / quality / jcCls）', async (t) => {
+  // 产品 2026-09-11 拍板: 万年历面不再展示吉/凶判定（建除 quality 与宿 jixiong 的
+  //「（吉）/（凶）」括号标签一并下线）, 只留值日名 + 值宿; 吉凶总评只在择吉/聊天给。
+  t.mock.method(api, 'getWannianliMonth', (y, m) => Promise.resolve(fakeMonth(y, m)));
+  t.mock.method(api, 'getWannianliDay', (date) => Promise.resolve(fakeDetail(date)));
+  const page = makePage();
+  page.onLoad();
+  await flush();
+  const cells = page.data.months[1].cells.filter((x) => !x.blank);
+  assert.ok(cells.length > 0, '中心月已渲染');
+  for (const c of cells) {
+    assert.ok(!('quality' in c), '月格不再透传建除吉凶');
+    assert.ok(!('qCls' in c), '月格不再预计算建除吉凶颜色 class');
+    assert.equal(c.jianchu, '建', '值日名（建除）保留 —— 去标签不得连值日信息一起丢');
+  }
+  page.onTapDay({ currentTarget: { dataset: { date: '2000-05-05', blank: false } } });
+  await flush();
+  assert.ok(!('jcCls' in page.data.detail), '详情不再预计算建除吉凶颜色 class');
+  assert.equal(page.data.detail.jianchu.name, '执', '详情值日名保留');
+  assert.equal(page.data.detail.jianchu.desc, '持守进退', '详情建除说明保留');
+  assert.equal(page.data.detail.ershibaxiu.name, '轸', '值宿名保留');
+  // 24h 缓存窗口内的旧载荷（仍带 quality / jixiong）不得回潮到渲染层:
+  // 页面已不消费这两个字段（后端字段下线 + 缓存过期前的最多一天过渡期）
+  const stale = fakeMonth(2000, 7);
+  stale.days[0].quality = '凶';
+  stale.days[0].jianchu = '破';
+  page._renderMonth(stale, 1);
+  const staleCell = page.data.months[1].cells.find((x) => !x.blank);
+  assert.ok(!('qCls' in staleCell) && !('quality' in staleCell),
+    '旧缓存载荷的 quality 不得回潮到月格');
+  assert.equal(staleCell.jianchu, '破', '值日名照常透传');
 });
 
 test('摘要请求序号：迟到的今日摘要不覆盖选中日摘要（含迟到失败不弹窗）', async (t) => {

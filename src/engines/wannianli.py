@@ -9,7 +9,7 @@
   旬空（八字的 DayXunKong）、节日、星期。
 - src/engines/zeri.py: 建除十二神（月支起建 _calc_jianchu_with_jieqi，节气日
   12 节交节即新月令顺推一位，对齐主流通书）+ 建除宜忌表（JIANCHU_YI_JI，传统
-  通书《协纪辨方书》建除十二神宜忌规则）+ 建除吉凶（JIANCHU_QUALITY）+
+  通书《协纪辨方书》建除十二神宜忌规则）+
   二十八宿值日（lunar-python getXiu + 传统吉凶表 ERSHIBA_XIU_JIXIONG）。
 
 宜忌规则（标准黄历，与择日引擎 zeri.py 同源数据，注释来源见上）:
@@ -30,7 +30,10 @@
        不渲染），本模块不新造文案。
   黄黑道 = lunar-python 十二值神: 青龙/明堂/金匮/天德/玉堂/司命 为黄道（吉）；
            天刑/朱雀/白虎/天牢/玄武/勾陈 为黑道（凶）。
-  值日吉凶 quality = 建除十二神吉凶（JIANCHU_QUALITY: 吉/平/凶）。
+  建除吉凶标签 quality（k27c, 产品 2026-09-11 拍板）: **已下线, 不再输出** ——
+       值日只给名（建除十二神名）; 吉凶总评只在择吉/聊天给（三面同源）。原字段由
+       本地表 JIANCHU_QUALITY 派生（非权威历法数据）, 与 chat `overall` 在 2026 有
+       73 天方向相反（如 2026-10-01 万年历「闭（凶）」↔ 聊天吉）。
 """
 import calendar as _cal
 import re
@@ -40,7 +43,6 @@ from typing import Any, Dict, List
 from lunar_python import Solar
 
 from src.engines.zeri import (
-    JIANCHU_QUALITY,
     JIANCHU_YI_JI,
     ZeriEngine,
 )
@@ -177,8 +179,9 @@ class WannianliEngine:
                 "ji_short": ji[:3],
                 "huanghedao": lunar.getDayTianShenType(),   # 黄道/黑道
                 "tianshen": lunar.getDayTianShen(),          # 值神（明堂/金匮…）
-                "jianchu": jianchu,                          # 建除十二神
-                "quality": JIANCHU_QUALITY[jianchu],         # 吉/平/凶（建除口径）
+                "jianchu": jianchu,                          # 建除十二神（值日名）
+                # k27c: 原 "quality"（建除吉凶 吉/平/凶）已下线 —— 万年历面不再
+                # 向用户展示吉/凶判定, 只留值日名; 吉凶总评在择吉/聊天给（三面同源）。
                 "is_today": f"{year:04d}-{month:02d}-{day:02d}" == today,
             })
 
@@ -247,9 +250,10 @@ class WannianliEngine:
                 "day": lunar.getDayNaYin(),
             },
             # 建除十二神（标准黄历值日）
+            # k27c: 原 `quality`（建除吉凶 吉/平/凶）字段已下线（产品 2026-09-11
+            # 拍板）—— 万年历面只给值日名; 见模块 docstring。
             "jianchu": {
                 "name": jianchu,
-                "quality": JIANCHU_QUALITY[jianchu],    # 吉/平/凶
                 "desc": JIANCHU_YI_JI[jianchu]["desc"],
             },
             # 黄黑道十二值神
