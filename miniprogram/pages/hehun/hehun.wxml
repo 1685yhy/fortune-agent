@@ -110,6 +110,20 @@
       </view>
     </view>
 
+    <!-- k29 真太阳时开关（产品口径 R2-4：默认开=按出生地经度校准时辰；关=北京时间
+         直排）。页级开关作用于双方排盘；档案直选/默认命主预填时回显该档案 solar_time。
+         交互/样式/文案沿用 paipan 页 k11c 原句（仅加「双方」二字点明页级作用面），
+         墨韵 tokens 同款，不新造样式族 -->
+    <view class="card">
+      <view class="solar-row">
+        <view class="solar-copy">
+          <view class="solar-t">真太阳时</view>
+          <view class="solar-d">按出生地经度校准时辰 · 双方排盘更精准（推荐开启 · 时辰恰在边界附近时可关闭对比北京时间直排）</view>
+        </view>
+        <switch checked="{{solarOn}}" bindchange="onSolarTimeChange" color="#A93A2C" />
+      </view>
+    </view>
+
     <!-- 关系标签 -->
     <view class="hh-relation card">
       <view class="hh-relation-label">你们的关系</view>

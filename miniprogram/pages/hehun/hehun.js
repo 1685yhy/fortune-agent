@@ -42,6 +42,12 @@ Page({
     p2CitySet: false,
     p2FromCache: false,    // 本机「上次记录」回填标注
 
+    // k29：页级真太阳时开关（R2-4 产品口径：默认开=按出生地经度校准时辰；
+    // 关=北京时间直排）。口径与 paipan 页一致：档案直选/默认命主预填时回显
+    // 该档案 solar_time（p.solar_time !== 0）；手动填表 → 本页会话级默认开。
+    // 开关作用于**双方**排盘（person1/person2 各自透传 solarTime）。
+    solarOn: true,
+
     // Picker 数据
     hourOptions: HOUR_OPTIONS,
 
@@ -203,6 +209,10 @@ Page({
       [`${target}Date`]: date,
       [`${target}Cal`]: cal,
       [`${target}Gender`]: p.gender === 'female' ? 'female' : 'male',
+      // k29：档案级真太阳时开关随档案回显（solar_time=0 关；缺失/旧档案 →
+      // 默认开，与 paipan _fillFromPerson 逐字同口径）——原缺口：档案显式关
+      // 了真太阳时的用户，合盘页仍拿修正后的盘，与档案口径不一致。
+      solarOn: p.solar_time !== 0,
     };
     // 时辰（选填）：档案有时辰才回填
     if (p.birth_hour !== undefined && p.birth_hour !== null && p.birth_hour !== '') {
@@ -256,6 +266,12 @@ Page({
     this.setData({ p2Gender: e.currentTarget.dataset.gender, p2FromCache: false });
   },
 
+  /* 真太阳时开关（k29，与 paipan 同款交互）：开=按出生地经度校准（solarTime:true）；
+     关=北京时间直排（solarTime:false）。页级开关作用于双方排盘。 */
+  onSolarTimeChange(e) {
+    this.setData({ solarOn: !!e.detail.value });
+  },
+
   // ---- 关系标签（5 chips 单选，再点取消） ----
   onRelationTap(e) {
     const r = e.currentTarget.dataset.rel;
@@ -277,6 +293,10 @@ Page({
     };
     if (d[`${prefix}HourSet`]) p.birthHour = d[`${prefix}HourIdx`] - 1;  // 时辰序号 0-11
     if (d[`${prefix}CitySet`]) p.city = d[`${prefix}City`];
+    // k29（R2-4）：真太阳时开关随载荷透传（页级开关 → 双方各带 solarTime）。
+    // 后端 BaziInput.solarTime 默认开=产品口径，显式传值才可能关闭；两人生辰
+    // 各自独立，故双方都带（非档案手动输入同样透传，不受档案路径影响）。
+    p.solarTime = !!d.solarOn;
     return p;
   },
 
