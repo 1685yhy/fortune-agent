@@ -10,6 +10,12 @@
 再合并/过滤（数据一致性铁律: 同一数据单一事实源）。
 
 断言依据: 项目自带 lunar-python 万年历权威口径（getDayYi/getDayJi）。
+
+k27（2026-09-11, 产品拍板「对齐权威黄历」）在本文件追加两段:
+1. 宜忌**双向**消解不变量（yi ∩ ji = ∅ / 权威忌 ∩ 我宜 = ∅）—— 修复前 75/365 天
+   同一词既宜又忌; 三面（万年历/择吉/聊天）统一消费 `ZeriEngine._day_yi_ji`;
+2. `overall` 三分语义与卡片准入同源 —— 修复前 2026-10-01 搬家 卡片 total=64 推荐
+   ↔ chat「综合判定：凶」（当年 8 例「出卡却判凶」）。
 """
 import pytest
 from lunar_python import Solar
@@ -181,45 +187,151 @@ def test_sentinel_wu_never_leaks_whole_year():
 
 
 # ============================================================
-# k23 补丁 F1: 固化 chat 路径「综合判定」现行语义（只钉不改）
+# k27: 宜忌双向消解（自洽）+ overall 与卡片准入同源（三分）
 # ============================================================
 
-def test_judge_overall_semantics_pinned_k23():
-    """F1 只钉不改 —— chat 路径 `_judge_overall` 吉凶语义: **此语义于 k23 确立, 待产品拍板**。
+def test_day_yi_ji_self_consistent_whole_year_2026():
+    """k27 不变量: 2026 全年 365 天 `set(yi) & set(ji) == ∅`（0 例外）。
 
-    k23 把宜忌事实源换成合并后的列表（建除表 + 神煞级黄历, 且 K3-A3 神煞级优先），
-    而 `_judge_overall` 的用途匹配直接消费该列表:
-      - 忌表多出神煞级黄历忌 → `purpose in ji`（-1 分）更易命中;
-      - 宜表含神煞级黄历宜, 且 `_adjust_by_purpose` 作用于合并后列表 → `yi[0]`
-        命中用途（+1 分）也更易发生。
-    结果: 2026 全年相对 k22 前, 出行 63/365 + 嫁娶 85/365 = **148/730** 日期×用途
-    的吉凶翻转（审查口径）。判定逻辑本身未改（不在 k23 范围）; 本测试固化现状,
-    防止无声漂移 —— 若产品拍板要改语义, 请连同本测试一并更新。
+    修复前实测 **75/365** 天同一词既宜又忌 —— `_day_yi_ji` 只单向消解（建除表忌
+    ∩ 黄历宜 → 归宜），反方向「建除表宜 ∩ 黄历忌」漏修，例 2026-01-13（建除
+    「开」表宜 嫁娶）∩ 当日黄历忌 嫁娶 → 一次回答里同时说「宜嫁娶」和「忌嫁娶」。
+    """
+    from datetime import date, timedelta
+    d, end, scanned, bad = date(2026, 1, 1), date(2026, 12, 31), 0, []
+    while d <= end:
+        scanned += 1
+        r = engine.select(d.year, d.month, d.day)
+        inter = set(r.yi) & set(r.ji)
+        if inter:
+            bad.append((d.isoformat(), sorted(inter)))
+        d += timedelta(days=1)
+    assert scanned == 365
+    assert bad == [], f"同词既宜又忌 {len(bad)} 天（修复前 75 天）: {bad[:8]}"
 
-    锚点当前值（每例含 purpose, 复盘用）:
-      2026-10-01 出行=凶（闭日 -2 + 奎凶 -1 + 宜首项命中 +1）; 10-01 搬家=凶（入宅 -0）
-      2027-01-01 出行=吉; 2026-10-14 嫁娶=平; 2026-09-20 安葬=吉; 2026-02-10 嫁娶=吉
+
+def test_day_yi_ji_reverse_conflict_anchor_2026_01_13():
+    """k27 反方向消解锚点: 2026-01-13（建除「开」）建除表宜 嫁娶 与当日黄历忌
+    嫁娶 冲突 → 以黄历为准归**忌**（词只出现在忌, 不再既宜又忌）。
+
+    同型: 2026-01-04（满日）开市/祈福、2026-01-10（危日）安床/纳畜。"""
+    r = engine.select(2026, 1, 13)
+    assert r.jianchu == "开"
+    assert "嫁娶" in _lunar("2026-01-13").getDayJi(), "测试前提: 权威忌应含 嫁娶"
+    assert "嫁娶" in r.ji and "嫁娶" not in r.yi, f"yi={r.yi} ji={r.ji}"
+    # 建除表内部自洽（反方向消解的结构前提: 同表内无词同时列于宜与忌）
+    from src.engines.zeri import JIANCHU_YI_JI as _T
+    for jc, tbl in _T.items():
+        assert set(tbl["yi"]) & set(tbl["ji"]) == set(), f"建除表{jc}日 宜忌自相交"
+
+
+def test_authority_ji_never_in_my_yi_whole_year_2026():
+    """k27 反方向不变量: 权威忌 ∩ 我方宜 = ∅（2026 全年 0 例外）——
+    与既有的「权威宜 ∩ 我方忌 = ∅」对称。建除表为 12 日周期粗粒度近似,
+    与神煞级黄历冲突时两侧均以黄历为准（A 口径）。"""
+    from datetime import date, timedelta
+    d, end, scanned, bad = date(2026, 1, 1), date(2026, 12, 31), 0, []
+    while d <= end:
+        scanned += 1
+        authority_ji = {x for x in _lunar(d.isoformat()).getDayJi() if x != "无"}
+        inter = authority_ji & set(engine.select(d.year, d.month, d.day).yi)
+        if inter:
+            bad.append((d.isoformat(), sorted(inter)))
+        d += timedelta(days=1)
+    assert scanned == 365
+    assert bad == [], f"权威忌被列为宜 {len(bad)} 天: {bad[:8]}"
+
+
+def test_card_recommended_implies_overall_not_xiong_2026():
+    """k27 同源底线（现象 1 反例的通用形式）: 全年逐日, **计划路径出卡（推荐）
+    ⟹ chat overall ≠ 凶**（同日同用途, 0 例外）。
+
+    overall 的「凶」判据 = 卡片前置排除规则逐条同源（破/危 + 诸事不宜/馀事勿取,
+    同一输入列表）→ 该蕴含由构造成立; 实测 4 用途 × 365 天。
+    修复前锚点: 2026-10-01 搬家 卡片 total=64 推荐 ↔ chat 综合判定「凶」。
+    """
+    from datetime import date, timedelta
+    total_cards, bad = {}, []
+    for purpose in ("搬家", "出行", "嫁娶", "开业"):
+        d, end, cards = date(2026, 1, 1), date(2026, 12, 31), 0
+        while d <= end:
+            ov = engine.select(d.year, d.month, d.day, purpose=purpose).overall
+            res = engine.select_lucky_days(purpose, d.isoformat(), d.isoformat())
+            if res["cards"]:
+                cards += 1
+                if ov == "凶":
+                    bad.append((purpose, d.isoformat(), res["cards"][0].total))
+            d += timedelta(days=1)
+        total_cards[purpose] = cards
+    assert sum(total_cards.values()) > 200, f"出卡天数异常: {total_cards}"
+    assert bad == [], f"卡片推荐但 chat 判凶 {len(bad)} 例: {bad[:8]}"
+
+
+def test_overall_2026_10_01_move_day_card_and_chat_agree():
+    """现象 1 锚点反例消失（k27 验收）: 2026-10-01 搬家 ——
+    计划路径出卡（total=64, 权威吉日）且 chat overall=吉, 两边不再相反;
+    对照: 权威忌 嫁娶 → purpose=嫁娶 不为吉（不把黄历明示之忌误报为吉）。"""
+    res = engine.select_lucky_days("搬家", "2026-10-01", "2026-10-01")
+    assert len(res["cards"]) == 1 and res["cards"][0].total == 64
+    r = engine.select(2026, 10, 1, purpose="搬家")
+    assert r.overall == "吉", r.overall
+    assert engine.select(2026, 10, 1, purpose="嫁娶").overall != "吉"
+
+
+# ============================================================
+# k27: 固化 chat 路径「综合判定」三分语义（替换 k23 的只钉不改版）
+# ============================================================
+
+def test_judge_overall_semantics_three_way_k27():
+    """k27 三分语义（产品 2026-09-11 拍板 · 选项 E, 取代 k23 的「只钉不改」版）:
+
+      - 破 / 危 / 诸事不宜 / 馀事勿取 → **凶**（= 卡片前置排除规则, 逐条同源;
+        故「出卡 ⟹ 非凶」由构造成立, 见 test_card_recommended_implies_...）;
+      - 给 purpose 且当日**神煞级黄历宜**命中该用途 → **吉**
+        （= 卡片场景准入信号 `_scene_score` 的输入口径, K3-A5）;
+      - 其余 → **平**。
+
+    被替换的 k23 语义 = 建除 quality(±2) + 二十八宿吉凶(±1) + 用途(±1), 阈值 6/3
+    —— 与卡片判据无一处同维度, 2026-10-01 搬家（权威吉日, 卡片 total=64）被判
+    「凶」正是本批要消除的矛盾。建除 quality/二十八宿**不再驱动** overall
+    （仍供万年历 quality/宿展示; JIANCHU_QUALITY["危"]="吉" 与 K3「排除危日」相抵,
+    是另一处口径错位, 本批一并归位）; 建除表宜仅展示不驱动评分（K3-A4/A5）。
+
+    锚点值（每例含 purpose, 复盘用）:
+      2026-10-01 出行=吉（黄历宜含出行）; 10-01 搬家=吉（宜含入宅/移徙, 卡片 total=64）;
+      2027-01-01 出行=吉; 2026-10-14 嫁娶=吉（黄历宜含嫁娶, 同日卡片 total=44 —— 同向）;
+      2026-09-20 安葬=凶（宜含「馀事勿取」→ 与卡片排除规则同源, 无卡可出）;
+      2026-02-10 嫁娶=吉（除日, 黄历宜含嫁娶）;
+      2026-01-13 嫁娶=平（黄历**忌**嫁娶 → 反向不误报为吉; 该日即 k27 反方向消解锚点）
     """
     cases = [
-        ((2026, 10, 1), "出行", "凶"),
-        ((2026, 10, 1), "搬家", "凶"),
+        ((2026, 10, 1), "出行", "吉"),
+        ((2026, 10, 1), "搬家", "吉"),
         ((2027, 1, 1), "出行", "吉"),
-        ((2026, 10, 14), "嫁娶", "平"),
-        ((2026, 9, 20), "安葬", "吉"),
+        ((2026, 10, 14), "嫁娶", "吉"),
+        ((2026, 9, 20), "安葬", "凶"),
         ((2026, 2, 10), "嫁娶", "吉"),
+        ((2026, 1, 13), "嫁娶", "平"),
     ]
     for (y, m, d), purpose, expect in cases:
-        assert engine.select(y, m, d, purpose=purpose).overall == expect, \
-            f"{y}-{m:02d}-{d:02d} purpose={purpose} 吉凶语义漂移（k23 钉住值 {expect}）"
+        got = engine.select(y, m, d, purpose=purpose).overall
+        assert got == expect, \
+            f"{y}-{m:02d}-{d:02d} purpose={purpose} 三分语义漂移（k27 钉住值 {expect}）: {got}"
+    # 破/危 一律凶（与卡片 jianchu_avoid 全场景一致, 权威标准「排除破日、危日」）
+    for ds in ("2026-11-15", "2026-11-16"):   # 破日 / 危日（K3 案例表锚点）
+        y, m, d = _ymd(ds)
+        r = engine.select(y, m, d, purpose="出行")
+        assert r.jianchu in ("破", "危") and r.overall == "凶", f"{ds}: {r.jianchu}/{r.overall}"
 
 
-def test_judge_overall_distribution_pinned_k23():
-    """F1 同前（只钉不改）: 2026 全年 × {出行, 嫁娶} = 730 组合的吉凶分布指纹。
-    分布变化 = 判定语义或宜忌事实源被改动 → 必须先拍板再改本测试。"""
+def test_judge_overall_distribution_three_way_k27():
+    """k27 同前: 2026 全年 × {出行, 嫁娶} = 730 组合的三分分布指纹。
+    （k23 旧指纹 出行 {平115,吉170,凶80} / 嫁娶 {凶83,平120,吉162} 已随语义变更作废。）
+    分布变化 = 判定语义或宜忌事实源被改动 → 须先拍板再改本测试。"""
     from datetime import date, timedelta
     expect = {
-        "出行": {"平": 115, "吉": 170, "凶": 80},
-        "嫁娶": {"凶": 83, "平": 120, "吉": 162},
+        "出行": {"吉": 109, "平": 136, "凶": 120},
+        "嫁娶": {"平": 133, "吉": 112, "凶": 120},
     }
     for purpose, want in expect.items():
         dist, d = {}, date(2026, 1, 1)
@@ -227,5 +339,5 @@ def test_judge_overall_distribution_pinned_k23():
             v = engine.select(d.year, d.month, d.day, purpose=purpose).overall
             dist[v] = dist.get(v, 0) + 1
             d += timedelta(days=1)
-        assert dist == want, f"{purpose} 吉凶分布漂移（k23 钉住 {want}）: {dist}"
+        assert dist == want, f"{purpose} 三分分布漂移（k27 钉住 {want}）: {dist}"
         assert sum(want.values()) == 365

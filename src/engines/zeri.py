@@ -194,9 +194,10 @@ class ZeriResult:
     ershibaxiu: str           # 二十八宿名
     xiu_jixiong: str          # 二十八宿吉凶
     yi: List[str]             # 宜（建除表宜 + 神煞级黄历宜, 引擎在前; 见 _day_yi_ji）
-    ji: List[str]             # 忌（K3-A3 神煞级优先: 与当日黄历宜冲突的建除表忌已剔除）
+    ji: List[str]             # 忌（K3-A3 神煞级优先, k27 双向: 与当日黄历宜冲突的建除表忌
+                              #    已剔除; 与当日黄历忌冲突的建除表宜亦已剔除）
     chong: str                # 冲生肖
-    overall: str              # 吉/凶/平
+    overall: str              # 吉/凶/平（k27 三分, 与吉日卡片准入同源; 见 _judge_overall）
     raw_data: dict = field(default_factory=dict)
 
 
@@ -234,13 +235,11 @@ class ZeriEngine:
         # ---- 建除十二神 ----
         jianchu = self._calc_jianchu_with_jieqi(month_zhi, day_zhi, lunar.getJieQi() or "")
 
-        # ---- 单日宜忌: 单一事实源（K3-A3 神煞级优先）----
+        # ---- 单日宜忌: 单一事实源（K3-A3 神煞级优先, k27 双向）----
         # 本方法（chat/工具/意图路径）与计划路径（_build_lucky_card）共用, 禁止各自再合并/过滤。
         yi, ji = self._day_yi_ji(jianchu, lunar)
-
-        # 根据purpose调整宜忌（在合并后的单一事实源上排序/补位）
-        if purpose:
-            yi, ji = self._adjust_by_purpose(purpose, yi, ji)
+        # 当日神煞级黄历宜（与 _day_yi_ji 同一实现/同一来源）—— overall 用途判据输入
+        lunar_yi, _ = self._authority_yi_ji(lunar)
 
         # ---- 二十八宿 ----
         xiu_name, xiu_jixiong = self._calc_ershibaxiu(year, month, day)
@@ -249,8 +248,14 @@ class ZeriEngine:
         chong_zhi = LIU_CHONG[day_zhi]
         chong_zodiac = ZODIAC_MAP[chong_zhi]
 
-        # ---- 综合判定 ----
-        overall = self._judge_overall(jianchu, xiu_jixiong, purpose, yi, ji)
+        # ---- 综合判定（k27: 与卡片准入同源）----
+        # 在 _adjust_by_purpose 之前判定 —— 与计划路径消费的 select()（不传 purpose）
+        # 宜忌逐项相同, 故「出卡 ⟹ overall ≠ 凶」由构造成立（见 _judge_overall）。
+        overall = self._judge_overall(jianchu, purpose, lunar_yi, yi, ji)
+
+        # 根据purpose调整宜忌（在合并后的单一事实源上排序/补位）
+        if purpose:
+            yi, ji = self._adjust_by_purpose(purpose, yi, ji)
 
         return ZeriResult(
             jianchu=jianchu,
@@ -327,11 +332,20 @@ class ZeriEngine:
 
     # ---- 宜忌调整 ----
 
+    def _authority_yi_ji(self, lunar) -> tuple:
+        """当日神煞级黄历宜/忌（lunar-python 通胜逐日表, 已滤哨兵「无」）。
+
+        单一实现: `_day_yi_ji`（合并宜忌）与 `select()`（overall 用途判据输入）
+        共用 —— 权威侧取数只此一处, 不得各自再读 getDayYi/getDayJi。
+        """
+        return (filter_yi_ji_sentinel(lunar.getDayYi()),
+                filter_yi_ji_sentinel(lunar.getDayJi()))
+
     def _day_yi_ji(self, jianchu: str, lunar) -> tuple:
-        """单日宜忌单一事实源（K3-A3 神煞级优先）—— chat/工具路径与计划路径共用。
+        """单日宜忌单一事实源（K3-A3 神煞级优先, k27 双向消解）—— 三面共用。
 
         宜 = 建除表宜（JIANCHU_YI_JI, 引擎在前） + lunar-python 当日神煞级黄历宜
-             （lunar.getDayYi, 通胜逐日宜忌表）, 按序去重;
+             （lunar.getDayYi, 通胜逐日宜忌表）, 按序去重, 再剔除出现在最终忌中的词;
         忌 = 建除表忌 + lunar.getDayJi 按序去重后, 剔除全部出现在当日神煞级黄历宜
              中的词 —— K3-A3: 建除表忌为 12 日周期的粗粒度近似, 与神煞级明示之宜
              冲突时以当日黄历宜为准。
@@ -343,41 +357,63 @@ class ZeriEngine:
         同类方向冲突修复覆盖 chat 路径此前未接修正的 4 日（10-01 出行/入宅/移徙、
         2027-01-01 出行/移徙、10-14 嫁娶、09-20 安葬）。
 
-        消费方（两者输出必须同源, 不得各自再合并/过滤）:
-        - ``select()`` → ``ZeriResult.yi/ji``（chat/工具/意图路径）;
-        - ``_build_lucky_card()`` → ``LuckyDayCard.yi/ji``（计划路径）。
+        k27 补**反方向**消解（原只单向）: 「建除表宜 ∩ 当日黄历忌」此前无人处理,
+        2026 全年 **75/365** 天把同一词同时列为宜与忌（如 2026-01-13 建除「开」
+        表宜 嫁娶 ∩ 黄历忌 嫁娶）—— 用户在一次回答里同时看到「宜嫁娶」「忌嫁娶」。
+        按 A 口径（对齐权威黄历, 产品 2026-09-11 拍板）: 冲突词以黄历为准归**忌**,
+        从宜中剔除。权威侧自身 2020-2035 共 5844 天 getDayYi ∩ getDayJi = 0（无对应
+        场景）, 故本规则不与 K3-A3 冲突; 「权威宜 ⊆ 我之宜」「权威宜 ∩ 我忌 = ∅」
+        「权威忌 ∩ 我宜 = ∅」「yi ∩ ji = ∅」四条不变量 2026 全年 0 例外（见
+        tests/test_zeri_consistency.py k27 段）。
 
-        哨兵值过滤（k23 补丁 F3）: lunar-python 当日“无忌事/无宜事”时 getDayYi/
-        getDayJi 返回哨兵 ``['无']``（2020-2035 扫描: 忌 377 天、宜 10 天; 2026 年
-        忌 13 天, 如 2026-02-10）—— 它不是事项词, 直接合并会让用户面出现「忌：无」。
-        此处按侧过滤 ``无``; “诸事不宜/馀事勿取”是语义词, 不在此列（K3-A1 单独处理）。
+        消费方（三面输出必须同源, 不得各自再合并/过滤）:
+        - ``select()`` → ``ZeriResult.yi/ji``（chat/工具/意图路径）;
+        - ``_build_lucky_card()`` → ``LuckyDayCard.yi/ji``（计划路径）;
+        - ``wannianli.WannianliEngine.month_view/day_detail``（万年历面, k27 收敛）。
+
+        哨兵值过滤（k23 补丁 F3, 单一实现 ``_authority_yi_ji``）: lunar-python 当日
+        “无忌事/无宜事”时 getDayYi/getDayJi 返回哨兵 ``['无']``（2020-2035 扫描:
+        忌 377 天、宜 10 天; 2026 年忌 13 天, 如 2026-02-10）—— 它不是事项词, 直接
+        合并会让用户面出现「忌：无」。此处按侧过滤 ``无``; “诸事不宜/馀事勿取”是语义
+        词, 不在此列（K3-A1 单独处理）。
 
         Args:
             jianchu: 建除十二神名（建/除/…/闭）
             lunar: 当日 lunar-python Lunar 对象
         Returns:
-            (yi, ji) 两个已去重（且已滤哨兵）的字符串列表
+            (yi, ji) 两个已去重（且已滤哨兵）的字符串列表, 且 ``set(yi) & set(ji) == ∅``
+            （由构造成立: 宜按最终忌集过滤; 建除表内部宜忌无交词, 见 k27 测试）
         """
-        lunar_yi = filter_yi_ji_sentinel(lunar.getDayYi())
-        lunar_ji = filter_yi_ji_sentinel(lunar.getDayJi())
-        yi = list(dict.fromkeys(list(JIANCHU_YI_JI[jianchu]["yi"]) + lunar_yi))
+        lunar_yi, lunar_ji = self._authority_yi_ji(lunar)
+        lunar_yi_set = set(lunar_yi)
+        # 忌侧（K3-A3 既有）: 建除表忌 + 黄历忌, 剔除当日黄历宜
         ji = [j for j in dict.fromkeys(
             list(JIANCHU_YI_JI[jianchu]["ji"]) + lunar_ji)
-            if j not in lunar_yi]
+            if j not in lunar_yi_set]
+        # 宜侧（k27 补反方向）: 建除表宜 + 黄历宜, 剔除最终忌集
+        # —— 实际被剔的只有「建除表宜 ∩ (黄历忌 − 黄历宜)」; 权威宜与权威忌互斥
+        #（2020-2035 实测 0 天）, 且建除表内部宜忌无交词, 故权威宜一项不失。
+        ji_set = set(ji)
+        yi = [y for y in dict.fromkeys(
+            list(JIANCHU_YI_JI[jianchu]["yi"]) + lunar_yi)
+            if y not in ji_set]
         return yi, ji
+
+    def _match_purpose_category(self, purpose: str) -> Optional[str]:
+        """用途 → 黄历类目词（PURPOSE_CATEGORIES 键, 如 "搬家"→"入宅"）; 无匹配 → None。
+
+        单一实现: `_adjust_by_purpose`（排序/补位）与 `_judge_overall`（用途判据）
+        共用, 不得各写一套匹配（同输入不同口径即分裂）。
+        """
+        for category, keywords in PURPOSE_CATEGORIES.items():
+            for kw in keywords:
+                if kw in purpose or purpose in kw:
+                    return category
+        return None
 
     def _adjust_by_purpose(self, purpose: str, yi: List[str], ji: List[str]) -> tuple:
         """根据用途调整宜忌列表"""
-        matched_category = None
-        purpose_lower = purpose
-
-        for category, keywords in PURPOSE_CATEGORIES.items():
-            for kw in keywords:
-                if kw in purpose_lower or purpose_lower in kw:
-                    matched_category = category
-                    break
-            if matched_category:
-                break
+        matched_category = self._match_purpose_category(purpose)
 
         if matched_category:
             # 如果用途在宜中，排到第一位
@@ -392,42 +428,46 @@ class ZeriEngine:
     # ---- 综合判定 ----
 
     def _judge_overall(
-        self, jianchu: str, xiu_jixiong: str,
-        purpose: str, yi: List[str], ji: List[str],
+        self, jianchu: str, purpose: str,
+        lunar_yi: List[str], yi: List[str], ji: List[str],
     ) -> str:
-        """综合判定吉凶"""
-        # 基础分数（5为中性）
-        score = 5.0
+        """综合判定吉凶（k27 三分, 与吉日卡片准入**同源**; 产品 2026-09-11 拍板选项 E）:
 
-        # 建除十二神评分
-        jianchu_q = JIANCHU_QUALITY.get(jianchu, "平")
-        if jianchu_q == "吉":
-            score += 2.0
-        elif jianchu_q == "凶":
-            score -= 2.0
+        - **凶**: 建除 破/危, 或 诸事不宜/馀事勿取（宜或忌）—— 逐条等同
+          `_build_lucky_card` 的前置排除规则、同一输入列表（调用点在
+          `_adjust_by_purpose` 之前, 与卡片消费的 `select()` 宜忌逐项相同）,
+          故 **「计划路径出卡 ⟹ overall ≠ 凶」由构造成立**;
+        - **吉**: 给了 purpose 且当日**神煞级黄历宜**（`_authority_yi_ji`）命中该用途
+          —— 与卡片场景准入 `_scene_score(cfg, jianchu, lunar_yi)` 同一输入口径
+          （K3-A5: 建除表宜仅展示、不驱动评分）;
+        - **平**: 其余。
 
-        # 二十八宿评分
-        if xiu_jixiong == "吉":
-            score += 1.0
-        elif xiu_jixiong == "凶":
-            score -= 1.0
+        被替换的 k23 语义（5.0 基准 + 建除 quality ±2 + 二十八宿 ±1 + 用途 ±1, 阈值
+        6/3）与卡片判据无一处同维度: 2026-10-01 搬家 —— 卡片 total=64（权威吉日,
+        建除「闭」已按 K3-A3 移出排除项、奎宿卡片不读）却被判「凶」(闭 −2 / 奎 −1 /
+        用途 +1 = 3.0), 即用户可见的「卡片推荐吉日 ↔ chat 说凶」（现象 1）。
+        不再驱动 overall 的两项及理由:
+        - 建除 quality / 二十八宿吉凶: 卡片路径不消费; 且 `JIANCHU_QUALITY["危"]="吉"`
+          与 K3 权威口径「排除危日」相抵, 属本批一并归位的口径错位;
+        - 建除表宜: 仅展示不驱动评分（K3-A4/A5）。
+        残留（已量化, 见 k27 报告）: 卡片准入另有神煞排除/冲生肖/scene 忌词命中,
+        非单一 overall 可表达 —— 「overall=吉 但当日无卡」仍可能存在; 反方向
+        （出卡 ⟹ 非凶）已由构造成立。
 
-        # 用途匹配
-        if purpose:
-            if yi and yi[0] == purpose or (len(yi) > 0 and any(
-                any(kw in purpose for kw in PURPOSE_CATEGORIES.get(y, []))
-                for y in [yi[0]]
-            )):
-                score += 1.0
-            if purpose in ji:
-                score -= 1.0
-
-        if score >= 6.0:
-            return "吉"
-        elif score <= 3.0:
+        Args:
+            jianchu: 建除十二神名
+            purpose: 事宜用途描述（可为空串）
+            lunar_yi: 当日神煞级黄历宜（已滤哨兵）
+            yi/ji: 合并后的宜/忌（`_day_yi_ji` 输出, 未按 purpose 调整）
+        """
+        if jianchu in ("破", "危") \
+                or "诸事不宜" in ji or "馀事勿取" in ji or "馀事勿取" in yi:
             return "凶"
-        else:
-            return "平"
+        if purpose:
+            matched_category = self._match_purpose_category(purpose)
+            if matched_category and matched_category in lunar_yi:
+                return "吉"
+        return "平"
 
     # ---- 择吉日: 多日扫描 + 三层评分 + Top3 ----
 

@@ -13,23 +13,21 @@
   二十八宿值日（lunar-python getXiu + 传统吉凶表 ERSHIBA_XIU_JIXIONG）。
 
 宜忌规则（标准黄历，与择日引擎 zeri.py 同源数据，注释来源见上）:
-  宜 = 建除十二神宜（JIANCHU_YI_JI，建除在前） + lunar-python 当日黄历宜
-       （getDayYi，通胜逐日宜忌表）按序去重合并;
-  忌 = 同理（建除忌 + getDayJi 去重合并）。
-  注（k23 起）：建除表 + 黄历的合并与择吉侧同源（zeri.ZeriEngine._day_yi_ji，
-  择吉 chat/工具路径与计划路径的单一事实源），但本模块**不接**其 K3-A3 神煞级
-  优先消解（建除表忌与当日黄历宜冲突时以黄历宜为准），只做下方「忌优先」消解 ——
-  故在“建除表忌 ∩ 当日黄历宜”冲突日, 万年历页与择吉结果方向可以不同
-  （实证 2026-10-01 本模块 忌出行/入宅/移徙, 择吉口径为 宜; 2026-09-20 本模块
-  忌安葬, 择吉口径为 宜）。是否统一到神煞级优先待产品拍板, 未拍板前保持本模块
-  既有“忌优先”展示语义（见 _resolve_yi_ji_conflicts）。
-  冲突消解（对比报告 P2 项，2026-08-21）：合并后同一事项同时出现在宜、忌时
-       （如 2026-08-21 既宜又忌"嫁娶"），按忌优先（保守口径——通书惯例：忌示
-       不宜行事，宁可错忌不可错宜；见 _resolve_yi_ji_conflicts）从宜中剔除、
-       保留于忌。月视图 yi_short/ji_short 与日详情 yi/ji 同一消解。
-  哨兵过滤（k26）：黄历侧哨兵「无」（无忌事/无宜事日）在合并入口统一剔除，
-       与择吉侧同源同语义（zeri.filter_yi_ji_sentinel 单一实现）——k23 只修了
-       择吉面，用户面万年历仍放行「忌：无」（2026-11-07 忌第 4 项实证）。
+  宜/忌 = **直接取 zeri.ZeriEngine._day_yi_ji(jianchu, lunar)** —— 与择吉
+       chat/工具路径（select）和计划路径（吉日卡片）同一实现、同一输出，本模块
+       不再自行合并/消解（数据一致性铁律；k23 只修了择吉面，万年历面漏到 k27）。
+  注（k27, 产品 2026-09-11 拍板「对齐权威黄历」= 选项 A）：建除表忌与当日黄历宜
+       冲突时以黄历宜为准（K3-A3 神煞级优先）; 反方向「建除表宜 ∩ 当日黄历忌」同样
+       以黄历为准（词归忌）。此前本模块的「忌优先」消解（_resolve_yi_ji_conflicts）
+       使万年历与择吉两面朝**相反方向**消解同一冲突（实证 2026-10-01 本模块
+       忌 出行/入宅/移徙, 择吉为 宜; 2026-09-20 本模块 忌 安葬, 择吉为 宜）——
+       该口径与 _merge_yi_ji/_resolve_yi_ji_conflicts 一并删除。
+  哨兵过滤（k26, 实现随 `_day_yi_ji` 一并收敛）：黄历侧哨兵「无」（无忌事/无宜事
+       日）在 `_day_yi_ji` 入口统一剔除（zeri.filter_yi_ji_sentinel 单一实现）——
+       k23 只修了择吉面，用户面万年历仍放行「忌：无」（2026-11-07 忌第 4 项实证）。
+  空忌日（k27 起可能出现, 2026 仅 2026-02-10 一天）: 日详情/月视图如实返回空列表,
+       `ji_short` 同为空 —— 文案层由消费方决定（handler._yi_ji_render_lines 整行
+       不渲染），本模块不新造文案。
   黄黑道 = lunar-python 十二值神: 青龙/明堂/金匮/天德/玉堂/司命 为黄道（吉）；
            天刑/朱雀/白虎/天牢/玄武/勾陈 为黑道（凶）。
   值日吉凶 quality = 建除十二神吉凶（JIANCHU_QUALITY: 吉/平/凶）。
@@ -45,7 +43,6 @@ from src.engines.zeri import (
     JIANCHU_QUALITY,
     JIANCHU_YI_JI,
     ZeriEngine,
-    filter_yi_ji_sentinel,
 )
 
 BJT = timezone(timedelta(hours=8))
@@ -85,27 +82,15 @@ def _chong_parse(desc: str) -> Dict[str, str]:
     return {"ganzhi": "", "zodiac": desc or ""}
 
 
-def _merge_yi_ji(jianchu_yi: List[str], day_yi: List[str]) -> List[str]:
-    """宜/忌合并: 建除在前 + lunar-python 当日黄历，按序去重（与 zeri.py 同口径）。
+def _day_yi_ji(jianchu: str, lunar) -> tuple:
+    """单日宜忌（薄封装）—— 直接转发择吉引擎的单一事实源 `_zeri._day_yi_ji`。
 
-    k26：黄历侧（day_yi 入参，调用点恒传 lunar.getDayYi/getDayJi）的哨兵「无」
-    在此剔除 —— 与 zeri._day_yi_ji 共用同一实现（filter_yi_ji_sentinel），
-    修复万年历面「忌：无」泄漏；建除表侧无哨兵词条（表内实证无「无」）。
+    k27：本模块**只经此一处**取宜忌（月视图与日详情同源），不得自行合并/消解 ——
+    万年历面与择吉面（chat/工具/计划路径）逐日逐项相等（tests/test_wannianli.py
+    k27 扫描钉住）。保留本函数的理由：模块内单一调用点 + 语义注释（合并/消解口径
+    见 zeri._day_yi_ji docstring），而非再写一套实现。
     """
-    return list(dict.fromkeys(
-        list(jianchu_yi) + filter_yi_ji_sentinel(day_yi)))
-
-
-def _resolve_yi_ji_conflicts(yi: List[str], ji: List[str]) -> tuple:
-    """宜忌冲突消解（忌优先，保守口径，对比报告 P2 项）。
-
-    合并后同一事项同时出现在宜、忌（如 2026-08-21 既宜又忌"嫁娶"）时，通书惯例
-    以忌为准（忌示当日不宜行事，保守口径：宁可错忌、不可错宜），从宜中剔除该
-    事项、保留于忌。忌列表不变（消解只影响宜）。
-    返回 (消解后宜, 忌)。月视图与日详情共用此消解，保证两处口径一致。
-    """
-    ji_set = set(ji)
-    return [x for x in yi if x not in ji_set], ji
+    return _zeri._day_yi_ji(jianchu, lunar)
 
 
 def _jieqi_and_festival(lunar) -> tuple:
@@ -174,10 +159,8 @@ class WannianliEngine:
                 lunar.getEightChar().getDay()[1],
                 jieqi,
             )
-            yi = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["yi"], list(lunar.getDayYi() or []))
-            ji = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["ji"], list(lunar.getDayJi() or []))
-            # 宜忌冲突消解（忌优先）——与日详情同一口径（对比报告 P2）
-            yi, ji = _resolve_yi_ji_conflicts(yi, ji)
+            # 宜忌：单一事实源（与择吉面/日详情同源, k27）
+            yi, ji = _day_yi_ji(jianchu, lunar)
 
             days.append({
                 "date": f"{year:04d}-{month:02d}-{day:02d}",
@@ -188,7 +171,8 @@ class WannianliEngine:
                 "jieqi": jieqi,
                 "festival": festivals[0] if festivals else "",
                 "day_ganzhi": lunar.getDayInGanZhi(),
-                # 宜忌简表：建除+黄历合并后前 3 项（含"诸事不宜"等原样保留）
+                # 宜忌简表：单一事实源（_day_yi_ji）前 3 项（含"诸事不宜"等原样保留；
+                # 空忌日如 2026-02-10 → ji_short=[]，文案层决定是否渲染）
                 "yi_short": yi[:3],
                 "ji_short": ji[:3],
                 "huanghedao": lunar.getDayTianShenType(),   # 黄道/黑道
@@ -232,10 +216,8 @@ class WannianliEngine:
         day_zhi = ec.getDay()[1]
         month_zhi = ec.getMonth()[1]
         jianchu = _zeri._calc_jianchu_with_jieqi(month_zhi, day_zhi, jieqi)
-        yi = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["yi"], list(lunar.getDayYi() or []))
-        ji = _merge_yi_ji(JIANCHU_YI_JI[jianchu]["ji"], list(lunar.getDayJi() or []))
-        # 宜忌冲突消解（忌优先）——与月视图 yi_short/ji_short 同一口径（对比报告 P2）
-        yi, ji = _resolve_yi_ji_conflicts(yi, ji)
+        # 宜忌：单一事实源（与择吉面/月视图同源, k27）
+        yi, ji = _day_yi_ji(jianchu, lunar)
         chong_desc = lunar.getDayChongDesc() or ""
         chong = _chong_parse(chong_desc)
         chong["sha"] = lunar.getDaySha() or ""          # 煞方（东/南/西/北）
@@ -279,7 +261,8 @@ class WannianliEngine:
             # 二十八宿值日（lunar-python getXiu 口径，P1-1 审查 C1: 旧锚点 2000-01-01
             # 错标虚宿(实为壁) → 全日期差 3 天，已统一为 getXiu，2000-01-01=胃）
             "ershibaxiu": {"name": xiu_name, "jixiong": xiu_jixiong},
-            # 宜/忌（建除 + 当日黄历合并，去重）
+            # 宜/忌（单一事实源 _day_yi_ji: 建除表 + 神煞级黄历, K3-A3 双向消解；
+            # 与择吉 select()/卡片同源, k27。空忌日 → ji=[]）
             "yi": yi,
             "ji": ji,
             # 吉神宜趋 / 凶煞宜忌（lunar-python 通胜口径）

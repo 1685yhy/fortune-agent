@@ -201,7 +201,13 @@ def test_jieqi_day_jianchu_anchor():
 
 # ---------------------------------------------------------------- 宜忌规则确定性
 def test_yi_ji_rule_consistency():
-    """宜忌规则确定性：建除宜忌（zeri 同源表）+ 当日黄历宜忌合并，同日期多次一致。"""
+    """宜忌规则确定性：建除宜忌（zeri 同源表）+ 当日黄历宜忌合并，同日期多次一致。
+
+    k27：合并口径 = `zeri.ZeriEngine._day_yi_ji`（A 口径双向消解）。本锚点日
+    （2026-08-19 建除「执」）建除表忌 出行/嫁娶/开市/入宅 中, 出行 不在当日黄历宜
+    （权威忌 嫁娶/入宅/开市/交易）→ 依 A 口径保留于忌; 出行 亦不在权威忌中,
+    属「建除表粗粒度近似保留项」。
+    """
     r1 = _client().get("/api/wannianli/day?date=2026-08-19", headers=_headers()).json()
     r2 = _client().get("/api/wannianli/day?date=2026-08-19", headers=_headers()).json()
     r3 = _client().get("/api/wannianli/day?date=2026-08-19", headers=_headers()).json()
@@ -226,30 +232,44 @@ def test_yi_ji_rule_consistency():
     assert d19["ji_short"] == r1["ji"][:3]
 
 
-# ---------------------------------------------------------------- 宜忌冲突消解（对比报告 P2 项）
+# ---------------------------------------------------------------- 宜忌冲突消解（k27 A 口径）
 def test_yi_ji_conflict_resolution_day_detail():
-    """宜忌冲突消解（忌优先）：同日宜∩忌=空，冲突项保留于忌、从宜中剔除。
+    """宜忌冲突消解（k27 A 口径 = 神煞级优先, **双向**）: 同日 宜∩忌=∅,
+    建除表与当日黄历冲突的词一律以黄历为准 —— 黄历宜 → 归宜（从忌剔除）,
+    黄历忌 → 归忌（从宜剔除）。
 
-    2026-08-21 对比报告原样例：合并前 宜∩忌 = {出行, 嫁娶, 开市, 移徙}（既宜又忌
-    "嫁娶"即此日）；消解后无交集，且 忌优先 —— "嫁娶"等仍留忌、不再出现在宜。
+    2026-08-21（建除「危」）: 建除表忌 {出行,嫁娶,开市,移徙} 全被当日黄历宜覆盖
+    （xzw 08-21 宜 结婚/出行/搬家/开业…）→ 归宜; 旧「忌优先」口径把四词压入忌。
+    2025-01-15（建除「危」）: 出行/嫁娶/开市/移徙/动土 黄历宜 → 归宜;
+    安床/纳畜 黄历忌（且建除表宜列有）→ 归忌。
+    （旧断言「冲突项保留于忌、从宜中剔除」= 忌优先, 与权威相反, k27 作废。）
     """
-    for date, conflicts in [("2026-08-21", ["出行", "嫁娶", "开市", "移徙"]),
-                            ("2025-01-15", ["出行", "动土", "嫁娶", "安床",
-                                            "开市", "移徙", "纳畜"])]:
+    from lunar_python import Solar
+    from src.engines.zeri import JIANCHU_YI_JI
+    for date in ("2026-08-21", "2025-01-15"):
         r = _client().get(f"/api/wannianli/day?date={date}", headers=_headers())
         assert r.status_code == 200, r.text
         body = r.json()
         yi, ji = body["yi"], body["ji"]
-        inter = set(yi) & set(ji)
-        assert inter == set(), f"{date} 宜忌仍有交集: {inter}"
-        # 忌优先：原冲突事项保留于忌（忌列表不受消解影响）
-        for c in conflicts:
-            assert c in ji, f"{date} 冲突项 {c} 应从忌中保留"
-            assert c not in yi, f"{date} 冲突项 {c} 应从宜中剔除（忌优先）"
+        assert set(yi) & set(ji) == set(), f"{date} 宜忌仍有交集: {set(yi) & set(ji)}"
+        lunar = Solar.fromYmd(*(int(x) for x in date.split("-"))).getLunar()
+        auth_yi = {x for x in lunar.getDayYi() if x != "无"}
+        auth_ji = {x for x in lunar.getDayJi() if x != "无"}
+        # 建除表两列词逐一核位：黄历宜 → 必在宜且不在忌; 黄历忌 → 必在忌且不在宜
+        for w in JIANCHU_YI_JI[body["jianchu"]["name"]]["yi"] \
+                + JIANCHU_YI_JI[body["jianchu"]["name"]]["ji"]:
+            if w in auth_yi:
+                assert w in yi and w not in ji, f"{date} 黄历宜 {w} 应归宜"
+            if w in auth_ji:
+                assert w in ji and w not in yi, f"{date} 黄历忌 {w} 应归忌"
+    # 锚点: 2026-08-21 旧「忌优先」压入忌的四词, 现归宜（= xzw 权威宜表）
+    b = _client().get("/api/wannianli/day?date=2026-08-21", headers=_headers()).json()
+    for w in ("出行", "嫁娶", "开市", "移徙"):
+        assert w in b["yi"] and w not in b["ji"], f"2026-08-21 {w} 应归宜: {b['yi']}"
 
 
 def test_yi_ji_conflict_resolution_month_view():
-    """月视图 yi_short/ji_short 与日详情同一消解口径：无交集。"""
+    """月视图 yi_short/ji_short 与日详情同一消解口径：无交集, 且简表=全表前 3 项。"""
     c = _client()
     for date in ("2026-08-21", "2025-01-15"):
         y, m, d = (int(x) for x in date.split("-"))
@@ -261,6 +281,60 @@ def test_yi_ji_conflict_resolution_month_view():
         det = c.get(f"/api/wannianli/day?date={date}", headers=_headers()).json()
         assert day["yi_short"] == det["yi"][:3]
         assert day["ji_short"] == det["ji"][:3]
+
+
+# ---------------------------------------------------------------- k27 三面单一事实源
+def test_day_detail_single_source_matches_day_yi_ji_whole_2026():
+    """k27 单一事实源（验收 3）: 2026 全年 365 天, 万年历 `day_detail` 的 宜/忌
+    与择吉引擎 `ZeriEngine._day_yi_ji`（chat/工具/计划路径同源）**逐日逐项相等**,
+    且 `set(yi) & set(ji) == ∅`（修复前万年历自身靠「忌优先」消解自洽但方向反权威,
+    zeri 面 75 天既宜又忌 —— 两面各修一半）。
+
+    模块级直测（不占 API/DB）, 月视图 yi_short/ji_short = 同一列表前 3 项
+    （由 test_yi_ji_rule_consistency 与 test_yi_ji_conflict_resolution_month_view
+    在 API 面钉住）。
+    """
+    import calendar as _c
+
+    from lunar_python import Solar
+
+    from src.engines.wannianli import WannianliEngine, _zeri as wz
+    from src.engines.zeri import ZeriEngine
+
+    wl, ze = WannianliEngine(), ZeriEngine()
+    checked = 0
+    for month in range(1, 13):
+        for d in range(1, _c.monthrange(2026, month)[1] + 1):
+            det = wl.day_detail(2026, month, d)
+            solar = Solar.fromYmd(2026, month, d)
+            lunar = solar.getLunar()
+            jc = wz._calc_jianchu_with_jieqi(
+                lunar.getEightChar().getMonth()[1],
+                lunar.getEightChar().getDay()[1],
+                lunar.getJieQi() or "")
+            yi, ji = ze._day_yi_ji(jc, lunar)
+            assert det["jianchu"]["name"] == jc
+            assert det["yi"] == yi and det["ji"] == ji, \
+                f"{det['date']} 万年历与 _day_yi_ji 不一致"
+            assert set(det["yi"]) & set(det["ji"]) == set(), f"{det['date']} 既宜又忌"
+            checked += 1
+    assert checked == 365
+
+
+def test_month_view_empty_ji_day_2026_02_10():
+    """k27 空忌日: 2026-02-10 权威忌=哨兵「无」且建除「除」表忌全被黄历宜覆盖
+    → 万年历 ji 为空列表（2026 全年仅此 1 天）, 月视图 ji_short 同为空 ——
+    文本层整行不渲染（handler._yi_ji_render_lines）, 万年历不新造文案。
+    旧「忌优先」口径下该日 ji=[嫁娶,出行,开市,入宅,安床]（与权威 xzw「忌无」相反）。"""
+    mv = _client().get("/api/wannianli?year=2026&month=2", headers=_headers()).json()
+    day = next(x for x in mv["days"] if x["date"] == "2026-02-10")
+    assert day["ji_short"] == []
+    det = _client().get("/api/wannianli/day?date=2026-02-10", headers=_headers()).json()
+    assert det["ji"] == [], det["ji"]
+    assert {"嫁娶", "出行", "开市", "入宅", "安床"} <= set(det["yi"])   # = 权威宜
+    # 对照: 空忌不是普遍现象 —— 同月其余日期 ji 非空
+    assert all(x["ji_short"] for x in mv["days"] if x["date"] != "2026-02-10"), \
+        "2026-02 仅 02-10 应为空忌日"
 
 
 def test_month_view_deterministic():
