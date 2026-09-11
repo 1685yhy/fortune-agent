@@ -152,6 +152,16 @@ PURPOSE_CATEGORIES = {
     "求医": ["求医", "看病", "治病", "手术"],
 }
 
+# 用途类目 → 择吉场景（SCENES 键）: 仅列两者名不一致的类目（嫁娶/开业/出行 同名同义）。
+# 用途 `_purpose_hit_words` 把用途接到卡片场景准入的 yi_hits 词表上 —— chat 侧
+# purpose 取自 handler._extract_purpose（嫁娶/开业/搬家/出行/提车/签约/晋升/动土）。
+# 无对应场景的类目（动土/祭祀/安葬/求医）不在表内: 这些用途直接用类目键作判据
+# （四键均为黄历词表实有词）。
+_CATEGORY_SCENE = {
+    "嫁娶": "嫁娶", "开业": "开业", "出行": "出行",
+    "入宅": "搬家", "交易": "签约", "入学": "晋升",
+}
+
 # 十二节（交节日即新月令）: 节气日当天为 12 节之一时，建除按新月令起建
 # （对齐主流通书"交节日即新月令"口径，如 2026-08-07 立秋 → 申月起建 → 执日）。
 # 十二气（雨水/春分/…/大寒）不换月令。
@@ -404,12 +414,48 @@ class ZeriEngine:
 
         单一实现: `_adjust_by_purpose`（排序/补位）与 `_judge_overall`（用途判据）
         共用, 不得各写一套匹配（同输入不同口径即分裂）。
+        k27 审查: 空串是任何关键词的子串（`purpose in kw` 恒真）→ 会误配首类目
+        「嫁娶」, 故空 purpose 直接返回 None（调用方 `select()` 本就有 `if purpose`
+        门, 此守卫为独立调用时的一致性兜底）。
         """
+        if not purpose:
+            return None
         for category, keywords in PURPOSE_CATEGORIES.items():
             for kw in keywords:
                 if kw in purpose or purpose in kw:
                     return category
         return None
+
+    def _purpose_scene(self, purpose: str) -> Optional[str]:
+        """用途 → 择吉场景名（SCENES 键）; 无对应场景 → None。
+
+        chat 侧 purpose 取自 `handler._extract_purpose`（嫁娶/开业/搬家/出行/提车/
+        签约/晋升/动土）—— 前 7 个即场景名直配; 其他用途词经 `_match_purpose_category`
+        归到类目后按 `_CATEGORY_SCENE` 映射（入宅→搬家、交易→签约、入学→晋升）。
+        无场景用途（动土/祭祀/安葬/求医）返回 None。
+        """
+        if purpose in SCENES:
+            return purpose
+        return _CATEGORY_SCENE.get(self._match_purpose_category(purpose) or "")
+
+    def _purpose_hit_words(self, purpose: str) -> List[str]:
+        """用途命中词表 —— `_judge_overall` 吉判据的输入, 与卡片场景准入**同源**:
+
+        1) 有对应场景 → 取该场景 `SCENES` 的 ``yi_hits``（= `_scene_score` 卡片准入
+           用的同一张表, 单一事实源）;
+        2) 无对应场景（动土/祭祀/安葬/求医）→ 用类目键作判据（均为黄历词表实有词）;
+        3) 无匹配 → 空表（不判吉）。
+
+        k27 审查修复: 原实现只拿类目**键**去比权威宜, 而「开业」在 lunar-python
+        getDayYi 全区间（2020-2035, 5844 天）出现 **0** 次（权威词表用「开市」）
+        → purpose=开业 永不判吉（2026 实测 0 吉天, 而当年开业场景出卡 81 天）;
+        提车/晋升 因无类目亦永不判吉。改走 SCENES 词表后与卡片同源, 上述失效消除。
+        """
+        scene = self._purpose_scene(purpose)
+        if scene:
+            return list(SCENES[scene]["yi_hits"])
+        category = self._match_purpose_category(purpose)
+        return [category] if category else []
 
     def _adjust_by_purpose(self, purpose: str, yi: List[str], ji: List[str]) -> tuple:
         """根据用途调整宜忌列表"""
@@ -437,9 +483,10 @@ class ZeriEngine:
           `_build_lucky_card` 的前置排除规则、同一输入列表（调用点在
           `_adjust_by_purpose` 之前, 与卡片消费的 `select()` 宜忌逐项相同）,
           故 **「计划路径出卡 ⟹ overall ≠ 凶」由构造成立**;
-        - **吉**: 给了 purpose 且当日**神煞级黄历宜**（`_authority_yi_ji`）命中该用途
-          —— 与卡片场景准入 `_scene_score(cfg, jianchu, lunar_yi)` 同一输入口径
-          （K3-A5: 建除表宜仅展示、不驱动评分）;
+        - **吉**: 给了 purpose 且当日**神煞级黄历宜**（`_authority_yi_ji`）命中
+          `_purpose_hit_words(purpose)` —— 该词表来自 `SCENES` 的 yi_hits, 与卡片场景
+          准入 `_scene_score(cfg, jianchu, lunar_yi)` 同一输入表（K3-A5: 建除表宜
+          仅展示、不驱动评分）;
         - **平**: 其余。
 
         被替换的 k23 语义（5.0 基准 + 建除 quality ±2 + 二十八宿 ±1 + 用途 ±1, 阈值
@@ -464,9 +511,15 @@ class ZeriEngine:
                 or "诸事不宜" in ji or "馀事勿取" in ji or "馀事勿取" in yi:
             return "凶"
         if purpose:
-            matched_category = self._match_purpose_category(purpose)
-            if matched_category and matched_category in lunar_yi:
-                return "吉"
+            hit_words = self._purpose_hit_words(purpose)
+            if any(w in lunar_yi for w in hit_words):
+                # 卡片准入的另一半（k27 审查）: 场景忌词命中时卡片同样不推荐
+                # （`_build_lucky_card` 的 cfg["ji_hits"]）→ 不判吉, 消除
+                # 「chat 吉 但计划路径不推荐」（2026 实测 搬家 61 / 嫁娶 53 天）。
+                scene = self._purpose_scene(purpose)
+                veto = SCENES[scene]["ji_hits"] if scene else ()
+                if not any(kw in j for j in ji for kw in veto):
+                    return "吉"
         return "平"
 
     # ---- 择吉日: 多日扫描 + 三层评分 + Top3 ----
@@ -556,10 +609,12 @@ class ZeriEngine:
         yi, ji = r.yi, r.ji
         # 场景准入评分输入（K3-A5）: 只算 lunar-python 当日神煞级黄历宜, 与上面宜忌
         # 事实源无关 —— 建除表宜仅展示、不驱动场景分（见 _scene_score）。
-        # k26：这里同样不得绕过哨兵过滤（与 _day_yi_ji 同一实现/同一口径）——
-        # 「宜侧哨兵日」getDayYi()==['无']，未过滤即把哨兵当评分输入（同一事实源
-        # 两套口径；实测该日被排除规则提前拦下故用户侧无可见差异，属口径收口）。
-        lunar_yi = filter_yi_ji_sentinel(lunar.getDayYi())
+        # k26：这里同样不得绕过哨兵过滤（同一实现/同一口径）——「宜侧哨兵日」
+        # getDayYi()==['无']，未过滤即把哨兵当评分输入（实测该日被排除规则提前
+        # 拦下故用户侧无可见差异，属口径收口）。
+        # k27 审查: 取数收敛到 `_authority_yi_ji`（与 _day_yi_ji/overall 同一入口）,
+        # 不再直接读 getDayYi —— 权威侧「只此一处」的声明与代码一致。
+        lunar_yi, _ = self._authority_yi_ji(lunar)
 
         # ---- 排除规则 ----
         # K3-A1: 诸事不宜/馀事勿取日直接排除 —— 权威判定标准「排除破日、危日与

@@ -69,7 +69,10 @@ def test_month_view_complete():
                                 "成", "收", "开", "闭")
         assert d["quality"] in ("吉", "平", "凶")
         assert isinstance(d["yi_short"], list) and d["yi_short"]
-        assert isinstance(d["ji_short"], list) and d["ji_short"]
+        # k27: ji_short 允许为空（空忌日 —— 2026 仅 2026-02-10 一天, 由
+        # test_month_view_empty_ji_day_2026_02_10 锚点钉住）; 2026-08 无空忌日,
+        # 但不得再断言"每月每日 ji_short 恒非空"（与 A 口径语义矛盾）。
+        assert isinstance(d["ji_short"], list)
         assert "jieqi" in d and "festival" in d and "is_today" in d
 
     # 全月有黄道也有黑道日（2026-01-01 为黑道·朱雀，2026-08-19 为黄道·明堂）

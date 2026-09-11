@@ -151,15 +151,17 @@
           </view>
         </view>
 
-        <!-- 宜 / 忌 -->
+        <!-- 宜 / 忌（k27: 空列表整行不渲染 —— 空忌日如 2026-02-10（权威忌=无,
+             建除表忌全被黄历宜覆盖）不得出现悬空「忌」标签; 与月历摘要行
+             「宜忌摘要行」同一守卫写法, 不新造文案） -->
         <view class="ws-sec">
-          <view class="ws-yiji">
+          <view class="ws-yiji" wx:if="{{detail.yi.length}}">
             <text class="ws-yiji-label">宜</text>
             <view class="ws-chips">
               <view class="ws-chip ws-chip-yi" wx:for="{{detail.yi}}" wx:key="*this">{{item}}</view>
             </view>
           </view>
-          <view class="ws-yiji">
+          <view class="ws-yiji" wx:if="{{detail.ji.length}}">
             <text class="ws-yiji-label ws-yiji-label-ji">忌</text>
             <view class="ws-chips">
               <view class="ws-chip ws-chip-ji" wx:for="{{detail.ji}}" wx:key="*this">{{item}}</view>

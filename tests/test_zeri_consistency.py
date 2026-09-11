@@ -242,29 +242,46 @@ def test_authority_ji_never_in_my_yi_whole_year_2026():
     assert bad == [], f"权威忌被列为宜 {len(bad)} 天: {bad[:8]}"
 
 
-def test_card_recommended_implies_overall_not_xiong_2026():
-    """k27 同源底线（现象 1 反例的通用形式）: 全年逐日, **计划路径出卡（推荐）
-    ⟹ chat overall ≠ 凶**（同日同用途, 0 例外）。
+def test_card_recommended_implies_overall_ji_2026():
+    """k27 同源底线（现象 1 反例的通用形式）: 2026 全年逐日, **计划路径出卡（推荐）
+    ⟹ chat overall == "吉"**（7 场景, 比「≠凶」更强; 当日即用户可见的「同日同用途
+    两面一致」）。
 
-    overall 的「凶」判据 = 卡片前置排除规则逐条同源（破/危 + 诸事不宜/馀事勿取,
-    同一输入列表）→ 该蕴含由构造成立; 实测 4 用途 × 365 天。
-    修复前锚点: 2026-10-01 搬家 卡片 total=64 推荐 ↔ chat 综合判定「凶」。
+    由构造成立: 卡片准入 = 场景 yi_hits 命中（`_scene_score` ≥20）+ 无
+    `cfg["ji_hits"]` 命中 + 非破/危/诸事不宜/馀事勿取 —— 逐条被 `_judge_overall`
+    的三分判据包含, 故「出卡却判凶/判平」不可能。
+    实测: 7 场景 |出卡 − 吉| 全 0; 搬家/提车 两向相等（吉 ⟺ 出卡）。
+    残留（反向）: 出行 14 / 嫁娶 20 / 签约 6 / 晋升 4 / 开业 2 天「吉但无卡」,
+    成因均为卡片另有神煞排除/冲生肖（空亡/三娘煞/月破月刑/冲宅主）, 非吉判据可表达。
+    修复前锚点: 2026-10-01 搬家 卡片 total=64 推荐 ↔ chat「综合判定：凶」（当年 8 例）。
     """
     from datetime import date, timedelta
-    total_cards, bad = {}, []
-    for purpose in ("搬家", "出行", "嫁娶", "开业"):
-        d, end, cards = date(2026, 1, 1), date(2026, 12, 31), 0
+    from src.engines.zeri import SCENES as _S
+    total_cards, not_ji, both = {}, [], {}
+    for purpose in ("搬家", "出行", "嫁娶", "开业", "签约", "提车", "晋升"):
+        d, end, cards, ji_days = date(2026, 1, 1), date(2026, 12, 31), 0, 0
+        card_dates, ji_dates = set(), set()
         while d <= end:
+            ds = d.isoformat()
             ov = engine.select(d.year, d.month, d.day, purpose=purpose).overall
-            res = engine.select_lucky_days(purpose, d.isoformat(), d.isoformat())
-            if res["cards"]:
+            if ov == "吉":
+                ji_days += 1
+                ji_dates.add(ds)
+            if engine.select_lucky_days(purpose, ds, ds)["cards"]:
                 cards += 1
-                if ov == "凶":
-                    bad.append((purpose, d.isoformat(), res["cards"][0].total))
+                card_dates.add(ds)
+                if ov != "吉":
+                    not_ji.append((purpose, ds, ov))
             d += timedelta(days=1)
         total_cards[purpose] = cards
-    assert sum(total_cards.values()) > 200, f"出卡天数异常: {total_cards}"
-    assert bad == [], f"卡片推荐但 chat 判凶 {len(bad)} 例: {bad[:8]}"
+        both[purpose] = (cards, ji_days, len(card_dates - ji_dates), len(ji_dates - card_dates))
+        assert _S[purpose], purpose
+    assert sum(total_cards.values()) > 500, f"出卡天数异常: {total_cards}"
+    assert not not_ji, f"卡片推荐但 chat 非吉 {len(not_ji)} 例: {not_ji[:8]}"
+    # 搬家/提车 两向相等（该两场景无神煞排除项, 吉 ⟺ 出卡）
+    assert both["搬家"] == (95, 95, 0, 0), both["搬家"]
+    assert both["提车"] == (170, 170, 0, 0), both["提车"]
+    assert both["出行"] == (95, 109, 0, 14), both["出行"]
 
 
 def test_overall_2026_10_01_move_day_card_and_chat_agree():
@@ -324,14 +341,49 @@ def test_judge_overall_semantics_three_way_k27():
         assert r.jianchu in ("破", "危") and r.overall == "凶", f"{ds}: {r.jianchu}/{r.overall}"
 
 
+def test_purpose_hit_words_scene_sourced_k27():
+    """k27 审查修复回归: 吉判据词表取自择吉场景 `SCENES[..]["yi_hits"]`（与卡片准入同表）。
+
+    修复前只拿 `PURPOSE_CATEGORIES` 的类目**键**比权威宜 —— 而「开业」在 lunar-python
+    getDayYi 全区间 5844 天出现 0 次（权威词表用「开市」）→ purpose=开业 永不判吉
+    （2026 实测 0 天吉, 而当年开业场景出卡 81 天）; 提车/晋升 无类目亦永不判吉。
+    """
+    from src.engines.zeri import SCENES as _S
+    assert engine._purpose_hit_words("开业") == _S["开业"]["yi_hits"]
+    assert engine._purpose_hit_words("搬家") == _S["搬家"]["yi_hits"]
+    assert engine._purpose_hit_words("提车") == _S["提车"]["yi_hits"]
+    assert engine._purpose_hit_words("晋升") == _S["晋升"]["yi_hits"]
+    # 异名用途经类目→场景映射（入宅→搬家 / 交易→签约 / 入学→晋升）
+    assert engine._purpose_hit_words("入宅") == _S["搬家"]["yi_hits"]
+    assert engine._purpose_hit_words("结婚") == _S["嫁娶"]["yi_hits"]
+    # 无对应场景的用途退回类目键（均为黄历词表实有词）; 无匹配 → 空表
+    assert engine._purpose_hit_words("动土") == ["动土"]
+    assert engine._purpose_hit_words("安葬") == ["安葬"]
+    assert engine._purpose_hit_words("") == [] and engine._purpose_hit_words("zzz") == []
+    # 回归: 2026 全年 开业/提车/晋升 均须有吉日（修复前开业为 0）
+    from datetime import date, timedelta
+    for purpose in ("开业", "提车", "晋升"):
+        n = 0
+        d = date(2026, 1, 1)
+        while d <= date(2026, 12, 31):
+            if engine.select(d.year, d.month, d.day, purpose=purpose).overall == "吉":
+                n += 1
+            d += timedelta(days=1)
+        assert n > 50, f"{purpose} 吉日过少（修复前 0）: {n}"
+
+
 def test_judge_overall_distribution_three_way_k27():
-    """k27 同前: 2026 全年 × {出行, 嫁娶} = 730 组合的三分分布指纹。
+    """k27 同前: 2026 全年 × {出行, 嫁娶, 开业, 搬家} = 1460 组合的三分分布指纹。
     （k23 旧指纹 出行 {平115,吉170,凶80} / 嫁娶 {凶83,平120,吉162} 已随语义变更作废。）
+    含「开业」是 k27 审查要求: 该用途是「吉判据词表必须走场景 yi_hits」的回归探针
+    （只钉 出行/嫁娶 两个与权威同名的类目时, 开业永不判吉的缺陷不可见）。
     分布变化 = 判定语义或宜忌事实源被改动 → 须先拍板再改本测试。"""
     from datetime import date, timedelta
     expect = {
         "出行": {"吉": 109, "平": 136, "凶": 120},
         "嫁娶": {"平": 133, "吉": 112, "凶": 120},
+        "开业": {"平": 162, "吉": 83, "凶": 120},
+        "搬家": {"吉": 95, "平": 150, "凶": 120},
     }
     for purpose, want in expect.items():
         dist, d = {}, date(2026, 1, 1)
