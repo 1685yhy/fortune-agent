@@ -254,6 +254,10 @@ def test_card_recommended_implies_overall_ji_2026():
     残留（反向）: 出行 14 / 嫁娶 20 / 签约 6 / 晋升 4 / 开业 2 天「吉但无卡」,
     成因均为卡片另有神煞排除/冲生肖（空亡/三娘煞/月破月刑/冲宅主）, 非吉判据可表达。
     修复前锚点: 2026-10-01 搬家 卡片 total=64 推荐 ↔ chat「综合判定：凶」（当年 8 例）。
+    k27 审查 I1 后更新: 「诸事不宜」宜侧纳凶（见
+    test_overall_2026_05_02_zhushi_buyi_yi_side_is_xiong_k27）使 2026-05-02
+    签约/提车/晋升 由「吉+出卡」变「凶+无卡」→ 提车 (170,170) 降为 (169,169);
+    搬家 (95,95) 与 出行 (95,109,0,14) 不变（该日两场景本无卡）。
     """
     from datetime import date, timedelta
     from src.engines.zeri import SCENES as _S
@@ -280,7 +284,7 @@ def test_card_recommended_implies_overall_ji_2026():
     assert not not_ji, f"卡片推荐但 chat 非吉 {len(not_ji)} 例: {not_ji[:8]}"
     # 搬家/提车 两向相等（该两场景无神煞排除项, 吉 ⟺ 出卡）
     assert both["搬家"] == (95, 95, 0, 0), both["搬家"]
-    assert both["提车"] == (170, 170, 0, 0), both["提车"]
+    assert both["提车"] == (169, 169, 0, 0), both["提车"]
     assert both["出行"] == (95, 109, 0, 14), both["出行"]
 
 
@@ -293,6 +297,49 @@ def test_overall_2026_10_01_move_day_card_and_chat_agree():
     r = engine.select(2026, 10, 1, purpose="搬家")
     assert r.overall == "吉", r.overall
     assert engine.select(2026, 10, 1, purpose="嫁娶").overall != "吉"
+
+
+def test_overall_2026_05_02_zhushi_buyi_yi_side_is_xiong_k27():
+    """k27 审查 I1 修复锚点: 「诸事不宜」在**宜列**时同样纳凶（与「馀事勿取」两侧对称）。
+
+    权威把「诸事不宜」放在**宜列**的有 81 天（2020-2035; 与忌列 649 天互不相交）,
+    修复前凶判据只查忌侧（`"诸事不宜" in ji`）→ 这类日既不判凶、卡片也照出。
+
+    锚点 2026-05-02（建除「成」, 当日权威宜含「诸事不宜」、忌不含 —— 该日只能由
+    宜侧判据拦下）修复前实测: purpose=签约/提车/晋升 判「吉」且计划路径出卡
+    （total=54）—— 用户看到「诸事不宜之日被推荐且判吉」。
+
+    要求两侧同步: `_judge_overall` 的凶判据与 `_build_lucky_card` 的前置排除
+    **同一处判据**（`has_yi_ji_exclusion_word`）, 否则「出卡 ⟹ 非凶」的构造性失效。
+    """
+    y, m, d = 2026, 5, 2
+    # 锚点前提: 权威宜含、忌不含（排除「忌侧早已拦下」的可能, 保证测试有区分力）
+    auth_yi = list(_lunar("2026-05-02").getDayYi())
+    auth_ji = list(_lunar("2026-05-02").getDayJi())
+    assert "诸事不宜" in auth_yi and "诸事不宜" not in auth_ji, (auth_yi, auth_ji)
+
+    r = engine.select(y, m, d)
+    assert r.jianchu == "成" and "诸事不宜" in r.yi and "诸事不宜" not in r.ji, \
+        (r.jianchu, r.yi, r.ji)
+
+    # 1) 凶判据: 无 purpose 与 7 个用途一律凶
+    assert r.overall == "凶", f"无 purpose: {r.overall}"
+    for purpose in ("签约", "提车", "晋升", "搬家", "嫁娶", "开业", "出行"):
+        ov = engine.select(y, m, d, purpose=purpose).overall
+        assert ov == "凶", f"2026-05-02 purpose={purpose} 应为凶（宜含诸事不宜）: {ov}"
+
+    # 2) 卡片前置排除: 全场景不得出卡（修复前 签约/提车/晋升 各出 1 张 total=54）
+    for scene in ("签约", "提车", "晋升", "搬家", "嫁娶", "开业", "出行"):
+        cards = engine.select_lucky_days(scene, "2026-05-02", "2026-05-02")["cards"]
+        assert cards == [], f"2026-05-02 scene={scene} 不应出卡: {cards}"
+
+    # 3) 共用判据两侧对称（凶判据与卡片排除同源, 不得只改一侧）
+    from src.engines.zeri import has_yi_ji_exclusion_word as _hit
+    assert _hit(["诸事不宜"], []) is True          # 宜侧「诸事不宜」（本 I1 修复点）
+    assert _hit([], ["诸事不宜"]) is True          # 忌侧「诸事不宜」（既有）
+    assert _hit(["馀事勿取"], []) is True          # 宜侧「馀事勿取」（既有）
+    assert _hit([], ["馀事勿取"]) is True          # 忌侧「馀事勿取」（既有）
+    assert _hit(["出行", "入宅"], ["嫁娶"]) is False
 
 
 # ============================================================
@@ -377,13 +424,18 @@ def test_judge_overall_distribution_three_way_k27():
     （k23 旧指纹 出行 {平115,吉170,凶80} / 嫁娶 {凶83,平120,吉162} 已随语义变更作废。）
     含「开业」是 k27 审查要求: 该用途是「吉判据词表必须走场景 yi_hits」的回归探针
     （只钉 出行/嫁娶 两个与权威同名的类目时, 开业永不判吉的缺陷不可见）。
-    分布变化 = 判定语义或宜忌事实源被改动 → 须先拍板再改本测试。"""
+    分布变化 = 判定语义或宜忌事实源被改动 → 须先拍板再改本测试。
+
+    2026-09-11 k27 审查 I1 后重钉: 「诸事不宜」宜侧纳凶（锚点 2026-05-02, 见
+    test_overall_2026_05_02_zhushi_buyi_yi_side_is_xiong_k27）—— 2026 宜侧
+    「诸事不宜」共 3 天（03-07 / 03-19 / 05-02）, 其中 03-19 本已凶, 03-07 与
+    05-02 由平转凶, 故四用途 平 −2 / 凶 +2（凶 120→122）; 吉 分量不变。"""
     from datetime import date, timedelta
     expect = {
-        "出行": {"吉": 109, "平": 136, "凶": 120},
-        "嫁娶": {"平": 133, "吉": 112, "凶": 120},
-        "开业": {"平": 162, "吉": 83, "凶": 120},
-        "搬家": {"吉": 95, "平": 150, "凶": 120},
+        "出行": {"吉": 109, "平": 134, "凶": 122},
+        "嫁娶": {"平": 131, "吉": 112, "凶": 122},
+        "开业": {"平": 160, "吉": 83, "凶": 122},
+        "搬家": {"吉": 95, "平": 148, "凶": 122},
     }
     for purpose, want in expect.items():
         dist, d = {}, date(2026, 1, 1)

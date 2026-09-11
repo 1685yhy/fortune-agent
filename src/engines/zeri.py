@@ -181,6 +181,27 @@ def filter_yi_ji_sentinel(items) -> list:
     return [x for x in items if x != YI_JI_SENTINEL]
 
 
+# K3-A1 前置排除词: 出现在宜/忌**任一侧**即该日不得报为任何场景吉日
+# （权威判定标准「排除破日、危日与诸事不宜之日」）。
+YI_JI_EXCLUSION_WORDS = ("诸事不宜", "馀事勿取")
+
+
+def has_yi_ji_exclusion_word(yi, ji) -> bool:
+    """K3-A1 前置排除词命中（宜或忌任一侧）—— 单一实现, 三处共用。
+
+    消费方（必须同源, 否则「计划路径出卡 ⟹ overall ≠ 凶」的构造性失效）:
+    - `ZeriEngine._judge_overall` 的**凶判据**（chat/工具/意图路径）;
+    - `ZeriEngine._build_lucky_card` 的**前置排除规则**（计划路径）。
+
+    k27 审查 I1 修复: 此前只查「诸事不宜」的**忌**侧, 而权威把它放在**宜列**的
+    有 81 天（2020-2035; 与忌列 649 天互不相交, 见 tests/test_zeri_consistency.py
+    k27 锚点 2026-05-02）—— 该类日既不判凶、卡片也照出, 与「馀事勿取」两侧都查
+    的写法不对称。改为两侧对称后, 两个消费方共用本函数, 不会再各写一套而漂移。
+    """
+    return (any(w in ji for w in YI_JI_EXCLUSION_WORDS)
+            or any(w in yi for w in YI_JI_EXCLUSION_WORDS))
+
+
 @dataclass
 class LuckyDayCard:
     """吉日卡片（三层评分 + Top3 返回）"""
@@ -482,6 +503,7 @@ class ZeriEngine:
         - **凶**: 建除 破/危, 或 诸事不宜/馀事勿取（宜或忌）—— 逐条等同
           `_build_lucky_card` 的前置排除规则、同一输入列表（调用点在
           `_adjust_by_purpose` 之前, 与卡片消费的 `select()` 宜忌逐项相同）,
+          且词侧判据与卡片共用 `has_yi_ji_exclusion_word`（单一实现, 不各写一套）,
           故 **「计划路径出卡 ⟹ overall ≠ 凶」由构造成立**;
         - **吉**: 给了 purpose 且当日**神煞级黄历宜**（`_authority_yi_ji`）命中
           `_purpose_hit_words(purpose)` —— 该词表来自 `SCENES` 的 yi_hits, 与卡片场景
@@ -507,8 +529,7 @@ class ZeriEngine:
             lunar_yi: 当日神煞级黄历宜（已滤哨兵）
             yi/ji: 合并后的宜/忌（`_day_yi_ji` 输出, 未按 purpose 调整）
         """
-        if jianchu in ("破", "危") \
-                or "诸事不宜" in ji or "馀事勿取" in ji or "馀事勿取" in yi:
+        if jianchu in ("破", "危") or has_yi_ji_exclusion_word(yi, ji):
             return "凶"
         if purpose:
             hit_words = self._purpose_hit_words(purpose)
@@ -620,7 +641,10 @@ class ZeriEngine:
         # K3-A1: 诸事不宜/馀事勿取日直接排除 —— 权威判定标准「排除破日、危日与
         # 诸事不宜之日」, 此类日不得报为任何场景吉日（12/12 忌=诸事不宜、
         # 11/7 宜=解除+馀事勿取、9/20 宜=…馀事勿取 实证）。
-        if "诸事不宜" in ji or "馀事勿取" in ji or "馀事勿取" in yi:
+        # k27 审查 I1: 判据收敛到 `has_yi_ji_exclusion_word`（与 `_judge_overall`
+        # 的凶判据**同一实现**, 含「诸事不宜 ∈ 宜」的 81 天, 2020-2035）——
+        # 两处必须同源, 否则「出卡 ⟹ 非凶」失效。
+        if has_yi_ji_exclusion_word(yi, ji):
             return None
         if r.jianchu in cfg["jianchu_avoid"]:
             return None
