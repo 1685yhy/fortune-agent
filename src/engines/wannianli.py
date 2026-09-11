@@ -30,10 +30,16 @@
        不渲染），本模块不新造文案。
   黄黑道 = lunar-python 十二值神: 青龙/明堂/金匮/天德/玉堂/司命 为黄道（吉）；
            天刑/朱雀/白虎/天牢/玄武/勾陈 为黑道（凶）。
-  建除吉凶标签 quality（k27c, 产品 2026-09-11 拍板）: **已下线, 不再输出** ——
-       值日只给名（建除十二神名）; 吉凶总评只在择吉/聊天给（三面同源）。原字段由
-       本地表 JIANCHU_QUALITY 派生（非权威历法数据）, 与 chat `overall` 在 2026 有
-       73 天方向相反（如 2026-10-01 万年历「闭（凶）」↔ 聊天吉）。
+  建除吉凶标签 quality（k27c 产品拍板 + k27d 上线安全）: **后端字段保留, 输出值
+       与 k27c 之前逐字相同**（`JIANCHU_QUALITY[jianchu]`）—— **用户面不再展示**
+       （k27c 产品口径: 万年历面不出现吉/凶标签）, 由前端不渲染达成
+       （miniprogram/pages/wannianli/* 已不消费该字段）。字段保留的原因: 线上仍有
+       老客户端构建（1.36.0 体验版/正式版）会渲染该字段, 删掉会渲染出空括号
+       「闭日（）」用户可见回归 —— 我们无法控制老客户端何时更新, 故后端保持兼容
+       输出, 待小程序全量更新后再评估移除。原字段由本地表 JIANCHU_QUALITY 派生
+       （非权威历法数据）, 与 chat `overall` 在 2026 有 73 天方向相反
+       （如 2026-10-01 万年历「闭（凶）」↔ 聊天吉）, 这也是它不再驱动任何判定的
+       原因（见 zeri._judge_overall）。
 """
 import calendar as _cal
 import re
@@ -43,6 +49,7 @@ from typing import Any, Dict, List
 from lunar_python import Solar
 
 from src.engines.zeri import (
+    JIANCHU_QUALITY,
     JIANCHU_YI_JI,
     ZeriEngine,
 )
@@ -180,8 +187,12 @@ class WannianliEngine:
                 "huanghedao": lunar.getDayTianShenType(),   # 黄道/黑道
                 "tianshen": lunar.getDayTianShen(),          # 值神（明堂/金匮…）
                 "jianchu": jianchu,                          # 建除十二神（值日名）
-                # k27c: 原 "quality"（建除吉凶 吉/平/凶）已下线 —— 万年历面不再
-                # 向用户展示吉/凶判定, 只留值日名; 吉凶总评在择吉/聊天给（三面同源）。
+                # k27d: **用户面不再展示**（k27c 产品拍板 —— 万年历面不出现吉/凶
+                # 标签）, 但字段保留供老客户端兼容（线上 1.36.0 构建仍会渲染该
+                # 字段, 删除会渲染出空括号「闭日（）」）; 值与 k27c 之前逐字相同。
+                # 待小程序全量更新后再评估移除（新客户端不渲染 = 目标态, 老客户端
+                # 与今天完全一致 = 无回归）。
+                "quality": JIANCHU_QUALITY[jianchu],         # 吉/平/凶（建除口径）
                 "is_today": f"{year:04d}-{month:02d}-{day:02d}" == today,
             })
 
@@ -250,10 +261,12 @@ class WannianliEngine:
                 "day": lunar.getDayNaYin(),
             },
             # 建除十二神（标准黄历值日）
-            # k27c: 原 `quality`（建除吉凶 吉/平/凶）字段已下线（产品 2026-09-11
-            # 拍板）—— 万年历面只给值日名; 见模块 docstring。
+            # k27d: `quality` **字段保留**（用户面不再展示, 见模块 docstring）:
+            # 老客户端（1.36.0 体验版/正式版）仍渲染「建除X（吉/凶）」, 删字段会让
+            # 它们渲染出空括号 —— 新客户端已不消费该字段（不渲染 = 目标态）。
             "jianchu": {
                 "name": jianchu,
+                "quality": JIANCHU_QUALITY[jianchu],    # 吉/平/凶（用户面已不展示）
                 "desc": JIANCHU_YI_JI[jianchu]["desc"],
             },
             # 黄黑道十二值神

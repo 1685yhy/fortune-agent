@@ -20,6 +20,7 @@ BJT = timezone(timedelta(hours=8))
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from src.engines.zeri import JIANCHU_QUALITY  # noqa: E402
 from src.main import app  # noqa: E402
 from src.security.auth import AuthHandler, JWTHandler, set_auth_handler  # noqa: E402
 
@@ -67,9 +68,9 @@ def test_month_view_complete():
         )
         assert d["jianchu"] in ("建", "除", "满", "平", "定", "执", "破", "危",
                                 "成", "收", "开", "闭")
-        # k27c: 月视图不再输出建除吉凶判定（quality）—— 万年历面不再向用户展示
-        # 吉/凶标签; 值日名（jianchu）与值宿保留（钉在 test_jianchu_quality_not_exposed_k27c）
-        assert "quality" not in d
+        # k27d: 建除吉凶 `quality` **仍在载荷内**（老客户端兼容, 值与 k27c 之前逐字
+        # 相同）—— 用户面不展示由**前端不渲染**达成, 见 test_jianchu_quality_kept_k27d
+        assert d["quality"] == JIANCHU_QUALITY[d["jianchu"]]
         assert isinstance(d["yi_short"], list) and d["yi_short"]
         # k27: ji_short 允许为空（空忌日 —— 2026 仅 2026-02-10 一天, 由
         # test_month_view_empty_ji_day_2026_02_10 锚点钉住）; 2026-08 无空忌日,
@@ -142,8 +143,9 @@ def test_day_detail_anchors():
     # 建除 + 二十八宿
     assert body["jianchu"]["name"] in (
         "建", "除", "满", "平", "定", "执", "破", "危", "成", "收", "开", "闭")
-    # k27c: 建除吉凶字段（quality）不再输出 —— 万年历面只给值日名
-    assert "quality" not in body["jianchu"]
+    # k27d: 建除吉凶字段（quality）保留（老客户端兼容）—— 用户面不展示由前端不渲染
+    # 达成; 值与建除表一致（2026-08-19 = 执 → 平）
+    assert body["jianchu"]["quality"] == JIANCHU_QUALITY[body["jianchu"]["name"]] == "平"
     assert body["jianchu"]["desc"]
     # 二十八宿: 权威历法数据（lunar-python getXiu 吉凶）仍在载荷内（既有权威锚点
     # 依赖, 见 test_day_detail_ershibaxiu_anchors）, 但用户面不再渲染该吉凶标签
@@ -200,41 +202,68 @@ def test_jieqi_day_jianchu_anchor():
     d7 = _client().get("/api/wannianli/day?date=2026-08-07", headers=_headers()).json()
     assert d7["jieqi"] == "立秋"
     assert d7["jianchu"]["name"] == "执"
-    # k27c: 原断言 d7["jianchu"]["quality"] == "平"（建除表对「执」的吉凶判定）
-    # 随该字段下线改为「不输出」断言; 值日名（执）锚点不变。
-    assert "quality" not in d7["jianchu"]
+    # 建除表对「执」的吉凶判定 = 平（k27d: 字段恢复输出, 老客户端兼容; 前端不渲染）
+    assert d7["jianchu"]["quality"] == "平"
 
     # 非节气日不位移：2026-08-19（申月起建）执日不变
     d19 = _client().get("/api/wannianli/day?date=2026-08-19", headers=_headers()).json()
     assert d19["jianchu"]["name"] == "执"
 
 
-# ------------------------------------------------- k27c: 万年历去建除吉凶标签（产品拍板）
-def test_jianchu_quality_not_exposed_k27c():
-    """k27c: 万年历面不再输出建除吉凶判定（`quality`）, 只留值日名 + 值宿。
+# ------------------------- k27d: 建除吉凶 quality 字段「后端保留 / 前端不渲染」
+def test_jianchu_quality_kept_k27d():
+    """k27d: `quality` **后端仍在载荷内**（月视图 + 日详情）, 用户面不展示由**前端
+    不渲染**达成 —— 两侧同时锁住。
 
-    背景（k27 报告 §6-3 遗留）: `quality` 由本地表 `JIANCHU_QUALITY` 派生（非权威
-    历法数据）, 与 chat `overall` 在 2026 有 73 天方向相反（如 10-01 万年历
-    「闭（凶）」↔ 聊天吉）→ 产品拍板「万年历面不再向用户展示吉/凶判定; 吉凶总评
-    只在择吉/聊天给（三面同源）」。
+    背景: k27c 把 `quality` 从后端删掉（产品口径: 万年历面不出现吉/凶标签）; 但
+    线上仍有老客户端构建（1.36.0 体验版/正式版）会渲染该字段 → 删除会渲染出空
+    括号「闭日（）」用户可见回归, 而我们无法控制老客户端何时更新。k27d 恢复后端
+    输出（值与 k27c 之前逐字相同）, 前端保持不渲染 → 新客户端无标签（目标态）,
+    老客户端与今天完全一致（无回归）。
 
-    覆盖: 月视图逐日（2026-08 全月）+ 日详情（含 10-01 反例日与节气锚点日）均无
-    `quality`; 值日名（`jianchu` / `jianchu.name`）与值宿名（`ershibaxiu.name`）保留
-    （本字段下线**不得**连带删掉值日信息; 权威宿吉凶字段 `ershibaxiu.jixiong`
-    仍在载荷内, 由 test_day_detail_ershibaxiu_anchors 钉住, 但前端不再渲染）。
+    覆盖两侧:
+    1. 后端: 月视图逐日（2026-08 全月）与日详情（含 10-01 / 05-02 / 节气锚点）
+       `quality` 存在且 == `JIANCHU_QUALITY[jianchu]`（建除表取值, 逐日逐值）;
+       值日名/说明/值宿一并保留;
+    2. 前端（源码级 tripwire, 运行时裁决在 node 测试
+       miniprogram/tests/wannianli.test.js「无 qCls / quality / jcCls」）:
+       页面不得绑定/透传该字段 —— wxml 无 `quality` / `qCls` / `jixiong` 绑定,
+       wxss 无 `.q-` 吉凶配色, js 无 `qCls`/`jcCls`/`.quality` 代码引用（注释除外）。
     """
+    # ---- 1) 后端: 字段仍在, 取值与建除表一致
     mv = _client().get("/api/wannianli?year=2026&month=8", headers=_headers()).json()
     assert len(mv["days"]) == 31
     for d in mv["days"]:
-        assert "quality" not in d, f"{d['date']} 月视图仍输出建除吉凶: {d}"
-        assert d["jianchu"] in ("建", "除", "满", "平", "定", "执", "破", "危",
-                                "成", "收", "开", "闭"), d
+        assert "quality" in d, f"{d['date']} 月视图缺建除吉凶字段（老客户端兼容）"
+        assert d["quality"] == JIANCHU_QUALITY[d["jianchu"]], d
+        assert d["quality"] in ("吉", "平", "凶"), d
 
     for ds in ("2026-10-01", "2026-05-02", "2026-08-07", "2026-08-19"):
         body = _client().get(f"/api/wannianli/day?date={ds}", headers=_headers()).json()
-        assert "quality" not in body["jianchu"], f"{ds} 日详情仍输出建除吉凶"
+        assert body["jianchu"]["quality"] == JIANCHU_QUALITY[body["jianchu"]["name"]], ds
         assert body["jianchu"]["name"] and body["jianchu"]["desc"], ds
         assert body["ershibaxiu"]["name"], ds          # 值宿名保留
+
+    # ---- 2) 前端: 不渲染（源码级 tripwire; 页面代码不得引用该字段）
+    import re
+    from pathlib import Path
+    page_dir = (Path(__file__).resolve().parent.parent
+                / "miniprogram" / "pages" / "wannianli")
+
+    def _code_only(text: str) -> str:
+        text = re.sub(r"<!--.*?-->", "", text, flags=re.S)     # wxml 注释
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)      # 块注释
+        return "\n".join(ln for ln in text.splitlines()
+                         if not ln.strip().startswith("//"))   # 行注释
+
+    js = _code_only((page_dir / "wannianli.js").read_text(encoding="utf-8"))
+    wxml = _code_only((page_dir / "wannianli.wxml").read_text(encoding="utf-8"))
+    wxss = _code_only((page_dir / "wannianli.wxss").read_text(encoding="utf-8"))
+    for token in ("qCls", "jcCls", ".quality"):
+        assert token not in js, f"页面仍消费建除吉凶（{token}）: 用户面应无吉/凶标签"
+    for token in ("quality", "qCls", "jixiong"):
+        assert token not in wxml, f"wxml 仍绑定建除/宿吉凶（{token}）"
+    assert not any(c in wxss for c in (".q-ji", ".q-ping", ".q-xiong")), "wxss 仍留吉凶配色"
 
 
 # ---------------------------------------------------------------- 宜忌规则确定性
@@ -265,9 +294,8 @@ def test_yi_ji_rule_consistency():
     assert d19["day_ganzhi"] == r1["ganzhi"]["day"]
     assert d19["huanghedao"] == r1["huanghedao"]["type"]
     assert d19["jianchu"] == r1["jianchu"]["name"]
-    # k27c: 原为 d19["quality"] == r1["jianchu"]["quality"]（建除吉凶同源断言）;
-    # 两处都不再输出该字段 → 同源断言收敛到值日名（仍在两侧一致）。
-    assert "quality" not in d19 and "quality" not in r1["jianchu"]
+    # k27d: 建除吉凶同源断言（月视图 quality == 日详情 jianchu.quality, 两侧同表取值）
+    assert d19["quality"] == r1["jianchu"]["quality"] == JIANCHU_QUALITY[d19["jianchu"]]
     assert d19["yi_short"] == r1["yi"][:3]
     assert d19["ji_short"] == r1["ji"][:3]
 

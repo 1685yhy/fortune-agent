@@ -187,23 +187,35 @@ def filter_yi_ji_sentinel(items) -> list:
 
 # K3-A1 前置排除词: 出现在宜/忌**任一侧**即该日不得报为任何场景吉日
 # （权威判定标准「排除破日、危日与诸事不宜之日」）。
-YI_JI_EXCLUSION_WORDS = ("诸事不宜", "馀事勿取")
+# k27d（2026-09-11, 产品拍板）: 两个词在 chat **无用途面**的语义已分开 ——
+# 「诸事不宜」仍是凶判据（真正诸事不宜的日子）, 「馀事勿取」归平（`_judge_overall`
+# 无用途分支）; 卡片准入（`_build_lucky_card`）仍按全量排除, 未动。
+ZHU_SHI_BU_YI = "诸事不宜"
+YU_SHI_WU_QU = "馀事勿取"
+YI_JI_EXCLUSION_WORDS = (ZHU_SHI_BU_YI, YU_SHI_WU_QU)
+
+
+def has_word_in_yi_ji(word: str, yi, ji) -> bool:
+    """词是否出现在宜/忌**任一侧**（单一实现: 排除词与 k27d 三分判据共用）。"""
+    return any(word in x for x in ji) or any(word in x for x in yi)
 
 
 def has_yi_ji_exclusion_word(yi, ji) -> bool:
-    """K3-A1 前置排除词命中（宜或忌任一侧）—— 单一实现, 三处共用。
+    """K3-A1 前置排除词命中（宜或忌任一侧）—— 单一实现, 两处共用。
 
     消费方（必须同源, 否则「计划路径出卡 ⟹ overall ≠ 凶」的构造性失效）:
-    - `ZeriEngine._judge_overall` 的**凶判据**（chat/工具/意图路径）;
+    - `ZeriEngine._judge_overall` 的**带用途凶判据**（chat/工具/意图路径）;
     - `ZeriEngine._build_lucky_card` 的**前置排除规则**（计划路径）。
 
     k27 审查 I1 修复: 此前只查「诸事不宜」的**忌**侧, 而权威把它放在**宜列**的
     有 81 天（2020-2035; 与忌列 649 天互不相交, 见 tests/test_zeri_consistency.py
     k27 锚点 2026-05-02）—— 该类日既不判凶、卡片也照出, 与「馀事勿取」两侧都查
     的写法不对称。改为两侧对称后, 两个消费方共用本函数, 不会再各写一套而漂移。
+
+    k27d: chat **无用途**分支不再走本函数（只认「诸事不宜」+ 破/危, 见
+    `_judge_overall`）; 本函数仍是卡片前置排除与带用途分支的单一判据。
     """
-    return (any(w in ji for w in YI_JI_EXCLUSION_WORDS)
-            or any(w in yi for w in YI_JI_EXCLUSION_WORDS))
+    return any(has_word_in_yi_ji(w, yi, ji) for w in YI_JI_EXCLUSION_WORDS)
 
 
 @dataclass
@@ -232,7 +244,8 @@ class ZeriResult:
     ji: List[str]             # 忌（K3-A3 神煞级优先, k27 双向: 与当日黄历宜冲突的建除表忌
                               #    已剔除; 与当日黄历忌冲突的建除表宜亦已剔除）
     chong: str                # 冲生肖
-    overall: str              # 吉/凶/平（k27 三分, 与吉日卡片准入同源; 见 _judge_overall）
+    overall: str              # 吉/凶/平（k27 三分 + k27d 无用途细分, 与吉日卡片
+                              #     准入同源; 见 _judge_overall）
     raw_data: dict = field(default_factory=dict)
 
 
@@ -502,23 +515,33 @@ class ZeriEngine:
         self, jianchu: str, purpose: str,
         lunar_yi: List[str], yi: List[str], ji: List[str],
     ) -> str:
-        """综合判定吉凶（k27 三分, 与吉日卡片准入**同源**; 产品 2026-09-11 拍板选项 E）:
+        """综合判定吉凶（k27 三分 + k27d 无用途细分, 与吉日卡片准入**同源**; 产品
+        2026-09-11 拍板选项 E）—— **两个分支口径不同, 按 `purpose` 空/非空分流**:
 
+        **带用途分支（k27c 语义逐字未动）**
         - **凶**: 建除 破/危, 或 诸事不宜/馀事勿取（宜或忌）—— 逐条等同
           `_build_lucky_card` 的前置排除规则、同一输入列表（调用点在
           `_adjust_by_purpose` 之前, 与卡片消费的 `select()` 宜忌逐项相同）,
           且词侧判据与卡片共用 `has_yi_ji_exclusion_word`（单一实现, 不各写一套）,
           故 **「计划路径出卡 ⟹ overall ≠ 凶」由构造成立**;
-        - **吉**: 给了 purpose 且当日**神煞级黄历宜**（`_authority_yi_ji`）命中
+        - **吉**: 当日**神煞级黄历宜**（`_authority_yi_ji`）命中
           `_purpose_hit_words(purpose)` —— 该词表来自 `SCENES` 的 yi_hits, 与卡片场景
           准入 `_scene_score(cfg, jianchu, lunar_yi)` 同一输入表（K3-A5: 建除表宜
           仅展示、不驱动评分）;
-          **不带用途时（k27c, 产品 2026-09-11 拍板）**: 非凶且**权威宜表非空**即判吉
-          —— 通用吉信号, 与卡片/用途分支同一输入 `lunar_yi`（不另写第三套判据）;
-          该分支**只在 `purpose` 为空时生效**（带用途但未命中一律平, 不因权威宜表
-          非空而抬成吉）;
-        - **平**: 其余（含无用途且权威宜表为空 —— 权威当日「无宜事」, 见
-          `_authority_yi_ji` 哨兵过滤）。
+        - **平**: 其余（含用途未命中）。
+
+        **无用途分支（k27d, 产品 2026-09-11 拍板「凶只留给真正诸事不宜的日子」）**
+        - **凶**: 建除 破/危, 或 含「诸事不宜」（宜或忌任一侧）;
+        - **平**: 非凶 且（**权威宜表为空** 或 含「馀事勿取」）—— 权威当日「无宜事」
+          （`getDayYi()==['无']` 滤哨兵后为空, 见 `_authority_yi_ji` 哨兵过滤）;
+          「馀事勿取」是「宜：馀事勿取」型日子（传统口径=诸事平常、不宜作为）,
+          归平不归凶（k27c 起它独占凶桶 92 天, 与产品语义不符）;
+        - **吉**: 其余（非凶 且 权威宜表非空 且 无「馀事勿取」）—— 通用吉信号,
+          判据复用同一输入 `lunar_yi`, 不另写量表。
+        - 与卡片的**不对称**（有意保留）: 卡片准入仍把「馀事勿取」计入前置排除
+          （`_build_lucky_card` 未动）→ 该类日 chat=平（非吉）而卡片不推荐, 不冲突。
+        - 凶 侧较带用途分支**更窄**（不带「馀事勿取」）: 卡片排除集 ⊇ 新凶集,
+          故「出卡 ⟹ 非凶」在两面均仍由构造成立。
 
         被替换的 k23 语义（5.0 基准 + 建除 quality ±2 + 二十八宿 ±1 + 用途 ±1, 阈值
         6/3）与卡片判据无一处同维度: 2026-10-01 搬家 —— 卡片 total=64（权威吉日,
@@ -538,9 +561,10 @@ class ZeriEngine:
             lunar_yi: 当日神煞级黄历宜（已滤哨兵）
             yi/ji: 合并后的宜/忌（`_day_yi_ji` 输出, 未按 purpose 调整）
         """
-        if jianchu in ("破", "危") or has_yi_ji_exclusion_word(yi, ji):
-            return "凶"
         if purpose:
+            # ---- 带用途分支（k27c 语义逐字未动）----
+            if jianchu in ("破", "危") or has_yi_ji_exclusion_word(yi, ji):
+                return "凶"
             hit_words = self._purpose_hit_words(purpose)
             if any(w in lunar_yi for w in hit_words):
                 # 卡片准入的另一半（k27 审查）: 场景忌词命中时卡片同样不推荐
@@ -550,13 +574,20 @@ class ZeriEngine:
                 veto = SCENES[scene]["ji_hits"] if scene else ()
                 if not any(kw in j for j in ji for kw in veto):
                     return "吉"
-        # k27c 通用吉信号（**只在无用途分支生效**, 产品 2026-09-11 拍板）: 不带用途
-        # 泛问「今天怎么样」也要有肯定答复 —— 非凶且**权威宜表非空** → 吉; 权威当日
-        # 「无宜事」（`getDayYi()==['无']` 滤哨兵后为空）→ 平。判据复用同一输入
-        # `lunar_yi`（与用途分支/卡片 `_scene_score` 同源表）, 不另写词表。
-        if not purpose and lunar_yi:
-            return "吉"
-        return "平"
+            return "平"
+
+        # ---- 无用途分支（k27d, 产品 2026-09-11 拍板）----
+        # 凶 = 破/危 或 含「诸事不宜」（**不含**「馀事勿取」—— 那是平, 见下）;
+        # 判据与卡片前置排除共用 `has_word_in_yi_ji`（同一词侧检查, 不各写一套）。
+        if jianchu in ("破", "危") or has_word_in_yi_ji(ZHU_SHI_BU_YI, yi, ji):
+            return "凶"
+        # 平 = 非凶 且（权威当日「无宜事」 或 含「馀事勿取」）。不带用途泛问
+        # 「今天怎么样」时的通用吉信号: 非凶 且权威宜表非空 且无「馀事勿取」→ 吉。
+        # 判据复用同一输入 `lunar_yi`（与用途分支/卡片 `_scene_score` 同源表）,
+        # 不另写词表。
+        if not lunar_yi or has_word_in_yi_ji(YU_SHI_WU_QU, yi, ji):
+            return "平"
+        return "吉"
 
     # ---- 择吉日: 多日扫描 + 三层评分 + Top3 ----
 

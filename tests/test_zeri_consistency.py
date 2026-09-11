@@ -20,6 +20,12 @@ k27（2026-09-11, 产品拍板「对齐权威黄历」）在本文件追加两�
 k27c（2026-09-11, 产品拍板两口径）在本文件追加第三段:
 3. **不带用途时的「通用吉信号」** —— 无用途分支按「非破/危/诸事不宜 且权威宜表
    非空 → 吉」判定（`purpose=""` 也能给肯定答复）; 带用途分支逐字不变。
+
+k27d（2026-09-11, 产品拍板「凶只留给真正诸事不宜的日子」）修订无用途分支的
+凶/平边界（**只改无用途分支, 带用途分支逐字不变**）:
+4. 凶 侧不再计入「馀事勿取」（归平）—— 凶 = 破/危 或 含「诸事不宜」（宜/忌任一侧）;
+   平 = 非凶 且（权威宜表为空 或 含「馀事勿取」）。卡片准入（`_build_lucky_card`
+   前置排除）仍按全量排除词, 与 chat 的差异是有意保留的不对称（平 ≠ 吉）。
 """
 import pytest
 from lunar_python import Solar
@@ -452,12 +458,12 @@ def test_judge_overall_distribution_three_way_k27():
 
 
 # ============================================================
-# k27c: 不带用途时的「通用吉信号」（产品 2026-09-11 拍板; k27 报告 §6-4 遗留）
+# k27c/k27d: 不带用途分支（通用吉信号 + 馀事勿取归平）
+# （产品 2026-09-11 拍板; k27 报告 §6-4 / k27d 报告 §10）
 # ============================================================
 
 # 空权威宜日（lunar.getDayYi() == ['无'] → 滤哨兵后为空）: 2020-2035 全部 10 天,
-# 硬编码以便锚定「平分支在真实日期上的可达性」（实跑值, 见
-# test_overall_general_signal_without_purpose_k27c 锚点 5）。
+# 硬编码以便锚定「平分支在真实日期上的可达性」。
 _KONG_YI_DAYS_2020_2035 = (
     "2020-04-27", "2021-04-22", "2022-04-17", "2023-04-12", "2024-04-06",
     "2031-04-30", "2032-04-24", "2033-04-19", "2034-04-14", "2035-04-09",
@@ -470,19 +476,18 @@ def test_overall_general_signal_without_purpose_k27c():
 
     产品 2026-09-11 拍板（k27 报告 §6-4 遗留）: 不带用途泛问「今天怎么样」
     也要有肯定答复、且不再有三分之一日子听到「凶」。
+    k27d 修订凶/平边界（见 test_overall_without_purpose_yuci_ping_k27d）后,
+    本测试锚定的**吉侧**语义不变:
 
-    - **凶**: 破 / 危 / `has_yi_ji_exclusion_word`（= 卡片前置排除规则, 单一
-      判据, 本批**未动**; 且**不再以用途为前提**）;
-    - **吉**: 非凶 **且权威宜表非空**（`_authority_yi_ji` 宜侧, 即 lunar-python
-      getDayYi 滤哨兵后; 即 `_judge_overall` 的 `lunar_yi` 输入。不用合并后的
-      `yi` —— 后者恒含建除表宜、永不空, 空宜日正是「权威没给肯定信号」的日）;
-    - **平**: 其余（仅「空权威宜且非凶」可达 —— 实测 2020-2035 的 10 个空宜日
-      忌均含「诸事不宜」→ 已被凶判据先拦, 故当前无真实日期落入平; 锚点 5）。
+    - **吉**: 非凶 **且权威宜表非空** **且无「馀事勿取」**（`_authority_yi_ji` 宜侧,
+      即 lunar-python getDayYi 滤哨兵后; 即 `_judge_overall` 的 `lunar_yi` 输入。
+      不用合并后的 `yi` —— 后者恒含建除表宜、永不空, 空宜日正是「权威没给肯定
+      信号」的日）;
+    - **凶/平**: 见 test_overall_without_purpose_yuci_ping_k27d（k27d 口径）。
 
     锚点（2026, 实跑）:
     - 10-01（建除「闭」, 权威宜含出行/移徙/入宅, 无排除词）= 产品现象 1 当日
-      （万年历「闭（凶）」↔ 聊天吉）→ 无用途现为**吉**（旧语义为平）;
-    - 11-15 破日 / 11-16 危日 / 05-02（宜侧诸事不宜）→ 凶（凶判据不变）;
+      （万年历「闭（凶）」↔ 聊天吉）→ 无用途为**吉**（k27 旧语义为平）;
     - 01-13 `purpose=嫁娶` → 平: 该日权威宜非空, 但用途分支以「命中用途」为准,
       通用吉信号**不得**越界把带用途的未命中日抬成吉。
     """
@@ -491,25 +496,18 @@ def test_overall_general_signal_without_purpose_k27c():
     auth_yi, _ = engine._authority_yi_ji(_lunar("2026-10-01"))
     assert r.jianchu == "闭" and auth_yi, (r.jianchu, auth_yi)
     assert not any(w in x for w in _EXCLUSION_WORDS for x in r.yi + r.ji)
-    assert r.overall == "吉", f"2026-10-01 无用途应为吉（旧语义为平）: {r.overall}"
+    assert r.overall == "吉", f"2026-10-01 无用途应为吉（k27 旧语义为平）: {r.overall}"
 
-    # 2) 凶判据不变（破 / 危 / 诸事不宜）—— 无用途与带用途同值
-    for ds, why in (("2026-11-15", "破日"), ("2026-11-16", "危日"),
-                    ("2026-05-02", "宜侧诸事不宜")):
-        y, m, d = _ymd(ds)
-        rr = engine.select(y, m, d)
-        assert rr.overall == "凶", f"{ds}（{why}）无用途应为凶: {rr.overall}"
-        assert engine.select(y, m, d, purpose="出行").overall == "凶", ds
-
-    # 3) 带用途分支不变: 权威宜非空但用途未命中 → 平（通用吉信号不越界）
+    # 2) 带用途分支不变: 权威宜非空但用途未命中 → 平（通用吉信号不越界）
     r13 = engine.select(2026, 1, 13, purpose="嫁娶")
     a13, _ = engine._authority_yi_ji(_lunar("2026-01-13"))
     assert a13 and r13.overall == "平", (a13, r13.overall)
 
-    # 4) 平分支 = 「空权威宜且非凶」: 直接喂空权威宜（合成输入, 真实日期不可达）
+    # 3) 平分支的「空权威宜」入口: 直接喂空权威宜（合成输入, 真实日期不可达）
     assert engine._judge_overall("成", "", [], ["嫁娶"], ["出行"]) == "平"
 
-    # 5) 空宜日实测（2020-2035 全部 10 天）: 均因忌侧「诸事不宜」先判凶 → 平不可达
+    # 4) 空宜日实测（2020-2035 全部 10 天）: 均因忌侧「诸事不宜」先判凶 → 该入口
+    #    在真实日期上不可达（故平只由「馀事勿取」入口达, 见 k27d 测试）
     for ds in _KONG_YI_DAYS_2020_2035:
         auth, _ji = engine._authority_yi_ji(_lunar(ds))
         assert auth == [], f"{ds} 应为空权威宜（本锚点前提）: {auth}"
@@ -517,24 +515,82 @@ def test_overall_general_signal_without_purpose_k27c():
         assert engine.select(y, m, d).overall == "凶", ds
 
 
-def test_judge_overall_distribution_without_purpose_k27c():
-    """k27c 无用途 2026 全年三分分布指纹（实跑值: 吉 243 / 平 0 / 凶 122）。
+def test_overall_without_purpose_yuci_ping_k27d():
+    """k27d 无用途三分的行为区分（产品 2026-09-11 拍板「凶只留给真正诸事不宜的日子」）:
 
-    - 凶 122 与带用途指纹（test_judge_overall_distribution_three_way_k27）同值:
-      凶判据与用途无关（实跑构成: 破 29 ∪ 危 30 ∪ 排除词 96 = 并集 122;
-      排除词 96 = 诸事不宜 31 ∪ 馀事勿取 92, 二者交集 27）;
-    - 平 0 是**实测结论**而非设计缺失: 平只落在「空权威宜且非凶」, 而 2020-2035
-      的 10 个空宜日全部忌含「诸事不宜」→ 先判凶（锚点见
-      test_overall_general_signal_without_purpose_k27c）;
-    - 吉 243 = 365 − 122（2026 空宜日为 0 天, 故「权威宜非空」不额外扣减）。
+    | 日型 | 判定 | 2026 锚点 |
+    |---|---|---|
+    | 含「馀事勿取」（宜/忌任一侧）, 非破/危/诸事不宜 | **平** | 01-06（宜侧）/ 08-19 |
+    | 建除 破 / 危 | **凶** | 11-15（破）/ 11-16（危） |
+    | 含「诸事不宜」（宜或忌任一侧） | **凶** | 05-02（宜侧） |
+    | 其余（权威宜表非空） | **吉** | 10-01 |
+
+    - 破/危 优先于「馀事勿取」: 2026 全年 29 个破日**全部**带「馀事勿取」
+      （lunar-python 逐日表口径 → 实测）—— 若「馀事勿取」优先, 「凶 = 破日」
+      这条判据将永不生效, 故凶判据先于平（本测试 01-06 vs 11-15 两锚点即钉住该序）;
+    - 带用途分支**逐字未动**: 同一天 01-06（`purpose=""` → 平）在 `purpose=出行`
+      下仍为 凶（`has_yi_ji_exclusion_word` 未改, 卡片准入仍全量排除）;
+    - 卡片准入（`_build_lucky_card` 前置排除）**未动** → 上述平/凶日一律不出卡,
+      「chat 非吉 而卡片不推荐」的不对称保持（出卡 ⟹ 非凶 仍由构造成立）。
+    """
+    # 1) 真实日期锚点: 平 / 凶 × 2 类 / 吉
+    for ds, want, why in (
+        ("2026-01-06", "平", "含「馀事勿取」(宜侧), 非破/危/诸事不宜"),
+        ("2026-08-19", "平", "含「馀事勿取」(宜侧), 建除「执」"),
+        ("2026-11-15", "凶", "破日（且带馀事勿取 —— 凶优先）"),
+        ("2026-11-16", "凶", "危日"),
+        ("2026-05-02", "凶", "权威宜侧含「诸事不宜」"),
+        ("2026-10-01", "吉", "普通日（权威宜非空、无排除词）"),
+    ):
+        y, m, d = _ymd(ds)
+        rr = engine.select(y, m, d)
+        assert rr.overall == want, f"{ds}（{why}）应为{want}: {rr.overall}"
+        words = rr.yi + rr.ji
+        if want == "平":                      # 前提: 确实由「馀事勿取」入口落平
+            assert any("馀事勿取" in x for x in words), (ds, words)
+            assert not any("诸事不宜" in x for x in words), (ds, words)
+            assert rr.jianchu not in ("破", "危"), ds
+        if want == "吉":                      # 前提: 无任何排除词
+            assert not any(w in x for w in _EXCLUSION_WORDS for x in words), (ds, words)
+
+    # 2) 带用途分支不变: 同为「馀事勿取」日, 无用途=平, 带用途仍=凶（判据未动）
+    assert engine.select(2026, 1, 6).overall == "平"
+    for p in ("出行", "嫁娶", "签约"):
+        assert engine.select(2026, 1, 6, purpose=p).overall == "凶", p
+    # 破日两面同为凶
+    assert engine.select(2026, 11, 15, purpose="出行").overall == "凶"
+
+    # 3) 合成输入锁两侧（宜/忌任一侧都算命中, 与接线位置无关）
+    assert engine._judge_overall("建", "", ["祈福"], ["祈福"], ["馀事勿取"]) == "平"   # 忌侧
+    assert engine._judge_overall("建", "", ["祈福"], ["馀事勿取"], ["祈福"]) == "平"   # 宜侧
+    assert engine._judge_overall("建", "", ["祈福"], ["祈福"], ["诸事不宜"]) == "凶"   # 忌侧
+    assert engine._judge_overall("建", "", ["祈福"], ["诸事不宜"], ["祈福"]) == "凶"   # 宜侧
+    assert engine._judge_overall("建", "", ["祈福"], ["祈福"], ["出行"]) == "吉"
+    assert engine._judge_overall("破", "", ["祈福"], ["祈福"], ["出行"]) == "凶"
+    assert engine._judge_overall("危", "", ["祈福"], ["祈福"], ["出行"]) == "凶"
+
+
+def test_judge_overall_distribution_without_purpose_k27d():
+    """k27d 无用途 2026 全年三分分布指纹（实跑值: 吉 243 / 平 44 / 凶 78）。
+
+    口径（k27d, 只改无用途分支）:
+    - **凶 78** = 破 29 ∪ 危 30 ∪ 含「诸事不宜」31 = 并集 78（破/危 与诸事不宜
+      交集 12 天）—— 破/危 判据先于「馀事勿取」;
+    - **平 44** = 含「馀事勿取」共 92 天中**不属上述三类**的部分（92 − 48）;
+      另 48 天（破 29 全数 + 危 4 + 诸事不宜-only 15）因先判凶而不落平;
+    - **吉 243** = 365 − 78 − 44（2026 空权威宜日 0 天, 故「权威宜非空」不扣减）。
+    报批预期为 平 ~92 / 凶 ~30（= 把 92 个「馀事勿取」日整体移出凶桶的估算）;
+    实际不符的原因即上两条 —— 若「馀事勿取」优先于破/危/诸事不宜, 则 29 个破日
+    （全部带「馀事勿取」）会由凶转平, 「凶 = 破日」判据空转（见
+    test_overall_without_purpose_yuci_ping_k27d 的 01-06 vs 11-15 两锚点）。
 
     分布变化 = 判定语义或宜忌事实源被改动 → 须先拍板再改本测试。
     """
     from datetime import date, timedelta
-    dist = {"吉": 0, "平": 0, "凶": 0}   # 三桶预置 0: 平 桶为空也钉住（不得静默消失）
+    dist = {"吉": 0, "平": 0, "凶": 0}   # 三桶预置 0: 任一桶为 0 也钉住（不得静默消失）
     d = date(2026, 1, 1)
     while d <= date(2026, 12, 31):
         dist[engine.select(d.year, d.month, d.day).overall] += 1
         d += timedelta(days=1)
-    assert dist == {"吉": 243, "平": 0, "凶": 122}, f"无用途三分分布漂移: {dist}"
+    assert dist == {"吉": 243, "平": 44, "凶": 78}, f"无用途三分分布漂移: {dist}"
     assert sum(dist.values()) == 365
