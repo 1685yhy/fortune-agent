@@ -27,7 +27,9 @@ save_user_bazi——避免 consultation_count+1 副作用与写守卫复算；�
 
 安全设计：
 - 默认 dry-run（只列出将清理行：user / birth 摘要 / 判定 / persons 一致
-  性备注），零写入；
+  性备注），零写入；k31 收口：备注读口径亦只读——persons 一律走
+  `list_persons`，不触发 `get_default_person` 的建卡/提升默认自愈写
+  （旧代码 dry-run 会因备注读静默建 person，属「dry-run 写库」契约违背）；
 - --execute 必须显式 + 必须 --backup <路径>（执行前整库备份，目标已存在
   则拒绝——幂等保护）+ 必须 --audit <jsonl>（逐行变更审计）；
 - 不认 FORTUNE_DB_PATH 等环境变量，只认显式 --db（防误碰生产库）；
@@ -135,10 +137,28 @@ def _chart_birth_matches(chart_birth, info) -> bool:
     return (a in (None, "", 0)) == (b in (None, "", 0))
 
 
-def persons_note(pdao, user_id: str, bazi_info) -> str:
-    """persons 与 bazi_info 一致性备注（展示用；不参与判定）。"""
+def persons_note(pdao, user_id: str, bazi_info, auto_migrate: bool = False) -> str:
+    """persons 与 bazi_info 一致性备注（展示用；不参与判定）。
+
+    k31（dry-run 零写入契约，k30 审查 A）：读口径默认**只读**——绝不触发
+    `get_default_person` 的两处自愈写：
+      (a) 无默认行但有其他 person → 把最早者提升为默认（UPDATE is_default=1）；
+      (b) 无任何 person 且 auto_migrate=True → `migrate_legacy_bazi` 建「我」
+          （INSERT）。旧代码走 (a)(b)，dry-run 后静默多出 person 行，与脚本
+          打印的「[dry-run] 未写入任何数据」不符。
+    只读实现 = `list_persons`（`is_default DESC, created_at ASC, id ASC`，首行
+    即默认行；与 `get_default_person` 首查同序，差异仅在「多默认行」这一
+    is_default 唯一性被破坏的畸形形态——备注为展示用，不影响判定）。
+    auto_migrate=True 仅供 `--execute` 复用旧行为（扫描期允许自愈/迁移写）。
+    """
     try:
-        p = pdao.get_default_person(user_id) if pdao else None
+        if not pdao:
+            p = None
+        elif auto_migrate:
+            p = pdao.get_default_person(user_id)
+        else:
+            persons = pdao.list_persons(user_id)
+            p = persons[0] if persons else None
     except Exception:
         p = None
     if not p:
@@ -240,10 +260,13 @@ def row_verdict(conn, user_id: str, info) -> str:
     return verdict
 
 
-def scan_stale(conn, pdao, only=None):
+def scan_stale(conn, pdao, only=None, auto_migrate: bool = False):
     """全量扫描 → (stale_rows, keep_rows)。
 
     行结构：{user_id, verdict, birth_summary, bazi, note}
+
+    auto_migrate（k31）：透传给 persons_note 的读口径；默认 False = 只读，
+    dry-run 绝不在扫描期建 person / 提升默认（`main` 仅在 --execute 时置 True）。
     """
     stale, keep = [], []
     for uid in _iter_user_ids(conn, only):
@@ -270,7 +293,7 @@ def scan_stale(conn, pdao, only=None):
             "verdict": verdict,
             "birth_summary": _birth_summary(info),
             "bazi": "/".join(normalize_pillars(info.get("bazi")) or []),
-            "note": persons_note(pdao, uid, info),
+            "note": persons_note(pdao, uid, info, auto_migrate=auto_migrate),
         }
         (stale if verdict in STALE_VERDICTS else keep).append(item)
     return stale, keep
@@ -354,7 +377,10 @@ def main(argv=None):
     except Exception:
         pdao = None
 
-    stale, keep = scan_stale(conn, pdao, only=only)
+    # k31：dry-run 的零写入契约——扫描期只读（不建 person / 不提升默认）；
+    # --execute 保持旧行为（扫描期允许 persons 自愈/兼容迁移写）。
+    stale, keep = scan_stale(conn, pdao, only=only,
+                             auto_migrate=not args.dry_run)
     print("== 判定结果 ==")
     for it in keep:
         if it["verdict"] == KEEP_NO_KEY:
