@@ -1,6 +1,7 @@
 """混合检索器 - 语义检索 + BM25关键词检索."""
 import logging
 import os
+from datetime import datetime
 from dataclasses import dataclass
 from typing import List, Optional
 from pathlib import Path
@@ -16,6 +17,36 @@ from src.book_categories import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# ────────────────────────────────────────────────────────────────────────
+# k28（k23k24 审查 M-6）：空集合自愈的可观测状态。
+# 自愈是「配置写错但检索仍可用」的静默降级点：warning 只在进程内首次触发
+# （避免刷屏），低峰期首个检索若发生在低 S 日志窗口，运维就查不到了。这里
+# 把每次自愈落成**可查询状态**（进程内累计）+ 重复自愈降级为 info 留痕：
+# 既不刷屏，又能事后确认（`self_heal_events()`），日志错过也不丢。
+# 键 = 配置请求的集合名；healed_to=None 表示自愈失败（权威库也空/不可用）。
+# ────────────────────────────────────────────────────────────────────────
+_SELF_HEAL_EVENTS: dict = {}
+
+
+def _record_self_heal(name: str, reason: str, healed_to: Optional[str]) -> int:
+    """登记一次自愈判定（成功或失败），返回该集合名在进程内的累计次数。"""
+    evt = _SELF_HEAL_EVENTS.setdefault(
+        name, {"count": 0, "last_reason": "", "healed_to": None, "last_ts": ""})
+    evt["count"] += 1
+    evt["last_reason"] = reason
+    evt["healed_to"] = healed_to
+    evt["last_ts"] = datetime.now().isoformat(timespec="seconds")
+    return evt["count"]
+
+
+def self_heal_events() -> dict:
+    """空集合自愈事件快照（k28，运维/巡检可查；调用方不得就地修改）。
+
+    返回 {请求集合名: {count, last_reason, healed_to, last_ts}} 的浅拷贝。
+    """
+    return {k: dict(v) for k, v in _SELF_HEAL_EVENTS.items()}
 
 
 @dataclass
@@ -112,22 +143,34 @@ class Retriever:
                 reason = f"不可用: {e}"
         try:
             if self._raw_count(BOOKS_COLLECTION) <= 0:
+                _record_self_heal(name, reason, None)
                 logger.warning(
                     "古籍集合自愈失败: '%s'（%s）无数据，权威集合 '%s' 也为空",
                     name, reason, BOOKS_COLLECTION,
                 )
                 return
         except Exception as e:
+            _record_self_heal(name, reason, None)
             logger.warning(
                 "古籍集合自愈失败: '%s'（%s）无数据，权威集合 '%s' 不可用: %s",
                 name, reason, BOOKS_COLLECTION, e,
             )
             return
-        logger.warning(
-            "古籍集合 '%s' %s、无检索价值 → 自动改用权威古籍库 '%s'；"
-            "请修正 embedding_collection 配置（yaml 或 EMBEDDING_COLLECTION）",
-            name, reason, BOOKS_COLLECTION,
-        )
+        # k28：进程内首次仍用 warning（醒目、不刷屏）；重复自愈降级为 info
+        # 留痕（同一进程多处构检索器时不再刷 warning，但日志与事件表都可查）。
+        _n = _record_self_heal(name, reason, BOOKS_COLLECTION)
+        if _n == 1:
+            logger.warning(
+                "古籍集合 '%s' %s、无检索价值 → 自动改用权威古籍库 '%s'；"
+                "请修正 embedding_collection 配置（yaml 或 EMBEDDING_COLLECTION）",
+                name, reason, BOOKS_COLLECTION,
+            )
+        else:
+            logger.info(
+                "古籍集合自愈（进程内第 %d 次）: '%s' %s → 改用 '%s'"
+                "（首条 warning 已提示；状态见 rag.retriever.self_heal_events()）",
+                _n, name, reason, BOOKS_COLLECTION,
+            )
         self._collection_name = BOOKS_COLLECTION
         self._collection = None  # 丢弃已缓存的空集合句柄
 

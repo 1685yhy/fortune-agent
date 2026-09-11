@@ -665,6 +665,11 @@ async def user_profile(uid: str = Depends(require_user), user_id: str = ""):
 async def user_update_bazi(req: BaziRequest, uid: str = Depends(require_user), user_id: str = ""):
     """保存或更新用户八字信息（P2 兼容迁移：写入默认命主，旧字段同步保留）。
 
+    k28（k25 审查 M-6）：② 源 users.bazi_info 由 persons 写侧镜像漏斗**单点**
+    写入（payload 与读路径同构），本接口不再二次 `save_user_bazi` 覆盖——旧
+    字段因此仍被推送/报告等旧模块读取，且与 persons 逐键一致（收敛后读路径
+    零写）。bazi_info 形参仅在 persons 链路异常时作降级直写兜底。
+
     安全修复：user_id 一律取 JWT sub，query/body 传参被忽略（防覆写他人八字）。
     """
     global _dao
@@ -704,6 +709,16 @@ async def user_update_bazi(req: BaziRequest, uid: str = Depends(require_user), u
                     "solar_time": (None if req.solar_time is None
                                    else (1 if req.solar_time else 0)),
                 }
+                # k28（k25 审查 M-6 收口）：本次请求对 users.bazi_info（② 源）
+                # 只有**一个**写入口 = persons 写侧镜像漏斗（update_person/
+                # create_person 内的 mirror_bazi_info_to_users，payload =
+                # bazi_info_of_person(默认命主)，与读路径 out 逐键同构）。
+                # 旧代码紧随其后又 `_dao.save_user_bazi(user_id, bazi_info)`
+                # 原样重写表单 dict → 覆盖镜像：gender 传 male/female 时未归一
+                # （与 persons 中文契约分裂）、未传 solar_time 时整键丢失
+                # （② 源读口径回落默认开，而档案可能是关）、并 bump
+                # consultation_count。两写最终值取决于调用顺序 → 口径分裂，
+                # 读路径每次再自愈。故本路径不再二次写。
                 if default:
                     pdao.update_person(user_id, default["id"], birth=birth,
                                        birth_ctx=FORM_EXPLICIT_CTX)
@@ -712,9 +727,11 @@ async def user_update_bazi(req: BaziRequest, uid: str = Depends(require_user), u
                                        is_default=True, birth=birth,
                                        birth_ctx=FORM_EXPLICIT_CTX)
             except Exception as e:
+                # 降级兜底：persons 链路不可用（建表/加密/写失败，非写入守卫
+                # ——表单提交永远豁免守卫）时保留旧字段直写（旧行为），避免整次
+                # 保存静默丢失。正常路径绝不到这里，② 源写入口仍是镜像单点。
                 logger.warning("写入默认命主失败 user=%s: %s", user_id, e)
-        # 旧字段同步保留（users.bazi_info 仍被推送/报告等旧模块读取）
-        _dao.save_user_bazi(user_id, bazi_info)
+                _dao.save_user_bazi(user_id, bazi_info)
 
     return {"success": True, "message": "八字信息已保存"}
 

@@ -132,6 +132,13 @@
   color: var(--ink-faint);
 }
 
+/* k29 真太阳时开关行（与 paipan 页 k11c 同款：左文案右 switch，同 tokens
+   同尺寸；产品口径默认开=按出生地经度校准，关=北京时间直排） */
+.solar-row { display: flex; align-items: center; gap: 24rpx; }
+.solar-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
+.solar-t { font-family: var(--font-song); font-size: 24rpx; letter-spacing: .06em; color: var(--ink-mid); }
+.solar-d { font-family: var(--font-song); font-size: 20rpx; color: var(--ink-faint); letter-spacing: .04em; line-height: 1.7; }
+
 .form-picker {
   padding: var(--space-md);
   background: var(--paper);
