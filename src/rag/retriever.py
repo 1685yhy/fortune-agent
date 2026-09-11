@@ -45,8 +45,14 @@ def self_heal_events() -> dict:
     """空集合自愈事件快照（k28，运维/巡检可查；调用方不得就地修改）。
 
     返回 {请求集合名: {count, last_reason, healed_to, last_ts}} 的浅拷贝。
+
+    k30（遗留③并发加固）：迭代 `list(...)` **快照**而非活视图——另一线程或
+    重入路径 `_record_self_heal` 的 `setdefault` 首次登记新集合名，若落在
+    迭代两项之间，活视图会抛 `RuntimeError: dictionary changed size during
+    iteration`（运维巡检调用面）。返回语义不变：仍是浅拷贝快照（迭代开始
+    后新登记的集合名不入本次快照）。
     """
-    return {k: dict(v) for k, v in _SELF_HEAL_EVENTS.items()}
+    return {k: dict(v) for k, v in list(_SELF_HEAL_EVENTS.items())}
 
 
 @dataclass

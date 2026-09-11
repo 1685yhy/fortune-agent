@@ -710,41 +710,50 @@ class PersonDAO:
         conn.close()
         if not isinstance(data, dict) or not data.get("year"):
             return None
+        birth = {
+            "gender": data.get("gender", "unknown"),
+            "birth_year": data.get("year"),
+            "birth_month": data.get("month"),
+            "birth_day": data.get("day"),
+            "birth_hour": data.get("hour"),
+            "birth_minute": data.get("minute"),
+            "calendar": data.get("calendar", "solar"),
+            "city": data.get("city", ""),
+        }
+        # k30（真太阳时投影同族补齐）：② 源显式携带开关时随行迁移——k11c/k25
+        # 镜像写入的 bazi_info payload 含 solar_time（bazi_info_of_person 出参），
+        # 旧代码整键丢失 → 迁移出的默认 person 回弹默认「开」（0 是有效值）。
+        # 归一委托既有单点 solar_time_on（读路径/写侧同口径，不另立一套）；
+        # 源无该键 → 不落键（_birth_dict 省略，读路径默认开，旧行零行为变化）。
+        if "solar_time" in data:
+            birth["solar_time"] = solar_time_on(data.get("solar_time"))
         return self.create_person(
             user_id, name="我", relation="自己", is_default=True,
             # k25 ④-6(b)：反向路径不镜像（② 源 → person，无需回写；且回写会
             # 破坏 k19 迁移脚本 dry-run 的只分类语义与旧行 bazi 键保留判定）
             mirror=False,
-            birth={
-                "gender": data.get("gender", "unknown"),
-                "birth_year": data.get("year"),
-                "birth_month": data.get("month"),
-                "birth_day": data.get("day"),
-                "birth_hour": data.get("hour"),
-                "birth_minute": data.get("minute"),
-                "calendar": data.get("calendar", "solar"),
-                "city": data.get("city", ""),
-            },
+            birth=birth,
         )
 
     def default_person_bazi_info(self, user_id: str) -> Optional[dict]:
         """默认命主的八字信息 dict（/api/user/profile 兼容返回用）。
 
-        字段名与旧 users.bazi_info 一致（year/month/day/hour/minute/gender/calendar/city），
-        前端旧代码不破。无档案时触发迁移；仍无 → None。
+        字段名与旧 users.bazi_info 一致（year/month/day/hour/minute/gender/calendar/city
+        + k11c solar_time）；前端旧代码不破（新增键为**纯增量**，旧消费方逐键
+        读取零变化）。无档案时触发迁移；仍无 → None。
+
+        k30（真太阳时投影同族补齐）：投影体复用既有单点 bazi_info_of_person
+        （读路径 out / 写侧镜像 payload 同一实现，口径由构造保证同源）。此前
+        本方法自建 dict 且**漏了 solar_time**——而登录响应 bazi（api/user.py）
+        与 /api/user/profile 的 bazi_info 都吃它 → 前端 bazi.js `_applyBazi`
+        读不到真值 → 档案关了开关仍回显「开」（k29 合盘页丢 solarTime 同族）。
         """
         p = self.get_default_person(user_id)
         if p is None:
             return None
-        bazi_info = {
-            "year": p.get("birth_year"),
-            "month": p.get("birth_month"),
-            "day": p.get("birth_day"),
-            "hour": p.get("birth_hour"),
-            "minute": p.get("birth_minute"),
-            "gender": p.get("gender"),
-            "calendar": p.get("calendar"),
-            "city": p.get("city"),
-        }
-        # 与旧字段完全一致（值为 None 的键不输出，避免前端 bazi.get("bazi") 判空逻辑混淆）
-        return {k: v for k, v in bazi_info.items() if v not in (None, "")}
+        bazi_info = bazi_info_of_person(p)
+        # 与旧字段完全一致（值为 None/空串的键不输出，避免前端 bazi.get("bazi")
+        # 判空逻辑混淆）。k30：**逐键判 None/空串，绝不按真值过滤**——
+        # solar_time=0（显式关）是有效值，被真值过滤折叠掉就会回弹默认「开」。
+        return {k: v for k, v in bazi_info.items()
+                if v is not None and v != ""}
