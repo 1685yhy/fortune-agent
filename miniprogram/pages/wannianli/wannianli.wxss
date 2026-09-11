@@ -123,9 +123,7 @@
 
 .wn-foot { margin-top: 4rpx; display: flex; align-items: center; gap: 4rpx; }
 .wn-jc { font-family: var(--font-song); font-size: 17rpx; font-weight: 700; }
-.q-ji { color: var(--acc); }
-.q-ping { color: var(--ink-mid); }
-.q-xiong { color: var(--ink-faint); }
+/* k27c: .q-ji/.q-ping/.q-xiong（建除吉凶配色）已随吉凶标签下线 */
 
 /* ════════ 宜忌摘要行（B5-2 L：选中日 宜/忌 速览，今日页胶囊风格） ════════ */
 

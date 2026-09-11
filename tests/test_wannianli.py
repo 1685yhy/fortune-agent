@@ -20,6 +20,7 @@ BJT = timezone(timedelta(hours=8))
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from src.engines.zeri import JIANCHU_QUALITY  # noqa: E402
 from src.main import app  # noqa: E402
 from src.security.auth import AuthHandler, JWTHandler, set_auth_handler  # noqa: E402
 
@@ -67,9 +68,14 @@ def test_month_view_complete():
         )
         assert d["jianchu"] in ("建", "除", "满", "平", "定", "执", "破", "危",
                                 "成", "收", "开", "闭")
-        assert d["quality"] in ("吉", "平", "凶")
+        # k27d: 建除吉凶 `quality` **仍在载荷内**（老客户端兼容, 值与 k27c 之前逐字
+        # 相同）—— 用户面不展示由**前端不渲染**达成, 见 test_jianchu_quality_kept_k27d
+        assert d["quality"] == JIANCHU_QUALITY[d["jianchu"]]
         assert isinstance(d["yi_short"], list) and d["yi_short"]
-        assert isinstance(d["ji_short"], list) and d["ji_short"]
+        # k27: ji_short 允许为空（空忌日 —— 2026 仅 2026-02-10 一天, 由
+        # test_month_view_empty_ji_day_2026_02_10 锚点钉住）; 2026-08 无空忌日,
+        # 但不得再断言"每月每日 ji_short 恒非空"（与 A 口径语义矛盾）。
+        assert isinstance(d["ji_short"], list)
         assert "jieqi" in d and "festival" in d and "is_today" in d
 
     # 全月有黄道也有黑道日（2026-01-01 为黑道·朱雀，2026-08-19 为黄道·明堂）
@@ -137,8 +143,12 @@ def test_day_detail_anchors():
     # 建除 + 二十八宿
     assert body["jianchu"]["name"] in (
         "建", "除", "满", "平", "定", "执", "破", "危", "成", "收", "开", "闭")
-    assert body["jianchu"]["quality"] in ("吉", "平", "凶")
+    # k27d: 建除吉凶字段（quality）保留（老客户端兼容）—— 用户面不展示由前端不渲染
+    # 达成; 值与建除表一致（2026-08-19 = 执 → 平）
+    assert body["jianchu"]["quality"] == JIANCHU_QUALITY[body["jianchu"]["name"]] == "平"
     assert body["jianchu"]["desc"]
+    # 二十八宿: 权威历法数据（lunar-python getXiu 吉凶）仍在载荷内（既有权威锚点
+    # 依赖, 见 test_day_detail_ershibaxiu_anchors）, 但用户面不再渲染该吉凶标签
     assert body["ershibaxiu"]["name"] and body["ershibaxiu"]["jixiong"] in ("吉", "凶", "平")
 
     # 宜忌 + 吉神凶煞
@@ -192,6 +202,7 @@ def test_jieqi_day_jianchu_anchor():
     d7 = _client().get("/api/wannianli/day?date=2026-08-07", headers=_headers()).json()
     assert d7["jieqi"] == "立秋"
     assert d7["jianchu"]["name"] == "执"
+    # 建除表对「执」的吉凶判定 = 平（k27d: 字段恢复输出, 老客户端兼容; 前端不渲染）
     assert d7["jianchu"]["quality"] == "平"
 
     # 非节气日不位移：2026-08-19（申月起建）执日不变
@@ -199,9 +210,71 @@ def test_jieqi_day_jianchu_anchor():
     assert d19["jianchu"]["name"] == "执"
 
 
+# ------------------------- k27d: 建除吉凶 quality 字段「后端保留 / 前端不渲染」
+def test_jianchu_quality_kept_k27d():
+    """k27d: `quality` **后端仍在载荷内**（月视图 + 日详情）, 用户面不展示由**前端
+    不渲染**达成 —— 两侧同时锁住。
+
+    背景: k27c 把 `quality` 从后端删掉（产品口径: 万年历面不出现吉/凶标签）; 但
+    线上仍有老客户端构建（1.36.0 体验版/正式版）会渲染该字段 → 删除会渲染出空
+    括号「闭日（）」用户可见回归, 而我们无法控制老客户端何时更新。k27d 恢复后端
+    输出（值与 k27c 之前逐字相同）, 前端保持不渲染 → 新客户端无标签（目标态）,
+    老客户端与今天完全一致（无回归）。
+
+    覆盖两侧:
+    1. 后端: 月视图逐日（2026-08 全月）与日详情（含 10-01 / 05-02 / 节气锚点）
+       `quality` 存在且 == `JIANCHU_QUALITY[jianchu]`（建除表取值, 逐日逐值）;
+       值日名/说明/值宿一并保留;
+    2. 前端（源码级 tripwire, 运行时裁决在 node 测试
+       miniprogram/tests/wannianli.test.js「无 qCls / quality / jcCls」）:
+       页面不得绑定/透传该字段 —— wxml 无 `quality` / `qCls` / `jixiong` 绑定,
+       wxss 无 `.q-` 吉凶配色, js 无 `qCls`/`jcCls`/`.quality` 代码引用（注释除外）。
+    """
+    # ---- 1) 后端: 字段仍在, 取值与建除表一致
+    mv = _client().get("/api/wannianli?year=2026&month=8", headers=_headers()).json()
+    assert len(mv["days"]) == 31
+    for d in mv["days"]:
+        assert "quality" in d, f"{d['date']} 月视图缺建除吉凶字段（老客户端兼容）"
+        assert d["quality"] == JIANCHU_QUALITY[d["jianchu"]], d
+        assert d["quality"] in ("吉", "平", "凶"), d
+
+    for ds in ("2026-10-01", "2026-05-02", "2026-08-07", "2026-08-19"):
+        body = _client().get(f"/api/wannianli/day?date={ds}", headers=_headers()).json()
+        assert body["jianchu"]["quality"] == JIANCHU_QUALITY[body["jianchu"]["name"]], ds
+        assert body["jianchu"]["name"] and body["jianchu"]["desc"], ds
+        assert body["ershibaxiu"]["name"], ds          # 值宿名保留
+
+    # ---- 2) 前端: 不渲染（源码级 tripwire; 页面代码不得引用该字段）
+    import re
+    from pathlib import Path
+    page_dir = (Path(__file__).resolve().parent.parent
+                / "miniprogram" / "pages" / "wannianli")
+
+    def _code_only(text: str) -> str:
+        text = re.sub(r"<!--.*?-->", "", text, flags=re.S)     # wxml 注释
+        text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)      # 块注释
+        return "\n".join(ln for ln in text.splitlines()
+                         if not ln.strip().startswith("//"))   # 行注释
+
+    js = _code_only((page_dir / "wannianli.js").read_text(encoding="utf-8"))
+    wxml = _code_only((page_dir / "wannianli.wxml").read_text(encoding="utf-8"))
+    wxss = _code_only((page_dir / "wannianli.wxss").read_text(encoding="utf-8"))
+    for token in ("qCls", "jcCls", ".quality"):
+        assert token not in js, f"页面仍消费建除吉凶（{token}）: 用户面应无吉/凶标签"
+    for token in ("quality", "qCls", "jixiong"):
+        assert token not in wxml, f"wxml 仍绑定建除/宿吉凶（{token}）"
+    assert not any(c in wxss for c in (".q-ji", ".q-ping", ".q-xiong")), "wxss 仍留吉凶配色"
+
+
 # ---------------------------------------------------------------- 宜忌规则确定性
 def test_yi_ji_rule_consistency():
-    """宜忌规则确定性：建除宜忌（zeri 同源表）+ 当日黄历宜忌合并，同日期多次一致。"""
+    """宜忌规则确定性：建除宜忌（zeri 同源表）+ 当日黄历宜忌合并，同日期多次一致。
+
+    k27：合并口径 = `zeri.ZeriEngine._day_yi_ji`（A 口径双向消解）。本锚点日
+    （2026-08-19 建除「执」）建除表忌 出行/嫁娶/开市/入宅 中, 出行 不在当日黄历宜
+    （权威忌 嫁娶/入宅/开市/交易）→ 依 A 口径保留于忌; 出行 亦不在权威忌中,
+    属「建除表粗粒度近似保留项」。
+    """
     r1 = _client().get("/api/wannianli/day?date=2026-08-19", headers=_headers()).json()
     r2 = _client().get("/api/wannianli/day?date=2026-08-19", headers=_headers()).json()
     r3 = _client().get("/api/wannianli/day?date=2026-08-19", headers=_headers()).json()
@@ -221,35 +294,50 @@ def test_yi_ji_rule_consistency():
     assert d19["day_ganzhi"] == r1["ganzhi"]["day"]
     assert d19["huanghedao"] == r1["huanghedao"]["type"]
     assert d19["jianchu"] == r1["jianchu"]["name"]
-    assert d19["quality"] == r1["jianchu"]["quality"]
+    # k27d: 建除吉凶同源断言（月视图 quality == 日详情 jianchu.quality, 两侧同表取值）
+    assert d19["quality"] == r1["jianchu"]["quality"] == JIANCHU_QUALITY[d19["jianchu"]]
     assert d19["yi_short"] == r1["yi"][:3]
     assert d19["ji_short"] == r1["ji"][:3]
 
 
-# ---------------------------------------------------------------- 宜忌冲突消解（对比报告 P2 项）
+# ---------------------------------------------------------------- 宜忌冲突消解（k27 A 口径）
 def test_yi_ji_conflict_resolution_day_detail():
-    """宜忌冲突消解（忌优先）：同日宜∩忌=空，冲突项保留于忌、从宜中剔除。
+    """宜忌冲突消解（k27 A 口径 = 神煞级优先, **双向**）: 同日 宜∩忌=∅,
+    建除表与当日黄历冲突的词一律以黄历为准 —— 黄历宜 → 归宜（从忌剔除）,
+    黄历忌 → 归忌（从宜剔除）。
 
-    2026-08-21 对比报告原样例：合并前 宜∩忌 = {出行, 嫁娶, 开市, 移徙}（既宜又忌
-    "嫁娶"即此日）；消解后无交集，且 忌优先 —— "嫁娶"等仍留忌、不再出现在宜。
+    2026-08-21（建除「危」）: 建除表忌 {出行,嫁娶,开市,移徙} 全被当日黄历宜覆盖
+    （xzw 08-21 宜 结婚/出行/搬家/开业…）→ 归宜; 旧「忌优先」口径把四词压入忌。
+    2025-01-15（建除「危」）: 出行/嫁娶/开市/移徙/动土 黄历宜 → 归宜;
+    安床/纳畜 黄历忌（且建除表宜列有）→ 归忌。
+    （旧断言「冲突项保留于忌、从宜中剔除」= 忌优先, 与权威相反, k27 作废。）
     """
-    for date, conflicts in [("2026-08-21", ["出行", "嫁娶", "开市", "移徙"]),
-                            ("2025-01-15", ["出行", "动土", "嫁娶", "安床",
-                                            "开市", "移徙", "纳畜"])]:
+    from lunar_python import Solar
+    from src.engines.zeri import JIANCHU_YI_JI
+    for date in ("2026-08-21", "2025-01-15"):
         r = _client().get(f"/api/wannianli/day?date={date}", headers=_headers())
         assert r.status_code == 200, r.text
         body = r.json()
         yi, ji = body["yi"], body["ji"]
-        inter = set(yi) & set(ji)
-        assert inter == set(), f"{date} 宜忌仍有交集: {inter}"
-        # 忌优先：原冲突事项保留于忌（忌列表不受消解影响）
-        for c in conflicts:
-            assert c in ji, f"{date} 冲突项 {c} 应从忌中保留"
-            assert c not in yi, f"{date} 冲突项 {c} 应从宜中剔除（忌优先）"
+        assert set(yi) & set(ji) == set(), f"{date} 宜忌仍有交集: {set(yi) & set(ji)}"
+        lunar = Solar.fromYmd(*(int(x) for x in date.split("-"))).getLunar()
+        auth_yi = {x for x in lunar.getDayYi() if x != "无"}
+        auth_ji = {x for x in lunar.getDayJi() if x != "无"}
+        # 建除表两列词逐一核位：黄历宜 → 必在宜且不在忌; 黄历忌 → 必在忌且不在宜
+        for w in JIANCHU_YI_JI[body["jianchu"]["name"]]["yi"] \
+                + JIANCHU_YI_JI[body["jianchu"]["name"]]["ji"]:
+            if w in auth_yi:
+                assert w in yi and w not in ji, f"{date} 黄历宜 {w} 应归宜"
+            if w in auth_ji:
+                assert w in ji and w not in yi, f"{date} 黄历忌 {w} 应归忌"
+    # 锚点: 2026-08-21 旧「忌优先」压入忌的四词, 现归宜（= xzw 权威宜表）
+    b = _client().get("/api/wannianli/day?date=2026-08-21", headers=_headers()).json()
+    for w in ("出行", "嫁娶", "开市", "移徙"):
+        assert w in b["yi"] and w not in b["ji"], f"2026-08-21 {w} 应归宜: {b['yi']}"
 
 
 def test_yi_ji_conflict_resolution_month_view():
-    """月视图 yi_short/ji_short 与日详情同一消解口径：无交集。"""
+    """月视图 yi_short/ji_short 与日详情同一消解口径：无交集, 且简表=全表前 3 项。"""
     c = _client()
     for date in ("2026-08-21", "2025-01-15"):
         y, m, d = (int(x) for x in date.split("-"))
@@ -261,6 +349,60 @@ def test_yi_ji_conflict_resolution_month_view():
         det = c.get(f"/api/wannianli/day?date={date}", headers=_headers()).json()
         assert day["yi_short"] == det["yi"][:3]
         assert day["ji_short"] == det["ji"][:3]
+
+
+# ---------------------------------------------------------------- k27 三面单一事实源
+def test_day_detail_single_source_matches_day_yi_ji_whole_2026():
+    """k27 单一事实源（验收 3）: 2026 全年 365 天, 万年历 `day_detail` 的 宜/忌
+    与择吉引擎 `ZeriEngine._day_yi_ji`（chat/工具/计划路径同源）**逐日逐项相等**,
+    且 `set(yi) & set(ji) == ∅`（修复前万年历自身靠「忌优先」消解自洽但方向反权威,
+    zeri 面 75 天既宜又忌 —— 两面各修一半）。
+
+    模块级直测（不占 API/DB）, 月视图 yi_short/ji_short = 同一列表前 3 项
+    （由 test_yi_ji_rule_consistency 与 test_yi_ji_conflict_resolution_month_view
+    在 API 面钉住）。
+    """
+    import calendar as _c
+
+    from lunar_python import Solar
+
+    from src.engines.wannianli import WannianliEngine, _zeri as wz
+    from src.engines.zeri import ZeriEngine
+
+    wl, ze = WannianliEngine(), ZeriEngine()
+    checked = 0
+    for month in range(1, 13):
+        for d in range(1, _c.monthrange(2026, month)[1] + 1):
+            det = wl.day_detail(2026, month, d)
+            solar = Solar.fromYmd(2026, month, d)
+            lunar = solar.getLunar()
+            jc = wz._calc_jianchu_with_jieqi(
+                lunar.getEightChar().getMonth()[1],
+                lunar.getEightChar().getDay()[1],
+                lunar.getJieQi() or "")
+            yi, ji = ze._day_yi_ji(jc, lunar)
+            assert det["jianchu"]["name"] == jc
+            assert det["yi"] == yi and det["ji"] == ji, \
+                f"{det['date']} 万年历与 _day_yi_ji 不一致"
+            assert set(det["yi"]) & set(det["ji"]) == set(), f"{det['date']} 既宜又忌"
+            checked += 1
+    assert checked == 365
+
+
+def test_month_view_empty_ji_day_2026_02_10():
+    """k27 空忌日: 2026-02-10 权威忌=哨兵「无」且建除「除」表忌全被黄历宜覆盖
+    → 万年历 ji 为空列表（2026 全年仅此 1 天）, 月视图 ji_short 同为空 ——
+    文本层整行不渲染（handler._yi_ji_render_lines）, 万年历不新造文案。
+    旧「忌优先」口径下该日 ji=[嫁娶,出行,开市,入宅,安床]（与权威 xzw「忌无」相反）。"""
+    mv = _client().get("/api/wannianli?year=2026&month=2", headers=_headers()).json()
+    day = next(x for x in mv["days"] if x["date"] == "2026-02-10")
+    assert day["ji_short"] == []
+    det = _client().get("/api/wannianli/day?date=2026-02-10", headers=_headers()).json()
+    assert det["ji"] == [], det["ji"]
+    assert {"嫁娶", "出行", "开市", "入宅", "安床"} <= set(det["yi"])   # = 权威宜
+    # 对照: 空忌不是普遍现象 —— 同月其余日期 ji 非空
+    assert all(x["ji_short"] for x in mv["days"] if x["date"] != "2026-02-10"), \
+        "2026-02 仅 02-10 应为空忌日"
 
 
 def test_month_view_deterministic():

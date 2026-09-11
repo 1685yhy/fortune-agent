@@ -244,11 +244,14 @@ class TestI3aWannianliSentinel:
         for d in mv["days"]:
             assert "无" not in d["yi_short"] and "无" not in d["ji_short"], d["date"]
 
-    def test_whole_2026_no_leak_and_only_sentinel_differs(self):
-        """2026 全年 365 天遍历：无哨兵泄漏，且过滤前后**真实词集合差异仅哨兵**。
+    def test_whole_2026_no_leak_and_conflict_resolution_bounded(self):
+        """2026 全年 365 天遍历：无哨兵泄漏，且消解不越界 ——
+        day_detail 的宜/忌恒为「建除表 + 黄历」原始合并的**子集**（不新造词），
+        且少掉的词只能是哨兵「无」或与黄历相反一侧冲突的词（k27 A 口径双向消解：
+        宜少掉 ⊆ 黄历忌、忌少掉 ⊆ 黄历宜）；宜∩忌 恒为空。
 
-        测试侧按万年历既有口径（建除表 + 黄历、「忌优先」消解，I-3(b) 未拍板
-        不动）自行复算未过滤结果作对照 —— 差异若超出 `无` 即误杀/漏放。
+        测试侧按未过滤的原始合并自行复算作对照（不引用实现内部; k27 前该对照按
+        万年历旧「忌优先」口径写，已随 I-3(b) 拍板作废）。
         """
         from lunar_python import Solar
 
@@ -274,17 +277,17 @@ class TestI3aWannianliSentinel:
                     yi_sentinel_days.append(lunar.getSolar().toYmd())
                 if "无" in raw_ji:
                     ji_sentinel_days.append(lunar.getSolar().toYmd())
-                raw_ji_set = set(raw_ji)
-                raw_yi_final = [x for x in raw_yi if x not in raw_ji_set]
 
                 det = engine.day_detail(2026, month, d)
                 assert "无" not in det["yi"] and "无" not in det["ji"], \
                     f"{det['date']} 哨兵泄漏: yi={det['yi']} ji={det['ji']}"
-                # 过滤不得引入新词，且只允许少掉哨兵本身
-                assert set(det["yi"]) - set(raw_yi_final) == set()
-                assert set(raw_yi_final) - set(det["yi"]) <= {"无"}
-                assert set(det["ji"]) - set(raw_ji) == set()
-                assert set(raw_ji) - set(det["ji"]) <= {"无"}
+                # 不新造词: 输出恒为原始合并的子集
+                assert set(det["yi"]) <= set(raw_yi), det["date"]
+                assert set(det["ji"]) <= set(raw_ji), det["date"]
+                # 少掉的词只能是哨兵或与黄历相反一侧冲突的词（A 口径）
+                assert set(raw_yi) - set(det["yi"]) <= {"无"} | set(lunar.getDayJi())
+                assert set(raw_ji) - set(det["ji"]) <= {"无"} | set(lunar.getDayYi())
+                assert set(det["yi"]) & set(det["ji"]) == set(), det["date"]
 
         # 测试前提（真实历法锚点）：2026 年忌侧 13 天哨兵、宜侧 0 天
         assert len(ji_sentinel_days) == 13, ji_sentinel_days

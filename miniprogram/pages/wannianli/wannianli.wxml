@@ -55,13 +55,13 @@
                   <text class="wn-lunar {{cell.isJieqi ? 'wn-lunar-jieqi' : ''}} {{cell.isFestival ? 'wn-lunar-fest' : ''}}"
                     wx:if="{{!cell.isFestival || cell.isJieqi}}">{{cell.cellLunar}}</text>
                   <text class="wn-lunar wn-lunar-fest" wx:if="{{cell.isFestival && !cell.isJieqi}}">{{cell.festival}}</text>
-                  <!-- 宜忌点 + 建除吉凶 -->
+                  <!-- 宜忌点 + 值日名（k27c: 建除不再带吉凶标签/吉凶配色） -->
                   <view class="wn-bot">
                     <text class="wn-dot wn-dot-yi" wx:if="{{cell.yiDot}}">宜{{cell.yiDot}}</text>
                     <text class="wn-dot wn-dot-ji" wx:if="{{cell.jiDot}}">忌{{cell.jiDot}}</text>
                   </view>
                   <view class="wn-foot">
-                    <text class="wn-jc {{cell.qCls}}">{{cell.jianchu}}</text>
+                    <text class="wn-jc">{{cell.jianchu}}</text>
                   </view>
                 </block>
               </view>
@@ -141,25 +141,29 @@
           </view>
         </view>
 
-        <!-- 值日：黄黑道 · 建除 · 廿八宿 -->
+        <!-- 值日：黄黑道 · 建除 · 廿八宿（k27c: 只给值日名 + 值宿名, 不展示吉/凶判定
+             —— 建除「（吉/平/凶）」与廿八宿「（吉/凶）」括号标签一并下线;
+             吉凶总评只在择吉/聊天给, 三面同源） -->
         <view class="ws-sec ws-sec-line">
           <view class="ws-sec-label">值日</view>
           <view class="ws-zhirow">
             <text class="ws-zhi ws-zhi-huang {{detail.huanghedao.type === '黄道' ? '' : 'ws-zhi-hei'}}">{{detail.huanghedao.type}} · {{detail.huanghedao.tianshen}}</text>
-            <text class="ws-zhi {{detail.jcCls}}">建除{{detail.jianchu.name}}（{{detail.jianchu.quality}}）</text>
-            <text class="ws-zhi">廿八宿 · {{detail.ershibaxiu.name}}（{{detail.ershibaxiu.jixiong}}）</text>
+            <text class="ws-zhi">建除{{detail.jianchu.name}}</text>
+            <text class="ws-zhi">廿八宿 · {{detail.ershibaxiu.name}}</text>
           </view>
         </view>
 
-        <!-- 宜 / 忌 -->
+        <!-- 宜 / 忌（k27: 空列表整行不渲染 —— 空忌日如 2026-02-10（权威忌=无,
+             建除表忌全被黄历宜覆盖）不得出现悬空「忌」标签; 与月历摘要行
+             「宜忌摘要行」同一守卫写法, 不新造文案） -->
         <view class="ws-sec">
-          <view class="ws-yiji">
+          <view class="ws-yiji" wx:if="{{detail.yi.length}}">
             <text class="ws-yiji-label">宜</text>
             <view class="ws-chips">
               <view class="ws-chip ws-chip-yi" wx:for="{{detail.yi}}" wx:key="*this">{{item}}</view>
             </view>
           </view>
-          <view class="ws-yiji">
+          <view class="ws-yiji" wx:if="{{detail.ji.length}}">
             <text class="ws-yiji-label ws-yiji-label-ji">忌</text>
             <view class="ws-chips">
               <view class="ws-chip ws-chip-ji" wx:for="{{detail.ji}}" wx:key="*this">{{item}}</view>
