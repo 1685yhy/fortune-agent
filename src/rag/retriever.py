@@ -1,6 +1,7 @@
 """混合检索器 - 语义检索 + BM25关键词检索."""
 import logging
 import os
+import threading
 from datetime import datetime
 from dataclasses import dataclass
 from typing import List, Optional
@@ -29,16 +30,27 @@ logger = logging.getLogger(__name__)
 # ────────────────────────────────────────────────────────────────────────
 _SELF_HEAL_EVENTS: dict = {}
 
+# k31（k30 审查遗留）：`evt["count"] += 1` 是读-改-写，真并发下会丢计数
+# （同一集合名被两个线程同时登记 → 只 +1）。只护这一处进程内状态更新：
+# 自愈只发生在「集合配置写错但检索仍可用」的降级路径（非热路径、无嵌套
+# 持锁、不涉 DB/检索结果）→ 锁开销可忽略，也无死锁面。
+_SELF_HEAL_LOCK = threading.Lock()
+
 
 def _record_self_heal(name: str, reason: str, healed_to: Optional[str]) -> int:
-    """登记一次自愈判定（成功或失败），返回该集合名在进程内的累计次数。"""
-    evt = _SELF_HEAL_EVENTS.setdefault(
-        name, {"count": 0, "last_reason": "", "healed_to": None, "last_ts": ""})
-    evt["count"] += 1
-    evt["last_reason"] = reason
-    evt["healed_to"] = healed_to
-    evt["last_ts"] = datetime.now().isoformat(timespec="seconds")
-    return evt["count"]
+    """登记一次自愈判定（成功或失败），返回该集合名在进程内的累计次数。
+
+    k31：整体（含首次登记 setdefault）在 `_SELF_HEAL_LOCK` 内完成——计数与
+    字段更新是一个原子步，返回值即本次登记后的准确累计。
+    """
+    with _SELF_HEAL_LOCK:
+        evt = _SELF_HEAL_EVENTS.setdefault(
+            name, {"count": 0, "last_reason": "", "healed_to": None, "last_ts": ""})
+        evt["count"] += 1
+        evt["last_reason"] = reason
+        evt["healed_to"] = healed_to
+        evt["last_ts"] = datetime.now().isoformat(timespec="seconds")
+        return evt["count"]
 
 
 def self_heal_events() -> dict:
