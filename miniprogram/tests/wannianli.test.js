@@ -22,15 +22,19 @@ try {
 }
 assert.ok(pageCfg && typeof pageCfg.onLoad === 'function', 'wannianli.js 页面配置应可加载');
 
-function makePage() {
-  global.wx = {
+/* k34 A14（测试自身缺陷）：makePage 会重建 global.wx——此前用例在 makePage() 之后
+   直接改 `global.wx.showToast` 装探针，后续再次 makePage()（第 2 个页面实例）会把探针
+   覆盖回 noop，使「不弹 toast」断言恒真。改为经 wxOverrides 注入，探针与被测页面
+   的 global.wx 是同一只对象，重建也不会丢。 */
+function makePage(wxOverrides) {
+  global.wx = Object.assign({
     getWindowInfo: () => ({ statusBarHeight: 20 }),
     getSystemInfoSync: () => ({ statusBarHeight: 20 }),
     showToast: () => {},
     setClipboardData: (o) => o.success && o.success({}),
     navigateBack: () => {},
     reLaunch: () => {},
-  };
+  }, wxOverrides || {});
   const page = Object.assign({}, pageCfg);
   page.data = JSON.parse(JSON.stringify(pageCfg.data));
   page.setData = function (upd) { Object.assign(this.data, upd); };
@@ -277,11 +281,13 @@ test('k27c/k27d：页面不再向渲染层输出建除吉凶标签（无 qCls / 
 test('摘要请求序号：迟到的今日摘要不覆盖选中日摘要（含迟到失败不弹窗）', async (t) => {
   const dayPending = [];
   let toasts = 0;
+  // k34 A14：toast 探针经 makePage({showToast}) 注入（探针必须挂在本用例两个页面
+  // 实际使用的 global.wx 上；否则「不弹 toast」断言恒真=假绿）
+  const toastSpy = () => { toasts += 1; };
   t.mock.method(api, 'getWannianliMonth', (y, m) => Promise.resolve(fakeMonth(y, m)));
   t.mock.method(api, 'getWannianliDay',
     () => new Promise((res, rej) => dayPending.push({ res, rej })));
-  const page = makePage();
-  global.wx.showToast = () => { toasts += 1; };
+  const page = makePage({ showToast: toastSpy });
   page.onLoad();                       // 今日摘要请求挂起（未返回）
   assert.equal(api.getWannianliDay.mock.calls.length, 1);
   assert.equal(page.data.summaryLoading, true, '摘要行加载中');
@@ -299,7 +305,7 @@ test('摘要请求序号：迟到的今日摘要不覆盖选中日摘要（含�
   assert.equal(page.data.summary.title, '选中日宜忌速览', '迟到今日摘要未覆盖选中日');
   assert.equal(page.data.summary.date, '2000-05-05', '摘要日期仍为选中日');
   // 迟到摘要失败 → 不弹 toast、不动已有摘要
-  const page2 = makePage();
+  const page2 = makePage({ showToast: toastSpy });
   page2.onLoad();
   assert.equal(api.getWannianliDay.mock.calls.length, 3);
   page2.onTapDay({ currentTarget: { dataset: { date: '2000-06-06', blank: false } } });
@@ -310,6 +316,54 @@ test('摘要请求序号：迟到的今日摘要不覆盖选中日摘要（含�
   assert.equal(toasts, before, '过期摘要失败不弹 toast');
   assert.equal(page2.data.summary, null, '过期失败不写摘要');
   assert.equal(page2.data.summaryLoading, true, '加载态仍由在途详情请求决定');
+  // k34 A14 探针有效性对照（变异可失败性）：非过期的当前详情请求失败 → 必弹
+  //「详情加载失败」——证明上面「不弹 toast」不是恒真断言（探针在链路上真实生效）
+  const before2 = toasts;
+  dayPending[3].rej(new Error('net'));           // 当前详情请求失败（page2 选中日）
+  await flush();
+  assert.equal(toasts, before2 + 1, '当前详情失败必弹 toast（探针对照，防断言恒真）');
+  assert.equal(page2.data.detailLoading, false, '当前详情失败撤加载态');
+});
+
+test('k34 A13：详情请求序号——快速 A→B 点选，A 的迟到响应不覆盖 B（含迟到失败静默）', async (t) => {
+  const dayPending = [];
+  let toasts = 0;
+  const toastSpy = () => { toasts += 1; };
+  t.mock.method(api, 'getWannianliMonth', (y, m) => Promise.resolve(fakeMonth(y, m)));
+  t.mock.method(api, 'getWannianliDay',
+    () => new Promise((res, rej) => dayPending.push({ res, rej })));
+  const page = makePage({ showToast: toastSpy });
+  page.onLoad();                                   // #1：今日摘要
+  dayPending[0].res(fakeDetail(page.data.todayDate));
+  await flush();
+  // 快速连点 A → B：两次详情都在途（B 为当前意图）
+  page.onTapDay({ currentTarget: { dataset: { date: '2000-01-01', blank: false } } });
+  page.onTapDay({ currentTarget: { dataset: { date: '2000-02-02', blank: false } } });
+  assert.equal(dayPending.length, 3, '今日摘要 + A + B 共三次请求（同日不合并，用户已改选）');
+  // B 先返回 → 详情与摘要均为 B
+  dayPending[2].res(fakeDetail('2000-02-02'));
+  await flush();
+  assert.equal(page.data.detail.date, '2000-02-02');
+  assert.equal(page.data.summary.date, '2000-02-02');
+  // A 迟到返回 → 必须丢弃（不得覆盖 B 的详情/摘要）
+  dayPending[1].res(fakeDetail('2000-01-01'));
+  await flush();
+  assert.equal(page.data.detail.date, '2000-02-02', 'A 迟到详情未覆盖 B');
+  assert.equal(page.data.detailDate, '2000-02-02', '选中日仍为 B');
+  assert.equal(page.data.summary.date, '2000-02-02', '摘要行仍为 B');
+  // 再快速连点 C → D：C 迟到失败静默（不弹窗、不撤 D 的加载态），D 失败才提示
+  page.onTapDay({ currentTarget: { dataset: { date: '2000-03-03', blank: false } } });
+  page.onTapDay({ currentTarget: { dataset: { date: '2000-04-04', blank: false } } });
+  assert.equal(dayPending.length, 5);
+  const before = toasts;
+  dayPending[3].rej(new Error('net'));             // C 过期失败
+  await flush();
+  assert.equal(toasts, before, '过期详情失败不弹 toast');
+  assert.equal(page.data.detailLoading, true, '加载态仍由在途 D 请求决定');
+  dayPending[4].rej(new Error('net'));             // D 当前失败
+  await flush();
+  assert.equal(toasts, before + 1, '当前详情失败弹「详情加载失败」（探针对照）');
+  assert.equal(page.data.detailLoading, false, '当前详情失败撤加载态');
 });
 
 test('_buildCopyText：日期+宜忌+吉时(仅吉)+彭祖百忌+胎神', () => {

@@ -34,9 +34,12 @@ function shouldShowNoarchTip(hasArchive, tipClosed) {
 /* Q3（批次2 收尾）：排盘页未建档引导条是否显示——未建档用户点「排盘」入口
    （E1 提示条 / onboarding 导览卡 / 测算页八字排盘卡）落地 paipan 建档表单页时，
    显示「还没建档」建档口径引导（E1 提示条同款文案）；已有档案 → 不显示。
+   k34 A32：复用 E1 关闭键 NOARCH_CLOSED_KEY（与原今日页「× 关闭后不再打扰」同一
+   语义，两页共用一枚标记：任一页关过都不再弹）——「给他人排盘」场景同样受益
+   （未建档用户对引导条已读即关，不必每次访问都现）。
    纯判定，供 paipan.js onLoad/onShow 调用（node 单测见 paipan_noarch.test.js）。 */
-function shouldShowPaipanNoarchGuide(hasArchive) {
-  return !hasArchive;
+function shouldShowPaipanNoarchGuide(hasArchive, tipClosed) {
+  return !hasArchive && !tipClosed;
 }
 
 /* 导览卡是否还有下一张（tourIdx 非最后一张 → 显示「下一步」而非「开始使用」） */

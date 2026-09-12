@@ -62,6 +62,7 @@ Page({
 
     /* ── 输入表单 ── */
     noArchive: false,     // Q3：本地无档案 → 显示「还没建档」建档口径引导（E1 同款文案）
+    noarchClosed: false,  // k34 A32：引导条 × 关闭标记（复用 E1 NOARCH_CLOSED_KEY）
     bDate: '',            // 'YYYY-MM-DD'（一次选完）
     bCal: 'solar',
     bDateText: '',        // 展示：1999年5月13日
@@ -131,7 +132,10 @@ Page({
 
   onLoad() {
     theme.bindTheme(this);
-    this._refreshNoarchive();
+    /* k34 A32：读取 E1 关闭标记（ylm_noarch_tip_closed）——关过就不再显示引导条 */
+    let closed = false;
+    try { closed = !!wx.getStorageSync(guide.NOARCH_CLOSED_KEY); } catch (e) { /* ignore */ }
+    this.setData({ noarchClosed: closed }, () => this._refreshNoarchive());
     this._prefillDefaultPerson();
   },
 
@@ -141,11 +145,20 @@ Page({
   },
 
   /* Q3：未建档点「排盘」（E1 提示条/导览卡/测算页）落地本页 → 建档口径引导。
-     纯判定 guide.shouldShowPaipanNoarchGuide（node 单测）；不复用 E1 关闭标记：
-     引导条不新增 storage 键，跟随有无档案自然显隐 */
+     k34 A32：接 E1 关闭键 NOARCH_CLOSED_KEY——× 关闭后（本会话+后续启动）不再显示，
+     与今日页同一枚标记；建档成功后 hasLocalArchive 为真也自然消失。
+     纯判定 guide.shouldShowPaipanNoarchGuide（node 单测） */
   _refreshNoarchive() {
-    const show = guide.shouldShowPaipanNoarchGuide(persons.hasLocalArchive());
+    const show = guide.shouldShowPaipanNoarchGuide(
+      persons.hasLocalArchive(), this.data.noarchClosed);
     if (this.data.noArchive !== show) this.setData({ noArchive: show });
+  },
+
+  /* k34 A32：× 关闭引导条 → 落 E1 关闭标记（与今日页 onCloseNoarchTip 同键同语义） */
+  onCloseNoarchGuide(e) {
+    if (e && e.stopPropagation) e.stopPropagation();
+    try { wx.setStorageSync(guide.NOARCH_CLOSED_KEY, 1); } catch (err) { /* ignore */ }
+    this.setData({ noarchClosed: true, noArchive: false });
   },
 
   /* ════════ 表单 ════════ */

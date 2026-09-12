@@ -1879,6 +1879,11 @@ Page({
       this._finishRecording(false);
     }
     this.setData({ inputMode: mode, inputFocused: false });
+    /* k34 A20-M3（review M-3 收口）：进入语音态即预热麦克风授权——首次使用的授权
+       弹窗落在「切态」这一刻（手指没按在说话条上），不再吃掉长按的那一次触摸；
+       已授权设备走 getSetting 快路径零副作用。_ensureRecordPermission 单飞，
+       长按路径随后的调用共享同一次结果 */
+    if (mode === 'voice') this._ensureRecordPermission(() => {});
     // k6-P1：输入条高由流内 flex 自然决定（voice 按住条 / 文字行数差异自动吸收），
     // 不再有 JS 高度机件（旧 B4-1 _updateInputBarH 调用已随结构修复移除）
   },
@@ -1892,7 +1897,11 @@ Page({
      本方法只加入口与触摸会话簿记；会话结束复位见 _clearLongPressVoice（发送完成/
      取消/太短/识别失败/中断等一切收尾路径均会经过）。 */
   micLongPress(e) {
-    if (this.data.isRecording || this.data.converting || this.data.streaming) return;
+    // k34 A20-M2（review M-2 收口）：守卫去掉 streaming——「生成中也允许录音（识别
+    // 结果排队上屏）」是语音态既有产品行为（micTouchStart 无 streaming 守卫），长按
+    // 入口拦下会让用户生成中长按「完全没反应」。isRecording/converting 仍静默早退
+    //（已有录音/转写在进行，与按住条同款守卫）
+    if (this.data.isRecording || this.data.converting) return;
     if (!this.data.micAvailable) return;      // 置灰态（.in-ic-off）：不响应（短按同规则）
     if ((this.data.inputText || '').trim()) {
       wx.showToast({ title: '请先发送或清空输入，再长按说话', icon: 'none' });
@@ -1970,12 +1979,24 @@ Page({
     manager.onError = (res) => this._handleRecognitionError(res);
   },
 
-  /* 麦克风权限：先 getSetting，未授权请求授权，拒绝引导去设置 */
+  /* 麦克风权限：先 getSetting，未授权请求授权，拒绝引导去设置。
+     k34 A20-M3（review M-3 收口）：**单飞（single-flight）**——授权请求在途时后续
+     调用排队共享同一次结果（首次授权弹窗只弹一次；「切态预热 + 长按路径」并发调用
+     不会双弹 wx.authorize），回调按注册顺序统一派发；回调抛错不阻断其余回调。 */
   _ensureRecordPermission(cb) {
+    if (this._permCbs) { this._permCbs.push(cb); return; }
+    this._permCbs = [cb];
+    const done = (ok) => {
+      const cbs = this._permCbs || [];
+      this._permCbs = null;
+      cbs.forEach((f) => {
+        try { f(!!ok); } catch (e) { console.warn('[Chat] 权限回调异常:', e && e.message); }
+      });
+    };
     wx.getSetting({
       success: (res) => {
         const st = res.authSetting && res.authSetting['scope.record'];
-        if (st === true) { cb(true); return; }
+        if (st === true) { done(true); return; }
         if (st === false) {
           wx.showModal({
             title: '需要麦克风权限',
@@ -1984,19 +2005,19 @@ Page({
             confirmColor: '#A93A2C',
             success: (r) => { if (r.confirm) wx.openSetting({}); },
           });
-          cb(false);
+          done(false);
           return;
         }
         wx.authorize({
           scope: 'scope.record',
-          success: () => cb(true),
+          success: () => done(true),
           fail: () => {
             wx.showToast({ title: '请授权麦克风权限后使用语音', icon: 'none' });
-            cb(false);
+            done(false);
           },
         });
       },
-      fail: () => cb(true), // getSetting 异常不阻塞（系统会再次询问）
+      fail: () => done(true), // getSetting 异常不阻塞（系统会再次询问）
     });
   },
 

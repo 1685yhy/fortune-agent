@@ -27,6 +27,8 @@
       <view class="pp-noarch-t">还没建档？排一次盘，会生成专属分析</view>
       <view class="pp-noarch-s">填写生辰完成排盘 · 建档后解读更贴合自己</view>
     </view>
+    <!-- k34 A32：× 关闭（复用 E1 关闭键 ylm_noarch_tip_closed，today 提示条同款） —— 关过不再现 -->
+    <view class="pp-noarch-close" hover-class="pp-noarch-close-active" hover-stay-time="0" catchtap="onCloseNoarchGuide">×</view>
   </view>
 
   <view class="form-card">

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-k12/k14 图标族 · 像素断言验证（配合 scripts/gen_k12_icons.py）
+k12/k14/k34 图标族 · 像素断言验证（配合 scripts/gen_k12_icons.py）
 ============================================================
 断言（对应 docs/superpowers/plans/2026-09-08-k12-icon-redraw.md §5.1 +
 2026-09-09-k14-tab-icons.md §5）：
@@ -13,6 +13,8 @@ k12/k14 图标族 · 像素断言验证（配合 scripts/gen_k12_icons.py）
   5. 无 legacy 淡棕残留：不透明像素中 #9A8B71/#988878 邻域占比 <1%
   6. 96/192 同源：192 档 LANCZOS 降采样至 96 与直接 96 渲染 RMSE<2.0
 k14 节 = FAMILY 字典尾部 13 条目（tab/导航族；ic-chat-on 与 ic-chat 同几何仅换色）。
+k34 节 = 尾部 5 条目（墨色功能族 engine/memory/web/image/scroll 并入浅细线族；同族
+Lucide 24 格按 k12 §1.4 内容区 64u 归一，笔划仍守 S/D，覆盖率较原墨色版显著更轻）。
 用法：python3 scripts/verify_k12_icons.py
 """
 import math
@@ -44,6 +46,13 @@ FAMILY = {  # 文件名 -> (色族, 覆盖率下限, 覆盖率上限, 覆盖阈�
     'ic-bell': ('GRAY', 10, 24), 'ic-moon': ('GRAY', 12, 26),
     'ic-book': ('GRAY', 14, 28), 'ic-back': ('GRAY', 4, 14),
     'ic-chev': ('GRAY', 2, 10), 'ic-kebab': ('GRAY', 0.5, 6),
+    # k34 · 墨色功能图标族五枚（B6-1 墨色实形 #3A2C1E → 浅细线；实测覆盖：
+    # engine16.7/memory17.3/web20.8/image17.6/scroll16.1 —— 原墨色版 19.6-24.9%，
+    # 像素覆盖各降 13-35%、视觉墨量（alpha×暗度）各降 41-53%；同族 Lucide 24 格
+    # 按 k12 §1.4 归一 64u 内容区，主轮廓 S=7.0u / 内细节 D=5.6u）
+    'ic-engine': ('GRAY', 12, 21), 'ic-memory': ('GRAY', 12, 22),
+    'ic-web': ('GRAY', 16, 26), 'ic-image': ('GRAY', 13, 22),
+    'ic-scroll': ('GRAY', 12, 21),
 }
 REF = {'GRAY': (0x75, 0x6E, 0x63), 'ACC': (0xA9, 0x3A, 0x2C),
        'DEEP': (0x8C, 0x2E, 0x22), 'PAPER': (0xFA, 0xF5, 0xE7)}
