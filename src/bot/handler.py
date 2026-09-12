@@ -38,6 +38,7 @@ except ImportError:
 from src.rag.retriever import Retriever, ChunkResult
 from src.llm.client import FortuneLLM, AnalysisResult
 from src.config import is_experience_mode
+from src.security.admin import is_admin_user  # k36 A28：超管白名单判据（单一事实源）
 
 # Task 6 (storage/dao.py) may not exist yet — make import mock-friendly
 try:
@@ -1040,6 +1041,9 @@ class MessageHandler:
             return -1, False  # No quota system = unlimited
         if is_experience_mode():
             return -1, False  # 体验模式：不限额（无限次）
+        if is_admin_user(user_id):
+            # k36 A28：超管豁免（ADMIN_IDS 白名单；与 chat_quota 同一判据，口径一致）
+            return -1, False
         try:
             membership = self.member_dao.get_membership(user_id)
             limit = membership.get("queries_limit")

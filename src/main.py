@@ -45,7 +45,9 @@ from .utils.cache import (
 
 # Security imports
 from .security.ratelimit import RateLimiter, RateLimitMiddleware
-from .security.auth import AuthHandler, require_user, require_chat_user, ensure_owner, require_admin
+from .security.auth import (AuthHandler, require_user, require_chat_user, ensure_owner,
+                            require_admin, admin_identity_from_authorization)  # k36 A28
+from .security.admin import admin_whitelist_summary  # k36 A28：超管白名单（启动日志只报数量）
 
 # 日志配置（/api/health/detail 与 lifespan 共用）
 from .logging_config import resolve_log_dir, resolve_log_level
@@ -707,6 +709,8 @@ async def lifespan(app: FastAPI):
         resolve_log_level(),
         settings.db_path,
     )
+    # k36 A28：超管白名单（ADMIN_IDS）——只报数量，绝不打印具体 user_id
+    logger.info("超管白名单：%s（ADMIN_IDS）", admin_whitelist_summary())
 
     # ── Step 4: Init Response Cache ────────────────────────────────────
     _response_cache = ResponseCache(max_size=1000)
@@ -1768,7 +1772,8 @@ async def health():
 async def health_detail(uid_admin: bool = Depends(require_admin)):
     """运维健康详情（管理员）: DB 连接状态 / 今日错误日志条数 / 最近备份 / 队列深度。
 
-    鉴权：require_admin（ADMIN_KEY 未配置时返回 403，不允许空 key 放行）。
+    鉴权：require_admin（ADMIN_KEY 未配置时返回 403，不允许空 key 放行；
+    k36 A28 起另接受「有效 JWT 且 sub ∈ ADMIN_IDS」，未命中白名单仍 403）。
     轻量实现：不调 LLM、不加载模型，仅做一次 SQLite 连接与日志文件扫描。
     """
     import sqlite3
@@ -1889,7 +1894,7 @@ async def user_data_deletion(user_id: str, request: Request, uid: str = Depends(
 async def push_daily(dry_run: bool = Query(False, description="仅测试，不写入日志"), authorization: str = Header("")):
     """手动触发每日运势推送（管理员专用：Authorization: Bearer <ADMIN_KEY>）"""
     global settings, dao
-    if not _verify_admin(authorization):
+    if not _verify_admin(authorization, "/api/push-daily"):
         raise HTTPException(status_code=403, detail="Forbidden: invalid admin key")
     if settings is None or dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -1915,7 +1920,7 @@ async def push_daily(dry_run: bool = Query(False, description="仅测试，不�
 async def push_weekly(dry_run: bool = Query(False, description="仅测试，不写入日志"), authorization: str = Header("")):
     """手动触发每周运势总结推送（管理员专用）"""
     global settings, dao
-    if not _verify_admin(authorization):
+    if not _verify_admin(authorization, "/api/push-weekly"):
         raise HTTPException(status_code=403, detail="Forbidden: invalid admin key")
     if settings is None or dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -2449,17 +2454,25 @@ async def update_push_settings(
 # Membership/Payment API
 # ──────────────────────────────────────────
 
-def _verify_admin(authorization: str = Header("")) -> bool:
+def _verify_admin(authorization: str = Header(""), path: str = "") -> bool:
     """Verify admin key from Authorization header.
 
     安全修复（审计 E16）：未配置 admin_key 时返回 False（拒绝），
     不再"空 key 放行"。
+
+    k36 A28：追加第二条独立放行路径——有效 JWT 且 sub ∈ ADMIN_IDS（判据与
+    `security.auth.require_admin` 共用 `admin_identity_from_authorization`，
+    两条 ADMIN_KEY 门口径一致）。ADMIN_KEY 比对零变化：正确放行 / 错误或
+    未配置仍返回 False（未配置时保留原有告警文案）。
     """
     expected = getattr(settings, "admin_key", "") or ""
+    if expected and authorization == f"Bearer {expected}":
+        return True
+    if admin_identity_from_authorization(authorization, path):
+        return True
     if not expected:
         logger.warning("ADMIN_KEY 未配置，拒绝管理员请求")
-        return False
-    return authorization == f"Bearer {expected}"
+    return False
 
 
 @app.get("/api/membership/{user_id}")
@@ -2517,7 +2530,7 @@ async def upgrade_membership(user_id: str, plan: str = Query(..., description="f
 @app.get("/api/admin/stats")
 async def admin_stats(authorization: str = Header("")):
     """管理员统计 - 需要 admin_key"""
-    if not _verify_admin(authorization):
+    if not _verify_admin(authorization, "/api/admin/stats"):
         raise HTTPException(status_code=403, detail="Forbidden: invalid admin key")
     if member_dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -2527,7 +2540,7 @@ async def admin_stats(authorization: str = Header("")):
 @app.get("/api/admin/active-members")
 async def admin_active_members(authorization: str = Header("")):
     """列出所有活跃付费会员 - 需要 admin_key"""
-    if not _verify_admin(authorization):
+    if not _verify_admin(authorization, "/api/admin/active-members"):
         raise HTTPException(status_code=403, detail="Forbidden: invalid admin key")
     if member_dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")

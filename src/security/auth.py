@@ -17,6 +17,8 @@ from typing import Optional, Dict, Any, Tuple
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
+from .admin import is_admin_user
+
 logger = logging.getLogger(__name__)
 
 # JWT-like token implementation (stateless, HMAC-signed)
@@ -249,6 +251,9 @@ security_scheme = HTTPBearer(auto_error=False)
 # Shared auth handler singleton (set during app initialization)
 _shared_auth_handler: Optional[AuthHandler] = None
 
+# k36 A28：超管审计用的 AuditLogger 进程内单例（延迟创建；见 _audit_admin_access）
+_ADMIN_AUDIT_LOGGER: Optional[object] = None
+
 
 def set_auth_handler(handler: AuthHandler):
     """Set the shared auth handler instance.
@@ -400,6 +405,67 @@ async def require_chat_user(
     }
 
 
+def _audit_admin_access(admin_sub: str, path: str, ip: str = "") -> None:
+    """超管动作写进项目既有审计通道（含 path + 命中管理员标识；失败不阻断放行）。
+
+    注意：标识只进审计日志（audit.log），不写进应用日志/app.log。
+    审计器**进程内单例**：AuditLogger() 每次实例化都会给 "audit" logger 挂一个
+    文件 handler，按请求新建会导致重复写与 fd 泄漏（审计放大），故复用同一实例。
+    """
+    global _ADMIN_AUDIT_LOGGER
+    try:
+        if _ADMIN_AUDIT_LOGGER is None:
+            from .audit import AuditLogger  # 同包延迟导入（审计不可用不影响鉴权结果）
+            _ADMIN_AUDIT_LOGGER = AuditLogger()
+        _ADMIN_AUDIT_LOGGER.admin_action(
+            admin_id=admin_sub,
+            action="admin_endpoint_access",
+            ip=ip,
+            details={"path": path, "auth": "jwt_admin_whitelist"},
+        )
+    except Exception as exc:
+        logger.warning("超管审计写入失败: path=%s err=%s", path, exc)
+
+
+def _client_ip(request: Request) -> str:
+    """调用方 IP（X-Forwarded-For 优先，与 audit.py 装饰器同口径；取不到为空串）。"""
+    try:
+        forwarded = request.headers.get("X-Forwarded-For", "")
+        if forwarded:
+            return forwarded.split(",")[0].strip()
+        return (request.client.host or "") if request.client else ""
+    except Exception:
+        return ""
+
+
+def admin_identity_from_authorization(
+    authorization: str, path: str = "", ip: str = ""
+) -> Optional[str]:
+    """**共享判据（单一事实源）**：Authorization 头 → 命中超管的 sub，否则 None。
+
+    约束（红线）：只有「已验证 JWT 的 sub ∈ ADMIN_IDS」才算命中——
+      ① verify_token（HMAC 签名 + exp 有效期）通过；
+      ② 校验出的 sub 命中超管白名单（精确匹配，白名单未配置/为空 → 恒不命中）。
+    JWT 的 role claim、API key、请求头/参数里自称 admin 的字段一律**不作判据**。
+
+    `require_admin` 与 `main.py::_verify_admin` 共用本函数，保证两条 ADMIN_KEY 门
+    口径一致（不分裂）。命中即写审计（含 path + 管理员标识）。
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization[7:].strip()
+    if not token:
+        return None
+    payload = get_auth_handler().jwt.verify_token(token)
+    if not payload:
+        return None
+    sub = str(payload.get("sub", "") or "")
+    if not is_admin_user(sub):
+        return None
+    _audit_admin_access(sub, path, ip)
+    return sub
+
+
 async def require_admin(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
@@ -408,8 +474,26 @@ async def require_admin(
 
     Security fix: if no ADMIN_KEY is configured the endpoint is now REJECTED
     (403) instead of allowed — no empty-key bypass (审计 §审计8 E16).
+
+    k36 A28（最小可用面）：追加**第二条独立放行路径**——有效 JWT 且
+    sub ∈ ADMIN_IDS（`src/security/admin.py` 单一事实源）。两条路径各自
+    fail-closed：ADMIN_KEY 未配置时不再"空 key 放行"（未命中白名单照样 403），
+    白名单未配置时 JWT 路径整体关闭。ADMIN_KEY 比对逻辑逐字节零变化。
     """
     admin_key = os.getenv("ADMIN_KEY", "")
+
+    # ① 既有路径：ADMIN_KEY（行为零变化：正确放行 / 错误拒绝 / 未配置拒绝）
+    if admin_key:
+        if get_auth_handler().verify_admin(request, admin_key):
+            return True
+
+    # ② 新增路径：有效 JWT 且 sub ∈ ADMIN_IDS（与 main._verify_admin 共用判据；
+    #    白名单未配置/为空 → 恒不命中；命中即写审计）
+    if admin_identity_from_authorization(
+            request.headers.get("Authorization", ""), request.url.path, _client_ip(request)):
+        return True
+
+    # ③ 拒绝（两条拒绝文案与日志与既有实现一致）
     if not admin_key:
         logger.warning("鉴权拒绝 403: path=%s ADMIN_KEY 未配置", request.url.path)
         raise HTTPException(
@@ -417,9 +501,5 @@ async def require_admin(
             detail="管理员密钥未配置，拒绝访问",
             headers={"WWW-Authenticate": "Bearer"},
         )
-
-    auth = get_auth_handler()
-    if not auth.verify_admin(request, admin_key):
-        logger.warning("鉴权拒绝 403: path=%s 管理员密钥无效", request.url.path)
-        raise HTTPException(status_code=403, detail="无效的管理员密钥")
-    return True
+    logger.warning("鉴权拒绝 403: path=%s 管理员密钥无效", request.url.path)
+    raise HTTPException(status_code=403, detail="无效的管理员密钥")
