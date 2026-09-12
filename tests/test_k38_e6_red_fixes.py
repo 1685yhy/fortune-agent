@@ -141,9 +141,17 @@ def test_t018_tool_loop_injects_relative_year_into_params():
         "帮我看看明年的流年运势")
     assert out["year"] == "2027"
     assert out["birth"] == "1990年5月20日 15:30 北京 男"  # 既有键零改动
-    # 不该走 ①：LLM 自己给了 year → 尊重，不覆盖
+    # 该走 ①（k40 T018 收尾，口径覆盖本批 k38 的「LLM 给了就尊重」）：用户
+    # 原话含相对年词 → **无条件**以本地确定性折算覆盖模型传值——GLM 自己
+    # 折算时用了训练期幻觉年份（以为今年是 2023 → 传 2024），确定性兜底
+    # 被模型错值挡住即答错年（本轮 L1 实录）。
     assert h._with_relative_cycle_year(
-        "流月流年", {"birth": "x", "year": "2030"}, "明年的流年")["year"] == "2030"
+        "流月流年", {"birth": "x", "year": "2030"}, "明年的流年")["year"] == "2027"
+    assert h._with_relative_cycle_year(
+        "流月流年", {"birth": "x", "year": "2024"}, "明年运势怎么样")["year"] == "2027"
+    # 不该走 ①（绝对值不被相对词改写）：原话无相对词 → 保持模型传值
+    assert h._with_relative_cycle_year(
+        "流月流年", {"birth": "x", "year": "2030"}, "2028年的流年运势")["year"] == "2030"
     # 不该走 ②：非流月流年工具 → 原样（其余工具无 year 语义）
     p = {"text": "1990年5月20日 午时 北京 男"}
     assert h._with_relative_cycle_year("排盘", p, "明年的流年") is p

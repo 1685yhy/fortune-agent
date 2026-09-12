@@ -71,8 +71,13 @@ _TEN_SHEN_NOTE = {
     "劫财": "劫财临位，防破财与人情借贷，理财宜紧",
 }
 
-# 结构化键形态：birth:/year:/month:/focus:（半/全角冒号与等号均收）
-_CYCLE_KEY_RE = re.compile(r'^(birth|year|month|focus)\s*[:：=＝]\s*(.*)$', re.I)
+# 结构化键形态：birth:/year:/month:/focus:/view:（半/全角冒号与等号均收）
+# k40（T027）：view 为**服务端内部**视图键（可选，不在 LLM 工具 schema 内）
+# —— `view=year` = 流年全年一览（12 月逐月一行），缺省/其他值 = 单月视图。
+_CYCLE_KEY_RE = re.compile(r'^(birth|year|month|focus|view)\s*[:：=＝]\s*(.*)$',
+                           re.I)
+# view 取值 → 年视图（接受中文写法，服务端内部键容错；其余 → 月视图）
+_CYCLE_VIEW_YEAR = ("year", "年", "全年", "年视图", "流年")
 # 文本标签兜底：目标年份（公历 4 位）、目标月份、关注维度（从后向前匹配，
 # 出生描述本身含 出生年/月 日期，取最后一个命中避免误吞出生日期）
 _YEAR_RE = re.compile(r'([12]\d{3})\s*年')
@@ -232,6 +237,16 @@ def parse_target_year(raw, now: Optional[datetime] = None) -> Optional[int]:
     if y is not None and 1900 <= y <= 2300:
         return y
     return None
+
+
+def parse_view(raw) -> bool:
+    """视图键（k40 T027）：`view=year`（或 年/全年/年视图/流年）→ True（年视图）。
+
+    服务端内部键：只由 handler 场景兜底传入（`_scene_fortune_cycle_fallback`
+    按用户原话区分「流年/明年」与「流月」），不在 LLM 工具 schema 内；解析不出
+    → False（月视图，与改前缺省一致——单月一行）。
+    """
+    return str(raw or "").strip().lower() in _CYCLE_VIEW_YEAR
 
 
 def parse_target_month(raw) -> Optional[int]:
