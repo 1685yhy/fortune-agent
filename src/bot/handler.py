@@ -1206,6 +1206,10 @@ class MessageHandler:
         - **无** → advisor：无档案回建档引导「出生年月日时/性别」（T076 断言），
           有档案走命盘建议（优于 hehun 无双方生辰死胡同）。
 
+        k38-RI4b（复审实测）：`_extract_partial_birth` 带时间谓词（完整日期全在
+        未来 = 婚期/预产期等非生辰语境 → 返回 {}）——「2026年10月1日结婚，帮我看看
+        我的婚姻」不再被判 bazi 建档。
+
         拆成独立方法：条件可被单测直接锁定（process() 内联判定不可单测）。
         """
         try:
@@ -5350,6 +5354,15 @@ class MessageHandler:
                 _f.pop(_k, None)
         self._analysis_facts[user_id] = _f
         parsed = self._extract_bazi_info(msg)
+        # k38-RI4b（复审实测·档案污染）：时间谓词（与 analyzer 路由、F2 提取
+        # 同一事实源）——消息里的完整日期全在未来（婚期/预产期/行程等非生辰
+        # 语境）时，`_extract_bazi_info` 靠补默认时辰/城市（hour=0、city=北京）
+        # 也能凑出完整盘 → 婚期被当生辰排盘/建档。此处作废该提取结果，落回
+        # 下方"无完整信息"分支（有档案→复用档案；无档案→建档引导/通用知识），
+        # 不排盘不建档。修前实测：「2026年10月1日结婚，帮我看看我的婚姻」→
+        # `_do_bazi_analysis(2026,10,1,0,0,'北京',…)` 落库。
+        if parsed is not None and MessageAnalyzer.birth_dates_all_future(msg):
+            parsed = None
         # L5-2 修复（降级成本）：降级用户的前置文案（复用档案确认/信息收集
         # 引导）不调 LLM，全部走固定文案（_do_bazi_analysis 内部同口径门控）。
         _dg = self._downgraded.get(user_id, False)
@@ -5931,6 +5944,17 @@ class MessageHandler:
             return {}
         out: dict = {}
         cy = current_year if current_year is not None else date.today().year
+
+        # k38-RI4b（复审实测·档案污染）：时间谓词——消息里的完整日期**全在未来**
+        # （婚期/预产期/行程等非生辰语境）时不得当生辰提取。判定复用 analyzer 侧
+        # 同一事实源 `MessageAnalyzer.birth_dates_all_future`（单一谓词覆盖
+        # analyzer 路由与本提取两条路径，不在此重复实现时间判定）；命中任一可作
+        # 生辰的日期即放行（「我1990年5月20日出生，2026年10月1日结婚」仍提取
+        # 1990 那条）。修前实测：「2026年10月1日结婚，帮我看看我的婚姻」→ 婚期
+        # year/month/day 被当生辰 → 排盘/建档（F2 累积、_redirect_single_marriage
+        # 同洞）。
+        if MessageAnalyzer.birth_dates_all_future(msg, cy):
+            return {}
 
         # ── year（优先级：阿拉伯 4 位 > 中文 4 位 > 中文 2 位 > 年龄推算）──
         year = None

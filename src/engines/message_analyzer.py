@@ -10,6 +10,7 @@ import hashlib
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from typing import Dict, Optional, Tuple
 
 import httpx
@@ -272,6 +273,47 @@ def _entity_qa_beats_scene(msg: str, scene_hint: str) -> bool:
         return False
 
 
+# ── k38-RI4b（复审实测·档案污染）：生辰时间谓词 ──────────────────────
+# 未来日期 = 婚期/预产期/行程等非生辰语境。此前 BIRTH_DATE_PATTERN 只认日期
+# 形状、不判过去/未来：实测「2026年10月1日结婚，帮我看看我的婚姻」→
+# intent=bazi + partial_birth={'year':2026,…} → 婚期被当生辰排盘/建档
+# （违「档案为单一事实源」铁律）。analyzer 路由与 handler（`_extract_partial_birth`
+# / `_handle_bazi`）共用下方 `MessageAnalyzer.birth_dates_all_future`（负视图）
+# 与 `birth_date_candidate`（正视图）——同一时间谓词覆盖两条路径。
+_DATE_MONTH_DAY_RE = re.compile(r'(\d{1,2})\s*[月/-]\s*(\d{1,2})')
+
+
+def _birth_predicate_today(current_year: Optional[int] = None) -> date:
+    """时间谓词的「今天」基准：current_year 显式传入时用该年 + 真实月日
+    （与 handler._extract_partial_birth 的 current_year 口径一致）。"""
+    today = date.today()
+    if current_year is None or current_year == today.year:
+        return today
+    try:
+        return today.replace(year=current_year)
+    except ValueError:                  # 2/29 → 基准年非闰年
+        return date(current_year, 2, 28)
+
+
+def _birth_match_in_future(matched_text: str, today: date) -> bool:
+    """BIRTH_DATE_PATTERN 命中串的日期是否严格晚于 today。
+
+    年份 > 今年 → 未来；年份 = 今年 → 比月日；年份 < 今年 → 非未来。
+    月日解析不出（如中文数字月「十一月」）且年份 = 今年 → 保守当「非未来」
+    （宁可放行真生辰，不误杀；跨年未来日期已被年份分支拦住）。
+    """
+    ym = re.match(r'\s*(\d{4})', matched_text)
+    if not ym:
+        return False
+    year = int(ym.group(1))
+    if year != today.year:
+        return year > today.year
+    md = _DATE_MONTH_DAY_RE.search(matched_text)
+    if not md:
+        return False
+    return (int(md.group(1)), int(md.group(2))) > (today.month, today.day)
+
+
 class MessageAnalyzer:
     """Single-pass message analyzer: emotion + intent in one Flash call."""
 
@@ -308,6 +350,43 @@ class MessageAnalyzer:
         r'择日|择吉|选日子|选个日子|选个时间|挑日子|挑个日子|挑个时间|'
         r'看日子|好日子|吉日|哪天|换一批|重新选'
     )
+
+    @classmethod
+    def birth_dates_all_future(cls, msg: str,
+                               current_year: Optional[int] = None) -> bool:
+        """k38-RI4b 时间谓词（单一事实源，两条路径共用）：消息**有**完整日期且
+        **全部**落在未来 → 婚期/预产期/行程等非生辰语境，不得当生辰。
+
+        实测（复审）：「2026年10月1日结婚，帮我看看我的婚姻」此前被判 bazi +
+        partial_birth={'year':2026,…} → 婚期被当生辰排盘/建档（档案污染，违
+        「档案为单一事实源」铁律）。调用方据此拒绝"当生辰"：
+
+        - `MessageAnalyzer.analyze` 婚姻强路由 → 不判 bazi（落 advisor）；
+        - `MessageHandler._extract_partial_birth` → 不提取（F2 累积/
+          `_redirect_single_marriage` 同源）；
+        - `MessageHandler._handle_bazi` → `_extract_bazi_info` 结果作废（不入排盘/
+          建档；该提取器补默认时辰/城市，未来日期同样能凑出完整盘）。
+
+        无完整日期（部分生辰「我1990年生的」/中文数字年「一九七六年三月初三」）
+        → False（不拦）；多个命中只要有一个不在未来（「我1990年5月20日出生，
+        2026年10月1日结婚」）→ False（按 1990 那条走）。月日不可解析（中文数字
+        月）且年份=今年 → 保守当非未来（宁可放行真生辰，不误杀）。
+        """
+        if not msg or not cls.BIRTH_DATE_PATTERN.search(msg):
+            return False
+        today = _birth_predicate_today(current_year)
+        for m in cls.BIRTH_DATE_PATTERN.finditer(msg):
+            if not _birth_match_in_future(m.group(0), today):
+                return False
+        return True
+
+    @classmethod
+    def birth_date_candidate(cls, msg: str,
+                             current_year: Optional[int] = None) -> bool:
+        """k38-RI4b 正视图：消息能否当「生辰陈述」（= 有完整日期 且 非全在未来）。
+        analyzer 强路由用；语义与取值见 `birth_dates_all_future`（同一时间谓词）。"""
+        return (bool(cls.BIRTH_DATE_PATTERN.search(msg or ""))
+                and not cls.birth_dates_all_future(msg, current_year))
 
     def __init__(self, api_key: str, model: str = "deepseek-flash"):
         self.api_key = api_key
@@ -379,10 +458,15 @@ class MessageAnalyzer:
             # 部分生辰（只给年份/年龄等）由 handler 侧 `_extract_partial_birth`
             # 兜底改判（见 handler._redirect_single_marriage），此处不重复实现
             # 部分信息提取（单一事实源）。
+            # k38-RI4b（复审实测·档案污染）：自带生辰的判定改用时间谓词
+            # `birth_date_candidate`（= BIRTH_DATE_PATTERN 命中 + 日期不在未来）
+            # ——实测「2026年10月1日结婚，帮我看看我的婚姻」此前按日期形状判
+            # bazi，婚期被当生辰排盘/建档；未来日期（婚期/预产期/行程）不得
+            # 当生辰，落回 advisor（无档案走 T076 建档引导，不污染 persons）。
             if (_SINGLE_MARRIAGE_RE.search(user_message)
                     and not _SECOND_PERSON_RE.search(user_message)
                     and not _MARRIAGE_TIMELINE_RE.search(user_message)):
-                if self.BIRTH_DATE_PATTERN.search(user_message):
+                if self.birth_date_candidate(user_message):
                     return MessageAnalysis(needs_soothe=False, soothe_text="",
                                            emotion_label=None, intent="bazi")
                 return MessageAnalysis(needs_soothe=False, soothe_text="",

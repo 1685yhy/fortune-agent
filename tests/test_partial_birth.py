@@ -536,3 +536,82 @@ def test_extract_lunar_valid_leap_month_converts():
     r = h._extract_bazi_info("农历2023年闰二月15出生")
     assert r is not None
     assert r[0:3] == (2023, 4, 5)
+
+
+# --------------------------------------------- 8. k38-RI4b 生辰时间谓词
+
+def _freeze_today(monkeypatch, y=2026, m=9, d=12):
+    """冻结「今天」基准（k38 复审实测基准日 2026-09-12）：未来日期用例不随
+    真实时钟腐化。谓词取时间基准的模块名 `date`，monkeypatch 该名字即可。"""
+    from datetime import date as _date
+    import src.bot.handler as _handler_mod
+    import src.engines.message_analyzer as _ma_mod
+
+    class _Frozen(_date):
+        @classmethod
+        def today(cls):
+            return cls(y, m, d)
+    monkeypatch.setattr(_handler_mod, "date", _Frozen)
+    monkeypatch.setattr(_ma_mod, "date", _Frozen)
+
+
+def test_ri4b_future_date_not_extracted_as_birth(monkeypatch):
+    """R-I-4b（复审实测·档案污染）：完整日期全在未来（婚期/预产期/行程 等非
+    生辰语境）→ 不得当生辰提取。
+
+    改前实测：「2026年10月1日结婚，帮我看看我的婚姻」→ {'year': 2026,
+    'month': 10, 'day': 1, '_md_lunar': False} → 进排盘/建档路径（婚期被写成
+    出生档案；F2 累积 `_collect_partial_birth`、`_redirect_single_marriage`
+    是同一条边的两个消费点）。
+    """
+    _freeze_today(monkeypatch)
+    h = make_handler()
+    for text in ("2026年10月1日结婚，帮我看看我的婚姻",
+                 "2026年10月1日我要结婚了，我的婚姻怎么样",
+                 "2026年12月5日结婚，帮我挑个日子",
+                 "2027年5月20日出生"):          # 未来年份同理
+        assert h._extract_partial_birth(text) == {}, text
+    # 不该走（反向·不得误杀）：真生辰/部分生辰/混合句 提取不变
+    assert h._extract_partial_birth(
+        "1990年5月20日 15:30 北京 男，我的婚姻怎么样")["year"] == 1990
+    assert h._extract_partial_birth("我1990年生的")["year"] == 1990
+    assert h._extract_partial_birth("我今年50岁了")["year"] == 1976
+    mixed = h._extract_partial_birth("我1990年5月20日出生，2026年10月1日结婚")
+    assert (mixed.get("year"), mixed.get("month"), mixed.get("day")) == (1990, 5, 20)
+
+
+def test_ri4b_future_date_no_chart_no_archive(monkeypatch):
+    """R-I-4b：未来日期（婚期）→ `_handle_bazi` 不排盘/不落档。
+
+    `_extract_bazi_info` 会给未来日期补默认时辰/城市（hour=0、city=北京）凑出
+    完整盘，故在该消费点用同一谓词作废结果：改前实测
+    `_do_bazi_analysis(2026, 10, 1, 0, 0, '北京', …)` 落库（婚期当生辰）。
+    """
+    _freeze_today(monkeypatch)
+    h = make_handler()
+    h._try_reuse_chart = Mock(return_value="")
+    h._get_user_birth_profile = Mock(return_value=None)
+    h._is_third_party_birth_request = Mock(return_value=False)
+    # 前提（真实提取器行为）：完整未来日期确实能凑出"完整盘"
+    assert h._extract_bazi_info("2026年10月1日 15:30 北京 男") is not None
+    for text in ("2026年10月1日结婚，帮我看看我的婚姻",
+                 "2026年10月1日 15:30 北京 男"):
+        h._do_bazi_analysis.reset_mock()
+        h._save_bazi_records.reset_mock()
+        h._handle_bazi(text, "u1")
+        h._do_bazi_analysis.assert_not_called()
+        h._save_bazi_records.assert_not_called()
+
+
+def test_ri4b_real_birth_still_charts_and_archives(monkeypatch):
+    """反向（不得误杀）：真生辰照旧排盘/落档（F2 路径 `_feed_birth` →
+    `_do_bazi_analysis` → `_save_bazi_records`）。"""
+    _freeze_today(monkeypatch)
+    h = make_handler()
+    h._try_reuse_chart = Mock(return_value="")
+    h._get_user_birth_profile = Mock(return_value=None)
+    h._is_third_party_birth_request = Mock(return_value=False)
+    h._handle_bazi("1990年5月20日 15:30 北京 男，我的婚姻怎么样", "u1")
+    h._do_bazi_analysis.assert_called_once()
+    assert h._do_bazi_analysis.call_args[0][:7] == \
+        (1990, 5, 20, 15, 30, "北京", "男")

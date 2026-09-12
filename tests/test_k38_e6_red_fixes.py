@@ -13,7 +13,7 @@
 改回旧代码必失败（强路由断言 intent/scene_hint + LLM 调用次数 0）。
 """
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import pytest
@@ -1000,3 +1000,129 @@ def test_k38_m4_validator_rejects_no_tool_with_allow_tools():
         capture_output=True, text=True, timeout=120)
     assert proc.returncode != 0 and "不得声明 allow_tools" in proc.stdout, \
         proc.stdout + proc.stderr
+
+
+# ================================================================
+# 九、k38 复审修复（R-I-2b T011 转义失效 / R-I-4b 未来日期当生辰）
+# ================================================================
+
+class _FrozenDate(date):
+    """冻结「今天」= 2026-09-12（k38 复审实测基准日）。
+
+    未来日期用例不随真实时钟腐化：「2026年10月1日」在基准日之后 = 未来；
+    谓词取时间基准的模块名 `date`（message_analyzer / handler 各自 import），
+    monkeypatch 该名字即可冻结（不碰生产代码）。
+    """
+    @classmethod
+    def today(cls):
+        return cls(2026, 9, 12)
+
+
+def _freeze_today(monkeypatch):
+    import src.bot.handler as handler_mod
+    monkeypatch.setattr(ma, "date", _FrozenDate)
+    monkeypatch.setattr(handler_mod, "date", _FrozenDate)
+
+
+def test_k38_ri2b_t011_third_condition_actually_blocks():
+    """R-I-2b（复审实测·声称修了实际没生效）：T011 第三条件「庚午必不现」此前
+    JSON 多一层转义——文件里 `[\\\\s\\S]` 解码后字符类 = {反斜杠, s, S}（不含空格），
+    正确盘 +「（对比：您本人的年柱是庚午）」实测 **PASS**（条件完全不生效）。
+
+    改后锁死：结构（解码后必须是 `[\\s\\S]`）+ 行为（提及庚午 → FAIL；本轮正确盘
+    不含庚午 → 仍 PASS，判别力与不误杀双向）。
+    """
+    import re as _re
+    t = _eval_task("T011", None)
+    pat = t["reply_checks"]["regex"][0]
+    # 结构锁：多一层转义（解码后 `[\\s\S]`）即字符类退化为 {\,s,S} → 拒
+    assert "[\\\\s\\S]" not in pat, "第三条件又写成多一层转义（[\\\\s\\S]）"
+    assert "[\\s\\S]*庚午" in pat, "条件形状变了，请同步本测试"
+
+    correct = ("天干 丙 辛 庚 戊\n地支 辰 巳 子 申\n"
+               "1976年5月13日10:00 上海 女，年柱丙辰，当前大运辛巳，"
+               "日主庚金，喜土金调候，事业宜稳中求进，忌盲目扩张。")
+    leak = correct + "（对比：您本人的年柱是庚午）"
+    assert _re.search(pat, correct) is not None
+    assert _re.search(pat, leak) is None, "提及本人年柱庚午必须判 fail（R-I-2b）"
+    # 整任务口径：正确盘 PASS / 混入本人盘的回复 FAIL
+    assert all(c["ok"] for c in l2_eval.eval_reply_checks(t, correct)) is True
+    assert all(c["ok"] for c in l2_eval.eval_reply_checks(t, leak)) is False
+
+
+def test_k38_ri4b_predicate_single_source_matrix():
+    """R-I-4b 谓词矩阵（单一事实源 `MessageAnalyzer.birth_dates_all_future` /
+    `birth_date_candidate`，analyzer 路由与 handler 两处 gate 共用）。"""
+    M = MessageAnalyzer
+    # 未来（婚期/预产期/行程）→ 不得当生辰
+    for text in ("2026年10月1日结婚，帮我看看我的婚姻",
+                 "2026年10月1日我要结婚了，我的婚姻怎么样",
+                 "2027年5月20日",
+                 "2026年12月5日结婚，帮我挑个日子"):
+        assert M.birth_dates_all_future(text) is True, text
+        assert M.birth_date_candidate(text) is False, text
+    # 真生辰（过去）→ 照旧
+    for text in ("1990年5月20日 15:30 北京 男，我的婚姻怎么样",
+                 "帮我朋友排，他1976年5月13日 10:00 上海 女",
+                 "1999年阴历十一月28",
+                 "1999年农历十二月28出生"):
+        assert M.birth_dates_all_future(text) is False, text
+        assert M.birth_date_candidate(text) is True, text
+    # 部分生辰/无日期形状 → 不在此谓词范围（F2 部分提取不受影响）
+    for text in ("我1990年生的", "我今年50岁了", "一九七六年三月初三出生",
+                 "帮我看看我的婚姻状况", ""):
+        assert M.birth_dates_all_future(text) is False, text
+        assert M.birth_date_candidate(text) is False, text
+    # 混合：「1990出生 + 2026结婚」→ 按可作生辰的 1990 那条放行
+    mixed = "我1990年5月20日出生，2026年10月1日结婚，我的婚姻怎么样"
+    assert M.birth_dates_all_future(mixed) is False
+    assert M.birth_date_candidate(mixed) is True
+
+
+def test_k38_ri4b_marriage_future_date_not_bazi(analyzer, monkeypatch):
+    """R-I-4b（复审实测·档案污染）：婚期（未来日期）不得当生辰——analyzer 婚姻
+    强路由不再判 bazi（落 advisor，0 LLM）。
+
+    改前实测：`analyze("2026年10月1日结婚，帮我看看我的婚姻")` → intent=bazi
+    → `_handle_bazi` 排盘/建档（婚期写成出生档案）。
+    """
+    _freeze_today(monkeypatch)
+    calls = _mock_completion("bazi", monkeypatch)   # 误走 LLM 会得 bazi（旧行为）
+    for text in ("2026年10月1日结婚，帮我看看我的婚姻",
+                 "2026年10月1日我要结婚了，我的婚姻怎么样",
+                 "2027年5月20日结婚，帮我看看我的婚姻"):
+        r = analyzer.analyze(text)
+        assert r.intent == "advisor", (text, r.intent)
+        assert r.scene_hint is None, text
+    # 不该走（反向·不得误杀）：真生辰仍 0 LLM 判 bazi（落档路径）
+    for text in ("1990年5月20日 15:30 北京 男，我的婚姻怎么样",
+                 "1990年5月20日 15:30 北京 男，看看我的姻缘"):
+        assert analyzer.analyze(text).intent == "bazi", text
+    assert calls["n"] == 0
+
+
+def test_k38_ri4b_redirect_marriage_bidirectional(monkeypatch):
+    """R-I-4b handler 侧：`_redirect_single_marriage` 复用同一谓词（经
+    `_extract_partial_birth`）——婚期不改判 bazi（无档案建档引导，不污染档案）；
+    真生辰仍改判 bazi（F2 累积/落档路径）。"""
+    from src.engines.message_analyzer import MessageAnalysis
+    _freeze_today(monkeypatch)
+    h = _bare_handler()
+
+    def _a(intent):
+        return MessageAnalysis(needs_soothe=False, soothe_text="",
+                               emotion_label=None, intent=intent)
+
+    a1 = _a("advisor")
+    h._redirect_single_marriage(a1, "2026年10月1日结婚，帮我看看我的婚姻")
+    assert a1.intent == "advisor"
+    a2 = _a("hehun")   # hehun 落入单人婚姻分支 → advisor（不得因未来婚期改判 bazi）
+    h._redirect_single_marriage(a2, "2027年5月20日结婚，看看我的姻缘")
+    assert a2.intent == "advisor"
+    # 反向：真生辰（完整/部分）仍改判 bazi
+    a3 = _a("advisor")
+    h._redirect_single_marriage(a3, "1990年5月20日 15:30 北京 男，我的婚姻怎么样")
+    assert a3.intent == "bazi"
+    a4 = _a("advisor")
+    h._redirect_single_marriage(a4, "我1990年生的，我的婚姻怎么样")
+    assert a4.intent == "bazi"
