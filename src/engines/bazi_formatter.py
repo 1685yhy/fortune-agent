@@ -251,6 +251,14 @@ def format_compact_card(result, birth_info: dict = None) -> str:
         dy_str = " → ".join(f"{a}岁{g}" for a, g in dayun[:4])
         lines.append(f"📅 大运：{dy_str}")
 
+    # 起运实岁串（k39-S2/T015：G5 问真口径「X岁X个月起运」）——引擎既有字段
+    # qiyun_sui_desc 的纯确定性渲染，0 LLM、不新造文案、不改起运算法；
+    # 标签沿用既有口径（见 src/tools/fortune_cycle.py 起运：{...}）。
+    # getattr + 真值判断 = 字段缺失/为空时优雅降级（不上空壳行）。
+    qy = getattr(result, "qiyun_sui_desc", "") or ""
+    if qy:
+        lines.append(f"⏳ 起运：{qy}")
+
     # 神煞 —— k11-C：显示端全量（与详细卡/LLM 事实包同一集合，禁截断；
     # 截断裂缝=观感编造事故根因，见 format_detailed_chart 同款注释）
     ss = getattr(result, 'shensha', []) or []

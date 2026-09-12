@@ -499,8 +499,10 @@ class ChatStreamer:
                         req.voice_text, downgraded=downgraded)
                 elif req.message_type == "image":
                     # L5-2（I-3）：降级标记透传 → CV 报告走本地精简文案（不调付费报告）
+                    # k39 S4：user_id 透传 → 图片轮次落库（历史可渲染 + 清理识别引用）
                     reply = self.handler._handle_image(
-                        req.image_url, req.message, downgraded=downgraded)
+                        req.image_url, req.message, downgraded=downgraded,
+                        user_id=user_id)
                 else:
                     # 会话隔离：session_id 透传（新开对话 → 全新上下文；空/非法 → 旧行为）
                     # L5-1 降级：对话额度用尽 → 精简 prompt + GLM 模型

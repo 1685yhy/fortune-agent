@@ -65,6 +65,7 @@ for _p in (_REPO, _HERE):
 
 import l1_eval  # noqa: E402  — 复用骨架：隔离库/种子注入/主链装配/落盘/退出码
 from interceptor import ToolCallRecorder  # noqa: E402
+import edge_scope  # noqa: E402  — k39 S1：边界/攻击类判据唯一事实源
 
 # rubric 五维权威对齐（spec §5.3：「rubric 沿用现有 scorer.py 五维结构」）：
 # 权重、维度名、0-10 分数段全部复用 src/eval/scorer.py（纯常量模块，零副作用）。
@@ -361,25 +362,51 @@ def _avg(vals: list) -> float:
 def group_metrics(results: list) -> dict:
     """L3 指标：加权平均（已判卷 / 含 judge_error 按 0 两种口径）+ P0 平均 +
     分域平均 + 五维平均。judge_error/skipped 任务显式列出，不混入正常均值
-    （真实数字就是基线，不美化；两种口径都留档）。"""
+    （真实数字就是基线，不美化；两种口径都留档）。
+
+    **k39 S1 门禁口径**：边界/攻击类（`category == "edge"`，判据唯一事实源
+    = `edge_scope`）从 L3 门禁口径中剔除——该域任务的目标是韧性与安全
+    （不报错/不越权/不落库/不硬断），而五维**质量**判卷对其礼貌兜底回复
+    系统性给低分，属口径错配（E6 归因 §3.2）。据此：
+
+      - `weighted_avg` / `p0_avg` = **不含边界**口径 → 门禁判定用；
+      - `weighted_avg_incl_edge` / `p0_avg_incl_edge` = 含边界口径 →
+        **如实公示的副指标**（两个数都输出，不藏）；
+      - `weighted_avg_incl_errors`（含 judge_error 按 0 计）/ `per_dimension`
+        / `by_category` 保持**全量（含边界）**口径不变，历史可比。
+
+    阈值不变（L3 加权 ≥7.5 / P0 ≥8.0）；L1/L2/L4 对边界任务**一分不减**
+    （`runner._aggregate_layers` 的 L1/L2 视图不携带 category，结构上无法
+    做类别剔除——见 `tests/test_k39_edge_scope.py`）。
+    """
     judged = [r for r in results if not r.get("skipped") and not r["judge_error"]]
     judged_plain = [r for r in results if not r.get("skipped")]  # judge_error 按 0 分计
+    judged_main, judged_edge = edge_scope.split_edge(judged)
     per_dim = {d: _avg([r["dims"][d]["score"] for r in judged]) for d in DIMS}
     by_cat = {}
     for r in judged:
         by_cat.setdefault(r["category"], []).append(r["overall"])
     cat_avg = {k: _avg(v) for k, v in sorted(by_cat.items())}
-    p0 = [r for r in judged if r["severity"] == "P0"]
+    p0 = [r for r in judged_main if r["severity"] == "P0"]
+    p0_incl = [r for r in judged if r["severity"] == "P0"]
     return {
         "total": len(results),
         "judged": len(judged),
         "skipped": [r["id"] for r in results if r.get("skipped")],
         "judge_error": [r["id"] for r in results
                         if not r.get("skipped") and r["judge_error"]],
-        "weighted_avg": _avg([r["overall"] for r in judged]),
+        # L3 门禁口径（k39 S1）：剔除边界/攻击类 edge 任务
+        "weighted_avg": _avg([r["overall"] for r in judged_main]),
+        "weighted_avg_incl_edge": _avg([r["overall"] for r in judged]),
+        # 含 judge_error 按 0 分计（全量口径，未变）
         "weighted_avg_incl_errors": _avg([r["overall"] for r in judged_plain]),
         "p0_avg": _avg([r["overall"] for r in p0]),
         "p0_count": len(p0),
+        "p0_avg_incl_edge": _avg([r["overall"] for r in p0_incl]),
+        "p0_count_incl_edge": len(p0_incl),
+        # 剔除清单公示（如实留档，不美化）
+        "judged_excl_edge": len(judged_main),
+        "edge_excluded": edge_scope.edge_ids(judged_edge),
         "per_dimension": per_dim,
         "by_category": cat_avg,
     }

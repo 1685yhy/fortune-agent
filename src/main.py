@@ -1632,8 +1632,10 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
             )
         elif req.message_type == "image":
             # L5-2（I-3）：降级标记透传 → CV 报告走本地精简文案（不调付费报告）
+            # k39 S4：user_id 透传 → 图片轮次落库（历史可渲染 + 清理识别引用）
             reply = await loop.run_in_executor(
-                None, handler._handle_image, req.image_url, req.message, downgraded
+                None, lambda: handler._handle_image(
+                    req.image_url, req.message, downgraded, user_id=req.user_id)
             )
         else:
             # 同步 LLM 调用放线程池：事件循环不阻塞，请求超时中间件才可生效

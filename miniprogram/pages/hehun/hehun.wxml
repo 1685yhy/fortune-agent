@@ -16,7 +16,10 @@
     <!-- 我方 -->
     <view class="card hh-card">
       <view class="card-header hh-card-head">
-        <text class="card-title">我方 · 我的生辰</text>
+        <text class="card-title">我方 · 我的生辰
+          <!-- k39 S3：档案补全来源标识（手动改任一项即消失 → 覆盖后以手填为准） -->
+          <text wx:if="{{p1FromArchive}}" class="hh-cache-tag">本人（来自档案）</text>
+        </text>
         <text class="hh-pick-archive" hover-class="hh-pick-archive-active" hover-stay-time="0"
           data-target="p1" bindtap="onPickPerson">从档案选择</text>
       </view>
@@ -69,6 +72,7 @@
       <view class="card-header hh-card-head">
         <text class="card-title">他/她 · TA的生辰
           <text wx:if="{{p2FromCache}}" class="hh-cache-tag">上次记录</text>
+          <text wx:if="{{p2FromArchive}}" class="hh-cache-tag">TA（来自档案）</text>
         </text>
         <text class="hh-pick-archive" hover-class="hh-pick-archive-active" hover-stay-time="0"
           data-target="p2" bindtap="onPickPerson">从档案选择</text>
