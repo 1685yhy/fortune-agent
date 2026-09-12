@@ -1,5 +1,6 @@
 """存量数据直读：对话问'我的档案/解梦/历史/收藏…' → 直读秒回，不重走全流程。"""
 import logging
+import re
 from src.storage.dao import _decrypt_or_plain
 
 logger = logging.getLogger(__name__)
@@ -78,6 +79,18 @@ _ARCHIVE_ACTION_WORDS = ("排盘", "排一下", "排个", "重排", "重新排",
 # 仅 _q_档案 农历问法追加用，本地定义避免重 import 拉入 FastAPI 路由链。
 _LUNAR_MONTH_CN = ("正月", "二月", "三月", "四月", "五月", "六月",
                    "七月", "八月", "九月", "十月", "冬月", "腊月")
+
+# k40 返工（Minor-1）：名笺/灵签**空态**的 how-to 问句放行表。
+# 空态确定性文案是给「已发生」查询（「我保存过的名笺」「我抽过的签有哪些」）
+# 用的；「名笺是什么」这类定义/how-to 问句会命中「名笺是」等关键词 → 无收藏
+# 时被空态短路成「你还没有保存过名笺…」（答非所问，改前是落 LLM 正常回答）。
+# 命中本表 → 空态返回 None（直读链放弃 → 原 LLM 回答路径），与
+# `_ARCHIVE_ACTION_WORDS` 同型守卫（只放行，不新增劫持面）；有名笺/有灵签
+# 时不受影响（真实数据直读优先）。
+_HOWTO_QUESTION_RE = re.compile(
+    r'是什么|是啥|什么是|啥是|是什么意思|什么意思|啥意思|怎么用|怎么弄|'
+    r'干嘛|干吗|干什么|做什么用|做什么的|做啥的|有啥用|有什么用|'
+    r'介绍一下|讲解|解释一下|科普')
 
 # 类别 → 触发关键词（命中即直读）
 CATEGORY_KEYWORDS = {
@@ -159,8 +172,12 @@ class RecordQuery:
                         continue
                     handler = getattr(self, f"_q_{cat}", None)
                     if handler:
-                        # 仅 _q_档案 需要 msg（农历/阴历问法判定），其余 _q_* 签名不变
-                        out = handler(user_id, msg) if cat == "档案" else handler(user_id)
+                        # _q_档案 用 msg 判农历/阴历问法；_q_名笺/_q_灵签 用 msg
+                        # 判空态 how-to 问句（k40 返工 Minor-1，见
+                        # `_HOWTO_QUESTION_RE`）；其余 _q_* 签名不变
+                        out = (handler(user_id, msg)
+                               if cat in ("档案", "名笺", "灵签")
+                               else handler(user_id))
                         if out:
                             return out
         return None
@@ -277,13 +294,17 @@ class RecordQuery:
             mem = "，记得：" + "；".join(str(m) for m in s["memories"][:5])
         return f"之前的聊天摘要：{s['summary'][:200]}{mem}"
 
-    def _q_灵签(self, user_id):
+    def _q_灵签(self, user_id, msg: str = ""):
         if not self.qian_dao: return None
         try:
             saves = self.qian_dao.list_history(user_id, limit=10)
             if not saves:
                 # k40（T054 同族）：空态不得 return None 把正常链路吞回 LLM
                 # （对照 `_q_档案` 写法：确定性文案、零 LLM 零工具、含关键字面）
+                # k40 返工（Minor-1）：how-to 问句（「灵签是什么」）放行走 LLM，
+                # 不被空态答非所问（见 `_HOWTO_QUESTION_RE`）
+                if _HOWTO_QUESTION_RE.search(msg or ""):
+                    return None
                 return "你还没有收藏过灵签。在「灵签」页抽一支，我就能帮你回看啦～"
             # D4 修复：qian_saves 只存 (no, kind, drawn_at)，签诗/吉凶须从签文库
             # 按 no 反查（与 /api/qian/history 同口径，防编造）。
@@ -320,13 +341,18 @@ class RecordQuery:
         except Exception:
             return None
 
-    def _q_名笺(self, user_id):
+    def _q_名笺(self, user_id, msg: str = ""):
         if not self.ming_dao: return None
         try:
             saves = self.ming_dao.list_saved(user_id)
         except Exception:
             return None
         if not saves:
+            # k40 返工（Minor-1）：「名笺是什么」这类 how-to 问句命中「名笺是」
+            # 关键词，无收藏时被空态文案短路 → 答非所问（改前落 LLM 正常回答）
+            # → how-to 问句放行（返回 None，直读链放弃，原 LLM 路径接管）。
+            if _HOWTO_QUESTION_RE.search(msg or ""):
+                return None
             # k40（T054）：空态 return None 会让直读链整体放弃 → 落 LLM（上轮
             # 是 record_lookup 工具 + 道歉，本轮连工具都没发，回复被兜底成
             # 「抱歉，我还在学习中…」，两种情况都没有「名笺」字面）。对齐
