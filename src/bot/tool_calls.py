@@ -248,161 +248,173 @@ def _bare_strip_cb(m: re.Match) -> str:
 #   2) web_search\n```json\n{"query": …}\n```      markdown 代码围栏包裹 JSON
 #   3) 【web_search】\n```json\n{…}\n```            两者叠加
 #   4) 稍等一下。web_search\n{"关键词": …}          散文前缀与工具名同行粘连
-#   5) 搜索\n"2026年新能源…"                        参数为裸字符串（无大括号）
-# 保守边界（防纯文本误判）：
-#   - 载荷必须是 JSON 对象（允许一层嵌套）或裸引号串，且紧跟名字之后
-#     （中间只允许空白/换行/```json 围栏）；
-#   - 散文粘连形态（名字带前缀）**只认 JSON 对象载荷**，不认裸引号；
-#   - 名字须解析为注册工具（后缀匹配取最长：散文前缀与工具名粘连时，
-#     工具名一定在结尾处，如 "稍等一下。web_search" → web_search）。
+#
+# k33 审查 I1 收紧（2026-09-12，审查实跑反例见 tests/test_k33_glm_drift_format.py）：
+# 本层只在「**明确漂移标记** + **可解析 JSON 对象载荷** + **注册工具名** +
+# **块起点**」四条同时成立时命中——旧版把普通叙述错判成工具调用并真实执行：
+#   反例 a) 我的建议：先看排盘\n{"年": …}      → 旧版后缀匹配认成「排盘」
+#   反例 b) 想查实时信息就用一下搜索\n{"q": …}  → 同理（真外呼 web_search）
+#   反例 c) 搜索\n"2026年运势"                  → 裸引号串与正文「怎么用搜索」不可区分
+#   反例 d) 排盘\n姓名,1990年3月5日              → 散文参数行与表单式正文不可区分
+#
+# 三条允许形态（标记 = 【】包裹 / ```json 围栏 / 句末符后粘连名，见下）：
+#   A) 【web_search】\n{"query": …}（可叠加 ```json 围栏）
+#   B) web_search\n```json\n{"query": …}\n```（围栏本身即标记）
+#   C) 稍等一下。web_search\n{"关键词": …}（名字前一个字符必须是句末符）
+# 收紧要点：
+#   - **块起点**：块（含粘连名整体）前只允许行首/串首/句末符（。！？!?；;…），
+#     名字前是别的字（"先看排盘"/"就用一下搜索"）一律不认；
+#   - **载荷必须是能 json.loads 成 dict 的对象**（参数可解析性；裸引号串、
+#     散文参数行、裸名字都取消——它们与正文结构上不可区分，宁可漏判不可误判）；
+#   - **未知工具名不执行也不剥离**（与既有各层同策略）。
 # ══════════════════════════════════════════════════════════════════════
 
-# 名字候选 + 可选围栏 + 载荷（对象优先，其次裸引号串）
-_GLM_WRAP_JSON_OBJ = r'\{(?:[^{}]|\{[^{}]*\})*\}'
-_GLM_WRAP_JSON_STR = r'"[^"\n]{1,120}"'
-_GLM_WRAP_CALL_RE = re.compile(
-    r'(?P<name>【\s*[^\s【】]{1,32}\s*】|[^\s<>{}\[\]:：]{1,64})'   # 【名】 或 裸名（可带前缀）
-    r'[ \t]*[:：]?[ \t]*\n?[ \t]*'
-    r'(?:```[ \t]*(?:json|JSON)?[ \t]*\n?[ \t]*)?'                # 可选 ```json 围栏
-    r'(?P<payload>' + _GLM_WRAP_JSON_OBJ + r'|' + _GLM_WRAP_JSON_STR + r')'
-    r'[ \t]*\n?[ \t]*(?:```)?',                                     # 可选围栏闭合
+_GLM_DRIFT_JSON_OBJ = r'\{(?:[^{}]|\{[^{}]*\})*\}'
+_GLM_DRIFT_FENCE = r'```[ \t]*(?:json|JSON)?[ \t]*\r?\n'
+# 名字必须落在「行首/串首/句末符之后」（块起点）；句末符集合含中英文标点
+_GLM_DRIFT_BOUNDARY = "。！？!?；;…"
+
+# 形态 A：全角方括号包裹工具名（【web_search】），可带 ```json 围栏
+_GLM_DRIFT_BRACKET_RE = re.compile(
+    r'(?P<name>【[ \t]*[^\s【】]{1,32}[ \t]*】)'
+    r'[ \t]*[:：]?[ \t]*\r?\n?[ \t]*'
+    r'(?:' + _GLM_DRIFT_FENCE + r'[ \t]*)?'
+    r'(?P<payload>' + _GLM_DRIFT_JSON_OBJ + r')'
+    r'[ \t]*\r?\n?[ \t]*(?:```)?',
 )
-_GLM_WRAP_OPEN_RE = re.compile(r'^【\s*([^\s【】]{1,32})\s*】$')
+# 形态 B：裸名独占一行 + ```json 围栏 + JSON（围栏本身即明确漂移标记）
+_GLM_DRIFT_FENCE_RE = re.compile(
+    r'(?P<name>[^\s<>{}\[\]:：]{1,64})'
+    r'[ \t]*[:：]?[ \t]*\r?\n[ \t]*'
+    r'```[ \t]*(?:json|JSON)?[ \t]*\r?\n[ \t]*'
+    r'(?P<payload>' + _GLM_DRIFT_JSON_OBJ + r')'
+    r'[ \t]*\r?\n?[ \t]*(?:```)?',
+)
+# 形态 C：裸名（可带句末符收尾的散文前缀粘连）+ JSON 对象（无围栏）
+_GLM_DRIFT_GLUED_RE = re.compile(
+    r'(?P<name>[^\s<>{}\[\]:：]{1,64})'
+    r'[ \t]*[:：]?[ \t]*\r?\n?[ \t]*'
+    r'(?P<payload>' + _GLM_DRIFT_JSON_OBJ + r')',
+)
+_GLM_DRIFT_OPEN_RE = re.compile(r'^【\s*([^\s【】]{1,32})\s*】$')
+# 注册工具别名全集（后缀最长匹配用；含英文 cap_id 与同义词）
+_GLM_DRIFT_ALIASES = None
 
 
-def _resolve_glm_wrapped_name(raw: str):
-    """漂移形态的名字归一 → (注册表中文名, 是否「干净名」, 名字后缀起始偏移)。
+def _drift_aliases() -> list:
+    global _GLM_DRIFT_ALIASES
+    if _GLM_DRIFT_ALIASES is None:
+        _GLM_DRIFT_ALIASES = sorted(
+            list(TOOL_REGISTRY) + list(TOOL_NAME_BY_ID) + list(_TOOL_SYNONYMS),
+            key=len, reverse=True)
+    return _GLM_DRIFT_ALIASES
 
-    - 干净名 = 【工具名】包裹形态，或裸名直接命中注册表（含 cap_id/同义词）
-      —— 载荷为裸引号串时只认干净名（防误伤）；偏移 0（整段都是工具名）；
-    - 散文前缀粘连（"稍等一下。web_search"）→ 取结尾处最长的已注册别名；
-      偏移 = 别名在候选串内的起点（剥离时只从别名处切，散文前缀留给用户）；
-    - 未命中 → ("", False, 0)（不执行、不剥离——与既有各层同策略）。
+
+def _normalize_drift_name(name: str) -> str:
+    """别名 → 注册表中文名（同义词/cap_id 归一）；未注册 → ""。"""
+    if not name:
+        return ""
+    for c in (name, _TOOL_SYNONYMS.get(name, name), TOOL_NAME_BY_ID.get(name, name)):
+        if c in TOOL_REGISTRY:
+            return c
+    return ""
+
+
+def _resolve_glm_drift_name(raw: str):
+    """漂移形态名字归一 → (注册表中文名, 剥离偏移)；未命中 → ("", 0)。
+
+    - 【工具名】包裹 → 偏移 0（整段都是名字）；
+    - 裸名精确命中注册表（含 cap_id/同义词）→ 偏移 0；
+    - 散文前缀粘连（"稍等一下。web_search"）→ 名字结尾处后缀最长匹配，
+      且**别名前一个字符必须是句末符**（。！？!?；;…）——"先看排盘"的"看"、
+      "就用一下搜索"的"下"不是句末符 → 不认（审查 I1 反例 a/b 的直接判据）；
+      偏移 = 别名起点（剥离只切名字+载荷，散文前缀留给用户可见文本）；
+    - 其余 → ("", 0)：不执行、不剥离（与既有各层同策略）。
     """
     cand = (raw or "").strip()
     if not cand:
-        return "", False, 0
-    m = _GLM_WRAP_OPEN_RE.match(cand)
+        return "", 0
+    m = _GLM_DRIFT_OPEN_RE.match(cand)
     if m:  # 【工具名】
-        inner = m.group(1).strip()
-        for c in (inner, _TOOL_SYNONYMS.get(inner, inner),
-                  TOOL_NAME_BY_ID.get(inner, inner)):
-            if c in TOOL_REGISTRY:
-                return c, True, 0
-        return "", False, 0
-    # 裸名：直接命中 → 干净
-    for c in (cand, _TOOL_SYNONYMS.get(cand, cand), TOOL_NAME_BY_ID.get(cand, cand)):
-        if c in TOOL_REGISTRY:
-            return c, True, 0
-    # 散文前缀粘连：工具名一定在结尾处 → 后缀最长匹配
-    aliases = sorted(
-        list(TOOL_REGISTRY) + list(TOOL_NAME_BY_ID) + list(_TOOL_SYNONYMS),
-        key=len, reverse=True)
-    for a in aliases:
-        if a and cand.endswith(a):
-            norm = _TOOL_SYNONYMS.get(a, a)
-            norm = TOOL_NAME_BY_ID.get(norm, norm)
-            if norm in TOOL_REGISTRY:
-                return norm, False, (len(cand) - len(a)) + (len(raw) - len(raw.lstrip()))
-    return "", False, 0
+        return _normalize_drift_name(m.group(1).strip()), 0
+    norm = _normalize_drift_name(cand)
+    if norm:
+        return norm, 0
+    for a in _drift_aliases():
+        if not a or not cand.endswith(a):
+            continue
+        # 别名前一个字符必须是句末符（防"先看排盘"这类叙述被当成工具名）
+        prev = cand[len(cand) - len(a) - 1] if len(cand) > len(a) else ""
+        if prev not in _GLM_DRIFT_BOUNDARY:
+            continue
+        norm = _normalize_drift_name(a)
+        if norm:
+            return norm, (len(cand) - len(a)) + (len(raw) - len(raw.lstrip()))
+    return "", 0
+
+
+def _glm_drift_block_start_ok(text: str, start: int) -> bool:
+    """块起点判定：块前（跳过行内空白）只允许串首 / 换行 / 句末符。
+
+    防「叙述里的工具名」被误判：`我的建议：先看排盘\\n{…}` 的块前字符是
+    "看"（非句末符）→ 不认；`稍等一下。web_search\\n{…}` 的块前是 "。" → 认。
+    """
+    head = text[:start].rstrip(" \t")
+    if not head:
+        return True
+    return head[-1] in ("\n",) or head[-1] in _GLM_DRIFT_BOUNDARY
 
 
 def _glm_wrapped_spans(text: str):
-    """扫出漂移形态工具调用块 → [(start, end, name, payload), ...]（解析/剥离同源）。
+    """扫出漂移形态工具调用块 → [(start, end, name, params_obj), ...]（解析/剥离同源）。
 
     start 已按名字偏移校正：散文前缀（"稍等一下。"）不随块一起剥掉，
-    只切工具名与载荷（防吞用户可见正文）。
+    只切工具名与载荷（防吞用户可见正文）。三道形态共用同一判定：
+    注册工具名 + 块起点 + 可解析 JSON 对象载荷。
     """
     out = []
     if not text:
         return out
-    for m in _GLM_WRAP_CALL_RE.finditer(text):
-        name, clean, off = _resolve_glm_wrapped_name(m.group("name"))
-        if not name:
-            continue  # 未知工具：不执行（剥离层同样跳过，纯文本零改动）
-        payload = m.group("payload")
-        # 防误伤：散文前缀粘连名（clean=False）只认 JSON 对象载荷——
-        # 裸引号串太容易撞正文（"……搜索\n"关键词"" 这类）。
-        if not clean and not payload.startswith("{"):
+    for rx in (_GLM_DRIFT_BRACKET_RE, _GLM_DRIFT_FENCE_RE, _GLM_DRIFT_GLUED_RE):
+        for m in rx.finditer(text):
+            name, off = _resolve_glm_drift_name(m.group("name"))
+            if not name:
+                continue  # 未知工具：不执行（剥离层同样跳过，纯文本零改动）
+            if not _glm_drift_block_start_ok(text, m.start("name") + off):
+                continue  # 名字前不是行首/句末 → 叙述文本，不认（审查 I1）
+            try:
+                payload = json.loads(m.group("payload"))
+            except json.JSONDecodeError:
+                continue  # 载荷不可解析（截断/残块）→ 不认（参数可解析性）
+            if not isinstance(payload, dict):
+                continue
+            out.append((m.start("name") + off, m.end(), name, payload))
+    # 三道形态可能在同一位置重复命中（如 【名】+围栏 同时满足 A/B）→ 去重取最长
+    kept = []
+    for span in sorted(out, key=lambda x: (x[0], -x[1])):
+        if any(span[0] < k[1] and k[0] < span[1] for k in kept):
             continue
-        out.append((m.start("name") + off, m.end(), name, payload))
-    return out
-
-
-# 形态 6：散文参数（探针实录最常形态）——工具名独占一行 + 下一行自然语言参数：
-#   择日
-#   搬家,2026年9月15日
-# 严格边界（防正文误判，宁可漏判不可误判）：
-#   - 名字独占一行（行首，无散文前缀粘连），必须是注册工具（/【】包裹）；
-#   - 该行必须是块起点（文本开头或前面是空行）——正文段落里"最后一行恰好是
-#     工具名"不触发；
-#   - 参数行紧跟其后（无空行）、单行、≤60 字、不含句子结束符（。！？；;）——
-#     散文句必带标点，参数行是逗号分隔的短语。
-_GLM_PROSE_CALL_RE = re.compile(
-    r'(?:^|\n[ \t]*\n)[ \t]*'
-    r'(?P<name>【[^\s【】]{1,32}】|[^\s<>{}\[\]:：,，、]{1,32})'
-    r'[ \t]*[:：]?[ \t]*\n'
-    r'(?P<params>[^\n]{1,60}?)'
-    r'(?=\n|$)')
-_GLM_PROSE_BAD_PUNCT = "。！？!?；;"
-
-
-def _glm_prose_param_spans(text: str):
-    """散文参数形态 → [(start, end, name, params), ...]（解析/剥离同源）。"""
-    out = []
-    if not text:
-        return out
-    for m in _GLM_PROSE_CALL_RE.finditer(text):
-        name, clean, off = _resolve_glm_wrapped_name(m.group("name"))
-        if not name or not clean:
-            continue  # 未注册工具 / 粘连名 → 不触发（保守）
-        params = m.group("params").strip()
-        if not params:
-            continue
-        if any(ch in params for ch in _GLM_PROSE_BAD_PUNCT):
-            continue  # 带句末标点 = 散文句，不是参数
-        if params[0] in '{"[':
-            continue  # JSON/引号载荷残块（截断）→ 不当散文参数执行（防误调）
-        out.append((m.start("name") + off, m.end(), name, params))
-    return out
+        kept.append(span)
+    return kept
 
 
 def parse_glm_wrapped_format(text: str) -> List[ToolCall]:
     """GLM 漂移格式适配（k33/A3，末道兜底）：见上方形态说明。
 
-    与既有 GLM 裸格式同策略：名字经 _TOOL_SYNONYMS / TOOL_NAME_BY_ID 归一后
-    必须命中注册表（未知工具不执行）；JSON 解析失败 → params_obj={}（执行层
-    按参数不全自然追问）；params 不合法类型（非 dict）→ {}。
-    散文参数形态（形态 6）→ 参数原文进 {"text": …}（执行器全部吃自然语言文本）。
+    只有「明确漂移标记 + 注册工具名 + 块起点 + 可解析 JSON 对象载荷」四条
+    同时成立才产出 ToolCall（宁可漏判不可误判——旧版误判会真实执行工具）。
     """
-    calls = []
-    for _s, _e, name, payload in _glm_wrapped_spans(text):
-        try:
-            params = json.loads(payload)
-        except json.JSONDecodeError:
-            params = {}
-        if isinstance(params, str):
-            params = {"text": params}      # 裸引号串载荷
-        elif not isinstance(params, dict):
-            params = {}
-        calls.append(ToolCall(name=name, params_obj=params))
-    if calls:
-        return calls
-    # 形态 6：仅在前述（JSON 载荷）形态零命中时才试散文参数形态
-    return [ToolCall(name=name, params_obj={"text": params})
-            for _s, _e, name, params in _glm_prose_param_spans(text)]
+    return [ToolCall(name=name, params_obj=params)
+            for _s, _e, name, params in _glm_wrapped_spans(text)]
 
 
 def strip_glm_wrapped_format(text: str) -> str:
     """剥离漂移形态工具调用块（与 parse 同一 span 计算；未命中名 → 原文保留）。"""
     spans = _glm_wrapped_spans(text)
     if not spans:
-        # 与解析层同源：JSON 载荷形态零命中时按散文参数形态剥（载荷不漏）
-        spans = _glm_prose_param_spans(text)
-    if not spans:
         return text
     parts, last = [], 0
-    for start, end, _name, _payload in sorted(spans):
+    for start, end, _name, _params in spans:
         if start < last:
             continue
         parts.append(text[last:start])
@@ -418,7 +430,8 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
     - 文本标签（兼容期保留）：<tool_call>搜索: 关键词</tool_call> / TOOL: 关键词
     - GLM 裸格式（Task A1）：`工具名\n{JSON 参数}`（glm-4-flash 降级链）
     - GLM 漂移格式（k33/A3，**新增末道**）：【工具名】包裹 / ```json 围栏 /
-      散文前缀同行粘连 / 裸引号参数（既有各层零命中时才跑）
+      句末符后散文粘连名（均要求 JSON 对象载荷，既有各层零命中时才跑；
+      k33 审查 I1 收紧：裸引号串/散文参数行/叙述中的工具名一律不认）
     - 都没有 → 返回空列表，调用方静默降级
     """
     if not text:
@@ -438,7 +451,7 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
         # Task A1: GLM 裸格式兜底（降级链无 <tool_calls> 包裹，最后一道）
         calls = parse_glm_bare_format(text)
     if not calls:
-        # k33/A3: GLM 格式漂移兜底（【】包裹 / 围栏 / 散文粘连 / 裸引号）
+        # k33/A3: GLM 格式漂移兜底（【】包裹 / 围栏 / 句末符后粘连名 + JSON 载荷）
         calls = parse_glm_wrapped_format(text)
     return calls
 

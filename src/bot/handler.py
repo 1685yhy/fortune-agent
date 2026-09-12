@@ -4736,8 +4736,9 @@ class MessageHandler:
             return "📷 请提供图片链接以便进行分析。"
 
         # k33/A23：SSRF 白名单（本服务自有域名 + /api/chat/uploads/ 路径，或显式
-        # 配置的自有 CDN）——非白名单 URL 一律不下载、不回显，直接引导重新上传。
-        # 收口点在 urlretrieve 之前（下载点另有两道同源判定，防未来新调用方绕过）。
+        # 配置的自有 CDN/预览主机）——非白名单 URL 一律不下载、不回显，直接引导
+        # 重新上传。收口点在下载之前（下载点另有两道同源判定 + safe_urlretrieve
+        # 重定向复检，防未来新调用方绕过）。
         from src.bot.image_url_guard import is_allowed_image_url, reject_reason
         if not is_allowed_image_url(image_url):
             logger.warning("图片 URL 不在白名单（拒绝下载）: %s", reject_reason(image_url))
@@ -4771,13 +4772,14 @@ class MessageHandler:
         规则文案），附精简提示。
         """
         try:
-            import urllib.request, tempfile, os
-            # k33/A23：下载点白名单判定（与 _handle_image 同源，防新调用方绕过）
-            from src.bot.image_url_guard import is_allowed_image_url
+            import tempfile, os
+            # k33/A23：下载点白名单判定（与 _handle_image 同源，防新调用方绕过）；
+            # 下载走 safe_urlretrieve（重定向目标复检，k33 审查 I2）
+            from src.bot.image_url_guard import is_allowed_image_url, safe_urlretrieve
             if not is_allowed_image_url(image_url):
                 return None
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-                urllib.request.urlretrieve(image_url, tmp.name)
+                safe_urlretrieve(image_url, tmp.name)
                 tmp_path = tmp.name
             from src.engines.palm_reader import PalmReader, generate_palm_report
             reader = PalmReader()
@@ -4805,14 +4807,15 @@ class MessageHandler:
         报告（api_key 置空 → generate_report 走本地测量/优势关注文案），附精简提示。
         """
         try:
-            import urllib.request, tempfile, os
-            # k33/A23：下载点白名单判定（与 _handle_image 同源，防新调用方绕过）
-            from src.bot.image_url_guard import is_allowed_image_url
+            import tempfile, os
+            # k33/A23：下载点白名单判定（与 _handle_image 同源，防新调用方绕过）；
+            # 下载走 safe_urlretrieve（重定向目标复检，k33 审查 I2）
+            from src.bot.image_url_guard import is_allowed_image_url, safe_urlretrieve
             if not is_allowed_image_url(image_url):
                 return None
             # Download image to temp file
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-                urllib.request.urlretrieve(image_url, tmp.name)
+                safe_urlretrieve(image_url, tmp.name)
                 tmp_path = tmp.name
 
             from src.engines.face_reader import FaceReader, generate_report

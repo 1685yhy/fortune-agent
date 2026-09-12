@@ -558,10 +558,13 @@ class TestImageDowngrade:
 
         monkeypatch.setattr(guard, "is_allowed_image_url", lambda url: True)
 
-        def fake_urlretrieve(url, path):
+        def fake_urlretrieve(url, path, **kw):
             with open(path, "wb") as f:
                 f.write(b"fake-image-bytes")
+            return path
 
+        # k33 审查 I2：下载走 guard.safe_urlretrieve（重定向复检）——两层都短路
+        monkeypatch.setattr(guard, "safe_urlretrieve", fake_urlretrieve)
         monkeypatch.setattr(urllib.request, "urlretrieve", fake_urlretrieve)
         yield
 

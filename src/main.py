@@ -2,6 +2,7 @@
 import asyncio
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -248,6 +249,7 @@ def _precompute_jian_for(date_str: str) -> dict:
 async def _chat_uploads_cleanup_worker():
     """k33/A23: 每小时清理过期的对话上传图片（孤儿文件 TTL，默认 72h）。
 
+    孤儿语义（审查 I3）：删除前反查会话/消息引用，有引用不删；
     扫描+删除走 asyncio.to_thread（目录可能很大，避免阻塞事件循环）；
     清理失败只记日志（绝不因清理异常影响服务）。
     """
@@ -256,6 +258,8 @@ async def _chat_uploads_cleanup_worker():
             stats = await asyncio.to_thread(cleanup_chat_uploads)
             if stats.get("removed"):
                 logger.info("对话上传图片清理: %s", stats)
+            elif stats.get("ref_index") == "unavailable":
+                logger.warning("对话上传图片清理：引用索引不可用，本次保守未删任何文件")
         except Exception as e:
             logger.warning("对话上传图片清理异常: %s", e)
         await asyncio.sleep(3600)
@@ -2306,11 +2310,25 @@ def _chat_uploads_dir() -> Path:
     return d
 
 
-# k33/A23：上传孤儿文件 TTL 清理（此前上传目录只增不减，磁盘无界增长）。
-# 说明：TTL 口径 = 文件 mtime 超过 `FORTUNE_UPLOAD_TTL_HOURS`（默认 72 小时，
-# 覆盖「历史消息里的图片还能渲染/重发」窗口）；更精确的「按消息引用计数清理」
-# 需跨 storage 反查会话消息（本批不动 storage），故采用 TTL 兜底。
+# k33/A23 + 审查 I3：上传**孤儿**文件清理（此前上传目录只增不减，磁盘无界增长）。
+# 口径（k33 审查 I3 修正）：TTL 只作用于**无引用**的孤儿文件——删除前必须校验
+# 「该文件名是否仍被会话/消息/记录引用」（sessions.content 等，见
+# `_referenced_upload_names`），**有引用一律不删**（4 天前的面相图仍被历史消息
+# 引用时不得删，否则小程序历史里图裂）；无引用的孤儿超过 TTL（默认 72h，
+# env `FORTUNE_UPLOAD_TTL_HOURS`）才清。引用索引不可用时**保守不删**（fail-safe）。
 _CHAT_UPLOAD_TTL_HOURS_DEFAULT = 72.0
+
+# 引用反查面（会话/消息/记录）：(表名, 候选列)。列不存在时自动跳过（老库兼容）；
+# 值可能是密文（sessions.content / session_summaries），扫描时统一解密后再匹配。
+_CHAT_UPLOAD_REF_SOURCES = (
+    ("sessions", ("content", "tool_calls")),
+    ("session_summaries", ("summary", "memories")),
+    ("favorites", ("summary",)),
+    ("share_entries", ("content",)),
+    ("consultations", ("question", "analysis", "chart_data")),
+)
+# 上传文件名出现在引用里的形态：本服务上传 URL 的路径部分
+_CHAT_UPLOAD_REF_RE = re.compile(r"/api/chat/uploads/([A-Za-z0-9._-]{1,128})")
 
 
 def _chat_upload_ttl_hours() -> float:
@@ -2320,6 +2338,78 @@ def _chat_upload_ttl_hours() -> float:
     except (TypeError, ValueError):
         return _CHAT_UPLOAD_TTL_HOURS_DEFAULT
     return hours if hours > 0 else _CHAT_UPLOAD_TTL_HOURS_DEFAULT
+
+
+def _referenced_upload_names(db_path=None) -> Optional[set]:
+    """反查持久化引用 → 被引用的上传文件名集合。
+
+    - 只读打开（`mode=ro`；失败回落 `PRAGMA query_only`）——**绝不写库**；
+    - 逐表逐列扫描 `_CHAT_UPLOAD_REF_SOURCES`（缺表/缺列自动跳过，兼容老库）；
+      值经 `_decrypt_or_plain` 解密后匹配上传 URL 路径；
+    - 返回 None = 引用索引不可用（库存在但读不了 / 有密文解不开）→ 调用方
+      **保守跳过删除**（fail-safe：宁可不清，不可误删被引用的图片）；
+    - 库文件不存在 → 空集合（不可能有引用）。
+    """
+    import sqlite3
+    try:
+        path = Path(db_path) if db_path is not None else Path(load_settings().db_path)
+    except Exception as e:  # 配置解析失败 → 保守
+        logger.warning("上传引用反查失败（配置读取）：%s", e)
+        return None
+    if not Path(path).exists():
+        return set()
+    conn = None
+    try:
+        from sqlite3 import Error as _SqliteError
+        try:
+            # file URI 只读打开（路径含特殊字符也不歧义）
+            conn = sqlite3.connect(
+                Path(path).resolve().as_uri() + "?mode=ro", uri=True, timeout=5)
+        except _SqliteError:
+            conn = sqlite3.connect(str(path), timeout=5)
+            conn.execute("PRAGMA query_only=1")
+        from src.storage.session_dao import _decrypt_or_plain, _is_ciphertext
+        names = set()
+        for table, cols in _CHAT_UPLOAD_REF_SOURCES:
+            try:
+                existing = {r[1] for r in
+                            conn.execute(f"PRAGMA table_info({table})").fetchall()}
+            except _SqliteError:
+                continue
+            for col in cols:
+                if not existing or col not in existing:
+                    continue
+                try:
+                    cur = conn.execute(f"SELECT {col} FROM {table}")
+                    for (value,) in cur:
+                        if not isinstance(value, str) or not value:
+                            continue
+                        if _is_ciphertext(value):
+                            # 密文列（sessions.content 等）：解不开 = 索引不可信
+                            text = _decrypt_or_plain(value)
+                            if not isinstance(text, str) or _is_ciphertext(text):
+                                logger.warning(
+                                    "上传引用反查：%s.%s 有密文无法解密 → 保守跳过清理",
+                                    table, col)
+                                return None
+                        else:
+                            if "uploads" not in value:
+                                continue  # 明文列快速预筛
+                            text = value
+                        names.update(_CHAT_UPLOAD_REF_RE.findall(text))
+                except _SqliteError as e:
+                    logger.warning("上传引用反查跳过 %s.%s: %s", table, col, e)
+                    continue
+        return names
+    except Exception as e:
+        logger.warning("上传引用反查失败（保守跳过清理）：%s", e)
+        return None
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _resolve_llm_provider(settings) -> str:
@@ -2333,13 +2423,17 @@ def _resolve_llm_provider(settings) -> str:
 
 
 def cleanup_chat_uploads(ttl_seconds: float = None, now: float = None,
-                         dir_path=None) -> dict:
-    """删除上传目录中超过 TTL 的孤儿图片（返回 {"scanned", "removed", "ttl"}）。
+                         dir_path=None, referenced=None) -> dict:
+    """删除上传目录中「超过 TTL 且无引用」的孤儿图片（返回 {"scanned", "removed", "ttl"}）。
 
+    - **孤儿语义（k33 审查 I3）**：超 TTL 只是候选条件，删除前逐文件校验引用
+      （`referenced` 集合 = 仍被会话/消息/记录引用的文件名）——**有引用一律不删**；
+    - `referenced` 缺省由 `_referenced_upload_names()` 反查；反查不可用（None）
+      → 本次**不删任何文件**（fail-safe），stats 带 `"ref_index": "unavailable"`；
     - 只删文件（不递归、绝不动目录；符号链接按 unlink 语义只删链接本身、
       不碰链接目标）；
     - 删除失败（权限/占用）只记日志不抛（清理任务绝不阻塞服务）；
-    - ttl_seconds/now/dir_path 可注入（测试零时间等待）；缺省读 env 与当前时钟。
+    - ttl_seconds/now/dir_path/referenced 可注入（测试零时间等待/零 DB 依赖）。
     """
     import time as _time
     ttl = float(ttl_seconds if ttl_seconds is not None else _chat_upload_ttl_hours() * 3600.0)
@@ -2350,6 +2444,11 @@ def cleanup_chat_uploads(ttl_seconds: float = None, now: float = None,
         entries = list(base.iterdir())
     except FileNotFoundError:
         return {"scanned": 0, "removed": 0, "ttl": ttl}
+    if referenced is None:
+        referenced = _referenced_upload_names()
+        if referenced is None:
+            return {"scanned": 0, "removed": 0, "ttl": ttl,
+                    "ref_index": "unavailable"}
     for p in entries:
         try:
             if not p.is_file():
@@ -2357,6 +2456,8 @@ def cleanup_chat_uploads(ttl_seconds: float = None, now: float = None,
             scanned += 1
             if p.stat().st_mtime >= cutoff:
                 continue
+            if p.name in referenced:
+                continue  # 仍被会话/消息/记录引用 → 不删（审查 I3：历史图不得图裂）
             p.unlink()
             removed += 1
         except Exception as e:  # 单个文件失败不影响其余

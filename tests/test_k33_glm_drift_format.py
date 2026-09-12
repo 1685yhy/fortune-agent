@@ -84,16 +84,8 @@ class TestProbeObservedForms:
         calls = parse_tool_calls(text)
         assert [c.name for c in calls] == ["搜索"]
 
-    def test_bare_quoted_payload(self):
-        """「搜索\\n"关键词"」——载荷为裸引号串（无大括号）。"""
-        text = '搜索\n"2026年新能源汽车行业前景分析"'
-        calls = parse_tool_calls(text)
-        assert [c.name for c in calls] == ["搜索"]
-        assert calls[0].params_obj == {"text": "2026年新能源汽车行业前景分析"}
-        assert strip_tool_calls(text).strip() == ""
-
     def test_zeri_probe_raw_output_parses(self):
-        """探针实录原文（4/4 采样形态）→ 择日工具可解析（D3 失败链路）。"""
+        """探针实录原文 → 择日工具可解析（D3 失败链路）。"""
         text = '择日\n{"场景": "搬家", "时间范围": "2026年9月15日"}'
         calls = parse_tool_calls(text)
         assert [c.name for c in calls] == ["择日"]
@@ -103,41 +95,79 @@ class TestProbeObservedForms:
         assert [c.name for c in parse_tool_calls(
             '【zeri】\n{"scene": "开业"}')] == ["择日"]
 
-    # ── 形态 6：散文参数（探针实录最常形态，D3 zeri 失败直接形态）──────
-
-    def test_prose_param_form_zeri(self):
-        """「择日\\n搬家,2026年9月15日」——工具名独占一行 + 自然语言参数行。
-
-        探针实录（2026-09-12）对「2026年9月15日搬家 帮我选个日子」3/3 采样
-        为此形态（D3 已知失败根因：旧解析只认 {JSON} 载荷 → 工具不执行）。
-        """
-        text = "择日\n搬家,2026年9月15日"
+    def test_bracketed_name_with_fenced_json(self):
+        """【名】 + ```json 围栏 + JSON（标记叠加仍只算一条调用）。"""
+        text = '【搜索】\n```json\n{"关键词": "黄金价格"}\n```'
         calls = parse_tool_calls(text)
-        assert [c.name for c in calls] == ["择日"]
-        assert calls[0].params_obj == {"text": "搬家,2026年9月15日"}
-        # 载荷绝不落可见文本
+        assert [(c.name, c.params_obj) for c in calls] == \
+            [("搜索", {"关键词": "黄金价格"})]
         assert strip_tool_calls(text).strip() == ""
 
-    def test_prose_param_form_keeps_leading_prose(self):
-        """块前的模型开场白保留给用户（只切工具名 + 参数行）。"""
-        text = "好的，我先看看。\n\n择日\n开业,2026年8月20日"
-        assert [c.name for c in parse_tool_calls(text)] == ["择日"]
-        assert strip_tool_calls(text).strip() == "好的，我先看看。"
 
-    def test_prose_param_form_iso_date(self):
-        calls = parse_tool_calls("择日\n搬家, 2026-09-15\n")
-        assert [(c.name, c.params_obj) for c in calls] == \
-            [("择日", {"text": "搬家, 2026-09-15"})]
+class TestAuditCounterExamples:
+    """k33 审查 I1 反例集（**改回旧实现必失败**）。
+
+    旧漂移层在既有各层零命中时把普通叙述误判成工具调用并**真实执行工具**
+    （`handler.py:1711 parse_tool_calls(reply)` → `_execute_tool_call`），
+    且把可见正文整块吞掉。本集合锁住「叙述文本一律不触发、不剥字」。
+    """
 
     @pytest.mark.parametrize("text", [
-        # 参数行带句末标点 = 散文句，不触发
-        "好的，我给你说说。\n\n搜索\n就是你输入想查的东西。",
-        # 工具名不在块起点（正文段落最后一行恰是工具名）→ 不触发
-        "正文段落\n择日\n搬家,2026年9月15日",
-        # 名字与散文同行粘连（非独占一行）→ 不触发
-        "我说的择日\n搬家",
+        # ① 后缀匹配误判：叙述句里的工具名 + JSON（审查实跑：旧版 → ['排盘']）
+        '我的建议：先看排盘\n{"年": "丙子", "月": "腊月"}',
+        # ② 同族：真外呼 web_search（旧版 → ['搜索']）
+        '想查实时信息就用一下搜索\n{"q": "今天天气"}',
+        # ②b 同族变体：工具名前的字同样不是句末符
+        '我建议你直接用排盘\n{"性别": "男"}',
+        '先调用搜索\n{"q": "x"}',
+        '这个功能叫搜索\n{"q": "x"}',
     ])
-    def test_prose_param_form_no_false_positive(self, text):
+    def test_glued_name_in_prose_not_tool_call(self, text):
+        assert parse_tool_calls(text) == [], f"叙述文本不得解析成工具调用：{text!r}"
+        assert strip_tool_calls(text) == text.strip(), "可见正文不得被吞"
+
+    @pytest.mark.parametrize("text", [
+        # ③ 裸引号串载荷（旧版 → ['搜索']）——与「怎么用搜索」的解释文本不可区分
+        '搜索\n"2026年运势"',
+        '搜索\n"关键词"',
+        '排盘\n"1990年3月5日 午时"',
+    ])
+    def test_bare_quoted_payload_not_tool_call(self, text):
+        assert parse_tool_calls(text) == []
+        assert strip_tool_calls(text) == text.strip()
+
+    @pytest.mark.parametrize("text", [
+        # ④ 散文参数行（旧版 → ['搜索']/['排盘']）——与表单式正文不可区分
+        '搜索\n关键词: 黄金价格\n以上。',
+        '排盘\n姓名,1990年3月5日',
+        '排盘\n姓名,1990年3月5日\n性别,男',
+        '择日\n搬家,2026年9月15日',
+        '好的，我先看看。\n\n择日\n开业,2026年8月20日',
+    ])
+    def test_prose_param_line_not_tool_call(self, text):
+        """裸名 + 自然语言参数行与正文结构不可区分 → 整体取消该形态。
+
+        取舍（已请控制方裁定方向）：宁可漏判（模型该调工具时走澄清话术），
+        不可误判（叙述文本被真实执行 + 正文被吞）。
+        """
+        assert parse_tool_calls(text) == []
+        assert strip_tool_calls(text) == text.strip()
+
+    @pytest.mark.parametrize("text", [
+        # ⑤ 非 JSON 载荷 / 未注册名 / 解释工具格式的文本
+        '【提示】\n请描述你想问的问题',
+        '【搜索】\n你可以输入想查的内容',
+        '【搜索】\n"关键词"的格式就是这样',
+        '在下面输入【搜索】\n"关键词"',
+        '工具名写成【排盘】\n{"年": "丙子"}',
+    ])
+    def test_no_marker_no_parse(self, text):
+        assert parse_tool_calls(text) == []
+        assert strip_tool_calls(text) == text.strip()
+
+    def test_block_start_required_even_with_brackets(self):
+        """【】也在叙述句中（非行首/句末）→ 不认（块起点判据覆盖全部形态）。"""
+        text = '工具名写成【web_search】\n{"query": "x"} 这样就能触发'
         assert parse_tool_calls(text) == []
         assert strip_tool_calls(text) == text.strip()
 
