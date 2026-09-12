@@ -392,6 +392,108 @@ def test_calibrate_cli_dry_run_is_manually_runnable(tmp_path):
     assert "阈值" in (out / "report.md").read_text(encoding="utf-8")
 
 
+_BALANCE_ERR = '429 {"code":"1113","message":"余额不足或无可用资源包,请充值。"}'
+
+
+def _stub_strong_judge(monkeypatch, fail_ids=None, score=7.0):
+    """桩掉 `_call_strong`（零网络、零花费）。
+
+    - `fail_ids is None` → 全部失败（模拟余额不足）；
+    - `fail_ids` 集合 → 只让这些任务失败（按判卷 user 提示词里的【任务】id 匹配）；
+    - 其余 → 返回合法五维 JSON（指定分），供"判卷成功"路径断言。
+    """
+    note = json.dumps({d: {"score": score, "justification": "桩判卷"}
+                       for d in judge.DIMS}, ensure_ascii=False)
+
+    def stub(api_key, messages, model, **kw):
+        # 强模型绝不能走 judge._call_glm（其红线断言锁死 glm-4-flash）
+        assert model == judge_calibrate.STRONG_JUDGE_MODEL, model
+        if fail_ids is None:
+            raise RuntimeError(_BALANCE_ERR)
+        user_prompt = messages[-1]["content"]
+        if any(tid in user_prompt for tid in fail_ids):
+            raise RuntimeError(_BALANCE_ERR)
+        return note
+
+    monkeypatch.setattr(judge_calibrate, "_call_strong", stub)
+
+
+def test_calibrate_all_judge_errors_is_invalid_and_exits_nonzero(tmp_path,
+                                                                monkeypatch):
+    """k39 S1 修正：全错误 → 明确报「校准无效」+ 非零退出 + **无任何 delta 统计**。
+
+    改前缺陷：失败样本的 0 分兜底值被计入统计 → 假数字
+    （strong_mean 0.0 / delta_mean -6.682 / agree_rate 0.0）。
+    """
+    run_dir = _synthetic_run_dir(tmp_path)
+    out = tmp_path / "invalid"
+    _stub_strong_judge(monkeypatch)          # 全部样本判卷失败
+    rc = judge_calibrate.main(
+        ["--run", str(run_dir), "--out", str(out), "--api-key", "fake-key"])
+    assert rc == 4, "全部判卷失败必须非零退出（校准无效）"
+    meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
+    assert meta["invalid"] is True
+    assert meta["error_rate"] == 1.0
+    assert meta["stats"] is None, "校准无效时不得输出任何 delta 统计"
+    assert meta["invalid_reason"] and "校准无效" in meta["invalid_reason"]
+    assert len(meta["judge_errors"]) == len(meta["strong_attempted"]) >= 20
+    md = (out / "report.md").read_text(encoding="utf-8")
+    # 顶部显著提示：只在 error_rate == 0 时可用
+    assert md.splitlines()[2].startswith("> ⚠️") and "error_rate == 0" in md
+    assert "校准无效" in md
+    # 无 delta 数字（改前的假数字一个都不许出现）
+    assert "delta_mean" not in md and "strong_mean" not in md
+    assert "agree_rate_within_1" not in md
+    # 阈值跨越**表**（标题 + 表头）不得渲染（banner 的说明文字里含该词，故查标题）
+    assert "### 阈值跨越" not in md
+    assert "| 阈值 | free 达标" not in md
+    assert "-6.682" not in md
+
+
+def test_calibrate_partial_judge_errors_excluded_from_stats(tmp_path,
+                                                            monkeypatch):
+    """部分判卷失败 → 从分差统计/阈值跨越里剔除，error_rate 如实、退出码 3。"""
+    run_dir = _synthetic_run_dir(tmp_path)
+    out = tmp_path / "partial"
+    ids = [f"T{i:03d}" for i in range(1, 26)]
+    _stub_strong_judge(monkeypatch, fail_ids=set(ids[:5]))  # 前 5 条失败
+    rc = judge_calibrate.main(
+        ["--run", str(run_dir), "--out", str(out), "--api-key", "fake-key"])
+    assert rc == 3
+    meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
+    assert meta["invalid"] is False
+    n_att = len(meta["strong_attempted"])
+    n_err = len(meta["judge_errors"])
+    assert n_att >= 20 and n_err == 5
+    # error_rate 如实 = 失败/尝试（不是"0.0"这类假数字）
+    assert meta["error_rate"] == pytest.approx(n_err / n_att, abs=1e-4)
+    assert meta["stats"] is not None
+    # 统计样本数 = 尝试数 − 失败数（失败样本绝不进均值）
+    assert meta["stats"]["n"] == n_att - n_err
+    assert set(meta["stats"]["judge_errors"]) == set(meta["judge_errors"])
+    # 失败样本的 0 分兜底值绝不参与均值：strong_mean 必须 = 桩分 7.0（而非被拉低）
+    assert meta["stats"]["strong_mean"] == pytest.approx(7.0)
+    md = (out / "report.md").read_text(encoding="utf-8")
+    assert "error_rate" in md and "判卷失败" in md
+    # 失败样本在逐条表里显式标注，而不是显示 0 分
+    for tid in meta["judge_errors"]:
+        line = next(l for l in md.splitlines() if l.startswith(f"| {tid} |"))
+        assert "判卷失败" in line and "| 0.0 |" not in line
+
+
+def test_calibrate_clean_run_reports_zero_error_rate(tmp_path, monkeypatch):
+    """对照：全部判卷成功 → error_rate == 0、退出码 0、报告可用。"""
+    run_dir = _synthetic_run_dir(tmp_path)
+    out = tmp_path / "clean"
+    _stub_strong_judge(monkeypatch, fail_ids=set())  # 不注入任何失败
+    rc = judge_calibrate.main(
+        ["--run", str(run_dir), "--out", str(out), "--api-key", "fake-key"])
+    assert rc == 0
+    meta = json.loads((out / "meta.json").read_text(encoding="utf-8"))
+    assert meta["error_rate"] == 0.0 and meta["invalid"] is False
+    assert meta["stats"]["n"] == len(meta["strong_attempted"])
+
+
 def test_calibrate_cli_refuses_to_run_without_key(tmp_path):
     """非 dry-run 且无 key → 明确退出码 2（不静默、不误跑付费调用）。"""
     import os

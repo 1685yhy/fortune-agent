@@ -32,10 +32,17 @@ docs/superpowers/eval/2026-08-31-l3-calibration.md），缺**强模型 vs 免费
 输出（`--out`，默认 data/eval/results/judge-calibration-<时间戳>/）：
   - `calibration.json`：逐条 free/strong 五维分、总分、差、阈值跨越；
   - `meta.json`：样本来源、模型、口径、汇总统计（方差/一致率/等价性判定）；
-  - `report.md`：人读摘要。
+  - `report.md`：人读摘要（顶部显著标注：本报告只在 `error_rate == 0` 时可用）。
 
-退出码：0 = 跑完；2 = 前置失败（run 目录/样本数/key 缺失）；
-        3 = 判卷失败条数 > 0（judge_error，结果仍落盘）。
+**判卷失败的样本不进统计**（k39 S1 修正，2026-09-12）：强模型调用失败（如智谱
+`429 余额不足`）时 `judge.judge_task` 会返回**全维 0 + judge_error**，那个 0 是
+兜底值**不是分数**——若计入分差统计会产出 `strong_mean 0.0 / delta_mean -6.68`
+这类假数字。因此：失败样本从 `pairs`（分差/阈值跨越）中剔除，单独输出
+`error_rate`；**全部失败 → 判「校准无效」、不输出任何分差统计、非零退出（4）**。
+
+退出码：0 = 跑完且零判卷失败；2 = 前置失败（run 目录/样本数/key 缺失）；
+        3 = 部分样本判卷失败（error_rate > 0，统计只用有效样本）；
+        4 = **校准无效**（全部样本判卷失败 → 强模型不可用，不输出分差统计）。
 
 红线：data/eval/agent_tasks.jsonl 只读；key 只读环境变量/参数，零落盘；
 不调用生产模型（判卷模型由 `--judge-model` 显式指定，默认强模型），
@@ -230,7 +237,7 @@ def empirical_equivalence(lattice: dict, thresholds=GATE_THRESHOLDS) -> dict:
         reason = (base + f"——0.5 的阈值间距不是两个都在使用的档位：{lo} 只是"
                   f"勉强有落点，{hi} 几乎无落点。此时「P0 平均 ≥8」的判定"
                   f"实际由极少数样本+判卷噪声决定，与 ≥7.5 不是可分辨的两档。"
-                  f"（强模型对照未跑，此项为零成本经验判据）")
+                  f"（零成本经验判据，非强模型对照——对照状态见 basis）")
     else:
         verdict = "存在可分辨迹象"
         reason = (base + "——高分侧有实际落点，两阈值至少在取值空间上可分辨；"
@@ -244,6 +251,25 @@ def empirical_equivalence(lattice: dict, thresholds=GATE_THRESHOLDS) -> dict:
 # ================================================================
 # 强模型重判（唯一有网络/费用的路径）
 # ================================================================
+
+def _call_strong(api_key: str, messages: list, model: str,
+                 max_tokens: int, temperature: float, timeout: float) -> str:
+    """调**强判卷模型**（校准专用；不经过 `judge._call_glm`）。
+
+    为什么不复用 `judge._call_glm`：它的红线断言
+    （`assert model == GLM_DEFAULT_MODEL`）把判卷模型**锁死为免费
+    glm-4-flash**——E4 批次的红线（判卷层不得调生产模型）在判卷链路上必须
+    保留，但校准脚本的**全部目的**就是用另一个模型当尺子，走那条路必然
+    抛 `AssertionError: 判卷模型必须为免费 glm-4-flash（当前 glm-4-plus）`
+    （首版脚本即因此永远跑不出强模型对照）。故此处直接调底层
+    `src.llm.client.glm_openai_completion`（无模型守卫），**判卷 red line 在
+    judge.py 零改动**，强模型调用只存在于这个手动脚本里。
+    """
+    from src.llm.client import glm_openai_completion
+    return glm_openai_completion(api_key, messages, model=model,
+                                 max_tokens=max_tokens,
+                                 temperature=temperature, timeout=timeout)
+
 
 class _StrongJudge:
     """临时把 judge.call_judge_model 换成强模型（复用判卷 prompt/解析/兜底）。
@@ -265,7 +291,7 @@ class _StrongJudge:
         self._orig = judge.call_judge_model
 
         def _call(system_prompt, user_prompt, api_key):
-            return judge._call_glm(
+            return _call_strong(
                 api_key,
                 [{"role": "system", "content": system_prompt},
                  {"role": "user", "content": user_prompt}],
@@ -307,6 +333,16 @@ def build_report_md(meta: dict, rows: list, stats: dict, lattice: dict,
                     equiv: dict) -> str:
     L = []
     L.append("# k39 S1 · L3 判卷校准（强模型 vs 免费判卷）\n")
+    # k39 S1 修正：报告可用性前置声明（判卷失败的样本不进统计）
+    L.append("> ⚠️ **本报告只在 `error_rate == 0` 时可用。** 判卷失败的样本"
+             "（0 分是兜底值、不是分数）已从分差统计与阈值跨越表中剔除；"
+             f"本次 `error_rate = {meta.get('error_rate')}`"
+             f"（失败 {len(meta.get('judge_errors') or [])} / 尝试 "
+             f"{len(meta.get('strong_attempted') or [])} 条）——"
+             "`error_rate > 0` 时结论不完整，不得作为门禁校准依据。\n")
+    if meta.get("invalid"):
+        L.append("> 🛑 **本次运行校准无效**："
+                 f"{meta.get('invalid_reason')}\n")
     L.append(f"- 运行时间: {meta['run_at']}")
     L.append(f"- 输入 run: `{meta['run_dir']}`（只读）")
     L.append(f"- 判卷模型: 免费 `{meta['free_model']}` vs 强模型 "
@@ -315,16 +351,28 @@ def build_report_md(meta: dict, rows: list, stats: dict, lattice: dict,
     L.append(f"- 样本: {len(rows)} 条（来源口径：{meta['replies_source']}）")
     L.append(f"- 回复落盘口径: {meta['replies_note']}\n")
 
-    if not meta["dry_run"]:
-        L.append("## 分差统计（strong − free）\n")
+    if meta.get("invalid"):
+        L.append("## 分差统计\n\n🛑 **校准无效（error_rate = 1.0）：不输出任何 "
+                 "delta 统计。** 强模型全部判卷失败，失败样本的 0 分是兜底值——"
+                 "它**不是**分数，计入均值即假数字。请先解决 key/额度后再跑。\n")
+        L.append("失败样本与原因（节选）:\n")
+        L.append("| 任务 | 判卷失败原因 |")
+        L.append("|---|---|")
+        for r in [r for r in rows if r.get("strong_judge_error")][:10]:
+            L.append(f"| {r['id']} | {r.get('strong_judge_error_reason') or '—'} |")
+        L.append("")
+    elif not meta["dry_run"]:
+        L.append("## 分差统计（strong − free；只含判卷成功的样本）\n")
         L.append("| 指标 | 值 |")
         L.append("|---|---|")
         for k in ("n", "free_mean", "strong_mean", "delta_mean",
                   "delta_median", "delta_std", "delta_min", "delta_max",
-                  "agree_rate_within_1"):
+                  "agree_rate_within_1", "error_rate"):
             L.append(f"| {k} | {stats.get(k)} |")
         L.append("")
-        L.append("### 阈值跨越（7.5 / 8.0）\n")
+        if not stats.get("n"):
+            L.append("（无判卷成功的样本 → 无分差可报）\n")
+        L.append("### 阈值跨越（7.5 / 8.0；只含判卷成功的样本）\n")
         L.append("| 阈值 | free 达标 | strong 达标 | 翻转 | 样本 |")
         L.append("|---|---|---|---|---|")
         for t, c in (stats.get("crossings") or {}).items():
@@ -356,8 +404,11 @@ def build_report_md(meta: dict, rows: list, stats: dict, lattice: dict,
     L.append("| 任务 | 域 | 严重度 | free | strong | 差 | 回复来源 |")
     L.append("|---|---|---|---|---|---|---|")
     for r in rows:
+        strong = ("**判卷失败**（不进统计）" if r.get("strong_judge_error")
+                  else (r.get("strong_overall")
+                        if r.get("strong_overall") is not None else "—"))
         L.append(f"| {r['id']} | {r['category']} | {r['severity']} | "
-                 f"{r['free_overall']} | {r.get('strong_overall', '—')} | "
+                 f"{r['free_overall']} | {strong} | "
                  f"{r.get('delta', '—')} | {r['replies_source']} |")
     L.append("")
     return "\n".join(L)
@@ -439,6 +490,7 @@ def main(argv=None) -> int:
                or os.environ.get("CALIB_JUDGE_API_KEY", "")
                or os.environ.get("ZHIPU_API_KEY", "")).strip()
     blocked_reason = ""
+    invalid_reason = ""
     if not args.dry_run:
         if not api_key:
             print("FATAL: 强模型判卷需要 key —— 请传 --api-key，或设置环境变量 "
@@ -453,37 +505,66 @@ def main(argv=None) -> int:
                       file=sys.stderr)
                 r["strong_overall"] = None
                 continue
+            r["strong_attempted"] = True
             j = rejudge(task, r["replies"], api_key, args.judge_model)
-            r["strong_overall"] = j["overall"]
+            _err = bool(j.get("judge_error"))
+            r["strong_judge_error"] = _err
+            r["strong_judge_error_reason"] = (j.get("judge_error_reason") or "")[:200]
+            # 失败时 judge_task 返回的 overall 是 0 分兜底值（不是分数）——
+            # 留档在 _raw 仅供排查，绝不进分差统计
+            r["strong_overall_raw"] = j["overall"]
             r["strong_dims"] = {d: (j.get("dims") or {}).get(d, {}).get("score")
                                 for d in judge.DIMS}
-            r["strong_judge_error"] = bool(j.get("judge_error"))
-            r["delta"] = (None if (r["free_overall"] is None
-                                   or j["overall"] is None)
-                          else round(j["overall"] - r["free_overall"], 4))
-            print(f"[{'DRY' if args.dry_run else 'REJUDGED'}] {r['id']} "
+            if _err:
+                r["strong_overall"] = None
+                r["delta"] = None
+            else:
+                r["strong_overall"] = j["overall"]
+                r["delta"] = (None if r["free_overall"] is None
+                              else round(j["overall"] - r["free_overall"], 4))
+            print(f"[{'JUDGE_ERR' if _err else 'REJUDGED'}] {r['id']} "
                   f"{r['category']}/{r['severity']} free={r['free_overall']} "
-                  f"strong={j['overall']} Δ={r['delta']}", flush=True)
+                  f"strong={r['strong_overall']} Δ={r['delta']}"
+                  + (f" 原因={r['strong_judge_error_reason']}" if _err else ""),
+                  flush=True)
     else:
         blocked_reason = ("--dry-run：未调用强模型（需 key 且可能产生费用）；"
                           "分差/方差统计缺失，只输出结构分析")
 
+    # k39 S1 修正：判卷失败的样本不进分差统计；单独公示 error_rate
+    attempted = [r for r in rows if r.get("strong_attempted")]
+    errored = [r for r in attempted if r.get("strong_judge_error")]
+    error_rate = (round(len(errored) / len(attempted), 4) if attempted else None)
+    invalid = bool(attempted) and len(errored) == len(attempted)
+    if invalid:
+        invalid_reason = (
+            f"校准无效：强模型 `{args.judge_model}` 判卷**全部 {len(attempted)} 条失败**"
+            f"（error_rate=1.0）→ 模型不可用 / 余额不足 / key 无权。"
+            f"首条原因：{errored[0].get('strong_judge_error_reason') or '未知'}。"
+            f"**本次不产出任何分差统计**（失败样本的 0 分是兜底值，计入即假数字）")
+        blocked_reason = invalid_reason
+
+    # 分差统计：只吃有效样本（判卷失败的样本 strong_overall 已置 None → 天然剔除）
     pairs = [(r["free_overall"], r.get("strong_overall")) for r in rows
              if r.get("strong_overall") is not None]
     stats = delta_stats(pairs) if pairs else {"n": 0}
     if pairs:
         stats["_abs_deltas"] = [abs(b - a) for a, b in pairs]
+    stats["error_rate"] = error_rate
+    stats["judge_errors"] = [r["id"] for r in errored]
     # 格点/分布分析用**整个 run** 的已判卷记录（零成本，样本更大更有说服力）
     full_scores = [(r.get("l3") or {}).get("overall") for r in records
                    if not (r.get("l3") or {}).get("skipped")
                    and not (r.get("l3") or {}).get("judge_error")]
     lattice = lattice_analysis(full_scores)
     lattice_sample = lattice_analysis([r["free_overall"] for r in rows])
-    # 有强模型对照 → 用它判等价性；没有（dry-run/未跑）→ 退到零成本经验判据
+    # 有强模型对照 → 用它判等价性；没有（dry-run/未跑/对照无效）→ 退到零成本经验判据
     equiv = (threshold_equivalence(stats) if pairs
              else empirical_equivalence(lattice))
     equiv["basis"] = ("强模型对照（strong − free 分差）" if pairs
-                      else "零成本经验判据（仅用既有免费判卷输出；强模型未跑）")
+                      else "零成本经验判据（仅用既有免费判卷输出；"
+                           + ("强模型对照**无效**（全部判卷失败）→ 已退化为经验判据"
+                              if invalid else "强模型未跑") + "）")
 
     out_dir = (Path(args.out) if args.out else
                RESULTS_ROOT / f"judge-calibration-"
@@ -498,6 +579,11 @@ def main(argv=None) -> int:
         "strong_model": args.judge_model,
         "dry_run": bool(args.dry_run),
         "blocked_reason": blocked_reason,
+        "error_rate": error_rate,
+        "invalid": invalid,
+        "invalid_reason": invalid_reason,
+        "strong_attempted": [r["id"] for r in attempted],
+        "judge_errors": [r["id"] for r in errored],
         "samples": [r["id"] for r in rows],
         "edge_samples": [r["id"] for r in rows if r["is_edge"]],
         "replies_source": sorted({r["replies_source"] for r in rows}),
@@ -505,7 +591,11 @@ def main(argv=None) -> int:
                         "attempts.replies_preview 2000 字），完整回复未落盘；"
                         "分差含截断效应——两模型吃同一份截断文本，"
                         "对照变量仍是「模型」",
-        "stats": {k: v for k, v in stats.items() if k != "_abs_deltas"},
+        # 校准无效（全部判卷失败）→ **不输出任何分差统计**（0 分是兜底值不是分数）
+        "stats": None if invalid else {k: v for k, v in stats.items()
+                                       if k != "_abs_deltas"},
+        "stats_note": ("校准无效 → 不输出分差统计" if invalid
+                       else "分差统计只含判卷成功的样本（error_rate 见上）"),
         "lattice": lattice,
         "lattice_sample": lattice_sample,
         "threshold_equivalence": equiv,
@@ -521,11 +611,18 @@ def main(argv=None) -> int:
         build_report_md(meta, rows, stats, lattice, equiv),
         encoding="utf-8")
     print(f"\n输出目录: {out_dir}")
+    print(f"error_rate: {error_rate}（判卷失败 {len(errored)}/{len(attempted)} 条）")
     print(f"阈值等价性: {equiv.get('verdict')} —— {equiv.get('reason')}")
     if args.dry_run:
         print(f"注意: {blocked_reason}")
-    errs = sum(1 for r in rows if r.get("strong_judge_error"))
-    return 3 if errs else 0
+    if invalid:
+        print(f"\nFATAL: {invalid_reason}", file=sys.stderr)
+        return 4                      # 校准无效：非零退出，且未输出分差统计
+    if errored:
+        print(f"注意: {len(errored)} 条判卷失败已从分差统计剔除"
+              f"（error_rate={error_rate}）——结论仅在 error_rate==0 时完整")
+        return 3
+    return 0
 
 
 def _git_head() -> str:
