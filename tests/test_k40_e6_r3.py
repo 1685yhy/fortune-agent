@@ -24,6 +24,16 @@ k40 返工（审查 Critical-1 + Important-1/2 + Minor-1/2）：
 - 「我是一个女孩」等带量词自述不再被误伤（Important-1）；
 - 混合句里用户明确给出的绝对年份不被相对词覆盖（Important-2）；
 - 名笺空态不再短路 how-to 问句；择日草稿宜忌行逐行去重（Minor-1/2）。
+
+k40 第四轮（对 89b388d 的复审回归收口）——同一变体矩阵合并三类用例：
+- 第三人措辞矩阵扩到 (a) 上轮 28 变体 + (b) 复审构造的裸量词/他女儿/量词与
+  年份分离/去「我」/称谓族 —— 判据仍是**主语感知规则**（领属语代词补 他/她、
+  量词短语主语归属、自述数据名词豁免），不新增称谓白名单；三维断言 =
+  persons.gender 零改写 / chart_records 零新增 / hehun 调用正确；
+- 领属语自述句（我的出生信息/生辰/八字/生日/资料/命盘）仍判本人 —— 档案为女
+  时仍纠正（Important）；登记边界「我是女的，我男朋友1990年生的」保持宁漏勿误；
+- 目标年 vs 出生年分离（Critical-2）：含出生年的流年句不得把出生年当目标年，
+  三类用例（含出生年/纯相对/纯绝对）双向锁。
 """
 import os
 import sys
@@ -276,12 +286,14 @@ def test_t041_oral_word_lists_are_single_source():
     assert "男孩" in _ORAL_MALE_WORDS and "小伙子" in _ORAL_MALE_WORDS
 
 
-# ── k40 返工（Critical-1）：P0 档案污染「同类一并修」变体矩阵 ──────────────
-# 改前只关了两种词形（「我和一个…女孩子」「我老婆…女孩子」），审查实测同类
-# 措辞（妹妹/姐姐/闺蜜/太太/嫂子/表妹/表姐/前女友/朋友的女儿/对象是/相亲
-# 对象是…）**全部**仍改写本人档案性别。判据改为主语感知（见 handler 模块级
-# 注释）后，用规则一次关严：第三人主体出现即不得取性别/触发重排。
+# ── k40 第四轮（复审回归收口）：第三人措辞合并矩阵 ───────────────────────
+# 三维断言（见下方 process 级用例）：`persons.gender` 零改写 /
+# `chart_records` 零新增 / `hehun 调用` 正确（该转的必须走合婚工具）。
+# 判据 = 主语感知规则（handler 模块级注释：领属语代词含他/她、量词短语主语
+# 归属、自述数据名词豁免），不是称谓词表——三族漏网（裸量词/他女儿/量词与
+# 年份分离）由规则一次关严，不新增白名单。
 _LEAK_VARIANTS = [
+    # (a) 上轮变体矩阵：领属语 + 称谓族（开放类，靠规则判、不靠枚举）
     ("T041原句", "我和一个1992年10月1日 上海出生的女孩子合不合"),
     ("T041去一个", "我和1992年10月1日 上海出生的女孩子合不合"),
     ("妹妹", "我妹妹1990年出生的女孩子，我们合不合"),
@@ -303,8 +315,54 @@ _LEAK_VARIANTS = [
     ("她引述", "我女朋友1990年生，她说她是女孩子，我们合不合"),
     ("声明式绕开", "我妹妹1990年出生的，性别女，我们合不合"),
     ("非合婚说法", "我闺蜜1990年出生的女孩子，我们般配吗"),
-    ("非合婚场景", "我朋友1990年5月20日出生的女生，帮我看看"),
     ("无年称谓", "我闺蜜是个女生，我们合不合"),
+    # (b1) 裸量词族（审查 Critical-1 第 1 族：无领属语，改前 89b388d 全丢
+    #      → 真写库；371c551 靠「量词+…+年」关住）
+    ("裸量词-这个年", "这个1990年出生的女孩子，我们合不合"),
+    ("裸量词-这个年月日", "这个1990年5月20日出生的女孩子，我们合不合"),
+    ("裸量词-那个", "那个1990年出生的女孩子，我们合不合"),
+    ("裸量词-那位", "那位1990年出生的女孩子，我们合不合"),
+    ("裸量词-一个", "一个1990年出生的女孩子，我们合不合"),
+    ("裸量词-姑娘", "这个1990年出生的姑娘，我们合不合"),
+    ("裸量词-女生", "那个1992年出生的女生，我们合不合"),
+    ("裸量词-丫头", "那位1990年出生的丫头，我们合不合"),
+    # (b2) 他女儿 / 他的女儿族（第三人代词领属；改前代词集只认 我/你/咱/俺/您）
+    ("他女儿是", "他女儿是1990年出生的女孩子，我们合不合"),
+    ("他的女儿", "他的女儿1990年出生的女孩子，我们合不合"),
+    ("他的女儿-出生", "他的女儿1990年5月20日出生，我们合不合"),
+    ("他女儿-无年", "他女儿是个女孩子，我们合不合"),
+    # (b3) 量词与年份分离（改前尾部锚定要求量词紧邻性别词）
+    ("量词年份分离", "我那位1990年出生的女孩子朋友，我们合不合"),
+    ("量词年份分离-我们", "我们那个女孩朋友1990年出生的女孩子，我们合不合"),
+    # (b4) 去「我」变体（hehun 被劫持：回复档案冲突确认、工具零调用）
+    ("去我-一个", "一个1992年10月1日 上海出生的女孩子合不合"),
+    ("去我-那个", "那个1992年10月1日 上海出生的女孩子，我们合不合"),
+    ("去我-跟一个", "跟一个1992年出生的女生合不合"),
+    # (b5) 称谓族同类（复审列举：婆娘/媳妇/爱人/干女儿/堂妹/前女友/对象的女儿）
+    ("婆娘", "我婆娘1990年出生的女孩子，我们合不合"),
+    ("媳妇", "我媳妇1990年出生的女孩子，我们合不合"),
+    ("爱人", "我爱人1990年出生的女孩子，我们合不合"),
+    ("干女儿", "我干女儿1990年出生的女孩子，我们合不合"),
+    ("对象家的女儿", "我对象家的女儿1990年出生的女孩子，我们合不合"),
+    # (c) 非合婚措辞/非合婚场景：同样不得改档案性别（工具面不适用）
+    ("非合婚场景", "我朋友1990年5月20日出生的女生，帮我看看"),
+    ("非合婚-她说", "我女朋友1990年生，她说她是女生"),
+]
+
+# ── Important（复审）：带领属语的**自述句**必须仍是本人 ────────────────────
+# 「我的出生信息是…男」等——领属语的中心语是自述数据名词（出生信息/生辰/
+# 八字/生日/资料/命盘，产品自有字段名词封闭集），是「关于我的信息」而不是
+# 「另一个人」→ 主语仍是本人（改前判第三人 → 性别纠正被静默丢弃）。
+_SELF_DESCRIPTION_VARIANTS = [
+    ("出生信息是", "我的出生信息是1990年5月20日 15:30 北京 男"),
+    ("出生信息逗号", "我的出生信息，1990年5月20日 15:30 北京 男"),
+    ("生辰是", "我的生辰是1990年5月20日 15:30 北京 男"),
+    ("生日是", "我的生日是1990年5月20日 15:30 北京 男"),
+    ("八字是", "我的八字是1990年5月20日 15:30 北京 男"),
+    ("资料", "我的资料：1990年5月20日 15:30 北京 男"),
+    ("命盘", "我的命盘 1990年5月20日 15:30 北京 男"),
+    ("排盘+出生信息", "帮我排盘，我的出生信息是1990年5月20日 15:30 北京 男"),
+    ("女版", "我的出生信息是1990年5月20日 15:30 北京 女"),
 ]
 
 
@@ -354,6 +412,74 @@ def test_t041_leak_variants_process_keeps_archive_and_hehun(name, msg):
     assert PersonDAO(db_path).get_default_person(uid)["gender"] == "男", name
     assert ChartDAO(db_path).get_latest_chart(uid) is None, name
     assert any(c[0] == "合婚" for c in calls), (name, [c[0] for c in calls])
+
+
+@pytest.mark.parametrize("name,msg", [
+    (n, m) for n, m in _LEAK_VARIANTS
+    if "合" not in m and "般配" not in m        # 非合婚措辞：工具面不适用
+])
+def test_t041_non_hehun_third_party_keeps_archive_gender(name, msg):
+    """非合婚措辞的第三人出生信息：**档案性别零改写**（本轮回归收口的核心）。
+
+    ① 三维里的 gender 维（P0）必须锁死；② chart 维不在本用例断言——非合婚
+    措辞的「他人盘也落库（归属本人名下）」是既有产品口径（k40 报告登记项 1，
+    需拍板才动），本批不越界；③ hehun 维不适用（用户没问合婚）。
+    """
+    db_path = _db_path()
+    uid = "u_nh_%d" % (abs(hash(name)) % 100000)
+    _seed_person(db_path, uid, gender="男")
+    h = _handler(db_path)
+    h.process(msg, uid, session_id="k40-nh-" + name)
+
+    assert PersonDAO(db_path).get_default_person(uid)["gender"] == "男", name
+
+
+# ── Important（复审）：带领属语的自述句仍是本人（性别纠正不得被静默丢弃）──
+
+@pytest.mark.parametrize("name,msg", _SELF_DESCRIPTION_VARIANTS)
+def test_t041_self_description_takes_own_gender(name, msg):
+    """Important（复审实测改前必失败）：「我的出生信息/生辰/八字/生日/资料/
+    命盘 + 1990年…男」被判第三人 → `gender=None`、守卫 True → 档案为女时
+    不再纠正（371c551 全部 男/False）。判据 = 领属语中心语是**自述数据名词**
+    （关于我的信息），不是另一个人。"""
+    h = object.__new__(MessageHandler)
+    expect = "女" if "女" in msg else "男"
+    assert (h._extract_partial_birth(msg) or {}).get("gender") == expect, name
+    assert h._gender_ref_is_third_party(None, msg) is False, name
+
+
+@pytest.mark.parametrize("msg", [
+    "我的八字是1990年5月20日 15:30 北京 男",
+    "我的资料：1990年5月20日 15:30 北京 男",
+    "我的命盘 1990年5月20日 15:30 北京 男",
+    "帮我排盘，我的出生信息是1990年5月20日 15:30 北京 男",
+])
+def test_t041_self_description_process_still_corrects(msg):
+    """Important 端到端（复审实测改前必失败）：档案 女 + 自述「…男」→
+    仍必须触发 G1 纠正（重排 + 档案双写男 + 「重新排盘」回执）。
+
+    与第三人矩阵互为反向锁：关第三人不得把自述一起关掉（371c551 全绿）。
+    """
+    db_path = _db_path()
+    uid = "u_sd_%d" % (abs(hash(msg)) % 100000)
+    _seed_person(db_path, uid, gender="女")
+    h = _handler(db_path)
+    reply = h.process(msg, uid, session_id="k40-sd-" + uid)
+
+    assert "重新排盘" in reply and "男" in reply
+    assert ChartDAO(db_path).get_latest_chart(uid) is not None
+    assert PersonDAO(db_path).get_default_person(uid)["gender"] == "男"
+
+
+def test_t041_registered_conservative_boundary_kept():
+    """登记边界（复审 Minor-3，本批不得回退）：同一消息既提对方出生信息又自述
+    性别（「我是女的，我男朋友1990年生的」）→ 性别一律不取（宁漏勿误，登记
+    保持）；单人自述（不涉第三人）仍取（Important-1）。"""
+    h = object.__new__(MessageHandler)
+    msg = "我是女的，我男朋友1990年生的"
+    assert (h._extract_partial_birth(msg) or {}).get("gender") is None, msg
+    assert h._gender_ref_is_third_party(None, msg) is True, msg
+    assert (h._extract_partial_birth("我是一个女孩") or {}).get("gender") == "女"
 
 
 # ── Important-1：带量词的自述性别不得被静默丢弃（G1 纠正回归）──────────────
@@ -477,6 +603,92 @@ def test_t018_card_renders_local_year_when_model_wrong():
         assert r.ok is True
         assert "2027年流年：" in r.text
         assert "2024年流年：" not in r.text
+    finally:
+        cap.__dict__["executor"] = orig_executor
+        if orig_ex is None:
+            reg._tool_executors.pop("fortune_cycle", None)
+        else:
+            reg._tool_executors["fortune_cycle"] = orig_ex
+
+
+# ── Critical-2（复审新引入）：目标年 vs 出生年必须分离 ─────────────────────
+# 改前（89b388d）取原话**最后一个**四位年 → 出生串里的 1990 被当目标年
+# （回复「1990年流年」，实跑 year=1990）；371c551 与基线都正确（相对词折算）。
+# 出生年只作输入，不得作目标年。
+
+@pytest.mark.parametrize("name,msg,model_year,offset", [
+    ("出生串+明年", "1990年5月20日 15:30 北京 男，帮我看看明年的流年运势",
+     "2024", 1),
+    ("我1990年出生+今年", "我1990年出生的，帮我看看今年的流年运势", "2024", 0),
+    ("出生串+明年+模型已对", "1990年5月20日 15:30 北京 男，帮我看看明年的流年运势",
+     "2027", 1),
+    ("我1990年生的+明年", "我1990年生的，帮我看看明年的流年运势", "2024", 1),
+    ("我1990年5月出生+明年", "我1990年5月出生的，帮我看看明年的流年运势", "2024", 1),
+    ("我1990年的+明年", "我1990年的，帮我看看明年的流年运势", "2024", 1),
+    ("出生于1990年+明年", "出生于1990年，帮我看看明年的流年运势", "2024", 1),
+    ("我的出生信息+明年",
+     "我的出生信息是1990年5月20日 15:30 北京 男，帮我看看明年的流年运势",
+     "2024", 1),
+])
+def test_t018_birth_year_never_becomes_target_year(name, msg, model_year,
+                                                   offset):
+    """含出生年的流年句（Critical-2 · 改前必失败）：出生语境年份被剔除，
+    目标年 = 相对词折算年（本产品最常见形态：粘出生串 + 问流年）。"""
+    from datetime import datetime as _dt
+
+    h = object.__new__(MessageHandler)
+    out = h._with_relative_cycle_year(
+        "流月流年", {"birth": "x", "year": model_year}, msg)
+    assert out["year"] == str(_dt.now().year + offset), name
+
+
+@pytest.mark.parametrize("name,msg,want", [
+    ("纯相对", T018_MSG, None),                       # → 运行年+1
+    ("纯绝对", "2028年的流年运势", "2030"),            # 无相对词 → 保持模型传值
+    ("混合句", "今年不太顺，帮我看看2028年的流年运势", "2028"),
+    ("多绝对年", "去年不顺，2026年结婚，帮我看看2028年的流年运势", "2028"),
+])
+def test_t018_year_classes_unchanged(name, msg, want):
+    """三类目标年口径不变（Critical-2 的反向锁）：纯相对 / 纯绝对 / 混合句
+    ——出生年剔除只作用于出生语境，不吞用户明确给出的目标年。"""
+    from datetime import datetime as _dt
+
+    if want is None:
+        want = str(_dt.now().year + 1)
+        model_year = "2024"
+    else:
+        model_year = "2030"
+    h = object.__new__(MessageHandler)
+    out = h._with_relative_cycle_year(
+        "流月流年", {"birth": "x", "year": model_year}, msg)
+    assert out["year"] == want, name
+
+
+def test_t018_card_ignores_birth_year_when_asking_liunian():
+    """卡片层端到端（Critical-2 · 改前必失败）：出生串 + 「明年的流年运势」
+    → 用户可见卡片为 2027 年流年，**不得**出现「1990年流年：」。"""
+    from src.bot.capability_registry import bind_executors, CAPABILITY_BY_NAME
+    from src.bot import capability_registry as reg
+    from src.engines.bazi import BaziEngine
+    from datetime import datetime as _dt
+
+    msg = "1990年5月20日 15:30 北京 男，帮我看看明年的流年运势"
+    h = object.__new__(MessageHandler)
+    h.engine = BaziEngine()
+    h.member_dao = None
+    cap = CAPABILITY_BY_NAME["流月流年"]
+    orig_executor = cap.executor
+    orig_ex = reg._tool_executors.get("fortune_cycle")
+    try:
+        bind_executors({"fortune_cycle": lambda p, user_id="", user_question="":
+                        h._tool_fortune_cycle(p, user_id)}, {})
+        params = h._with_relative_cycle_year(
+            "流月流年",
+            {"birth": "1990年5月20日 15:30 北京 男", "year": "2024"}, msg)
+        r = h._execute_tool_call("流月流年", params, "u1")
+        want_y = _dt.now().year + 1
+        assert ("%d年流年：" % want_y) in r.text
+        assert "1990年流年：" not in r.text
     finally:
         cap.__dict__["executor"] = orig_executor
         if orig_ex is None:
