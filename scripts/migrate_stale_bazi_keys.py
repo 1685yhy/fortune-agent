@@ -30,9 +30,12 @@ save_user_bazi——避免 consultation_count+1 副作用与写守卫复算；�
   性备注），零写入；k31 收口：备注读口径亦只读——persons 一律走
   `list_persons`，不触发 `get_default_person` 的建卡/提升默认自愈写
   （旧代码 dry-run 会因备注读静默建 person，属「dry-run 写库」契约违背）；
-- k35 收口（A7）：dry-run **字节级**零写入——主连接走 `mode=ro` 只读 URI、
-  DAO 走 `PersonDAO.readonly`（跳过 `init_db`），故 dry-run 后
-  `journal_mode`（非 WAL 库不切 WAL）、表结构、`-wal/-shm` 文件状态均不变
+- k35 收口（A7）：dry-run **db 文件零写入**——主连接走 `mode=ro` 只读 URI、
+  DAO 走 `PersonDAO.readonly`（跳过 `init_db`），故 dry-run 后 `journal_mode`
+  （非 WAL 库不切 WAL）、表结构、schema、users 列、db 文件字节（sha）均不变；
+  WAL 库的**有证边界**（复审 Important-3 实测）：SQLite 读 WAL 库需建 `-shm`
+  （32KB）+ 0 字节 `-wal`，这是 SQLite 固有行为，本项不宣称「不新建伴生文件」；
+  换成 `immutable=1` 可避免但会读到忽略 `-wal` 的陈旧快照（实测少行），不采用
   （旧代码经 `PersonDAO(...)` → `init_db` 在 dry-run 里真实建表/加列/切 WAL）；
 - --execute 必须显式 + 必须 --backup <路径>（执行前整库备份，目标已存在
   则拒绝——幂等保护）+ 必须 --audit <jsonl>（逐行变更审计）；
@@ -345,24 +348,36 @@ def cleanup_execute(conn, stale_rows) -> int:
 
 
 def connect_readonly(db_path: str) -> sqlite3.Connection:
-    """dry-run 专用只读连接（k35/A7 字节级零写入契约）。
+    """dry-run 专用只读连接（k35/A7 零写入契约）。
 
-    `mode=ro` URI 打开：SQLite 连**打开**都不具备写能力——不置
-    `journal_mode`（非 WAL 库不会被持久切成 WAL）、不建 `-wal/-shm`、
-    不触发建表/ALTER；与 `models.connect`（写能力 + PRAGMA journal_mode=WAL）
-    的区别正是本项要收的口子。busy_timeout 为连接级设置，无文件写入。
+    `mode=ro` URI 打开：SQLite 连**写**能力都没有——不置 `journal_mode`
+    （非 WAL 库不会被持久切成 WAL）、不触发建表/ALTER、**db 文件字节不变**；
+    与 `models.connect`（写能力 + PRAGMA journal_mode=WAL）的区别正是本项要
+    收的口子。busy_timeout 为连接级设置，无文件写入。
 
-    已知边界：WAL 库且其**目录不可写**时，SQLite 自身要求能建 `-shm`，只读
-    打开会失败（`attempt to write a readonly database`）——此时宁可报错也不
-    静默降级为可写连接（零写入契约优先；生产迁移库目录必可写）。
+    已知边界（k35-复审 Important-3，实测）：WAL 库即使干净关闭（无 `-wal/-shm`），
+    只读打开也会由 SQLite 自身就地建出 `-shm`（32KB）与 0 字节 `-wal`——这是
+    SQLite 读 WAL 库的固有要求，除非用 `immutable=1`（实测会忽略 `-wal` 里已提交
+    的数据 → 读到陈旧快照，迁移判定不可接受，故不采用）。因此本项的承诺口径是
+    「db 文件与 schema 字节不变」，不含「不新建 WAL 伴生文件」。
+    目录不可写时该建 `-shm` 的步骤失败 → `mode=ro` 打开失败
+    （`attempt to write a readonly database`）。
+
+    k35-复审 Important-2：打开失败**显式浮出**（不再被吞）。`sqlite3.connect` 是
+    惰性的，`mode=ro` 的真实失败发生在**首条语句**；故此处把 busy_timeout 与一条
+    真读（`SELECT ... FROM sqlite_master`）都放进 try：任一失败 → 关闭连接并重抛，
+    由 `main` 转成可读提示 + 非零退出，绝不静默降级为可写连接。
     """
     from urllib.parse import quote
     uri = "file:%s?mode=ro" % quote(os.path.abspath(db_path))
     conn = sqlite3.connect(uri, uri=True, timeout=10.0)
     try:
         conn.execute("PRAGMA busy_timeout=10000")
+        # 惰性打开探针：真读一次 sqlite_master（同时触发 WAL 库的 -shm 初始化）
+        conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
     except sqlite3.Error:
-        pass  # 只读文件系统等极端场景不致命（同 models.connect 口径）
+        conn.close()
+        raise
     return conn
 
 

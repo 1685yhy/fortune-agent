@@ -63,11 +63,16 @@ class TestDayunEndpointNoMisfire:
         "今年运势不错，33岁进入乙丑大运",
         "虚岁23岁到32岁。",          # k15 双单位收紧样例回归
         "丙寅运从23岁到虚岁32岁。",  # k15 双单位收紧样例回归
-        # k35-A4：pattern2 右侧前瞻与同族完成体 pattern 对齐补「时」
-        # （旧代码此句误拦：裸「岁」后接「时」不在排除面内）
+        # k35-A4/k35-fix：pattern2 右侧前瞻放行**显式时点语境**（`岁时` + 句读/
+        # 主语/已然副词 + 换运动词）（旧代码此句误拦：裸「岁」后接「时」不在
+        # 排除面内；k35 初版裸「时」全放行过宽，复审 Important-1 后收窄）
         "虚岁33岁时进入乙丑大运",
         "虚岁33岁时，你已换入乙丑大运。",
         "到虚岁33时，乙丑大运开始。",
+        "虚岁33岁时转入乙丑大运。",
+        "虚岁33岁时起运。",
+        "虚岁33岁时，我步入乙丑大运。",
+        "虚岁33岁时我开始走乙丑大运。",
     ])
     def test_dayun_boundary_phrases_pass(self, s, facts):
         assert not _fails(s, facts), s
@@ -100,13 +105,19 @@ class TestWindowNumbersAndBaseline:
 
 
 class TestA4ShiLookaheadDiscrimination:
-    """k35-A4 判别力：补「时」只放行「虚岁N岁时…」时点限定语境，
-    未放宽到真实当前年龄声明（前缀/完成体/裸岁句读三族仍拦）。"""
+    """k35-A4 + k35-fix 判别力：只放行**显式时点语境**（`岁时` 后必须是换运
+    时点动次），未放宽到真实当前年龄声明（前缀/完成体/裸岁句读三族仍拦），
+    也未放宽到「当前年龄帧 + 时 + 非时点谓语」（复审 Important-1 的过宽面）。"""
 
     @pytest.mark.parametrize("s", [
         # 带「时」的真实当前年龄声明：前缀型 pattern 仍命中（时不在其语境）
         "你今年虚岁33岁时运不济。",
         "命主今年33岁时来运转。",
+        # k35-fix（复审 Important-1）：裸「时」全放行曾把这些放出去 → 已收窄拦回
+        "虚岁33岁时运不济。",          # 「时运」非换运动词
+        "虚岁33岁时，我事业起飞。",      # 「事业起飞」非换运动词
+        "虚岁33岁时已经结婚。",         # 「结婚」非换运动词
+        "今年我虚岁33岁时运不济。",      # 当前年龄帧（今年我）+ 33 在窗外
         # 无「时」的真实事故句（补「时」不应波及）
         "命主虚岁33岁，正走乙丑大运",
         "今年我虚岁33岁，正走乙丑大运。",
@@ -116,6 +127,15 @@ class TestA4ShiLookaheadDiscrimination:
         "本人虚岁33。",
     ])
     def test_real_claims_still_blocked(self, s, facts):
+        assert _fails(s, facts), s
+
+    @pytest.mark.parametrize("s", [
+        # 白名单外的时点变体（无显式换运动词）：保守仍拦——与 base 判定一致，
+        # 不为「语义上像时点」再开口子（复审指出的放宽面回归防线）
+        "虚岁33岁时，正是乙丑大运的开端。",
+        "虚岁33岁时交乙丑运。",
+    ])
+    def test_unlisted_time_point_variants_stay_blocked(self, s, facts):
         assert _fails(s, facts), s
 
     def test_window_age_with_shi_passes(self, facts):

@@ -240,6 +240,11 @@ class PersonDAO:
     （`PRAGMA journal_mode=WAL` 持久切换 / 建缺表 / `_migrate_db` ALTER 加列），
     且查询走 `mode=ro` 只读连接——供迁移脚本 dry-run 等「承诺零写入」的
     只读场景使用（默认构造路径行为不变）。
+
+    只读连接的**有证边界**（k35-复审 Important-3，实测）：SQLite 读 WAL 库时
+    会自行建出 `-shm`（32KB）与 0 字节 `-wal`（`immutable=1` 可避免但会读到
+    忽略 `-wal` 的陈旧快照，不采用）；对库文件与 schema 本身仍是零写入。
+    打开失败（如 WAL 库 + 目录不可写）**显式抛出**，不吞、不降级为可写连接。
     """
 
     def __init__(self, db_path: str, readonly: bool = False):
@@ -260,8 +265,13 @@ class PersonDAO:
             conn = sqlite3.connect(uri, uri=True, timeout=10.0)
             try:
                 conn.execute("PRAGMA busy_timeout=10000")  # 连接级，无写入
+                # 惰性打开探针（复审 Important-2 同源修法）：mode=ro 的真实失败
+                # （WAL 库目录不可写等）在首条语句才抛；此处显式触发并重抛，
+                # 避免错误在后续查询处才以裸 traceback 冒出。
+                conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
             except sqlite3.Error:
-                pass
+                conn.close()
+                raise
             return conn
         return db_connect(self.db_path)
 

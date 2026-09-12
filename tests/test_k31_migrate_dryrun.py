@@ -16,9 +16,12 @@
 - `persons_note` 只读口径单测：默认**不调用** `get_default_person`。
 
 k35 追加（§5/§6）：
-- A7：dry-run **字节级**零写入（非 WAL 库上 `journal_mode` 不变、不建表/不加列、
+- A7：dry-run **db 文件零写入**（非 WAL 库上 `journal_mode` 不变、不建表/不加列、
   不产 `-wal/-shm`）——主连接 `mode=ro` + `PersonDAO.readonly`；含判别力对照
   （老路径 `PersonDAO(db)`→`init_db` 必改这些位 = 探针非恒真）；
+- k35-fix（复审 Important-2/3，§5b）：WAL 库上宣称**收窄为可证事实**（db 字节与
+  schema 不变；`-shm`/0 字节 `-wal` 由 SQLite 自身建出，不再宣称「不建」），
+  且只读打开失败**显式浮出**（可读提示 + 非零退出，不再是裸 traceback）；
 - A6：`--execute` 收尾语文案与事实一致（扫描期 persons 可能自愈建卡/提升默认）；
 - `--execute` 行为零变化由 §4 既有例 + 本批差分跑（见报告）双锁。
 
@@ -27,6 +30,7 @@ k35 追加（§5/§6）：
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import sys
 
@@ -402,6 +406,141 @@ def test_a7_dry_run_fails_safe_on_missing_persons_table(tmp_path, capsys):
     assert "无默认命主" in out
     assert "待清理 1 行" in out
     assert _fs_state(db) == before
+
+
+# ═══════ 5b. k35-fix（复审 Important-2 / Important-3）：WAL 边界 ═══════
+
+def _mk_clean_wal_db(path):
+    """WAL 库、**干净关闭**：文件头 (2,2) 且无 `-wal/-shm`（复审 Important-3 靶）。
+
+    注意 `models.init_db` 会**返回未关闭的连接**（其他用例的泄漏连接会让
+    `-wal/-shm` 常驻）——这里显式关闭两条连接，让最后一个连接干净关闭时
+    SQLite 自行 checkpoint 并删除伴生文件，回到「只有 db 文件」的冷 WAL 态。
+    """
+    c1 = init_db(path)                  # init_db 置 journal_mode=WAL
+    c2 = sqlite3.connect(path)
+    c2.execute("INSERT INTO users (user_id, bazi_info) VALUES (?,?)",
+               ("u_polluted", _encrypt_text(json.dumps(
+                   {"year": 1995, "month": 3, "day": 28, "hour": 9,
+                    "minute": 0, "city": "长春", "gender": "男",
+                    "calendar": "solar", "bazi": POLLUTED},
+                   ensure_ascii=False))))
+    c2.commit()
+    c2.close()
+    c1.close()                          # 最后一个连接干净关闭 → 删 -wal/-shm
+    return path
+
+
+def _raw_state(db):
+    """纯文件系统测量（**不开 sqlite 连接**）：只读打开自身会建 `-shm/-wal`，
+    故「起点/终点文件集」只能用 listdir + 裸字节读，否则测的是测量本身的副作用。"""
+    with open(db, "rb") as f:
+        blob = f.read()
+    n = os.path.basename(db)
+    return {"sha": hashlib.sha256(blob).hexdigest(),
+            "jhdr": bytes(blob[18:20]),
+            "files": sorted(x for x in os.listdir(os.path.dirname(db))
+                            if x in (n, n + "-wal", n + "-shm",
+                                     n + "-journal"))}
+
+
+def _schema_via_copy(db):
+    """在 db 的**副本**上量 schema/users 列（隔离只读连接的 -shm 副作用）。"""
+    cp = db + ".cp"
+    shutil.copyfile(db, cp)
+    try:
+        s = _fs_state(cp)
+        return s["schema"], s["users_cols"]
+    finally:
+        for suf in ("", "-wal", "-shm"):
+            if os.path.exists(cp + suf):
+                os.remove(cp + suf)
+
+
+def test_a7_dry_run_wal_db_bytes_unchanged_shm_boundary_documented(
+        tmp_path, capsys):
+    """A7 在 WAL 库上的**有证边界**（复审 Important-3 实测）：
+
+    - 守住：db 文件字节（sha，蕴含 schema/users 列）、文件头 journal 模式不变
+      （旧代码此处会 ALTER 加列 + 建表）；
+    - 边界：`mode=ro` 读 WAL 库时 **SQLite 自身**会建出 `-shm` 与 0 字节
+      `-wal`——docstring/报告据此把宣称收窄为「db 文件与 schema 字节不变」，
+      不再宣称「不建 `-wal/-shm`」。本测试把该边界钉住（防文案再变宽）。
+    """
+    db = _mk_clean_wal_db(str(tmp_path / "wal.db"))
+    before_raw = _raw_state(db)
+    assert before_raw["jhdr"] == b"\x02\x02", "起点应为 WAL 库"
+    assert before_raw["files"] == [os.path.basename(db)], "起点应无 -wal/-shm"
+    before_schema = _schema_via_copy(db)          # 量在副本上，不动本体
+
+    assert M.main(["--db", db]) == 0
+    out = capsys.readouterr().out
+    assert "[dry-run]" in out and "未写入" in out
+    assert "待清理 1 行" in out                    # 判定面照常工作
+
+    after_raw = _raw_state(db)                     # 先裸量文件集/字节
+    assert after_raw["sha"] == before_raw["sha"], "WAL 库 dry-run 改了 db 字节"
+    assert after_raw["jhdr"] == before_raw["jhdr"], "WAL 库 dry-run 改了文件头"
+    n = os.path.basename(db)
+    assert after_raw["files"] == [n, n + "-shm", n + "-wal"], \
+        after_raw["files"]
+    assert os.path.getsize(db + "-wal") == 0, "新建 -wal 应为 0 字节（非数据）"
+    assert _schema_via_copy(db) == before_schema, "schema/users 列被改"
+
+    # 幂等：再跑一次仍全等（含伴生文件集）
+    assert M.main(["--db", db]) == 0
+    capsys.readouterr()
+    assert _raw_state(db) == after_raw
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root 不受目录权限约束，无法构造只读打开失败")
+def test_a7_readonly_open_failure_surfaces_readable_error(tmp_path, capsys):
+    """复审 Important-2：`connect_readonly` 的打开失败必须**显式浮出**。
+
+    场景：cold WAL 库（无 `-wal/-shm`）+ 库目录不可写 → SQLite 建不出 `-shm`
+    → `mode=ro` 打开失败。旧代码 `except sqlite3.Error: pass` 把它吞掉，
+    错误在 `scan_stale` 才以**裸 traceback**（rc=1、无可读提示）冒出
+    （复审实测原文）；修复后应在 main 处转成可读提示 + 非零退出，且
+    **不降级为可写连接**（库字节不变、无 `-wal/-shm` 产出）。
+    """
+    d = tmp_path / "ro"
+    d.mkdir()
+    db = _mk_clean_wal_db(str(d / "wal.db"))
+    before = _raw_state(db)
+    assert before["files"] == [os.path.basename(db)]
+    os.chmod(d, 0o500)                             # 目录不可写
+    try:
+        rc = _run_main(["--db", db])
+    finally:
+        os.chmod(d, 0o700)
+    err = capsys.readouterr().err
+    assert rc != 0, "只读打开失败必须非零退出"
+    assert "无法只读打开" in err, err
+    assert "Traceback" not in err, "仍是裸 traceback：%s" % err
+    assert "attempt to write a readonly database" in err
+    assert _raw_state(db) == before, "失败路径产生了写入/伴生文件"
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0,
+                    reason="root 不受目录权限约束，无法构造只读打开失败")
+def test_a7_person_dao_readonly_raises_on_unopenable_wal(tmp_path):
+    """同源修法（`PersonDAO._connect`）：只读连接打开失败**显式抛出**，
+    不再被 `PRAGMA busy_timeout` 的 `except sqlite3.Error: pass` 吞掉后
+    在后续查询里裸冒。"""
+    d = tmp_path / "ro2"
+    d.mkdir()
+    db = _mk_clean_wal_db(str(d / "wal.db"))
+    os.chmod(d, 0o500)
+    try:
+        pdao = PersonDAO.readonly(db)
+        # 打开即失败（旧代码此处把失败吞掉、交出一个半开连接，错误推迟到查询期）
+        with pytest.raises(sqlite3.Error):
+            pdao._connect()
+        with pytest.raises(sqlite3.Error):
+            pdao.list_persons("u_polluted")
+    finally:
+        os.chmod(d, 0o700)
 
 
 # ═══════ 6. k35/A6：--execute 收尾语文案与事实一致 ═══════
