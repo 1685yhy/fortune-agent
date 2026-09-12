@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from src.config import is_experience_mode
+from src.security.admin import is_admin_user  # k37 S1：超管豁免判据（单一事实源）
 from src.security.auth import require_user
 from src.api.birth_contract import normalize_gender
 
@@ -145,7 +146,7 @@ def _require_paid(uid: str, tier: str = "ming_report"):
 
 
 def _check_quota(uid: str):
-    """免费生成日额度(3 次/日); 体验模式/已购/会员不限。"""
+    """免费生成日额度(3 次/日); 体验模式/已购/会员/超管(ADMIN_IDS)不限。"""
     if is_experience_mode():
         return
     if _member_dao is not None:
@@ -158,9 +159,17 @@ def _check_quota(uid: str):
                 return
         except Exception:
             pass
+    # k37 审查 M-1：白名单判据必须在下方 DB try **之外**求值（与 k36 在
+    # handler._check_quota 的落点同形）——若落在 try 内，将来 is_admin_user/
+    # admin_ids 变成会抛的实现时异常会被 `except Exception: pass` 吞掉 →
+    # 超限普通用户被放行（额度门 fail-open）。此处提前求值，异常即向上抛。
+    is_admin = is_admin_user(uid)
     try:
         remaining = _mdao().consume_quota(uid, _bj_day(), FREE_DAILY_LIMIT)
-        if remaining < 0:
+        # k37 S1：超管豁免（ADMIN_IDS 白名单，判据单一事实源 src/security/admin.py）。
+        # 与 k36 在 handler._check_quota 的口径一致：豁免只加在「额度门」这一处
+        # ——超过上限也不 429；上行 consume_quota 仍照常计数（不额外分支）。
+        if remaining < 0 and not is_admin:
             raise HTTPException(
                 status_code=429,
                 detail=f"今日免费生成次数已用完（{FREE_DAILY_LIMIT} 次/日），明日再来，或解锁深度报告不限次")
