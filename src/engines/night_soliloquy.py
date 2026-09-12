@@ -8,7 +8,6 @@
   宁缺毋滥,绝不编造记忆。
 """
 import logging
-import os
 
 import httpx
 
@@ -138,7 +137,12 @@ def build_soliloquy(user_id: str, date_str: str, session_dao, llm_fn=None,
     if not anchors:
         return {"date": date_str, "text": _fallback_soliloquy(date_str, tc),
                 "anchors": [], "fallback": True}
-    api_key = os.getenv("DEEPSEEK_API_KEY", "")
+    # k33/A11：key 走统一 LLM 层解析（此前直读 DEEPSEEK_API_KEY，与统一层
+    # 各写一套）。空 key 语义不变（无密钥 → 兜底灯语，不调 LLM）。
+    # allow_anthropic_fallback=False：迁移前只认 DEEPSEEK_API_KEY（多认
+    # ANTHROPIC_API_KEY 会在只有该变量的环境里凭空开启外呼 = 行为变化）。
+    from src.llm.client import resolve_llm_api_key
+    api_key = resolve_llm_api_key(allow_anthropic_fallback=False)
     if not api_key:
         return {"date": date_str, "text": _fallback_soliloquy(date_str, tc),
                 "anchors": anchors, "fallback": True}

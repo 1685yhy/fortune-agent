@@ -84,6 +84,8 @@ def compute_stream_remaining(reply: str, streamed_text: str) -> str:
       reply = 卡壳 + 正文 + 卡尾（排盘卡），正文已作为实时流完整流出——镜像
       k5，找 streamed 最长前缀在 reply 中的连续子串对齐位置，覆盖 ≥90% 全长
       → 只补壳头 + 壳尾，不再整段重发（正文绝不重发）。
+    - k33/A19：k5 尾部对齐的补发点落在空行边界（reply[best-1]==reply[best]=="\n"）
+      → 回退一位，补发块以整段空行开头，前端拼接吞首换行时段落分隔仍在。
     """
     if not reply:
         return ""
@@ -128,6 +130,14 @@ def compute_stream_remaining(reply: str, streamed_text: str) -> str:
         # 短正文尾部追加场景）。
         if best >= 20 or (best == covered and best > 0
                           and reply[best] in _SENT_END_CHARS):
+            # k33/A19（k5 Minor-1「refill 吞换行」）：命中点恰在空行边界
+            # （reply[best-1] == reply[best] == "\n"）时回退一位——补发块以完整
+            # 空行开头（"\n\n"）。原实现补发块以单个 "\n" 开头，前端逐块拼接
+            # 时吃掉首字符换行 → 段落分隔被并成一行（显示级缺陷）。回退一位
+            # 只多补一个换行符：正文一字不重、不丢。
+            if 0 < best < len(reply) and reply[best - 1] == "\n" \
+                    and reply[best] == "\n":
+                best -= 1
             return reply[best:]  # 正文主体已流出 → 只补尾部增量（不再整段重发）
         if best < 20 and len(streamed_text) >= 20:
             # k7c（2026-09-05，引用角标死区实证）：原条件 best == 0 漏掉

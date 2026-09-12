@@ -214,17 +214,20 @@ class TestCalendar:
 
 
 class TestJianQuote:
+    # k33/A11：调用点由 httpx 直连改为统一 LLM 层（src.llm.client），
+    # patch 目标同步改为模块级函数（顶层 httpx 属性已不存在）。
     def test_llm_verify_answer_stripped(self):
         from src.engines import jian_quote
+        import src.llm.client as llm_client
         quote = "天行健，君子以自强不息"
-        with mock.patch("src.engines.jian_quote.httpx.post",
-                        return_value=_httpx_mock("是🙏")) as m, \
+        with mock.patch.object(llm_client, "deepseek_anthropic_completion",
+                               return_value="是🙏") as m, \
              mock.patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}):
             assert jian_quote._llm_verify(quote, "周易", "甲子") == quote
             m.assert_called_once()
         # "否" 判定不受 emoji 影响
-        with mock.patch("src.engines.jian_quote.httpx.post",
-                        return_value=_httpx_mock("否❌")), \
+        with mock.patch.object(llm_client, "deepseek_anthropic_completion",
+                               return_value="否❌"), \
              mock.patch.dict("os.environ", {"DEEPSEEK_API_KEY": "test-key"}):
             assert jian_quote._llm_verify(quote, "周易", "甲子") == ""
 

@@ -547,7 +547,10 @@ _AGE_PATTERNS = (
     re.compile(r'(?:今年|现在|已经|都|满|虚岁)\s*(\d{1,3})(?:\s*岁)?'),
     re.compile(r'(\d{1,3})\s*岁'),
 )
-_AGE_UNIT_GUARD = set("点时：:分月日年个天周万")
+# k33/A16：单位守卫补 小/号/刻——"已经3小时了"/"现在10号了"/"3刻钟" 是时间
+# 不是年龄（原守卫只挡 点时：:分月日年个天周万，"3小时"会被误推成 3 岁 → 年份
+# 推算 cy-3，用户看到完全错误的出生年）。
+_AGE_UNIT_GUARD = set("点时：:分月日年个天周万小号刻")
 
 def _extract_age(msg: str) -> Optional[int]:
     """提取消息中的年龄（仅阿拉伯数字，如"50岁"；不支持"五十岁"中文数字）。
@@ -568,6 +571,16 @@ def _extract_age(msg: str) -> Optional[int]:
             if best is None or m.start() >= best[0]:
                 best = (m.start(), age)
     return best[1] if best else None
+
+# k33/A16：时辰回显的「以后/之后/过后」锚定——只在【时间表达紧邻之后】识别，
+# 防别的日期后缀污染时辰回显（"我5月13日以后出生，10点" 原实现全串 search →
+# 回显成"10点以后"，把用户没说的时间限定词硬塞回去）。
+# 时间表达 = 数字点/时/冒号形态（可带分或"刻"）或时辰字。
+_TIME_TOKEN_FOR_SUFFIX = (
+    r'\d{1,2}\s*[点时:：]\s*(?:\d{0,2}\s*分?|刻)?|[子丑寅卯辰巳午未申酉戌亥]时')
+_TIME_SUFFIX_ANCHOR_RE = re.compile(
+    rf'(?:{_TIME_TOKEN_FOR_SUFFIX})\s*(?:以后|之后|过后)')
+
 
 def _format_partial_echo(known: dict, msg: str) -> str:
     """F2：把已确认的部分出生信息拼成回显一句（信息不丢即可）。
@@ -599,7 +612,7 @@ def _format_partial_echo(known: dict, msg: str) -> str:
             t = f"{known['hour']}点"
             if known.get("minute"):
                 t += f"{known['minute']}分"
-            if re.search(r'以后|之后|过后', msg):
+            if _TIME_SUFFIX_ANCHOR_RE.search(msg):
                 t += "以后"
             parts.append(t)
     if known.get("city"):
@@ -4726,6 +4739,15 @@ class MessageHandler:
         if not image_url:
             return "📷 请提供图片链接以便进行分析。"
 
+        # k33/A23：SSRF 白名单（本服务自有域名 + /api/chat/uploads/ 路径，或显式
+        # 配置的自有 CDN/预览主机）——非白名单 URL 一律不下载、不回显，直接引导
+        # 重新上传。收口点在下载之前（下载点另有两道同源判定 + safe_urlretrieve
+        # 重定向复检，防未来新调用方绕过）。
+        from src.bot.image_url_guard import is_allowed_image_url, reject_reason
+        if not is_allowed_image_url(image_url):
+            logger.warning("图片 URL 不在白名单（拒绝下载）: %s", reject_reason(image_url))
+            return "📷 这张图片的地址已失效，请在聊天框重新上传一次图片。"
+
         # Try face reading first
         face_result = self._try_face_reading(image_url, user_text,
                                              downgraded=downgraded)
@@ -4754,9 +4776,14 @@ class MessageHandler:
         规则文案），附精简提示。
         """
         try:
-            import urllib.request, tempfile, os
+            import tempfile, os
+            # k33/A23：下载点白名单判定（与 _handle_image 同源，防新调用方绕过）；
+            # 下载走 safe_urlretrieve（重定向目标复检，k33 审查 I2）
+            from src.bot.image_url_guard import is_allowed_image_url, safe_urlretrieve
+            if not is_allowed_image_url(image_url):
+                return None
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-                urllib.request.urlretrieve(image_url, tmp.name)
+                safe_urlretrieve(image_url, tmp.name)
                 tmp_path = tmp.name
             from src.engines.palm_reader import PalmReader, generate_palm_report
             reader = PalmReader()
@@ -4784,10 +4811,15 @@ class MessageHandler:
         报告（api_key 置空 → generate_report 走本地测量/优势关注文案），附精简提示。
         """
         try:
-            import urllib.request, tempfile, os
+            import tempfile, os
+            # k33/A23：下载点白名单判定（与 _handle_image 同源，防新调用方绕过）；
+            # 下载走 safe_urlretrieve（重定向目标复检，k33 审查 I2）
+            from src.bot.image_url_guard import is_allowed_image_url, safe_urlretrieve
+            if not is_allowed_image_url(image_url):
+                return None
             # Download image to temp file
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp:
-                urllib.request.urlretrieve(image_url, tmp.name)
+                safe_urlretrieve(image_url, tmp.name)
                 tmp_path = tmp.name
 
             from src.engines.face_reader import FaceReader, generate_report
@@ -5748,9 +5780,13 @@ class MessageHandler:
         # ── year（优先级：阿拉伯 4 位 > 中文 4 位 > 中文 2 位 > 年龄推算）──
         year = None
         age_used = None
-        ym = re.search(r'(\d{4})\s*年', msg)
+        # k33/A16：「公历/阳历/公元」前缀式年份（"公历1976"无「年」字）与
+        # _extract_bazi_info:5516 同口径收口——此前 F2 只认 `\d{4}年`，
+        # "我公历1976生的"在渐进累积通道里年份永远缺失（分步补全死循环问年份）。
+        ym = re.search(
+            r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})', msg)
         if ym:
-            y = int(ym.group(1))
+            y = int(next(g for g in ym.groups() if g))
             if 1900 <= y <= 2100:
                 year = y
         if year is None:

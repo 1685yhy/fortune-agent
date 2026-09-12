@@ -894,6 +894,21 @@ def test_handle_voice_without_text_no_args():
 
 # ── Task 20: Image input support ──────────────────────────────────────
 
+def _allow_image_url(monkeypatch):
+    """k33/A23：放行 image_url 白名单并短路下载（零网络）。
+
+    本文件历史用例只验「关键词路由/通用引导」，不验 SSRF 白名单——
+    白名单本身的单测在 tests/test_k33_upload_ssrf.py（含内网/元数据拒绝矩阵）。
+    """
+    import src.bot.image_url_guard as guard
+    from src.bot import handler as handler_mod
+    monkeypatch.setattr(guard, "is_allowed_image_url", lambda url: True)
+    monkeypatch.setattr(handler_mod.MessageHandler, "_try_face_reading",
+                        lambda self, url, text, **k: None)
+    monkeypatch.setattr(handler_mod.MessageHandler, "_try_palm_reading",
+                        lambda self, url, text, **k: None)
+
+
 def test_handle_image_no_url_returns_hint():
     """图片无URL时返回提示"""
     handler = make_mock_handler()
@@ -901,8 +916,9 @@ def test_handle_image_no_url_returns_hint():
     assert "请提供图片链接" in result
 
 
-def test_handle_image_fengshui_keyword():
+def test_handle_image_fengshui_keyword(monkeypatch):
     """图片含户型/风水关键词 - 进入风水分支"""
+    _allow_image_url(monkeypatch)
     handler = make_mock_handler()
     result = handler._handle_image(
         image_url="http://example.com/house.jpg",
@@ -915,8 +931,9 @@ def test_handle_image_fengshui_keyword():
     assert "图片识别" in result
 
 
-def test_handle_image_fengshui_with_direction():
+def test_handle_image_fengshui_with_direction(monkeypatch):
     """图片含户型关键词且带坐向"""
+    _allow_image_url(monkeypatch)
     mock_fengshui = Mock()
     mock_result = Mock()
     mock_result.house_gua = "离宅"
@@ -940,8 +957,9 @@ def test_handle_image_fengshui_with_direction():
     assert "四凶方" in result
 
 
-def test_handle_image_mianxiang_keyword():
+def test_handle_image_mianxiang_keyword(monkeypatch):
     """图片含面相/手相关键词（手相/看相/手掌 命中白名单路由）"""
+    _allow_image_url(monkeypatch)
     handler = make_mock_handler()
     result = handler._handle_image(
         image_url="http://example.com/face.jpg",
@@ -952,8 +970,9 @@ def test_handle_image_mianxiang_keyword():
     assert "AI 视觉识别" in result
 
 
-def test_handle_image_mianxiang_keyword_handxiang():
+def test_handle_image_mianxiang_keyword_handxiang(monkeypatch):
     """图片含手相关键词"""
+    _allow_image_url(monkeypatch)
     handler = make_mock_handler()
     result = handler._handle_image(
         image_url="http://example.com/hand.jpg",
@@ -964,8 +983,9 @@ def test_handle_image_mianxiang_keyword_handxiang():
     assert "AI 视觉识别" in result
 
 
-def test_handle_image_generic():
+def test_handle_image_generic(monkeypatch):
     """图片无匹配关键词 - 返回通用引导"""
+    _allow_image_url(monkeypatch)
     handler = make_mock_handler()
     result = handler._handle_image(
         image_url="http://example.com/photo.jpg",
@@ -994,8 +1014,9 @@ def test_voice_message_type_routing():
     assert "CoW" in reply_no_text or "语音插件" in reply_no_text
 
 
-def test_image_message_type_routing():
+def test_image_message_type_routing(monkeypatch):
     """验证图片类型的message_type路由逻辑（模拟main.py的ChatRequest）"""
+    _allow_image_url(monkeypatch)
     handler = make_mock_handler()
 
     # image with fengshui keyword → fengshui branch
