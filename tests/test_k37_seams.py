@@ -111,6 +111,22 @@ class TestMingQuotaAdminExemption:
         ming_mod._check_quota(OTHER_USER)
         assert dao.calls == []
 
+    def test_judge_error_not_swallowed_by_db_try(self, monkeypatch):
+        """k37 审查 M-1：白名单判据必须在 DB try **之外**求值（与 k36 同形）。
+
+        判据自身抛错（如将来 admin_ids 改为读配置/初始化缓存）时异常必须浮出，
+        不得被 `except Exception: pass` 吞成 fail-open——否则库内已到上限的普通
+        用户会被静默放行（额度门失效）。判据落回 try 内则本用例失败（无异常可捕）。
+        """
+        _wire(monkeypatch)  # remaining=-1：库内已到上限，旧写法会走到判据求值
+
+        def _boom(_uid):
+            raise RuntimeError("admin_ids unavailable")
+
+        monkeypatch.setattr(ming_mod, "is_admin_user", _boom)
+        with pytest.raises(RuntimeError):
+            ming_mod._check_quota(OTHER_USER)
+
 
 # ───────────────────── S4：工具排盘静默 pass 补日志 ─────────────────────
 

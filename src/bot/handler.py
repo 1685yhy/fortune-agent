@@ -1836,11 +1836,36 @@ class MessageHandler:
                     # 必须紧跟匹配 tool_result，而这些块按红线不执行 → 整条丢弃
                     # （不补假 tool_result），再请模型基于已执行结果收尾。
                     closing_messages = closing_messages[:-1]
-                closing_messages.append({
-                    "role": "user",
-                    "content": "以上是工具执行结果，请直接据此用自然语言回答用户的问题，"
-                               "不要再发起任何工具调用。",
-                })
+                closing_instruction = (
+                    "以上是工具执行结果，请直接据此用自然语言回答用户的问题，"
+                    "不要再发起任何工具调用。")
+                # k37 审查 I-1（Important）：收尾指令必须作为 text 块**并入**上一条
+                # user 消息（其 content 是 tool_result 数组），而**不是**新起第二条
+                # user 消息。规范形状 = assistant(tool_use) / user(tool_result + text)
+                # ——Anthropic 对连续同角色消息报 400（"roles must alternate…"，
+                # Bedrock 至今拒绝，第一方才做自动合并）；若新起一条 user，末三条会
+                # 成为 assistant / user(tool_result) / user(text)，异常被下方 except
+                # 吞成 warning → 收尾在线上静默失效（S5 等于没修）。故此处严格保持
+                # 单条 user：tool_result 块在前、指令 text 块在后。
+                if closing_messages and closing_messages[-1].get("role") == "user":
+                    last_user = dict(closing_messages[-1])
+                    _content = last_user.get("content")
+                    if isinstance(_content, list):
+                        blocks = list(_content)          # 拷贝：不改动 native_messages
+                    elif _content:
+                        blocks = [{"type": "text", "text": _content}]
+                    else:
+                        blocks = []
+                    blocks.append({"type": "text", "text": closing_instruction})
+                    last_user["content"] = blocks
+                    closing_messages[-1] = last_user
+                else:
+                    # 防御：末条非 user（且末尾 assistant 已丢）时退化为单条 user，
+                    # 仍不与前一条同角色（前一条此时不可能是 user）。
+                    closing_messages.append({
+                        "role": "user",
+                        "content": [{"type": "text", "text": closing_instruction}],
+                    })
                 data = deepseek_anthropic_messages(
                     api_key, closing_messages, model=_llm_model,
                     max_tokens=2000, temperature=0.7, timeout=60.0,

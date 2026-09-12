@@ -1320,6 +1320,132 @@ def test_tool_loop_cap_closing_call_answers_from_tool_results():
             reg._tool_executors["web_search"] = orig_ex
 
 
+def test_tool_loop_cap_closing_messages_have_no_consecutive_same_role():
+    """k37 审查 I-1（Important）：触顶收尾调用的消息序列**不得**出现连续同角色。
+
+    修复前（实测）：收尾指令另起一条 user 消息 → 末三条为
+    `assistant(tool_use) / user(tool_result) / user("以上是工具执行结果…")`
+    → 角色序列含 `(user, user)` 连续对。Anthropic 对连续同角色消息报 400
+    （"roles must alternate…"；Bedrock 至今拒绝，第一方 Anthropic 才自动合并），
+    该异常在 handler.py 被 `except Exception` 吞成 warning → 用户仍只拿到旧引导语
+    → **S5 在线上等于没修**；而全部用例都 mock 了 client，CI 抓不到。
+
+    修复后规范形状：指令作为 text 块并入 tool_result 的**同一条** user 消息 →
+    `assistant(tool_use) / user(tool_result + text)`，全序列无连续同角色。
+
+    本用例对「收尾成功 / 收尾抛异常（正是 400 的失败形态）/ 收尾无文本」三态
+    都断言：无连续同角色 + 末条是 user 且同时含 tool_result 与指令 text +
+    恰一次追加（len==3）+ 末轮新块仍不执行 + 不劣化/基于工具结果。
+    断言直抓不变量，把实现改回「另起第二条 user」必失败。
+    """
+    import json
+    from unittest.mock import Mock, patch
+    from src.bot.handler import MessageHandler
+    from src.bot.tool_calls import ToolResult
+    from src.bot.capability_registry import bind_executors, CAPABILITY_BY_NAME
+
+    cap = CAPABILITY_BY_NAME["搜索"]
+    orig_executor = cap.executor
+    orig_ex = reg._tool_executors.get("web_search")
+
+    def drive(mode: str):
+        """跑一次触顶循环；mode ∈ {"ok","raise","no_text"}。返回 (turns, out)。"""
+        called: list = []
+        turns: list = []
+
+        def spy(params, user_id="", user_question=""):
+            called.append(params)
+            return ToolResult("搜索", True, f"结果:{params}")
+
+        bot = MessageHandler.__new__(MessageHandler)
+        llm = Mock()
+        llm.api_key = "test-key"
+        llm.model = "deepseek-flash"
+        llm.provider = "deepseek"
+        bot.llm = llm
+        bot.session_dao = None
+        bot._downgraded = {}
+        bot._tool_logs = {}
+        bot._citations = {}
+        bot._analysis_facts = {}
+
+        def fake_messages(api_key, messages, model=None, max_tokens=0,
+                          temperature=0.0, timeout=0.0, tools=None,
+                          tool_choice=None, **kwargs):
+            # 深拷贝快照：调用方后续会改动 messages（收尾并入 text 块）
+            turns.append({"tools": tools, "messages": json.loads(
+                json.dumps(messages, ensure_ascii=False))})
+            if len(turns) == 1:
+                return {"stop_reason": "tool_use",
+                        "content": [{"type": "tool_use", "id": "tu_1",
+                                     "name": "web_search",
+                                     "input": {"query": "北京天气"}}]}
+            if len(turns) == 2:
+                return {"stop_reason": "tool_use",
+                        "content": [{"type": "tool_use", "id": "tu_2",
+                                     "name": "web_search",
+                                     "input": {"query": "广州天气"}}]}
+            if mode == "raise":
+                # 严格端点对非法消息形状的真实失败形态：HTTP 400 → 这里抛异常
+                raise RuntimeError("invalid_request_error: messages: roles must alternate")
+            if mode == "no_text":
+                return {"stop_reason": "end_turn", "content": []}
+            return {"stop_reason": "end_turn",
+                    "content": [{"type": "text", "text": "北京今天晴，7~18℃。"}]}
+
+        try:
+            bind_executors({"web_search": spy}, {})
+            with patch("src.llm.client.deepseek_anthropic_messages",
+                       side_effect=fake_messages):
+                out = bot._run_tool_loop(
+                    "北京天气怎么样", "u1",
+                    '好的，我来查。<tool_calls>'
+                    '[{"tool": "web_search", "params": {"query": "上海天气"}}]'
+                    '</tool_calls>')
+        finally:
+            cap.__dict__["executor"] = orig_executor
+            if orig_ex is None:
+                reg._tool_executors.pop("web_search", None)
+            else:
+                reg._tool_executors["web_search"] = orig_ex
+        return turns, out, called
+
+    for mode in ("ok", "raise", "no_text"):
+        turns, out, called = drive(mode)
+        # —— 恰一次追加（不是循环重开）——
+        assert len(turns) == 3, f"[{mode}] 2 轮工具 + 恰 1 次收尾，实际 {len(turns)}"
+        assert turns[0]["tools"] and turns[1]["tools"], f"[{mode}] 工具轮必须带 tools"
+        assert not turns[2]["tools"], f"[{mode}] 收尾轮必须不带 tools"
+        # —— I-1 形状不变量：无连续两个同角色消息 ——
+        closing = turns[2]["messages"]
+        roles = [m["role"] for m in closing]
+        dup = [(i, r) for i, r in enumerate(roles[1:], 1) if r == roles[i - 1]]
+        assert not dup, (
+            f"[{mode}] 收尾消息序列存在连续同角色 {dup}（Anthropic 会 400）: {roles}")
+        # —— 指令并入 tool_result 的同一条 user 消息（不新起第二条 user）——
+        assert roles[-1] == "user" and roles[-2] == "assistant", (
+            f"[{mode}] 收尾必须停在 assistant(tool_use)/user(...)，实际尾部 {roles[-2:]}")
+        last_user = closing[-1]
+        kinds = [b.get("type") for b in last_user["content"]]
+        assert kinds.count("tool_result") >= 1, f"[{mode}] 末条 user 缺 tool_result: {kinds}"
+        assert kinds[-1] == "text", f"[{mode}] 收尾指令必须是末位 text 块: {kinds}"
+        assert all(k == "tool_result" for k in kinds[:-1]), (
+            f"[{mode}] tool_result 块必须在指令 text 之前: {kinds}")
+        text_blocks = [b["text"] for b in last_user["content"] if b.get("type") == "text"]
+        assert any("不要再发起任何工具调用" in t for t in text_blocks), \
+            f"[{mode}] 收尾指令不在 tool_result 的同一条 user 消息里"
+        # —— 回答有据可依：已执行的北京结果在同一条消息内 ——
+        assert any("结果:北京天气" in str(b.get("content"))
+                   for b in last_user["content"] if b.get("type") == "tool_result"), \
+            f"[{mode}] tool_result 未携带已执行的工具结果"
+        # —— 红线与不劣化 ——
+        assert called == ["上海天气", "北京天气"], f"[{mode}] 末轮新块不得执行: {called}"
+        if mode == "ok":
+            assert out == "北京今天晴，7~18℃。", out
+        else:
+            assert out == "好的，我来查。", f"[{mode}] 收尾失败/无文本不得劣化: {out}"
+
+
 # ---- Task 4 review C-1/I-1：真实 executor 绑定签名 + 超时重试（生产回归） ----
 
 
