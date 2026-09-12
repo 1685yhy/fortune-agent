@@ -58,6 +58,10 @@ class Settings:
     admin_key: str = ""
     # 智谱开放平台（Web Search / GLM 视觉等）
     zhipu_api_key: str = ""
+    # k33/A27：LLM provider 配置点（此前 main.py:815 硬编码 "deepseek"）。
+    # 默认 "deepseek" == 硬编码原值 → 零行为变化；生产 GLM 灰度前需先把
+    # 该切换点接出来（消费点见 src/main.py FortuneLLM 装配与启动日志）。
+    llm_provider: str = "deepseek"
     # 体验模式：EXPERIENCE_MODE=true/1 时解锁全部付费内容并跳过配额限制（体验版测试用）
     experience_mode: bool = False
 
@@ -125,6 +129,9 @@ def load_settings(config_path: str = "config/settings.yaml") -> Settings:
         settings.admin_key = os.getenv("ADMIN_KEY")
     if os.getenv("ZHIPU_API_KEY"):
         settings.zhipu_api_key = os.getenv("ZHIPU_API_KEY")
+    # k33/A27：provider 切换点（env 覆盖；不设 == 默认 "deepseek"，零行为变化）
+    if os.getenv("FORTUNE_LLM_PROVIDER"):
+        settings.llm_provider = os.getenv("FORTUNE_LLM_PROVIDER").strip().lower()
     if os.getenv("EMBEDDING_MODEL"):
         settings.embedding_model = os.getenv("EMBEDDING_MODEL")
     if os.getenv("EMBEDDING_COLLECTION"):

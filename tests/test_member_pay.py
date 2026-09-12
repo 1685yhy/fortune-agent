@@ -548,8 +548,15 @@ class TestQuotaCoordination:
 class TestImageDowngrade:
     @pytest.fixture(autouse=True)
     def _no_network(self, monkeypatch):
-        """下载图片 → 写本地假文件（不真连外网）。"""
+        """下载图片 → 写本地假文件（不真连外网）。
+
+        k33/A23：image_url 白名单放行（本类只验降级链路；白名单本身的用例在
+        tests/test_k33_upload_ssrf.py——含内网/云元数据拒绝矩阵）。
+        """
         import urllib.request
+        import src.bot.image_url_guard as guard
+
+        monkeypatch.setattr(guard, "is_allowed_image_url", lambda url: True)
 
         def fake_urlretrieve(url, path):
             with open(path, "wb") as f:

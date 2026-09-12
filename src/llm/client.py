@@ -41,6 +41,32 @@ GLM_DEFAULT_MODEL = "glm-4-flash"
 StreamCallback = Optional[Callable[[str, dict], None]]
 
 
+def resolve_llm_api_key(allow_anthropic_fallback: bool = True) -> str:
+    """统一 LLM 层的 key 解析（k33/A11，单一事实源）。
+
+    引擎此前各自 `os.getenv("DEEPSEEK_API_KEY")` 直读：
+      - 与统一层（评测/装配只 patch src.llm.client）不一致 → 无 key 时引擎
+        直接早退（"无密钥 → 模板原样"），LLM 调用点根本不执行，
+        patch/降级注入全部失效（"评测 patch 不生效"根因）；
+      - 各文件写法不一（jian_quote/night_soliloquy 无 ANTHROPIC 回退、
+        zeri_checklist 有两段 or 链）。
+    本函数**只读环境变量**，不回落到 yaml/settings（避免在只有 yaml key 的
+    部署上凭空开启 LLM 调用 = 生产行为变化）。
+
+    ⚠️ 零行为差异约束：`allow_anthropic_fallback` 由调用方按各自迁移前的
+    env 优先级显式传入——jian_quote / night_soliloquy 迁移前只认
+    DEEPSEEK_API_KEY（传 False），zeri_checklist 迁移前即 DEEPSEEK→ANTHROPIC
+    回退（默认 True）。不得为了"统一"而放宽任一调用点的 key 面：多认一个
+    环境变量就可能凭空开启外呼（生产行为变化）。
+
+    注意：key 为空时调用方仍应保持既有早退/降级语义（不调用 LLM）。
+    """
+    key = os.getenv("DEEPSEEK_API_KEY", "")
+    if not key and allow_anthropic_fallback:
+        key = os.getenv("ANTHROPIC_API_KEY", "")
+    return key.strip()
+
+
 def _anthropic_headers(api_key: str) -> dict:
     return {
         "Authorization": f"Bearer {api_key}",

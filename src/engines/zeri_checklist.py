@@ -17,10 +17,13 @@
 """
 import json
 import logging
-import os
 import re
 
-from src.llm.client import deepseek_anthropic_completion
+# k33/A11：统一 LLM 层 **不得顶层 import**——顶层 from-import 在模块导入时绑定
+# 函数对象，评测/装配只 patch `src.llm.client.deepseek_anthropic_completion`
+# （l1_eval.py / verify_qa_scenarios.py），绑定后 patch 不生效（R2-3 对 calendar
+# 的同款根因）。改为函数内 import（调用期解析模块属性），见 customize_checklist。
+from src.llm.client import resolve_llm_api_key
 
 logger = logging.getLogger(__name__)
 
@@ -276,10 +279,12 @@ def customize_checklist(scene: str, template: list,
     LLM 提示词含红线约束: 保持 stage 结构、不删 core 项、外部机构只写通用提醒
     不给具体承诺、总数 ≤14、返回 JSON 数组（每项 {stage, text}）。
     """
-    api_key = api_key or os.getenv("DEEPSEEK_API_KEY") \
-        or os.getenv("ANTHROPIC_API_KEY") or ""
+    # k33/A11：key 走统一层解析（单一事实源），LLM 调用走统一层模块属性
+    # （函数内 import → 调用期解析，评测 patch 生效）。
+    from src.llm.client import deepseek_anthropic_completion
+    api_key = api_key or resolve_llm_api_key()
     if not api_key:
-        return [dict(it) for it in template]  # 无密钥 → 模板原样
+        return [dict(it) for it in template]  # 无密钥 → 模板原样（语义不变）
 
     try:
         raw = deepseek_anthropic_completion(

@@ -40,6 +40,31 @@ class CompactResult:
     blocks: int = 0                   # 分块数
 
 
+def _clean_for_compact(text: str) -> str:
+    """L2 压缩通道清洗（k33/A19）：卡渲染装饰 + TOOL 标签不进摘要。
+
+    根因（k7b review 遗留 Minor）：_summarize_block/_fallback_summary 直读
+    会话历史原文前 200/100 字——装配层生成的整卡定稿（[card:…]…[/card] +
+    📊 图行 + 版本页脚）与 LLM 自造工具标签会原样进摘要，摘要再注入上下文
+    又成为仿写样例（k7b 自增强同源）。清洗为**只读**：库内原文不动，仅喂
+    LLM 的文本变体（与 handler 的 strip_card_decor_for_llm 调用点同口径）。
+    清洗失败（异常）→ 退还原文，压缩流程绝不因清洗中断。
+    """
+    if not text:
+        return text or ""
+    try:
+        from src.bot.card_mark import strip_card_decor_for_llm
+        text = strip_card_decor_for_llm(text) or ""
+    except Exception:
+        pass
+    try:
+        from src.bot.tool_calls import strip_tool_calls
+        text = strip_tool_calls(text) or text
+    except Exception:
+        pass
+    return text
+
+
 def _estimate_tokens(text: str) -> int:
     """与 handler.estimate_tokens 相同的中文 token 估算（1 token ≈ 1.5 汉字）。
 
@@ -251,7 +276,9 @@ event|用户正在找工作|0.9|90
         lines = []
         for m in block:
             role = "用户" if m.get("role") == "user" else "助手"
-            lines.append(f"{role}: {(m.get('content') or '')[:200]}")
+            # k33/A19：卡装饰/版本页脚/TOOL 标签清洗后再截断（只读清洗）
+            content = _clean_for_compact(m.get("content") or "")
+            lines.append(f"{role}: {content[:200]}")
         prompt_parts = [self._CHUNK_PROMPT]
         if rolling:
             prompt_parts.append(f"\n{self._ROLLING_LABEL}\n{rolling[:1500]}")
@@ -310,7 +337,9 @@ event|用户正在找工作|0.9|90
         lines = ["[摘要降级]（摘要生成失败，保留最近内容）"]
         for m in tail:
             role = "用户" if m.get("role") == "user" else "助手"
-            lines.append(f"{role}: {(m.get('content') or '')[:100]}")
+            # k33/A19：降级摘要同口径清洗（同类一并修）
+            content = _clean_for_compact(m.get("content") or "")
+            lines.append(f"{role}: {content[:100]}")
         text = "\n".join(lines)
         return text[:800]
 

@@ -89,6 +89,7 @@ _jian_precompute_task = None  # Task 6: 晨笺每日内容预生成任务
 _night_lamp_task = None  # Task 4: 灯语 22:30 预生成任务
 _night_cleanup_task = None  # Task 5: 倾诉临时消息 24h 硬清理任务
 _zeri_reminder_task = None  # Task 5(择吉日): 提醒调度任务(档1 前1天21:00 / 档2 当天7:30)
+_chat_uploads_cleanup_task = None  # k33/A23: 对话上传图片 TTL 清理任务（每小时）
 
 # Security globals
 security_rate_limiter = None
@@ -242,6 +243,22 @@ def _precompute_jian_for(date_str: str) -> dict:
     }
     cache.set(key, content, ttl_seconds=3600 * 26)
     return content
+
+
+async def _chat_uploads_cleanup_worker():
+    """k33/A23: 每小时清理过期的对话上传图片（孤儿文件 TTL，默认 72h）。
+
+    扫描+删除走 asyncio.to_thread（目录可能很大，避免阻塞事件循环）；
+    清理失败只记日志（绝不因清理异常影响服务）。
+    """
+    while True:
+        try:
+            stats = await asyncio.to_thread(cleanup_chat_uploads)
+            if stats.get("removed"):
+                logger.info("对话上传图片清理: %s", stats)
+        except Exception as e:
+            logger.warning("对话上传图片清理异常: %s", e)
+        await asyncio.sleep(3600)
 
 
 async def _night_temp_cleanup():
@@ -677,6 +694,7 @@ async def lifespan(app: FastAPI):
     global mianxiang_engine, zeri_engine, dream_engine, hehun_engine, qimen_engine, xingming_engine, embedder, retriever, dao, llm, handler
     global _push_task, _precompute_task, member_dao, session_dao
     global _jian_precompute_task, _night_lamp_task, _night_cleanup_task, _zeri_reminder_task
+    global _chat_uploads_cleanup_task
     global security_rate_limiter, security_auth, security_sanitizer, security_encryptor, security_audit
 
     # 配置日志：logs/app.log 按天轮转（保留 14 天），级别取 LOG_LEVEL（默认 INFO）
@@ -812,8 +830,15 @@ async def lifespan(app: FastAPI):
             logger.info("注销账号归档清理: %s", _cancel_stats)
     except Exception as e:
         logger.warning("注销账号归档清理失败: %s", e)
-    llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-flash", deep_model="deepseek-flash", provider="deepseek",
+    # k33/A27：provider 由配置项决定（Settings.llm_provider ← FORTUNE_LLM_PROVIDER），
+    # 默认 "deepseek" 与原硬编码字面量逐字同值 → 默认配置生产行为零差异。
+    # 此前 provider 参数被硬编码为 deepseek 写死在装配点，无配置切换入口
+    #（GLM 生产灰度的前提 = 先有这个切换点；灰度路由本身属后续批）。
+    _llm_provider = _resolve_llm_provider(settings)
+    llm = FortuneLLM(api_key=settings.claude_api_key, model="deepseek-flash", deep_model="deepseek-flash",
+                     provider=_llm_provider,
                      glm_api_key=settings.zhipu_api_key)  # L5-1 降级链路：GLM-4-Flash
+    logger.info("LLM provider=%s（FORTUNE_LLM_PROVIDER 可切换，默认 deepseek）", _llm_provider)
 
     # ── Init Narrative Service ──────────────────────────────────
     from .services.narrative import NarrativeService
@@ -955,6 +980,11 @@ async def lifespan(app: FastAPI):
     _night_cleanup_task = asyncio.create_task(_night_temp_cleanup())
     logger.info("倾诉临时消息清理 worker 已启动 (每小时)")
 
+    # k33/A23: 对话上传图片 TTL 清理 worker（每小时，默认 72h）
+    _chat_uploads_cleanup_task = asyncio.create_task(_chat_uploads_cleanup_worker())
+    logger.info("对话上传图片清理 worker 已启动 (每小时, TTL %.0fh)",
+                _chat_upload_ttl_hours())
+
     # Task 5(择吉日): 提醒调度 worker（档1 前1天21:00 / 档2 当天7:30，复用晨笺服务号通道）
     _zeri_reminder_task = asyncio.create_task(_zeri_reminder_worker())
     logger.info("择吉日提醒 worker 已启动 (档1 前1天21:00 / 档2 当天7:30, 北京时区)")
@@ -973,6 +1003,8 @@ async def lifespan(app: FastAPI):
         _night_lamp_task.cancel()
     if _night_cleanup_task and not _night_cleanup_task.done():
         _night_cleanup_task.cancel()
+    if _chat_uploads_cleanup_task and not _chat_uploads_cleanup_task.done():
+        _chat_uploads_cleanup_task.cancel()
     if _zeri_reminder_task and not _zeri_reminder_task.done():
         _zeri_reminder_task.cancel()
 
@@ -2272,6 +2304,64 @@ def _chat_uploads_dir() -> Path:
     d = Path(base)
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+# k33/A23：上传孤儿文件 TTL 清理（此前上传目录只增不减，磁盘无界增长）。
+# 说明：TTL 口径 = 文件 mtime 超过 `FORTUNE_UPLOAD_TTL_HOURS`（默认 72 小时，
+# 覆盖「历史消息里的图片还能渲染/重发」窗口）；更精确的「按消息引用计数清理」
+# 需跨 storage 反查会话消息（本批不动 storage），故采用 TTL 兜底。
+_CHAT_UPLOAD_TTL_HOURS_DEFAULT = 72.0
+
+
+def _chat_upload_ttl_hours() -> float:
+    raw = os.environ.get("FORTUNE_UPLOAD_TTL_HOURS", "")
+    try:
+        hours = float(raw)
+    except (TypeError, ValueError):
+        return _CHAT_UPLOAD_TTL_HOURS_DEFAULT
+    return hours if hours > 0 else _CHAT_UPLOAD_TTL_HOURS_DEFAULT
+
+
+def _resolve_llm_provider(settings) -> str:
+    """k33/A27：LLM provider 配置解析（唯一装配入口）。
+
+    - 来源：`Settings.llm_provider`（src/config.py，env `FORTUNE_LLM_PROVIDER` 覆盖）
+    - 默认 "deepseek" == 迁移前 main.py 硬编码字面量（逐字同值 → 零行为变化）
+    - 取不到字段（旧 Settings/鸭子类型）或空串 → 回落 "deepseek"（防装配期崩溃）
+    """
+    return (getattr(settings, "llm_provider", "") or "deepseek").strip().lower() or "deepseek"
+
+
+def cleanup_chat_uploads(ttl_seconds: float = None, now: float = None,
+                         dir_path=None) -> dict:
+    """删除上传目录中超过 TTL 的孤儿图片（返回 {"scanned", "removed", "ttl"}）。
+
+    - 只删文件（不递归、绝不动目录；符号链接按 unlink 语义只删链接本身、
+      不碰链接目标）；
+    - 删除失败（权限/占用）只记日志不抛（清理任务绝不阻塞服务）；
+    - ttl_seconds/now/dir_path 可注入（测试零时间等待）；缺省读 env 与当前时钟。
+    """
+    import time as _time
+    ttl = float(ttl_seconds if ttl_seconds is not None else _chat_upload_ttl_hours() * 3600.0)
+    cutoff = (now if now is not None else _time.time()) - ttl
+    base = Path(dir_path) if dir_path is not None else _chat_uploads_dir()
+    scanned = removed = 0
+    try:
+        entries = list(base.iterdir())
+    except FileNotFoundError:
+        return {"scanned": 0, "removed": 0, "ttl": ttl}
+    for p in entries:
+        try:
+            if not p.is_file():
+                continue
+            scanned += 1
+            if p.stat().st_mtime >= cutoff:
+                continue
+            p.unlink()
+            removed += 1
+        except Exception as e:  # 单个文件失败不影响其余
+            logger.warning("上传图片清理失败 %s: %s", p.name, e)
+    return {"scanned": scanned, "removed": removed, "ttl": ttl}
 
 
 def _sniff_image_ext(data: bytes) -> str:

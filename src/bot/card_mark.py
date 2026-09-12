@@ -181,8 +181,9 @@ def strip_card_decor_for_llm(text: Optional[str]) -> Optional[str]:
     - 图行：行内 📊 且含 `http(s)://…`；或行内「命盘图片：」且含 URL
       （覆盖 LLM 仿写丢📊 的空白前缀形态；不锚定行首）
     - 反馈页脚行：行内含「可回复」且「「准」」且「「不准」」
-    - 分隔行：整行 `———…` 或 `---…`
-    - 版本页脚（防御性，存量消息）：行含「解读版本：」
+    - 分隔行：整行 `———…` 或 `---…`（允许行尾空白，两种分隔线同口径）
+    - 版本页脚（防御性，存量消息）：行含「解读版本：」且后接版本号 + 页脚成分
+      （|/生成时间/行尾）——正文行首恰为「解读版本：…」的普通文案不剥（k33/A19）
 
     契约：
     - 保正文逐行原样（只删装饰行）；删除后连续空行压缩（≥3 个 `\\n` → 2 个
@@ -207,10 +208,19 @@ def strip_card_decor_for_llm(text: Optional[str]) -> Optional[str]:
 # k7b 行级装饰判定（单行正则，见 strip_card_decor_for_llm docstring）
 _URL_IN_LINE_RE = re.compile(r'https?://\S+')
 _TEXT_IMG_LINE_RE = re.compile(r'命盘图片[：:][^\n]*https?://\S+')
-_VERSION_FOOTER_RE = re.compile(r'解读版本[：:]')
+# k33/A19（k7b review Minor-1「版本页脚规则偏宽」）：旧形态 `解读版本[：:]`
+# 命中即剥 → 正文行首恰好是「解读版本：…」的普通文案整行被吞。收紧为
+# 「行内出现版本号且其后只接页脚成分（| / 生成时间 / 行尾）」的页脚签名：
+#   "解读版本: v5.0.0 | 生成时间: …" ✓ / "解读版本：v5.0.0" ✓
+#   "解读版本：这是我们第 5 版"（版本号后接正文）✗ 不剥
+_VERSION_FOOTER_RE = re.compile(
+    r'解读版本[：:]\s*v?\d+(?:\.\d+)*\s*(?:[|｜]|生成时间|$)')
 _CARD_HEADER_LINE_RE = re.compile(r'^\s*\[card:')
 _CARD_CLOSE_LINE_RE = re.compile(r'^\s*\[/card\]')
-_DASH_SEP_LINE_RE = re.compile(r'^\s*---+$')
+# k33/A19（k7b review Minor-2「--- 分隔行正则无尾随锚定，与 ——— 不对称」）：
+# 旧形态 `^\s*---+$` 不容尾随空白 → "----  " 不剥而 "———  " 剥（同形异果）。
+# 与 _EMDASH_SEP_LINE_RE 对齐（`\s*$`）。
+_DASH_SEP_LINE_RE = re.compile(r'^\s*---+\s*$')
 _EMDASH_SEP_LINE_RE = re.compile(r'^\s*———+\s*$')
 _BLANK_RUN_RE = re.compile(r'\n{3,}')
 
