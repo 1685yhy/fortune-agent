@@ -4892,16 +4892,25 @@ class MessageHandler:
     # Voice input support
     # ============================================================
 
-    def _handle_voice(self, voice_text: str = "", downgraded: bool = False) -> str:
+    def _handle_voice(self, voice_text: str = "", downgraded: bool = False,
+                      deep_night: bool = False) -> str:
         """处理语音输入。
 
         如果 CoW（Claude on WeChat）提供了语音→文字转写，
         则直接通过正常意图检测流程处理。
         如果没有转写文本，说明需要 CoW 语音插件支持。
         downgraded（L5-1）：对话额度用尽 → 降级链路（精简回复）。
+
+        deep_night（k39 审查 C2 同类修复）：语音轮是"转写文本轮"，请求里的
+        深夜标记必须与文本轮「同源同判」地传给 `process()` ——改前该标记同样
+        被丢弃（端点没传、本方法也没透传）→ 深夜语音轮以 temp=0 落库并成为
+        L2 压缩输入，与图片轮同一个缺陷类。**user_id 保持既有 `""` 形态不动**
+        （语音轮归属/上下文口径属既有独立缺口，改它会连带改变语音轮的
+        档案上下文与记忆语义，超出本次红线修复范围，已在报告列为待拍板项）。
         """
         if voice_text:
-            return self.process(voice_text, "", downgraded=downgraded)
+            return self.process(voice_text, "", deep_night=deep_night,
+                                downgraded=downgraded)
 
         return "🎤 语音处理需要 CoW 语音插件支持。如果您正在使用微信，" \
                "请确保已安装 CoW 语音转文字插件。"
@@ -4911,7 +4920,8 @@ class MessageHandler:
     # ============================================================
 
     def _persist_image_turn(self, user_id: str, image_url: str,
-                            user_text: str, reply: str) -> None:
+                            user_text: str, reply: str,
+                            deep_night: bool = False) -> None:
         """k39 S4：图片轮次落库（user 轮含图片 URL + assistant 轮）。
 
         为什么必须落库（改前 → 改后）：
@@ -4927,8 +4937,15 @@ class MessageHandler:
 
         隐私口径**不放宽**（与文本链路同规则，逐项对齐 `process()`）：
         - 倾诉/深夜（deep-night）→ `temp=1`（24h 硬清理，同 `cleanup_temp`）；
-        - **不写任何 L2/L3 记忆**（本方法只写 `sessions`，绝不碰 UserMemory/
-          compactor/演化链——图片轮本就无记忆管线，这里不新增）；
+          **判据是本轮请求的 `deep_night` 入参，不是进程内 `_deep_night` 字典**
+          （k39 审查 C2：该字典只在 `process()` 文本轮里被赋值，图片轮直接读它
+          必然取到**上一文本轮**的陈旧值——深夜「首条即发图」/直调 API 的图片轮
+          会以 `temp=0` 落库并进入 L2 压缩输入，打破「夜间倾诉不进 L2」红线）；
+        - **本轮不写记忆，但落下去的 `temp=0` 行会成为 L2 压缩的输入**
+          （`_maybe_compact` 预检 `AND temp=0` + `get_history(temp=False)`）→
+          所以"深夜图片轮不进 L2"完全依赖上面那行 `temp` 标记；
+          `temp=1` 才真正把它挡在 L2 之外。
+          本方法自身仍只写 `sessions`，绝不碰 UserMemory/compactor/演化链；
         - `user_id` 为空（无身份）→ 不落库（不建匿名共享身份）；
         - 落库失败只告警，绝不影响回复（优雅降级）。
         """
@@ -4938,7 +4955,7 @@ class MessageHandler:
         if dao is None:
             return
         try:
-            deep = bool(getattr(self, "_deep_night", {}).get(user_id, False))
+            deep = bool(deep_night)
             # 占位词「（图片）」与客户端 streamHost.sendImage 的 content 同口径；
             # URL 原样拼接（清理反查要求完整 /api/chat/uploads/<name>）
             content = f"（图片）{image_url}"
@@ -4953,15 +4970,24 @@ class MessageHandler:
                            exc_info=True)
 
     def _handle_image(self, image_url: str = "", user_text: str = "",
-                      downgraded: bool = False, user_id: str = "") -> str:
+                      downgraded: bool = False, user_id: str = "",
+                      deep_night: bool = False) -> str:
         """处理图片输入 — 支持面相分析 + 风水 + 通用（k39 S4：轮次落库）。
 
         `user_id`（k39 S4 新增，末位带默认值 → 既有 3 参调用不受影响）：
         图片轮次按 `_persist_image_turn` 落库（历史可渲染 + 清理能识别引用）；
         空 user_id（无身份调用方）保持改前行为——不落任何用户数据。
+
+        `deep_night`（k39 审查 C2 新增）：本轮的深夜/倾诉标记，**由请求透传**
+        （`req.deep_night`，与文本轮 `process(deep_night=...)` 同源同判），
+        只用于落库时的 `temp` 判定 → 深夜图片轮 temp=1（24h 硬清理）且不进 L2。
+        **刻意不写进 `self._deep_night` 字典**：那个字典是进程内跨轮状态，
+        图片轮写它只会把上一轮的值留给下一轮（正是 C2 的成因）；本路径全部
+        走显式入参，不读也不写该字典。
         """
         reply = self._handle_image_inner(image_url, user_text, downgraded)
-        self._persist_image_turn(user_id, image_url, user_text, reply)
+        self._persist_image_turn(user_id, image_url, user_text, reply,
+                                 deep_night=deep_night)
         return reply
 
     def _handle_image_inner(self, image_url: str = "", user_text: str = "",

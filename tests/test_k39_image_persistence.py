@@ -46,6 +46,10 @@ def _make_handler(tmp_path, deep_night=None):
     h._deep_night = dict(deep_night or {})
     h.memory_system = Mock()
     h.chart_dao = None
+    # §5 走真实端点：出口取引用/建议卡这两步是端点固定动作，给零副作用桩
+    # （不碰 memory_system，不影响 §1-§4 的断言）
+    h._citations = {}
+    h.gen_suggestions = lambda *a, **k: []
     # CV 读数走桩：本测试只验落库/引用/清理链，不验 CV
     h._try_face_reading = lambda url, text, **k: None
     h._try_palm_reading = lambda url, text, **k: None
@@ -199,9 +203,13 @@ def test_history_image_url_is_served_and_deleted_one_degrades(tmp_path,
 # ================================================================
 
 def test_deep_night_image_turn_is_temp_not_relaxed(tmp_path, allow_url):
-    """倾诉/深夜通道的既有约束原样生效：图片轮 temp=1 + 24h 过期。"""
-    h = _make_handler(tmp_path, deep_night={"u_night": True})
-    h._handle_image(URL, "这张图怎么样", user_id="u_night")
+    """倾诉/深夜通道的既有约束原样生效：图片轮 temp=1 + 24h 过期。
+
+    判据是本轮入参 `deep_night`（k39 审查 C2 前是进程内 `_deep_night` 字典，
+    由 §5 的真实链路用例证明那条路会丢标记）。
+    """
+    h = _make_handler(tmp_path)
+    h._handle_image(URL, "这张图怎么样", user_id="u_night", deep_night=True)
     rows = _rows(_db_of(h))
     assert len(rows) == 2
     for _uid, _role, _content, _intent, temp, expire_at in rows:
@@ -214,10 +222,28 @@ def test_deep_night_image_turn_is_temp_not_relaxed(tmp_path, allow_url):
     assert all(r[4] == 0 for r in _rows(_db_of(h2)))
 
 
+def test_stale_deep_night_dict_never_decides_persistence(tmp_path, allow_url):
+    """C2 根因锁：陈旧 `_deep_night` 字典**不参与**判定（只看本轮入参）。
+
+    - 字典陈旧为 True + 本轮非深夜 → 必须 temp=0（改前：误按深夜 24h 硬删）；
+    - 字典为空 + 本轮深夜 → 必须 temp=1（改前：误按白天永久保留 + 进 L2）。
+    """
+    h = _make_handler(tmp_path, deep_night={"u_stale": True})
+    h._handle_image(URL, "这张图怎么样", user_id="u_stale", deep_night=False)
+    assert all(r[4] == 0 for r in _rows(_db_of(h))), \
+        "陈旧 True 不得把白天图片轮打成 temp=1"
+    h2 = _make_handler(tmp_path / "night")
+    (tmp_path / "night").mkdir(exist_ok=True)
+    assert h2._deep_night == {}
+    h2._handle_image(URL, "这张图怎么样", user_id="u_night", deep_night=True)
+    assert all(r[4] == 1 for r in _rows(_db_of(h2))), \
+        "字典为空也必须按本轮入参打 temp=1"
+
+
 def test_deep_night_image_rows_hard_deleted_after_24h(tmp_path, allow_url):
     """24h 硬清理对图片轮同样生效（倾诉消息不长期留存——约束未被放宽）。"""
-    h = _make_handler(tmp_path, deep_night={"u_night": True})
-    h._handle_image(URL, "这张图怎么样", user_id="u_night")
+    h = _make_handler(tmp_path)
+    h._handle_image(URL, "这张图怎么样", user_id="u_night", deep_night=True)
     assert len(_rows(_db_of(h))) == 2
     con = sqlite3.connect(_db_of(h))
     con.execute("UPDATE sessions SET temp_expire_at='2000-01-01T00:00:00'")
@@ -245,3 +271,251 @@ def test_persist_failure_does_not_break_reply(tmp_path, allow_url):
     h.session_dao = _Boom()
     reply = h._handle_image(URL, "这张图怎么样", user_id="u_img")
     assert "图片" in reply and reply.strip()
+
+
+# ================================================================
+# 5. 真实请求链路（k39 审查 C2）：请求里的 deep_night 必须走到落库
+# ================================================================
+# 改前缺陷：`/api/chat`、`/api/chat/stream` 的 image 分支只透传 user_id，
+# **丢掉 req.deep_night** → `_persist_image_turn` 只能去读进程内 `_deep_night`
+# 字典（只在 process() 文本轮里写）→ 深夜「首条即发图」/ 直调 API 的图片轮
+# 以 temp=0 落库 → **进入 L2 压缩输入**（预检 `AND temp=0` +
+# `get_history(temp=False)`）→ 打破「夜间倾诉绝不进 L2 摘要」的红线。
+# 上面 §4 的用例手工注入 `_deep_night` 字典，锁的是"读字典"语义，抓不到本缺陷；
+# 本节一律走**真实请求模型 + 真实端点 + 真实落库**，不注入字典。
+
+class _MockMemberDAO:
+    """/api/chat 链路的最小会员桩（对齐 tests/test_k33_chunk_watchdog.py）。"""
+
+    def check_quota(self, uid):
+        return True
+
+    def use_quota(self, uid):
+        pass
+
+    def get_membership(self, uid):
+        return {"plan": "free"}
+
+
+def _l2_visible_rows(db, uid):
+    """L2 压缩真正读到的行：预检 `AND temp=0` + `get_history(temp=False)` 同口径。
+
+    这是「夜间倾诉不进 L2」红线在数据层的**唯一判据**——非空即已泄漏进 L2 输入。
+    """
+    h_dao = SessionDAO(db)
+    rows = h_dao.get_history(uid, limit=2000, temp=False)
+    con = sqlite3.connect(db)
+    try:
+        precheck = con.execute(
+            "SELECT COUNT(*) FROM sessions WHERE user_id=? AND temp=0",
+            (uid,)).fetchone()[0]
+    finally:
+        con.close()
+    assert precheck == len(rows), "预检口径与 get_history 口径必须一致"
+    return rows
+
+
+def _body(tmp_path, deep_night):
+    return {"message": "看看这张图", "user_id": "u_night",
+            "message_type": "image", "image_url": URL,
+            "deep_night": deep_night}
+
+
+@pytest.fixture
+def fast_stream(monkeypatch):
+    """把流式看门狗/模拟延迟压到最小（同 tests/test_k33_chunk_watchdog.py）。"""
+    import src.api.chat_stream as cs
+
+    class _FastStreamer(cs.ChatStreamer):
+        def __init__(self, *a, **kw):
+            kw.setdefault("ping_interval", 0.15)
+            kw.setdefault("simulation_delay", 0)
+            super().__init__(*a, **kw)
+
+    monkeypatch.setattr(cs, "ChatStreamer", _FastStreamer)
+    return cs
+
+
+def _stream_events(m, req):
+    """驱动真实 `POST /api/chat/stream` 端点（真实 ChatRequest + 真实端点函数）。"""
+    import asyncio
+    import json as _json
+
+    async def scenario():
+        resp = await m.chat_stream(req, None,
+                                   {"method": "api_key", "user_id": "api_user"})
+        evts = []
+        async for raw in resp.body_iterator:
+            for line in str(raw).splitlines():
+                if line.startswith("data:"):
+                    try:
+                        evts.append(_json.loads(line[5:].strip()))
+                    except Exception:
+                        pass
+        return evts
+
+    loop = asyncio.new_event_loop()
+    try:
+        return loop.run_until_complete(scenario())
+    finally:
+        try:
+            loop.close()
+        except RuntimeError:
+            pass
+
+
+def test_api_chat_image_request_deep_night_lands_as_temp(tmp_path, monkeypatch,
+                                                         allow_url):
+    """真实链路（POST /api/chat，真实 ChatRequest）：deep_night=true 的图片轮
+    → temp=1 + 24h 过期 + **L2 输入里一行都没有**。
+
+    改前必红：image 分支丢掉 req.deep_night → temp=0（且进 L2 输入）。
+    """
+    from starlette.testclient import TestClient
+    import src.main as m
+    from src.security.auth import AuthHandler, set_auth_handler
+
+    monkeypatch.setenv("API_KEYS", "k39-img-key")
+    set_auth_handler(AuthHandler())
+    h = _make_handler(tmp_path)          # 注意：_deep_night 字典为**空**（不注入）
+    assert h._deep_night == {}
+    monkeypatch.setattr(m, "handler", h)
+    monkeypatch.setattr(m, "member_dao", _MockMemberDAO())
+
+    client = TestClient(m.app)
+    r = client.post("/api/chat", json=_body(tmp_path, True),
+                    headers={"X-API-Key": "k39-img-key"})
+    assert r.status_code == 200, r.text
+
+    rows = _rows(_db_of(h))
+    assert len(rows) == 2
+    for _uid, _role, _content, _intent, temp, expire_at in rows:
+        assert temp == 1, "深夜图片轮必须与文本轮同口径 temp=1"
+        assert expire_at, "temp 行必须有 24h 过期时间（cleanup_temp 兜底）"
+    assert _l2_visible_rows(_db_of(h), "u_night") == [], \
+        "深夜图片轮绝不允许进入 L2 压缩输入（隐私红线）"
+
+
+def test_api_chat_image_request_daytime_still_persists(tmp_path, monkeypatch,
+                                                       allow_url):
+    """反向：deep_night=false 的图片轮照旧长期保留（temp=0，且是 L2 的合法输入）。"""
+    from starlette.testclient import TestClient
+    import src.main as m
+    from src.security.auth import AuthHandler, set_auth_handler
+
+    monkeypatch.setenv("API_KEYS", "k39-img-key")
+    set_auth_handler(AuthHandler())
+    h = _make_handler(tmp_path)
+    monkeypatch.setattr(m, "handler", h)
+    monkeypatch.setattr(m, "member_dao", _MockMemberDAO())
+
+    client = TestClient(m.app)
+    r = client.post("/api/chat", json=_body(tmp_path, False),
+                    headers={"X-API-Key": "k39-img-key"})
+    assert r.status_code == 200, r.text
+    assert len(_rows(_db_of(h))) == 2
+    assert all(row[4] == 0 for row in _rows(_db_of(h)))
+    assert len(_l2_visible_rows(_db_of(h), "u_night")) == 2
+
+
+def test_stream_image_request_deep_night_lands_as_temp(tmp_path, monkeypatch,
+                                                       allow_url, fast_stream):
+    """真实链路（POST /api/chat/stream，真实 ChatRequest）：同口径。
+
+    改前必红：chat_stream.py 的 image 分支同样丢掉 req.deep_night。
+    """
+    import src.main as m
+    from src.security.auth import AuthHandler, set_auth_handler
+
+    monkeypatch.setenv("API_KEYS", "k39-img-key")
+    set_auth_handler(AuthHandler())
+    h = _make_handler(tmp_path)
+    assert h._deep_night == {}
+    monkeypatch.setattr(m, "handler", h)
+    monkeypatch.setattr(m, "member_dao", _MockMemberDAO())
+
+    req = m.ChatRequest(message="看看这张图", user_id="u_night",
+                        message_type="image", image_url=URL, deep_night=True)
+    types = [e.get("type") for e in _stream_events(m, req)]
+    assert "done" in types, f"流式链路未正常收尾：{types}"
+
+    rows = _rows(_db_of(h))
+    assert len(rows) == 2
+    for _uid, _role, _content, _intent, temp, expire_at in rows:
+        assert temp == 1, "深夜图片轮必须与文本轮同口径 temp=1（流式链路同判）"
+        assert expire_at
+    assert _l2_visible_rows(_db_of(h), "u_night") == [], \
+        "深夜图片轮绝不允许进入 L2 压缩输入（隐私红线）"
+
+
+# ── 同类通道核查（语音 / 文件）：同一"请求字段被丢弃"缺陷类 ──────────────
+# 语音轮是"转写文本轮"，请求里的 deep_night 改前同样在端点侧被丢弃
+# （`_handle_voice` 也没透传）→ 深夜语音轮落到 process(deep_night=False)
+# → temp=0 落库并成为 L2 压缩输入。本组用例锁"端点 → _handle_voice → process"
+# 全链路的同源同判。`message_type` 只有 text/voice/image 三种（main.py:1508），
+# **不存在文件通道**。
+
+def _voice_spy():
+    """真实 `_handle_voice` + 记录 `process` 入参（不跑主链、零 LLM）。"""
+    from src.bot.handler import MessageHandler
+
+    h = object.__new__(MessageHandler)
+    h._deep_night = {}
+    h._citations = {}
+    h.session_dao = None
+    h.calls = []
+
+    def _rec(message, user_id, stream_cb=None, deep_night=False, session_id=None,
+             downgraded=False, regen=False):
+        h.calls.append({"message": message, "user_id": user_id,
+                        "deep_night": bool(deep_night)})
+        return "语音转录的回复内容（够长以通过出口校验与建议卡判定）。"
+
+    h.process = _rec
+    h.pop_citations = lambda uid: []
+    h.gen_suggestions = lambda *a, **k: []
+    return h
+
+
+def test_api_chat_voice_request_deep_night_reaches_process(monkeypatch):
+    """真实链路（POST /api/chat + message_type=voice）：deep_night 必须到 process。"""
+    from starlette.testclient import TestClient
+    import src.main as m
+    from src.security.auth import AuthHandler, set_auth_handler
+
+    monkeypatch.setenv("API_KEYS", "k39-voice-key")
+    set_auth_handler(AuthHandler())
+    spy = _voice_spy()
+    monkeypatch.setattr(m, "handler", spy)
+    monkeypatch.setattr(m, "member_dao", _MockMemberDAO())
+
+    client = TestClient(m.app)
+    r = client.post("/api/chat",
+                    json={"message": "", "user_id": "u_voice",
+                          "message_type": "voice", "voice_text": "我很累",
+                          "deep_night": True},
+                    headers={"X-API-Key": "k39-voice-key"})
+    assert r.status_code == 200, r.text
+    assert spy.calls == [{"message": "我很累", "user_id": "",
+                          "deep_night": True}], \
+        "深夜语音轮必须与文本轮同源同判（改前此处 deep_night=False）"
+
+
+def test_stream_voice_request_deep_night_reaches_process(monkeypatch,
+                                                         fast_stream):
+    """真实链路（POST /api/chat/stream + message_type=voice）：同口径。"""
+    import src.main as m
+    from src.security.auth import AuthHandler, set_auth_handler
+
+    monkeypatch.setenv("API_KEYS", "k39-voice-key")
+    set_auth_handler(AuthHandler())
+    spy = _voice_spy()
+    monkeypatch.setattr(m, "handler", spy)
+    monkeypatch.setattr(m, "member_dao", _MockMemberDAO())
+
+    req = m.ChatRequest(message="", user_id="u_voice", message_type="voice",
+                        voice_text="我很累", deep_night=True)
+    types = [e.get("type") for e in _stream_events(m, req)]
+    assert "done" in types, f"流式链路未正常收尾：{types}"
+    assert spy.calls == [{"message": "我很累", "user_id": "",
+                          "deep_night": True}]

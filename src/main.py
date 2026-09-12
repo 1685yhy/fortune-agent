@@ -1627,15 +1627,21 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
     try:
         loop = asyncio.get_event_loop()
         if req.message_type == "voice":
+            # k39 审查 C2 同类修复：deep_night 透传（改前语音轮同样丢该标记）
             reply = await loop.run_in_executor(
-                None, handler._handle_voice, req.voice_text, downgraded
+                None, lambda: handler._handle_voice(
+                    req.voice_text, downgraded,
+                    deep_night=bool(getattr(req, "deep_night", False)))
             )
         elif req.message_type == "image":
             # L5-2（I-3）：降级标记透传 → CV 报告走本地精简文案（不调付费报告）
             # k39 S4：user_id 透传 → 图片轮次落库（历史可渲染 + 清理识别引用）
+            # k39 审查 C2：deep_night 同样透传（与文本轮同源同判）→ 深夜图片轮
+            # temp=1 + 不进 L2；此前只透传 user_id，图片轮的深夜标记被丢弃。
             reply = await loop.run_in_executor(
                 None, lambda: handler._handle_image(
-                    req.image_url, req.message, downgraded, user_id=req.user_id)
+                    req.image_url, req.message, downgraded, user_id=req.user_id,
+                    deep_night=bool(getattr(req, "deep_night", False)))
             )
         else:
             # 同步 LLM 调用放线程池：事件循环不阻塞，请求超时中间件才可生效

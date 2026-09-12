@@ -494,15 +494,111 @@ def test_calibrate_clean_run_reports_zero_error_rate(tmp_path, monkeypatch):
     assert meta["stats"]["n"] == len(meta["strong_attempted"])
 
 
+_NET_GUARD_SRC = '''\
+"""测试注入的网络守卫（sitecustomize）：任何联网尝试 → 拒绝 + 留痕。
+
+k39 审查 I2：用例必须能**证明**"没有发起任何网络调用"，而不是靠"没配 key
+所以大概不会跑"的推断。守卫在解释器启动时挂上（PYTHONPATH + sitecustomize），
+覆盖 socket.connect / create_connection / getaddrinfo 三条必经路径。
+"""
+import os
+import socket
+
+_log = os.environ.get("NET_GUARD_LOG", "")
+
+
+def _deny(what):
+    if _log:
+        try:
+            with open(_log, "a", encoding="utf-8") as f:
+                f.write(what + "\\n")
+        except Exception:
+            pass
+    raise RuntimeError("网络访问在测试中被禁止：" + what)
+
+
+def _connect(self, *a, **kw):
+    _deny("socket.connect")
+
+
+def _connect_ex(self, *a, **kw):
+    _deny("socket.connect_ex")
+
+
+def _create_connection(*a, **kw):
+    _deny("socket.create_connection")
+
+
+def _getaddrinfo(*a, **kw):
+    _deny("socket.getaddrinfo")
+
+
+socket.socket.connect = _connect
+socket.socket.connect_ex = _connect_ex
+socket.create_connection = _create_connection
+socket.getaddrinfo = _getaddrinfo
+'''
+
+
+def _with_net_guard(tmp_path, env):
+    """给子进程环境注入网络守卫，返回 (env, 留痕文件路径)。"""
+    import os
+    guard_dir = tmp_path / "netguard"
+    guard_dir.mkdir(exist_ok=True)
+    (guard_dir / "sitecustomize.py").write_text(_NET_GUARD_SRC, encoding="utf-8")
+    log = tmp_path / "netguard.log"
+    env = dict(env)
+    env["NET_GUARD_LOG"] = str(log)
+    existing = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(guard_dir) + (os.pathsep + existing if existing else "")
+    return env, log
+
+
+def _run_guard(proc_cmd, tmp_path, env):
+    """跑一个子进程（带守卫）并返回 (CompletedProcess, 留痕文本)。"""
+    env, log = _with_net_guard(tmp_path, env)
+    proc = subprocess.run(proc_cmd, capture_output=True, text=True,
+                          cwd=str(_REPO), env=env)
+    return proc, (log.read_text(encoding="utf-8") if log.exists() else "")
+
+
 def test_calibrate_cli_refuses_to_run_without_key(tmp_path):
-    """非 dry-run 且无 key → 明确退出码 2（不静默、不误跑付费调用）。"""
+    """非 dry-run 且无 key → 明确退出码 2（不静默、不误跑付费调用、**零网络**）。
+
+    k39 审查 I2（改前缺陷）：本用例只剔除了 `ZHIPU_API_KEY`，**没剔
+    `CALIB_JUDGE_API_KEY`** —— 而脚本的 key 优先级是
+    `--api-key > CALIB_JUDGE_API_KEY > ZHIPU_API_KEY`。控制方按报告指引在自己的
+    shell 里导出 `CALIB_JUDGE_API_KEY` 后跑测试套 → 本用例的子进程拿到 key、
+    非 dry-run 启动 → **真调 20 次付费 glm-4-plus**（违反"测试一律免费
+    glm-4-flash"纪律、产生费用、并以断言失败告终）。
+    改后：两把 key 都剔除，且断言"没有发起任何网络调用"（socket 守卫实证，
+    见 _NET_GUARD_SRC / test_net_guard_actually_blocks）。
+    """
     import os
     run_dir = _synthetic_run_dir(tmp_path)
     out = tmp_path / "out2"
-    env = {k: v for k, v in os.environ.items() if k != "ZHIPU_API_KEY"}
-    proc = subprocess.run(
+    env = {k: v for k, v in os.environ.items()
+           if k not in ("ZHIPU_API_KEY", "CALIB_JUDGE_API_KEY")}
+    proc, guard_log = _run_guard(
         [sys.executable, str(_EVAL_DIR / "judge_calibrate.py"),
          "--run", str(run_dir), "--out", str(out)],
-        capture_output=True, text=True, cwd=str(_REPO), env=env)
-    assert proc.returncode == 2
+        tmp_path, env)
+    assert proc.returncode == 2, (proc.returncode, proc.stderr[-800:])
+    # 提示里如实告知两个可注入的 key（口径不变）
+    assert "CALIB_JUDGE_API_KEY" in (proc.stderr + proc.stdout)
     assert "ZHIPU_API_KEY" in (proc.stderr + proc.stdout)
+    assert guard_log == "", f"无 key 路径必须零网络调用，实际发起了：{guard_log}"
+    # 未产出任何产物（没跑到统计/报告阶段）
+    assert not (out / "meta.json").exists()
+
+
+def test_net_guard_actually_blocks(tmp_path):
+    """守卫自证：真去联网的子进程会被拒绝并留痕（防"守卫失效 → 假绿"）。"""
+    import os
+    proc, guard_log = _run_guard(
+        [sys.executable, "-c",
+         "import socket; socket.create_connection(('127.0.0.1', 9), timeout=0.2)"],
+        tmp_path, dict(os.environ))
+    assert proc.returncode != 0
+    assert "网络访问在测试中被禁止" in proc.stderr
+    assert "socket.create_connection" in guard_log
