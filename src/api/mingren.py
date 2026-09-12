@@ -25,7 +25,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Path as FPath, Query
 
 from src.config import is_experience_mode
-from src.engines.bazi import BaziEngine, DIZHI, TIANGAN
+from src.engines.bazi import BaziEngine
 from src.security.auth import require_user
 
 from .birth_contract import normalize_gender, normalize_hour
@@ -190,20 +190,33 @@ def _serialize_chart(year: int, month: int, day: int, birth: dict) -> dict:
     engine = _bazi_engine
     if engine is None:
         return None
+    hour_note = None
     sc = _parse_shichen(birth.get("shichen"))
     if sc:
         hour, minute = sc
         shichen_label = "%s时" % _SHICHEN_RE.match(str(birth["shichen"]).strip()).group(1)
     else:
-        hour, minute = normalize_hour(birth.get("hour")), 0  # 缺失 → 12（午时）
+        if birth.get("hour") is not None:
+            # 无（可解析）时辰但有小时值：沿用既有 normalize_hour 口径，非推演
+            hour, minute = normalize_hour(birth.get("hour")), 0
+        else:
+            # k32（A15）死常量守卫 + 假时辰封口：_DEFAULT_HOUR 不再是死常量
+            # （默认午时由此单一常量给出），且时辰**缺失或解析失败**（库内脏值/
+            # 新形态）一律标注 hour_note——旧代码仅在 shichen/hour 双 None 时
+            # 标注，脏 shichen 会被静默按午时呈现（假时辰）。
+            hour, minute = _DEFAULT_HOUR, 0
+            hour_note = _HOUR_NOTE
         shichen_label = SHICHEN_NAME.get(hour, "")
     gender = normalize_gender(birth.get("gender"))
     r = engine.calculate(year, month, day, hour, minute, "北京", gender)
 
     day_gan = r.bazi[2][0]
-    # 空亡（日柱定旬，旬头支 index=(zhi_idx-gan_idx)%12，空亡为其前两支）
-    dg_idx = (DIZHI.index(r.bazi[2][1]) - TIANGAN.index(r.bazi[2][0])) % 12
-    kong_pair = {DIZHI[(dg_idx - 2) % 12], DIZHI[(dg_idx - 1) % 12]}
+    # 空亡（k32 A15）：改读引擎字段 kongwang_day（= 日柱旬空亡，问真顶层
+    # kongwang 口径，BaziEngine XUN_KONG 单一事实源）——旧代码在此手推旬头
+    # (zhi_idx-gan_idx)%12 再取前两支，与引擎表重复实现（两实现 60 甲子逐一
+    # 等价，见 tests/test_k32_mingren_minors.py 的等价性断言）。
+    # 判定语义不变：某柱地支落日柱旬空亡集合 → 该柱 kong=地支，否则空串。
+    kong_day = set(str(r.kongwang_day or ""))
     # 神煞归柱（shensha_detail.source 形如「日柱」「年月柱」「年月日时柱」）
     shensha_of_pillar = [[] for _ in range(4)]
     for item in r.shensha_detail or []:
@@ -224,7 +237,7 @@ def _serialize_chart(year: int, month: int, day: int, birth: dict) -> dict:
             "nayin": r.nayin[idx] if idx < len(r.nayin) else "",
             "xingyun": (r.wuxing_energy.get("changsheng", {})
                         .get(("年月日时")[idx], "")),
-            "kong": gz[1] if gz[1] in kong_pair else "",
+            "kong": gz[1] if gz[1] in kong_day else "",
             "shensha": shensha_of_pillar[idx],
         }
         for idx, (name, gz, ss) in enumerate(
@@ -285,8 +298,8 @@ def _serialize_chart(year: int, month: int, day: int, birth: dict) -> dict:
         "dayun": dayun,
         "meta": meta,
     }
-    if birth.get("shichen") is None and birth.get("hour") is None:
-        chart["hour_note"] = _HOUR_NOTE
+    if hour_note:
+        chart["hour_note"] = hour_note
     return chart
 
 
@@ -343,7 +356,13 @@ def _build_timeline(item: dict, chart: dict) -> list:
                 "status": status,
                 "label": label,
                 "dayun": dayun_info,
-                "events": [{"year": y, "event": t} for y, t in evs],
+                # k32（A15）：事件带组内序号 idx —— 同一年可有多条事件（库内
+                # 实例：忽必烈 1259年 ×2、朱元璋 1370年 ×2、隆庆 1572年 ×2、
+                # 海瑞 1566年 ×2），前端列表 wx:key="year" 会出现重复键告警；
+                # idx 组内唯一，前端改 wx:key="idx" 即可（miniprogram 由
+                # k34/frontend 批接线，本批只提供稳定唯一键；year/event 不变）。
+                "events": [{"year": y, "event": t, "idx": i}
+                           for i, (y, t) in enumerate(evs)],
             })
 
     before = [(y, t) for y, t in events if y < first["start_year"]]

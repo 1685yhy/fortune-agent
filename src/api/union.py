@@ -142,12 +142,17 @@ async def union_match(req: UnionRequest, uid: str = Depends(require_user)):
     # 双方真实排盘（时辰/出生地缺失由契约层归一为默认+结果标注，不阻断）
     # k29：真太阳时开关按人透传（R2-4 契约字段此前在合盘 REST 侧被丢弃 →
     # 引擎缺省恒开，前端关闭/档案关在合盘页无效，与 paipan/hehun 主链口径分裂）。
-    # 口径对齐：api/paipan.py（person.solarTime 第 3 位置参）与
-    # api/hehun.py:108-111（daylightSaving/lateChildHour/solarTime 同序透传）；
-    # 本端点只补 solarTime（前端唯一有的开关），另两个字段无前端入口、暂留台账。
+    # k32（A10）：契约三开关收口——daylightSaving/lateChildHour 一并透传（此前
+    # 只补 solarTime，另两个字段即使调用方传了也被丢弃）。口径对齐
+    # api/paipan.py 与 api/hehun.py:108-111（同序同义；BaziInput 契约来自 hehun，
+    # 缺省值 = 引擎缺省 → 旧调用方零影响）。
     r1 = _bazi_engine.calculate(a.year, a.month, a.day, a.hour, a.minute, a.city, a.gender,
+                                daylight_saving=a.daylightSaving,
+                                late_child_hour=a.lateChildHour,
                                 solar_time=a.solarTime)
     r2 = _bazi_engine.calculate(b.year, b.month, b.day, b.hour, b.minute, b.city, b.gender,
+                                daylight_saving=b.daylightSaving,
+                                late_child_hour=b.lateChildHour,
                                 solar_time=b.solarTime)
 
     hehun_result = _hehun_engine.match(r1, r2)
