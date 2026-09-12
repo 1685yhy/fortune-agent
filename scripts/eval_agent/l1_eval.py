@@ -78,20 +78,28 @@ def _params_pass(expected_params: dict, actual_params, match: str) -> bool:
     return all(k in actual_params for k in expected_params)
 
 
-def compare_expected(expected_tools: list, actual_calls: list) -> tuple:
+def compare_expected(expected_tools: list, actual_calls: list,
+                     allow_tools: list = None) -> tuple:
     """顺序敏感比对。返回 (tool_select_ok, params_ok, detail)。
 
     - 期望空序列（no_tool 反例桶 与 引擎域 expected_tools=[] 双语义同断言）：
       实际零调用 = 通过；有调用 = 工具选择失败（detail 列出实际序列）
+      —— 例外（k38 双通道契约）：任务声明 allow_tools 时，实际调用序列**全部**
+      落在 allow_tools 内视为等价通过（引擎域同时存在「引擎意图路径」与
+      「LLM 工具路径」两条合法通道，T028/T038 实测；只放行声明过的 cap_id，
+      未声明工具仍判失败——不放宽判别力）
     - 期望非空（工具域）：工具名序列逐位全等 = 工具选择对；参数按 match 三档
       逐位比对 = 参数提取对
     """
     expected_names = [e["name"] for e in expected_tools]
     actual_names = [c[0] for c in actual_calls]
     if not expected_tools:
-        ok = len(actual_calls) == 0
-        if ok:
+        if not actual_calls:
             return True, True, ""
+        allowed = list(allow_tools or [])
+        if allowed and all(n in allowed for n in actual_names):
+            return True, True, (
+                f"双通道等价通过（声明通道 {allowed}，实际 {actual_names}）")
         return False, False, (
             f"期望零工具调用，实际 {len(actual_calls)} 次: {actual_names}")
     if actual_names != expected_names:
@@ -530,8 +538,9 @@ def _run_one_task(task: dict, R: dict, model_route: str, keep_tmp: bool) -> dict
 
     result["actual_by_turn"] = recorder.turns()
     result["actual_calls"] = recorder.flat_calls()
-    tool_ok, params_ok, detail = compare_expected(task["expected_tools"],
-                                                  result["actual_calls"])
+    tool_ok, params_ok, detail = compare_expected(
+        task["expected_tools"], result["actual_calls"],
+        allow_tools=task.get("allow_tools") or [])
     if result["exception"]:
         tool_ok, params_ok = False, False
         detail = (detail + "；" if detail else "") + f"异常: {result['exception']}"

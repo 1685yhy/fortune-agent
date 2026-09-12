@@ -173,13 +173,65 @@ def default_targets(now: Optional[datetime] = None) -> Tuple[int, int]:
     return now.year, now.month
 
 
-def parse_target_year(raw) -> Optional[int]:
-    """目标年份合法化：1900-2300 的整数 → int；其余 → None（调用方点名 year）。"""
+# T018（k38，唯一真回归）：相对年份词 → 与「今年」的差值。长词必须排在短词
+# 之前（大后年 先于 后年），扫描取首个命中。词表只收单义相对年（不含「跨年/
+# 往年/来年」类歧义词——宁缺勿错，宁缺由调用方点名 year）。
+_RELATIVE_YEAR_DELTAS = (
+    ("大后年", 3), ("大前年", -3),
+    ("后年", 2), ("前年", -2),
+    ("明年", 1), ("去年", -1),
+    ("今年", 0), ("本年", 0), ("当年", 0),
+)
+# k38-M1（审查实测）：裸子串会把非年份词切出相对年——「目**前年**初」「当**前年**度」
+# 命中「前年」→ 答 2024；「然**后年**纪也不小了」命中「后年」→ 答 2028。
+# 按词给左边界噪声字排除（只排除构成噪声词的字，不做通用边界——「不然明年」
+# 里的「然」后接「明年」是正常相对年，不能一刀切排除「然」）。
+# 命中该表未列的词 → 无左边界限制（与改前同口径）。
+_RELATIVE_YEAR_NOISE_LB = {
+    "前年": "目当以",   # 目前年（初）/当前年（度）/以前年（度）
+    "后年": "然",       # 然后年（纪也不小了）
+}
+
+
+def relative_year_from_text(text, now: Optional[datetime] = None) -> Optional[int]:
+    """用户原话中的相对年份词 → 四位公历年（明年=今年+1 / 后年=+2 / 去年=-1…）。
+
+    T018 修复：LLM 把「明年」直接丢给工具时不带 year 键（L1 契约缺键即 FAIL），
+    `format_cycle_card` 于是按缺省渲染「今年流年」——回复答 2026 而问题问明年。
+    本函数是「相对年份」的唯一事实源：`parse_target_year`（参数层）+ handler
+    调用层（消息层兜底注入）同源复用，口径一致。
+    无相对词 → None（调用方保持缺省=今年语义，不猜）。
+    k38-M1：左边界噪声词表（_RELATIVE_YEAR_NOISE_LB）排除非年份词切分
+    （目**前年**初/当**前年**度/然**后年**纪），不误折算「当前年度」为 2024。
+    """
+    if not text:
+        return None
+    s = str(text)
+    base = (now or datetime.now()).year
+    for word, delta in _RELATIVE_YEAR_DELTAS:
+        lb = _RELATIVE_YEAR_NOISE_LB.get(word)
+        pat = (r"(?<![" + lb + r"])" + word) if lb else word
+        if re.search(pat, s):
+            return base + delta
+    return None
+
+
+def parse_target_year(raw, now: Optional[datetime] = None) -> Optional[int]:
+    """目标年份合法化：1900-2300 的整数 → int；相对年份词（明年/后年/去年/
+    今年…，T018）→ 按 now（缺省当天）折算 → int；其余 → None（调用方点名 year）。
+
+    相对词是参数层第二形态：LLM 直接写 `year: 明年` 时不再误报「目标年份没看懂」
+    （改前只能四位整数 → 用户被反问 year，工具空转）。
+    """
     try:
         y = int(str(raw).strip())
+        return y if 1900 <= y <= 2300 else None
     except (TypeError, ValueError):
-        return None
-    return y if 1900 <= y <= 2300 else None
+        pass
+    y = relative_year_from_text(raw, now=now)
+    if y is not None and 1900 <= y <= 2300:
+        return y
+    return None
 
 
 def parse_target_month(raw) -> Optional[int]:

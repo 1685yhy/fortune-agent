@@ -226,11 +226,27 @@ def test_birth_plus_paipan_word_still_fast_path_bazi(analyzer, monkeypatch):
     assert calls["n"] == 0
 
 
-def test_zeri_words_without_date_goes_to_ai(analyzer, monkeypatch):
-    """D5：择日词无日期（『下个月搬家 帮我选个日子』）不经快路径，
-    正常走 LLM 分类（mock 返回 zeri）。"""
+def test_zeri_words_without_date_force_route(analyzer, monkeypatch):
+    """k38（T033 修复）：择日意图词 + 场景词（无日期锚）→ 0 LLM 强路由 zeri。
+
+    改前（D5 契约）：无日期锚的择日请求「留给 LLM 分类」（calls==1），LLM 实际
+    判成 calendar →「请先设置八字」建档引导兜底（T033 实锤 L1 零调用 + L2 关键
+    文案全灭）；改后：意图词 + 场景词双条件确定性强路由（0 LLM），无日期分支由
+    `_handle_zeri` 确定性返回「请告诉我您想查询的日期和用途」（T033 期望文案）。
+    依据：归因报告 §1 T029-T037 行「放开无日期锚（命中择日意图词 + 场景词即
+    intent="zeri"——_handle_zeri 无日期分支正好确定性返回 T033 期望文案，零风险）」。
+    """
     calls = _mock_completion("zeri", monkeypatch)
     result = analyzer.analyze("下个月搬家 帮我选个日子")
+    assert result.intent == "zeri"
+    assert calls["n"] == 0  # k38 强路由：0 LLM（原 D5 契约 1 次）
+
+
+def test_zeri_intent_word_alone_still_goes_to_ai(analyzer, monkeypatch):
+    """k38 防误伤：只有择日意图词、**无场景词无日期锚**（「帮我挑个好日子」）
+    仍走 LLM 分类——强路由的第二条件不得省（T033 反例保护面）。"""
+    calls = _mock_completion("zeri", monkeypatch)
+    result = analyzer.analyze("帮我挑个好日子")
     assert result.intent == "zeri"
     assert calls["n"] == 1
 

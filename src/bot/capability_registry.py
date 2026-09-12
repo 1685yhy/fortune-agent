@@ -84,7 +84,7 @@ _TOOL_PARAMS_SCHEMAS = {
                           "birth": {"type": "string",
                                     "description": "birth：出生信息自然语言描述，如：1990年5月20日 午时 北京 男"},
                           "year": {"type": "string",
-                                   "description": "year：目标年份（可选，默认今年），如：2027"},
+                                   "description": "year：目标年份（可选，默认今年）——用户说相对年份时请先折算为四位年份再传入（明年=今年+1、后年=今年+2、去年=今年-1），如：明年 → 2027"},
                           "month": {"type": "string",
                                     "description": "month：目标月份（可选，默认本月，1-12），如：6"},
                           "focus": {"type": "string",
