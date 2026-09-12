@@ -104,6 +104,94 @@ class TestProbeObservedForms:
         assert strip_tool_calls(text).strip() == ""
 
 
+class TestProseParamProductionForm:
+    """形态 D（真实生产形态）：裸名独占一行 + **末行**散文参数。
+
+    k33 复审回归修复：真实 glm-4-flash 冒烟（`test_live_glm_zeri_output_parses`
+    的原始输出）**5/5 采样**均为该形态（`择日\n搬家,2026年9月15日` 系）——
+    I1 一度整体取消形态 D → 真实冒烟红、D3 zeri 场景继续失败。
+    复审裁定「生产正确性优先」：以硬护栏放行（名字精确命中注册表 + 参数可解析 +
+    块在消息末尾 + 结构唯一），不再靠"形态取消"。
+    """
+
+    @pytest.mark.parametrize("text,params", [
+        # 真实冒烟实录（复审 3 次跑 + 探针 5 采样实测原文，逐字）
+        ("择日\n搬家,2026年9月15日", "搬家,2026年9月15日"),
+        ("择日\n搬家, 2026-09-15", "搬家, 2026-09-15"),
+        ("择日\n搬家,2026-09-15", "搬家,2026-09-15"),
+        # 尾部换行/空白不影响
+        ("择日\n搬家,2026年9月15日\n", "搬家,2026年9月15日"),
+    ])
+    def test_live_observed_forms_parse(self, text, params):
+        calls = parse_tool_calls(text)
+        assert [(c.name, c.params_obj) for c in calls] == \
+            [("择日", {"text": params})], f"生产形态必须可解析：{text!r}"
+        # 载荷绝不落可见文本（工具块整体剥净）
+        assert strip_tool_calls(text).strip() == ""
+
+    def test_opener_prefix_kept_for_user(self):
+        """块前的模型开场白保留给用户（只切「名字 + 参数行」）。"""
+        text = "好的，我先看看。\n\n择日\n开业,2026年8月20日"
+        assert [c.name for c in parse_tool_calls(text)] == ["择日"]
+        assert strip_tool_calls(text).strip() == "好的，我先看看。"
+
+    @pytest.mark.parametrize("text", [
+        # 名字非注册工具（行首锚定 + 精确命中，不做后缀匹配）
+        "天气\n2026年9月15日",
+        "帮我看看\n搬家,2026年9月15日",
+        # 【】包裹 + 散文参数：括号形态只配 JSON 载荷（形态 A/B）
+        "【择日】\n搬家,2026年9月15日",
+        # 参数带句末标点 = 散文句
+        "择日\n搬家,2026年9月15日。",
+        # 参数行不是消息末行（其后还有正文）
+        "择日\n搬家,2026年9月15日\n以上，请确认。",
+        "搜索\n关键词: 黄金价格\n以上。",
+        "排盘\n姓名,1990年3月5日\n性别,男",
+        # 参数为引号残块（JSON 残块由既有 A1 裸格式层负责，不在此列）
+        '择日\n"搬家"',
+        # 参数纯标点噪声（不可解析）
+        "择日\n。。。",
+        # 名字不在块起点（正文行首是别的字，名字在行中）
+        "建议你用择日\n搬家,2026年9月15日",
+    ])
+    def test_prose_form_guardrails_block(self, text):
+        """形态 D 的硬护栏：任一不满足 → 不解析、不剥字。"""
+        assert parse_tool_calls(text) == [], f"护栏失效：{text!r}"
+        assert strip_tool_calls(text) == text.strip()
+
+    def test_only_one_block_at_message_end(self):
+        """形态 D 结构唯一（只有一行能是"最后一行"）→ 不存在多块吞正文。"""
+        text = "择日\n搬家,2026年9月15日\n搜索\n黄金价格"
+        calls = parse_tool_calls(text)
+        assert [c.name for c in calls] != ["择日", "搜索"]
+
+
+class TestReleasedTradeoff:
+    """复审裁定的**放行面**（前后对照矩阵里"被放行"的那一行，非静默回归）。
+
+    `排盘\n姓名,1990年3月5日`（审查 I1 反例 d）与真实生产形态
+    `择日\n搬家,2026年9月15日` **逐字节同构**（工具名独占行 + 逗号短语末行）：
+    任何能拦前者而放行后者的规则都只能靠"标签词黑名单"这类语义猜测，
+    会在真实流量换个工具/换个措辞时翻车。复审裁定：生产正确性优先
+    （A3 的目的就是让真实 GLM 工具形态能执行），故本形态**放行**，
+    同时用四条硬护栏把误判面压到最小（见 TestProseParamProductionForm）。
+    """
+
+    def test_structurally_identical_counterexample_released(self):
+        text = "排盘\n姓名,1990年3月5日"
+        assert [c.name for c in parse_tool_calls(text)] == ["排盘"]
+        assert strip_tool_calls(text).strip() == ""
+
+    def test_label_value_form_released(self):
+        """同族放行：`搜索\\n关键词: 黄金价格`（末行、无后续正文）与生产形态同构。
+
+        「词条: 值」这一行本身**不是**判别信号——真实参数行同样可能带冒号
+        （如 `择日\\n场景: 搬家,2026年9月15日`），用冒号拦会误伤生产流量。
+        """
+        text = "搜索\n关键词: 黄金价格"
+        assert [c.name for c in parse_tool_calls(text)] == ["搜索"]
+
+
 class TestAuditCounterExamples:
     """k33 审查 I1 反例集（**改回旧实现必失败**）。
 
@@ -137,19 +225,16 @@ class TestAuditCounterExamples:
         assert strip_tool_calls(text) == text.strip()
 
     @pytest.mark.parametrize("text", [
-        # ④ 散文参数行（旧版 → ['搜索']/['排盘']）——与表单式正文不可区分
+        # ④ 表单式正文行（旧版 → ['搜索']/['排盘']）——其中「名字独占行 + 单行短句」
+        #    与真实生产形态同构者由 TestReleasedTradeoff 显式放行；本组锁"仍拦"的面：
+        #    参数行带后续正文（非消息末行）→ 拦（复审护栏）
         '搜索\n关键词: 黄金价格\n以上。',
-        '排盘\n姓名,1990年3月5日',
         '排盘\n姓名,1990年3月5日\n性别,男',
-        '择日\n搬家,2026年9月15日',
-        '好的，我先看看。\n\n择日\n开业,2026年8月20日',
+        # 名字与参数同行粘连（非"名字独占一行"）→ 拦
+        '择日 搬家,2026年9月15日',
     ])
     def test_prose_param_line_not_tool_call(self, text):
-        """裸名 + 自然语言参数行与正文结构不可区分 → 整体取消该形态。
-
-        取舍（已请控制方裁定方向）：宁可漏判（模型该调工具时走澄清话术），
-        不可误判（叙述文本被真实执行 + 正文被吞）。
-        """
+        """形态 D 之外/护栏不满足的散文行仍不触发（复审后仍拦的面）。"""
         assert parse_tool_calls(text) == []
         assert strip_tool_calls(text) == text.strip()
 
