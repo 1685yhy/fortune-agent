@@ -139,6 +139,12 @@ def check_task(t, out):
             if len(t.get("expected_tools") or []) > 0:
                 out.append("[%s] allow_tools 仅对 expected_tools=[] 的任务有意义"
                            "（非空期望走严格序列比对，禁止开旁路）" % t["id"])
+            # k38-M4：与 no_tool 互斥——no_tool=true 是「期望零调用」反例桶，
+            # 声明 allow_tools 会把该桶的判别力放开（现有 12 条 no_tool 反例
+            # 任务将来可被顺手加键绕过）。
+            if t.get("no_tool") is True:
+                out.append("[%s] no_tool=true 时不得声明 allow_tools"
+                           "（期望零调用桶禁止开旁路）" % t["id"])
     # reply_checks
     rc = t["reply_checks"]
     if not isinstance(rc, dict):

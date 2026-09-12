@@ -182,6 +182,15 @@ _RELATIVE_YEAR_DELTAS = (
     ("明年", 1), ("去年", -1),
     ("今年", 0), ("本年", 0), ("当年", 0),
 )
+# k38-M1（审查实测）：裸子串会把非年份词切出相对年——「目**前年**初」「当**前年**度」
+# 命中「前年」→ 答 2024；「然**后年**纪也不小了」命中「后年」→ 答 2028。
+# 按词给左边界噪声字排除（只排除构成噪声词的字，不做通用边界——「不然明年」
+# 里的「然」后接「明年」是正常相对年，不能一刀切排除「然」）。
+# 命中该表未列的词 → 无左边界限制（与改前同口径）。
+_RELATIVE_YEAR_NOISE_LB = {
+    "前年": "目当以",   # 目前年（初）/当前年（度）/以前年（度）
+    "后年": "然",       # 然后年（纪也不小了）
+}
 
 
 def relative_year_from_text(text, now: Optional[datetime] = None) -> Optional[int]:
@@ -192,13 +201,17 @@ def relative_year_from_text(text, now: Optional[datetime] = None) -> Optional[in
     本函数是「相对年份」的唯一事实源：`parse_target_year`（参数层）+ handler
     调用层（消息层兜底注入）同源复用，口径一致。
     无相对词 → None（调用方保持缺省=今年语义，不猜）。
+    k38-M1：左边界噪声词表（_RELATIVE_YEAR_NOISE_LB）排除非年份词切分
+    （目**前年**初/当**前年**度/然**后年**纪），不误折算「当前年度」为 2024。
     """
     if not text:
         return None
     s = str(text)
     base = (now or datetime.now()).year
     for word, delta in _RELATIVE_YEAR_DELTAS:
-        if word in s:
+        lb = _RELATIVE_YEAR_NOISE_LB.get(word)
+        pat = (r"(?<![" + lb + r"])" + word) if lb else word
+        if re.search(pat, s):
             return base + delta
     return None
 

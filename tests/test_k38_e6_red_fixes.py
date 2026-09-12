@@ -89,6 +89,34 @@ def test_t018_relative_year_from_text_all_forms():
     assert cycle.relative_year_from_text(None, now) is None
 
 
+@pytest.mark.parametrize("text", [
+    "目前年初流年运势如何",          # 「目前年」切出「前年」→ 改前 2024
+    "当前年度的流月运势",            # 「当前年」切出「前年」→ 改前 2024
+    "当前年流年运势",
+    "然后年纪也不小了，看下流年运势",  # 「然后年」切出「后年」→ 改前 2028
+    "以前年度的流年对比",            # 「以前年」切出「前年」→ 改前 2024
+])
+def test_k38_m1_relative_year_noise_words_not_converted(text):
+    """M-1（审查实测）：裸子串匹配把非年份词切出的相对年误折算——「目前年初」
+    「当前年度」命中「前年」→ 答 2024；「然后年纪也不小了」命中「后年」→ 答 2028
+    （经 `_with_relative_cycle_year` 注入后用户问「当前年度」拿到 2024 的分析）。
+    左边界噪声词表排除后 → None（调用方保持缺省=今年）。"""
+    now = datetime(2026, 9, 12)
+    assert cycle.relative_year_from_text(text, now) is None, text
+
+
+def test_k38_m1_noise_table_does_not_overblock_real_words():
+    """M-1 反向：噪声字只作用于构成噪声词的那一格——「不然明年」里的「然」
+    后接「明年」是正常相对年（不得被一刀切排除左边界）。"""
+    now = datetime(2026, 9, 12)
+    assert cycle.relative_year_from_text("不然明年就没有机会了", now) == 2027
+    assert cycle.relative_year_from_text("目前看，明年运势如何", now) == 2027
+    assert cycle.relative_year_from_text("我以前看过前年的流年", now) == 2024
+    # 既有正向口径零回归（与 test_t018_relative_year_from_text_all_forms 同源）
+    assert cycle.relative_year_from_text("帮我看看明年的流年运势", now) == 2027
+    assert cycle.relative_year_from_text("后年运势", now) == 2028
+
+
 def test_t018_parse_target_year_accepts_relative_words():
     """参数层：year 写成相对词不再误报「目标年份没看懂」；四位整数口径不变。"""
     now = datetime(2026, 9, 12)
@@ -229,6 +257,70 @@ def test_zeri_unrelated_questions_still_go_to_llm(analyzer, monkeypatch):
     calls = _mock_completion("free_chat", monkeypatch)
     assert analyzer.analyze("你好呀，今天心情不错").intent is None
     assert calls["n"] == 1
+
+
+@pytest.mark.parametrize("text", [
+    "2026年10月1日搬家，哪个日子好",
+    "2026年10月搬家，请问哪个日子更合适",
+    "2026年10月1日提车，哪个日子合适",
+])
+def test_k38_m2_which_day_not_meta_blocked(analyzer, monkeypatch, text):
+    """M-2（审查实测）：`_ZERI_FORCE_RE` 的「（这个|那个|哪个）日子」是死词——
+    整段强路由被 `_FORCE_META_RE`（含「哪个」）先拦（元门控本意是比较类问句）。
+    豁免紧跟「日子」的「哪个」后 → 择日措辞正常强路由 zeri（0 LLM）。"""
+    calls = _mock_completion("free_chat", monkeypatch)
+    r = analyzer.analyze(text)
+    assert r.intent == "zeri", text
+    assert calls["n"] == 0
+
+
+def test_k38_m2_meta_gate_still_blocks_comparisons():
+    """M-2 反向（不得放宽）：真·比较类问句仍被元门控拦（不得强路由）——
+    含「哪个」但非「哪个日子」的问句语义零变化。"""
+    assert ma._FORCE_META_RE.search("紫微斗数和八字哪个准")
+    assert ma._FORCE_META_RE.search("2026年10月1日搬家还是10月2日搬家，哪个好")
+    assert not ma._FORCE_META_RE.search("2026年10月1日搬家，哪个日子好")
+    assert not ma._FORCE_META_RE.search("2026年10月1日搬家，选个日子")
+
+
+@pytest.mark.parametrize("text", [
+    "我想换工作，去一家互联网公司怎么样",   # 弱问词 + 误抽实体 '一家互联网'
+    "我想换工作去银行，怎么样",            # 弱问词 + 跨动词短语误抽 '换工作去银行'
+])
+def test_k38_m3_weak_ask_does_not_yield_to_entity_guard(analyzer, monkeypatch,
+                                                        text):
+    """M-3（审查实测）：实体守卫只认**强**问词——弱问词（怎么样/如何）让实体
+    抽取的误抽串也触发守卫，把真·择业请求从场景词确定性直达拽进 LLM（且以垃圾串
+    作检索词）。改后：弱问词 + 场景词仍 0 LLM 直达 career_dir（= k38 前行为，零回归）。"""
+    assert ma.match_tool_scene(text) == "career_dir"
+    assert ma._entity_qa_beats_scene(text, "career_dir") is False
+    calls = _mock_completion("free_chat", monkeypatch)
+    r = analyzer.analyze(text)
+    assert r.scene_hint == "career_dir" and r.intent is None
+    assert calls["n"] == 0
+    # 该走的仍走：T104 强问词（靠不靠谱）实体守卫不变
+    assert ma._entity_qa_beats_scene(T104_MSG, "career_dir") is True
+
+
+def test_k38_m5_adverb_is_load_bearing():
+    """M-5（审查实测口径修正）：新 pattern 的注释依据改为实测口径——
+    大运段端点在**现有前后护栏**下本就不命中；真正需要副词**必填**挡住的是
+    「岁时」时间状语变体（尾部护栏不排除「岁时」）。本用例即为该注释的可执行锁：
+    副词写成可选 → 该变体被误判成当前年龄声明；副词必填（现行）→ 不误判。"""
+    import re as _re
+    optional = _re.compile(
+        r"(?<![\d岁到从走换进交止起至后])(?:周岁|虚岁)\s*"
+        r"(?:已经|已|都|也|就|才|快要?|将要|马上)?\s*(\d{1,2})\s*岁"
+        r"(?![\d到至起走换进交止后～~\-–—－])")
+    shipped = l2_eval._AGE_CLAIM_RES[-1]
+    variant = "你正走丙寅大运，虚岁33岁时换入乙丑大运。"
+    assert optional.search(variant), "假设前提：副词可选时该变体会被误判"
+    assert not shipped.search(variant), "现行 pattern（副词必填）不得误判"
+    # 端点在两种写法下都不命中（注释不得再据旧推断声称是它们被挡住）
+    for span in ("当前大运为丙寅，虚岁23岁到32岁这段走丙寅。",
+                 "从虚岁33岁起换入乙丑大运。"):
+        assert not optional.search(span), span
+        assert not shipped.search(span), span
 
 
 def test_zeri_no_date_anchor_returns_deterministic_guide():
@@ -387,6 +479,50 @@ def test_t046_name_word_without_slot_not_hijacked(analyzer, monkeypatch, text):
     assert calls["n"] == 1
 
 
+@pytest.mark.parametrize("text", [
+    "帮我看看《三大队》这部电影怎么样",      # 电影名
+    "《活着》这本书怎么样",                # 书名
+    "帮我看看“易宝支付”这家公司怎么样",      # 公司名（与 k11b 实体 QA 家族正面冲突）
+    "帮我看看「AI」这个词是什么意思",         # 术语
+    "帮我分析一下《三大队》",
+    "《活着》好不好看",
+    "「易宝支付」这家公司分析",
+    "帮我看看“AI”怎么样",
+])
+def test_k38_i1_quoted_title_not_hijacked(analyzer, monkeypatch, text):
+    """不该走（k38-I1 审查实测·产品误伤）：书名号/引号内容**不是姓名槽位**。
+
+    改前 `_XINGMING_QUOTED_RE` 把 `[引号]任意 2-4 字[引号]` 当姓名槽位，叠加
+    `_XINGMING_VERDICT_RE`（怎么样/分析）→ 0 LLM 判 intent=xingming → 对电影名/
+    书名/公司名/术语做五格三才分析（`_handle_xingming` 的姓名抽取正则不认《》，
+    兜底抓「电影」两字当名字）。该分支对 T046 目标句不是必需（`_XINGMING_NEAR_RE`
+    单独可命中），已删除——本用例即删除后的反例锁。
+    """
+    calls = _mock_completion("free_chat", monkeypatch)
+    r = analyzer.analyze(text)
+    assert r.intent != "xingming", text
+    assert r.scene_hint != "career_dir", text
+    assert calls["n"] == 1
+
+
+def test_k38_i1_quoted_branch_removed_from_source():
+    """结构性锁：引号/书名号分支已从模块删除（防回归时又被加回）。"""
+    assert not hasattr(ma, "_XINGMING_QUOTED_RE")
+    assert "_XINGMING_QUOTED_RE" not in (
+        PROJECT_DIR / "src" / "engines" / "message_analyzer.py"
+    ).read_text(encoding="utf-8")
+
+
+def test_k38_i1_quoted_name_with_name_word_still_routes(analyzer, monkeypatch):
+    """该走的仍走：引号姓名**带「名字」槽位**（T046 形态）照常强路由 xingming。"""
+    calls = _mock_completion("advisor", monkeypatch)
+    for text in ("帮我看看『李沐宸』这个名字怎么样",
+                 "帮我看看「张伟」这个名字好不好",
+                 "「李小明」这个名字的含义是什么"):
+        assert analyzer.analyze(text).intent == "xingming", text
+    assert calls["n"] == 0
+
+
 def test_t046_naming_requests_not_hijacked(analyzer, monkeypatch):
     """不该走：起名/改名动作族仍走 naming 工具场景链（要候选名，不是五格分析）。"""
     calls = _mock_completion("free_chat", monkeypatch)
@@ -513,24 +649,111 @@ def test_t076_handler_guard_hehun_to_advisor():
                                emotion_label=None, intent=intent)
 
     a1 = _a("hehun")
-    h._redirect_single_marriage_hehun(a1, "帮我看看我的婚姻状况")
+    h._redirect_single_marriage(a1, "帮我看看我的婚姻状况")
     assert a1.intent == "advisor"
     # 不该走 ①：双人语境 → 保持 hehun
     a2 = _a("hehun")
-    h._redirect_single_marriage_hehun(a2, "我和TA合不合")
+    h._redirect_single_marriage(a2, "我和TA合不合")
     assert a2.intent == "hehun"
-    # 不该走 ②：非 hehun 意图不动
+    # 不该走 ②：非 hehun/advisor 意图不动
     a3 = _a("bazi")
-    h._redirect_single_marriage_hehun(a3, "帮我看看我的婚姻状况")
+    h._redirect_single_marriage(a3, "帮我看看我的婚姻状况")
     assert a3.intent == "bazi"
     # 不该走 ③：带运势锚 → 不动
     a4 = _a("hehun")
-    h._redirect_single_marriage_hehun(a4, "帮我看看我的婚姻运势")
+    h._redirect_single_marriage(a4, "帮我看看我的婚姻运势")
     assert a4.intent == "hehun"
     # 不该走 ④：非婚姻文本 → 不动
     a5 = _a("hehun")
-    h._redirect_single_marriage_hehun(a5, "帮我合婚")
+    h._redirect_single_marriage(a5, "帮我合婚")
     assert a5.intent == "hehun"
+
+
+def test_k38_i4_handler_guard_birth_marriage_to_bazi():
+    """k38-I4（审查实测）：单人婚姻 + **消息自带生辰** → 改判 bazi（落档路径），
+    不得判 advisor（无档案分支回「请提供你的出生信息」= 与用户刚说的话矛盾，
+    且 persons 零写入）。判定复用 F2 单一事实源 `_extract_partial_birth`。"""
+    from src.engines.message_analyzer import MessageAnalysis
+    h = _bare_handler()
+
+    def _a(intent):
+        return MessageAnalysis(needs_soothe=False, soothe_text="",
+                               emotion_label=None, intent=intent)
+
+    # 该走：完整生辰（analyzer 判 advisor 时 handler 兜底改判 bazi）
+    for intent, text in (("advisor", "1990年5月20日 15:30 北京 男，我的婚姻怎么样"),
+                         ("hehun", "1990年5月20日 15:30 北京 男，看看我的姻缘"),
+                         # 部分生辰（只给年份/年龄）→ 同样交 bazi 走 F2 渐进累积
+                         ("advisor", "我1990年生的，我的婚姻怎么样"),
+                         ("advisor", "我36岁了，婚姻怎么样")):
+        a = _a(intent)
+        h._redirect_single_marriage(a, text)
+        assert a.intent == "bazi", (text, a.intent)
+    # 不该走：无双人以外的第二次改判面 —— 双人语境优先
+    a = _a("advisor")
+    h._redirect_single_marriage(a, "我和TA1990年5月20日生的，我的婚姻怎么样")
+    assert a.intent == "advisor"
+    # 不该走：带运势锚不在此路由内（T022 现状回归）
+    a = _a("advisor")
+    h._redirect_single_marriage(a, "1990年5月20日 15:30 北京 男，我的婚姻运势")
+    assert a.intent == "advisor"
+    # 不该走：无生辰仍是 advisor（T076 建档引导）
+    a = _a("advisor")
+    h._redirect_single_marriage(a, "帮我看看我的婚姻状况")
+    assert a.intent == "advisor"
+
+
+def test_k38_i4_analyzer_birth_marriage_routes_bazi(analyzer, monkeypatch):
+    """k38-I4（analyzer 侧）：含完整生辰的单人婚姻问句 0 LLM 判 bazi（排盘/建档
+    落档路径，与 F2 累积一致），不再判 advisor。改前实测：两条问句均
+    intent=advisor（0 LLM）→ 回「请提供你的出生信息：出生年月日时…」。"""
+    calls = _mock_completion("free_chat", monkeypatch)
+    for text in ("1990年5月20日 15:30 北京 男，我的婚姻怎么样",
+                 "1990年5月20日 15:30 北京 男，看看我的姻缘"):
+        r = analyzer.analyze(text)
+        assert r.intent == "bazi", (text, r.intent)
+    assert calls["n"] == 0            # 确定性，不烧 LLM
+    # 不该走：无生辰的单人婚姻仍 advisor（T076 建档引导，行为不变；仍 0 LLM）
+    r = analyzer.analyze("帮我看看我的婚姻状况")
+    assert r.intent == "advisor" and calls["n"] == 0
+    # 不该走：双人语境不夺路由（合婚场景链）
+    assert analyzer.analyze("男1990年5月20日 15:30 北京，和女1992年10月1日 "
+                            "上海，我们合不合").scene_hint == "hehun"
+    # 不该走：带运势锚的单人婚姻问句不在此路由内（T022 现状回归）——交 LLM
+    # 判（mock 的 free_chat 被尊重：归一为 intent=None，未被确定性改判 advisor）。
+    r = analyzer.analyze("帮我看看我的婚姻运势")
+    assert r.intent is None and r.scene_hint is None
+    assert calls["n"] == 1
+
+
+def _bazi_stub_handler():
+    """object.__new__ 轻量装配 `_handle_bazi` 所需最小属性（只跑纯规则方法体）。"""
+    from unittest.mock import Mock
+    from src.bot.handler import MessageHandler
+    h = object.__new__(MessageHandler)
+    h.engine = Mock()
+    h.llm = Mock()
+    h.dao = Mock()
+    h.retriever = Mock()
+    h.memory = None
+    h.memory_system = None
+    h._downgraded = {}
+    h._analysis_facts = {}
+    h._gender_acks = {}
+    h._try_reuse_chart = Mock(return_value=None)
+    h._get_user_birth_profile = Mock(return_value=None)
+    h._do_bazi_analysis = Mock(return_value="分析结果")
+    return h
+
+
+def test_k38_i4_bazi_path_reaches_analysis():
+    """k38-I4（落档路径实证）：带生辰的婚姻问句进 bazi 处理链 →
+    `_handle_bazi` 直接排盘建档（`_do_bazi_analysis`），不回建档引导。"""
+    h = _bazi_stub_handler()
+    out = h._handle_bazi("1990年5月20日 15:30 北京 男，我的婚姻怎么样", "u1")
+    assert h._do_bazi_analysis.called          # 走排盘/建档落档路径
+    assert out == "分析结果"
+    assert "请提供你的出生信息" not in out      # 不再自相矛盾地要生辰
 
 
 # ================================================================
@@ -603,8 +826,22 @@ def test_t102_new_pattern_does_not_treat_dayun_span_as_claim():
     # 都永远不可能命中，改前断言结构上不可通过）
     ("T011", "天干  丙     癸     乙     辛\n地支  辰     巳     丑     巳\n"
              "📅 大运：8岁庚辰 → 18岁己卯", True),
+    ("T011", "1976年5月13日 10:00 上海 女：年柱丙辰，月柱癸巳，日主乙木，"
+             "当前大运庚寅，2026年流年丙午宜稳中求进。", True),
     ("T011", "天干  庚     辛     乙     甲\n地支  午     巳     酉     申\n"
              "📅 大运：8岁庚辰 → 18岁己卯", False),   # 本人盘（错误覆盖）→ 判失败
+    # k38-I2（审查实测·判别力）：改前 40 字窗口 + 只要求 大运/四柱/流年 任一，
+    # 让「本人档案 1990 覆盖」这一**本任务要抓的错答**通过——本人盘流年丙午 与
+    # 大运庚辰天然只隔 10 字（正确卡面间距 11 字，纯几何上无法用窗口区分），
+    # 故改后 = 年柱丙辰（连续干支或卡面两行形态）**必现** + 本人年柱庚午 **必不现**。
+    # 以下三条即该收紧的反例证明（改前全部 True = 错答通过）。
+    ("T011", "天干 庚 辛 乙 甲\n地支 午 巳 酉 申\n"
+             "2026年流年丙午，当前大运8岁庚辰起运，日主乙木，喜水木调候，"
+             "事业宜稳中求进，忌盲目扩张。", False),    # 审查构造错答 → 判失败
+    ("T011", "🧧 八字命盘\n📅 1990.5.20 15:30 北京 男\n"
+             "天干  庚     辛     乙     甲  \n地支  午     巳     酉     申  \n"
+             "📅 大运：6岁壬午 → 16岁癸未 → 26岁甲申 → 36岁乙酉\n"
+             "📜 四柱：庚午 辛巳 乙酉 甲申", False),     # 本人盘真实卡面 → 判失败
     # T016：产品用「这周」；断言须容忍同义口语（min_len 30）
     ("T016", "嘿，这周运势来啦！2026年9月12日，你的运势有点起起伏伏，"
              "本周宜稳中求进，忌冲动决策、忌大额消费。", True),
@@ -642,6 +879,10 @@ def test_eval_side_assertion_rewrites(tid, reply, expect):
 
     - T011 丙辰 裸子串（结构不可通过）→ 双 lookahead（容忍卡片分行 + 保留
       大运/四柱/流年卡面标记；负例「本人盘」仍判失败）
+      ——k38-I2 再收紧：40 字窗口 + 大运|四柱|流年 任一可被「本人档案覆盖」错答
+      通过（本人盘 流年丙午 与 大运庚辰 隔 10 字 < 窗口；正确卡面间距 11 字，
+      窗口无法二者分割）→ 改为「年柱丙辰必现（连续干支或卡面两行）+ 本人年柱
+      庚午 必不现」，三条错答反例见下
     - T016 contains["本周"] → regex(本周|这周) AND (运势|运程)
     - T044 contains["出生"] → regex(出生|生辰) AND (双方|双人合盘|两人|你俩|八字)
     - T106 contains 去「四柱」（润色/卡面重建路径丢失，非确定性契约）
@@ -696,3 +937,66 @@ def test_task_schema_validation_still_passes():
          str(PROJECT_DIR / "data" / "eval" / "agent_tasks.jsonl")],
         capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+# ================================================================
+# 八、k38 审查（review）四条 Important 的接线锁与 Minor 收敛
+# ================================================================
+
+def test_k38_i3_runner_passes_allow_tools():
+    """k38-I3（审查实测）：门禁路径 `runner._run_attempt` 必须与
+    `l1_eval._run_one_task` **同口径**传入 allow_tools——改前是两参调用，
+    T028/T038 只要任一次尝试走合法工具通道即整任务 failed（`rec["passed"]`
+    取全部尝试），实现者报告「T028/T038 整任务 passed 稳定」不成立。
+
+    不跑运行器（红线：评测 runner 只由控制方复跑）：AST 静态锁定接线 +
+    l1_eval 侧行为实证同口径调用的效果。
+    """
+    import ast
+    import l1_eval
+    src = (PROJECT_DIR / "scripts" / "eval_agent" / "runner.py"
+           ).read_text(encoding="utf-8")
+    calls = [n for n in ast.walk(ast.parse(src))
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+             and n.func.attr == "compare_expected"]
+    assert calls, "runner 必须调用 l1_eval.compare_expected（L1 层）"
+    for c in calls:
+        kws = {k.arg for k in c.keywords}
+        assert "allow_tools" in kws, (
+            "门禁路径必须传 allow_tools（k38-I3）: "
+            + ast.unparse(c))
+        seg = ast.unparse(c)
+        assert "task" in seg and "expected_tools" in seg, seg
+    # 行为面：同口径调用下，T028/T038 的合法工具通道判过（整任务口径可绿）
+    for tid in ("T028", "T038"):
+        t = _eval_task(tid, None)
+        ok, pok, detail = l1_eval.compare_expected(
+            t["expected_tools"], [("zeri", {"text": "搬家,2026年9月15日"})],
+            allow_tools=t.get("allow_tools") or [])
+        assert ok is True and pok is True and "双通道" in detail, (tid, detail)
+
+
+def test_k38_m4_validator_rejects_no_tool_with_allow_tools():
+    """M-4：`no_tool=true`（期望零调用反例桶）不得声明 allow_tools——
+    否则该桶的判别力可被顺手开旁路。"""
+    import subprocess
+    import json as _json
+    import tempfile
+    tid = "T049"                       # no_tool=true 反例桶（期望零调用）
+    t = _eval_task(tid, None)
+    assert t["no_tool"] is True and "allow_tools" not in t
+    bad = dict(t)
+    bad["allow_tools"] = ["zeri"]      # no_tool=true 却开通道 → 必须报错
+    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False,
+                                     encoding="utf-8") as f:
+        for line in (PROJECT_DIR / "data" / "eval" / "agent_tasks.jsonl"
+                     ).read_text(encoding="utf-8").splitlines():
+            obj = _json.loads(line)
+            f.write(_json.dumps(bad if obj["id"] == tid else obj,
+                                ensure_ascii=False) + "\n")
+        path = f.name
+    proc = subprocess.run(
+        [sys.executable, str(_EVAL_DIR / "validate_tasks.py"), path],
+        capture_output=True, text=True, timeout=120)
+    assert proc.returncode != 0 and "不得声明 allow_tools" in proc.stdout, \
+        proc.stdout + proc.stderr

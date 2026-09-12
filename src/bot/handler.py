@@ -1191,19 +1191,33 @@ class MessageHandler:
         return MessageAnalysis(needs_soothe=False, soothe_text="",
                                emotion_label=None, intent=None)
 
-    def _redirect_single_marriage_hehun(self, analysis, msg: str) -> None:
-        """T076（k38）单人婚姻询问 → advisor（就地改判，无返回值）。
+    def _redirect_single_marriage(self, analysis, msg: str) -> None:
+        """T076/k38-I4 单人婚姻询问改判（就地，无返回值）。
 
-        四条件全部成立才改判（缺一不动，见 process() 内注释）：① 意图 = hehun
-        ② 消息含 婚姻/姻缘 ③ 无双人语境 ④ 无运势时间锚。
+        条件全部成立才动（缺一不动，见 process() 内注释）：① 意图 = hehun 或
+        advisor ② 消息含 婚姻/姻缘 ③ 无双人语境 ④ 无运势时间锚。命中后按消息
+        是否自带出生信息分派（判定复用 F2 单一事实源 `_extract_partial_birth`，
+        不重复实现部分信息提取）：
+
+        - **有**（完整或部分）→ bazi：走排盘/建档落档路径（完整信息直接排盘，
+          部分信息走 F2 渐进累积「回显已确认项 + 缺什么要什么」）——修 k38-I4
+          审查实测缺陷：带完整生辰的单人婚姻问句此前判 advisor → 无档案分支回
+          「请提供你的出生信息：出生年月日时…」（用户刚说过）+ persons 零写入。
+        - **无** → advisor：无档案回建档引导「出生年月日时/性别」（T076 断言），
+          有档案走命盘建议（优于 hehun 无双方生辰死胡同）。
+
         拆成独立方法：条件可被单测直接锁定（process() 内联判定不可单测）。
         """
         try:
-            if (analysis is not None and analysis.intent == "hehun"
+            if (analysis is not None
+                    and analysis.intent in ("hehun", "advisor")
                     and _SINGLE_MARRIAGE_RE.search(msg or "")
                     and not _SECOND_PERSON_RE.search(msg or "")
                     and not _SINGLE_MARRIAGE_TIMELINE_RE.search(msg or "")):
-                analysis.intent = "advisor"
+                if self._extract_partial_birth(msg or ""):
+                    analysis.intent = "bazi"
+                else:
+                    analysis.intent = "advisor"
         except Exception:
             pass  # 判定异常 → 保持原意图（不阻断主链）
 
@@ -4332,18 +4346,20 @@ class MessageHandler:
                 _facts = dict(_facts)
                 _facts["subject"] = "self"
                 analysis.facts = _facts
-        # T076（k38）单人婚姻询问不得落 hehun 死胡同（确定性兜底，双保险）：
-        # LLM 意图把「帮我看看我的婚姻状况」判成 hehun（prompt 旧规则「婚姻匹配
-        # → hehun」未区分单/双人）→ `_handle_hehun` 无双方生辰直接吐
-        # 「给我双方生辰即可直接测算」死胡同（T076 实锤）。命中四条件（全部
-        # 同时成立才改判）：① 意图 = hehun ② 消息含 婚姻/姻缘 ③ 无双人语境
-        # （他/她/我们/双方/对象…）④ 无运势时间锚（运势/运程/流年/今年/明年）→
-        # 改判 advisor：无档案 → 建档引导「出生年月日时/出生地/性别」（T076
-        # 断言），有档案 → 命盘建议（优于合婚死胡同）。
+        # T076/k38-I4 单人婚姻询问不得落 hehun/advisor 死胡同（确定性兜底，
+        # 双保险）：LLM 意图把「帮我看看我的婚姻状况」判成 hehun（prompt 旧规则
+        # 「婚姻匹配 → hehun」未区分单/双人）→ `_handle_hehun` 无双方生辰直接吐
+        # 「给我双方生辰即可直接测算」死胡同（T076 实锤）；analyzer 单人婚姻
+        # 强路由判 advisor 时，若消息自带生辰则回「请提供你的出生信息」自相矛盾
+        # （k38-I4 审查实测）→ 有生辰一律改判 bazi（落档路径）。命中四条件（全部
+        # 同时成立才改判）：① 意图 = hehun/advisor ② 消息含 婚姻/姻缘 ③ 无双人
+        # 语境（他/她/我们/双方/对象…）④ 无运势时间锚（运势/运程/流年/今年/明年）。
+        # 例：无生辰 → advisor 建档引导「出生年月日时/出生地/性别」（T076 断言）；
+        # 带完整/部分生辰 → bazi（排盘建档 / F2 渐进累积回显缺什么要什么）。
         # 双人合盘（含第二人）与场景词确定性命中（TOOL_SCENE_WORDS["hehun"]）
         # 一律不动——T039/T040/T044 现状回归保护；带运势锚的单人问句（T022
         # 「帮我看看我的婚姻运势」当前绿）同样不动。
-        self._redirect_single_marriage_hehun(analysis, msg)
+        self._redirect_single_marriage(analysis, msg)
         # R1-2（评测 T008 修复·纠正不重排）：口语性别词纠正（"我是女孩儿，
         # 不是男孩"）→ 确定性强制 bazi 意图。原链：意图分类把此类归 free_chat，
         # G1 纠正逻辑在 _handle_bazi 内部永不执行——只确认不重排（chart_records

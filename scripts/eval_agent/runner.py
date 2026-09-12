@@ -278,9 +278,14 @@ def _run_attempt(task: dict, R: dict, attempt_idx: int) -> dict:
     attempt["replies"] = replies
 
     # L1：拦截序列 → 顺序敏感比对（E2 契约）
+    # k38-I3（审查实测）：门禁路径必须与 l1_eval._run_one_task 同口径传入
+    # allow_tools（择日族双通道契约，T028/T038）——否则 `attempt["l1"]["ok"]` /
+    # `rec["passed"]` 仍按「期望零工具调用」严判：任一次尝试走 LLM 工具路径
+    # （合法通道）即整任务 failed，报告「T028/T038 整任务 passed 稳定」不成立。
     calls = recorder.flat_calls()
     tool_ok, params_ok, detail = l1_eval.compare_expected(
-        task["expected_tools"], calls)
+        task["expected_tools"], calls,
+        allow_tools=task.get("allow_tools") or [])
     if attempt["exception"]:
         tool_ok, params_ok = False, False
         detail = (detail + "；" if detail else "") + f"异常: {attempt['exception']}"

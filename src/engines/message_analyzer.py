@@ -149,7 +149,12 @@ TOOL_SCENE_WORDS: dict = {
 # 才稳定的真实命中率）。
 # _FORCE_META_RE 元门控：比较/差异类问句（哪个/区别/对比/比较/差异）
 # 是讨论不是排盘请求（"紫微斗数和八字哪个准"不得强制紫微）。
-_FORCE_META_RE = re.compile(r"哪个|区别|对比|比较|差异")
+# k38-M2（审查实测）：门控的「哪个」本意是比较类问句，却把择日措辞
+# 「（这个|那个|哪个）日子」一并拦成死词（`_ZERI_FORCE_RE` 的该分支永不生效，
+# 「2026年10月1日搬家，哪个日子好」被拦）。豁免紧跟「日子」的「哪个」——
+# 这是择日请求的措辞，不是比较讨论；其余「哪个」（"哪个准"/"哪个更适合我"）
+# 仍走门控。
+_FORCE_META_RE = re.compile(r"哪个(?!日子)|区别|对比|比较|差异")
 # 六爻族（与任务族 T058-T063 全量对齐，碰撞扫描零误伤）
 _LIUYAO_FORCE_RE = re.compile(r"摇卦|摇一卦|起一卦|六爻|卜卦|占一卦|算卦")
 # 紫微族（与任务族 T064-T069 全量对齐，碰撞扫描零误伤）
@@ -181,16 +186,21 @@ _ZERI_SCENE_RE = re.compile(
 # 死胡同（产品 `_handle_xingming` 五格/笔画/数理/五行 能力齐备却够不着）。
 #
 # 触发面刻意收窄（防误伤优先）：**必须有一个"姓名槽位"**——
-#   ① 引号/书名号括出的 2-4 字姓名（『李沐宸』/「张伟」/“李小明”），或
-#   ② 「名字/姓名」后 ≤6 字内紧跟评价词（「这个名字怎么样」「姓名好不好」）
-# 再叠加 ③ 评价/分析问词 且 ④ **不含**起名/改名动作族。
+#   「名字/姓名」后 ≤6 字内紧跟评价词（「这个名字怎么样」「姓名好不好」），
+# 再叠加 ② 评价/分析问词 且 ③ **不含**起名/改名动作族。
 # 反例锁定（不得命中）：`帮我看看名字笔画`（只有泛词「名字」+「看看」，
 # 无姓名槽位——旧宽松口径会把它路由到 `_handle_xingming`，姓名抽取退化取
 # 「帮我」两字当名字分析）；`给宝宝起个名`（要候选名 → naming 工具链）。
+#
+# k38-I1（审查实测·产品误伤）：原 ① 的「引号/书名号括出任意 2-4 字」分支
+# **已删除**——《三大队》（电影）/《活着》（书）/「易宝支付」（公司）/「AI」
+# 这类引号内容全被当成姓名槽位，与 `_XINGMING_VERDICT_RE` 的「怎么样/分析」
+# 组合后 0 LLM 判 intent=xingming → 对电影名/公司名做五格三才分析（`_handle_xingming`
+# 的姓名抽取正则不认《》，兜底会抓到「电影」两字当名字）。该分支对目标句
+# （T046「帮我看看『李沐宸』这个名字怎么样」）**不是必需**——`_XINGMING_NEAR_RE`
+# 单独即可命中（有「名字」槽位），故删除是零收益损失的纯误伤源。
 _XINGMING_VERDICT_RE = re.compile(
     r"怎么样|好不好|如何|分析|测测|测一测|看看|评分|打分|寓意|含义")
-_XINGMING_QUOTED_RE = re.compile(
-    r"[\"“”「『《][一-龥A-Za-z]{2,4}[\"“”」』》]")
 _XINGMING_NEAR_RE = re.compile(
     r"(?:名字|姓名)[^，。！？；\n]{0,6}"
     r"(?:怎么样|好不好|如何|分析|测测|看看|评分|打分|寓意|含义)")
@@ -242,13 +252,20 @@ def _entity_qa_beats_scene(msg: str, scene_hint: str) -> bool:
     只对 career_dir 生效（唯一含这类实体问句伴生词的场景词表），其余场景词
     （起名/合婚/号码/流年）保持原 0 LLM 确定性直达；判定异常 → 不拦截
     （保持原确定性行为，不劣化）。
+
+    k38-M3（审查实测）：**只认强问词**（`strong`）——弱问词（怎么样/如何）会让
+    实体抽取的误抽串（「我想换工作，去一家互联网公司怎么样」→ '一家互联网'；
+    「我想换工作去银行，怎么样」→ '换工作去银行' 跨动词短语误抽）也触发守卫，
+    把真·择业请求从确定性直达拽进 LLM 且以垃圾串作检索词。T104 目标句是强
+    问词（靠不靠谱=strong），弱问词 + 场景词保持 k38 前的场景路由（零回归，
+    残留在报告登记）。
     """
     if scene_hint != "career_dir":
         return False
     try:
         from src.rag.search_trigger import extract_entity_mentions, has_entity_ask
-        strong, weak = has_entity_ask(msg)
-        if not (strong or weak):
+        strong, _weak = has_entity_ask(msg)
+        if not strong:
             return False
         return bool(extract_entity_mentions(msg))
     except Exception:
@@ -347,17 +364,27 @@ class MessageAnalyzer:
                 return MessageAnalysis(needs_soothe=False, soothe_text="",
                                        emotion_label=None, intent="ziwei")
             # T046 姓名分析（姓名槽位 + 评价词，起名/改名动作族除外，见词表注释）
-            if ((_XINGMING_QUOTED_RE.search(user_message)
-                 or _XINGMING_NEAR_RE.search(user_message))
+            if (_XINGMING_NEAR_RE.search(user_message)
                     and _XINGMING_VERDICT_RE.search(user_message)
                     and not _XINGMING_NAMING_RE.search(user_message)):
                 return MessageAnalysis(needs_soothe=False, soothe_text="",
                                        emotion_label=None, intent="xingming")
             # T076 单人婚姻询问 → advisor（双人语境仍走 hehun；带运势锚的不
             # 在此路由内——见词表注释，T022 回归保护）
+            # k38-I4（审查实测）：消息**自带完整生辰**时不得判 advisor——
+            # advisor 无档案分支是固定建档引导「请提供你的出生信息：出生年月日时、
+            # 出生地、性别」，用户刚说完生辰 → 自相矛盾，且 persons 零写入
+            # （F2 渐进累积只在 bazi 路径跑）。改判 bazi：`_handle_bazi` 按消息
+            # 排盘/建档（完整信息 → 直接排盘落档），与 F2 累积同路径。
+            # 部分生辰（只给年份/年龄等）由 handler 侧 `_extract_partial_birth`
+            # 兜底改判（见 handler._redirect_single_marriage），此处不重复实现
+            # 部分信息提取（单一事实源）。
             if (_SINGLE_MARRIAGE_RE.search(user_message)
                     and not _SECOND_PERSON_RE.search(user_message)
                     and not _MARRIAGE_TIMELINE_RE.search(user_message)):
+                if self.BIRTH_DATE_PATTERN.search(user_message):
+                    return MessageAnalysis(needs_soothe=False, soothe_text="",
+                                           emotion_label=None, intent="bazi")
                 return MessageAnalysis(needs_soothe=False, soothe_text="",
                                        emotion_label=None, intent="advisor")
 
