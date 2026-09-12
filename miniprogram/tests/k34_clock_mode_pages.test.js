@@ -283,3 +283,216 @@ test('A12 结构锁：bazi/onboarding 的 birth_minute 一律走钟表档分支�
       `${rel} 的 birth_hour 必须按钟表档取时钟小时`);
   }
 });
+
+/* ═══════ 4. k34 审查修复 Important-1：钟表档「开 → 关」往返恒等 ═══════
+   原缺陷：关档分支只置 clockSet:false，不回滚 hourIndex；而开档起点对
+   「未选/子时(0)」是 12:00 中性值（午时 6）→「子时 → 开 → 关」保存写
+   birth_hour=11（子时被写成午时，错误出生数据落档，仅 index 0 中招）。 */
+
+test('审查修复 Important-1 · bazi 表单：钟表档「开 → 关」对 12 个时辰序号全量恒等（含 index 0 子时）', () => {
+  stubWx();
+  for (let i = 0; i < 12; i++) {
+    const page = makePage(baziCfg);
+    page.setData({ hourIndex: i });
+    page.onClockToggle();                       // 开档（起点改写 hourIndex）
+    assert.equal(page.data.clockSet, true, `index ${i}：应进钟表档`);
+    page.onClockToggle();                       // 关档
+    assert.equal(page.data.clockSet, false, `index ${i}：应回时辰档`);
+    assert.equal(page.data.hourIndex, i,
+      `index ${i}：往返后时辰序号必须恒等（原缺陷：index 0 子时被改写成 6 午时）`);
+  }
+});
+
+test('审查修复 Important-1 · bazi 表单：子时 → 开 → 关 → 保存写 birth_hour=23（档案路径与旧路径都不落午时 11）', async (t) => {
+  // ① 档案路径（PUT /api/persons/{id}）：「子时」档案（代表整点 23）
+  stubWx();
+  const page = makePage(baziCfg);
+  page._enterForm({
+    id: 7, name: '子时档案', relation: '自己', gender: '女',
+    birth_year: 1995, birth_month: 3, birth_day: 8,
+    birth_hour: 23, birth_minute: 0, calendar: 'solar', city: '',
+  });
+  assert.equal(page.data.hourIndex, 0, '子时档案（代表整点 23）读回序号 0');
+  page.onClockToggle();
+  page.onClockToggle();
+  assert.equal(page.data.hourIndex, 0, '关档后仍为子时');
+  let sent = null;
+  t.mock.method(api, 'updatePerson', (id, data) => {
+    sent = data;
+    return Promise.resolve({ person: Object.assign({ id }, data) });
+  });
+  await page.onSave();
+  assert.equal(sent.birth_hour, 23, '★ 子时不得被写成午时 11（错误出生数据落档）');
+  assert.equal(sent.birth_minute, 0);
+
+  // ② 旧路径（POST /api/user/bazi）：无档案表单默认 hourIndex=0（子时）
+  stubWx();
+  const page2 = makePage(baziCfg);
+  page2.setData({ birthDate: '1995-03-08' });
+  page2.onClockToggle();
+  page2.onClockToggle();
+  let sent2 = null;
+  t.mock.method(api, 'updateBazi', (data) => {
+    sent2 = data;
+    return Promise.resolve({ status: 'ok' });
+  });
+  await page2.onSave();
+  assert.equal(sent2.birth_hour, 23, '★ ② 源路径同样不得写成午时 11');
+  assert.equal(sent2.birth_minute, 0);
+});
+
+test('审查修复 Important-1 · bazi 手动输入：「开 → 关」对 12 个时辰序号全量恒等 → _manualPayload 仍写 23/0', () => {
+  stubWx();
+  for (let i = 0; i < 12; i++) {
+    const page = makePage(baziCfg);
+    page.setData({ mDate: '1995-03-08', mHourIndex: i });
+    page.onMClockToggle();                      // 开档
+    assert.equal(page.data.mClockSet, true, `index ${i}：应进钟表档`);
+    page.onMClockToggle();                      // 关档
+    assert.equal(page.data.mClockSet, false, `index ${i}：应回时辰档`);
+    assert.equal(page.data.mHourIndex, i,
+      `index ${i}：手动输入往返后时辰序号必须恒等（原缺陷：index 0 → 6 午时）`);
+  }
+  const page = makePage(baziCfg);
+  page.setData({ mDate: '1995-03-08', mHourIndex: 0, mGender: '女' });
+  page.onMClockToggle();
+  page.onMClockToggle();
+  const p = page._manualPayload('老张');
+  assert.equal(p.birth_hour, 23, '★ 手动输入子时不得被写成午时 11');
+  assert.equal(p.birth_minute, 0);
+});
+
+test('审查修复 Important-1 · onboarding：「开 → 关」对 12 个时辰序号全量恒等 → 子时建档写 23', async (t) => {
+  stubWx();
+  for (let i = 0; i < 12; i++) {
+    const page = makePage(onboardingCfg);
+    page.setData({ hourIndex: i });
+    page.onClockToggle();                       // 开档
+    assert.equal(page.data.clockSet, true, `index ${i}：应进钟表档`);
+    page.onClockToggle();                       // 关档
+    assert.equal(page.data.clockSet, false, `index ${i}：应回时辰档`);
+    assert.equal(page.data.hourIndex, i,
+      `index ${i}：往返后时辰序号必须恒等（原缺陷：index 0 子时被改写成 6 午时）`);
+  }
+  const page = makePage(onboardingCfg);
+  page.setData({ cal: 'solar', year: '1995', month: '3', day: '8', gender: '女', hourIndex: 0 });
+  page._refreshFilled();
+  page.onClockToggle();
+  page.onClockToggle();
+  assert.match(page.data.summary, /子时/, '关档后摘要回到子时（用户所见即所存）');
+  let sent = null;
+  t.mock.method(api, 'createPerson', (data) => {
+    sent = data;
+    return Promise.resolve({ person: Object.assign({ id: 11 }, data) });
+  });
+  await page.onSubmit();
+  assert.equal(sent.birth_hour, 23, '★ 引导建档子时不得被写成午时 11');
+  assert.equal(sent.birth_minute, 0);
+  assert.match(page.data.doneSummary, /子时/, '完成页摘要为子时');
+});
+
+test('审查修复 Important-1 · 关档语义：动过钟表值 → 保留联动推导的时辰（用户填的钟点不被丢弃）', async (t) => {
+  // 三页同款：未动钟表值 → 回滚（往返恒等，上组用例）；动过 → 保留联动时辰
+  // （否则「子时 → 开 → 填 10:55 → 关 → 存」把子时写进档案，用输入被静默丢弃）
+  stubWx();
+  // ① bazi 表单
+  const page = makePage(baziCfg);
+  page.setData({ birthDate: '1995-03-08' });
+  page.onClockToggle();
+  page.onClockHourChange({ detail: { value: 10 } });
+  page.onClockMinuteChange({ detail: { value: 55 } });
+  page.onClockToggle();
+  assert.equal(page.data.clockSet, false);
+  assert.equal(page.data.hourIndex, 5, '关档后仍为钟表值所推巳时（不得丢回子时 0）');
+  let sent = null;
+  t.mock.method(api, 'updateBazi', (data) => { sent = data; return Promise.resolve({ status: 'ok' }); });
+  await page.onSave();
+  assert.equal(sent.birth_hour, 9, '保存按保留的巳时代表整点 09（不是子时 23）');
+  assert.equal(sent.birth_minute, 0);
+
+  // ② bazi 手动输入档
+  const m = makePage(baziCfg);
+  m.setData({ mDate: '1995-03-08', mGender: '女' });
+  m.onMClockToggle();
+  m.onMClockHourChange({ detail: { value: 10 } });
+  m.onMClockMinuteChange({ detail: { value: 55 } });
+  m.onMClockToggle();
+  assert.equal(m.data.mHourIndex, 5, '手动输入关档后仍为巳时');
+  const mp = m._manualPayload('老张');
+  assert.equal(mp.birth_hour, 9);
+  assert.equal(mp.birth_minute, 0);
+
+  // ③ onboarding
+  const ob = makePage(onboardingCfg);
+  ob.setData({ cal: 'solar', year: '1995', month: '3', day: '8', gender: '女' });
+  ob._refreshFilled();
+  ob.onClockToggle();
+  ob.onClockHourChange({ detail: { value: 10 } });
+  ob.onClockMinuteChange({ detail: { value: 55 } });
+  ob.onClockToggle();
+  assert.equal(ob.data.hourIndex, 5, '引导页关档后仍为巳时');
+  assert.match(ob.data.summary, /巳时/, '摘要随保留的时辰');
+  let sent2 = null;
+  t.mock.method(api, 'createPerson', (data) => { sent2 = data; return Promise.resolve({ person: Object.assign({ id: 12 }, data) }); });
+  await ob.onSubmit();
+  assert.equal(sent2.birth_hour, 9);
+  assert.equal(sent2.birth_minute, 0);
+});
+
+/* ═══════ 5. k34 审查修复 Important-2：本地兜底形态 birthHour（时辰序号）按序号直取 ═══════
+   原缺陷：_hourToIndex 先查 HOUR_VALUES（「代表整点」表）再兜底序号 → 序号
+   3/5/7/9/11 被当成同值代表整点误映射（5=巳 → 卯时 3、11=亥 → 午时 6）；偶数
+   序号恰好正确，极难被发现。本地形态由 _syncGlobal 写入，恒为序号 0-11。 */
+
+test('审查修复 Important-2 · 本地形态时辰序号 3/5/7/9/11 不再被当成「代表整点」误映射', () => {
+  stubWx();
+  for (const [seq, idx] of [[0, 0], [1, 1], [3, 3], [5, 5], [7, 7], [9, 9], [11, 11]]) {
+    const page = makePage(baziCfg);
+    page._applyBazi({
+      birthYear: 1995, birthMonth: 3, birthDay: 8, birthHour: seq,
+      birthClock: false, gender: '女', calendar: 'solar', city: '',
+    });
+    assert.equal(page.data.hourIndex, idx, `birthHour=${seq}（时辰序号）→ 应得序号 ${idx}`);
+    assert.equal(page.data.clockSet, false, '只知时辰不进钟表档');
+  }
+  // 判别力对照（旧实现的具体错值：5 → 卯时 3、11 → 午时 6）
+  const p1 = makePage(baziCfg);
+  p1._applyBazi({ birthYear: 1995, birthMonth: 3, birthDay: 8, birthHour: 5, gender: '女', calendar: 'solar', city: '' });
+  assert.notEqual(p1.data.hourIndex, 3, '巳时序号 5 不得被当成代表整点 5（卯时）');
+  const p2 = makePage(baziCfg);
+  p2._applyBazi({ birthYear: 1995, birthMonth: 3, birthDay: 8, birthHour: 11, gender: '女', calendar: 'solar', city: '' });
+  assert.notEqual(p2.data.hourIndex, 6, '亥时序号 11 不得被当成代表整点 11（午时）');
+  // 字符串序号（JSON 往返）同样按序号直取
+  const p3 = makePage(baziCfg);
+  p3._applyBazi({ birthYear: 1995, birthMonth: 3, birthDay: 8, birthHour: '5', gender: '女', calendar: 'solar', city: '' });
+  assert.equal(p3.data.hourIndex, 5, '字符串序号 "5" → 巳时 5');
+});
+
+test('审查修复 Important-2 · 本地形态钟表档（birthClock=true）仍精确回显，时辰按序号直取', () => {
+  stubWx();
+  const page = makePage(baziCfg);
+  page._applyBazi({
+    birthYear: 1995, birthMonth: 3, birthDay: 8, birthHour: 5,
+    birthClock: true, birthClockHour: 10, birthClockMinute: 55,
+    gender: '女', calendar: 'solar', city: '',
+  });
+  assert.equal(page.data.clockSet, true, 'birthClock=true → 进钟表档');
+  assert.equal(page.data.clockHIdx, 10);
+  assert.equal(page.data.clockMIdx, 55, '本地形态分钟不丢');
+  assert.equal(page.data.hourIndex, 5, 'birthHour=5 序号即巳时（不得按代表整点读成卯时）');
+});
+
+test('审查修复 Important-2 · 服务端形态读回口径不变（代表整点 9/23、精确 10:55）', () => {
+  stubWx();
+  const p1 = makePage(baziCfg);
+  p1._applyBazi({ year: 1990, month: 1, day: 1, hour: 9, minute: 0, gender: '男', calendar: 'solar', city: '' });
+  assert.equal(p1.data.clockSet, false, '代表整点 + 0 分 = 时辰档');
+  assert.equal(p1.data.hourIndex, 5, '9 点代表整点 = 巳时');
+  const p2 = makePage(baziCfg);
+  p2._applyBazi({ year: 1990, month: 1, day: 1, hour: 23, minute: 0, gender: '男', calendar: 'solar', city: '' });
+  assert.equal(p2.data.hourIndex, 0, '23 点代表整点 = 子时（晚子时）');
+  const p3 = makePage(baziCfg);
+  p3._applyBazi({ year: 1990, month: 1, day: 1, hour: 10, minute: 55, gender: '男', calendar: 'solar', city: '' });
+  assert.equal(p3.data.clockSet, true, '服务端 minute>0 → 钟表档');
+  assert.equal(p3.data.hourIndex, 5, '10:55 → 巳时（时钟窗口）');
+});

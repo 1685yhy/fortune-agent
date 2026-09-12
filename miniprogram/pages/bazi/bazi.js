@@ -32,14 +32,13 @@ function _fmtDate(y, m, d) {
   return `${y}-${pad(m)}-${pad(d)}`;
 }
 
-/** 存档 hour（整点/时辰序号）→ 时辰序号 */
-function _hourToIndex(hour) {
-  const h = parseInt(hour, 10);
-  if (Number.isNaN(h)) return 0;
-  const idx = HOUR_VALUES.indexOf(h);
-  if (idx !== -1) return idx;
-  if (h >= 0 && h <= 11) return h;      // 旧数据：直接存了时辰序号
-  return 0;
+/** 本地兜底形态 birthHour（**时辰序号 0-11**，见 _syncGlobal）→ 时辰序号。
+    k34 审查修复（Important-2）：此处必须**按序号直取**——旧实现先查 HOUR_VALUES
+    （「代表整点」表）再兜底序号，把序号 3/5/7/9/11 误当同值代表整点读
+    （5=巳 → 卯时 3、11=亥 → 午时 6；偶数序号恰好正确 → 极难发现）。
+    服务端/登录形态（时钟小时或代表整点）不走本函数，一律 persons.hourToShichenIndex。 */
+function _birthHourToIndex(seq) {
+  return Math.max(0, Math.min(11, parseInt(seq, 10) || 0));
 }
 
 /* k34 A12（照抄 pages/paipan k19 口径）：精确钟表行判定——birth_minute>0 或
@@ -181,10 +180,21 @@ Page({
   onMClockToggle() {
     const d = this.data;
     if (d.mClockSet) {
-      this.setData({ mClockSet: false });
+      // k34 审查修复（Important-1）：关档不得把「开档起点」留下的时辰当成用户选择——
+      // 未选/子时(0) 的开档起点是 12:00 中性值（午时 6），不回滚则「子时 → 开 → 关」
+      // 存档写 birth_hour=11（子时被写成午时 = 错误出生数据落档）。
+      // 关档语义 = 撤销本次钟表输入：未动过钟表值 → 回滚到开档前时辰（往返恒等）；
+      // 动过 → 保留钟表联动推导的时辰（用户填的钟点不被丢弃，与 persons k19 同义）。
+      const prev = this._mClockPrevHourIndex;
+      const openH = prev === undefined ? null : (prev > 0 ? HOUR_VALUES[prev] : 12);
+      const untouched = openH !== null && d.mClockHIdx === openH && d.mClockMIdx === 0;
+      this.setData(untouched
+        ? { mClockSet: false, mHourIndex: prev }
+        : { mClockSet: false });
       return;
     }
     const startH = d.mHourIndex > 0 ? HOUR_VALUES[d.mHourIndex] : 12;
+    this._mClockPrevHourIndex = d.mHourIndex;
     this.setData({
       mClockSet: true,
       mClockHIdx: startH,
@@ -487,14 +497,16 @@ Page({
     const localShape = b.birthYear !== undefined || b.birthHour !== undefined
       || b.birthClock !== undefined;
     // 精确钟表行（10:55）→ 钟表档回显，保存按真实 minute 回写（绝不降级为 0 分）。
-    // 服务端形态按 paipan k19 口径判定（minute>0 或 hour 非代表整点）；本地形态
-    // 只在 birthClock===true 时进钟表档（birthHour 恒为时辰序号，me 页同口径）。
+    // 服务端形态按 paipan k19 口径判定（minute>0 或 hour 非代表整点）与映射
+    // （persons.hourToShichenIndex 时钟窗口）；本地形态只在 birthClock===true 时
+    // 进钟表档，且 birthHour 恒为时辰序号 0-11（见 _syncGlobal）→ 按序号直取
+    // （与 me.js 对本地形态的读法一致；旧实现按「代表整点」查表把 5/7/9/11 读错）。
     const clockRow = localShape ? b.birthClock === true : _isClockRow(b.hour, b.minute);
     const clockH = localShape ? b.birthClockHour : b.hour;
     const clockM = localShape ? b.birthClockMinute : b.minute;
-    const hourIndex = (!localShape && clockRow)
-      ? persons.hourToShichenIndex(clockH, clockM)      // 时钟窗口映射（修旧误读）
-      : _hourToIndex(localShape ? b.birthHour : clockH);
+    const hourIndex = localShape
+      ? _birthHourToIndex(b.birthHour)                  // 本地形态：时辰序号直取
+      : persons.hourToShichenIndex(clockH, clockM);     // 服务端形态：时钟窗口/代表整点
     const y = b.year || b.birthYear;
     const mo = b.month || b.birthMonth;
     const da = b.day || b.birthDay;
@@ -533,10 +545,23 @@ Page({
   onClockToggle() {
     const d = this.data;
     if (d.clockSet) {
-      this.setData({ clockSet: false });
+      // k34 审查修复（Important-1）：关档不得把「开档起点」留下的时辰当成用户选择——
+      // 未选/子时(0) 的开档起点是 12:00 中性值（午时 6），不回滚则「子时 → 开 → 关」
+      // 保存写 birth_hour=11（子时被写成午时 = 错误出生数据落档；子时正是
+      // 「记不清时辰」人群的默认值）。关档语义 = 撤销本次钟表输入：
+      //   未动过钟表值 → 回滚到开档前时辰（开→关往返恒等）；
+      //   动过 → 保留钟表联动推导的时辰（用户填的钟点不被丢弃，与 persons k19 同义）。
+      // 开档即真值（档案 10:55 回显后关档）无 _clockPrevHourIndex → 不猜不回滚。
+      const prev = this._clockPrevHourIndex;
+      const openH = prev === undefined ? null : (prev > 0 ? HOUR_VALUES[prev] : 12);
+      const untouched = openH !== null && d.clockHIdx === openH && d.clockMIdx === 0;
+      this.setData(untouched
+        ? { clockSet: false, hourIndex: prev }
+        : { clockSet: false });
       return;
     }
     const startH = d.hourIndex > 0 ? HOUR_VALUES[d.hourIndex] : 12;
+    this._clockPrevHourIndex = d.hourIndex;
     this.setData({
       clockSet: true,
       clockHIdx: startH,

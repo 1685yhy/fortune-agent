@@ -120,10 +120,21 @@ Page({
   onClockToggle() {
     const d = this.data;
     if (d.clockSet) {
-      this.setData({ clockSet: false }, () => this._refreshSummary());
+      // k34 审查修复（Important-1）：关档不得把「开档起点」留下的时辰当成用户选择——
+      // 未选/子时(0) 的开档起点是 12:00 中性值（午时 6），不回滚则「子时 → 开 → 关」
+      // 建档写 birth_hour=11（子时被写成午时 = 错误出生数据落档）。
+      // 关档语义 = 撤销本次钟表输入：未动过钟表值 → 回滚到开档前时辰（往返恒等）；
+      // 动过 → 保留钟表联动推导的时辰（用户填的钟点不被丢弃，与 persons k19 同义）。
+      const prev = this._clockPrevHourIndex;
+      const openH = prev === undefined ? null : (prev > 0 ? persons.HOUR_VALUES[prev] : 12);
+      const untouched = openH !== null && d.clockHIdx === openH && d.clockMIdx === 0;
+      this.setData(untouched
+        ? { clockSet: false, hourIndex: prev }
+        : { clockSet: false }, () => this._refreshSummary());
       return;
     }
     const startH = d.hourIndex > 0 ? persons.HOUR_VALUES[d.hourIndex] : 12;
+    this._clockPrevHourIndex = d.hourIndex;
     this.setData({
       clockSet: true,
       clockHIdx: startH,
