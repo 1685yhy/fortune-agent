@@ -63,6 +63,11 @@ class TestDayunEndpointNoMisfire:
         "今年运势不错，33岁进入乙丑大运",
         "虚岁23岁到32岁。",          # k15 双单位收紧样例回归
         "丙寅运从23岁到虚岁32岁。",  # k15 双单位收紧样例回归
+        # k35-A4：pattern2 右侧前瞻与同族完成体 pattern 对齐补「时」
+        # （旧代码此句误拦：裸「岁」后接「时」不在排除面内）
+        "虚岁33岁时进入乙丑大运",
+        "虚岁33岁时，你已换入乙丑大运。",
+        "到虚岁33时，乙丑大运开始。",
     ])
     def test_dayun_boundary_phrases_pass(self, s, facts):
         assert not _fails(s, facts), s
@@ -82,14 +87,41 @@ class TestWindowNumbersAndBaseline:
             assert _fails(s, facts), s
 
     def test_known_misfire_families_documented(self, facts):
-        """既有误拦族（非本批引入，记录在案）：
+        """误拦族记录在案（k35 更新）：
         - 反问/引用否定「你虚岁33了？不，我今年28岁。」——岁字版（你虚岁33岁？）
-          k15 review 已记录 base 同误拦，本批为同族形态延伸；
+          k15 review 已记录 base 同误拦，k17 为同族形态延伸，**仍未修**（属语义
+          歧义族，非本批范围）；
         - 「虚岁33岁时进入乙丑大运」——pattern2 前瞻缺「时」（k15 双单位收紧
-          复现样例未覆盖），base 已误拦（实测证据），本批未扩未改，列后续项。
-        本测试仅锁定「两族均为 FAIL 判定且不误伤窗内表述」的组合行为。"""
+          复现样例未覆盖），base 已误拦；**k35-A4 已修**（右侧前瞻对齐同族完成体
+          pattern 补「时」）→ 现放行，见 TestDayunEndpointNoMisfire。
+        """
         assert _fails("你虚岁33了？不，我今年28岁。", facts)
-        assert _fails("虚岁33岁时进入乙丑大运", facts)
+        assert not _fails("虚岁33岁时进入乙丑大运", facts), "k35-A4 已修"
+
+
+class TestA4ShiLookaheadDiscrimination:
+    """k35-A4 判别力：补「时」只放行「虚岁N岁时…」时点限定语境，
+    未放宽到真实当前年龄声明（前缀/完成体/裸岁句读三族仍拦）。"""
+
+    @pytest.mark.parametrize("s", [
+        # 带「时」的真实当前年龄声明：前缀型 pattern 仍命中（时不在其语境）
+        "你今年虚岁33岁时运不济。",
+        "命主今年33岁时来运转。",
+        # 无「时」的真实事故句（补「时」不应波及）
+        "命主虚岁33岁，正走乙丑大运",
+        "今年我虚岁33岁，正走乙丑大运。",
+        "虚岁33了",
+        "我现在33岁了。",
+        "我已经虚岁33了",
+        "本人虚岁33。",
+    ])
+    def test_real_claims_still_blocked(self, s, facts):
+        assert _fails(s, facts), s
+
+    def test_window_age_with_shi_passes(self, facts):
+        """窗内（27/28）时点句同样放行，且窗内声明仍不误报。"""
+        assert not _fails("虚岁28岁时开始走丙寅大运。", facts)
+        assert not _fails("你今年虚岁28岁。", facts)
 
 
 if __name__ == "__main__":

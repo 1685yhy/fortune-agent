@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""k31：【必修】k19 迁移脚本 dry-run 零写入契约（persons 侧）。
+"""k31：【必修】k19 迁移脚本 dry-run 零写入契约（persons 侧）+ k35 字节级加固。
 
 背景（k30 审查发现 A）：`scripts/migrate_stale_bazi_keys.py` 的 `--dry-run`
 承诺「零写入」，但 `persons_note` 调 `get_default_person(user_id)`（默认
@@ -15,8 +15,16 @@
   该提升就提升）——防后续误把收紧扩到执行路径；
 - `persons_note` 只读口径单测：默认**不调用** `get_default_person`。
 
+k35 追加（§5/§6）：
+- A7：dry-run **字节级**零写入（非 WAL 库上 `journal_mode` 不变、不建表/不加列、
+  不产 `-wal/-shm`）——主连接 `mode=ro` + `PersonDAO.readonly`；含判别力对照
+  （老路径 `PersonDAO(db)`→`init_db` 必改这些位 = 探针非恒真）；
+- A6：`--execute` 收尾语文案与事实一致（扫描期 persons 可能自愈建卡/提升默认）；
+- `--execute` 行为零变化由 §4 既有例 + 本批差分跑（见报告）双锁。
+
 隔离：全在 tmp_path 临时库上跑（不动任何真实库）；零网络零 LLM。
 """
+import hashlib
 import json
 import os
 import sqlite3
@@ -252,3 +260,163 @@ def test_execute_path_keeps_legacy_autopromote_and_migrate(k31_db, tmp_path,
     conn.close()
     info = json.loads(_decrypt_or_plain(raw))
     assert "bazi" not in info and info["year"] == 1995
+
+
+# ═══════ 5. k35/A7：dry-run 字节级零写入（非 WAL 库） ═══════
+
+def _mk_legacy_non_wal_db(path):
+    """非 WAL legacy 库（A7 靶）：users 缺 push_enabled/status 等列、persons 存在。
+    不用 init_db（那会把库切成 WAL）——纯裸连接建表，journal_mode 保持 delete。"""
+    conn = sqlite3.connect(path)
+    conn.executescript("""
+CREATE TABLE users (
+    user_id TEXT PRIMARY KEY,
+    bazi_info TEXT,
+    updated_at TEXT
+);
+CREATE TABLE persons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    relation TEXT DEFAULT '其他',
+    is_default INTEGER DEFAULT 0,
+    birth_enc TEXT,
+    created_at TEXT,
+    updated_at TEXT
+);
+""")
+    conn.execute("INSERT INTO users (user_id, bazi_info, updated_at)"
+                 " VALUES (?,?,?)",
+                 ("u_polluted",
+                  _encrypt_text(json.dumps({"year": 1995, "month": 3, "day": 28,
+                                            "hour": 9, "minute": 0,
+                                            "city": "长春", "gender": "男",
+                                            "calendar": "solar",
+                                            "bazi": POLLUTED},
+                                           ensure_ascii=False)), None))
+    conn.execute("INSERT INTO users (user_id, bazi_info, updated_at)"
+                 " VALUES (?,?,?)",
+                 ("u_noperson",
+                  _encrypt_text(json.dumps({"year": 1995, "month": 3, "day": 28,
+                                            "hour": 9, "minute": 0,
+                                            "city": "长春", "gender": "男",
+                                            "calendar": "solar", "bazi": OWN},
+                                           ensure_ascii=False)), None))
+    conn.commit()
+    conn.close()
+    return path
+
+
+def _fs_state(db):
+    """库「写没写」硬证据：文件 sha + 头 18:19（journal 模式）+ 伴生文件
+    + schema + users 列（只读连接读，自身零写入）。"""
+    with open(db, "rb") as f:
+        blob = f.read()
+    n = os.path.basename(db)
+    d = os.path.dirname(db)
+    files = sorted(x for x in os.listdir(d)
+                   if x in (n, n + "-wal", n + "-shm", n + "-journal"))
+    conn = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+    try:
+        schema = conn.execute(
+            "SELECT type, name, sql FROM sqlite_master ORDER BY type, name"
+        ).fetchall()
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(users)")]
+    finally:
+        conn.close()
+    return {"sha": hashlib.sha256(blob).hexdigest(), "size": len(blob),
+            "jhdr": bytes(blob[18:20]), "files": files, "schema": schema,
+            "users_cols": cols}
+
+
+def test_a7_probe_detects_writes_positive_control(tmp_path):
+    """判别力对照（探针非恒真）：老路径 `PersonDAO(db)` → `init_db` 必改这些位
+    —— 若本断言失败，说明下面的零写入断言可能是恒真/测不到东西。"""
+    db = _mk_legacy_non_wal_db(str(tmp_path / "ctl.db"))
+    before = _fs_state(db)
+    assert before["jhdr"] == b"\x01\x01"            # 起点：非 WAL
+    PersonDAO(db)                                    # 老路径：无条件 init_db
+    after = _fs_state(db)
+    assert after != before
+    assert after["jhdr"] == b"\x02\x02", "init_db 应把库持久切成 WAL"
+    assert len(after["schema"]) > len(before["schema"]), "init_db 应建表"
+    assert len(after["users_cols"]) > len(before["users_cols"]), "应 ALTER 加列"
+
+
+def test_a7_dry_run_non_wal_byte_level_zero_write(tmp_path, capsys):
+    """A7 核心：非 WAL 库 dry-run 后 journal_mode/表结构/-wal/-shm/文件字节全不变。
+
+    旧代码在此必失败：`PersonDAO(args.db)` → `init_db` → `PRAGMA
+    journal_mode=WAL`（持久切换）+ `CREATE TABLE` + `_migrate_db` ALTER。
+    """
+    db = _mk_legacy_non_wal_db(str(tmp_path / "k35.db"))
+    before = _fs_state(db)
+    assert before["jhdr"] == b"\x01\x01"
+    assert M.main(["--db", db]) == 0
+    out = capsys.readouterr().out
+    assert "[dry-run]" in out and "未写入" in out
+    assert "待清理 1 行" in out                      # 判定面照常工作
+    after = _fs_state(db)
+    assert after["sha"] == before["sha"], "dry-run 改了库文件字节"
+    assert after["jhdr"] == before["jhdr"], "dry-run 切了 journal_mode"
+    assert after["files"] == before["files"], "dry-run 产出 -wal/-shm"
+    assert after["schema"] == before["schema"], "dry-run 建表/改 schema"
+    assert after["users_cols"] == before["users_cols"], "dry-run ALTER 加列"
+    # 幂等：再跑一次仍全等
+    assert M.main(["--db", db]) == 0
+    capsys.readouterr()
+    assert _fs_state(db) == after
+
+
+def test_a7_person_dao_readonly_skips_init_db(tmp_path):
+    """person_dao 只读路径单测：`PersonDAO.readonly` 不建 WAL/不建表；
+    `list_persons` 照常可读；默认构造（老行为）仍初始化库（未变）。"""
+    db = _mk_legacy_non_wal_db(str(tmp_path / "ro.db"))
+    before = _fs_state(db)
+    pdao = PersonDAO.readonly(db)
+    assert pdao.list_persons("u_polluted") == []      # 只读可查（表存在，空）
+    assert _fs_state(db) == before, "只读构造产生了写入"
+    PersonDAO(db)                                      # 老路径行为保持不变
+    assert _fs_state(db) != before
+
+
+def test_a7_dry_run_fails_safe_on_missing_persons_table(tmp_path, capsys):
+    """无 persons 表的极端旧库：旧代码 dry-run 静态建表；新代码不建表但
+    备注以「无默认命主」兜底，且仍零写入（拒绝建表而非报错退出）。"""
+    db = str(tmp_path / "nop.db")
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        "CREATE TABLE users (user_id TEXT PRIMARY KEY, bazi_info TEXT,"
+        " updated_at TEXT);")
+    conn.execute("INSERT INTO users VALUES (?,?,?)",
+                 ("u_polluted", _encrypt_text(json.dumps(
+                     {"year": 1995, "month": 3, "day": 28, "hour": 9,
+                      "minute": 0, "city": "长春", "gender": "男",
+                      "calendar": "solar", "bazi": POLLUTED},
+                     ensure_ascii=False)), None))
+    conn.commit()
+    conn.close()
+    before = _fs_state(db)
+    assert M.main(["--db", db]) == 0
+    out = capsys.readouterr().out
+    assert "无默认命主" in out
+    assert "待清理 1 行" in out
+    assert _fs_state(db) == before
+
+
+# ═══════ 6. k35/A6：--execute 收尾语文案与事实一致 ═══════
+
+def test_a6_execute_reminder_text_matches_facts(k31_db, tmp_path, capsys):
+    """收尾语须承认扫描期 persons 可能自愈（u_noperson 0→1 是既有行为），
+    不得再宣告「persons 未动」；chart_records 确实未动。"""
+    bak = str(tmp_path / "pre.db")
+    audit = str(tmp_path / "audit.jsonl")
+    assert _run_main(["--db", k31_db, "--execute", "--backup", bak,
+                      "--audit", audit]) == 0
+    out = capsys.readouterr().out
+    assert "扫描期 persons 可能" in out
+    assert "自愈建卡/提升默认" in out
+    assert "chart_records 未动" in out
+    assert "persons/chart_records 未动" not in out, "旧文案仍在"
+    # 事实对齐：扫描期确实发生 persons 自愈（既有行为，与本批文案一致）
+    assert _count_persons(k31_db, "u_noperson") == 1

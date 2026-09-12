@@ -30,6 +30,10 @@ save_user_bazi——避免 consultation_count+1 副作用与写守卫复算；�
   性备注），零写入；k31 收口：备注读口径亦只读——persons 一律走
   `list_persons`，不触发 `get_default_person` 的建卡/提升默认自愈写
   （旧代码 dry-run 会因备注读静默建 person，属「dry-run 写库」契约违背）；
+- k35 收口（A7）：dry-run **字节级**零写入——主连接走 `mode=ro` 只读 URI、
+  DAO 走 `PersonDAO.readonly`（跳过 `init_db`），故 dry-run 后
+  `journal_mode`（非 WAL 库不切 WAL）、表结构、`-wal/-shm` 文件状态均不变
+  （旧代码经 `PersonDAO(...)` → `init_db` 在 dry-run 里真实建表/加列/切 WAL）；
 - --execute 必须显式 + 必须 --backup <路径>（执行前整库备份，目标已存在
   则拒绝——幂等保护）+ 必须 --audit <jsonl>（逐行变更审计）；
 - 不认 FORTUNE_DB_PATH 等环境变量，只认显式 --db（防误碰生产库）；
@@ -340,6 +344,28 @@ def cleanup_execute(conn, stale_rows) -> int:
     return n
 
 
+def connect_readonly(db_path: str) -> sqlite3.Connection:
+    """dry-run 专用只读连接（k35/A7 字节级零写入契约）。
+
+    `mode=ro` URI 打开：SQLite 连**打开**都不具备写能力——不置
+    `journal_mode`（非 WAL 库不会被持久切成 WAL）、不建 `-wal/-shm`、
+    不触发建表/ALTER；与 `models.connect`（写能力 + PRAGMA journal_mode=WAL）
+    的区别正是本项要收的口子。busy_timeout 为连接级设置，无文件写入。
+
+    已知边界：WAL 库且其**目录不可写**时，SQLite 自身要求能建 `-shm`，只读
+    打开会失败（`attempt to write a readonly database`）——此时宁可报错也不
+    静默降级为可写连接（零写入契约优先；生产迁移库目录必可写）。
+    """
+    from urllib.parse import quote
+    uri = "file:%s?mode=ro" % quote(os.path.abspath(db_path))
+    conn = sqlite3.connect(uri, uri=True, timeout=10.0)
+    try:
+        conn.execute("PRAGMA busy_timeout=10000")
+    except sqlite3.Error:
+        pass  # 只读文件系统等极端场景不致命（同 models.connect 口径）
+    return conn
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(
         description="存量 bazi_info bazi 键清理（dry-run 默认；"
@@ -367,13 +393,22 @@ def main(argv=None):
         ap.error(f"--db 不存在：{args.db}")
 
     only = [u.strip() for u in args.users.split(",") if u.strip()] or None
+    # k35/A7：dry-run 用只读连接（旧代码普通 connect + `PersonDAO(...)` →
+    # `init_db` 会在 dry-run 里真实写库：`PRAGMA journal_mode=WAL` 持久切
+    # 日志模式、建缺表、`_migrate_db` ALTER 加列——与「未写入任何数据」契约
+    # 矛盾）。--execute 保持旧行为（普通连接 + 完整 DAO）。
     try:
-        conn = sqlite3.connect(args.db)
+        conn = (connect_readonly(args.db) if args.dry_run
+                else sqlite3.connect(args.db))
     except Exception as e:
+        if args.dry_run:
+            ap.error(f"无法只读打开 --db {args.db}: {e}（dry-run 走 mode=ro；"
+                     "WAL 库需其目录可写，或先 --execute 走带备份的写路径）")
         ap.error(f"无法打开 --db {args.db}: {e}")
     try:
         from src.storage.person_dao import PersonDAO
-        pdao = PersonDAO(args.db)
+        pdao = (PersonDAO.readonly(args.db) if args.dry_run
+                else PersonDAO(args.db))
     except Exception:
         pdao = None
 
@@ -411,7 +446,8 @@ def main(argv=None):
         for it in stale:
             f.write(json.dumps(it, ensure_ascii=False) + "\n")
     print(f"[execute] 完成：清理 {n} 行；审计 → {args.audit}")
-    print("[execute] 提醒：仅动 users.bazi_info；persons/chart_records 未动；"
+    print("[execute] 提醒：本次清理仅改 users.bazi_info；扫描期 persons 可能"
+          "自愈建卡/提升默认（既有行为，非清理动作）；chart_records 未动；"
           "请核对审计后重启服务")
     return 0
 

@@ -8,6 +8,8 @@
 """
 import json
 import logging
+import os
+import sqlite3
 from datetime import datetime
 from typing import Optional, Dict, List
 
@@ -232,13 +234,35 @@ def _birth_dict(**kw) -> dict:
 
 
 class PersonDAO:
-    """多人档案数据访问对象。"""
+    """多人档案数据访问对象。
 
-    def __init__(self, db_path: str):
+    只读构造（k35/A7）：`PersonDAO.readonly(db)` 跳过 `init_db` 的副作用
+    （`PRAGMA journal_mode=WAL` 持久切换 / 建缺表 / `_migrate_db` ALTER 加列），
+    且查询走 `mode=ro` 只读连接——供迁移脚本 dry-run 等「承诺零写入」的
+    只读场景使用（默认构造路径行为不变）。
+    """
+
+    def __init__(self, db_path: str, readonly: bool = False):
         self.db_path = db_path
-        init_db(db_path)
+        self._readonly = bool(readonly)
+        if not self._readonly:
+            init_db(db_path)
+
+    @classmethod
+    def readonly(cls, db_path: str) -> "PersonDAO":
+        """只读实例（k35/A7）：不建表/不 ALTER/不置 WAL，查询走 mode=ro。"""
+        return cls(db_path, readonly=True)
 
     def _connect(self):
+        if self._readonly:
+            from urllib.parse import quote
+            uri = "file:%s?mode=ro" % quote(os.path.abspath(self.db_path))
+            conn = sqlite3.connect(uri, uri=True, timeout=10.0)
+            try:
+                conn.execute("PRAGMA busy_timeout=10000")  # 连接级，无写入
+            except sqlite3.Error:
+                pass
+            return conn
         return db_connect(self.db_path)
 
     # ------------------------------------------------------------
