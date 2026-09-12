@@ -17,12 +17,53 @@ const PAIPAN_JS = path.join(__dirname, '../pages/paipan/paipan.js');
 
 /* ── 1. 纯判定逻辑（guide.js） ── */
 
-test('Q3 引导条：本地无档案 → 显示（未建档点排盘落地建档表单页）', () => {
-  assert.equal(guide.shouldShowPaipanNoarchGuide(false), true);
+test('Q3 引导条：本地无档案且未关闭 → 显示（未建档点排盘落地建档表单页）', () => {
+  assert.equal(guide.shouldShowPaipanNoarchGuide(false, false), true);
+  assert.equal(guide.shouldShowPaipanNoarchGuide(false), true, '缺省（未传关闭态）= 未关闭 → 显示');
 });
 
-test('Q3 引导条：已有档案 → 不显示', () => {
-  assert.equal(guide.shouldShowPaipanNoarchGuide(true), false);
+test('Q3 引导条：已有档案 → 不显示（关没关过都不显示）', () => {
+  assert.equal(guide.shouldShowPaipanNoarchGuide(true, false), false);
+  assert.equal(guide.shouldShowPaipanNoarchGuide(true, true), false);
+});
+
+/* ── k36 A32：引导条可关闭（复用今日页 NOARCH_CLOSED_KEY，跨页生效） ── */
+
+test('A32：无档案 + 已关闭（ylm_noarch_tip_closed=1）→ 不显示（关闭后不再出现）', () => {
+  assert.equal(guide.shouldShowPaipanNoarchGuide(false, true), false);
+});
+
+test('A32：关闭键与今日页字面一致（同一存储键：同一句「还没建档」关一次处处不打扰）', () => {
+  assert.equal(guide.NOARCH_CLOSED_KEY, 'ylm_noarch_tip_closed', '复用今日页关闭键常量');
+  const js = fs.readFileSync(PAIPAN_JS, 'utf8');
+  assert.match(js, /guide\.NOARCH_CLOSED_KEY/, 'paipan.js 必须用今日页同款关闭键常量');
+  assert.doesNotMatch(js, /ylm_paipan/, '不得新增页级关闭键（该键作用域=全局）');
+});
+
+test('A32：跨页生效——今日页关闭写入的键 = 排盘页读取/写入的键', () => {
+  const todayJs = fs.readFileSync(path.join(__dirname, '../pages/today/today.js'), 'utf8');
+  const paipanJs = fs.readFileSync(PAIPAN_JS, 'utf8');
+  assert.match(todayJs, /wx\.setStorageSync\(guide\.NOARCH_CLOSED_KEY, 1\)/,
+    '今日页关闭写 guide.NOARCH_CLOSED_KEY');
+  assert.match(paipanJs, /wx\.getStorageSync\(guide\.NOARCH_CLOSED_KEY\)/,
+    '排盘页进入时读取同一键（今日页关过 → 本页不再显示）');
+  assert.match(paipanJs, /wx\.setStorageSync\(guide\.NOARCH_CLOSED_KEY, 1\)/,
+    '排盘页关闭也写同一键（本页关过 → 今日页不再显示）');
+});
+
+test('A32：关闭交互——wxml × 按钮 catchtap 落 onCloseNoarchGuide（不冒泡到引导条）', () => {
+  const src = fs.readFileSync(PAIPAN_WXML, 'utf8');
+  assert.match(src, /class="pp-noarch-close"[^>]*catchtap="onCloseNoarchGuide"/,
+    '关闭按钮须用 catchtap 绑定 onCloseNoarchGuide（同今日页 noarch-tip-close 交互）');
+  const wxss = fs.readFileSync(path.join(__dirname, '../pages/paipan/paipan.wxss'), 'utf8');
+  assert.match(wxss, /\.pp-noarch-close\s*\{/, '关闭按钮样式应与引导条同族（pp-noarch-close）');
+  const js = fs.readFileSync(PAIPAN_JS, 'utf8');
+  assert.match(js, /onCloseNoarchGuide\(\)\s*\{/, 'paipan.js 应实现 onCloseNoarchGuide');
+});
+
+test('A32：关闭后本会话内存态同步（noarchClosed=true 且 noArchive=false）', () => {
+  const js = fs.readFileSync(PAIPAN_JS, 'utf8');
+  assert.match(js, /noarchClosed: true, noArchive: false/, '关闭后应同时落内存态与视图态');
 });
 
 /* ── 2. 引导条文案口径（P4 纪律：只承诺「会生成…分析」，不承诺保存/更准） ── */
@@ -56,7 +97,8 @@ test('paipan.js：noArchive 默认 false，onLoad/onShow 经 _refreshNoarchive �
   const js = fs.readFileSync(PAIPAN_JS, 'utf8');
   assert.match(js, /noArchive: false/, 'data 默认 noArchive: false（有档案不显示）');
   assert.match(js, /_refreshNoarchive\(\);\s*},/, 'onLoad/onShow 均应调用 _refreshNoarchive');
-  assert.match(js, /shouldShowPaipanNoarchGuide\(persons\.hasLocalArchive\(\)\)/, '判定应走 guide.shouldShowPaipanNoarchGuide(persons.hasLocalArchive())');
+  assert.match(js, /shouldShowPaipanNoarchGuide\(\s*persons\.hasLocalArchive\(\),\s*this\.data\.noarchClosed\s*\)/,
+    '判定应走 guide.shouldShowPaipanNoarchGuide(hasLocalArchive, noarchClosed)（A32 追加关闭态）');
   assert.match(js, /require\('\.\.\/\.\.\/utils\/persons'\)/, 'paipan.js 应引入 persons（档案判定）');
   assert.match(js, /require\('\.\.\/\.\.\/utils\/guide'\)/, 'paipan.js 应引入 guide（纯判定）');
 });

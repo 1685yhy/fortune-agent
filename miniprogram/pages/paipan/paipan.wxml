@@ -20,13 +20,16 @@
 
   <!-- Q3 未建档引导（批次2 收尾）：本地无档案 → 建档口径引导（E1 提示条同款文案）。
        本页为无档案用户的首个建档入口，表单字段即建档所需生辰信息；
-       文案沿用「会生成分析」口径，不承诺保存到档案（P4 口径纪律）。 -->
+       文案沿用「会生成分析」口径，不承诺保存到档案（P4 口径纪律）。
+       k36 A32：可关闭（× 落 ylm_noarch_tip_closed=1，与今日页 E1 提示条同键，
+       **跨页生效**：关一次处处不打扰）；「给他人排盘」不受影响（本条仅对无档案用户显示）。 -->
   <view class="pp-noarch" wx:if="{{noArchive}}">
     <view class="pp-noarch-seal"><text class="pp-noarch-seal-char">建</text></view>
     <view class="pp-noarch-mid">
       <view class="pp-noarch-t">还没建档？排一次盘，会生成专属分析</view>
       <view class="pp-noarch-s">填写生辰完成排盘 · 建档后解读更贴合自己</view>
     </view>
+    <view class="pp-noarch-close" hover-class="pp-noarch-close-active" hover-stay-time="0" catchtap="onCloseNoarchGuide">×</view>
   </view>
 
   <view class="form-card">

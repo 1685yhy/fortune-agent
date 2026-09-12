@@ -14,6 +14,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 
 from src.config import is_experience_mode
+from src.security.admin import is_admin_user
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,15 @@ def chat_quota_status(member_dao, chat_quota_dao, user_id: str) -> dict:
 
     返回 {used, limit, downgraded, is_member}：
     - 会员/体验模式：used=0, limit=None, downgraded=False, is_member=True
+    - 超管（ADMIN_IDS 白名单，k36 A28）：used=0, limit=None, downgraded=False,
+      is_member=False（不是会员，只是豁免；limit=None 表示"无限"，与会员同款表示法）
     - 免费用户：used=今日已用条数, limit=15, downgraded=used>=15, is_member=False
     """
+    if is_admin_user(user_id):
+        # 超管豁免：不限额、不计次（与会员/体验模式同款：不进消费分支）。
+        # 判据 = 已验证身份（/api/chat 的 user_id 取自 JWT sub）；白名单为空 → 恒不命中。
+        return {"used": 0, "limit": None, "downgraded": False, "is_member": False}
+
     is_member = False
     try:
         membership = member_dao.get_membership(user_id) if member_dao else None
@@ -65,8 +73,9 @@ def try_consume_chat_quota(member_dao, chat_quota_dao, user_id: str) -> dict:
     内部异常一律吞掉并放行（保守：不因额度系统故障破坏正常对话）。
     """
     status = chat_quota_status(member_dao, chat_quota_dao, user_id)
-    if status["is_member"] or is_experience_mode() or status["downgraded"]:
-        return status  # 会员/体验不计数；已超限不再累计
+    if (status["is_member"] or is_experience_mode() or status["downgraded"]
+            or is_admin_user(user_id)):
+        return status  # 会员/体验/超管不计数；已超限不再累计
     if chat_quota_dao is not None:
         try:
             chat_quota_dao.consume(user_id, _bj_day(), CHAT_DAILY_LIMIT)

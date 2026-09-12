@@ -16,11 +16,13 @@
 //    ⚠ 不影响现有 ylm_onboard_done / ylm_onboard_skipped 判定——app.js
 //    _maybeOnboard 只读 onboard 两键，导览标记与其互不读写（见 guide.test.js
 //    的键隔离断言），onboarding 不再自动弹出的逻辑保持不变。
-// 2) 未建档提示条（today 页）：ylm_noarch_tip_closed=1 —— 关闭后本会话+后续
-//    启动都不显示；重新建档成功（本地有档案）自动消失。取舍：关闭标记在
+// 2) 未建档提示条（today 页 + paipan 页共用）：ylm_noarch_tip_closed=1 —— 关闭后
+//    本会话+后续启动都不显示；重新建档成功（本地有档案）自动消失。取舍：关闭标记在
 //    「无档案」前提下永久生效（不按日重置——简单且不打扰）；一旦有档案，
 //    提示条跟随「有无档案」走，已关闭的标记不再拦截（用户已见过并关过，
 //    不重复打扰；将来删档后也不再弹出）。
+//    k36 A32：该键**跨页生效**（today 页 E1 提示条 与 paipan 页未建档引导条同键）——
+//    两页是同一句「还没建档」诉求，关一次处处不打扰。
 
 const TOUR_DONE_KEY = 'ylm_tour_done';
 const TOUR_SKIP_KEY = 'ylm_tour_skipped';
@@ -31,12 +33,16 @@ function shouldShowNoarchTip(hasArchive, tipClosed) {
   return !hasArchive && !tipClosed;
 }
 
-/* Q3（批次2 收尾）：排盘页未建档引导条是否显示——未建档用户点「排盘」入口
-   （E1 提示条 / onboarding 导览卡 / 测算页八字排盘卡）落地 paipan 建档表单页时，
+/* Q3（批次2 收尾）+ k36 A32：排盘页未建档引导条是否显示——未建档用户点「排盘」
+   入口（E1 提示条 / onboarding 导览卡 / 测算页八字排盘卡）落地 paipan 建档表单页时，
    显示「还没建档」建档口径引导（E1 提示条同款文案）；已有档案 → 不显示。
+   k36 A32：可关闭——**复用今日页关闭键 NOARCH_CLOSED_KEY**（同一句「还没建档」，
+   关一次处处不打扰，不发明新键/新交互）。
+   ⚠ 该键作用域 = 全局（跨页生效）：今日页关闭后本页引导条同样不再显示，反之亦然；
+   将来若产品要按页拆分，需引入页级键并改本判定。
    纯判定，供 paipan.js onLoad/onShow 调用（node 单测见 paipan_noarch.test.js）。 */
-function shouldShowPaipanNoarchGuide(hasArchive) {
-  return !hasArchive;
+function shouldShowPaipanNoarchGuide(hasArchive, tipClosed) {
+  return !hasArchive && !tipClosed;
 }
 
 /* 导览卡是否还有下一张（tourIdx 非最后一张 → 显示「下一步」而非「开始使用」） */

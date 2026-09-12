@@ -63,6 +63,20 @@ page {
   letter-spacing: .08em;
   color: var(--ink-faint);
 }
+/* k36 A32：关闭 ×（与今日页 .noarch-tip-close 同一尺寸/字体/圆点样式族，不发明新交互） */
+.pp-noarch-close {
+  flex-shrink: 0;
+  width: 52rpx;
+  height: 52rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-song);
+  font-size: 30rpx;
+  color: var(--ink-faint);
+  border-radius: 50%;
+}
+.pp-noarch-close-active { color: var(--acc); background: var(--acc-soft); }
 
 .form-card {
   background: var(--paper-card);
