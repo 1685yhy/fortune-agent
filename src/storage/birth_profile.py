@@ -27,6 +27,45 @@ def _pick_solar_time(pick: dict) -> int:
         return 1
 
 
+# ② 源 users.bazi_info 与 persons 权威 out 的比对键集（k32 A5/A8 单一实现）。
+# k11c：含 solar_time——开关属于档案内容，persons=关 / ② 源=开 的分裂必须参与
+# stale 判定（旧 `_keys` 缺该键 → 分裂永不自愈；表单侧镜像未同步核查同此口径）。
+_STALE_KEYS = ("year", "month", "day", "hour", "minute", "city", "gender",
+               "calendar", "solar_time")
+
+
+def birth_key_equal(k: str, a, b) -> bool:
+    """单键等价判定（读路径自愈 stale + 表单写侧镜像核查共用，单一实现）。
+
+    - calendar：缺省 solar 与显式 'solar' 等价（旧行无该键不误触发）；
+    - hour/minute：存储层把 0 折叠为 None → 0 与 None/空 等价（R1-3）；
+    - solar_time：0/1/缺省/脏值统一走 person_dao.solar_time_on（缺省开=1）；
+    - 其余（year/month/day/city/gender）严格相等。
+    """
+    if k == "calendar":
+        return (a or "solar") == (b or "solar")
+    if k in ("hour", "minute"):
+        return (a in (None, "", 0)) == (b in (None, "", 0))
+    if k == "solar_time":
+        from src.storage.person_dao import solar_time_on
+        return solar_time_on(a) == solar_time_on(b)
+    return a == b
+
+
+def bazi_info_out_of_sync(bazi: Optional[dict], out: Optional[dict]) -> bool:
+    """② 源 users.bazi_info 与 persons 权威 out 是否不一致（含缺失）。
+
+    单一事实源比对：读路径自愈（get_user_birth_profile）与表单写侧镜像核查
+    （api/user.py k32 A8）共用本判定。缺行/缺出生年 → 视为不一致（须回写）。
+    """
+    if not out:
+        return True
+    if not bazi or not bazi.get("year"):
+        return True
+    return any(not birth_key_equal(k, bazi.get(k), out.get(k))
+               for k in _STALE_KEYS)
+
+
 def profile_fingerprint(profile: Optional[dict]) -> str:
     """档案指纹（R1-2 T089 同源）：对话/calendar 缓存键分键共用函数。
 
@@ -61,6 +100,10 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None,
     bazi 四柱键等非 birth 键一律丢弃——四柱只属于 chart_records，21:44 事故
     即「保留旧 bazi 键」所致）——编辑页改动立即生效，消除两库永久分歧；
     bazi_info 不再当权威（gender 沿用档案中文契约 男/女，不产出 male/female）。
+    k32（A5）：比对键集含 solar_time（开关属档案内容——persons=关/② 源=开 的
+    分裂同源自愈；② 源缺该键 ≡ 缺省开，与显式 1 等价、不误触发）；比对键集与
+    等价判定收敛到模块级 `_STALE_KEYS`/`birth_key_equal`/`bazi_info_out_of_sync`
+    （表单写侧镜像核查共用同一实现）。
 
     k25 收口：回写不再经 UserDAO.save_user_bazi —— 改直写 SQL 镜像
     （person_dao.mirror_bazi_info_to_users，k11c F3 镜像同款），绕开
@@ -127,22 +170,11 @@ def get_user_birth_profile(dao, user_id: str, chart_dao=None,
                 # 等价」（时辰/分钟未知）归一，gender 等仍严格。
                 try:
                     bazi = dao.get_user_bazi(user_id)
-                    _keys = ("year", "month", "day", "hour", "minute",
-                             "city", "gender", "calendar")
-
-                    def _time_eq(k, a, b):
-                        if k == "calendar":
-                            # R2-5：旧 bazi_info 行无 calendar 键 → 缺省 solar
-                            # 与 out 的显式 'solar' 等价，不误触发；persons 侧
-                            # lunar 标记必须回写 bazi_info（两库单一事实源打通）
-                            return (a or "solar") == (b or "solar")
-                        if k in ("hour", "minute"):
-                            return (a in (None, "", 0)) == (b in (None, "", 0))
-                        return a == b
-
-                    stale = (not bazi or not bazi.get("year")
-                             or any(not _time_eq(k, bazi.get(k), out[k])
-                                    for k in _keys))
+                    # k32（A5）：比对键集/等价判定收敛到模块级单一实现
+                    # （birth_key_equal + _STALE_KEYS，含 solar_time）；
+                    # 键集口径说明见 _STALE_KEYS 注释（calendar 缺省 / 0≡None /
+                    # solar_time 缺省开）。
+                    stale = bazi_info_out_of_sync(bazi, out)
                     if stale:
                         _had_bazi_key = bool(bazi and bazi.get("bazi"))
                         # k8：全量重建 birth 键（persons 权威），不携带旧行

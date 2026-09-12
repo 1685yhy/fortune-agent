@@ -44,6 +44,12 @@ class PersonInfo(BaseModel):
     gender: str = "男"
     city: str = "北京"
     name: str = ""
+    # k32（A10）REST 契约收口：与 hehun/paipan 的 BaziInput、union（同 import）
+    # 同口径透传三个排盘开关——缺省值与 BaziEngine.calculate 缺省逐一对齐
+    # （旧调用方不传 → 行为零变化；契约测试 test_k32_rest_solar_contract 锁三方一致）。
+    daylightSaving: bool = False   # 夏令时：1986-1991 区间出生时刻减 1 小时再排盘
+    lateChildHour: bool = False    # 早晚子时专业档：23:00-24:00 日柱按当天
+    solarTime: bool = True         # 真太阳时（R2-4 产品口径默认开，可关）
 
 
 class CompatibilityRequest(BaseModel):
@@ -309,15 +315,23 @@ def _generate_summary(match_result: dict, user1_result, user2_result) -> str:
 def run_compatibility_analysis(req: CompatibilityRequest) -> dict:
     """Full compatibility analysis pipeline."""
     # Compute bazi for both users
+    # k32（A10）：三个排盘开关按人透传（与 hehun/paipan/union 同序同义；
+    # 此前 REST 侧丢弃 → 前端/调用方传关闭也恒按缺省开排，与主链口径分裂）。
     result1 = _engine.calculate(
         year=req.user1.year, month=req.user1.month, day=req.user1.day,
         hour=req.user1.hour, minute=req.user1.minute,
         city=req.user1.city, gender=req.user1.gender,
+        daylight_saving=req.user1.daylightSaving,
+        late_child_hour=req.user1.lateChildHour,
+        solar_time=req.user1.solarTime,
     )
     result2 = _engine.calculate(
         year=req.user2.year, month=req.user2.month, day=req.user2.day,
         hour=req.user2.hour, minute=req.user2.minute,
         city=req.user2.city, gender=req.user2.gender,
+        daylight_saving=req.user2.daylightSaving,
+        late_child_hour=req.user2.lateChildHour,
+        solar_time=req.user2.solarTime,
     )
 
     # Compute match score

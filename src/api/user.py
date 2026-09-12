@@ -19,7 +19,13 @@ from pydantic import BaseModel
 from src.storage.dao import UserDAO
 from src.storage.session_dao import SessionDAO
 from src.storage.preference_dao import PreferenceDAO
-from src.storage.person_dao import PersonDAO, FORM_EXPLICIT_CTX
+from src.storage.person_dao import (
+    PersonDAO, FORM_EXPLICIT_CTX,
+    # k32（A8/A9）：② 源降级直写 payload 与镜像/读路径同一实现（单一事实源）
+    bazi_info_of_person, solar_time_on,
+    _normalize_gender as normalize_gender_stored,
+)
+from src.storage.birth_profile import bazi_info_out_of_sync
 from src.storage.models import connect as db_connect
 from src.security.auth import require_user
 
@@ -661,6 +667,33 @@ async def user_profile(uid: str = Depends(require_user), user_id: str = ""):
     }
 
 
+def _existing_bazi_info(dao, user_id: str) -> dict:
+    """读 ② 源既有档案（失败/缺失 → {}；只读，绝不抛）。"""
+    try:
+        return dao.get_user_bazi(user_id) or {}
+    except Exception:
+        return {}
+
+
+def _form_bazi_normalized(req: "BaziRequest", bazi_info: dict,
+                          existing: dict) -> dict:
+    """表单 dict → ② 源归一 payload（k32 A9 降级直写专用，persons 不可用时）。
+
+    - gender：走 persons 存储层单一归一实现（male/female → 男/女，脏值 → unknown），
+      与 persons 中文契约一致（旧代码直写表单原样 dict → 库内出现 'male'）；
+    - solar_time：表单显式携带优先；未携带 → 保留 ② 源既有值（与 update_person
+      合并语义一致，不误翻转用户开关）；两者都无 → 缺省开=1（读口径 solar_time_on）；
+    - 键集 = birth 键（year/month/day/hour/minute/city/gender/calendar/solar_time），
+      不带 bazi 四柱键（k8：四柱只属于 chart_records）。
+    """
+    payload = dict(bazi_info)
+    payload["gender"] = normalize_gender_stored(req.gender)
+    payload["solar_time"] = (solar_time_on((existing or {}).get("solar_time"))
+                             if req.solar_time is None
+                             else (1 if req.solar_time else 0))
+    return payload
+
+
 @router.post("/api/user/bazi")
 async def user_update_bazi(req: BaziRequest, uid: str = Depends(require_user), user_id: str = ""):
     """保存或更新用户八字信息（P2 兼容迁移：写入默认命主，旧字段同步保留）。
@@ -695,6 +728,9 @@ async def user_update_bazi(req: BaziRequest, uid: str = Depends(require_user), u
         # P2 多人档案：写入默认命主（无档案时自动迁移/新建）
         pdao = get_person_dao()
         if pdao is not None:
+            _degrade_payload = None   # 非 None = 需降级直写（persons 权威 payload）
+            _degrade_reason = None
+            _pid = None
             try:
                 default = pdao.get_default_person(user_id)
                 birth = {
@@ -720,18 +756,50 @@ async def user_update_bazi(req: BaziRequest, uid: str = Depends(require_user), u
                 # consultation_count。两写最终值取决于调用顺序 → 口径分裂，
                 # 读路径每次再自愈。故本路径不再二次写。
                 if default:
-                    pdao.update_person(user_id, default["id"], birth=birth,
+                    _pid = default["id"]
+                    pdao.update_person(user_id, _pid, birth=birth,
                                        birth_ctx=FORM_EXPLICIT_CTX)
                 else:
-                    pdao.create_person(user_id, name="我", relation="自己",
-                                       is_default=True, birth=birth,
-                                       birth_ctx=FORM_EXPLICIT_CTX)
+                    _created = pdao.create_person(
+                        user_id, name="我", relation="自己", is_default=True,
+                        birth=birth, birth_ctx=FORM_EXPLICIT_CTX)
+                    _pid = (_created or {}).get("id")
+                # k32（A8）：镜像结果核查——漏斗内镜像静默失败（② 源行缺失时
+                # create_if_missing=False 直接 no-op / 写异常被内部吞掉返回
+                # False）时，k28 收敛后本路径**没有**第二次写 → ② 源不落库、
+                # 两库分裂（直到下次读路径自愈）。此处按读路径同款口径
+                # （birth_profile.bazi_info_out_of_sync，单一实现）核对 ② 源；
+                # 未同步即降级直写（payload 取 persons 权威行，与镜像同构）。
+                _latest = pdao.get_person(user_id, _pid) if _pid else None
+                if _latest and _latest.get("birth_year"):
+                    _want = bazi_info_of_person(_latest)
+                    if bazi_info_out_of_sync(_dao.get_user_bazi(user_id), _want):
+                        _degrade_payload = _want
+                        _degrade_reason = "② 源镜像未同步"
             except Exception as e:
+                _degrade_reason = e
+                # 降级直写 payload 优先取 persons 权威行（与镜像同构；写失败时
+                # 行内仍是既有值 → ② 源与 persons 保持一致，不写入表单新值造成
+                # 新的分裂）。persons 完全不可用 → None（走表单归一兜底）。
+                try:
+                    _row = pdao.get_person(user_id, _pid) if _pid else None
+                    if _row and _row.get("birth_year"):
+                        _degrade_payload = bazi_info_of_person(_row)
+                except Exception:
+                    _degrade_payload = None
+            if _degrade_reason is not None:
                 # 降级兜底：persons 链路不可用（建表/加密/写失败，非写入守卫
-                # ——表单提交永远豁免守卫）时保留旧字段直写（旧行为），避免整次
+                # ——表单提交永远豁免守卫）或 ② 源镜像未同步时保留直写，避免整次
                 # 保存静默丢失。正常路径绝不到这里，② 源写入口仍是镜像单点。
-                logger.warning("写入默认命主失败 user=%s: %s", user_id, e)
-                _dao.save_user_bazi(user_id, bazi_info)
+                # k32（A9）：直写 payload 必须**归一**（persons 权威镜像 payload
+                # 或表单 dict 本地归一）——旧代码写表单原样 dict：gender 可能
+                # 'male'/'female'（与 persons 中文契约分裂）、未传 solar_time
+                # 时整键丢失（② 源读口径回落默认开，而档案可能是关）。
+                payload = _degrade_payload or _form_bazi_normalized(
+                    req, bazi_info, _existing_bazi_info(_dao, user_id))
+                logger.warning("写入默认命主失败/镜像未同步 user=%s（降级直写 ② 源）：%s",
+                               user_id, _degrade_reason)
+                _dao.save_user_bazi(user_id, payload)
 
     return {"success": True, "message": "八字信息已保存"}
 

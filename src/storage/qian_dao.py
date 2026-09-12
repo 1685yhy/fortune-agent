@@ -34,24 +34,41 @@ class QianDAO:
 
     def _migrate_kind(self):
         """旧库(无 kind 列)懒迁移:整表重建,UNIQUE 升级为 (user_id, no, kind)。
-        幂等:新库/已迁移库不执行。"""
+        幂等:新库/已迁移库不执行。
+
+        k32（A18）：整表重建（RENAME→CREATE→COPY→DROP）包**显式事务**
+        （SAVEPOINT，而非 BEGIN——兼容调用方已有外层事务：sqlite3 默认只在 DML
+        前隐式开事务，DDL 各自 autocommit，`BEGIN` 在外层事务内会直接报
+        "cannot start a transaction within a transaction"）。任一步失败 →
+        ROLLBACK 回到迁移前状态并向上抛。此前失败会留下「旧表已改名、新表已建
+        但是空表」的中间态——旧收藏全部落在 qian_saves_old（对外不可达），
+        直到下一次成功迁移前读数只剩 0 行，即数据不可达事故。
+        """
         cols = {r[1] for r in self.conn.execute(
             "PRAGMA table_info(qian_saves)").fetchall()}
         if "kind" in cols:
             return
-        self.conn.execute("ALTER TABLE qian_saves RENAME TO qian_saves_old")
-        self.conn.execute("""CREATE TABLE qian_saves (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            no INTEGER NOT NULL,
-            kind TEXT NOT NULL DEFAULT 'original',
-            drawn_at REAL,
-            UNIQUE (user_id, no, kind)
-        )""")
-        self.conn.execute(
-            "INSERT INTO qian_saves (id, user_id, no, kind, drawn_at) "
-            "SELECT id, user_id, no, 'original', drawn_at FROM qian_saves_old")
-        self.conn.execute("DROP TABLE qian_saves_old")
+        self.conn.execute("SAVEPOINT k32_qian_kind_migrate")
+        try:
+            self.conn.execute("ALTER TABLE qian_saves RENAME TO qian_saves_old")
+            self.conn.execute("""CREATE TABLE qian_saves (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id TEXT NOT NULL,
+                no INTEGER NOT NULL,
+                kind TEXT NOT NULL DEFAULT 'original',
+                drawn_at REAL,
+                UNIQUE (user_id, no, kind)
+            )""")
+            self.conn.execute(
+                "INSERT INTO qian_saves (id, user_id, no, kind, drawn_at) "
+                "SELECT id, user_id, no, 'original', drawn_at FROM qian_saves_old")
+            self.conn.execute("DROP TABLE qian_saves_old")
+        except Exception:
+            self.conn.execute("ROLLBACK TO k32_qian_kind_migrate")
+            self.conn.execute("RELEASE k32_qian_kind_migrate")
+            raise
+        self.conn.execute("RELEASE k32_qian_kind_migrate")
+        self.conn.commit()
 
     def save(self, user_id: str, no: int, kind: str = "original") -> tuple:
         """收藏一支签(幂等:UNIQUE 防重)。返回 (saved, already):

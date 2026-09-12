@@ -33,11 +33,18 @@ logger = logging.getLogger(__name__)
 #     按误伤标准评估：纯查询句"我的会员是什么/我花了多少钱/我的会员等级是啥"
 #     不落上述任何词，仍直读；"我的会员卡"类查询命中仅降级 LLM，可接受）。
 _MEMBER_PAY_WORDS = ("充值", "开通", "升级", "购买", "续费", "付费",
-                     "套餐", "价格", "多少钱", "优惠", "怎么买", "便宜",
+                     "套餐", "价格", "多少钱", "优惠", "优惠券", "怎么买",
+                     "便宜",
                      "买", "开", "办", "成为", "续", "弄", "搞",
                      "充", "领", "冲", "收费", "花钱", "要钱", "缴费",
                      "缴", "交", "订", "申请", "兑换", "购", "付",
-                     "延期", "激活", "会员费", "会员卡")
+                     "延期", "激活", "会员费", "会员卡",
+                     # k32（A17）：营销/议价/退还类（打折/涨价/降价/促销）与
+                     # 社交裂变类（送/拼/抢）支付意图词——真机"会员打折吗"
+                     # "会员怎么退"等会被档位 dump 短路、吞掉支付引导全流程。
+                     # 口径沿用既有"宁可多拦、误伤仅降级"：纯查询（我的会员
+                     # 是什么/我花了多少钱/我的会员等级是啥）不落任何新词仍直读。
+                     "打折", "涨价", "降价", "促销", "退", "送", "拼", "抢")
 
 # F1 动作词守卫：档案直读不得劫持 排盘/建档/更新 动作意图（PM 真机反馈：
 # "我的出生年月日是啥"曾答非所问——扩关键词后若不做守卫，"我生日是1999年
@@ -270,17 +277,30 @@ class RecordQuery:
             saves = self.qian_dao.list_history(user_id, limit=10)
             if not saves:
                 return None
-            # D4 修复：qian_saves 只存 (no, drawn_at)，签诗/吉凶须从签文库
-            # QIAN_BY_NO 按 no 反查（与 /api/qian/history 同口径，防编造）。
+            # D4 修复：qian_saves 只存 (no, kind, drawn_at)，签诗/吉凶须从签文库
+            # 按 no 反查（与 /api/qian/history 同口径，防编造）。
+            # k32（A2）根因修复：反查必须**按签种**取卡——三签种各有独立签诗表，
+            # 同号异 kind 内容不同（观音#7 ≠ 关帝#7 ≠ 原版#7）。此前只查
+            # QIAN_BY_NO（原版 8 支）→ 观音/关帝/玄武山收藏一律串成原版签诗。
+            # 单一事实源：签卡只从 QIAN_KINDS 取（与 /api/qian/history 同一实现）。
             try:
-                from src.api.qian import QIAN_BY_NO
+                from src.api.qian import KIND_NAMES, QIAN_KINDS
             except Exception:
-                QIAN_BY_NO = {}
+                KIND_NAMES, QIAN_KINDS = {}, {}
             parts = [f"收藏的签：{len(saves)} 支"]
             for s in saves[:10]:
-                no = s.get("no")
-                entry = QIAN_BY_NO.get(no) if no is not None else None
-                head = f"第{no}签"
+                no, kind = s.get("no"), (s.get("kind") or "original")
+                entry = None
+                if no is not None:
+                    entry = next((c for c in QIAN_KINDS.get(kind) or ()
+                                  if c.get("no") == no), None)
+                    if entry is None:
+                        # 未知/脏签种（历史直写行）→ 回退原版签卡（不崩不丢条数）
+                        entry = next((c for c in QIAN_KINDS.get("original") or ()
+                                      if c.get("no") == no), None)
+                # 非原版签种加签种前缀（同号异 kind 并存时可区分，防张冠李戴）
+                head = (f"{KIND_NAMES[kind]}第{no}签" if kind != "original"
+                        and kind in KIND_NAMES else f"第{no}签")
                 if entry:
                     if entry.get("jx"):
                         head += f"（{entry['jx']}）"
