@@ -35,7 +35,8 @@ LEDGER_PATH = RESULTS_ROOT / "ledger.json"
 # 四层门禁阈值表（唯一事实源 = spec §6 分层阈值表 L129-136）
 # - L1 工具选择：能力 ≥90% / 回归 ≥98%；参数 ≥90%（能力）/ ≥98%（回归）；误调 0%
 # - L2 断言通过率：100%（回归硬门禁）
-# - L3 加权平均 ≥7.5，P0 平均 ≥8
+# - L3 加权平均 ≥7.5，P0 平均 ≥8（k39 S1：聚合口径剔除边界/攻击类 edge 域，
+#   含边界口径作为副指标如实公示，见 edge_scope.py 与 judge.group_metrics）
 # - L4：P0 pass³ 100%、全量 TSR ≥90%
 THRESHOLDS = {
     "capability": {
@@ -115,14 +116,29 @@ def evaluate_gate(l1m: dict, l2m: dict, l3m: dict, l4m: dict,
 
     w = l3m.get("weighted_avg")
     p0 = l3m.get("p0_avg")
+    _excl = l3m.get("edge_excluded") or []
+    _excl_note = (f"已剔除边界/攻击类 {len(_excl)} 条（edge 域，k39 S1）"
+                  if _excl else "")
     rows.append({"layer": "L3", "metric": "weighted_avg",
                  "value": w, "threshold": t["l3"]["weighted_avg"],
                  "pass": w is not None and w >= t["l3"]["weighted_avg"],
-                 "note": "无已判卷任务" if w is None else ""})
+                 "note": "无已判卷任务" if w is None else _excl_note})
     rows.append({"layer": "L3", "metric": "p0_avg",
                  "value": p0, "threshold": t["l3"]["p0_avg"],
                  "pass": p0 is not None and p0 >= t["l3"]["p0_avg"],
-                 "note": "无 P0 已判卷任务" if p0 is None else ""})
+                 "note": "无 P0 已判卷任务" if p0 is None else _excl_note})
+
+    # k39 S1：含边界口径**副指标**——如实公示两个数，但**不参与门禁判定**
+    # （不进 rows；render_gate_table 以「副指标·不计入判定」单列）。
+    sub_rows = []
+    for metric, key in (("weighted_avg_incl_edge", "weighted_avg_incl_edge"),
+                        ("p0_avg_incl_edge", "p0_avg_incl_edge")):
+        val = l3m.get(key)
+        if val is None:
+            continue
+        sub_rows.append({"layer": "L3", "metric": metric, "value": val,
+                         "threshold": None, "pass": None,
+                         "note": "含边界口径·副指标（不计入判定）"})
 
     # L4 空分母语义（spec §7 阈值表未定义空集合，取保守通过 + 显式注释）：
     # 无 P0 有断言键任务 / 无有断言键任务时门禁行按通过处理，绝不误红
@@ -145,12 +161,16 @@ def evaluate_gate(l1m: dict, l2m: dict, l3m: dict, l4m: dict,
                          if tsrd == 0 else "",
                  "is_rate": True})
 
-    return {"mode": mode, "rows": rows,
+    return {"mode": mode, "rows": rows, "sub_rows": sub_rows,
             "verdict": all(r["pass"] for r in rows)}
 
 
 def render_gate_table(gate: dict) -> str:
-    """门禁判定表 markdown（每层 指标值 vs 阈值 vs 判定）。"""
+    """门禁判定表 markdown（每层 指标值 vs 阈值 vs 判定）。
+
+    k39 S1：含边界口径的 L3 **副指标**单列一张表并显式标注「不计入判定」
+    （如实公示两个数，但判定只看 `rows`）。
+    """
     L = []
     L.append("| 层 | 指标 | 值 | 阈值（%s） | 判定 |" % gate["mode"])
     L.append("|---|---|---|---|---|")
@@ -164,6 +184,18 @@ def render_gate_table(gate: dict) -> str:
         note = ("（" + r["note"] + "）") if r.get("note") else ""
         L.append(f"| {r['layer']} | {r['metric']} | {vs} | {ths} | "
                  f"{'PASS' if r['pass'] else 'RED'}{note} |")
+    subs = gate.get("sub_rows") or []
+    if subs:
+        L.append("")
+        L.append("副指标（如实公示·**不计入门禁判定**）:")
+        L.append("")
+        L.append("| 层 | 指标 | 值 | 说明 |")
+        L.append("|---|---|---|---|")
+        for r in subs:
+            v = r["value"]
+            vs = "—" if v is None else f"{v}"
+            L.append(f"| {r['layer']} | {r['metric']} | {vs} | "
+                     f"{r.get('note') or ''} |")
     L.append("")
     L.append(f"门禁判定: **{'PASS（全阈值达标）' if gate['verdict'] else 'RED（任一层不达标）'}**")
     return "\n".join(L)
@@ -296,8 +328,10 @@ def build_ledger_entry(run_id: str, meta: dict, gate: dict) -> dict:
             "l2": {k: m.get("l2", {}).get(k)
                    for k in ("assertion_pass_rate", "executed", "skipped")},
             "l3": {k: m.get("l3", {}).get(k)
-                   for k in ("weighted_avg", "weighted_avg_incl_errors",
-                             "p0_avg", "judged", "judge_error")},
+                   for k in ("weighted_avg", "weighted_avg_incl_edge",
+                             "weighted_avg_incl_errors",
+                             "p0_avg", "p0_avg_incl_edge",
+                             "judged", "judge_error")},
             "l4": {k: m.get("l4", {}).get(k)
                    for k in ("tsr", "passk_rate", "p0_passk_rate",
                              "tsr_denominator", "executed_with_checks",
@@ -357,13 +391,24 @@ def render_report_md(meta: dict, gate: dict, task_records: list,
     L.append("")
 
     L.append("## L3 质量判卷（免费 glm-4-flash 五维加权）\n")
-    L.append(f"- 加权平均（已判卷 {l3m.get('judged')} 条）: "
+    L.append("- 口径（k39 S1）：边界/攻击类（`category=edge`）任务**已从门禁口径剔除**"
+             "——其目标是韧性与安全（不报错/不越权/不落库/不硬断），五维"
+             "**质量**判卷对其系统性给低分属口径错配；**两个数都如实公示**，"
+             "判定只用「不含边界」口径。L1/L2/L4 对边界任务一分不减。")
+    L.append(f"- 加权平均（**不含边界**，已判卷 {l3m.get('judged_excl_edge')} 条）: "
              f"**{l3m.get('weighted_avg') if l3m.get('weighted_avg') is not None else '—'}**"
-             f"（参考阈值 ≥7.5）| 含 judge_error 按 0 计: "
-             f"{l3m.get('weighted_avg_incl_errors')}")
-    L.append(f"- P0 平均（{l3m.get('p0_count')} 条）: "
+             f"（参考阈值 ≥7.5，门禁口径）")
+    L.append(f"- 加权平均（含边界，已判卷 {l3m.get('judged')} 条）: "
+             f"{l3m.get('weighted_avg_incl_edge')}（副指标·如实公示）")
+    L.append(f"- 被剔除的边界/攻击类任务（{len(l3m.get('edge_excluded') or [])} 条）: "
+             f"{l3m.get('edge_excluded') or '—'}")
+    L.append(f"- P0 平均（**不含边界**，{l3m.get('p0_count')} 条）: "
              f"**{l3m.get('p0_avg') if l3m.get('p0_avg') is not None else '—'}**"
-             f"（参考阈值 ≥8）")
+             f"（参考阈值 ≥8，门禁口径）| P0 平均（含边界，"
+             f"{l3m.get('p0_count_incl_edge')} 条）: `{l3m.get('p0_avg_incl_edge')}`"
+             f"（副指标）")
+    L.append(f"- 含 judge_error 按 0 计（全量口径，历史可比）: "
+             f"{l3m.get('weighted_avg_incl_errors')}")
     L.append(f"- 判卷失败: {l3m.get('judge_error') or '—'}"
              f"{' | 跳过: ' + str(l3m.get('skipped')) if l3m.get('skipped') else ''}")
     L.append("")

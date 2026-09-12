@@ -154,6 +154,9 @@ SCENE_DEFAULT_ENGINE = {
 # - _JSON_PARAM_LEAK_RE：参数 JSON 泄漏（{"birth": …}）——回复层任何情况
 #   不得出现工具参数 JSON（评测契约 neg "{"；产品侧同理，回显=半成品回复）。
 _TOOL_DESC_ECHO_RE = re.compile(r'[一-龥]{2,8}（[a-z_]{2,30}）')
+# k39 S3：合婚结构化工单里一方留空（"birth_b:" 无值）——键语法与
+# src/tools/hehun.py `_BIRTH_KEY_RE` 同口径（半/全角冒号与等号）
+_HEHUN_EMPTY_KEY_RE = re.compile(r'(?:^|\n)\s*birth_[ab]\s*[:：=＝]\s*(?=\n|$)')
 _JSON_PARAM_LEAK_RE = re.compile(r'\{\s*[\'"一-龥]')
 
 # G1 性别契约归一（male/female 兼容中文；单一事实源——引擎/纠正判定/
@@ -2843,6 +2846,13 @@ class MessageHandler:
         text = params.get("text") if isinstance(params, dict) else params
         text = (text or "").strip()
         pair = split_birth_pair(text)
+        if pair is not None and _HEHUN_EMPTY_KEY_RE.search(text):
+            # k39 S3 单档补全：结构化工单里**一方留空**（"birth_b:" 无值）=
+            # 单方已就位，不是「没看懂」。若不归一，`split_birth_pair` 的
+            # 分隔符形态会把参数键本身当成第二人，走下面的「第二方（birth_b）
+            # 出生信息没看懂：「birth_b:」」分支——把参数键当用户出生信息回显
+            # （半成品回复）。归一为 None → 走缺方澄清（下两分支）。
+            pair = None
         if pair is None:
             if self._extract_bazi_info(text):
                 return ToolResult(
@@ -3245,6 +3255,118 @@ class MessageHandler:
             pass
         return None
 
+    # ============================================================
+    # k39 S3：合盘「单档补全」——一方缺信息时用默认命主档案补全本人
+    # ============================================================
+
+    # 来源标识（**服务端唯一文案**；小程序合盘页同串「本人（来自档案）」，
+    # 满足 brief ③「服务端/前端口径一致，不要两套」）
+    HEHUN_SELF_FROM_ARCHIVE_LABEL = "本人（来自档案）"
+
+    # 「对方」语境标记：出生信息紧邻这些词 → 那一方是对方而非本人
+    _HEHUN_OTHER_MARKERS = (
+        "一个", "对方", "他", "她", "TA", "女朋友", "男朋友", "对象", "伴侣",
+        "女孩", "男孩", "女孩子", "男孩子", "老婆", "老公", "妻子", "丈夫",
+        "姑娘", "相亲", "介绍",
+    )
+    # 出生日期头（年+月）：定位消息里出生信息的位置
+    _HEHUN_BIRTH_HEAD_RE = re.compile(r"\d{4}\s*年\s*\d{1,2}\s*月")
+
+    def _hehun_message_side(self, msg: str) -> str:
+        """消息里那**一方**出生信息属于「本人」还是「对方」（k39 S3）。
+
+        判据（可判定、零 LLM）：取该出生信息**前 8 字 + 后 6 字**窗口，
+        命中 `_HEHUN_OTHER_MARKERS` → "other"，否则 "self"。
+        例：「我和一个1992年…出生的女孩子合不合」→ 前窗含「一个」→ other；
+        「我1990年5月20日 北京 男，和 TA 合不合」→ 前窗只有「我」、
+        后窗「20日 北京 男」无标记 → self。
+        """
+        m = self._HEHUN_BIRTH_HEAD_RE.search(msg or "")
+        if not m:
+            return "self"
+        window = (msg[max(0, m.start() - 8):m.start()]
+                  + msg[m.end():m.end() + 6])
+        return "other" if any(k in window for k in self._HEHUN_OTHER_MARKERS) \
+            else "self"
+
+    def _hehun_single_fill(self, msg: str, user_id: str) -> dict:
+        """k39 S3 合盘「单档补全」：一方缺信息时用默认命主档案补全**本人**。
+
+        返回 {"birth_a", "birth_b", "source_a"}（缺项为 ""；
+        source_a ∈ {"message","archive",""}）。规则（服务端唯一口径）：
+
+          1. 消息里双方齐全 → 一律以消息为准（**手填覆盖档案**，不补）；
+          2. 消息里只有一方 → 按 `_hehun_message_side` 判归属：
+             - "self"（本人，手填）→ birth_a = 消息（覆盖档案），birth_b 留空；
+             - "other"（对方）→ birth_b = 消息，birth_a 取档案；
+          3. 消息里没有出生信息 → birth_a 取档案（birth_b 留空，随后补问）。
+
+        无档案且消息无信息 → 全空 → 调用方保持改前引导文案（**未建档行为不变**）。
+        档案读取用 `_get_user_birth_profile`（persons 默认档优先，单一事实源）
+        + `_fmt_birth_text`（既有档案→出生串口径，含农历→公历换算）。
+        """
+        if not msg:
+            return {"birth_a": "", "birth_b": "", "source_a": ""}
+        # 双方齐全（男…女…）→ 手填优先，原样返回（与 _split_hehun_pair 同口径）
+        pair = self._split_hehun_pair(msg)
+        if pair and pair[0] and pair[1]:
+            return {"birth_a": pair[0], "birth_b": pair[1],
+                    "source_a": "message"}
+        # 双人语境但拆不出规范串（男/女 都在却解析失败）→ 不猜，交由原引导
+        if re.search(r'男[^女]*', msg) and re.search(r'女.*', msg):
+            return {"birth_a": "", "birth_b": "", "source_a": ""}
+        info = self._extract_bazi_info(msg)
+        side = self._hehun_message_side(msg) if info else ""
+        birth_a = birth_b = ""
+        source_a = ""
+        if info:
+            text = self._fmt_birth_text({
+                "year": info[0], "month": info[1], "day": info[2],
+                "hour": info[3], "minute": info[4], "city": info[5],
+                "gender": info[6], "calendar": "solar",
+            })
+            if side == "other":
+                birth_b = text
+            else:
+                birth_a, source_a = text, "message"
+        if not birth_a:
+            profile = None
+            try:
+                profile = self._get_user_birth_profile(user_id)
+            except Exception:  # noqa: BLE001 — 档案读取失败按无档案处理
+                profile = None
+            if profile:
+                birth_a = self._fmt_birth_text(profile)
+                source_a = "archive"
+        return {"birth_a": birth_a, "birth_b": birth_b, "source_a": source_a}
+
+    def _hehun_tool_reply(self, fill: dict, user_id: str,
+                          msg: str) -> Optional[str]:
+        """单档补全的确定性出口：调合婚工具 + 显式标注来源（**两入口共用**）。
+
+        - 工具可达（L1 记 hehun）：一方缺信息也照调（`birth_b=""`），
+          由工具既有 `needs_info` 分支产出补问句 —— 不静默降级、不新造文案。
+        - 来源标注（brief ①）：本人来自档案 → 「本人（来自档案）」；
+          手填本人 → 「本人」（不谎称来源）。
+        - 返回 None = 工具无可用输出 → 调用方走自己的兜底（行为不变）。
+        """
+        r = self._execute_tool_call(
+            "合婚", {"birth_a": fill.get("birth_a", ""),
+                     "birth_b": fill.get("birth_b", "")},
+            user_id, user_question=msg)
+        if not r.text:
+            return None
+        prefix = ""
+        if fill.get("birth_a"):
+            label = (self.HEHUN_SELF_FROM_ARCHIVE_LABEL
+                     if fill.get("source_a") == "archive" else "本人")
+            prefix = f"📌 合婚 · {label}：{fill['birth_a']}\n"
+        if r.ok:
+            return prefix + r.text
+        if r.needs_info and fill.get("birth_a") and not fill.get("birth_b"):
+            return prefix + r.text   # 本人已就位、只差对方 → 标注 + 补问
+        return None
+
     def _scene_hehun_fallback(self, msg: str, user_id: str, stream_cb=None,
                               session_id=None) -> Optional[str]:
         """合婚场景兜底：消息确定性拆双方出生 → 合婚工具（引擎匹配，0 LLM）。
@@ -3252,17 +3374,18 @@ class MessageHandler:
         原兜底 _handle_hehun 走 LLM analyze 输出散文（缺「男方」回显且 L1
         零调用，T039 flaky 实锤：LLM 自编合婚内容 1/3）。工具卡片按实际
         性别标注 男方/女方 四柱（format_hehun_card），契约关键词齐全。
+
+        k39 S3 单档补全：一方缺信息时用默认命主档案补全本人（显式标注来源、
+        手填优先），本人就位即调工具；只差对方 → 工具既有补问（不静默降级）。
         """
         try:
-            pair = self._split_hehun_pair(msg)
-            if pair and pair[0] and pair[1]:
-                r = self._execute_tool_call(
-                    "合婚", {"birth_a": pair[0], "birth_b": pair[1]}, user_id,
-                    user_question=msg)
-                if r.ok and r.text:
-                    return r.text
-            # 无双方生辰（"我们合不合"）→ 回退原引擎处理器（引导追问文案，
-            # 与旧版 SCENE_DEFAULT_ENGINE 直调 _handle_hehun 行为一致——
+            fill = self._hehun_single_fill(msg, user_id)
+            if fill["birth_a"] or fill["birth_b"]:
+                out = self._hehun_tool_reply(fill, user_id, msg)
+                if out:
+                    return out
+            # 无双方生辰（"我们合不合" 且无档案）→ 回退原引擎处理器（引导追问
+            # 文案，与旧版 SCENE_DEFAULT_ENGINE 直调 _handle_hehun 行为一致——
             # 已有 T039 工具卡片正例，不破坏产品侧引导体验）。
             return self._handle_hehun(msg, user_id, stream_cb=stream_cb)
         except Exception:
@@ -4869,16 +4992,25 @@ class MessageHandler:
     # Voice input support
     # ============================================================
 
-    def _handle_voice(self, voice_text: str = "", downgraded: bool = False) -> str:
+    def _handle_voice(self, voice_text: str = "", downgraded: bool = False,
+                      deep_night: bool = False) -> str:
         """处理语音输入。
 
         如果 CoW（Claude on WeChat）提供了语音→文字转写，
         则直接通过正常意图检测流程处理。
         如果没有转写文本，说明需要 CoW 语音插件支持。
         downgraded（L5-1）：对话额度用尽 → 降级链路（精简回复）。
+
+        deep_night（k39 审查 C2 同类修复）：语音轮是"转写文本轮"，请求里的
+        深夜标记必须与文本轮「同源同判」地传给 `process()` ——改前该标记同样
+        被丢弃（端点没传、本方法也没透传）→ 深夜语音轮以 temp=0 落库并成为
+        L2 压缩输入，与图片轮同一个缺陷类。**user_id 保持既有 `""` 形态不动**
+        （语音轮归属/上下文口径属既有独立缺口，改它会连带改变语音轮的
+        档案上下文与记忆语义，超出本次红线修复范围，已在报告列为待拍板项）。
         """
         if voice_text:
-            return self.process(voice_text, "", downgraded=downgraded)
+            return self.process(voice_text, "", deep_night=deep_night,
+                                downgraded=downgraded)
 
         return "🎤 语音处理需要 CoW 语音插件支持。如果您正在使用微信，" \
                "请确保已安装 CoW 语音转文字插件。"
@@ -4887,9 +5019,80 @@ class MessageHandler:
     # Image input support
     # ============================================================
 
+    def _persist_image_turn(self, user_id: str, image_url: str,
+                            user_text: str, reply: str,
+                            deep_night: bool = False) -> None:
+        """k39 S4：图片轮次落库（user 轮含图片 URL + assistant 轮）。
+
+        为什么必须落库（改前 → 改后）：
+        - 改前：图片轮**完全不落库**（`/api/chat` 的 image 分支绕开
+          `process()`，而 `process()` 是全产品唯一的落库入口）→ `sessions`
+          里没有任何上传 URL → `_referenced_upload_names`（k33 引用反查）
+          永远查不到引用 → 72h TTL 一到，**每个**上传都算孤儿被删 →
+          客户端本地历史里的图裂。
+        - 改后：user 轮 content 里带原样上传 URL（清理反查按
+          `/api/chat/uploads/<name>` 匹配），assistant 轮照常落库 →
+          被引用的图超 TTL 不删；历史（本地 `ylm_chat_messages`/服务端
+          sessions）都能按 URL 渲染。
+
+        隐私口径**不放宽**（与文本链路同规则，逐项对齐 `process()`）：
+        - 倾诉/深夜（deep-night）→ `temp=1`（24h 硬清理，同 `cleanup_temp`）；
+          **判据是本轮请求的 `deep_night` 入参，不是进程内 `_deep_night` 字典**
+          （k39 审查 C2：该字典只在 `process()` 文本轮里被赋值，图片轮直接读它
+          必然取到**上一文本轮**的陈旧值——深夜「首条即发图」/直调 API 的图片轮
+          会以 `temp=0` 落库并进入 L2 压缩输入，打破「夜间倾诉不进 L2」红线）；
+        - **本轮不写记忆，但落下去的 `temp=0` 行会成为 L2 压缩的输入**
+          （`_maybe_compact` 预检 `AND temp=0` + `get_history(temp=False)`）→
+          所以"深夜图片轮不进 L2"完全依赖上面那行 `temp` 标记；
+          `temp=1` 才真正把它挡在 L2 之外。
+          本方法自身仍只写 `sessions`，绝不碰 UserMemory/compactor/演化链；
+        - `user_id` 为空（无身份）→ 不落库（不建匿名共享身份）；
+        - 落库失败只告警，绝不影响回复（优雅降级）。
+        """
+        if not user_id or not image_url:
+            return
+        dao = getattr(self, "session_dao", None)
+        if dao is None:
+            return
+        try:
+            deep = bool(deep_night)
+            # 占位词「（图片）」与客户端 streamHost.sendImage 的 content 同口径；
+            # URL 原样拼接（清理反查要求完整 /api/chat/uploads/<name>）
+            content = f"（图片）{image_url}"
+            if user_text:
+                content += f"\n{user_text}"
+            dao.add_message(user_id, "user", content, intent="image", temp=deep)
+            if reply:
+                dao.add_message(user_id, "assistant", reply, intent="image",
+                                temp=deep)
+        except Exception:  # noqa: BLE001 — 落库失败不影响回复
+            logger.warning("图片轮次落库失败（不影响回复）user=%s", user_id,
+                           exc_info=True)
+
     def _handle_image(self, image_url: str = "", user_text: str = "",
-                      downgraded: bool = False) -> str:
-        """处理图片输入 — 支持面相分析 + 风水 + 通用。
+                      downgraded: bool = False, user_id: str = "",
+                      deep_night: bool = False) -> str:
+        """处理图片输入 — 支持面相分析 + 风水 + 通用（k39 S4：轮次落库）。
+
+        `user_id`（k39 S4 新增，末位带默认值 → 既有 3 参调用不受影响）：
+        图片轮次按 `_persist_image_turn` 落库（历史可渲染 + 清理能识别引用）；
+        空 user_id（无身份调用方）保持改前行为——不落任何用户数据。
+
+        `deep_night`（k39 审查 C2 新增）：本轮的深夜/倾诉标记，**由请求透传**
+        （`req.deep_night`，与文本轮 `process(deep_night=...)` 同源同判），
+        只用于落库时的 `temp` 判定 → 深夜图片轮 temp=1（24h 硬清理）且不进 L2。
+        **刻意不写进 `self._deep_night` 字典**：那个字典是进程内跨轮状态，
+        图片轮写它只会把上一轮的值留给下一轮（正是 C2 的成因）；本路径全部
+        走显式入参，不读也不写该字典。
+        """
+        reply = self._handle_image_inner(image_url, user_text, downgraded)
+        self._persist_image_turn(user_id, image_url, user_text, reply,
+                                 deep_night=deep_night)
+        return reply
+
+    def _handle_image_inner(self, image_url: str = "", user_text: str = "",
+                            downgraded: bool = False) -> str:
+        """图片输入的处理本体（零落库；落库统一由 `_handle_image` 收口）。
 
         优先尝试 CV 面相分析（如果人脸检测成功），否则根据关键词路由。
         downgraded（L5-2 I-3）：降级时 CV 本地测量照跑，但跳过付费 DeepSeek
@@ -7918,7 +8121,21 @@ class MessageHandler:
     # ============================================================
 
     def _handle_hehun(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
-        """合婚配对 - 提取双方信息，引擎计算匹配度，LLM生成叙事分析"""
+        """合婚配对 - 提取双方信息，引擎计算匹配度，LLM生成叙事分析
+
+        k39 S3：入口先走「单档补全」（`_hehun_single_fill`，与场景兜底
+        `_scene_hehun_fallback` **同一实现、同一文案**，不两套）——
+        本人缺失时用默认命主档案补全并显式标注「本人（来自档案）」；
+        只缺对方时确定性补问，不再要求用户重复提供本人信息。
+        双方都由消息给出（手填）时行为与改前完全一致。
+        """
+        fill = self._hehun_single_fill(msg, user_id)
+        if fill["source_a"] == "archive" or (fill["birth_a"]
+                                             and not fill["birth_b"]):
+            # 档案补全 / 只缺对方 → 同一确定性出口（工具卡或标注补问）
+            out = self._hehun_tool_reply(fill, user_id, msg)
+            if out:
+                return out
         # Extract both parties' birth info
         parts = re.split(r'[，。,\.\s]+女|女方|对方|对象|伴侣', msg)
         info_a = self._extract_bazi_info(msg)

@@ -31,6 +31,10 @@ Page({
     p1Gender: 'male',
     p1City: '',
     p1CitySet: false,
+    // k39 S3：来源标识（本人由档案补全时显式标注；手动改任一项即清除 →
+    // 「覆盖后以手填为准」）。服务端同一标注串「本人（来自档案）」，
+    // 口径一致不两套（见 src/bot/handler.py HEHUN_SELF_FROM_ARCHIVE_LABEL）。
+    p1FromArchive: false,
 
     // TA (p2)
     p2Date: '',
@@ -41,6 +45,7 @@ Page({
     p2City: '',
     p2CitySet: false,
     p2FromCache: false,    // 本机「上次记录」回填标注
+    p2FromArchive: false,  // k39 S3：TA 由档案补全的来源标识（同 p1FromArchive 口径）
 
     // k29：页级真太阳时开关（R2-4 产品口径：默认开=按出生地经度校准时辰；
     // 关=北京时间直排）。口径与 paipan 页一致：档案直选/默认命主预填时回显
@@ -232,38 +237,41 @@ Page({
       base[`${target}CitySet`] = false;
     }
     if (target === 'p2') base.p2FromCache = false;
+    // k39 S3：档案补全 → 打来源标识（显式标注；手动改任一项即清除）
+    base[`${target}FromArchive`] = true;
     this.setData(base);
   },
 
   // ---- Person 1（我方）Handlers ----
+  // k39 S3：手动改任一项 → 清来源标识（覆盖后以手填为准）
   onP1DateChange(e) {
-    this.setData({ p1Cal: e.detail.calendar, p1Date: e.detail.date });
+    this.setData({ p1Cal: e.detail.calendar, p1Date: e.detail.date, p1FromArchive: false });
   },
   onP1HourChange(e) {
     const idx = parseInt(e.detail.value, 10);
-    this.setData({ p1HourIdx: idx, p1HourSet: idx > 0 });
+    this.setData({ p1HourIdx: idx, p1HourSet: idx > 0, p1FromArchive: false });
   },
   onP1CityChange(e) {
-    this.setData({ p1City: e.detail.full, p1CitySet: !!e.detail.full });
+    this.setData({ p1City: e.detail.full, p1CitySet: !!e.detail.full, p1FromArchive: false });
   },
   /* 性别：男/女 大按钮（点击切换，与 paipan 同款） */
   onP1GenderTap(e) {
-    this.setData({ p1Gender: e.currentTarget.dataset.gender });
+    this.setData({ p1Gender: e.currentTarget.dataset.gender, p1FromArchive: false });
   },
 
   // ---- Person 2（TA）Handlers ----
   onP2DateChange(e) {
-    this.setData({ p2Cal: e.detail.calendar, p2Date: e.detail.date, p2FromCache: false });
+    this.setData({ p2Cal: e.detail.calendar, p2Date: e.detail.date, p2FromCache: false, p2FromArchive: false });
   },
   onP2HourChange(e) {
     const idx = parseInt(e.detail.value, 10);
-    this.setData({ p2HourIdx: idx, p2HourSet: idx > 0, p2FromCache: false });
+    this.setData({ p2HourIdx: idx, p2HourSet: idx > 0, p2FromCache: false, p2FromArchive: false });
   },
   onP2CityChange(e) {
-    this.setData({ p2City: e.detail.full, p2CitySet: !!e.detail.full, p2FromCache: false });
+    this.setData({ p2City: e.detail.full, p2CitySet: !!e.detail.full, p2FromCache: false, p2FromArchive: false });
   },
   onP2GenderTap(e) {
-    this.setData({ p2Gender: e.currentTarget.dataset.gender, p2FromCache: false });
+    this.setData({ p2Gender: e.currentTarget.dataset.gender, p2FromCache: false, p2FromArchive: false });
   },
 
   /* 真太阳时开关（k29，与 paipan 同款交互）：开=按出生地经度校准（solarTime:true）；
@@ -581,6 +589,7 @@ Page({
       p2City: '',
       p2CitySet: false,
       p2FromCache: false,
+      p2FromArchive: false,
       relation: '',
     });
   },
@@ -601,6 +610,7 @@ Page({
       p1HourSet: false,
       p1City: '',
       p1CitySet: false,
+      p1FromArchive: false,
       p2Date: '',
       p2Cal: 'solar',
       p2HourIdx: 0,
@@ -608,6 +618,7 @@ Page({
       p2City: '',
       p2CitySet: false,
       p2FromCache: false,
+      p2FromArchive: false,
       relation: '',
     });
   },

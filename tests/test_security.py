@@ -67,6 +67,94 @@ class TestRateLimiter(unittest.TestCase):
         self.assertTrue(analysis_allowed)
 
 
+class TestRateLimitV1Channel(unittest.TestCase):
+    """k39 审查 I1：复活后的 /v1/*（外部 OpenAI 兼容通道）必须有上限。
+
+    改前：`RATE_LIMITED_PATHS` 不含 `/v1` → 该通道**完全无限流**（通道原本
+    422 不可达，所以从未暴露）；通道复活后它是唯一无上限的 LLM 成本面。
+    """
+
+    def setUp(self):
+        from src.security.ratelimit import RateLimiter
+        self.limiter = RateLimiter()
+
+    def test_v1_is_in_rate_limited_paths(self):
+        from src.security.ratelimit import RATE_LIMITED_PATHS
+        self.assertIn("/v1", RATE_LIMITED_PATHS)
+
+    def test_v1_uses_chat_tier_and_existing_tiers_unchanged(self):
+        # /v1 = LLM 成本面 → 与 /api/chat 同档（30 req/min + 50% burst）
+        self.assertEqual(self.limiter.ip_limit_for("/v1/chat/completions"),
+                         (30, 60))
+        self.assertEqual(self.limiter.ip_limit_for("/v1/completions"), (30, 60))
+        # 既有档位回归：一分不动
+        self.assertEqual(self.limiter.ip_limit_for("/api/chat"), (30, 60))
+        self.assertEqual(self.limiter.ip_limit_for("/api/analysis"), (10, 60))
+        self.assertEqual(self.limiter.ip_limit_for("/api/feedback"), (60, 60))
+
+    def test_v1_ip_throttled_after_tier_cap(self):
+        ip, path = "7.7.7.7", "/v1/chat/completions"
+        first = [self.limiter.check_ip(ip, path)[0] for _ in range(30)]
+        self.assertTrue(all(first), "前 30 次（正常额度）必须全放行")
+        denied, allowed = 0, 30
+        for _ in range(90):
+            ok, retry = self.limiter.check_ip(ip, path)
+            if ok:
+                allowed += 1
+            else:
+                denied += 1
+                self.assertGreater(retry, 0)
+        self.assertGreater(denied, 0, "/v1 必须真的会被限流（改前恒放行）")
+        # 上限 = 正常额度 30 + burst 45（+2 容差：计数过程中时钟推进的补充）
+        self.assertLessEqual(allowed, 30 + int(30 * 1.5) + 2)
+
+
+class TestRateLimitMiddlewareAppliesToV1(unittest.TestCase):
+    """中间件层实证（不只查常量）：/v1 请求真的会被 429，且 429 头写真档位。"""
+
+    def _dispatch_n(self, path, n):
+        from src.security.ratelimit import RateLimitMiddleware, RateLimiter
+        from starlette.requests import Request
+        from starlette.responses import Response
+        import asyncio
+
+        mw = RateLimitMiddleware(app=None, limiter=RateLimiter())
+
+        def _req():
+            scope = {"type": "http", "method": "POST", "path": path,
+                     "raw_path": path.encode(), "query_string": b"",
+                     "headers": [(b"host", b"testserver")],
+                     "client": ("8.8.8.8", 1234), "scheme": "http",
+                     "server": ("testserver", 80), "root_path": ""}
+            return Request(scope)
+
+        async def _call_next(request):
+            return Response("ok", status_code=200)
+
+        loop = asyncio.new_event_loop()
+        try:
+            return [loop.run_until_complete(mw.dispatch(_req(), _call_next))
+                    for _ in range(n)]
+        finally:
+            loop.close()
+
+    def test_v1_request_gets_429_and_correct_limit_header(self):
+        responses = self._dispatch_n("/v1/chat/completions", 120)
+        codes = [r.status_code for r in responses]
+        self.assertTrue(all(c == 200 for c in codes[:30]))
+        self.assertIn(429, codes, "/v1 请求必须被限流中间件拦下")
+        bad = next(r for r in responses if r.status_code == 429)
+        self.assertEqual(bad.headers["X-RateLimit-Limit"], "30")
+        self.assertIn("rate_limit_exceeded", bad.body.decode())
+
+    def test_default_tier_429_header_reports_real_limit(self):
+        """429 头必须写实际档位（改前 default 档硬写 "10"、实际 60）。"""
+        responses = self._dispatch_n("/api/feedback", 200)
+        bad = next((r for r in responses if r.status_code == 429), None)
+        self.assertIsNotNone(bad, "default 档 60/min 也必须生效")
+        self.assertEqual(bad.headers["X-RateLimit-Limit"], "60")
+
+
 class TestInputSanitizer(unittest.TestCase):
     """Test input sanitization."""
 

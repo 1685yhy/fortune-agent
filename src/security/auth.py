@@ -158,6 +158,58 @@ class JWTHandler:
         return True
 
 
+# ── key→user 绑定（k39 审查 I1）：身份由 key 决定，不由请求决定 ──────────────
+# 两个环境变量（服务端配置，唯一事实源）：
+#   1) FORTUNE_API_KEY_USERS="key1:uid1,key2:uid2"（多 key；格式与既有 API_KEYS
+#      "key:name" 对齐）
+#   2) FORTUNE_API_KEY_USER="uid"（单 key 场景；绑定 FORTUNE_API_KEY 那把 key）
+# 语义：命中绑定的 key 在调用方通道里**只代表该 uid**；未配置绑定的 key
+# → 无身份（调用方必须零写入，见 openai_compat.UNBOUND_NOTICE）。
+BINDINGS_ENV = "FORTUNE_API_KEY_USERS"
+SINGLE_BINDING_ENV = "FORTUNE_API_KEY_USER"
+
+
+def _mask_key(key: str) -> str:
+    """日志用：不明文回显 key（只留首位与长度）。"""
+    k = key or ""
+    if len(k) <= 4:
+        return "***"
+    return f"{k[0]}***{k[-1]}(len={len(k)})"
+
+
+def resolve_key_user_bindings(env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """解析 key→user 绑定配置（纯函数，便于测试注入 env）。
+
+    非法条目一律**跳过并告警**（绝不做模糊匹配/前缀猜测，防配置事故变成越权面）。
+    """
+    src = os.environ if env is None else env
+    out: Dict[str, str] = {}
+    for entry in (src.get(BINDINGS_ENV, "") or "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if ":" not in entry:
+            logger.warning("%s 条目缺 ':'（跳过）: %s", BINDINGS_ENV, entry)
+            continue
+        key, uid = entry.split(":", 1)
+        key, uid = key.strip(), uid.strip()
+        if not key or not uid:
+            logger.warning("%s 条目 key/user 为空（跳过）", BINDINGS_ENV)
+            continue
+        out[key] = uid
+
+    uid = (src.get(SINGLE_BINDING_ENV, "") or "").strip()
+    if uid:
+        single = (src.get("FORTUNE_API_KEY", "") or "").strip()
+        if single:
+            out[single] = uid
+        else:
+            logger.warning(
+                "%s 已配置但 FORTUNE_API_KEY 为空 → 该绑定不生效（请改用 %s）",
+                SINGLE_BINDING_ENV, BINDINGS_ENV)
+    return out
+
+
 class AuthHandler:
     """Comprehensive authentication handler.
 
@@ -189,12 +241,32 @@ class AuthHandler:
         if single_key and single_key not in self.api_keys:
             self.api_keys[single_key] = {"name": "primary", "active": True}
 
+        # k39 审查 I1：给 key 附上「它代表谁」——身份由 key 决定，不由请求决定
+        for key, uid in resolve_key_user_bindings().items():
+            if key in self.api_keys:
+                self.api_keys[key]["user"] = uid
+            else:
+                logger.warning(
+                    "key→user 绑定了一个未配置的 key（忽略，不建 key）: %s", _mask_key(key))
+
     def validate_api_key(self, api_key: str) -> Optional[Dict]:
         """Validate an API key. Returns key info or None."""
         key_info = self.api_keys.get(api_key)
         if key_info and key_info.get("active", False):
             return key_info
         return None
+
+    def bound_user_for_key(self, api_key: str) -> str:
+        """该 key 绑定的用户身份（k39 审查 I1）。
+
+        - 未配置绑定 / key 无效 / key 未激活 → `""`（调用方必须按"无身份"处理，
+          即**零写入**）；
+        - 只认服务端配置（环境变量），请求体里的任何字段都不参与。
+        """
+        info = self.validate_api_key(api_key)
+        if not info:
+            return ""
+        return str(info.get("user", "") or "").strip()
 
     def authenticate_request(self, request: Request) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """Try all authentication methods. Returns (authenticated, user_info, error)."""

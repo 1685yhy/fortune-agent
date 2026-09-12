@@ -98,22 +98,34 @@ class RateLimiter:
 
     def _get_route_group(self, path: str) -> str:
         """Categorize endpoint into rate limit group."""
+        # k39 审查 I1：/v1/*（OpenAI 兼容外部通道）＝ LLM 成本面，与 /api/chat
+        # 同档（同一档参数、同一计数器组语义）。改前 /v1/* 根本不进限流
+        # （见 RATE_LIMITED_PATHS），通道复活后是唯一无上限的 LLM 面。
+        if path == "/v1" or path.startswith("/v1/"):
+            return "chat"
         if "/chat" in path:
             return "chat"
         if any(x in path for x in ("/analysis", "/face-reading", "/palm-reading", "/calendar", "/compatibility")):
             return "analysis"
         return "default"
 
+    def ip_limit_for(self, path: str) -> Tuple[int, int]:
+        """该路径的 (max_requests, window_seconds)——单一事实源。
+
+        429 响应的 `X-RateLimit-Limit` 与计数窗口都取自这里，避免三处各写一遍
+        常量（改前 429 头对 default 档硬写 "10"、实际是 60，就是分头写导致的）。
+        """
+        group = self._get_route_group(path)
+        if group == "chat":
+            return self.ip_chat_limit
+        if group == "analysis":
+            return self.ip_analysis_limit
+        return (60, 60)  # 60 req/min for default
+
     def check_ip(self, ip: str, path: str) -> Tuple[bool, int]:
         """Check IP-based rate limit. Returns (allowed, retry_after)."""
         group = self._get_route_group(path)
-
-        if group == "chat":
-            max_req, window = self.ip_chat_limit
-        elif group == "analysis":
-            max_req, window = self.ip_analysis_limit
-        else:
-            max_req, window = (60, 60)  # 60 req/min for default
+        max_req, window = self.ip_limit_for(path)
 
         if ip not in self._ip_limits:
             self._ip_limits[ip] = {}
@@ -134,13 +146,7 @@ class RateLimiter:
     def _check_burst(self, ip: str, path: str) -> bool:
         """Check burst bucket for temporary overage allowance."""
         group = self._get_route_group(path)
-
-        if group == "chat":
-            base_capacity = self.ip_chat_limit[0]
-        elif group == "analysis":
-            base_capacity = self.ip_analysis_limit[0]
-        else:
-            base_capacity = 60
+        base_capacity = self.ip_limit_for(path)[0]
 
         burst_capacity = int(base_capacity * self.burst_multiplier)
 
@@ -170,6 +176,9 @@ class RateLimiter:
 
 
 RATE_LIMITED_PATHS = [
+    # k39 审查 I1：/v1/*（OpenAI 兼容外部通道）此前**完全无限流**，通道从 422
+    # 复活后是唯一无上限的 LLM 成本面，纳入既有中间件（不新造限流设施）。
+    "/v1",
     "/api/chat",
     "/api/analysis",
     "/api/face-reading",
@@ -215,7 +224,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 },
                 headers={
                     "Retry-After": str(ip_retry_after),
-                    "X-RateLimit-Limit": "30" if "/chat" in path else "10",
+                    # 实际档位（单一事实源）；改前 default 档硬写 "10" 而实际 60
+                    "X-RateLimit-Limit": str(self.limiter.ip_limit_for(path)[0]),
                     "X-RateLimit-Remaining": "0",
                 },
             )
@@ -241,6 +251,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     def _extract_user_id(self, request: Request) -> Optional[str]:
         """Extract user_id from request body or query params."""
+        # k39 审查 I1：/v1/* 的身份由 API key 决定（与路由同源判据）——请求里的
+        # user_id（查询参数等）**不得**作为计数身份，否则刷量者可以把配额计到
+        # 别人头上（或换参数绕过 per-user 上限）。未绑定 → 无身份（只吃 IP 档）。
+        if request.url.path == "/v1" or request.url.path.startswith("/v1/"):
+            return self._identity_from_api_key(request) or None
+
         # Try query params
         user_id = request.query_params.get("user_id")
         if user_id:
@@ -256,3 +272,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     return candidate
 
         return None
+
+    @staticmethod
+    def _identity_from_api_key(request: Request) -> str:
+        """请求携带的 API key 所绑定的身份（无 key / 未绑定 / 异常 → 空串）。"""
+        token = request.headers.get("X-API-Key", "")
+        if not token:
+            auth_header = request.headers.get("Authorization", "")
+            if auth_header.startswith("Bearer "):
+                token = auth_header[7:].strip()
+        if not token:
+            return ""
+        try:
+            from src.security.auth import get_auth_handler
+            return get_auth_handler().bound_user_for_key(token) or ""
+        except Exception:  # noqa: BLE001 — 计数维度取不到身份不影响放行（IP 档仍在）
+            return ""
