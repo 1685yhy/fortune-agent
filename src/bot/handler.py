@@ -28,6 +28,11 @@ from src.tools.career_dir import format_career_card, parse_career_params  # 批�
 from src.tools.num_omen import (analyze_number, format_num_card,  # 批次 2 E5 数字吉凶工具规则层
                                 parse_num_params)
 from src.engines.message_analyzer import MessageAnalyzer, MessageAnalysis
+# T076（k38）：单人婚姻判定词表与意图路由**同一事实源**（message_analyzer 定义，
+# 本处只消费不复制——防两处词表分裂，数据一致性铁律）
+from src.engines.message_analyzer import (
+    _MARRIAGE_TIMELINE_RE as _SINGLE_MARRIAGE_TIMELINE_RE,
+    _SECOND_PERSON_RE, _SINGLE_MARRIAGE_RE)
 from src.bot.record_query import _MEMBER_PAY_WORDS  # R1-1：支付词单一事实源（与会员直读守卫同表，防分裂）
 try:
     from src.engines.advisor_v2 import AdaptiveAdvisor
@@ -1186,6 +1191,22 @@ class MessageHandler:
         return MessageAnalysis(needs_soothe=False, soothe_text="",
                                emotion_label=None, intent=None)
 
+    def _redirect_single_marriage_hehun(self, analysis, msg: str) -> None:
+        """T076（k38）单人婚姻询问 → advisor（就地改判，无返回值）。
+
+        四条件全部成立才改判（缺一不动，见 process() 内注释）：① 意图 = hehun
+        ② 消息含 婚姻/姻缘 ③ 无双人语境 ④ 无运势时间锚。
+        拆成独立方法：条件可被单测直接锁定（process() 内联判定不可单测）。
+        """
+        try:
+            if (analysis is not None and analysis.intent == "hehun"
+                    and _SINGLE_MARRIAGE_RE.search(msg or "")
+                    and not _SECOND_PERSON_RE.search(msg or "")
+                    and not _SINGLE_MARRIAGE_TIMELINE_RE.search(msg or "")):
+                analysis.intent = "advisor"
+        except Exception:
+            pass  # 判定异常 → 保持原意图（不阻断主链）
+
     def _rule_analyze(self, msg: str) -> MessageAnalysis:
         """降级链路意图快判（L5-2 I-1）：零 LLM 调用的规则判定，替代 _analyze_message。
 
@@ -1663,7 +1684,10 @@ class MessageHandler:
                                     pass
                             r = self._execute_tool_call(
                                 c.name,
-                                c.params_obj if c.params_obj is not None else c.params,
+                                self._with_relative_cycle_year(
+                                    c.name,
+                                    c.params_obj if c.params_obj is not None else c.params,
+                                    msg),
                                 user_id, user_question=msg)
                             executed_keys[ckey] = r  # 供后续同参数原生块/工单去重
                             executed_calls.append({
@@ -1751,7 +1775,10 @@ class MessageHandler:
                 # 否则校验/序列化永远不会触发（文本标签兜底保持原样）
                 r = self._execute_tool_call(
                     c.name,
-                    c.params_obj if c.params_obj is not None else c.params,
+                    self._with_relative_cycle_year(
+                        c.name,
+                        c.params_obj if c.params_obj is not None else c.params,
+                        msg),
                     user_id, user_question=msg)
                 executed_keys[ckey] = r  # 供原生块/后续工单同参数去重（review I-1/B1-4）
                 results.append(r)
@@ -3075,6 +3102,31 @@ class MessageHandler:
             "数字吉凶", True,
             format_num_card(analyze_number(number, context), number, context))
 
+    # T018（k38，唯一真回归）相对年份折算：LLM 发「流月流年」工单时常只带 birth
+    # 键（「帮我看看明年的流年运势」→ {"birth": …}，**year 键整个丢失**），工具
+    # 按缺省渲染「今年流年」→ 用户问明年却答 2026（L1 partial=键集契约，缺键即
+    # FAIL）。这里在**执行前**把用户原话里的相对年份（明年/后年/去年/今年…）
+    # 折算成四位年份补进调用参数——与 `src.tools.fortune_cycle.relative_year_from_text`
+    # 同一事实源（口径一致，不另立词表）：① 修用户可见回复；② 让 L1 记录到真实
+    # 传入的 year 键；③ 生产真机（GLM 文本标签路径）同样受益。
+    # 边界：只补「参数未给 year」（LLM 自己给了就尊重，不覆盖）；只作用于流月
+    # 流年工具（其余工具无 year 语义）；折算不出 → 原样返回（不猜年份）。
+    def _with_relative_cycle_year(self, name: str, params, user_question: str):
+        if name not in ("流月流年", "fortune_cycle"):
+            return params
+        if not isinstance(params, dict) or params.get("year"):
+            return params
+        try:
+            from src.tools.fortune_cycle import relative_year_from_text
+            _ry = relative_year_from_text(user_question)
+        except Exception:
+            return params
+        if not _ry:
+            return params
+        _out = dict(params)
+        _out["year"] = str(_ry)
+        return _out
+
     # ── R1-2 工具场景确定性兜底（评测 T094/T095/T039 修复）──────────────
     # 场景兜底统一改为「确定性执行对应工具」（0 LLM，经 _execute_tool_call
     # 出口 → L1 拦截器记录真实工具调用；回复为结构化卡片，含契约关键词）。
@@ -3137,8 +3189,13 @@ class MessageHandler:
             profile = self._get_user_birth_profile(user_id)
             if profile and profile.get("year"):
                 birth = self._fmt_birth_text(profile)
-                r = self._execute_tool_call("流月流年", {"birth": birth}, user_id,
-                                            user_question=msg)
+                # T018：档案兜底路径同样折算相对年份（本路径 L1 实测形态：
+                # {"birth": …} 无 year 键 → 回复恒答当年）——同一事实源
+                r = self._execute_tool_call(
+                    "流月流年",
+                    self._with_relative_cycle_year(
+                        "流月流年", {"birth": birth}, msg),
+                    user_id, user_question=msg)
                 if r.ok and r.text:
                     return r.text
         except Exception:
@@ -4216,6 +4273,17 @@ class MessageHandler:
                 self._mark_card_turn(user_id, data_read=True)
                 return self._maybe_wrap_card(direct, user_id)
 
+        # T056（k38，K5 回归）签文释义直读（0 LLM 0 编造）：问「关帝灵签第三签
+        # 是什么意思」类签文知识问题 → 从签库单一事实源确定性作答（见
+        # _answer_qian_meaning）。修前无此路由 → LLM 判 advisor → 建档引导
+        # 死胡同（回复连「签」字都没有）。置于直读之后、简单意图/AI 分析之前：
+        # 命中即短路（不消耗额度、LLM 绝不调用，与存量直读同族）；签种/签号
+        # 不明确 → None 落全流程（不猜签种给错签诗）。
+        qian_reply = self._answer_qian_meaning(msg)
+        if qian_reply:
+            self._mark_card_turn(user_id, data_read=True)
+            return self._maybe_wrap_card(qian_reply, user_id)
+
         # Step 0.4: A4 意图分级路由——简单意图直通快通道（0 LLM，预算感知）。
         # 问候/感谢/再见/日期时间等简单意图不再经过 AI 慢推理（意图分析 +
         # 回复生成 LLM 均省）；命中即短路：不扣额度、不写会话历史（与 T10
@@ -4264,6 +4332,18 @@ class MessageHandler:
                 _facts = dict(_facts)
                 _facts["subject"] = "self"
                 analysis.facts = _facts
+        # T076（k38）单人婚姻询问不得落 hehun 死胡同（确定性兜底，双保险）：
+        # LLM 意图把「帮我看看我的婚姻状况」判成 hehun（prompt 旧规则「婚姻匹配
+        # → hehun」未区分单/双人）→ `_handle_hehun` 无双方生辰直接吐
+        # 「给我双方生辰即可直接测算」死胡同（T076 实锤）。命中四条件（全部
+        # 同时成立才改判）：① 意图 = hehun ② 消息含 婚姻/姻缘 ③ 无双人语境
+        # （他/她/我们/双方/对象…）④ 无运势时间锚（运势/运程/流年/今年/明年）→
+        # 改判 advisor：无档案 → 建档引导「出生年月日时/出生地/性别」（T076
+        # 断言），有档案 → 命盘建议（优于合婚死胡同）。
+        # 双人合盘（含第二人）与场景词确定性命中（TOOL_SCENE_WORDS["hehun"]）
+        # 一律不动——T039/T040/T044 现状回归保护；带运势锚的单人问句（T022
+        # 「帮我看看我的婚姻运势」当前绿）同样不动。
+        self._redirect_single_marriage_hehun(analysis, msg)
         # R1-2（评测 T008 修复·纠正不重排）：口语性别词纠正（"我是女孩儿，
         # 不是男孩"）→ 确定性强制 bazi 意图。原链：意图分类把此类归 free_chat，
         # G1 纠正逻辑在 _handle_bazi 内部永不执行——只确认不重排（chart_records
@@ -7379,6 +7459,71 @@ class MessageHandler:
         return '\n'.join(lines)
 
     # ============================================================
+    # 灵签签文释义（T056，k38）——签库单一事实源直读（0 LLM，0 编造）
+    # ============================================================
+    # 问「关帝灵签第三签是什么意思」类**签文知识**问题：确定性从签库
+    # （`src/api/qian.QIAN_KINDS`，与 /api/qian 同一事实源、同一份 json）取签卡
+    # 作答。修前无此路由：请求被 LLM 判成 advisor → `_handle_advisor` 无档案
+    # 分支「想为你生成专属建议，需要先了解你的命盘哦～」死胡同（K5 回归实锤：
+    # 回复连「签」字都没有）。
+    #
+    # 命中三条件缺一不可（宁可落自由问答，也**不猜**签种/签号给错签诗）：
+    #   ① 签文语境词 + ② 明确签种词（关帝/观音/玄武山；未写签种但写「灵签」
+    #      → 原版 8 支签库「灵签原版」）+ ③ 可解析且在该签种库内的签号
+    #     （阿拉伯或中文数字：「第3签」「第三签」）。
+    # 签种不明（裸「第三签是什么意思」）→ None（不路由）——猜错签种等于给错
+    # 签诗，比不回答更糟。
+    _QIAN_CONTEXT_RE = re.compile(
+        r"灵签|关帝签|关帝灵签|观音签|玄武山|签文|解签|签诗|签意|签号")
+    _QIAN_NO_RE = re.compile(
+        r"第\s*([0-9]{1,3}|[一二三四五六七八九十百零〇]{1,4})\s*[签籤]")
+    _QIAN_KIND_WORDS = (("关帝", "guandi"), ("观音", "guanyin"),
+                        ("玄武山", "xuanwushan"))
+    _QIAN_DISCLAIMER = "（签文以签库原文为准，只作心意，不作断言）"
+
+    def _answer_qian_meaning(self, msg: str) -> Optional[str]:
+        """签文释义直读（0 LLM 0 编造）：签卡取自签库单一事实源 QIAN_KINDS。
+
+        命中条件见上方区块注释；任一不满足 → None（调用方走全流程自由问答）。
+        输出只包含签库原文字段（签号/等第/签诗/解曰/所求）+ 一行来源口径声明，
+        绝不由模型补写签诗或等第（K5 红线：「不得编造签诗/等第」）。
+        """
+        try:
+            if not msg or not self._QIAN_CONTEXT_RE.search(msg):
+                return None
+            m = self._QIAN_NO_RE.search(msg)
+            if not m:
+                return None
+            no = _parse_cn_num(m.group(1))
+            if no is None or no <= 0:
+                return None
+            kind = "original"
+            for word, k in self._QIAN_KIND_WORDS:
+                if word in msg:
+                    kind = k
+                    break
+            from src.api.qian import KIND_NAMES, QIAN_KINDS
+            cards = QIAN_KINDS.get(kind) or []
+            card = next((c for c in cards if c.get("no") == no), None)
+            if card is None:
+                return None  # 该签种无此签号 → 不猜，落全流程
+            head = f"{KIND_NAMES.get(kind, '灵签')}第{no}签"
+            if card.get("jx"):
+                head += f"（{card['jx']}）"
+            lines = [head]
+            poem = card.get("poem") or []
+            if poem:
+                lines.append("签诗：" + " ".join(poem))
+            if card.get("jie"):
+                lines.append("解曰：" + str(card["jie"]))
+            if card.get("suo"):
+                lines.append("所求：" + str(card["suo"]))
+            lines.append(self._QIAN_DISCLAIMER)
+            return "\n".join(lines)
+        except Exception:
+            return None  # 签库不可用/结构变更 → 不路由（fail-open 走全流程）
+
+    # ============================================================
     # 择日 (Zeri)
     # ============================================================
 
@@ -7400,6 +7545,19 @@ class MessageHandler:
         purpose = self._extract_purpose(msg)
 
         if not date_info:
+            # k38（T035）月范围多日推荐：场景 + **明确年月锚**（"2026年10月搬家，
+            # 帮我挑几个好日子"）→ 引擎 Top3 多日吉日卡（0 LLM，见下方方法）。
+            # 与 D5 负例契约分工：只有相对窗口词（下个月/下周）而无明确年月的
+            # 请求仍走下方确定性「日期引导文案」（T033 回归保护，不得硬跑引擎）；
+            # 明确到年月 = 用户已给定时间范围 → 直接挑日（工具路径 `_tool_zeri`
+            # 早有此能力，意图路径此前缺失 → T035 实测落到建档引导）。
+            _ym = self._YEAR_MONTH_ANCHOR_RE.search(msg)
+            _scene = self._extract_zeri_scene(msg)
+            if _ym and _scene:
+                _ym_reply = self._do_zeri_range_analysis(
+                    int(_ym.group(1)), int(_ym.group(2)), _scene, msg, user_id)
+                if _ym_reply:
+                    return _ym_reply
             return """请告诉我您想查询的日期和用途：
 
 📅 日期：哪一年哪一天？
@@ -7409,6 +7567,70 @@ class MessageHandler:
 💡 示例2：我要在2026年10月1日搬家，这天好吗？"""
 
         return self._do_zeri_analysis(date_info, purpose, msg, user_id, stream_cb=stream_cb)
+
+    # 「YYYY年M月」年月锚（后不接日/号 = 月范围请求；接了日的完整日期由
+    # `_extract_date` 先走单日分析）
+    _YEAR_MONTH_ANCHOR_RE = re.compile(
+        r'(\d{4})\s*年\s*(\d{1,2})\s*月(?!\s*\d{1,2}\s*[日号])')
+
+    def _do_zeri_range_analysis(self, year: int, month: int, scene: str,
+                                msg: str, user_id: str) -> Optional[str]:
+        """月范围多日择日（0 LLM）：既有引擎 `select_lucky_days` Top3 → 中文日期卡。
+
+        - 复用工具路径同款引擎调用（逐日扫描 + 冲煞排除 + 三层评分 + 周末偏好），
+          不新起引擎、不新起文案口径；
+        - **不走 `_execute_tool_call`**（与 R1-2 直调 `_tool_hehun` 同口径）：本方法
+          是意图引擎路径的确定性产物，L1 契约「引擎域零工具调用」不得被破；
+          额度门由 `_handle_zeri` 入口统一把关（不重复扣减、不重复写 memberships）；
+        - 任何失败（引擎异常/窗口无合格吉日/形状异常）→ None，调用方回落
+          确定性日期引导文案（fail-open，不劣于现状）。
+        """
+        try:
+            if self.zeri_engine is None:
+                return None
+            import calendar as _calendar
+            from datetime import date as _date
+            start = _date(year, month, 1)
+            end = _date(year, month, _calendar.monthrange(year, month)[1])
+            user_bazi = self._map_user_bazi_for_zeri(user_id)
+            res = self.zeri_engine.select_lucky_days(
+                scene=scene, start_date=start.isoformat(),
+                end_date=end.isoformat(), user_bazi=user_bazi,
+                prefer_weekend=True)
+            if not isinstance(res, dict):
+                return None
+            cards = res.get("cards") or []
+            if not cards:
+                return None
+            self._mark_card_turn(user_id, zeri=True)
+            lines = [f"【择日】场景：{scene}｜时间范围：{year}年{month}月",
+                     f"共扫描 {res.get('scanned', 0)} 天，"
+                     f"为您挑出 {len(cards)} 个吉日：", ""]
+            marks = "①②③"
+            for i, c in enumerate(cards[:3]):
+                raw = str(getattr(c, "date", "") or "")
+                try:
+                    _cn = f"{int(raw[5:7])}月{int(raw[8:10])}日"
+                except Exception:
+                    _cn = raw
+                lines.append(f"{marks[i]} {raw}（{_cn}）"
+                             f"{getattr(c, 'lunar_text', '') or ''}")
+                # k26：宜/忌各自为空即整行不渲染（空忌日不得输出悬空「忌：」）
+                lines.extend(_yi_ji_render_lines(getattr(c, "yi", None) or [],
+                                                 getattr(c, "ji", None) or []))
+                lines.append(f"吉时：{getattr(c, 'jishi', '') or '—'}｜"
+                             f"喜神：{getattr(c, 'xi_fangwei', '') or '—'}｜"
+                             f"财神：{getattr(c, 'cai_fangwei', '') or '—'}")
+                lines.append(f"理由：{getattr(c, 'reason_source', '') or '—'}"
+                             f"（总分{getattr(c, 'total', 0)}）")
+                lines.append("")
+            if res.get("suggest_wider"):
+                lines.append("注：本时间范围内合格吉日不足 3 天，"
+                             "可告诉我更宽的时间范围，我再帮您挑选。")
+            lines.append("您选哪一个？选好后我帮您生成办事清单。")
+            return "\n".join(lines)
+        except Exception:
+            return None
 
     def _do_zeri_analysis(self, date_info, purpose, question, user_id,
                           stream_cb: Optional[Callable] = None) -> str:

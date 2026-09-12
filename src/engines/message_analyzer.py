@@ -64,14 +64,14 @@ Rules:
 - Pure birth statement (year-month-day, NO question/intent words) = "bazi"
 - Birth date PLUS a real question about the person = classify by the question's topic, NOT just "bazi" (e.g. "1990年5月20日…哪个公司最配" = "career", "1990年5月20日…今年运势" = "bazi")
 - "career" 事业适配: 职业选择/公司选择/行业适配/跳槽/择业/事业发展类问题（哪个公司/行业适合我、适合什么工作、事业怎么发展、跳槽好不好、去哪个城市发展）
-- "hehun" 双人合盘/合婚: 双人合盘/合盘/八字合婚/我和TA合不合/看看我们配不配/缘分契合/婚姻匹配/合婚配对/我们俩缘分（合盘语境）→ "hehun"
+- "hehun" 双人合盘/合婚: 双人合盘/合盘/八字合婚/我和TA合不合/看看我们配不配/缘分契合/婚姻匹配/合婚配对/我们俩缘分（合盘语境）→ "hehun"（**必须同时指向两个人**——消息里没有第二个人/没有"我们"时**不得**判 hehun：单人问自己的婚姻/姻缘，问运势/流年归 "bazi"，问状况/建议归 "advisor"）
 - Dream description (梦见/梦到/做梦) = "dream"
 - Daily fortune / today's luck requests (今日运势/今天运气/今日宜忌/今天宜忌/今日运程/今日日历/今天适合) = "calendar"
 - Life advice / guidance requests (建议/怎么办/有什么建议/帮我分析/我该怎么做/给我点建议) = "advisor"
 - Pure emotional expression with NO fortune-telling request = "free_chat"
 - Colloquial fortune-telling: "看下命""算一下""运气怎么样" = "bazi"
 - 区分规则：问"哪个公司/行业适合我"→career；问"我像哪个名人/明星"→按普通命理咨询（bazi/advisor）处理，不要承诺名人对照
-- 双人合盘规则：消息同时指向两人（我/我们 + 他/她/TA）且语义为「合/配/缘分」→ "hehun"（如"我和TA合不合""看看我们配不配""我们俩缘分如何"）
+- 双人合盘规则：消息同时指向两人（我/我们 + 他/她/TA）且语义为「合/配/缘分」→ "hehun"（如"我和TA合不合""看看我们配不配""我们俩缘分如何"）；反之，消息只指向用户自己一个人（无第二人/无"我们"）时，婚姻/姻缘问题属单人咨询 → "advisor"，**不要**判 hehun（判成 hehun 会落到"给我双方生辰"的死胡同）
 
 ## 4. Career 意图判定要点
 - 只要问题指向职业/公司/行业/事业适配（哪怕附带出生日期），必须判为 "career"
@@ -154,12 +154,64 @@ _FORCE_META_RE = re.compile(r"哪个|区别|对比|比较|差异")
 _LIUYAO_FORCE_RE = re.compile(r"摇卦|摇一卦|起一卦|六爻|卜卦|占一卦|算卦")
 # 紫微族（与任务族 T064-T069 全量对齐，碰撞扫描零误伤）
 _ZIWEI_FORCE_RE = re.compile(r"排\s*紫微|紫微(?:盘|命盘|斗数)")
-# 择日：意图词 + 完整日期锚双条件（T028/T038/T100 的
-# 「2026年9月15日搬家 帮我选个日子」形态）；单意图词无日期锚
-# （「下个月结婚 帮我选个吉日」T030-T032 已绿）留给 LLM 分类，不误伤。
+# 择日（k38 扩词 + 放开无日期锚，T029/T033/T034/T035/T036/T037 六条同根）：
+# 原词表只覆盖「选(个)日子/择日/择吉/挑日子/看日子/吉日」，漏掉真实口语里的
+# 「挑个时间」（T029）/「好日子」（T035/T037）/「这个日子」（T034/T036）
+# → 请求落到 LLM 意图分类 → calendar → 「请先设置八字」建档引导兜底。
 _ZERI_FORCE_RE = re.compile(
-    r"选(?:个|挑个)?(?:日子|时间)|择日|择吉|挑日子|看日子|吉日|换一批|重新选")
+    r"选(?:个|几个)?(?:日子|时间|好日子)|"
+    r"挑(?:个|几个)?(?:日子|时间|好日子)|"
+    r"择日|择吉|挑日子|看日子|好日子|吉日|换一批|重新选|"
+    r"(?:这个|那个|哪个)日子")
 _ZERI_DATE_ANCHOR_RE = re.compile(r"\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*日")
+# 择日泛问词：通用评价问词（「行不行/好不好/合适吗」）——**绝不单独强路由**
+# （会把无关问句拽进择日，如「2026年5月20日他对我好不好」），只在
+# 「日期锚 + 场景词」双条件下参与判定。
+_ZERI_WEAK_ASK_RE = re.compile(r"行不行|好不好|合适吗|合不合适|宜不宜")
+# 择日场景词：与 handler.ZERI_SCENE_SYNONYMS（7 场景）+ 场景词族同源，
+# 仅用于「无日期锚」时的第二条件（T033「下个月搬家 帮我选个日子」形态）。
+_ZERI_SCENE_RE = re.compile(
+    r"嫁娶|结婚|婚礼|订婚|搬家|入宅|乔迁|迁居|开业|开张|开市|开店|"
+    r"晋升|升职|加薪|升迁|竞聘|述职|入职|求职|面试|谈薪|升官|"
+    r"出行|旅游|旅行|出差|开工|动土|建房|破土|奠基|"
+    r"提车|买车|购车|签约|签合同|过户")
+
+# T046 姓名分析确定性强路由：LLM 把「『李沐宸』这个名字怎么样」判成 advisor
+# → `_handle_advisor` 无档案分支「想为你生成专属建议，需要先了解你的命盘哦～」
+# 死胡同（产品 `_handle_xingming` 五格/笔画/数理/五行 能力齐备却够不着）。
+#
+# 触发面刻意收窄（防误伤优先）：**必须有一个"姓名槽位"**——
+#   ① 引号/书名号括出的 2-4 字姓名（『李沐宸』/「张伟」/“李小明”），或
+#   ② 「名字/姓名」后 ≤6 字内紧跟评价词（「这个名字怎么样」「姓名好不好」）
+# 再叠加 ③ 评价/分析问词 且 ④ **不含**起名/改名动作族。
+# 反例锁定（不得命中）：`帮我看看名字笔画`（只有泛词「名字」+「看看」，
+# 无姓名槽位——旧宽松口径会把它路由到 `_handle_xingming`，姓名抽取退化取
+# 「帮我」两字当名字分析）；`给宝宝起个名`（要候选名 → naming 工具链）。
+_XINGMING_VERDICT_RE = re.compile(
+    r"怎么样|好不好|如何|分析|测测|测一测|看看|评分|打分|寓意|含义")
+_XINGMING_QUOTED_RE = re.compile(
+    r"[\"“”「『《][一-龥A-Za-z]{2,4}[\"“”」』》]")
+_XINGMING_NEAR_RE = re.compile(
+    r"(?:名字|姓名)[^，。！？；\n]{0,6}"
+    r"(?:怎么样|好不好|如何|分析|测测|看看|评分|打分|寓意|含义)")
+_XINGMING_NAMING_RE = re.compile(
+    r"起名|取名|改名|宝宝叫|孩子叫|起个名|取个名|起名字|取名字")
+
+# T076 单人婚姻询问（未建档引导建档）：LLM prompt 旧规则「婚姻匹配/合婚配对
+# → hehun」未区分单/双人，把「帮我看看我的婚姻状况」判成 hehun →
+# `_handle_hehun` 无双方生辰死胡同（「给我双方生辰即可直接测算」）。
+# 单人婚姻询问 → advisor（无档案走建档引导「出生年月日时/性别」，有档案走
+# 命盘建议）；**双人语境仍走 hehun**（scene_hint/LLM 意图），不误伤真合盘。
+#
+# 触发面刻意收窄（T022 现状回归保护）：**带时间维度锚（运势/运程/流年/今年/
+# 明年）的婚姻问句不在此路由内**——「帮我看看我的婚姻运势」属运势域问句，
+# 由其既有路径处理（T022 当前绿）；本路由只接「婚姻/姻缘 + 状况/分析」类
+# 单人咨询（T076「帮我看看我的婚姻状况」形态）。
+_SINGLE_MARRIAGE_RE = re.compile(r"婚姻|姻缘")
+_MARRIAGE_TIMELINE_RE = re.compile(r"运势|运程|流年|今年|明年|本月|这个月")
+_SECOND_PERSON_RE = re.compile(
+    r"他|她|TA|对方|对象|伴侣|我们|我俩|我和|两人|俩人|双方|"
+    r"男朋友|女朋友|男友|女友|老公|老婆|未婚夫|未婚妻")
 # 编译一次（词全为中文，re.escape 防御未来加词含正则元字符）
 _TOOL_SCENE_CHECKS = [
     (cap_id, re.compile("|".join(re.escape(w) for w in words)))
@@ -174,6 +226,33 @@ def match_tool_scene(text: str) -> Optional[str]:
         if pattern.search(text):
             return cap_id
     return None
+
+
+def _entity_qa_beats_scene(msg: str, scene_hint: str) -> bool:
+    """T104（k38，行54 事故同款）：实体 QA 优先于场景词。
+
+    用户问「**易宝支付**这家公司**靠不靠谱**」时必须走联网检索引导拿来源痕迹
+    （PM 实诉事故：AI 甩锅「你自己查证」）；而 `TOOL_SCENE_WORDS["career_dir"]`
+    含场景词「换工作」——实体问句常伴随「我正考虑换工作过去」，场景词先命中就
+    把请求劫持成纯择业工具卡（回复完全没有实体名与来源痕迹）。
+
+    判定复用既有单一事实源 `src.rag.search_trigger`（k11b 实体层）：命名实体
+    （公司/机构/品牌名）+ 实体问词（强=靠不靠谱/评价/待遇…，弱=怎么样/如何）
+    → 实体 QA，让位给 LLM 意图 + needs_search 引导（与 T105 腾讯同路径）。
+    只对 career_dir 生效（唯一含这类实体问句伴生词的场景词表），其余场景词
+    （起名/合婚/号码/流年）保持原 0 LLM 确定性直达；判定异常 → 不拦截
+    （保持原确定性行为，不劣化）。
+    """
+    if scene_hint != "career_dir":
+        return False
+    try:
+        from src.rag.search_trigger import extract_entity_mentions, has_entity_ask
+        strong, weak = has_entity_ask(msg)
+        if not (strong or weak):
+            return False
+        return bool(extract_entity_mentions(msg))
+    except Exception:
+        return False
 
 
 class MessageAnalyzer:
@@ -237,7 +316,7 @@ class MessageAnalyzer:
         # （如「1990年5月20日 想给孩子起名」）不被纯生日快路径掐成 bazi
         # （D4 同族缺陷）；纯生日陈述（无场景词）仍走下方 0 LLM 快路径。
         scene_hint = match_tool_scene(user_message)
-        if scene_hint:
+        if scene_hint and not _entity_qa_beats_scene(user_message, scene_hint):
             return MessageAnalysis(needs_soothe=False, soothe_text="",
                                    emotion_label=None, intent=None,
                                    scene_hint=scene_hint)
@@ -250,13 +329,37 @@ class MessageAnalyzer:
             if _LIUYAO_FORCE_RE.search(user_message):
                 return MessageAnalysis(needs_soothe=False, soothe_text="",
                                        emotion_label=None, intent="liuyao")
-            if (_ZERI_FORCE_RE.search(user_message)
-                    and _ZERI_DATE_ANCHOR_RE.search(user_message)):
+            # 择日三档判定（k38 扩词 + 放开无日期锚，见词表注释）：
+            # ① 强意图词 + 日期锚（R1-3 原档：T028/T038/T100 形态）
+            # ② 泛问词 + 日期锚 + 场景词（T034「…这个日子行不行」形态）
+            # ③ 强意图词 + 场景词（无日期锚：T033/T035 形态）→ _handle_zeri
+            #    无日期分支确定性返回「请告诉我您想查询的日期和用途」（零风险）
+            _z_strong = _ZERI_FORCE_RE.search(user_message)
+            _z_anchor = _ZERI_DATE_ANCHOR_RE.search(user_message)
+            _z_scene = _ZERI_SCENE_RE.search(user_message)
+            if ((_z_strong and _z_anchor)
+                    or (_z_anchor and _z_scene
+                        and _ZERI_WEAK_ASK_RE.search(user_message))
+                    or (_z_strong and _z_scene)):
                 return MessageAnalysis(needs_soothe=False, soothe_text="",
                                        emotion_label=None, intent="zeri")
             if _ZIWEI_FORCE_RE.search(user_message):
                 return MessageAnalysis(needs_soothe=False, soothe_text="",
                                        emotion_label=None, intent="ziwei")
+            # T046 姓名分析（姓名槽位 + 评价词，起名/改名动作族除外，见词表注释）
+            if ((_XINGMING_QUOTED_RE.search(user_message)
+                 or _XINGMING_NEAR_RE.search(user_message))
+                    and _XINGMING_VERDICT_RE.search(user_message)
+                    and not _XINGMING_NAMING_RE.search(user_message)):
+                return MessageAnalysis(needs_soothe=False, soothe_text="",
+                                       emotion_label=None, intent="xingming")
+            # T076 单人婚姻询问 → advisor（双人语境仍走 hehun；带运势锚的不
+            # 在此路由内——见词表注释，T022 回归保护）
+            if (_SINGLE_MARRIAGE_RE.search(user_message)
+                    and not _SECOND_PERSON_RE.search(user_message)
+                    and not _MARRIAGE_TIMELINE_RE.search(user_message)):
+                return MessageAnalysis(needs_soothe=False, soothe_text="",
+                                       emotion_label=None, intent="advisor")
 
         # Fast path 收紧：只有"纯生日陈述"（无任何意图词）才直接判 bazi；
         # 含意图词（适合/公司/职业/配/像谁…）即使有生日也必须走 AI 分类

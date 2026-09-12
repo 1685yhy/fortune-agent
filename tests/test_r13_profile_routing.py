@@ -158,10 +158,22 @@ def test_r13_zeri_force_intent():
     assert r.scene_hint is None
 
 
-def test_r13_zeri_force_requires_date_anchor():
-    """只有意图词无完整日期锚 → 不强强制（留给 LLM 分类，T030-T032 已绿不误伤）。"""
-    r = ANALYZER.analyze("下个月结婚 帮我选个吉日")
-    assert r.intent != "zeri"
+def test_r13_zeri_force_no_anchor_needs_scene_word():
+    """k38（T033/T035 修复）改判据：**意图词 + 场景词**（无需完整日期锚）→ 强路由
+    zeri；意图词单用（无场景词无日期锚）仍留给 LLM 分类。
+
+    改前（R1-3 契约）：无完整日期锚一律不强强制（本用例原文断言
+    `"下个月结婚 帮我选个吉日"` 不强制）——但该口径把「下个月搬家 帮我选个
+    日子」（T033）/「2026年10月搬家，帮我挑几个好日子」（T035）一起放给了 LLM，
+    LLM 判成 calendar →「请先设置八字」建档引导兜底（归因报告 §1 T029-T037 行）。
+    改后：第二条件从「日期锚」放宽为「日期锚 **或** 场景词」，意图仍为 zeri
+    （T030-T032 行为面不变——它们本就期望 zeri）；只有意图词时仍不强制。
+    依据：归因报告 §1 T029-T037 行「放开无日期锚（命中择日意图词 + 场景词即
+    intent="zeri"）」。
+    """
+    assert ANALYZER.analyze("下个月结婚 帮我选个吉日").intent == "zeri"
+    # 意图词单用（无场景词、无日期锚）→ 不强制（防误伤面不扩大）
+    assert ANALYZER.analyze("帮我挑个好日子").intent != "zeri"
 
 
 def test_r13_naming_scene_words():

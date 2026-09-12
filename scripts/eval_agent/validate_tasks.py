@@ -42,7 +42,11 @@ REQUIRED_KEYS = [
     "id", "title", "category", "severity", "pass_k", "source",
     "turns", "expected_tools", "no_tool", "reply_checks",
 ]
-OPTIONAL_KEYS = ["setup", "state_checks", "judge_hint"]
+OPTIONAL_KEYS = ["setup", "state_checks", "judge_hint",
+                 # k38：择日族双通道契约——部分引擎域任务同时存在「引擎意图
+                 # 路径」与「LLM 工具路径」两条合法通道（T028/T038 实测），
+                 # 本键显式声明「expected_tools=[] 时视为等价通过的 cap_id」。
+                 "allow_tools"]
 # setup 已知键（persons/favorites 为方案 4.2 原生；qian_saves/zeri_plans/chart_records/
 # membership/chat_quota 为 E1 文档化扩展，见 2026-08-31-eval-set-annotation.md §3）
 SETUP_KEYS = ["persons", "favorites", "qian_saves", "zeri_plans",
@@ -123,6 +127,18 @@ def check_task(t, out):
                 out.append("[%s] expected_tools[%d].params 必须为对象" % (t["id"], i))
         if t["no_tool"] is True and len(t["expected_tools"]) > 0:
             out.append("[%s] no_tool=true 时 expected_tools 必须为空数组" % t["id"])
+    # allow_tools（k38 择日族双通道契约，可选键）
+    if "allow_tools" in t:
+        at = t["allow_tools"]
+        if not isinstance(at, list) or not all(isinstance(x, str) for x in at):
+            out.append("[%s] allow_tools 必须为字符串数组" % t["id"])
+        else:
+            if not at:
+                out.append("[%s] allow_tools 不得为空数组（空=不启用该契约）"
+                           % t["id"])
+            if len(t.get("expected_tools") or []) > 0:
+                out.append("[%s] allow_tools 仅对 expected_tools=[] 的任务有意义"
+                           "（非空期望走严格序列比对，禁止开旁路）" % t["id"])
     # reply_checks
     rc = t["reply_checks"]
     if not isinstance(rc, dict):
