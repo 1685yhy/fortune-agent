@@ -217,7 +217,11 @@ test('chat 页：chooseImage → 上传 → 发图片消息（全链路）', asy
 
 test('chat 页：switchInputMode 语音入口（置灰仅 toast 不切换；切换零高度机件）', () => {
   const toasts = [];
-  installWx({ showToast: (o) => toasts.push(o) });
+  // k34 A20-M3：切语音态会预热麦克风授权（getSetting）→ 桩按「已授权」快路径提供
+  installWx({
+    showToast: (o) => toasts.push(o),
+    getSetting: (o) => o.success && o.success({ authSetting: { 'scope.record': true } }),
+  });
   const page = makePage();
   try {
     // 正常切换：text → voice；k6-P1：不产生任何 inputBarH / 高度 setData
@@ -267,12 +271,12 @@ test('chat 页：micLongPress 输入非空 → toast 提示且不切模式（k6-
   assert.ok(toasts.some((t) => (t.title || '').indexOf('请先发送或清空输入') !== -1));
 });
 
-test('chat 页：micLongPress 生成/录音中 / 话筒置灰 → 静默不响应（k6-P2 守卫）', () => {
+test('chat 页：micLongPress 录音中 / 转写中 / 话筒置灰 → 静默不响应（k6-P2 守卫）', () => {
   const toasts = [];
   installWx({ showToast: (o) => toasts.push(o) });
   try {
+    // k34 A20-M2：streaming 已从守卫移除（生成中长按与按住条同语义，见下条用例）
     for (const over of [
-      { streaming: true },
       { isRecording: true },
       { converting: true },
       { micAvailable: false },
@@ -284,7 +288,120 @@ test('chat 页：micLongPress 生成/录音中 / 话筒置灰 → 静默不响�
   } finally {
     restoreGlobals();
   }
-  assert.equal(toasts.length, 0, '生成/录音中/置灰守卫应完全静默');
+  assert.equal(toasts.length, 0, '录音/转写中/置灰守卫应完全静默');
+});
+
+/* ═══════ k34 A20：语音长按三项 Minor 收口 ═══════ */
+
+test('chat 页 k34 A20-M2：生成中（streaming）长按 → 进语音态开录（与按住条同语义，不再静默）', () => {
+  installWx({
+    getSetting: (o) => o.success({ authSetting: { 'scope.record': true } }),
+    showToast: () => {},
+  });
+  const started = [];
+  const page = makePage({ streaming: true });
+  page._speechPlugin = {};
+  page._recMgr = { start: () => started.push(1), stop: () => {} };
+  try {
+    page.micLongPress({ touches: [{ clientY: 100 }] });
+    assert.equal(page.data.inputMode, 'voice', '生成中长按同样进语音态（原为静默无反应）');
+    assert.equal(page.data.isRecording, true, '生成中可直接开录（识别结果走既有排队上屏）');
+    assert.equal(started.length, 1, '录音器已启动');
+    assert.equal(page._voiceFromLongPress, true, '长按会话簿记就位（结束回文字态）');
+  } finally {
+    if (page._recordTimer) clearInterval(page._recordTimer);
+    restoreGlobals();
+  }
+});
+
+test('chat 页 k34 A20-M1：长按计时回拨 350ms —— 真实按住 0.85s 即发送，短于 0.8s 仍判太短', () => {
+  const toasts = [];
+  const started = [];
+  const realNow = Date.now;
+  let fakeNow = 1700000000000;              // 假时钟：精确模拟 bindlongpress 的 ~350ms 延迟
+  installWx({
+    showToast: (o) => toasts.push(o),
+    // 已授权快路径：不带 authorize 桩（若走授权分支会 TypeError → 用例失败）
+    getSetting: (o) => o.success({ authSetting: { 'scope.record': true } }),
+  });
+  const page = makePage();
+  page._speechPlugin = {};
+  page._recMgr = { start: () => started.push(1), stop: () => {} };
+  Date.now = () => fakeNow;
+  let finish = null;
+  // 桩替身必须保留计时器收口（_cleanupTimer）：同用例内两次开录，否则前一个 setInterval 泄漏 → 进程不退出
+  page._finishRecording = (send) => { finish = send; page._cleanupTimer(); };
+  try {
+    // ① 手指按下 → 350ms 后 longpress 触发 → 直接开录
+    fakeNow += 350;
+    page.micLongPress({ touches: [{ clientY: 100 }] });
+    assert.equal(page._touchStartAt, fakeNow - 350, '计时起点回拨 350ms ≈ 手指真正按下时刻');
+    assert.equal(page.data.isRecording, true, '长按直达录音');
+    assert.equal(started.length, 1);
+    // ② 再按住 500ms（真实按住合计 850ms ≥ 800ms）→ 松手 = 发送
+    fakeNow += 500;
+    page.micTouchEnd();
+    assert.equal(finish, true, '真实按住 850ms → 发送（计时未回拨的旧口径会误判「太短」）');
+    assert.ok(!toasts.some((t) => (t.title || '').indexOf('太短') !== -1), '不得出现「说话时间太短」');
+    // ③ 反向：真实按住 500ms（350 + 150 < 800ms）→ 仍判太短并取消
+    page.setData({ isRecording: false });
+    fakeNow += 1000;
+    page.micLongPress({ touches: [{ clientY: 100 }] });
+    fakeNow += 150;
+    page.micTouchEnd();
+    assert.equal(finish, false, '真实按住 500ms → 取消（太短）');
+    assert.ok(toasts.some((t) => (t.title || '').indexOf('说话时间太短') !== -1), '太短提示保留');
+  } finally {
+    Date.now = realNow;
+    if (page._recordTimer) clearInterval(page._recordTimer);
+    restoreGlobals();
+  }
+});
+
+test('chat 页 k34 A20-M3：进入语音态即预热授权（授权弹窗落在切态时刻，不吃长按触摸）', () => {
+  let authorizeCalls = 0;
+  installWx({
+    getSetting: (o) => o.success({ authSetting: {} }),      // 未授权过（首次使用）
+    authorize: (o) => { authorizeCalls += 1; o.success({}); },
+    showToast: () => {},
+  });
+  const page = makePage();
+  try {
+    page.switchInputMode({ currentTarget: { dataset: { mode: 'voice' } } });
+  } finally {
+    restoreGlobals();
+  }
+  assert.equal(page.data.inputMode, 'voice');
+  assert.equal(authorizeCalls, 1, '切到语音态即发起授权（预热；长按路径随后走已授权快路径）');
+});
+
+test('chat 页 k34 A20-M3：授权请求单飞 —— 并发调用共享同一次结果，弹窗只弹一次', () => {
+  let settingCalls = 0;
+  let authorizeCalls = 0;
+  const results = [];
+  const pendingAuthorize = [];
+  installWx({
+    getSetting: (o) => { settingCalls += 1; o.success({ authSetting: {} }); },
+    authorize: (o) => { authorizeCalls += 1; pendingAuthorize.push(o); },  // 挂起=弹窗未关
+    showToast: () => {},
+  });
+  const page = makePage();
+  try {
+    page._ensureRecordPermission((ok) => results.push(ok));
+    page._ensureRecordPermission((ok) => results.push(ok));
+    assert.equal(settingCalls, 1, '授权在途 → 后续调用不重复 getSetting');
+    assert.equal(authorizeCalls, 1, '授权弹窗只弹一次');
+    assert.equal(results.length, 0, '结果未出前不派发回调');
+    pendingAuthorize[0].success({});
+    assert.deepEqual(results, [true, true], '两个回调共享同一次授权结果');
+    // 结果派发后复位：下一次调用重新走完整流程
+    page._ensureRecordPermission((ok) => results.push(ok));
+    assert.equal(settingCalls, 2, '单飞只作用于在途请求');
+    pendingAuthorize[1].success({});
+    assert.deepEqual(results, [true, true, true]);
+  } finally {
+    restoreGlobals();
+  }
 });
 
 test('chat 页：micLongPress 授权通过 → 切 voice 态并开录（k6-P2）+ M-1 窗口口径', () => {

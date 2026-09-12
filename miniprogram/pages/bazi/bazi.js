@@ -32,14 +32,34 @@ function _fmtDate(y, m, d) {
   return `${y}-${pad(m)}-${pad(d)}`;
 }
 
-/** 存档 hour（整点/时辰序号）→ 时辰序号 */
-function _hourToIndex(hour) {
-  const h = parseInt(hour, 10);
-  if (Number.isNaN(h)) return 0;
-  const idx = HOUR_VALUES.indexOf(h);
-  if (idx !== -1) return idx;
-  if (h >= 0 && h <= 11) return h;      // 旧数据：直接存了时辰序号
-  return 0;
+/** 本地兜底形态 birthHour（**时辰序号 0-11**，见 _syncGlobal）→ 时辰序号。
+    k34 审查修复（Important-2）：此处必须**按序号直取**——旧实现先查 HOUR_VALUES
+    （「代表整点」表）再兜底序号，把序号 3/5/7/9/11 误当同值代表整点读
+    （5=巳 → 卯时 3、11=亥 → 午时 6；偶数序号恰好正确 → 极难发现）。
+    服务端/登录形态（时钟小时或代表整点）不走本函数，一律 persons.hourToShichenIndex。 */
+function _birthHourToIndex(seq) {
+  return Math.max(0, Math.min(11, parseInt(seq, 10) || 0));
+}
+
+/* k34 A12（照抄 pages/paipan k19 口径）：精确钟表行判定——birth_minute>0 或
+   birth_hour 非「时辰代表整点」（HOUR_VALUES 奇数集）即为真实时钟小时语义
+   （10:55 场景）。此形态读回必须进钟表档，保存必须回写真实 minute，
+   绝不能再按「代表整点 + 0 分」降级（原缺陷：10:55 → 10:00）。 */
+function _isClockRow(hour, minute) {
+  return parseInt(minute, 10) > 0
+    || (hour !== undefined && hour !== null && hour !== ''
+      && HOUR_VALUES.indexOf(parseInt(hour, 10)) === -1);
+}
+
+/* 当前表单/手动输入的时刻文本（时辰 + 若钟表档附 HH:MM）——摘要与确认弹层同源 */
+function _timeText(clockSet, clockH, clockM, hourIndex) {
+  if (clockSet) {
+    return persons.timeText({
+      birth_hour: parseInt(clockH, 10) || 0,
+      birth_minute: parseInt(clockM, 10) || 0,
+    }) || persons.shichenCN(hourIndex);
+  }
+  return persons.shichenCN(hourIndex);
 }
 
 Page({
@@ -54,6 +74,10 @@ Page({
     mDate: '',                   // 手动临时生辰 'YYYY-MM-DD'（一次选完）
     mCal: 'solar',               // 手动历法 solar|lunar
     mHourIndex: 0,               // 手动时辰序号
+    // k34 A12（接 k19 钟表档）：手动输入的精确钟表时间（10:55）
+    mClockSet: false,
+    mClockHIdx: 0,               // 0-23 时下标
+    mClockMIdx: 0,               // 0-59 分下标
     mGender: '女',
     mPlace: '',
     mName: '',                   // 勾选保存到档案时的姓名
@@ -68,6 +92,13 @@ Page({
     birthDate: '1990-01-01',     // 排盘表单出生年月日（一次选完）
     calendar: 'solar',           // solar|lunar（历法随选择器切换）
     hourIndex: 0,
+    // k34 A12（接 k19 钟表档）：精确钟表时间（0-23 时 / 0-59 分）——精确档案（10:55）
+    // 读回即进钟表档，保存回写真实分钟；只知时辰则保持时辰档（代表整点 + 0 分）
+    clockHourLabels: persons.HOUR24,
+    clockMinuteLabels: persons.MINUTE60,
+    clockSet: false,
+    clockHIdx: 0,
+    clockMIdx: 0,
     gender: 'male',
     city: '',
     // k11c：真太阳时修正开关（档案级，默认开=产品口径；切后随档案保存、重排生效）
@@ -137,7 +168,47 @@ Page({
     }
   },
   onMDateChange(e) { this.setData({ mCal: e.detail.calendar, mDate: e.detail.date }, () => this._clearSel()); },
-  onMHourChange(e) { this.setData({ mHourIndex: parseInt(e.currentTarget.dataset.idx, 10) || 0 }); },
+  /* k34 A12：手选时辰 = 只知时辰档 → 退出钟表档（代表整点 + 0 分） */
+  onMHourChange(e) {
+    this.setData({
+      mHourIndex: parseInt(e.currentTarget.dataset.idx, 10) || 0,
+      mClockSet: false,
+    });
+  },
+  /* k34 A12 钟表档（手动输入）：开 → 以当前时辰代表整点起始（未选/子时 → 12:00，
+     与 persons.onClockModeToggle 同款）；选时/分 → 时辰 chips 联动推导 */
+  onMClockToggle() {
+    const d = this.data;
+    if (d.mClockSet) {
+      // k34 审查修复（Important-1）：关档不得把「开档起点」留下的时辰当成用户选择——
+      // 未选/子时(0) 的开档起点是 12:00 中性值（午时 6），不回滚则「子时 → 开 → 关」
+      // 存档写 birth_hour=11（子时被写成午时 = 错误出生数据落档）。
+      // 关档语义 = 撤销本次钟表输入：未动过钟表值 → 回滚到开档前时辰（往返恒等）；
+      // 动过 → 保留钟表联动推导的时辰（用户填的钟点不被丢弃，与 persons k19 同义）。
+      const prev = this._mClockPrevHourIndex;
+      const openH = prev === undefined ? null : (prev > 0 ? HOUR_VALUES[prev] : 12);
+      const untouched = openH !== null && d.mClockHIdx === openH && d.mClockMIdx === 0;
+      this.setData(untouched
+        ? { mClockSet: false, mHourIndex: prev }
+        : { mClockSet: false });
+      return;
+    }
+    const startH = d.mHourIndex > 0 ? HOUR_VALUES[d.mHourIndex] : 12;
+    this._mClockPrevHourIndex = d.mHourIndex;
+    this.setData({
+      mClockSet: true,
+      mClockHIdx: startH,
+      mClockMIdx: 0,
+      mHourIndex: persons.shichenIndexFromClockHour(startH),
+    });
+  },
+  onMClockHourChange(e) {
+    const h = parseInt(e.detail.value, 10) || 0;
+    this.setData({ mClockHIdx: h, mHourIndex: persons.shichenIndexFromClockHour(h) });
+  },
+  onMClockMinuteChange(e) {
+    this.setData({ mClockMIdx: parseInt(e.detail.value, 10) || 0 });
+  },
   onMGenderChange(e) { this.setData({ mGender: e.currentTarget.dataset.g }); },
   onMPlaceChange(e) { this.setData({ mPlace: e.detail.full }); },
   onMNameInput(e) { this.setData({ mName: e.detail.value }); },
@@ -200,7 +271,7 @@ Page({
     const m = this.data;
     const name = (m.mName || '').trim() || '命主';
     const bd = _parseDate(m.mDate);
-    const brief = `${m.mCal === 'lunar' ? '农历' : '公历'} ${bd.year}年${bd.month}月${bd.day}日 ${persons.shichenCN(m.mHourIndex)} ${m.mGender} · ${m.mPlace || '未填出生地'}`;
+    const brief = `${m.mCal === 'lunar' ? '农历' : '公历'} ${bd.year}年${bd.month}月${bd.day}日 ${_timeText(m.mClockSet, m.mClockHIdx, m.mClockMIdx, m.mHourIndex)} ${m.mGender} · ${m.mPlace || '未填出生地'}`;
     wx.showModal({
       title: '保存到档案？',
       content: `此命主将加入「档案」\n${brief}\n保存后可在档案中再次选用`,
@@ -247,8 +318,9 @@ Page({
       birth_year: bd.year,
       birth_month: bd.month,
       birth_day: bd.day,
-      birth_hour: persons.shichenIndexToHour(m.mHourIndex),
-      birth_minute: 0,
+      // k34 A12：钟表档 → 真实时钟小时 + 分钟（10:55 不丢）；只知时辰 → 代表整点 + 0 分
+      birth_hour: m.mClockSet ? m.mClockHIdx : persons.shichenIndexToHour(m.mHourIndex),
+      birth_minute: m.mClockSet ? m.mClockMIdx : 0,
       calendar: m.mCal,
       city: (m.mPlace || '').trim(),
     };
@@ -274,6 +346,9 @@ Page({
   _enterTempForm() {
     const m = this.data;
     const bd = _parseDate(m.mDate);
+    // 复审 Important-3：钟表档状态由手动档重建 → 旧的「本次开档」起点失效
+    // （残留会让关档把 B 的 12:00 回滚成 A 的子时 0）。同 _enterForm。
+    this._clockPrevHourIndex = undefined;
     this.setData({
       mode: 'form',
       currentPerson: null,
@@ -281,6 +356,10 @@ Page({
       birthDate: m.mDate || '1990-01-01',
       calendar: m.mCal,
       hourIndex: m.mHourIndex || 0,
+      // k34 A12：手动输入的钟表档原样带入表单（保存（updateBazi/PUT）不丢分钟）
+      clockSet: !!m.mClockSet,
+      clockHIdx: m.mClockHIdx || 0,
+      clockMIdx: m.mClockMIdx || 0,
       gender: m.mGender === '女' ? 'female' : 'male',
       city: m.mPlace || '',
       solarOn: true,          // 临时排盘不落档案：随表单一次排盘，默认开
@@ -293,7 +372,14 @@ Page({
   /* 命主（档案/刚保存）→ 表单回显 */
   _enterForm(p) {
     if (!p) { this._prefill(); return; }
-    const hourIndex = persons.hourToShichenIndex(p.birth_hour);
+    // 复审 Important-3：换命主/载入新档案 = 钟表档状态重建 → 上一轮的「本次开档」
+    // 起点必须失效（否则 A 子时开→关残留 prev=0，关档时把 B 的 12:00 回滚成子时，
+    // 保存写 birth_hour=23 = 时柱错 11 小时）。开档即真值语义不变：无 prev 不回滚。
+    this._clockPrevHourIndex = undefined;
+    // k34 A12（照抄 paipan k19 口径）：精确钟表行（10:55）→ 回显钟表档；
+    // 时辰 chips 按 hourToShichenIndex(小时,分钟) 时钟窗口推导（修旧误读）
+    const clockRow = _isClockRow(p.birth_hour, p.birth_minute);
+    const hourIndex = persons.hourToShichenIndex(p.birth_hour, p.birth_minute);
     // k11c：档案真太阳时开关回显（solar_time=0 关；缺失/旧档案 → 默认开）
     const solarOn = p.solar_time !== 0;
     this._origSolar = solarOn;
@@ -304,6 +390,9 @@ Page({
       birthDate: p.birth_year ? _fmtDate(p.birth_year, p.birth_month, p.birth_day) : '1990-01-01',
       calendar: p.calendar === 'lunar' ? 'lunar' : 'solar',
       hourIndex,
+      clockSet: clockRow,
+      clockHIdx: clockRow ? (parseInt(p.birth_hour, 10) || 0) : 0,
+      clockMIdx: clockRow ? (parseInt(p.birth_minute, 10) || 0) : 0,
       gender: persons.genderCode(p.gender),
       city: p.city || '',
       solarOn,
@@ -406,7 +495,28 @@ Page({
   },
 
   _applyBazi(b) {
-    const hourIndex = _hourToIndex(b.hour !== undefined && b.hour !== null ? b.hour : b.birthHour);
+    // 复审 Important-3：载入档案（profile 预填）同样重建钟表档状态 → 旧开档起点失效
+    // （开档与预填请求竞态时残留 prev=0 会把载入的 12:00 回滚成子时）。
+    this._clockPrevHourIndex = undefined;
+    // k34 A12：两种来源形态——
+    //   ① 服务端 bazi_info / 登录 bazi（year/month/day/hour/minute，时钟小时口径；
+    //      person_dao.bazi_info_of_person 契约）——app.js 登录、me 页 profile 同源；
+    //   ② 本地 globalData 兜底（birthYear/…/birthHour = 时辰序号 0-11，见 _syncGlobal；
+    //      k34 起附 birthClock/birthClockHour/birthClockMinute 精确字段）。
+    // 以是否带 camelCase `birth*` 键区分（服务端形态恒不带）。
+    const localShape = b.birthYear !== undefined || b.birthHour !== undefined
+      || b.birthClock !== undefined;
+    // 精确钟表行（10:55）→ 钟表档回显，保存按真实 minute 回写（绝不降级为 0 分）。
+    // 服务端形态按 paipan k19 口径判定（minute>0 或 hour 非代表整点）与映射
+    // （persons.hourToShichenIndex 时钟窗口）；本地形态只在 birthClock===true 时
+    // 进钟表档，且 birthHour 恒为时辰序号 0-11（见 _syncGlobal）→ 按序号直取
+    // （与 me.js 对本地形态的读法一致；旧实现按「代表整点」查表把 5/7/9/11 读错）。
+    const clockRow = localShape ? b.birthClock === true : _isClockRow(b.hour, b.minute);
+    const clockH = localShape ? b.birthClockHour : b.hour;
+    const clockM = localShape ? b.birthClockMinute : b.minute;
+    const hourIndex = localShape
+      ? _birthHourToIndex(b.birthHour)                  // 本地形态：时辰序号直取
+      : persons.hourToShichenIndex(clockH, clockM);     // 服务端形态：时钟窗口/代表整点
     const y = b.year || b.birthYear;
     const mo = b.month || b.birthMonth;
     const da = b.day || b.birthDay;
@@ -418,6 +528,9 @@ Page({
       birthDate: y ? _fmtDate(y, mo || 1, da || 1) : '1990-01-01',
       calendar: b.calendar === 'lunar' ? 'lunar' : 'solar',
       hourIndex,
+      clockSet: clockRow,
+      clockHIdx: clockRow ? (parseInt(clockH, 10) || 0) : 0,
+      clockMIdx: clockRow ? (parseInt(clockM, 10) || 0) : 0,
       gender: b.gender === '女' ? 'female' : (b.gender === '男' ? 'male' : (b.gender || 'male')),
       city: b.city || '',
       solarOn,
@@ -430,8 +543,48 @@ Page({
   onFormDateChange(e) {
     this.setData({ calendar: e.detail.calendar, birthDate: e.detail.date });
   },
+  /* k34 A12：手选时辰 = 只知时辰档 → 退出钟表档（代表整点 + 0 分） */
   onHourChange(e) {
-    this.setData({ hourIndex: parseInt(e.detail.value, 10) || 0 });
+    this.setData({
+      hourIndex: parseInt(e.detail.value, 10) || 0,
+      clockSet: false,
+    });
+  },
+  /* k34 A12 钟表档（表单）：开 → 以当前时辰代表整点起始（未选/子时 → 12:00，
+     与 persons.onClockModeToggle 同款）；选时/分 → 时辰选择器联动推导 */
+  onClockToggle() {
+    const d = this.data;
+    if (d.clockSet) {
+      // k34 审查修复（Important-1）：关档不得把「开档起点」留下的时辰当成用户选择——
+      // 未选/子时(0) 的开档起点是 12:00 中性值（午时 6），不回滚则「子时 → 开 → 关」
+      // 保存写 birth_hour=11（子时被写成午时 = 错误出生数据落档；子时正是
+      // 「记不清时辰」人群的默认值）。关档语义 = 撤销本次钟表输入：
+      //   未动过钟表值 → 回滚到开档前时辰（开→关往返恒等）；
+      //   动过 → 保留钟表联动推导的时辰（用户填的钟点不被丢弃，与 persons k19 同义）。
+      // 开档即真值（档案 10:55 回显后关档）无 _clockPrevHourIndex → 不猜不回滚。
+      const prev = this._clockPrevHourIndex;
+      const openH = prev === undefined ? null : (prev > 0 ? HOUR_VALUES[prev] : 12);
+      const untouched = openH !== null && d.clockHIdx === openH && d.clockMIdx === 0;
+      this.setData(untouched
+        ? { clockSet: false, hourIndex: prev }
+        : { clockSet: false });
+      return;
+    }
+    const startH = d.hourIndex > 0 ? HOUR_VALUES[d.hourIndex] : 12;
+    this._clockPrevHourIndex = d.hourIndex;
+    this.setData({
+      clockSet: true,
+      clockHIdx: startH,
+      clockMIdx: 0,
+      hourIndex: persons.shichenIndexFromClockHour(startH),
+    });
+  },
+  onClockHourChange(e) {
+    const h = parseInt(e.detail.value, 10) || 0;
+    this.setData({ clockHIdx: h, hourIndex: persons.shichenIndexFromClockHour(h) });
+  },
+  onClockMinuteChange(e) {
+    this.setData({ clockMIdx: parseInt(e.detail.value, 10) || 0 });
   },
   /* 性别：男/女 大按钮（点击切换，与 paipan 同款） */
   onGenderTap(e) {
@@ -457,8 +610,10 @@ Page({
       birth_year: bd.year,
       birth_month: bd.month,
       birth_day: bd.day,
-      birth_hour: HOUR_VALUES[d.hourIndex],
-      birth_minute: 0,
+      // k34 A12：钟表档 → 真实时钟小时 + 分钟（已存 10:55 保存后仍是 10:55）；
+      // 只知时辰 → 时辰代表整点 + 0 分
+      birth_hour: d.clockSet ? d.clockHIdx : HOUR_VALUES[d.hourIndex],
+      birth_minute: d.clockSet ? d.clockMIdx : 0,
       gender: d.gender === 'female' ? '女' : '男',
       calendar: d.calendar,
       city: (d.city || '').trim(),
@@ -514,7 +669,10 @@ Page({
     }
   },
 
-  /* 同步全局态，让 me 页手札即时反映（me.js _deriveUser 读 birthYear 形态） */
+  /* 同步全局态，让 me 页手札即时反映（me.js _deriveUser 读 birthYear 形态）。
+     k34 A12：附 birthClock / birthClockHour / birthClockMinute —— 本地兜底形态被
+     _applyBazi 读回时（服务端不可达场景）钟表档与分钟不丢；me 页只读 birthYear/
+     birthHour 时辰序号，新增键为纯增量不影响。 */
   _syncGlobal(baziData) {
     const app = getApp();
     if (app && app.globalData) {
@@ -524,6 +682,9 @@ Page({
         birthMonth: baziData.birth_month,
         birthDay: baziData.birth_day,
         birthHour: this.data.hourIndex,   // 时辰序号，me 页按 子丑寅… 换算
+        birthClock: !!this.data.clockSet,
+        birthClockHour: baziData.birth_hour,
+        birthClockMinute: baziData.birth_minute,
         gender: baziData.gender,
         calendar: baziData.calendar,
         city: baziData.city,

@@ -62,8 +62,7 @@ Page({
 
     /* ── 输入表单 ── */
     noArchive: false,     // Q3：本地无档案 → 显示「还没建档」建档口径引导（E1 同款文案）
-    // k36 A32：引导条关闭态（本次会话内存态；持久标记=今日页同款 ylm_noarch_tip_closed）
-    noarchClosed: false,
+    noarchClosed: false,  // k34 A32：引导条 × 关闭标记（复用 E1 NOARCH_CLOSED_KEY）
     bDate: '',            // 'YYYY-MM-DD'（一次选完）
     bCal: 'solar',
     bDateText: '',        // 展示：1999年5月13日
@@ -133,32 +132,32 @@ Page({
 
   onLoad() {
     theme.bindTheme(this);
-    /* k36 A32：读取关闭标记（复用今日页同款键 ylm_noarch_tip_closed，**跨页生效**：
-       今日页关过 → 本页引导条也不再出现；仅本会话内存态用） */
+    /* k34 A32：读取 E1 关闭标记（ylm_noarch_tip_closed）——关过就不再显示引导条 */
     let closed = false;
     try { closed = !!wx.getStorageSync(guide.NOARCH_CLOSED_KEY); } catch (e) { /* ignore */ }
     this.setData({ noarchClosed: closed }, () => this._refreshNoarchive());
     this._prefillDefaultPerson();
   },
 
-  /* 每次回页面刷新未建档引导（Q3）：本地无档案且未关闭 → 引导条显示；建档返回自动消失 */
+  /* 每次回页面刷新未建档引导（Q3）：本地无档案 → 引导条显示；建档返回自动消失 */
   onShow() {
     this._refreshNoarchive();
   },
 
-  /* Q3 + k36 A32：未建档点「排盘」（E1 提示条/导览卡/测算页）落地本页 → 建档口径引导。
-     纯判定 guide.shouldShowPaipanNoarchGuide（node 单测）；关闭键复用今日页
-     NOARCH_CLOSED_KEY（全局作用域：关一次两页都不再打扰） */
+  /* Q3：未建档点「排盘」（E1 提示条/导览卡/测算页）落地本页 → 建档口径引导。
+     k34 A32：接 E1 关闭键 NOARCH_CLOSED_KEY——× 关闭后（本会话+后续启动）不再显示，
+     与今日页同一枚标记；建档成功后 hasLocalArchive 为真也自然消失。
+     纯判定 guide.shouldShowPaipanNoarchGuide（node 单测） */
   _refreshNoarchive() {
     const show = guide.shouldShowPaipanNoarchGuide(
       persons.hasLocalArchive(), this.data.noarchClosed);
     if (this.data.noArchive !== show) this.setData({ noArchive: show });
   },
 
-  /* 关闭 × → 落 ylm_noarch_tip_closed=1（与今日页同键同语义：本次+后续启动都不显示；
-     建档成功后引导条跟随「有无档案」自然消失，不受本标记拦截） */
-  onCloseNoarchGuide() {
-    try { wx.setStorageSync(guide.NOARCH_CLOSED_KEY, 1); } catch (e) { /* ignore */ }
+  /* k34 A32：× 关闭引导条 → 落 E1 关闭标记（与今日页 onCloseNoarchTip 同键同语义） */
+  onCloseNoarchGuide(e) {
+    if (e && e.stopPropagation) e.stopPropagation();
+    try { wx.setStorageSync(guide.NOARCH_CLOSED_KEY, 1); } catch (err) { /* ignore */ }
     this.setData({ noarchClosed: true, noArchive: false });
   },
 

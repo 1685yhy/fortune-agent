@@ -5,14 +5,18 @@ const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const persons = require('../../utils/persons');
 
+/* k34 A1（直核 k19 台账「EMPTY_DRAFT 键名不一致」）：键名必须与 data 字段逐一对齐
+   （dName/dRel/dCal/dDate/dHourIndex/dGender/dPlace/dClockMode/dClockH/dClockM）——
+   原实现少了 `d` 前缀，setData 写入的是 data 里不存在的键，导致「编辑某档案 → 返回列表
+   → 点 + 新增」表单仍回显上一条档案的姓名/生辰（用户可见缺陷）。 */
 const EMPTY_DRAFT = () => ({
-  name: '',
-  rel: '自己',
-  cal: 'solar',
-  date: '',
-  hourIndex: 0,
-  gender: '女',
-  place: '',
+  dName: '',
+  dRel: '自己',
+  dCal: 'solar',
+  dDate: '',
+  dHourIndex: 0,
+  dGender: '女',
+  dPlace: '',
   solarOn: true,          // k11c：真太阳时修正开关（档案级，默认开=产品口径）
   // k19 分钟精度：钟表时间模式（10:55 场景）——true 时按 时钟小时+分钟 存
   dClockMode: false,
@@ -38,6 +42,7 @@ Page({
     dHourIndex: 0,
     dGender: '女',
     dPlace: '',
+    solarOn: true,            // k11c 真太阳时开关（k34 A1：显式声明——EMPTY_DRAFT 复位与 wxml checked 绑定的字段）
     hourLabels: persons.HOUR_LABELS,
     clockHourLabels: persons.HOUR24,     // k19：钟表时间 0-23 时列
     clockMinuteLabels: persons.MINUTE60, // k19：0-59 分列

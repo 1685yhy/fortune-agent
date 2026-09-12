@@ -255,9 +255,13 @@ Page({
       return;
     }
     this._summaryToken = (this._summaryToken || 0) + 1; // 新用户意图: 作废在途摘要请求
+    // k34 A13（B5-2 Minor②）：详情请求序号——快速连点 A→B 时，A 的迟到响应不得
+    // 覆盖 B 的详情（含详情同步写的摘要行）。与 summaryLoading/_loadSummary 同款做法。
+    const token = (this._detailToken = (this._detailToken || 0) + 1);
     this.setData({ detailDate: date, detailLoading: true, detail: null, detailVisible: true });
     api.getWannianliDay(date)
       .then((data) => {
+        if (token !== this._detailToken) return; // 迟到响应丢弃（用户已点选他日）
         // WXML 不支持方法调用/复杂嵌套：旬空预计算
         data.xunkongText = (data.xunkong || []).join('、');
         // k27c: 原按建除吉凶预计算 jcCls（吉=朱砂/凶=淡墨）—— 已下线, 不再消费
@@ -266,6 +270,7 @@ Page({
         this._setSummary(data);          // 摘要行与详情同一次请求
       })
       .catch(() => {
+        if (token !== this._detailToken) return; // 过期详情失败不弹窗（不打断新选中）
         wx.showToast({ title: '详情加载失败', icon: 'none' });
         this.setData({ detailLoading: false });
       });

@@ -73,6 +73,21 @@
             class="seg-btn shichen-btn {{mHourIndex === index ? 'on' : ''}}"
             data-idx="{{index}}" bindtap="onMHourChange">{{item}}</view>
         </view>
+        <!-- k34 A12：手动输入的钟表档（10:55）——保存到档案/临时排盘均按真实分钟落档 -->
+        <view class="clock-mode" bindtap="onMClockToggle">
+          <view class="clock-mode-check {{mClockSet ? 'is-on' : ''}}"></view>
+          <text class="clock-mode-t">{{mClockSet ? '使用钟表时间（点此返回时辰档）' : '记不清时辰？填钟表时间更准（10:55）'}}</text>
+        </view>
+        <view wx:if="{{mClockSet}}" class="clock-pickers">
+          <picker class="clock-picker" mode="selector" range="{{clockHourLabels}}"
+            value="{{mClockHIdx}}" bindchange="onMClockHourChange">
+            <view class="clock-picker-box">{{clockHourLabels[mClockHIdx]}}</view>
+          </picker>
+          <picker class="clock-picker" mode="selector" range="{{clockMinuteLabels}}"
+            value="{{mClockMIdx}}" bindchange="onMClockMinuteChange">
+            <view class="clock-picker-box">{{clockMinuteLabels[mClockMIdx]}}</view>
+          </picker>
+        </view>
 
         <view class="form-label">性别 / 出生地</view>
         <view class="gender-place-row">
@@ -141,6 +156,23 @@
               <text>{{hourLabels[hourIndex]}}</text>
             </view>
           </picker>
+          <!-- k34 A12（接 k19 钟表档，与档案页/排盘页同款）：记得具体时间（10:55）→ 钟表档；
+               已存精确档案（minute>0 或非代表整点小时）回显即进钟表档，保存不再降级为 0 分 -->
+          <view class="clock-mode" bindtap="onClockToggle">
+            <view class="clock-mode-check {{clockSet ? 'is-on' : ''}}"></view>
+            <text class="clock-mode-t">{{clockSet ? '使用钟表时间（点此返回时辰档）' : '记不清时辰？填钟表时间更准（10:55）'}}</text>
+          </view>
+          <view wx:if="{{clockSet}}" class="clock-pickers">
+            <picker class="clock-picker" mode="selector" range="{{clockHourLabels}}"
+              value="{{clockHIdx}}" bindchange="onClockHourChange">
+              <view class="clock-picker-box">{{clockHourLabels[clockHIdx]}}</view>
+            </picker>
+            <picker class="clock-picker" mode="selector" range="{{clockMinuteLabels}}"
+              value="{{clockMIdx}}" bindchange="onClockMinuteChange">
+              <view class="clock-picker-box">{{clockMinuteLabels[clockMIdx]}}</view>
+            </picker>
+            <text class="clock-derived">时辰随所选自动对应 · 出生地不同可跨时辰边界</text>
+          </view>
           <text class="form-hint">时辰不定可选「子时」，准确度约八成</text>
         </view>
 

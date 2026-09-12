@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 k12 · 对话页图标重绘生成器（P4.7 执行批）+ k14 · tab/导航图标族（C1/C2 收口）
++ k34 · 墨色功能图标族五枚并入浅细线族
 ==============================================================================
 单一事实源 = 本文件内嵌的 96u 几何 + 颜色 token。生成管线：
   SVG(96u) → cairosvg 4x 超采样(768px) → PIL LANCZOS 降采样 → 目标档 RGBA png。
@@ -15,6 +16,12 @@ k14 追加 docs/superpowers/plans/2026-09-09-k14-tab-icons.md §1）：
 k14 节：tabbar 双态（lantern/book2/seal + on，chat-on 复用 k12 geo_chat 换 ACC）
 + legacy 淡棕带（bell/moon/book）+ 导航族（back/chev/kebab）入族，13 枚全 96px。
 
+k34 节：B6-1 遗留墨色五枚（engine/memory/web 引用类型角标、image 分享卡通道、
+scroll 空态/协议页）并入本族——同 Lucide 标准符号，按 k12 §1.4「内容区 64u」
+归一到画布中心（24 格 → 64u，四周 16u 留白；ink 版足迹 46-68u，k14 满画布
+Lucide 枚为 80u），笔划仍守 96 空间主轮廓 S=7.0u / 内细节 D=5.6u；淘汰
+#3A2C1E 实形/粗形观感，服务 11-22px 角标 + 48px 空态档。
+
 用法：
   python3 scripts/gen_k12_icons.py            # 写入 miniprogram/assets/images/（按既有档位）
   python3 scripts/gen_k12_icons.py --qa DIR   # 出 QA 拼贴（真实显示档+宣纸底/朱砂底），不写资产
@@ -23,7 +30,9 @@ k14 节：tabbar 双态（lantern/book2/seal + on，chat-on 复用 k12 geo_chat 
 造型出处：ic-up/up-on/down/down-on/speak/share/mic/check（k12 八枚）与
 k14 五枚 ic-bell/moon/book/back/chev 的路径几何取自 Lucide 图标集
 （ISC License, https://lucide.dev）对应基础符号，并按本族笔画/配色规范
-（灰 #756E63、点亮 #A93A2C）着色；其余为本脚本自绘几何。
+（灰 #756E63、点亮 #A93A2C）着色；k34 五枚 ic-engine/memory/web/image/scroll
+同取 Lucide cpu/brain/globe/image/scroll（ISC License, https://lucide.dev）；
+其余为本脚本自绘几何。
 """
 import math, os, sys
 
@@ -47,6 +56,8 @@ SIZE = {  # 每文件名目标物理尺寸（保持既有档位；ic-regen 新�
     'ic-seal': 96, 'ic-seal-on': 96, 'ic-chat-on': 96,
     'ic-bell': 96, 'ic-moon': 96, 'ic-book': 96, 'ic-back': 96,
     'ic-chev': 96, 'ic-kebab': 96,
+    # k34 · 墨色功能图标族五枚（并入族，沿用既有 96 档位）
+    'ic-engine': 96, 'ic-memory': 96, 'ic-web': 96, 'ic-image': 96, 'ic-scroll': 96,
 }
 
 S = 7.0    # 主轮廓笔划（96u 空间）
@@ -103,6 +114,11 @@ def L(frag):
 
 LUCIDE_MAIN = 1.75   # = S/4
 LUCIDE_DET = 1.4     # = D/4
+
+# k34 · 墨色功能族：24 格 → k12 §1.4 内容区 64u（画布居中，16u 留白）而非满画布 4x
+FIT = 64.0 / 24.0            # ≈2.6667（24 格 → 64u）
+LUCIDE_MAIN_FIT = S / FIT    # ≈2.625 → 96 空间仍为 S = 7.0u
+LUCIDE_DET_FIT = D / FIT     # ≈2.1   → 96 空间仍为 D = 5.6u
 
 
 def lv_up(color):
@@ -197,6 +213,76 @@ def lv_chevron_right(color):
     # lucide chevron-right：行尾箭头
     return (f'<path d="m9 18 6-6-6-6" fill="none" stroke="{color}" '
             f'stroke-width="{LUCIDE_MAIN}" stroke-linecap="round" stroke-linejoin="round"/>')
+
+
+# ── k34 · 墨色功能族五枚的 Lucide 标准符号（ISC，出处见脚本头注） ─────────────
+# 与 k14 节的差别：24 格经 FIT 归一到 64u 内容区（笔划守 S/D，见 96 空间常量），
+# 使 ink 版 46-68u 的实际足迹与族内覆盖率带同时守住；笔划分级 = 主轮廓 S / 内细节 D，
+# 仅剔除「在 11-22px 档与轮廓糊成一体」的装饰笔划（逐枚注明仲裁理由）。
+
+def lv_cpu(color):
+    # lucide cpu：方框=主轮廓(S) + 内芯=内细节(D)。
+    # 仲裁：12 针脚（长 2 格）在 11-22px 档折 0.4-0.8px，贴着外框糊成一圈毛边
+    # （见 QA 11/15px 档），按 k12 §1.2 小尺寸可读性剔除；框+芯已足读「芯片/引擎」。
+    return (f'<rect x="4" y="4" width="16" height="16" rx="2" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_MAIN_FIT}" stroke-linejoin="round"/>'
+            f'<rect x="8" y="8" width="8" height="8" rx="1" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_DET_FIT}" stroke-linejoin="round"/>')
+
+
+def lv_brain(color):
+    # lucide brain：上下脑叶=主轮廓(S)；左右侧鼓包/中缝/内折线=内细节(D，细一档)
+    return (f'<path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5" fill="none" '
+            f'stroke="{color}" stroke-width="{LUCIDE_MAIN_FIT}" stroke-linejoin="round"/>'
+            f'<path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517" fill="none" '
+            f'stroke="{color}" stroke-width="{LUCIDE_MAIN_FIT}" stroke-linejoin="round"/>'
+            f'<path d="M17.997 5.125a4 4 0 0 1 2.526 5.77" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_DET_FIT}" stroke-linecap="round"/>'
+            f'<path d="M18 18a4 4 0 0 0 2-7.464" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_DET_FIT}" stroke-linecap="round"/>'
+            f'<path d="M6 18a4 4 0 0 1-2-7.464" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_DET_FIT}" stroke-linecap="round"/>'
+            f'<path d="M6.003 5.125a4 4 0 0 0-2.526 5.77" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_DET_FIT}" stroke-linecap="round"/>'
+            f'<path d="M12 18V5" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_DET_FIT}" stroke-linecap="round"/>'
+            f'<path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" fill="none" '
+            f'stroke="{color}" stroke-width="{LUCIDE_DET_FIT}" stroke-linecap="round"/>')
+
+
+def lv_globe(color):
+    # lucide globe：圆=主轮廓(S) + 子午线/赤道线=内细节(D)，三笔全保留。
+    # 仲裁：赤道线在 11px 档虽密，但去掉后 15px+ 语义读作「球/透镜」（vision 实测）
+    # 而 48px 也失「地球」网格感；ink 版本就是网格地球 → 保形，覆盖率降幅靠 64u 归一。
+    return (f'<circle cx="12" cy="12" r="10" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_MAIN_FIT}"/>'
+            f'<path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" fill="none" '
+            f'stroke="{color}" stroke-width="{LUCIDE_DET_FIT}" stroke-linejoin="round"/>'
+            f'<path d="M2 12h20" fill="none" stroke="{color}" stroke-width="{LUCIDE_DET_FIT}" '
+            f'stroke-linecap="round"/>')
+
+
+def lv_image(color):
+    # lucide image：相框+山形=主轮廓(S)，太阳点缀=内细节(D 描边圆，小尺寸成像为实点)
+    return (f'<rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_MAIN_FIT}" stroke-linejoin="round"/>'
+            f'<path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_MAIN_FIT}" stroke-linecap="round" stroke-linejoin="round"/>'
+            f'<circle cx="9" cy="9" r="2" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_DET_FIT}"/>')
+
+
+def lv_scroll(color):
+    # lucide scroll：卷轴全形（纸尾上缘 + 双卷轴头），两条路径同为轮廓 → 皆 S
+    return (f'<path d="M19 17V5a2 2 0 0 0-2-2H4" fill="none" stroke="{color}" '
+            f'stroke-width="{LUCIDE_MAIN_FIT}" stroke-linecap="round" stroke-linejoin="round"/>'
+            f'<path d="M8 21h12a2 2 0 0 0 2-2v-1a1 1 0 0 0-1-1H11a1 1 0 0 0-1 1v1a2 2 0 1 1-4 0V5a2 2 0 1 0-4 0v2a1 1 0 0 0 1 1h3" '
+            f'fill="none" stroke="{color}" stroke-width="{LUCIDE_MAIN_FIT}" '
+            f'stroke-linecap="round" stroke-linejoin="round"/>')
+
+
+LUCIDE_FIT = {'ic-engine': lv_cpu, 'ic-memory': lv_brain, 'ic-web': lv_globe,
+              'ic-image': lv_image, 'ic-scroll': lv_scroll}
 
 
 LUCIDE = {'ic-up': lv_up, 'ic-up-on': lv_up, 'ic-down': lv_down, 'ic-down-on': lv_down,
@@ -343,12 +429,20 @@ SPEC = {  # name -> (几何, 颜色)
     'ic-bell': (None, GRAY), 'ic-moon': (None, GRAY), 'ic-book': (None, GRAY),
     'ic-back': (None, GRAY), 'ic-chev': (None, GRAY),
     'ic-kebab': (geo_kebab, GRAY),
+    # k34 · 墨色功能图标族五枚（引用角标 11-15px / 分享卡 22px / 空态 48px）
+    'ic-engine': (None, GRAY), 'ic-memory': (None, GRAY), 'ic-web': (None, GRAY),
+    'ic-image': (None, GRAY), 'ic-scroll': (None, GRAY),
 }
 
 
 def build_svg(name):
     geofn, color = SPEC[name]
     if geofn is None:  # lucide 标准造型路径（ISC 许可，@lucide-icons）
+        if name in LUCIDE_FIT:  # k34：24 格 → 64u 内容区（k12 §1.4，画布居中）
+            off = (96 - 24 * FIT) / 2
+            return (f'<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" '
+                    f'viewBox="0 0 96 96"><g transform="translate({off:.4f},{off:.4f}) '
+                    f'scale({FIT:.6f})">{LUCIDE_FIT[name](color)}</g></svg>')
         return (f'<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" '
                 f'viewBox="0 0 96 96"><g transform="scale(4)">{LUCIDE[name](color)}</g></svg>')
     body = []
@@ -406,9 +500,17 @@ def qa_sheet(sheet_dir):
             ('ic-chat', 26, '反馈'), ('ic-delete', 26, '删除'), ('ic-link', 26, '引用'),
             ('ic-regen', 26, '重生'), ('ic-camera', 26, '相机'), ('ic-camera-soft', 26, '相机B'),
             ('ic-mic', 17, '麦17'), ('ic-keyboard', 19, '键盘19'), ('ic-plus', 19, '加19'),
-            ('ic-send', 17, '发送17'), ('ic-link', 12, '引用chip12'), ('ic-speak', 16, '朗读16')]
+            ('ic-send', 17, '发送17'), ('ic-link', 12, '引用chip12'), ('ic-speak', 16, '朗读16'),
+            # k34 · 墨色族五枚：真实显示档（引用角标 24-30rpx≈11-15px / 分享卡 44rpx≈22px /
+            # 空态+协议页 96rpx≈48px）
+            ('ic-engine', 11, '引擎11'), ('ic-engine', 48, '引擎空态48'),
+            ('ic-memory', 11, '记忆11'), ('ic-memory', 48, '记忆空态48'),
+            ('ic-web', 11, '网络11'), ('ic-web', 48, '网络空态48'),
+            ('ic-image', 15, '图片15'), ('ic-image', 22, '图片分享22'),
+            ('ic-scroll', 15, '卷轴15'), ('ic-scroll', 48, '卷轴空态48')]
     cols = 6
-    cellw, cellh = 140, 140
+    cellw, cellh = 140, 160   # cellh 160：容 48px 档行（3x 预览 144px）
+
     rows_n = (len(rows) + cols - 1) // cols
     sheet = Image.new('RGB', (cols * cellw, rows_n * cellh), (245, 239, 225))
     dr = ImageDraw.Draw(sheet)

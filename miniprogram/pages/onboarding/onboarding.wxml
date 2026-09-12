@@ -114,6 +114,22 @@
           class="seg-btn shichen-btn {{hourIndex === index ? 'on' : ''}}"
           data-idx="{{index}}" bindtap="onHourChange">{{item}}</view>
       </view>
+      <!-- k34 A12（接 k19 钟表档，与档案页/排盘页同款）：记得具体时间（10:55）→ 钟表档，
+           建档按真实时钟小时+分钟落档（只知时辰仍可只选时辰） -->
+      <view class="clock-mode" bindtap="onClockToggle">
+        <view class="clock-mode-check {{clockSet ? 'is-on' : ''}}"></view>
+        <text class="clock-mode-t">{{clockSet ? '使用钟表时间（点此返回时辰档）' : '记不清时辰？填钟表时间更准（10:55）'}}</text>
+      </view>
+      <view wx:if="{{clockSet}}" class="clock-pickers">
+        <picker class="clock-picker" mode="selector" range="{{clockHourLabels}}"
+          value="{{clockHIdx}}" bindchange="onClockHourChange">
+          <view class="clock-picker-box">{{clockHourLabels[clockHIdx]}}</view>
+        </picker>
+        <picker class="clock-picker" mode="selector" range="{{clockMinuteLabels}}"
+          value="{{clockMIdx}}" bindchange="onClockMinuteChange">
+          <view class="clock-picker-box">{{clockMinuteLabels[clockMIdx]}}</view>
+        </picker>
+      </view>
 
       <view class="form-label">性别<text class="req">*</text></view>
       <view class="seg">

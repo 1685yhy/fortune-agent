@@ -36,6 +36,13 @@ Page({
     day: '',
     hourLabels: persons.HOUR_LABELS,
     hourIndex: 0,              // 时辰序号 0-11
+    // k34 A12（接 k19 钟表档）：精确钟表时间（10:55 场景）——建档按真实时钟小时+
+    // 分钟落档，与档案页/排盘页/排盘表单同款口径；只知时辰则代表整点 + 0 分
+    clockHourLabels: persons.HOUR24,
+    clockMinuteLabels: persons.MINUTE60,
+    clockSet: false,
+    clockHIdx: 0,              // 0-23 时下标
+    clockMIdx: 0,              // 0-59 分下标
     gender: '女',
     place: '',
     filled: false,             // 年月日齐全才可「建档」
@@ -77,9 +84,15 @@ Page({
 
   /* 重新看引导（完成页/跳过页底部） */
   replay() {
+    // 复审 Important-3：表单整体复位 = 钟表档状态重建 → 上一轮「本次开档」起点失效
+    // （与 bazi 的 _enterForm/_applyBazi/_enterTempForm 同款：残留 prev 只在
+    // 同一次开→关周期内有效）
+    this._clockPrevHourIndex = undefined;
     this.setData({
       phase: 'welcome', stepCur: 0,
       cal: 'solar', year: '', month: '', day: '', hourIndex: 0, gender: '女', place: '',
+      // k34 A12：钟表档随表单一起复位（重看引导不残留上一次的精确时间）
+      clockSet: false, clockHIdx: 0, clockMIdx: 0,
       filled: false, summary: '',
     });
     wx.showToast({ title: '已回到引导开头', icon: 'none' });
@@ -99,8 +112,49 @@ Page({
   onDayInput(e) {
     this.setData({ day: this._digits(e.detail.value, 2) }, () => this._refreshFilled());
   },
+  /* k34 A12：手选时辰 = 只知时辰档 → 退出钟表档（代表整点 + 0 分） */
   onHourChange(e) {
-    this.setData({ hourIndex: parseInt(e.currentTarget.dataset.idx, 10) || 0 }, () => this._refreshSummary());
+    this.setData({
+      hourIndex: parseInt(e.currentTarget.dataset.idx, 10) || 0,
+      clockSet: false,
+    }, () => this._refreshSummary());
+  },
+  /* k34 A12 钟表档：开 → 以当前时辰代表整点起始（未选/子时 → 12:00，与
+     persons.onClockModeToggle 同款）；选时/分 → 时辰 chips 联动推导 */
+  onClockToggle() {
+    const d = this.data;
+    if (d.clockSet) {
+      // k34 审查修复（Important-1）：关档不得把「开档起点」留下的时辰当成用户选择——
+      // 未选/子时(0) 的开档起点是 12:00 中性值（午时 6），不回滚则「子时 → 开 → 关」
+      // 建档写 birth_hour=11（子时被写成午时 = 错误出生数据落档）。
+      // 关档语义 = 撤销本次钟表输入：未动过钟表值 → 回滚到开档前时辰（往返恒等）；
+      // 动过 → 保留钟表联动推导的时辰（用户填的钟点不被丢弃，与 persons k19 同义）。
+      const prev = this._clockPrevHourIndex;
+      const openH = prev === undefined ? null : (prev > 0 ? persons.HOUR_VALUES[prev] : 12);
+      const untouched = openH !== null && d.clockHIdx === openH && d.clockMIdx === 0;
+      this.setData(untouched
+        ? { clockSet: false, hourIndex: prev }
+        : { clockSet: false }, () => this._refreshSummary());
+      return;
+    }
+    const startH = d.hourIndex > 0 ? persons.HOUR_VALUES[d.hourIndex] : 12;
+    this._clockPrevHourIndex = d.hourIndex;
+    this.setData({
+      clockSet: true,
+      clockHIdx: startH,
+      clockMIdx: 0,
+      hourIndex: persons.shichenIndexFromClockHour(startH),
+    }, () => this._refreshSummary());
+  },
+  onClockHourChange(e) {
+    const h = parseInt(e.detail.value, 10) || 0;
+    this.setData({
+      clockHIdx: h,
+      hourIndex: persons.shichenIndexFromClockHour(h),
+    }, () => this._refreshSummary());
+  },
+  onClockMinuteChange(e) {
+    this.setData({ clockMIdx: parseInt(e.detail.value, 10) || 0 }, () => this._refreshSummary());
   },
   onGenderChange(e) {
     this.setData({ gender: e.currentTarget.dataset.g }, () => this._refreshSummary());
@@ -117,6 +171,16 @@ Page({
     const filled = !!(d.year && d.month && d.day);
     this.setData({ filled }, () => this._refreshSummary());
   },
+  /* k34 A12：当前所选时刻文本——钟表档「巳时 10:55」，只知时辰「巳时」
+     （persons.timeText 与档案页/列表摘要同源口径） */
+  _timeText() {
+    const d = this.data;
+    const t = persons.timeText({
+      birth_hour: d.clockSet ? d.clockHIdx : persons.shichenIndexToHour(d.hourIndex),
+      birth_minute: d.clockSet ? d.clockMIdx : 0,
+    });
+    return t || persons.shichenCN(d.hourIndex);
+  },
   _refreshSummary() {
     const d = this.data;
     if (!d.filled) {
@@ -124,7 +188,7 @@ Page({
       return;
     }
     this.setData({
-      summary: `已填写 ${d.cal === 'solar' ? '公历' : '农历'} ${d.year} 年 ${d.month} 月 ${d.day} 日 ${persons.shichenCN(d.hourIndex)} · ${d.gender}`,
+      summary: `已填写 ${d.cal === 'solar' ? '公历' : '农历'} ${d.year} 年 ${d.month} 月 ${d.day} 日 ${this._timeText()} · ${d.gender}`,
     });
   },
 
@@ -141,8 +205,9 @@ Page({
       birth_year: parseInt(d.year, 10),
       birth_month: parseInt(d.month, 10),
       birth_day: parseInt(d.day, 10),
-      birth_hour: persons.shichenIndexToHour(d.hourIndex),
-      birth_minute: 0,
+      // k34 A12：钟表档 → 真实时钟小时 + 分钟（10:55 建档不丢分钟）；只知时辰 → 代表整点 + 0 分
+      birth_hour: d.clockSet ? d.clockHIdx : persons.shichenIndexToHour(d.hourIndex),
+      birth_minute: d.clockSet ? d.clockMIdx : 0,
       calendar: d.cal,
       city: (d.place || '').trim(),
     };
@@ -166,7 +231,8 @@ Page({
   _finish() {
     try { wx.setStorageSync(DONE_KEY, 1); } catch (e) { /* ignore */ }
     const d = this.data;
-    const shi = persons.shichenCN(d.hourIndex);
+    // k34 A12：完成页摘要与所填一致（钟表档显示「巳时 10:55」）
+    const shi = this._timeText();
     this.setData({
       phase: 'done',
       stepCur: 3,
