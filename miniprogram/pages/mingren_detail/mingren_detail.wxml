@@ -122,7 +122,9 @@
             <text class="mrd-dy-gz is-empty" wx:else>{{g.label}}</text>
             <text class="mrd-dy-range" wx:if="{{g.dayun}}">{{g.dayun.start_year}}-{{g.dayun.end_year}}年 · {{g.dayun.shishen}}</text>
           </view>
-          <view class="mrd-dy-item" wx:for="{{g.events}}" wx:key="year" wx:for-item="ev">
+          <!-- k37 S2：同一年可有多条事件（忽必烈 1259×2 等）→ year 重复键告警；
+               后端 timeline 事件已带组内唯一 idx（k32 A15）→ 用 idx 作 key -->
+          <view class="mrd-dy-item" wx:for="{{g.events}}" wx:key="idx" wx:for-item="ev">
             <text class="mrd-dy-year">{{ev.year}}</text>
             <text class="mrd-dy-text">{{ev.event}}</text>
           </view>

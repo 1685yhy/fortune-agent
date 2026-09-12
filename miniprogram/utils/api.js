@@ -871,10 +871,11 @@ function _shichenHour(index) {
   return i === 0 ? 23 : i * 2 - 1;
 }
 
-/** 前端表单生辰 → 后端 BaziInput（hehun 契约：year/month/day/hour/minute/city/gender(男/女)） */
+/** 前端表单生辰 → 后端 BaziInput（hehun 契约：year/month/day/hour/minute/city/gender(男/女)；
+ *  选填三开关 daylightSaving/lateChildHour/solarTime —— 传了才带，未传由服务端默认兜底（k37 S3）） */
 function _toBackendBazi(p) {
   const src = p || {};
-  return {
+  const out = {
     year: parseInt(src.birthYear, 10) || 0,
     month: parseInt(src.birthMonth, 10) || 0,
     day: parseInt(src.birthDay, 10) || 0,
@@ -883,6 +884,13 @@ function _toBackendBazi(p) {
     city: src.city || '北京',
     gender: src.gender === 'female' ? '女' : '男',
   };
+  // k37 S3：三开关同类补齐（hehun 契约 daylightSaving/lateChildHour/solarTime，
+  // 与 paipan/union 载荷同款 nullish 守卫：显式 false 能带出，未传的调用方保持
+  // 不带参 → 服务端 BaziInput 默认值兜底，不发明新字段、零行为变化）。
+  if (src.solarTime != null) out.solarTime = !!src.solarTime;
+  if (src.lateChildHour != null) out.lateChildHour = !!src.lateChildHour;
+  if (src.daylightSaving != null) out.daylightSaving = !!src.daylightSaving;
+  return out;
 }
 
 /**

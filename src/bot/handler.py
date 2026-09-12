@@ -1822,6 +1822,36 @@ class MessageHandler:
                 break
             reply = new_reply
 
+        # ---- k37 S5：工具循环触顶收尾（MAX_TOOL_ITERATIONS=2 不改、末轮新块
+        # 仍不执行/不落库/不回传——B1-9 红线零变化）。此前触顶后 pending 被静默
+        # 丢弃，用户拿到的是上一轮引导句，已执行的工具结果没被消化成回答。
+        # 现在追加**恰一次**不带 tools 的收尾调用，把工具结果写成回答
+        # （native_pending 非空 ⟺ 循环是在末轮 continue 时耗尽的唯一路径；
+        # 其余 break 出口均已带新文本或已把 native_pending 清空）。
+        if native_pending and native_messages:
+            try:
+                closing_messages = list(native_messages)
+                if closing_messages and closing_messages[-1].get("role") == "assistant":
+                    # 末条 assistant 带未执行的 tool_use 块：协议要求每个 tool_use
+                    # 必须紧跟匹配 tool_result，而这些块按红线不执行 → 整条丢弃
+                    # （不补假 tool_result），再请模型基于已执行结果收尾。
+                    closing_messages = closing_messages[:-1]
+                closing_messages.append({
+                    "role": "user",
+                    "content": "以上是工具执行结果，请直接据此用自然语言回答用户的问题，"
+                               "不要再发起任何工具调用。",
+                })
+                data = deepseek_anthropic_messages(
+                    api_key, closing_messages, model=_llm_model,
+                    max_tokens=2000, temperature=0.7, timeout=60.0,
+                    tools=None)
+                closing_text = _extract_native_text(data)
+                if closing_text:
+                    reply = closing_text
+            except Exception as exc:  # noqa: BLE001 — 收尾失败不阻断：返回原文（原语义）
+                logger.warning("工具循环触顶收尾调用失败: user=%s type=%s",
+                               user_id, type(exc).__name__)
+
         # 阶段 2（方案 §7.2）：本轮工具调用日志（落库：tool_calls / retrieval_hit）
         self._tool_logs[user_id] = {
             "calls": executed_calls,
@@ -2227,8 +2257,12 @@ class MessageHandler:
             self.dao.save_consultation(user_id, params, result)
             # 排盘结果落库 chart_records（与 _save_bazi_records 同口径）
             self._persist_chart_result(user_id, result, _persist, _subject)
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001 — 落库失败不阻断排盘主链（原语义）
+            # k37 S4：静默 pass 补日志（此前落库失败无痕）。只记「事件 + 位置」：
+            # 不带 user_id/生辰/参数，异常只留类型名（防 DB 错误串把数据带进日志）。
+            logger.warning(
+                "排盘工具结果落库失败: 事件=工具结果持久化 位置=handler._tool_bazi type=%s",
+                type(exc).__name__)
         # 阶段 5（方案 v5）：subject=other（帮他人排盘）不写入本人画像；
         # gender 冲突不覆盖，冲突提示拼入工具结果由 LLM 综合时向用户确认
         _gender_conflict_hint = ""
