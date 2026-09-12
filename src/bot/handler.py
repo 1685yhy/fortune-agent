@@ -165,6 +165,182 @@ _JSON_PARAM_LEAK_RE = re.compile(r'\{\s*[\'"一-龥]')
 _GENDER_CN = {"男": "男", "女": "女", "male": "男", "female": "女"}
 
 # ============================================================
+# k40 返工（Critical-1 + Important-1）：口语性别词的「主语感知」判据
+# ============================================================
+# 判据不是「前面有没有某个称谓词」（逐词白名单关不严：妹妹/姐姐/闺蜜/太太/
+# 嫂子/表妹/表姐/前女友…永远补不完），而是**句法主语**——这个性别词描述的是
+# 用户本人（自述）还是第三人（他人）：
+#   ① 子句句首 = 自指代词(+语气副词)+系动词 → 本人自述：「我是一个女孩」
+#      「我是个女生」——量词跟在「我是」之后不构成第三人修饰（修 Important-1：
+#      改前量词排除不看主语，把「我是一个女孩」的性别声明静默丢弃）；
+#   ② 子句内出现第三人主语 → 性别词属第三人：
+#      - 他/她/对方 + 系动词（「她说她是女孩子」）或 + 出生年（「他1990年…」）；
+#      - 领属语代词 + 名词中心语（「我妹妹」「我闺蜜」「我朋友的女儿」「你老婆」
+#        「他女儿」「他的女儿」）：代词后不是系动词/副词/自指词/自述数据名词，
+#        而是被修饰的名词 → 主语是那个名词；
+#      - 量词/指示词短语的主语归属（「一个女孩子」「那位姑娘」「这个1990年出生
+#        的女孩子」「我那位1990年出生的女孩子朋友」）：其前无自述系动词（我(是)
+#        一个…）即第三人——量词与性别词之间可隔名词跑（出生年/称谓）；
+#      - 子句句首为名词性中心语 + 系动词（「对象是…」「相亲对象是…」）。
+#   ③ 消息级：出生信息由第三人领属语引出（「我妹妹，1990年出生的女孩子」「他的
+#      女儿1990年出生的女孩子」）→ 本条消息的口语性别词一律不取（归属判定的
+#      「宁漏勿误」：第三人误判的代价是 P0 档案污染）。
+#   ④ 自述数据名词豁免：「我(的)+数据名词」（出生信息/生辰/八字/生日/资料/命盘…）
+#      的中心语是**关于我的信息**而不是另一个人 → 主语仍是本人（审查 Important：
+#      改前被判第三人 → 性别纠正被静默丢弃）。
+# 默认（无任何标记）保持改前口径：取作本人性别（F2 建档/裸生辰串不缩小）。
+# 为什么必须排除：被当本人性别会触发 G1 纠正 → force_gender 覆写本人档案
+# 性别（P0 数据风险）；T041 的 hehun 链路也是被它抢走的。
+_ORAL_FEMALE_WORDS = ("女孩", "女生", "姑娘", "丫头", "女的", "小姑娘", "闺女")
+_ORAL_MALE_WORDS = ("男孩", "男生", "男的", "小伙子")
+# 子句边界（主语判定窗口：性别词往前到最近一个边界）
+_GENDER_CLAUSE_BOUNDARY = "，,。.！!？?；;、\n"
+# 语气/时间副词（可插在自指代词与系动词之间，不改变主语）
+_GENDER_ADVERB = (r'(?:也|就|其实|确实|的确|现在|目前|真的|一直|本来|'
+                  r'原来|原先|最近|应该|可能|大概|通常|平时)')
+# 句首可出现的连词/语气词（不改变后接主句的主语）
+_GENDER_CLAUSE_LEAD = (r'(?:但是|不过|而且|然而|然后|所以|因为|如果|另外|'
+                       r'还有|对了|但|而|嗯|呃|话说|哦|唉)')
+# 自指代词（本人）
+_GENDER_SELF_PRON = r'(?:我|本人|自己|俺)'
+# 领属语代词（可带 的/家 引出一个名词中心语）：本人 + **第三人代词**。
+# k40 第四轮（审查 Critical-1：「他女儿/他的女儿」族）——第三人代词本身就是
+# 领属语，改前代词集只有 我/你/咱/俺/您 →「他女儿是1990年出生的女孩子」
+# 判不出第三人（与「我妹妹…」同型，只差一个代词）。
+_GENDER_POSSESSIVE_PRON = r'(?:我|你|咱|俺|您|他|她)'
+# 自述数据名词（封闭集，与 F2 建档字段族同源）：领属语的**中心语**是「关于
+# 我的数据」而非「一个人」时，主语仍是本人（「我的出生信息是1990年…男」
+# 「我的生辰/八字/生日/资料/命盘…」——审查 Important 实测：改前这些自述句
+# 被判第三人 → 性别纠正被静默丢弃）。
+# 亲缘/称谓是开放类词表（妹妹/姐姐/闺蜜/太太/嫂子/表妹/表姐/前女友…永远补
+# 不完，历史教训）——这里判的不是称谓枚举，而是**中心语的语义类别**：
+# 产品自有的字段名词（我的数据）≠ 另一个人。
+_GENDER_SELF_DATA_NOUN = (r'(?:出生信息|出生日期|出生时间|生辰|八字|生日|资料|'
+                          r'命盘|信息|档案|个人资料|基本信息)')
+# 量词短语（一个/这位/几种…）
+_GENDER_QTY_PHRASE = (r'(?:一|两|三|四|五|六|七|八|九|十|几|这|那|哪|每|各|'
+                      r'好|多)\s*(?:个|位|名|种|些)')
+# ① 本人自述主语：句首（可带连词）+ 自指代词 (+副词) + 系动词
+_GENDER_SELF_HEAD_RE = re.compile(
+    r'^\s*' + _GENDER_CLAUSE_LEAD + r'?\s*' + _GENDER_SELF_PRON + r'\s*'
+    + _GENDER_ADVERB + r'?\s*(?:是|就是|系|为)')
+# ②a 第三人主语：他/她/对方 + 系动词（「她是个女孩子」）
+_GENDER_THIRD_PERSON_RE = re.compile(
+    r'(?<!其)(?:他|她|它|对方|TA|ta)\s*' + _GENDER_ADVERB + r'?\s*'
+    r'(?:是|就是|系|为)')
+# ②b 第三人主语 + 出生年（「他1990年…」「对方是1992年…」）
+_GENDER_THIRD_PERSON_BIRTH_RE = re.compile(
+    r'(?<!其)(?:他|她|对方)(?:的|是)?\s*\d{4}\s*年')
+# 领属语（我/你/咱/俺/您）后不得紧跟这些（那些是自述/非名词中心语）：
+#   「我(的)性别是…」「我本人是…」「我是…」「我其实…」「我1990年…」
+_GENDER_LEAD_GUARD = (
+    r'(?!\s*(?:的|家)?\s*(?:性别|本人|自己))'
+    r'(?!\s*(?:的|家)?\s*' + _GENDER_SELF_DATA_NOUN + r')'
+    r'(?!\s*' + _GENDER_ADVERB + r')'
+    r'(?!\s*(?:是|就是|系|为))'
+    r'(?!\s*\d)')
+# 领属语（我/你/咱/俺/您/他/她）+ 名词中心语 + 谓语线索（是/的/出生/年月日）
+# ——代词后不是系动词/副词/自指词/自述数据名词，而是「被修饰的名词」→ 主语
+# 是那个名词：
+#   我妹妹1990年… / 我闺蜜是个女生 / 我朋友的女儿1990年5月20日…
+#   他女儿是1990年出生的女孩子 / 他的女儿1990年…
+# 名词中心语不得以量词短语/否定/语气助词开头（「我是一个1992年出生的女孩」
+# 是自述：量词紧跟自述代词，中心语位不是名词）。
+_GENDER_NOUN_RUN = r'[^，,。.！!？?；;、\n了过吧呢啊嘛不]{1,12}?'
+_GENDER_POSSESSIVE_HEAD_RE = re.compile(
+    _GENDER_POSSESSIVE_PRON + r'(?:的|家)?' + _GENDER_LEAD_GUARD
+    + r'(?!' + _GENDER_QTY_PHRASE + r')' + _GENDER_NOUN_RUN
+    + r'(?:是|就是|的|出生|\d{2,4}\s*年|\d{1,2}\s*月|\d{1,2}\s*日)')
+# ③ 消息级：第三人领属语引出的出生信息（「我妹妹1990年出生的女孩子」
+#    「我一个朋友1990年出生的女孩子」「我妹妹，1990年出生的女孩子」）→
+#    本条消息的性别词一律不取（与 ② 同一「出生信息归属」口径）。
+#    两条硬约束（评测集实测防误伤，见 tests/test_k40_e6_r3.py 邻接锁）：
+#    - 领属语必须**位于子句句首**（「**帮我**排1990年5月20日的盘」「**帮我**
+#      排盘，1990年…」「**我想**改个名，姓李，男，1988年…」——我 是动词宾语，
+#      不是领属语 → 不得命中）；
+#    - 名词中心语**不跨子句**（最多跨一个逗号/顿号）：否则「我想改个名，姓李，
+#      男，1988年…」会被整段吃掉。
+_GENDER_CLAUSE_ANCHOR = (r'(?:^|[，,。.！!？?；;、\n])\s*'
+                         + _GENDER_CLAUSE_LEAD + r'?\s*')
+_GENDER_POSSESSIVE_NP = (
+    _GENDER_POSSESSIVE_PRON + r'(?:的|家)?' + _GENDER_LEAD_GUARD
+    + r'(?:' + _GENDER_QTY_PHRASE + r'\s*)?'
+    + r'(?!' + _GENDER_QTY_PHRASE + r')(?!\d)'
+    + r'[^，,。.！!？?；;、\n了过吧呢啊嘛不]{1,16}?')
+_GENDER_THIRD_BIRTH_MSG_RE = re.compile(
+    _GENDER_CLAUSE_ANCHOR + _GENDER_POSSESSIVE_NP
+    + r'(?:\s*[，,、]\s*|\s*)\d{4}\s*年')
+# ②c 名词性中心语 + 系动词（子句句首：「对象是…」「相亲对象是…」「朋友是…」）
+#     ——自指代词/副词开头的子句不算（那些走 ①）
+_GENDER_CLAUSE_NOUN_COPULA_RE = re.compile(
+    r'^(?!\s*(?:' + _GENDER_SELF_PRON + r'|' + _GENDER_ADVERB + r'|'
+    r'人家|大家|对方|他|她|它))'
+    r'[^，,。.！!？?；;、\n了过吧呢啊嘛不\s]{1,4}?(?:是|就是|系|为)')
+# ②d 量词/指示词短语作主语（k40 第四轮：裸量词组 + 量词与年份分离组）——
+#    子句内出现「一个/这个/那个/那位/几位 [+名词跑]」且其前**不是自述系动词**
+#    → 主语是这个量词短语（第三人）：
+#      「这个1990年出生的女孩子」「那位1990年出生的丫头」（裸量词：无领属语，
+#       改前 message 级规则以领属语为前提 → 全丢）
+#      「我那位1990年出生的女孩子朋友」（量词与性别词之间隔了出生年 → 改前
+#       尾部锚定规则要求量词紧邻性别词 → 漏）
+#    其前是自述代词+系动词（我(是|其实|就)是 一个）→ 本人自述：
+#      「我是一个女孩」「我是一个1992年出生的女孩」（修 Important-1）。
+#    判据是**量词短语的主语归属**（子句句法），不是量词词表。
+_GENDER_QTY_SUBJECT_RE = re.compile(
+    r'(?:一|两|三|四|五|六|七|八|九|十|几|这|那|哪|每|各|好|多)\s*'
+    r'(?:个|位|名|种|些)')
+_GENDER_SELF_COPULA_TAIL_RE = re.compile(
+    r'(?:' + _GENDER_SELF_PRON + r')(?:\s*' + _GENDER_ADVERB + r')?\s*'
+    r'(?:是|就是|系|为)\s*$')
+
+
+def _gender_word_subject(msg: str, pos: int) -> str:
+    """性别词出现在 `pos` 处时，它的**主语**是本人还是第三人（k40 返工）。
+
+    返回 "self"（本人自述）/ "third"（指代第三人）。判据见模块级注释
+    （①②③三组规则，句法主语而非称谓词表）。异常一律回落 "self"（保持
+    改前口径，不因判据异常改变用户可见行为）。
+    """
+    try:
+        start = 0
+        floor = max(0, pos - 64)
+        for i in range(pos - 1, floor - 1, -1):
+            if msg[i] in _GENDER_CLAUSE_BOUNDARY:
+                start = i + 1
+                break
+        head = msg[start:pos]
+        # ② 第三人主语优先（P0 宁漏勿误：有第三人主体即不得当本人性别）
+        if _GENDER_THIRD_PERSON_RE.search(head):
+            return "third"
+        if _GENDER_THIRD_PERSON_BIRTH_RE.search(head):
+            return "third"
+        if _GENDER_POSSESSIVE_HEAD_RE.search(head):
+            return "third"
+        if _GENDER_CLAUSE_NOUN_COPULA_RE.match(head):
+            return "third"
+        # ②d 量词/指示词短语的主语归属（取**最靠近性别词**的一个）：其前是
+        # 自述代词+系动词（我(是)一个…）→ 自述（「我是一个女孩」）；否则
+        # 主语是这个量词短语 → 第三人（「这个1990年出生的女孩子」「我和一个
+        # …女孩子」「我那位1990年出生的女孩子朋友」）。量词与性别词之间可隔
+        # 名词跑（出生年/称谓），不再是尾部紧邻锚定。
+        _qt = None
+        for _m in _GENDER_QTY_SUBJECT_RE.finditer(head):
+            _qt = _m
+        if _qt and not _GENDER_SELF_COPULA_TAIL_RE.search(head[:_qt.start()]):
+            return "third"
+        return "self"
+    except Exception:
+        return "self"
+
+
+def _gender_oral_words_in(msg: str):
+    """消息里所有口语性别词的出现（位置）——供主语判定与守卫共用。"""
+    for w in _ORAL_FEMALE_WORDS + _ORAL_MALE_WORDS:
+        for m in re.finditer(re.escape(w), msg):
+            yield m.start()
+
+
+# ============================================================
 # R1-1（评测 T087/T088 修复）：支付守卫词（单一事实源）
 # ============================================================
 # 精确词：整句等值命中即支付意图（保持原行为不变）。
@@ -3029,11 +3205,18 @@ class MessageHandler:
                     "（如 month: 6），不填则默认本月。",
                     needs_info=True,
                 )
-        from src.tools.fortune_cycle import default_targets, parse_focus
-        if year is None or month is None:
-            d_year, d_month = default_targets()
-            year = year if year is not None else d_year
-            month = month if month is not None else d_month
+        from src.tools.fortune_cycle import (default_targets, parse_focus,
+                                             parse_view)
+        # k40（T027）：年视图（view=year，服务端内部键）→ month 保持 None →
+        # `format_cycle_card` 走 12 月一览分支（流年问法的正确视图）；缺省/
+        # 显式 month → 单月视图（改前行为）。两个视图的回复必然不同，故
+        # 「流年」轮与「流月」轮不再逐字节同串（L2 multi_turn distinct 实锤）。
+        _view_year = parse_view(info.get("view"))
+        d_year, d_month = default_targets()
+        if year is None:
+            year = d_year
+        if month is None and not _view_year:
+            month = d_month
         focus_list = parse_focus(info.get("focus"))
         try:
             y, m, d, h, mi, city, b_gender = parsed
@@ -3137,12 +3320,45 @@ class MessageHandler:
     # 折算成四位年份补进调用参数——与 `src.tools.fortune_cycle.relative_year_from_text`
     # 同一事实源（口径一致，不另立词表）：① 修用户可见回复；② 让 L1 记录到真实
     # 传入的 year 键；③ 生产真机（GLM 文本标签路径）同样受益。
-    # 边界：只补「参数未给 year」（LLM 自己给了就尊重，不覆盖）；只作用于流月
-    # 流年工具（其余工具无 year 语义）；折算不出 → 原样返回（不猜年份）。
+    # 边界：只作用于流月流年工具（其余工具无 year 语义）；用户原话无相对年词
+    # → 原样返回（不猜年份，保持 LLM 传值）。
+    # k40（T018 第二轮·唯一真回归的收尾）：**用户原话含相对年词时无条件覆盖**
+    # LLM 传值——原话是唯一事实源。k38 的口径是「LLM 给了 year 就尊重」，但
+    # k38 同时改了工具描述（capability_registry「明年=今年+1，请先折算为四位
+    # 年份」）诱导模型自己折算，而模型的「今年」是训练期幻觉（以为是 2023）→
+    # 传 year=2024，确定性折算被自己挡住（本轮 L1 实录 `year='2024'`、回复
+    # 「明年是2024年，属于甲辰年」）。相对词命中即覆盖，模型算错/算对都不影响；
+    # 原话只有绝对年份（"2028年"）→ `relative_year_from_text` 返回 None →
+    # 保持 LLM 传值（绝对年份不被改写，见 tests/test_k40_e6_r3.py 双向用例）。
+    # k40 返工（Important-2）：无条件覆盖只作用于**相对年份表达**——
+    # 「今年不太顺，帮我看看2028年的流年运势」这类混合句里，用户明确给出的四位
+    # 绝对年份（`relative_year_from_text` 之前）优先：原话是唯一事实源，绝对
+    # 年份比顺带提到的「今年/明年」更具体；模型若已按原话解析出该绝对年（或
+    # 解析成别的年份）都以原话的绝对年为准，只有原话没有绝对年时才用相对词
+    # 折算。纯绝对年（无相对词）走 `_ry` 为 None 的原短路，行为不变。
+    # k40 第四轮（审查 Critical-2·目标年 vs 出生年分离）：绝对年候选先剔除
+    # **出生语境**的年份——出生年只作输入，不得当目标年。「1990年5月20日
+    # 15:30 北京 男，帮我看看明年的流年运势」实跑 year=1990、回复「1990年
+    # 流年」（应 2027，371c551 与基线都正确）——用户粘出生串问流年是本产品
+    # 最常见的形态。出生语境 = ① 年+月(+日) 日期串；② 年+出生/生(的)；
+    # ③ 年+的 且位于子句边界（「我1990年的，…」自述）；④ 出生/生于/生辰/
+    # 生日 等引导的年份。剔除后仍有绝对年 → 取最后一个（用户明确的目标年）；
+    # 一个都不剩（全是出生年）→ 用相对词折算。
+    _ABS_YEAR_RE = re.compile(r'([12]\d{3})\s*年')
+    _ABS_BIRTH_CTX_RE = re.compile(
+        r'\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*[日号]'          # ① 完整日期串
+        r'|\d{4}\s*年\s*\d{1,2}\s*月\s*(?:出\s*生'               # ① 年+月+出生
+        r'|生(?=[的了，,。.！!？?；;、\s]|$))'
+        r'|\d{4}\s*年\s*出\s*生'                                  # ② 年出生
+        r'|\d{4}\s*年\s*生(?=[的了，,。.！!？?；;、\s]|$)'          # ② 年生的
+        r'|\d{4}\s*年\s*的\s*(?=[，,。.！!？?；;、\n]|$)'           # ③ 我1990年的，
+        r'|(?:出生|生于|出生于|出生在|生在)'                      # ④ 出生词引导
+        r'[^，,。.！!？?；;\n]{0,6}?\d{4}\s*年')
+
     def _with_relative_cycle_year(self, name: str, params, user_question: str):
         if name not in ("流月流年", "fortune_cycle"):
             return params
-        if not isinstance(params, dict) or params.get("year"):
+        if not isinstance(params, dict):
             return params
         try:
             from src.tools.fortune_cycle import relative_year_from_text
@@ -3152,7 +3368,21 @@ class MessageHandler:
         if not _ry:
             return params
         _out = dict(params)
-        _out["year"] = str(_ry)
+        _ug = str(user_question or "")
+        _birth_spans = [m.span() for m in self._ABS_BIRTH_CTX_RE.finditer(_ug)]
+        _abs_years = [
+            int(m.group(1)) for m in self._ABS_YEAR_RE.finditer(_ug)
+            if not any(a <= m.start() and m.end() <= b
+                       for a, b in _birth_spans)]
+        if _abs_years:
+            _cur = str(_out.get("year", "")).strip()
+            # 模型已按原话解析出其中一个绝对年 → 尊重其消歧；否则取原话里
+            # 最后出现的绝对年（问句的目标年通常在句末，同「最内层/最后一条」
+            # 既有口径）
+            _out["year"] = (_cur if _cur in [str(y) for y in _abs_years]
+                            else str(_abs_years[-1]))
+        else:
+            _out["year"] = str(_ry)
         return _out
 
     # ── R1-2 工具场景确定性兜底（评测 T094/T095/T039 修复）──────────────
@@ -3217,12 +3447,21 @@ class MessageHandler:
             profile = self._get_user_birth_profile(user_id)
             if profile and profile.get("year"):
                 birth = self._fmt_birth_text(profile)
+                # k40（T027）：按用户原话区分视图——「流月」→ 月视图（缺省 =
+                # 本月，改前行为）；「流年/明年」→ 年视图（view=year，12 月
+                # 一览）。改前两次调用都只有 birth 键 → 两次都渲染「N月单月」
+                # 分支 → 流年轮与流月轮逐字节同串（L2 multi_turn distinct
+                # 实锤）。视图键为服务端内部键（不进 LLM schema），参数仍含
+                # birth 键（L1 partial 键集契约不受影响）。
+                _params = {"birth": birth}
+                if "流月" not in (msg or ""):
+                    _params["view"] = "year"
                 # T018：档案兜底路径同样折算相对年份（本路径 L1 实测形态：
                 # {"birth": …} 无 year 键 → 回复恒答当年）——同一事实源
                 r = self._execute_tool_call(
                     "流月流年",
                     self._with_relative_cycle_year(
-                        "流月流年", {"birth": birth}, msg),
+                        "流月流年", _params, msg),
                     user_id, user_question=msg)
                 if r.ok and r.text:
                     return r.text
@@ -3288,6 +3527,44 @@ class MessageHandler:
                   + msg[m.end():m.end() + 6])
         return "other" if any(k in window for k in self._HEHUN_OTHER_MARKERS) \
             else "self"
+
+    def _gender_ref_is_third_party(self, analysis, msg: str) -> bool:
+        """k40 返工（Critical-1）：消息里的性别是否**指代第三人**（非本人语境）。
+
+        判据 = 主语感知单一事实源（`_gender_word_subject` / `_GENDER_THIRD_BIRTH_MSG_RE`，
+        见模块级注释）：
+          ① 消息里的口语性别词**全部**被判为第三人主体（妹妹/姐姐/闺蜜/太太/
+             嫂子/表妹/表姐/对象的女儿/对象是/相亲对象是/一个…女孩子…）→ True；
+          ② 消息出生信息由第三人领属语引出（「我妹妹1990年出生的女孩子」、
+             「我朋友1990年5月20日出生的女生」）→ True；
+          ③ 消息里存在**本人自述**的性别词（我是女孩/我是一个女生…）→ False。
+        判据与场景无关（改前限 hehun 场景 + 称谓白名单，白名单补不完 → 同类
+        措辞一字之差即漏，见审查 Critical-1）。
+
+        用途：G1 性别纠正守卫的前置条件——此类消息**不得**把消息性别当作
+        用户改自己性别（T041 实证：守卫抢走 intent → hehun 链路从未被调用，
+        全链 0 LLM；年份与档案一致时更会走 force_gender 覆写本人档案性别，
+        即报告点名的 P0 档案污染风险）。守卫与提取层（`_has_self_gender_word`）
+        同源但**独立生效**：声明式性别（独立「男/女」/「性别男/女」）不经
+        口语词路径，只有本守卫能拦住「我妹妹1990年出生的，性别女」这类。
+
+        边界：T008「我是女孩儿，不是男孩」形态 → 存在本人自述 → False
+        （守卫行为不变）；判据异常 → False（保持改前行为，不劣化）。
+        `analysis` 形参保留（调用方签名稳定，守卫不再依赖场景判定）。
+        """
+        if not msg:
+            return False
+        try:
+            if _GENDER_THIRD_BIRTH_MSG_RE.search(msg):
+                return True
+            _seen_oral = False
+            for _pos in _gender_oral_words_in(msg):
+                _seen_oral = True
+                if _gender_word_subject(msg, _pos) == "self":
+                    return False  # 有本人自述 → 不是「全指第三人」
+            return _seen_oral
+        except Exception:
+            return False  # 判据异常 → 不拦截（保持改前行为，不劣化）
 
     def _hehun_single_fill(self, msg: str, user_id: str) -> dict:
         """k39 S3 合盘「单档补全」：一方缺信息时用默认命主档案补全**本人**。
@@ -4493,8 +4770,16 @@ class MessageHandler:
         # 零新增，T008 3/3 实锤）。门控：消息提取到已确认性别 + 档案性别已确认
         # + 不一致（male/female 归一中文后判定，persons 档案 gender 存英文）→
         # 强制 bazi → _handle_bazi 走 G1 纠正路径（重排 + 双写档案 + 固定回执）。
+        # k40（T041·最高优先，L1+L2 同根因）：前置条件补「**非本人语境**」——
+        # 消息里的出生信息指代对方时，其中的「女孩子/男孩子」是描述对方，不是
+        # 用户在改自己的性别（见 `_gender_ref_is_third_party`）。改前实锤：
+        # 「我和一个1992年10月1日 上海出生的女孩子合不合」→ 抽到 gender=女
+        # （来源「一个…女孩子」）→ 档案 male → 判定纠正 → intent 被改写成 bazi
+        # → `_handle_bazi` 见 1992≠1990 → 档案冲突确认 → **hehun 链路从未被
+        # 调用**（全链 0 LLM，attempt elapsed 0.061s，L1 actual_calls=[]）。
         if (analysis.intent != "bazi"
-                and not self._is_third_party_birth_request(msg)):
+                and not self._is_third_party_birth_request(msg)
+                and not self._gender_ref_is_third_party(analysis, msg)):
             try:
                 _cur_g = (self._extract_partial_birth(msg) or {}).get("gender")
                 if _cur_g in ("男", "女"):
@@ -4895,6 +5180,15 @@ class MessageHandler:
         _ack = (getattr(self, "_gender_acks", None) or {}).pop(user_id, "")
         if _ack and _ack not in reply:
             reply = _ack + "\n\n" + reply
+        # k40（T034 修复·确定性宜忌行防丢）：择日意图路径的宜忌行由
+        # `_do_zeri_analysis` 落进草稿（与工具路径同一渲染实现），但润色/工具
+        # 循环的 LLM 仍可能整行吃掉（"可行的哦"零宜忌字面实锤）→ 逐行幂等
+        # 重挂：缺哪行补哪行（已逐字保留的行不重复，不产生重复条目）。
+        _zj = (getattr(self, "_zeri_yi_ji_acks", None) or {}).pop(user_id, None)
+        if _zj and analysis.intent == "zeri":
+            _missing = [ln for ln in _zj if ln and ln not in reply]
+            if _missing:
+                reply = reply.rstrip() + "\n\n" + "\n".join(_missing)
         # R1-3（评测 T009 修复·性别回显重挂）：润色/工具循环的 LLM 把排盘
         # 回复写成无性别散文（女档案契约 contains「女」1/3 实锤：纯散文
         # 只字未提女命）→ 确定性重挂性别声明（0 LLM，见 _rehang_gender_echo）。
@@ -5542,8 +5836,16 @@ class MessageHandler:
         # 实锤，跨用户污染在线根因）；轮2「我的运势怎么样」analyzer 又可能回
         # facts.subject=other（旧信息冒充本人）。统一在入口按消息强制判定：
         # 他人信息只作排盘展示，绝不写入当前用户档案（产品裁决）。
+        # k40 返工（Critical-1）：归属判定补「主语感知」证据——出生信息由
+        # 第三人领属语引出（「我朋友1990年5月20日出生的女生」）时同样按他人
+        # 处理（规则2 同款后果：只作排盘展示，不写本人档案/persons 性别）。
+        # 改前此类消息 subject=self → `_sync_person_profile` 把本人档案性别
+        # 写成消息里的性别（P0 同类）。
         _f = dict(self._analysis_facts.get(user_id) or {})
-        _f["subject"] = "other" if self._is_third_party_birth_request(msg) else "self"
+        _f["subject"] = ("other"
+                         if (self._is_third_party_birth_request(msg)
+                             or self._gender_ref_is_third_party(None, msg))
+                         else "self")
         # R1-1（T096 终局）：subject 强制 self 时顺带清除 analyzer 从会话
         # 上下文捎带来的他人出生身份字段（在线复现实锤：轮2「我的运势怎么
         # 样」analyzer 回 facts.subject=other + birth_date='1976年5月13日'
@@ -5629,7 +5931,11 @@ class MessageHandler:
                     _cur_g = merged.get("gender")
                     # C2b（2026-08-29）：判定逻辑抽为 _is_gender_correction，
                     # partial 分支与 parsed 直排路径共用同一判定（不重复实现）。
-                    _is_correction = self._is_gender_correction(_cur_g, _saved_g)
+                    # k40 返工（Critical-1）：同 parsed 路径——性别按主语归属
+                    # （第三人领属语引出的出生信息/性别词不得强制覆写本人档案）。
+                    _is_correction = (
+                        self._is_gender_correction(_cur_g, _saved_g)
+                        and not self._gender_ref_is_third_party(None, msg))
                     if _is_correction:
                         # C2（2026-08-29）：纠正路径强制覆写记忆画像层性别——
                         # _do_bazi_analysis → _save_bazi_records → save_bazi_info
@@ -5730,8 +6036,17 @@ class MessageHandler:
             # _save_bazi_records → save_bazi_info 强制覆写画像层，权威档案
             # users.bazi_info+persons 随重排双写新性别）+ 固定回执（零 LLM）。
             # 一致/档案 unknown/第三方指代 → 行为保持现状（不强制、无回执）。
+            # k40 返工（Critical-1）：parsed 路径的性别同样按**主语**归属——
+            # `_extract_bazi_info` 的性别是裸子串规则（消息含「女」即取），
+            # 「我朋友1990年5月20日出生的女生，帮我看看」这类由第三人领属语
+            # 引出的性别词会走这里 force_gender 覆写本人档案（P0 同类，改前
+            # 实测 male 档案 → 女 + 落盘）。`_gender_ref_is_third_party` 为
+            # 同一主语感知事实源（声明式/口语词统一判）：判为第三人 →
+            # 不判纠正、不强制覆写（仍按消息信息排盘，不改档案）。
             _saved_g = (saved or {}).get("gender")
-            _is_correction = self._is_gender_correction(gender, _saved_g)
+            _is_correction = (self._is_gender_correction(gender, _saved_g)
+                              and not self._gender_ref_is_third_party(
+                                  None, msg))
             if _is_correction:
                 _ack = self._gen_gender_correction_ack(_saved_g, gender)
                 # R1-2（T008）：回执暂存，润色后幂等重挂（process 出口）
@@ -6276,15 +6591,38 @@ class MessageHandler:
         # 优先级：女系先查（与既有 女→男 顺序一致）；独立规则前字粘连
         # （渣/美）不命中；「女儿/儿子」等第三方称谓不在词表（归属判定归
         # 第三方链路，见 B3-1 _is_third_party_birth_request）
-        if re.search(
-                r'(?:^|[^\w])女(?:$|[^\w])|性别女|女孩|女生|姑娘|丫头|女的|小姑娘|闺女',
-                msg):
+        # k40 返工（Critical-1 + Important-1）：性别词按**主语**归属（见模块级
+        # 注释）——口语词按 `_gender_word_subject` 逐处判「本人自述 / 第三人」，
+        # 消息出生信息由第三人领属语引出（「我妹妹1990年出生的女孩子」）时
+        # **全部**性别来源（含独立「男/女」「性别男/女」声明式）一律不取：
+        # 声明式同样带主语（「我妹妹1990年出生的，性别女」里的 性别女 是妹妹
+        # 的），改前它绕过修饰排除 → 仍然覆写本人档案（P0 同类）。T008
+        # 「我是女孩儿，不是男孩」判为本人自述 → 仍取 女（双向用例锁）。
+        if _GENDER_THIRD_BIRTH_MSG_RE.search(msg):
+            return out          # 出生信息属第三人 → 本条消息不取性别
+        if (re.search(r'(?:^|[^\w])女(?:$|[^\w])|性别女', msg)
+                or self._has_self_gender_word(msg, _ORAL_FEMALE_WORDS)):
             out["gender"] = "女"
-        elif re.search(
-                r'(?:^|[^\w])男(?:$|[^\w])|性别男|男孩|男生|男的|小伙子',
-                msg):
+        elif (re.search(r'(?:^|[^\w])男(?:$|[^\w])|性别男', msg)
+                or self._has_self_gender_word(msg, _ORAL_MALE_WORDS)):
             out["gender"] = "男"
         return out
+
+    # k40 返工（Critical-1 + Important-1）：口语性别词是否**本人自述**。
+    # 判据 = 主语感知（`_gender_word_subject`，见模块级注释）：同一位置被判定
+    # 指代第三人则跳过该处；本条消息的出生信息由第三人领属语引出
+    # （「我妹妹1990年出生的女孩子」）→ 整条消息的口语性别词一律不取。
+    # 修 Important-1：「我(是)一个女孩」的「一个」不再被当第三人修饰——量词
+    # 前若为自述系动词（我是一个）→ 仍判本人自述。
+    @staticmethod
+    def _has_self_gender_word(msg: str, words) -> bool:
+        if _GENDER_THIRD_BIRTH_MSG_RE.search(msg):
+            return False
+        for w in words:
+            for m in re.finditer(re.escape(w), msg):
+                if _gender_word_subject(msg, m.start()) == "self":
+                    return True
+        return False
 
     def _collect_partial_birth(self, user_id: str,
                                session_id: Optional[str] = None,
@@ -7914,7 +8252,30 @@ class MessageHandler:
         self._emit_stream_event(stream_cb, "thinking", "比对吉凶宜忌…")
         analysis = self.llm.analyze(chart_str, refs, question)
 
-        return analysis.response
+        # k40（T034）：意图路径与工具路径**同一份引擎数据、同一渲染实现**
+        # （`_yi_ji_render_lines`，与 `_tool_zeri`/`_format_zeri_chart` 同源）
+        # ——改前意图路径只把引擎结果喂给 LLM 散文，宜忌条目由 LLM 自行取舍，
+        # 实测「…挺不错的日子来搬家…可行的哦」零宜忌字面（撞数据一致性铁律：
+        # 同一引擎数据的两个通道渲染不一致）。这里把确定性宜忌行拼进草稿
+        # （润色提示词同样要求保留宜忌条目），并在 process 出口幂等重挂
+        # （润色/工具循环把整行吃掉时补回，见 `_zeri_yi_ji_acks` 消费点）——
+        # 与 `_gender_acks`（T008 回执重挂）同一范式。
+        # k40 返工（Minor-2）：草稿拼接**逐行判存在**——LLM 若已逐字复述某行
+        # （「宜：入宅、祭祀…」），不再追加造成重复行（出口重挂本就逐行幂等，
+        # 这里补齐草稿侧的同一口径）。
+        _yi_ji_lines = _yi_ji_render_lines(result.yi, result.ji)
+        if _yi_ji_lines:
+            try:
+                self._zeri_yi_ji_acks = getattr(
+                    self, "_zeri_yi_ji_acks", None) or {}
+                self._zeri_yi_ji_acks[user_id] = _yi_ji_lines
+            except Exception:
+                pass  # 暂存失败 → 不影响主链（草稿仍含宜忌行）
+        _resp = analysis.response or ""
+        _missing_lines = [ln for ln in _yi_ji_lines if ln not in _resp]
+        if _missing_lines:
+            _resp = _resp.rstrip() + "\n\n" + "\n".join(_missing_lines)
+        return _resp
 
     def _format_zeri_chart(self, r: ZeriResult, year: int, month: int, day: int) -> str:
         """格式化择日结果为文本"""
