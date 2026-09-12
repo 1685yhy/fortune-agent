@@ -84,6 +84,10 @@ Page({
 
   /* 重新看引导（完成页/跳过页底部） */
   replay() {
+    // 复审 Important-3：表单整体复位 = 钟表档状态重建 → 上一轮「本次开档」起点失效
+    // （与 bazi 的 _enterForm/_applyBazi/_enterTempForm 同款：残留 prev 只在
+    // 同一次开→关周期内有效）
+    this._clockPrevHourIndex = undefined;
     this.setData({
       phase: 'welcome', stepCur: 0,
       cal: 'solar', year: '', month: '', day: '', hourIndex: 0, gender: '女', place: '',

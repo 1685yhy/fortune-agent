@@ -346,6 +346,9 @@ Page({
   _enterTempForm() {
     const m = this.data;
     const bd = _parseDate(m.mDate);
+    // 复审 Important-3：钟表档状态由手动档重建 → 旧的「本次开档」起点失效
+    // （残留会让关档把 B 的 12:00 回滚成 A 的子时 0）。同 _enterForm。
+    this._clockPrevHourIndex = undefined;
     this.setData({
       mode: 'form',
       currentPerson: null,
@@ -369,6 +372,10 @@ Page({
   /* 命主（档案/刚保存）→ 表单回显 */
   _enterForm(p) {
     if (!p) { this._prefill(); return; }
+    // 复审 Important-3：换命主/载入新档案 = 钟表档状态重建 → 上一轮的「本次开档」
+    // 起点必须失效（否则 A 子时开→关残留 prev=0，关档时把 B 的 12:00 回滚成子时，
+    // 保存写 birth_hour=23 = 时柱错 11 小时）。开档即真值语义不变：无 prev 不回滚。
+    this._clockPrevHourIndex = undefined;
     // k34 A12（照抄 paipan k19 口径）：精确钟表行（10:55）→ 回显钟表档；
     // 时辰 chips 按 hourToShichenIndex(小时,分钟) 时钟窗口推导（修旧误读）
     const clockRow = _isClockRow(p.birth_hour, p.birth_minute);
@@ -488,6 +495,9 @@ Page({
   },
 
   _applyBazi(b) {
+    // 复审 Important-3：载入档案（profile 预填）同样重建钟表档状态 → 旧开档起点失效
+    // （开档与预填请求竞态时残留 prev=0 会把载入的 12:00 回滚成子时）。
+    this._clockPrevHourIndex = undefined;
     // k34 A12：两种来源形态——
     //   ① 服务端 bazi_info / 登录 bazi（year/month/day/hour/minute，时钟小时口径；
     //      person_dao.bazi_info_of_person 契约）——app.js 登录、me 页 profile 同源；

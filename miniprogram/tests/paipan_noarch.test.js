@@ -97,6 +97,65 @@ test('k34 A32 paipan.wxml：× 关闭钮接线（catchtap 不冒泡）', () => {
   assert.match(wxml, /pp-noarch-close-active/, '关闭钮应有按压高亮态（同今日页）');
 });
 
+/* ── 1c. k34 A32 运行时（非源码正则）：今日页 × 关闭 → 排盘页不显示 ── */
+
+const persons = require('../utils/persons');
+const savedPage = global.Page;
+function loadPage(rel) {
+  let cfg = null;
+  global.Page = (c) => { cfg = c; };
+  try { require(rel); } finally { global.Page = savedPage; }
+  assert.ok(cfg, `${rel} 页面配置应可加载`);
+  return cfg;
+}
+const todayCfg = loadPage('../pages/today/today');
+const paipanCfg = loadPage('../pages/paipan/paipan');
+
+function makePage(cfg) {
+  const page = Object.assign({}, cfg);
+  page.data = JSON.parse(JSON.stringify(cfg.data));
+  page.setData = function (upd, cb) {
+    Object.assign(this.data, upd);
+    if (typeof cb === 'function') cb();
+  };
+  return page;
+}
+
+test('k34 A32 运行时：今日页 × 关闭 → 排盘页引导条不显示（字面复用 ylm_noarch_tip_closed）', () => {
+  const store = {};
+  global.getApp = () => ({ globalData: {} });
+  global.wx = {
+    getStorageSync: (k) => (store[k] !== undefined ? store[k] : null),
+    setStorageSync: (k, v) => { store[k] = v; },
+    removeStorageSync: (k) => { delete store[k]; },
+    getSystemInfoSync: () => ({ statusBarHeight: 20 }),
+    getWindowInfo: () => ({ statusBarHeight: 20 }),
+    showToast: () => {},
+    navigateTo: () => {},
+    reLaunch: () => {},
+  };
+  const savedLoad = persons.loadPersons;
+  persons.loadPersons = () => Promise.resolve([]);   // 无档案：hasLocalArchive() 走真实实现
+  try {
+    // ① 基线：无档案 + 未关闭 → 排盘页引导条可见
+    const p1 = makePage(paipanCfg);
+    p1.onLoad();
+    assert.equal(p1.data.noArchive, true, '无档案且未关过 → 引导条可见（基线）');
+    // ② 今日页点 × 关闭（真实 handler，非源码正则）→ 落同键
+    const today = makePage(todayCfg);
+    today.onCloseNoarchTip();
+    assert.equal(store.ylm_noarch_tip_closed, 1, '今日页关闭落 ylm_noarch_tip_closed=1（A 方案字面复用）');
+    assert.equal(today.data.noarchHint, false, '今日页自身隐藏');
+    // ③ 同一 storage 进排盘页 → 引导条不显示（跨页联动运行时生效）
+    const p2 = makePage(paipanCfg);
+    p2.onLoad();
+    assert.equal(p2.data.noarchClosed, true, '排盘页读回关闭标记');
+    assert.equal(p2.data.noArchive, false, '★ 今日页关过 → 排盘页不再显示引导条');
+  } finally {
+    persons.loadPersons = savedLoad;
+  }
+});
+
 /* ── 4. 全链路护栏：「未建档点排盘 → 建档表单页」 ── */
 
 test('全链路：E1 提示条跳转目标 = /pages/paipan/paipan（建档表单页），与引导条同页闭环', () => {

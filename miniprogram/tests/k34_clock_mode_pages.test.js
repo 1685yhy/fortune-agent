@@ -45,6 +45,7 @@ function loadPage(rel, label) {
   return cfg;
 }
 const api = require('../utils/api');
+const persons = require('../utils/persons');
 const baziCfg = loadPage('../pages/bazi/bazi', 'bazi.js');
 const onboardingCfg = loadPage('../pages/onboarding/onboarding', 'onboarding.js');
 
@@ -495,4 +496,78 @@ test('审查修复 Important-2 · 服务端形态读回口径不变（代表整�
   p3._applyBazi({ year: 1990, month: 1, day: 1, hour: 10, minute: 55, gender: '男', calendar: 'solar', city: '' });
   assert.equal(p3.data.clockSet, true, '服务端 minute>0 → 钟表档');
   assert.equal(p3.data.hourIndex, 5, '10:55 → 巳时（时钟窗口）');
+});
+
+/* ═══════ 6. k34 复审 Important-3：开档残留跨命主/跨载入失效 ═══════
+   `_clockPrevHourIndex` 原只在「开档」写入 → 页面内换人/载入新档案时不失效。
+   仅 prev=0（子时开档）会错：关档 untouched 判定把中性起点 12:00 当成「未动过」，
+   回滚到 A 的子时 0 → 保存把 B（12:00）写成子时 23（时柱错 11 小时）。 */
+
+test('复审 Important-3 · 切换命主：A 子时往返残留不得回滚 B 的 12:00（保存写 23 = 时柱错 11 小时）', async (t) => {
+  const store = stubWx();
+  global.wx.showModal = (o) => { o.success && o.success({ confirm: true }); };
+  const A = {
+    id: 21, name: '甲', relation: '自己', gender: '女',
+    birth_year: 1995, birth_month: 3, birth_day: 8,
+    birth_hour: 23, birth_minute: 0, calendar: 'solar', city: '', is_default: true,
+  };
+  const B = {
+    id: 22, name: '乙', relation: '朋友', gender: '男',
+    birth_year: 1990, birth_month: 6, birth_day: 6,
+    birth_hour: 12, birth_minute: 0, calendar: 'solar', city: '',
+  };
+  const page = makePage(baziCfg);
+  page._enterForm(A);
+  page.onClockToggle();                       // 开档（子时 → 中性起点 12:00）
+  page.onClockToggle();                       // 关档 → 往返恒等，但残留 prev=0
+  assert.equal(page.data.hourIndex, 0, 'A 子时往返恒等（前置）');
+  // 页面内切换命主：真实产品路径 switchPerson → onPick → onStart → 确认
+  t.mock.method(persons, 'loadPersons', () => Promise.resolve([A, B]));
+  page.switchPerson();
+  await new Promise((r) => setImmediate(r));
+  page.onPick({ currentTarget: { dataset: { id: 22 } } });
+  page.onStart();
+  assert.equal(page.data.currentPerson.id, 22, '已切到 B（12:00 档案）');
+  assert.equal(page.data.clockSet, true, 'B 的 12:00 是非代表整点 → 钟表档回显');
+  assert.equal(page.data.clockHIdx, 12);
+  assert.equal(page.data.clockMIdx, 0);
+  assert.equal(page.data.hourIndex, 6, 'B 的 12:00 回显午时');
+  page.onClockToggle();                       // 关档（残留 prev=0 命中 untouched → 回滚子时）
+  assert.equal(page.data.hourIndex, 6, '★ 不得被 A 的残留回滚成子时 0');
+  let sent = null;
+  t.mock.method(api, 'updatePerson', (id, data) => {
+    sent = data;
+    return Promise.resolve({ person: Object.assign({ id }, data) });
+  });
+  await page.onSave();
+  assert.notEqual(sent.birth_hour, 23, '★ B 的 12:00 绝不被写成子时 23（时柱错 11 小时）');
+  assert.equal(sent.birth_hour, 11, '关档 = 降级为时辰档：午时代表整点 11（时柱仍午时）');
+  assert.equal(sent.birth_minute, 0);
+  assert.ok(store, 'storage 桩存在（_enterForm 写当前命主）');
+});
+
+test('复审 Important-3 · 另两处载入入口（_applyBazi 预填 / _enterTempForm 手动档）同样不得被残留回滚', () => {
+  // ① _applyBazi：开档中途 profile 预填返回（12:00 档案）→ 关档不得回滚成子时
+  const p1 = makePage(baziCfg);
+  p1.onClockToggle();                          // 表单默认子时开档 → 残留 prev=0
+  p1._applyBazi({ year: 1988, month: 8, day: 8, hour: 12, minute: 0, gender: '男', calendar: 'solar', city: '' });
+  assert.equal(p1.data.clockSet, true);
+  assert.equal(p1.data.clockHIdx, 12);
+  assert.equal(p1.data.hourIndex, 6);
+  p1.onClockToggle();
+  assert.equal(p1.data.hourIndex, 6, '★ _applyBazi 载入的 12:00 不得被残留 prev=0 回滚成子时');
+
+  // ② _enterTempForm：表单档残留 prev=0 → 手动档 12:00 带入表单 → 关档不得回滚
+  const p2 = makePage(baziCfg);
+  p2.setData({ birthDate: '1995-03-08' });
+  p2.onClockToggle();
+  p2.onClockToggle();                          // 表单档往返 → 残留 prev=0
+  p2.setData({ mDate: '1995-03-08', mCal: 'solar', mGender: '女' });
+  p2.onMClockToggle();                         // 手动档开（12:00 起点）
+  p2.onMClockHourChange({ detail: { value: 12 } });
+  p2._enterTempForm();                         // 手动档带入表单（clockSet=true, 12:00）
+  assert.equal(p2.data.clockSet, true);
+  assert.equal(p2.data.clockHIdx, 12);
+  p2.onClockToggle();
+  assert.equal(p2.data.hourIndex, 6, '★ 手动档 12:00 带入表单后不得被残留 prev=0 回滚成子时');
 });
