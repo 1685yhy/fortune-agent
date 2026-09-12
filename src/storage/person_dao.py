@@ -8,6 +8,8 @@
 """
 import json
 import logging
+import os
+import sqlite3
 from datetime import datetime
 from typing import Optional, Dict, List
 
@@ -232,13 +234,45 @@ def _birth_dict(**kw) -> dict:
 
 
 class PersonDAO:
-    """多人档案数据访问对象。"""
+    """多人档案数据访问对象。
 
-    def __init__(self, db_path: str):
+    只读构造（k35/A7）：`PersonDAO.readonly(db)` 跳过 `init_db` 的副作用
+    （`PRAGMA journal_mode=WAL` 持久切换 / 建缺表 / `_migrate_db` ALTER 加列），
+    且查询走 `mode=ro` 只读连接——供迁移脚本 dry-run 等「承诺零写入」的
+    只读场景使用（默认构造路径行为不变）。
+
+    只读连接的**有证边界**（k35-复审 Important-3，实测）：SQLite 读 WAL 库时
+    会自行建出 `-shm`（32KB）与 0 字节 `-wal`（`immutable=1` 可避免但会读到
+    忽略 `-wal` 的陈旧快照，不采用）；对库文件与 schema 本身仍是零写入。
+    打开失败（如 WAL 库 + 目录不可写）**显式抛出**，不吞、不降级为可写连接。
+    """
+
+    def __init__(self, db_path: str, readonly: bool = False):
         self.db_path = db_path
-        init_db(db_path)
+        self._readonly = bool(readonly)
+        if not self._readonly:
+            init_db(db_path)
+
+    @classmethod
+    def readonly(cls, db_path: str) -> "PersonDAO":
+        """只读实例（k35/A7）：不建表/不 ALTER/不置 WAL，查询走 mode=ro。"""
+        return cls(db_path, readonly=True)
 
     def _connect(self):
+        if self._readonly:
+            from urllib.parse import quote
+            uri = "file:%s?mode=ro" % quote(os.path.abspath(self.db_path))
+            conn = sqlite3.connect(uri, uri=True, timeout=10.0)
+            try:
+                conn.execute("PRAGMA busy_timeout=10000")  # 连接级，无写入
+                # 惰性打开探针（复审 Important-2 同源修法）：mode=ro 的真实失败
+                # （WAL 库目录不可写等）在首条语句才抛；此处显式触发并重抛，
+                # 避免错误在后续查询处才以裸 traceback 冒出。
+                conn.execute("SELECT count(*) FROM sqlite_master").fetchone()
+            except sqlite3.Error:
+                conn.close()
+                raise
+            return conn
         return db_connect(self.db_path)
 
     # ------------------------------------------------------------

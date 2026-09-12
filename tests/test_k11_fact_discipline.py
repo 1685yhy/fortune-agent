@@ -444,6 +444,46 @@ class TestEvalDerived:
                _eval_derived("丙寅运从23岁到虚岁32岁。")}
         assert res["derived.age_claim"]["ok"] is True
 
+    # ---- k35-A4 + k35-fix：pattern2 右侧前瞻放行「显式时点语境」 ----
+
+    def test_a4_shi_variant_endpoint_phrases_pass(self):
+        """「虚岁33岁时进入乙丑大运」类换运**时点**句（base 误拦，实测证据见
+        k17 文件 test_known_misfire_families_documented 记录）→ 放行。
+
+        k35-fix（复审 Important-1）：放行面 = `岁时` + 显式换运动词白名单，
+        不再是裸字符「时」全放行。"""
+        cases = [
+            "虚岁33岁时进入乙丑大运",
+            "虚岁33岁时，你已换入乙丑大运。",
+            "到虚岁33时，乙丑大运开始。",
+            "虚岁23岁时走丙寅大运。",
+            "虚岁33岁时转入乙丑大运。",
+            "虚岁33岁时起运。",
+            "虚岁33岁时，我步入乙丑大运。",
+        ]
+        for rep in cases:
+            res = {c["name"]: c for c in _eval_derived(rep)}
+            assert res["derived.age_claim"]["ok"] is True, rep
+
+    def test_a4_real_age_claims_still_blocked(self):
+        """判别力（未放宽）：带/不带「时」的真实当前年龄声明仍拦。"""
+        bad = [
+            "你今年虚岁33岁时运不济。",   # 前缀型命中：时点词不豁免前缀声明
+            "命主今年33岁时来运转。",
+            "命主虚岁33岁，正走乙丑运。",
+            "今年我虚岁33岁，正走乙丑大运。",
+            "虚岁33了",
+            "我现在33岁了。",
+            # k35-fix（复审 Important-1）：裸「时」全放行时的过宽面 → 已拦回
+            "虚岁33岁时运不济。",
+            "虚岁33岁时，我事业起飞。",
+            "虚岁33岁时已经结婚。",
+            "今年我虚岁33岁时运不济。",
+        ]
+        for rep in bad:
+            res = {c["name"]: c for c in _eval_derived(rep)}
+            assert res["derived.age_claim"]["ok"] is False, rep
+
     def test_double_unit_fix_real_claims_still_caught(self):
         """双单位收紧后真实事故句仍拦截（既有真实断言回归锁定）。"""
         bad = [
