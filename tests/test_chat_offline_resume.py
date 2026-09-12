@@ -417,13 +417,40 @@ def _make_streamer(db_path, sid):
     return st, dao
 
 
+def _wait_until(pred, timeout=10.0, interval=0.2):
+    """轮询等待条件成立（返回是否成立）。
+
+    固定 `time.sleep` 在满载（全量回归并发跑）下不够——异步落库/标记任务会被
+    拖慢 → flaky。断言本身不放宽：超时后仍按原断言失败。
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        if pred():
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(interval)
+
+
 def test_disconnect_mid_generation_completes_and_marks_offline(db_path):
     """核心：客户端在生成中退出 → 生成继续完成 → 落库且 offline_completed=1。"""
     st, dao = _make_streamer(db_path, SID_A)
     evts = asyncio.run(_run_stream(st, _Req(SID_A),
                                    {"method": "jwt", "user_id": USER}, True))
     assert evts[0]["type"] == "start"           # 断开前只收到 start（生成中）
-    time.sleep(1.2)                              # 等 executor 线程跑完
+
+    def _marks_ready():
+        conn = connect(db_path)
+        try:
+            return conn.execute(
+                "SELECT role, offline_completed FROM sessions"
+                " WHERE user_id=? AND session_id=? ORDER BY id",
+                (USER, SID_A)).fetchall() == [("user", 0), ("assistant", 1)]
+        finally:
+            conn.close()
+
+    # 轮询等待 executor 线程落库 + 离线标记（原固定 sleep 1.2s 在满载下 flaky）
+    assert _wait_until(_marks_ready), "生成落库/离线标记未在 10s 内完成"
     hist = dao.get_history(USER, limit=20, session_id=SID_A)
     assert len(hist) == 2                        # user + assistant 均已落库
     assert hist[-1]["role"] == "assistant"
@@ -471,7 +498,19 @@ def test_disconnect_session_isolation_via_stream(db_path):
                             {"method": "jwt", "user_id": USER}, True))
     asyncio.run(_run_stream(st_b, _Req(SID_B),
                             {"method": "jwt", "user_id": USER}, False))
-    time.sleep(1.2)
+
+    def _a_assistant_marked():
+        conn = connect(db_path)
+        try:
+            return conn.execute(
+                "SELECT offline_completed FROM sessions"
+                " WHERE user_id=? AND session_id=? AND role='assistant'",
+                (USER, SID_A)).fetchall() == [(1,)]
+        finally:
+            conn.close()
+
+    # 轮询等待断开会话的离线标记落库（原固定 sleep 1.2s 在满载下 flaky）
+    assert _wait_until(_a_assistant_marked), "断开会话的离线标记未在 10s 内落库"
     conn = connect(db_path)
     try:
         rows = conn.execute(

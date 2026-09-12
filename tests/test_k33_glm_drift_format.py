@@ -310,6 +310,26 @@ _LIVE_PROMPT = (
     "你是易理明灯。需要工具时按 JSON 工单调用。\n\n[可用工具清单]\n"
 )
 _LIVE_REQ = "2026年9月15日搬家 帮我选个日子"
+# 基础设施噪音特征（全量并发跑时免费模型会被限流/网关报错）：只有**整条回复
+# 就是一句错误话术**（短文本命中特征）才算「不可用样本」，不参与判定。
+_GLM_NOISE_MARKERS = (
+    "请求过于频繁", "过于频繁", "系统繁忙", "服务繁忙", "请稍后重试", "稍后重试",
+    "rate limit", "Rate limit", "too many requests", "Too Many Requests",
+    "429", "timeout", "Timeout", "timed out", "超时", "网络异常", "服务异常",
+    "服务不可用", "上游错误",
+)
+_GLM_NOISE_MAX_LEN = 60
+
+
+def _glm_sample_is_noise(raw) -> bool:
+    """采样是否为「不可用样本」（空 / 短错误话术）→ 不参与可解析性判定。"""
+    if not isinstance(raw, str):
+        return True
+    text = raw.strip()
+    if not text:
+        return True
+    return (len(text) <= _GLM_NOISE_MAX_LEN
+            and any(m in text for m in _GLM_NOISE_MARKERS))
 
 
 @pytest.mark.skipif(not os.environ.get("ZHIPU_API_KEY"),
@@ -317,21 +337,94 @@ _LIVE_REQ = "2026年9月15日搬家 帮我选个日子"
 def test_live_glm_zeri_output_parses():
     """真实冒烟：glm-4-flash 对择日请求的原始输出必须可解析为工具调用。
 
-    探针实测（2026-09-12）4/4 采样可解析（`择日\n{…}`）；本用例最多采样 3 次，
-    全不可解析即失败（= D3 已知失败形态回归）。
+    稳健性（全量并发跑场景）：采样抛异常 / 空响应 / 短错误话术（限流特征）
+    一律视为**不可用样本**，不参与判定；只有**拿到真实模型内容却解析不了**
+    才失败；若全部样本不可用 → skip（「GLM 不可用」，不是形态回归）。
+    判别力不变：真实内容解析失败必红（形态 D 回归时无法用 skip 掩盖）。
     """
     from src.bot.capability_registry import build_tool_description
     from src.llm.client import GLM_DEFAULT_MODEL, glm_openai_completion
 
-    raws = []
-    for _ in range(3):
-        raw = glm_openai_completion(
-            os.environ["ZHIPU_API_KEY"],
-            [{"role": "system", "content": _LIVE_PROMPT + build_tool_description()},
-             {"role": "user", "content": _LIVE_REQ}],
-            model=GLM_DEFAULT_MODEL, max_tokens=200, temperature=0.7, timeout=45.0)
+    raws, usable = [], 0
+    for _ in range(4):  # 最多 4 次采样（噪音样本可被后续采样替换）
+        try:
+            raw = glm_openai_completion(
+                os.environ["ZHIPU_API_KEY"],
+                [{"role": "system",
+                  "content": _LIVE_PROMPT + build_tool_description()},
+                 {"role": "user", "content": _LIVE_REQ}],
+                model=GLM_DEFAULT_MODEL, max_tokens=200, temperature=0.7,
+                timeout=45.0)
+        except Exception as e:  # 限流 / 网络 / 上游错误 → 不可用样本
+            raws.append(f"<error: {type(e).__name__}: {str(e)[:120]}>")
+            continue
         raws.append(raw)
-        if parse_tool_calls(raw):
-            assert parse_tool_calls(raw)[0].name == "择日"
+        if _glm_sample_is_noise(raw):
+            continue
+        usable += 1
+        calls = parse_tool_calls(raw)
+        if calls:
+            assert calls[0].name == "择日", f"解析出的工具名不是择日：{raw!r}"
             return
-    pytest.fail(f"3 次采样均不可解析（D3 已知失败形态）：{raws!r}")
+    if not usable:
+        pytest.skip(f"GLM 不可用（限流/网络），{len(raws)} 次采样均无真实内容：{raws!r}")
+    pytest.fail(f"真实模型内容不可解析（D3 已知失败形态回归）：{raws!r}")
+
+
+class TestLiveSmokeRobustness:
+    """live 冒烟的稳健性契约（离线驱动，零网络）：
+
+    - 限流/超时/空响应/短错误话术 = 不可用样本 → 不判失败（全不可用则 skip）；
+    - **真实模型内容却解析不了 → 必须失败**（判别力不得退化成恒真）。
+    """
+
+    @staticmethod
+    def _fake_client(monkeypatch, samples):
+        """把 glm_openai_completion 换成按序返回/抛出的假实现（最后一项可复用）。"""
+        import src.llm.client as client
+        monkeypatch.setenv("ZHIPU_API_KEY", "test-key")  # 免 skipif/KeyError 干扰
+        seq = list(samples)
+
+        def _fake(*_a, **_k):
+            item = seq.pop(0) if len(seq) > 1 else seq[0]
+            if isinstance(item, BaseException):
+                raise item
+            return item
+
+        monkeypatch.setattr(client, "glm_openai_completion", _fake)
+
+    @pytest.mark.parametrize("noise", [
+        TimeoutError("read timed out"),
+        RuntimeError("GLM HTTP 429: 请求过于频繁"),
+        "",
+        "   请求过于频繁，请稍后重试   ",
+    ])
+    def test_all_noise_samples_skip_not_fail(self, monkeypatch, noise):
+        self._fake_client(monkeypatch, [noise])
+        with pytest.raises(pytest.skip.Exception):
+            test_live_glm_zeri_output_parses()
+
+    def test_noise_then_real_form_still_passes(self, monkeypatch):
+        self._fake_client(monkeypatch, [
+            RuntimeError("GLM HTTP 429: rate limit"),
+            "择日\n搬家,2026年9月15日",
+        ])
+        test_live_glm_zeri_output_parses()  # 不抛 → 通过
+
+    @pytest.mark.parametrize("garbage", [
+        "今天天气不错，适合出门走走。",           # 真实内容但无工具形态
+        "我可以帮你看看，你是想搬家吗？",         # 澄清话术（无工具调用）
+    ])
+    def test_real_content_unparseable_still_fails(self, monkeypatch, garbage):
+        """判别力契约：真实内容解析不了 → fail（不得被 skip 掩盖）。"""
+        self._fake_client(monkeypatch, [garbage])
+        with pytest.raises(pytest.fail.Exception):
+            test_live_glm_zeri_output_parses()
+
+    def test_noise_classifier_keeps_long_real_text(self):
+        """长真实回复里出现"超时/服务"等词不得误判为噪音。"""
+        long_reply = ("关于你的择日问题，我先说明一下：系统在高峰期可能会有超时"
+                      "或者服务繁忙的提示，但这不影响结论。下面说一下搬家吉日"
+                      "的挑选方法，2026年9月适合搬家的日子有…")
+        assert len(long_reply) > 60
+        assert not _glm_sample_is_noise(long_reply)
