@@ -233,7 +233,13 @@ def _is_allowed_url(u, host: str) -> bool:
         return False
     if "%" in host:
         return False  # 编码 host（127%2e0%2e0%2e1）一律不认
-    port = _effective_port(u, scheme)
+    try:
+        port = _effective_port(u, scheme)
+    except ValueError:
+        # k33 复审 N1：畸形端口（`:abc` / `:99999`）在 `urlparse(...).port` 上抛
+        # ValueError——不得逃出守卫（否则非流式回显「处理出错」、流式无 done），
+        # 按「畸形 URL 一律拒绝」处理
+        return False
     if is_local_or_private_host(host):
         # 本机/内网地址：仅显式名单（且端口精确）可放行；且仍限上传路径
         if not _allowed_by_explicit(host, port):
@@ -247,15 +253,20 @@ def _is_allowed_url(u, host: str) -> bool:
 
 
 def is_allowed_image_url(url: str) -> bool:
-    """白名单判定：可被服务端下载的图片 URL 才返回 True。"""
+    """白名单判定：可被服务端下载的图片 URL 才返回 True。
+
+    任何解析异常（畸形 IPv6 / 畸形端口等）一律 return False——守卫绝不抛异常
+    到调用方（k33 复审 N1：`urlparse` 对象的 `.hostname/.port` 是惰性校验，
+    畸形值在访问时才抛 ValueError）。
+    """
     if not url or not isinstance(url, str):
         return False
     try:
         u = urlparse(url.strip())
+        host = (u.hostname or "").lower()
+        return _is_allowed_url(u, host)
     except ValueError:
         return False
-    host = (u.hostname or "").lower()
-    return _is_allowed_url(u, host)
 
 
 def reject_reason(url: str) -> str:

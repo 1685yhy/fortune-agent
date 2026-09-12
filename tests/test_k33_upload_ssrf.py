@@ -141,10 +141,28 @@ class TestSsrfWhitelistReject:
         # 子域不自动放行（白名单是精确域名）
         "https://evil-yilichat.com/api/chat/uploads/x.jpg",
         "https://evil.com/api/chat/uploads/x.jpg",
+        # 畸形端口（复审 N1：`urlparse(...).port` 惰性抛 ValueError → 一律拒绝）
+        "https://yilichat.com:abc/api/chat/uploads/x.jpg",
+        "https://yilichat.com:99999/api/chat/uploads/x.jpg",
+        "http://127.0.0.1:abc/api/chat/uploads/x.jpg",
     ])
     def test_rejected(self, url, monkeypatch):
         _clear_host_env(monkeypatch)
         assert is_allowed_image_url(url) is False, url
+
+    @pytest.mark.parametrize("url", [
+        # 复审 N1：畸形 URL 必须"拒绝"而非"抛异常"（旧实现 ValueError 逃出守卫 →
+        # 非流式回显「处理出错」、流式无 done）
+        "https://yilichat.com:abc/api/chat/uploads/x.jpg",
+        "https://yilichat.com:99999/api/chat/uploads/x.jpg",
+        "http://127.0.0.1:abc/api/chat/uploads/x.jpg",
+        "http://yilichat.com:abc@evil.com/api/chat/uploads/x.jpg",
+        "http://[::1/x",
+        "http://[::1]:abc/api/chat/uploads/x.jpg",
+    ])
+    def test_malformed_url_rejects_without_raising(self, url, monkeypatch):
+        _clear_host_env(monkeypatch)
+        assert is_allowed_image_url(url) is False, url  # 不得抛 ValueError/其它异常
 
     @pytest.mark.parametrize("url", [
         # 审查 I2 主反例：路径穿越绕过前缀判定（旧 startswith 放行）
@@ -330,6 +348,20 @@ class TestHandlerImageGuard:
             "http://127.0.0.1:8768/api/chat/uploads/a.jpg", "看图") is None
         assert h._try_palm_reading(
             "http://127.0.0.1:9999/api/chat/uploads/a.jpg", "看图") is None
+
+    def test_malformed_port_url_no_exception_in_handle_image(self, monkeypatch):
+        """复审 N1：畸形端口不得抛到调用方（应走「重新上传」引导，不 500/无 done）。"""
+        _clear_host_env(monkeypatch)
+        h = self._handler()
+        for url in ("https://yilichat.com:abc/api/chat/uploads/x.jpg",
+                    "https://yilichat.com:99999/api/chat/uploads/x.jpg"):
+            out = h._handle_image(url, "看面相")   # 旧实现此处抛 ValueError
+            assert "重新上传" in out, url
+        # 下载点同样不得抛（返回 None = 落到降级分支）
+        assert h._try_face_reading(
+            "https://yilichat.com:abc/api/chat/uploads/x.jpg", "看图") is None
+        assert h._try_palm_reading(
+            "https://yilichat.com:99999/api/chat/uploads/x.jpg", "看图") is None
 
     def test_allowed_url_reaches_reading_path(self, monkeypatch):
         from src.bot import handler as handler_mod
