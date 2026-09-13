@@ -526,6 +526,10 @@ _QUERY_TERM_RE = re.compile(r"[A-Za-z0-9]{2,}")
 _CJK_RUN_RE = re.compile("[\\u4e00-\\u9fff]+")
 RELEVANCE_MIN_RATIO = 0.34      # 单条结果命中率下限
 RELEVANCE_MAX_NEED = 2          # 命中数下限（词项少时不因 ratio 放宽）
+# 命中数**上限（封顶 3）**：复审用真实抓回的行复现——`易宝支付这家公司靠不靠谱`（11 词项）
+# 原 need=4，真实权威行命中 3 → 被判不相关（且 handler 会追加「未检索到」降级提示）。
+# 封顶后：口语长问 need 恒 ≤3，真实权威行（3 命中）达标；释义卡（0 命中）仍必被拦。
+RELEVANCE_NEED_CAP = 3
 
 
 def _query_terms(query: str) -> tuple:
@@ -547,11 +551,11 @@ def _query_terms(query: str) -> tuple:
 
 
 def _min_relevance_hits(n_terms: int) -> int:
-    """判「相关」的命中数下限：≤1 个词项 → 全命中；否则 ≥2 且 ≥34%。"""
+    """判「相关」的命中数下限：≤1 个词项 → 全命中；否则 ≥2、≥34%，且**封顶 3**。"""
     if n_terms <= 1:
         return n_terms
-    return min(n_terms, max(RELEVANCE_MAX_NEED,
-                            int(n_terms * RELEVANCE_MIN_RATIO + 0.999)))
+    return min(n_terms, RELEVANCE_NEED_CAP,
+               max(RELEVANCE_MAX_NEED, int(n_terms * RELEVANCE_MIN_RATIO + 0.999)))
 
 
 def _relevance_hits(row, terms) -> int:
