@@ -44,19 +44,38 @@ E2E_RESIDUAL = [
     "房东的女儿1990年出生的女孩子，我们合不合",
     "朋友介绍的女孩子1990年出生的，我们合不合",
 ]
-# 终审 §六 登记的提取层同族（同一规则关严，非逐条词表）
+# 终审 §六 登记的提取层同族（同一规则关严，非逐条词表）。
+# k41 审查 Critical-1 的**矩阵缺口**修复：改前本表把注册的**裸形态**
+# 「女孩子1990年出生的…」换成了重复项（房东的女儿/邻居家女儿/朋友介绍各出现两次）
+# → ②f 偏移失效（词表只有「女孩」，`pos+len(word)` 落在「子」上）在自测里不可见。
+# 现在：每条唯一标识（name）+ 明确期望（一律 gender is None + 守卫判第三人），
+# 裸形态/后缀形态/插入语/逗号拆分各就各位，**无重复项占位**。
 EXTRACT_RESIDUAL = [
-    "同事介绍的女孩子1990年出生的，我们合不合",
-    "别人介绍的女孩子1990年出生的，我们合不合",
-    "家里介绍的女孩子1990年出生的，我们合不合",
-    "媒人介绍的女孩子1990年出生的，我们合不合",
-    "相亲的女孩子1990年出生的，我们合不合",
-    "双方家长介绍的女孩子1990年出生的，我们合不合",
-    "房东的女儿1990年出生的女孩子，我们合不合",
-    "邻居家女儿1990年出生的女孩子，我们合不合",
-    "朋友介绍的女孩子1990年出生的，我们合不合",
-    "对方女儿1990年出生的，我们合不合",
-    "这人1990年出生的，我们合不合",
+    # 领属/修饰名词短语族（无代词；k40 终审 §六 点名）
+    ("房东的女儿", "房东的女儿1990年出生的女孩子，我们合不合"),
+    ("邻居家女儿", "邻居家女儿1990年出生的女孩子，我们合不合"),
+    ("朋友介绍", "朋友介绍的女孩子1990年出生的，我们合不合"),
+    ("同事介绍", "同事介绍的女孩子1990年出生的，我们合不合"),
+    ("别人介绍", "别人介绍的女孩子1990年出生的，我们合不合"),
+    ("家里介绍", "家里介绍的女孩子1990年出生的，我们合不合"),
+    ("媒人介绍", "媒人介绍的女孩子1990年出生的，我们合不合"),
+    ("相亲", "相亲的女孩子1990年出生的，我们合不合"),
+    ("双方家长介绍", "双方家长介绍的女孩子1990年出生的，我们合不合"),
+    ("对方女儿", "对方女儿1990年出生的，我们合不合"),
+    ("指示代词这人", "这人1990年出生的，我们合不合"),
+    # **裸形态**（Critical-1 点名：②f 整体失效的那一类，含后缀词形）
+    ("裸女孩子-出生年", "女孩子1990年出生的，我们合不合"),
+    ("裸女孩子-年月日", "女孩子1990年5月20日出生的，我们合不合"),
+    ("裸男孩子-出生年", "男孩子1990年出生的，我们合不合"),
+    ("裸男孩子-年月日", "男孩子1990年5月20日出生的，我们合不合"),
+    ("裸女孩儿-出生年", "女孩儿1990年出生的，我们合不合"),
+    ("裸男孩儿-出生年", "男孩儿1990年出生的，我们合不合"),
+    # 词表内其它词形的裸形态（同一 ②f 规则；「小姑娘」还含子串「姑娘」的重复项问题）
+    ("裸小姑娘", "小姑娘1990年出生的，我们合不合"),
+    ("裸闺女", "闺女1990年出生的，我们合不合"),
+    # 插入语/逗号拆分（审查 Minor-1 同族）
+    ("括号插入语", "朋友（大学同学）介绍的女孩子1990年出生的，我们合不合"),
+    ("逗号拆分", "朋友介绍的，女孩子1990年出生的，我们合不合"),
 ]
 
 _TMP_DIRS = []
@@ -151,17 +170,32 @@ def _has_oral_gender_word(msg: str) -> bool:
     return any(w in msg for w in _ORAL_FEMALE_WORDS + _ORAL_MALE_WORDS)
 
 
-@pytest.mark.parametrize("msg", EXTRACT_RESIDUAL)
-def test_residual_family_takes_no_gender(msg):
-    """终审 §六 同族：提取层 `gender` 必须为 None（改前 9/11 取到 女）。
+@pytest.mark.parametrize("name,msg", EXTRACT_RESIDUAL,
+                         ids=[n for n, _ in EXTRACT_RESIDUAL])
+def test_residual_family_takes_no_gender(name, msg):
+    """终审 §六 同族 + 裸形态（Critical-1）：提取层 `gender` 必须为 None。
 
     守卫断言只对**含口语性别词**的形态适用：无性别词时消息本就没有「性别声明」
     可取（改前即 None，无 P0 面），守卫按定义不判（`_gender_ref_is_third_party`
     只在「存在性别词」时回答归属）。"""
     h = object.__new__(MessageHandler)
-    assert (h._extract_partial_birth(msg) or {}).get("gender") is None, msg
+    assert (h._extract_partial_birth(msg) or {}).get("gender") is None, name
     if _has_oral_gender_word(msg):
-        assert h._gender_ref_is_third_party(None, msg) is True, msg
+        assert h._gender_ref_is_third_party(None, msg) is True, name
+
+
+def test_residual_matrix_has_no_duplicate_placeholders():
+    """矩阵缺口锁（Critical-1）：每条唯一标识 + 无重复项占位。"""
+    names = [n for n, _ in EXTRACT_RESIDUAL]
+    msgs = [m for _, m in EXTRACT_RESIDUAL]
+    assert len(names) == len(set(names)), "重复的用例标识"
+    dupes = sorted({m for m in msgs if msgs.count(m) > 1})
+    assert not dupes, f"重复项占位（应以真实变体补齐）：{dupes}"
+    # 裸形态必须在表内（改前被重复项替换 → 缺陷不可见）
+    for bare in ("女孩子1990年出生的，我们合不合",
+                 "男孩子1990年出生的，我们合不合",
+                 "女孩儿1990年出生的，我们合不合"):
+        assert bare in msgs, f"注册裸形态缺失：{bare}"
 
 
 def test_residual_rule_is_not_a_title_wordlist():
