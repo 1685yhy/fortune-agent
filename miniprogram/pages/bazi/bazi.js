@@ -3,6 +3,7 @@
 //   - 默认命主直接进入排盘（不每次选）；无默认 → 先选命主（卡片点选 + 手动输入·帮别人排）
 //   - 手动临时命主不存档案（可勾「保存到档案」）；接口未就绪 → 本地缓存降级，不阻塞
 //   - 对话建档提示条：chat 页检测到排盘回复含建档 key → 本地标记 → 本页展示确认弹层
+const { logWarn } = require('../../utils/log');
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const persons = require('../../utils/persons');
@@ -657,7 +658,7 @@ Page({
       }
       setTimeout(() => wx.navigateBack(), 700);
     } catch (err) {
-      console.warn('[Bazi] 保存失败:', err);
+      logWarn('Bazi 保存失败', { errMsg: ((err && (err.message || err.error || err.detail)) || '') });
       const msg = (err && (err.message || err.error || err.detail)) || '';
       wx.showToast({
         title: msg && msg.length <= 24 ? msg : '保存失败，请重试',

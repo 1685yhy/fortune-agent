@@ -76,6 +76,9 @@ test('扁平：链接内嵌样式 / 多段叠加 / 三连星 ***粗斜***', () =
     ['text', '粗', 'md-strong'], ['link', '链', 'md-strong'], ['link', '斜', 'md-strong md-em'],
   ]);
   assert.deepEqual(md.parseInline('***粗斜***').map((n) => [n.s, n.cls]), [['粗斜', 'md-strong md-em']]);
+  // brief 点名用例：链接里带粗（[链**粗**](url)）——链接文字完整且带双标记
+  assert.deepEqual(md.parseInline('[链**粗**](https://u.cn)').map((n) => [n.t, n.s, n.cls]),
+    [['link', '链', ''], ['link', '粗', 'md-strong']]);
 });
 
 test('扁平：行内码/引用角标在样式内 → 仍是独立叶子且样式不丢', () => {
