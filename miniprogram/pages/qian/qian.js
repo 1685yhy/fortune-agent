@@ -75,7 +75,7 @@ Page({
 
   /* 状态栏高度适配(同 celiang): 原型画板固定状态栏 47px,--nav-off 为差值 */
   _initNavOff() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const info = (wx.getWindowInfo && wx.getWindowInfo()) || {};
     const off = (info.statusBarHeight || 47) - 47;
     if (off !== 0) this.setData({ navOff: off });
   },

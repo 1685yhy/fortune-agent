@@ -594,20 +594,17 @@
        paraKey+':'+index 拼出 data-para-id（长按记录段落，供菜单「复制本段」/甲高亮/乙预设
        选区），并在自身为被选段时挂 md-hl 高亮类。quote 递归以 paraKey='' 关闭内层捕获
        （引用整体为一段）；code/table 不参与段落（code 自带复制钮）。 -->
-  <!-- 行内节点：text / strong / em / code / link / cite（引用角标可点开抽屉） -->
+  <!-- 行内节点（k47-A 扁平协议）：text / link / code / image / cite —— 全部为叶子节点，
+       嵌套样式（strong/em）由 utils/md.js 解析侧拍平为 it.cls 类名，本模板**不再自递归**
+       （微信模板引擎不支持模板自递归：旧写法 md-inline 内再调 md-inline → 运行时
+       「Template … is being called recursively, will be stop.」→ 加粗/斜体/链接内部
+       文字不渲染；现递归只在 JS 侧发生，模板单层遍历，嵌套内容完整上屏）。
+       cls 取值：'' | md-strong | md-em | md-strong md-em（多类共存 = 样式叠加） -->
   <template name="md-inline">
     <block wx:for="{{node.children}}" wx:for-item="it" wx:key="index">
-      <text wx:if="{{it.t === 'text'}}" selectable="{{sel}}" class="md-it">{{it.s}}</text>
-      <text wx:elif="{{it.t === 'strong'}}" selectable="{{sel}}" class="md-strong">
-        <template is="md-inline" data="{{node: it, msgId: msgId, sel: sel}}" />
-      </text>
-      <text wx:elif="{{it.t === 'em'}}" selectable="{{sel}}" class="md-em">
-        <template is="md-inline" data="{{node: it, msgId: msgId, sel: sel}}" />
-      </text>
-      <text wx:elif="{{it.t === 'code'}}" selectable="{{sel}}" class="md-icode">{{it.s}}</text>
-      <text wx:elif="{{it.t === 'link'}}" selectable="{{sel}}" class="md-link" data-code="{{it.url}}" bindtap="copyCode">
-        <template is="md-inline" data="{{node: it, msgId: msgId, sel: sel}}" />
-      </text>
+      <text wx:if="{{it.t === 'link'}}" selectable="{{sel}}" class="md-link {{it.cls}}" data-code="{{it.url}}" bindtap="copyCode">{{it.s}}</text>
+      <text wx:elif="{{it.t === 'text'}}" selectable="{{sel}}" class="md-it {{it.cls}}">{{it.s}}</text>
+      <text wx:elif="{{it.t === 'code'}}" selectable="{{sel}}" class="md-icode {{it.cls}}">{{it.s}}</text>
       <!-- 图片：气泡内直接显示（圆角墨框、最大宽 100%、widthFix 高度自适应；长按出系统保存菜单） -->
       <image wx:elif="{{it.t === 'image'}}" class="md-image" src="{{it.url}}" mode="widthFix" show-menu-by-longpress="{{true}}" />
       <text wx:elif="{{it.t === 'cite'}}" class="cite-chip" data-msgid="{{msgId}}" data-idx="{{it.idx}}" bindtap="onCiteTap"><text wx:if="{{it.idx > 0}}">[{{it.idx}}]</text><image wx:else class="cite-chip-ic" src="/assets/images/ic-link.png"></image></text>
@@ -624,9 +621,14 @@
         data-msgid="{{msgId}}" data-para-id="{{paraKey ? paraKey + ':' + index : ''}}" bindlongpress="onParaLongPress">
         <template is="md-inline" data="{{node: blk, msgId: msgId, sel: sel}}" />
       </view>
+      <!-- 引用：k47-A 引用内块级内容由 utils/md.js 压成 blk.lines（行内节点数组），
+           本模板只调 md-inline 单层渲染——避免 md-block 自递归（实测同样被引擎 stop，
+           会导致引用内文字整体不渲染）。整块仍是一段（paraKey 段落定位口径不变） -->
       <view wx:elif="{{blk.t === 'quote'}}" class="md-quote {{paraSel && paraKey && paraSel === (paraKey + ':' + index) ? 'md-hl' : ''}}"
         data-msgid="{{msgId}}" data-para-id="{{paraKey ? paraKey + ':' + index : ''}}" bindlongpress="onParaLongPress">
-        <template is="md-block" data="{{nodes: blk.children, msgId: msgId, sel: sel, paraKey: '', paraSel: paraSel}}" />
+        <view wx:for="{{blk.lines}}" wx:for-item="ln" wx:key="index" class="md-quote-ln">
+          <template is="md-inline" data="{{node: ln, msgId: msgId, sel: sel}}" />
+        </view>
       </view>
       <view wx:elif="{{blk.t === 'ul' || blk.t === 'ol'}}" class="md-list md-list-{{blk.t}} {{paraSel && paraKey && paraSel === (paraKey + ':' + index) ? 'md-hl' : ''}}"
         data-msgid="{{msgId}}" data-para-id="{{paraKey ? paraKey + ':' + index : ''}}" bindlongpress="onParaLongPress">

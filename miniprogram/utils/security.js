@@ -10,6 +10,7 @@
 // 服务端全部敏感字段加密 = AES-256-GCM（src/security/encryption.py，
 // 消费点清单见 docs/superpowers/plans/2026-09-10-k20-aes-encryption.md）。
 // 认知保持：混淆≠加密；升级为真端侧加密（crypto-js/微信安全存储）待 PM 拍板。
+const { logErr } = require('./log');
 
 const STORAGE_PREFIX = 'ylm_enc_';
 
@@ -91,7 +92,7 @@ function setSecure(key, value) {
     wx.setStorageSync(STORAGE_PREFIX + key, encrypted);
     return true;
   } catch (e) {
-    console.error('[Security] setSecure error:', e);
+    logErr('Security setSecure', e);
     return false;
   }
 }
@@ -108,7 +109,7 @@ function getSecure(key) {
     const str = decode(encrypted);
     return JSON.parse(str);
   } catch (e) {
-    console.error('[Security] getSecure error:', e);
+    logErr('Security getSecure', e);
     return null;
   }
 }
@@ -121,7 +122,7 @@ function removeSecure(key) {
   try {
     wx.removeStorageSync(STORAGE_PREFIX + key);
   } catch (e) {
-    console.error('[Security] removeSecure error:', e);
+    logErr('Security removeSecure', e);
   }
 }
 
@@ -134,7 +135,7 @@ function clearSecure() {
     const keys = info.keys.filter(k => k.startsWith(STORAGE_PREFIX));
     keys.forEach(k => wx.removeStorageSync(k));
   } catch (e) {
-    console.error('[Security] clearSecure error:', e);
+    logErr('Security clearSecure', e);
   }
 }
 

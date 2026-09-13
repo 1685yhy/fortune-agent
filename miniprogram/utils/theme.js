@@ -4,11 +4,12 @@
 // 本模块负责 JS 侧：图片资源（灯笼/图标）按主题切换 src。
 
 /**
- * 当前主题：'light' | 'dark'（未开启 darkmode 时 getSystemInfoSync().theme 为 undefined）
+ * 当前主题：'light' | 'dark'（未开启 darkmode 时 theme 为 undefined）
+ * k47-B：取新 API wx.getAppBaseInfo()（getSystemInfoSync 已废弃；基础库 ≥2.20.1 提供）
  */
 function getTheme() {
   try {
-    const info = wx.getSystemInfoSync();
+    const info = (wx.getAppBaseInfo && wx.getAppBaseInfo()) || {};
     return info.theme === 'dark' ? 'dark' : 'light';
   } catch (e) {
     return 'light';

@@ -8,7 +8,7 @@ Page({
     nights: [],      // 近 7 夜网格
   },
   onLoad() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const info = (wx.getWindowInfo && wx.getWindowInfo()) || {};
     const off = (info.statusBarHeight || 47) - 47;
     if (off !== 0) this.setData({ navOff: off });
     this._load();
@@ -37,7 +37,7 @@ Page({
           return;
         }
         const canvas = info.node;
-        const dpr = wx.getWindowInfo ? wx.getWindowInfo().pixelRatio : 2;
+        const dpr = ((wx.getWindowInfo && wx.getWindowInfo()) || {}).pixelRatio || 2;
         canvas.width = 600 * dpr;
         canvas.height = 800 * dpr;
         const ctx = canvas.getContext('2d');

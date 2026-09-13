@@ -4,6 +4,7 @@
 //       Canvas 2d 绘制墨韵分享卡（宣纸/墨/朱砂/印章「明灯」+ 品牌二维码）→ 预览
 // 渠道区（元宝式）：微信好友（onShareAppMessage 卡片带分享图）/ 朋友圈（onShareTimeline）/
 //                  生成分享图（wx.shareImageMessage，失败降级保存）/ 复制链接（落地页）
+const { logErr, logWarn } = require('../../utils/log');
 const shareCard = require('../../utils/shareCard');
 const theme = require('../../utils/theme');
 
@@ -63,7 +64,7 @@ Page({
         throw new Error('响应缺少 id');
       })
       .catch((err) => {
-        console.warn('[share] POST /api/share 失败，用本地兜底 id:', err && err.message);
+        logWarn('share POST /api/share 失败，用本地兜底 id', err);
         this._shareId = this._localShareId();
         this._shareFromServer = false;
         return { id: this._shareId, fromServer: false };
@@ -77,7 +78,7 @@ Page({
     return api.downloadShareQr(landingUrl)
       .then((p) => p || '')
       .catch((err) => {
-        console.warn('[share] 二维码下载失败，跳过二维码区域:', err && err.message);
+        logWarn('share 二维码下载失败，跳过二维码区域', err);
         return '';
       });
   },
@@ -105,7 +106,7 @@ Page({
   },
 
   _initNavOff() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const info = (wx.getWindowInfo && wx.getWindowInfo()) || {};
     const off = (info.statusBarHeight || 47) - 47;
     if (off !== 0) this.setData({ navOff: off });
   },
@@ -210,7 +211,7 @@ Page({
             }
           }, qrPath);
         } catch (e) {
-          console.error('[share] _draw 异常:', e && e.message);
+          logErr('share _draw 异常', e);
           this._onDrawFail();
         }
       });

@@ -1,4 +1,5 @@
 // 易理明灯 — 奇门遁甲
+const { logWarn } = require('../../utils/log');
 const api = require('../../utils/api');
 const { MESSAGES } = require('../../utils/messages');
 
@@ -101,7 +102,7 @@ Page({
       const result = await api.qimen({ date, time, city, question });
       this._processResult(result);
     } catch (e) {
-      console.warn('[Qimen] API failed, using fallback:', e);
+      logWarn('Qimen API failed, using fallback', e);
       this.setData({
         showError: true,
         errorType: e.name === 'NetworkError' ? 'network' : 'server',

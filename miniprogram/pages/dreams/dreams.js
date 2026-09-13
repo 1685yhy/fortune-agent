@@ -69,7 +69,7 @@ Page({
   },
 
   _initNavOff() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const info = (wx.getWindowInfo && wx.getWindowInfo()) || {};
     const off = (info.statusBarHeight || 47) - 47;
     if (off !== 0) this.setData({ navOff: off });
   },

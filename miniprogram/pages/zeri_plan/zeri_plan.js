@@ -220,7 +220,7 @@ Page({
           return;
         }
         const canvas = info.node;
-        const dpr = wx.getWindowInfo ? wx.getWindowInfo().pixelRatio : 2;
+        const dpr = ((wx.getWindowInfo && wx.getWindowInfo()) || {}).pixelRatio || 2;
         canvas.width = 750 * dpr;
         canvas.height = 1200 * dpr;
         const ctx = canvas.getContext('2d');

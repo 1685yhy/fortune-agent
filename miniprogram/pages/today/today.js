@@ -1,5 +1,6 @@
 // 今日 — 笺谱封面（原型 TodayScreen：date/brand/poem/yi-chips/talk-btn/foot + TabBar；
 // v2026-08-17 随手截屏入口已移除）
+const { logWarn } = require('../../utils/log');
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 // v2026-08-17：shareCard 依赖已移除（随手截屏入口 onShot 删除，drawInkCard
@@ -159,7 +160,7 @@ Page({
      微信胶囊按钮区域；getMenuButtonBoundingClientRect 不可用时兜底
      状态栏 + 44px（≈胶囊高 32 + 边距 12） */
   _initNavOff() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const info = (wx.getWindowInfo && wx.getWindowInfo()) || {};
     const sb = info.statusBarHeight || 47;
     const off = sb - 47;
     let pad = sb + 44;
@@ -180,7 +181,7 @@ Page({
     try {
       hint = lunar.solarTermHint(now) || hint;
     } catch (e) {
-      console.warn('[Today] 节气计算失败:', e);
+      logWarn('Today 节气计算失败', e);
     }
     this.setData({ dateText: cnDate(now), solarHint: hint });
   },

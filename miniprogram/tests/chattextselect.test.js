@@ -45,7 +45,7 @@ function makePage(overrides, wxStub) {
     showToast: (o) => calls.toast.push(o),
     vibrateShort: () => calls.vibrate.push(1),
     setClipboardData: (o) => calls.clipboard.push(o.data),
-    getSystemInfoSync: () => ({ platform: 'ios' }),
+    getDeviceInfo: () => ({ platform: 'ios' }),   // k47-B：源码改用 wx.getDeviceInfo
   }, wxStub || {}));
   const page = Object.assign({}, pageCfg);
   page.data = Object.assign({
@@ -164,7 +164,7 @@ test('乙可行（android + 测量可用 + 实验开关）→ 覆盖层打开且
   const m1 = aiMsg(MD_TEXT, { mdNodes: MD_BLOCKS });
   const rect = { top: 200, left: 40, width: 300, height: 220 };
   const { page } = makePage({ messages: [m1] }, {
-    getSystemInfoSync: () => ({ platform: 'android' }),
+    getDeviceInfo: () => ({ platform: 'android' }),   // k47-B：源码改用 wx.getDeviceInfo
   });
   // 乙默认关闭（TEXT_SEL_ENGINE='a'）——本用例经实例实验开关置 'b' 验证乙路径本体
   page._textSelEngine = 'b';
@@ -194,7 +194,7 @@ test('乙可行（android + 测量可用 + 实验开关）→ 覆盖层打开且
 test('乙默认关闭（拍板）：android 全条件满足亦走甲——实例开关未置 b 时恒不可行', () => {
   const model = chatSelect.paragraphModel(aiMsg(MD_TEXT, { mdNodes: MD_BLOCKS }));
   const msg = aiMsg(MD_TEXT, { mdNodes: MD_BLOCKS });
-  const { page } = makePage({}, { getSystemInfoSync: () => ({ platform: 'android' }) });
+  const { page } = makePage({}, { getDeviceInfo: () => ({ platform: 'android' }) });
   try {
     page.createSelectorQuery = () => ({});
     // 默认引擎 'a'：即使 android + 测量可用 + 段落存在 → 乙不可行（全平台甲）
@@ -208,7 +208,7 @@ test('乙默认关闭（拍板）：android 全条件满足亦走甲——实例
 test('乙可行性各降级条件（实验开关 b 下：异常/超长/无段落 → 甲）', () => {
   const model = chatSelect.paragraphModel(aiMsg(MD_TEXT, { mdNodes: MD_BLOCKS }));
   const msg = aiMsg(MD_TEXT, { mdNodes: MD_BLOCKS });
-  const { page } = makePage({}, { getSystemInfoSync: () => ({ platform: 'android' }) });
+  const { page } = makePage({}, { getDeviceInfo: () => ({ platform: 'android' }) });
   page._textSelEngine = 'b';   // 实验开关：验证乙开启时降级链仍完整
   try {
     page.createSelectorQuery = () => ({});
@@ -222,8 +222,8 @@ test('乙可行性各降级条件（实验开关 b 下：异常/超长/无段落
     const LONG = { text: 'x'.repeat(2000), byKey: {} };
     const longPara = { key: 'md:0', text: 'x'.repeat(100), start: 1000, end: 1100 };
     assert.equal(page._textOverlayFeasible(msg, LONG, longPara), false, '超长文本 → 甲');
-    // 异常（getSystemInfoSync throw）→ 甲
-    installWx({ getSystemInfoSync: () => { throw new Error('boom'); }, showToast: () => {} });
+    // 异常（getDeviceInfo throw）→ 甲
+    installWx({ getDeviceInfo: () => { throw new Error('boom'); }, showToast: () => {} });
     assert.equal(page._textOverlayFeasible(msg, model, model.byKey['md:1']), false, '异常 → 甲');
   } finally {
     restoreGlobals();
