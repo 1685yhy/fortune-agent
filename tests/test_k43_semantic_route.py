@@ -31,7 +31,9 @@ _EXAMPLES = json.loads(
     .read_text(encoding="utf-8"))["examples"]
 
 # 示例集锁：改动示例集/阈值必须同步改这些数字（审查可追溯）
-_EXAMPLES_SHA256 = "5597dfcf1195a67e3680e772ef345f1fb7220692c72b659b1fc82dd7f5da6a3f"
+# k43-r1：仅溯源标签更正（corpus:insomnia_01→authored:example、T079→T026、
+#   T084→T084#prefix，text 未动 → 语义向量矩阵不变）
+_EXAMPLES_SHA256 = "b5a0ab73b0febf607ed1bcb1369ee9b982c2574749ca03371d53c3ce1638ed90"
 _MIN_PER_CLASS = 40
 _MAX_BYTES = 40_000
 
@@ -169,13 +171,54 @@ class TestRouterCore:
         assert done.is_set()
 
     def test_reuses_loaded_faiss_embedder(self, stub_router, monkeypatch, tmp_path):
-        """零额外内存路径：进程内已有 bge-m3（FAISS 检索器）→ 直接复用其实例。"""
+        """复用路径：**本进程已先加载 FAISS 检索器**时直接复用其实例（否则自建一份）。
+
+        k43-r1（审查 Important-4）：该路径只在「FAISS 先加载」时成立；常规时序下
+        语义路由先加载 → 复用不成立（且本机未装 faiss-cpu → `loaded_embedder`
+        恒 None）。因此不宣称「省 ~2GB」，只锁「有得复用时确实复用」的行为。
+        """
         emb = _StubEmbedder(_stub_table({"复用问句": [0.9, 0.4, 0.0, 0.0]}))
         fake_retriever = type("R", (), {"loaded_embedder": emb})()
         import src.rag.faiss_retriever as fr
         monkeypatch.setattr(fr, "get_faiss_retriever", lambda index_dir=None: fake_retriever)
         assert stub_router.warmup(blocking=True) is True
         assert stub_router.route("复用问句").label == "search"
+        assert stub_router._EMBEDDER is emb          # 复用的是同一实例（未自建）
+
+    def test_warmup_retries_after_failed_latch(self, stub_router, monkeypatch):
+        """k43-r1（审查 Minor-3）：失败闩死后，显式 warmup() 清闩重试一次。
+
+        背景：`_LOAD_FAILED=True` 后进程内不再自动重试（避免后台反复拉 40s 冷加载），
+        原先连运维显式预热也被闩死 → 只能重启进程。
+        """
+        emb = _StubEmbedder(_stub_table({"重试问句": [0.9, 0.4, 0.0, 0.0]}))
+        monkeypatch.setattr(stub_router, "_acquire_embedder", lambda: emb)
+        with stub_router._LOCK:
+            stub_router._LOAD_FAILED = True
+            stub_router._LOAD_STARTED = True
+        assert stub_router.warmup(blocking=True) is True      # 清闩 → 重试成功
+        assert stub_router._LOAD_FAILED is False
+        assert stub_router.route("重试问句").label == "search"
+
+    def test_query_cache_is_lru_and_private_dir(self, stub_router, monkeypatch, tmp_path):
+        """k43-r1（审查 Minor-6）：文本缓存满时淘汰最久未用（不再整清）；
+        （Minor-2）默认缓存目录在用户私有路径，落盘目录 0700。"""
+        monkeypatch.setattr(stub_router, "_QUERY_CACHE_MAX", 3)
+        table = {f"缓存问句{i}": [0.9, 0.4, 0.0, 0.0] for i in range(4)}
+        stub_router.install_embedder(_StubEmbedder(_stub_table(table)))
+        for i in range(3):
+            stub_router.route(f"缓存问句{i}")
+        stub_router.route("缓存问句0")                 # 触达 0（LRU 最近使用）
+        stub_router.route("缓存问句3")                 # 触发淘汰：最久未用 = 1
+        keys = list(stub_router._QUERY_CACHE)
+        assert "缓存问句1" not in keys and "缓存问句0" in keys and "缓存问句3" in keys, keys
+        # 默认目录：用户私有路径（~/.cache）；落盘目录 chmod 0700（上面的构建已建）
+        d = semantic_router._default_cache_dir()
+        assert d.startswith(str(Path.home()) + os.sep) and ".cache" in d, d
+        cache_dir = Path(os.environ["SEMANTIC_ROUTER_CACHE"])
+        assert cache_dir.is_dir(), cache_dir
+        assert (cache_dir.stat().st_mode & 0o777) == 0o700, oct(
+            cache_dir.stat().st_mode & 0o777)
 
     def test_examples_locked(self):
         """示例集锁：正负例规模/唯一性/标签 + 文件体积 + 内容 sha256。"""
@@ -282,6 +325,46 @@ class TestDecideSearchWiring:
         d = decide_search("新开的那个中医馆 靠谱吗", llm_needs_search=True)
         assert d.should_search and d.reason == "llm"
 
+    def test_external_timely_ask_not_vetoed(self, stub_signal):
+        """k43-r1（审查 Important-2）：时效性赛事/影视类**外部事实问句**——词表层
+        关键词正信号（base 判搜）不得被语义负信号压掉（漏搜比多搜更不可接受）。
+
+        这些句子是 A/B 旧用例集构造上缺失的「关键词层判对而语义误否决」样本。
+        """
+        stub_signal("local")
+        for msg, reason in (("比赛什么时候开始", "whitelist"),
+                            ("这场比赛什么时候开始", "whitelist"),
+                            ("这部电影好看吗", "whitelist"),
+                            ("这场比赛在哪踢", "whitelist"),
+                            ("世界杯什么时候开始", "whitelist")):
+            d = decide_search(msg)
+            assert d.should_search and d.reason == reason and d.query, (msg, d)
+        # 对照：个人记叙/倾诉（无外部主体词）仍被语义 VETO 正常抑制
+        for msg in ("最近工作压力好大，心里很累", "我今天看了一部电影，特别感人"):
+            d = decide_search(msg)
+            assert d.should_search is False and d.reason == "semantic", (msg, d)
+        # 对照：llm 信号仍高于一切（OR 语义不变）
+        assert decide_search("最近工作压力好大，心里很累",
+                             llm_needs_search=True).should_search is True
+
+    def test_deictic_guard_exempts_external_factual_ask(self, stub_signal):
+        """k43-r1（审查 Important-3）：指示代词+量词**不得一律当「无主体」**——
+        外部时效/事实类（美联储/诺奖/新车/新机…）放行语义 ACCEPT，produce query。
+
+        base 也不搜（非回归），但它们正是语义 ACCEPT 的目标类，不得被
+        `_has_unnamed_subject_ref` 在入口掐掉。
+        """
+        stub_signal("search")
+        for msg in ("这次美联储降息了吗", "这次诺贝尔奖颁给谁了",
+                    "这台新车值得买吗", "这款新车什么时候上市",
+                    "这台笔记本电脑值得买吗", "这部电视剧值得追吗"):
+            d = decide_search(msg)
+            assert d.should_search and d.reason == "semantic" and d.query, (msg, d)
+        # 对照：无外部主体词的指代句仍被护栏拦下（沿用层 4/5「纯指代不触发」语义）
+        for msg in ("新开的那个中医馆 靠谱吗", "某新成立的医馆口碑如何",
+                    "那家店待遇怎么样", "这家公司怎么样"):
+            assert decide_search(msg).should_search is False, msg
+
     def test_llm_signal_beats_semantic_veto_in_all_layers(self, stub_signal):
         """llm_needs_search OR 叠加：层 4/5 与实体层时效子分支的语义否决都可被推翻。"""
         stub_signal("local")
@@ -359,6 +442,23 @@ class TestRealSemanticRouting:
                             ("我在易宝支付上班，今年运势怎么样？", "local")):
             d = decide_search(msg, llm_needs_search=True)
             assert not d.should_search and d.reason == reason, (msg, d)
+
+    def test_external_timely_ask_families_searched(self):
+        """k43-r1（审查 Important-2/3）真机：赛事/影视/宏观/新品族的外部事实问句
+        判搜——含审查点名的 5 句（比赛什么时候开始/这部电影好看吗/这次美联储降息
+        了吗/这次诺贝尔奖颁给谁了/这台新车值得买吗）。"""
+        for msg in ("比赛什么时候开始", "这场比赛什么时候开始", "这场比赛在哪踢",
+                    "这部电影好看吗", "这部电影什么时候上映", "那部电影值得看吗",
+                    "这次美联储降息了吗", "这次诺贝尔奖颁给谁了",
+                    "这台新车值得买吗", "这款新车什么时候上市",
+                    "这台笔记本电脑值得买吗", "这部电视剧值得追吗"):
+            assert decide_search(msg).should_search is True, msg
+
+    def test_personal_anecdote_still_not_searched(self):
+        """k43-r1 反向锁：个人记叙/情绪倾诉（无外部主体词）仍不搜（VETO 未放宽）。"""
+        for msg in ("最近工作压力好大，心里很累", "我今天看了一部电影，特别感人",
+                    "我最近在准备考试，压力很大"):
+            assert decide_search(msg).should_search is False, msg
 
     def test_eval_positives_unchanged(self):
         """评测正例（T104/T105/T072）与 k15 断言口径不变。"""

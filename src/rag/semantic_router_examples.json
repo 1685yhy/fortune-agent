@@ -1,5 +1,5 @@
 {
- "version": 2,
+ "version": 3,
  "note": "k43 联网触发语义路由的标注示例集（bge-m3 kNN 双类）。正例=该搜（外部事实/公司/行业/时效/人物现状/价格政策），负例=不该搜（本地命理计算/个人运势/排盘择日/情绪倾诉/产品自有业务/闲聊）。来源见每条 src；label 语义与 decide_search 的 should_search 一致。",
  "examples": [
   {
@@ -280,7 +280,8 @@
   {
    "text": "我最近老失眠，凌晨两三点醒了就睡不着，是不是身体有什么毛病",
    "label": "local",
-   "src": "corpus:insomnia_01"
+   "src": "authored:example",
+   "note": "k43-r1 溯源更正：原 src=corpus:insomnia_01 在 data/eval/agent_tasks.jsonl 中不存在（失眠题只存在于 data/eval/eval_set.json 的近似改写句）→ 实为本批自造负例"
   },
   {
    "text": "最近工作压力好大，心里很累",
@@ -305,7 +306,8 @@
   {
    "text": "我的会员额度还剩多少",
    "label": "local",
-   "src": "corpus:T079"
+   "src": "corpus:T026",
+   "note": "k43-r1 溯源更正：原 src=corpus:T079 与语料台账不符（该 turn 属 T026）"
   },
   {
    "text": "你算得真准！太厉害了",
@@ -315,7 +317,8 @@
   {
    "text": "最近总觉得日子过得特别快，一转眼这一年又过了一大半",
    "label": "local",
-   "src": "corpus:T084"
+   "src": "corpus:T084#prefix",
+   "note": "k43-r1 溯源更正：原 src=corpus:T084 为真实 turn 的截断前缀（非逐字），前缀标注以示区别"
   },
   {
    "text": "我家猫叫小白，特别可爱",

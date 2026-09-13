@@ -6,7 +6,7 @@
 
 来源（每条 src 可追溯；text 逐字，未改写）：
   - `corpus:*`   `data/eval/agent_tasks.jsonl` 137 turn（2026-09-13 快照，去重
-                 去空串后 105 条唯一用户 turn）逐字；expect 依据产品语义标注
+                 去空串后 **106 条**唯一用户 turn）逐字；expect 依据产品语义标注
                  （排盘/运势/择日/合婚/起名/解梦/签卦/情绪倾诉/产品自有业务
                  = 本地，不搜；天气/外部公司事实 = 搜）。
   - `guard:*`    既有护栏样例逐字（tests/test_k11b_search_trigger.py、
@@ -15,6 +15,21 @@
   - `authored:*` 本批自造的「换说法」对照句：**no_keyword**=旧词表层漏搜的
                  外部事实问句（新层目标捕获）；**kw_fp**=旧词表层关键词误触、
                  实为本地/闲聊（新层目标抑制）。
+  - `k43r1:*`    k43-r1（审查 Important-1/2/3 修复）新增组，见文末说明。
+
+**示例集污染机制说明（k43-r1，审查 Important-1）**：本用例集与示例集
+`src/rag/semantic_router_examples.json` 共用「corpus 快照 + 既有 guard 样例」两个
+来源，逐字重叠 = 把训练样本当测试样本（实测 186 条中 52 条重叠 / 28%，正例 48%）。
+防污染机制（三层，均有测试锁）：
+  ① **重叠可度量**：`tests/test_k43_semantic_ab.py` 每次跑都用示例集做 set 差集，
+     把矩阵分「全量 / held-out（不重叠）/ overlap（重叠）」三组分别报告；
+     结论与增益锁以 **held-out** 为准（`test_ab_matrix_real_model`）；
+  ② **新增用例必须 held-out**：新用例一律用 `k43r1:*` 前缀来源标注，且
+     与示例集逐字不交（`test_r1_cases_heldout_from_examples` 锁）；
+     示例集侧新增条目时同一锁会红——提醒先查是否与既有用例撞句；
+  ③ **示例集变更须显式**：示例集内容 sha256 锁在
+     `tests/test_k43_semantic_route.py::test_examples_locked`。
+  另：`corpus:T084#prefix` 为真实 turn 的截断前缀（示例集内已标注，非逐字）。
 
 标注口径（expect，产品语义）：
   "search" = 用户问的是**外部世界的事实**（外部主体口碑/事实/近况、价格政策、
@@ -252,6 +267,40 @@ _AUTHORED = [
     ("最近生意不太好，有点焦虑", "authored:kw_fp", "none"),
 ]
 
+# ── k43-r1：审查 Important-1/2/3 修复用例（held-out 组，与示例集逐字不交）──────
+# ① veto_regression：**关键词层判对（base 判搜）而语义层误否决**的样本——
+#    旧 A/B 用例集构造上**没有**这一类（21 条 FP 全是「语义 VETO 判对」的样本，
+#    见审查 Important-1 末条），故 VETO 的漏搜代价在旧矩阵里结构性地不可能出现。
+#    期望 = 搜（沿用词表层「宁搜勿漏」；漏搜比多搜更不可接受）——k43-r1 语义
+#    VETO 对「外部时效/事实问句」免疫（src/rag/search_trigger.py::_semantic_vetoes）。
+# ② deictic_guard：**指示代词+量词护栏误拦语义 ACCEPT** 的样本（审查 Important-3）：
+#    base 不搜（非回归），但语义层判 search（外部主体可检索）→ 属 ACCEPT 目标类，
+#    不得被 `_has_unnamed_subject_ref` 当「无命名主体」掐掉。
+# 组内每条都另附「对照」句（本已正确判搜，防止修复引入反向回归）。
+_K43_R1 = [
+    # ① 时效性赛事/影视类问句（base=whitelist 判搜 → 语义 VETO 不得压掉）
+    ("比赛什么时候开始", "k43r1:veto_regression", "search"),
+    ("这场比赛什么时候开始", "k43r1:veto_regression", "search"),
+    ("这场比赛在哪踢", "k43r1:veto_regression", "search"),
+    ("这部电影好看吗", "k43r1:veto_regression", "search"),
+    ("那部电影值得看吗", "k43r1:veto_regression", "search"),
+    ("这部电影什么时候上映", "k43r1:veto_regression", "search"),
+    ("现在有什么好看的新电影", "k43r1:veto_regression", "search"),
+    ("世界杯什么时候开始", "k43r1:veto_regression", "search"),      # 对照：本已判搜
+    # ② 外部时效/事实类（美联储/诺奖/新车/新机…）→ 护栏不得拦 ACCEPT
+    ("这次美联储降息了吗", "k43r1:deictic_guard", "search"),
+    ("这次诺贝尔奖颁给谁了", "k43r1:deictic_guard", "search"),
+    ("这台新车值得买吗", "k43r1:deictic_guard", "search"),
+    ("这款新车什么时候上市", "k43r1:deictic_guard", "search"),
+    ("这台笔记本电脑值得买吗", "k43r1:deictic_guard", "search"),
+    ("这部电视剧值得追吗", "k43r1:deictic_guard", "search"),
+    ("这款手机值得买吗", "k43r1:deictic_guard", "search"),
+    ("今年奥斯卡最佳影片是哪部", "k43r1:deictic_guard", "search"),
+    ("欧冠决赛什么时候踢", "k43r1:deictic_guard", "search"),
+    ("新能源车现在值得买吗", "k43r1:deictic_guard", "search"),
+    ("这次世界杯在哪个国家办", "k43r1:deictic_guard", "search"),    # 对照：本已判搜
+]
+
 # 需要逐条控制 llm_signal / expect_llm 的用例（其余默认 llm_signal=expect 一致）
 #   cid 由 (text, src) 推导；此处按 text 覆盖。
 _LLM_OVERRIDES = {
@@ -276,15 +325,18 @@ _LLM_OVERRIDES = {
 def _build() -> list:
     out = []
     seen = set()
-    for text, src, expect in _CORPUS + _GUARD + _AUTHORED:
+    for text, src, expect in _CORPUS + _GUARD + _AUTHORED + _K43_R1:
         if not text:
             continue
         key = text
         if key in seen:
             continue
         seen.add(key)
-        llm_sig, expect_llm = _LLM_OVERRIDES.get(
-            text, (expect == "search", expect))
+        # k43r1 组默认**不打**模型信号：真实分析器在这些句上本就漏判（报告 §3.3
+        # 自述 T104/T105 全句 needs_search=False）——「模型信号不在场时语义层仍该
+        # 救回」正是本组要锁的语义；其余用例默认 llm_signal 与 expect 一致。
+        default = (expect == "search") and not src.startswith("k43r1:")
+        llm_sig, expect_llm = _LLM_OVERRIDES.get(text, (default, expect))
         out.append(AB(cid=f"A{len(out)+1:03d}", text=text, expect=expect,
                       llm_signal=llm_sig, expect_llm=expect_llm, src=src))
     return out
@@ -295,4 +347,5 @@ CASES = _build()
 CORPUS_COUNT = sum(1 for c in CASES if c.src.startswith("corpus:"))
 GUARD_COUNT = sum(1 for c in CASES if c.src.startswith("guard:"))
 AUTHORED_COUNT = sum(1 for c in CASES if c.src.startswith("authored:"))
+R1_COUNT = sum(1 for c in CASES if c.src.startswith("k43r1:"))
 POS_COUNT = sum(1 for c in CASES if c.expect == "search")

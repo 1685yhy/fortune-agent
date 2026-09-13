@@ -17,7 +17,8 @@ tool-loop，命理意图域（career/bazi 等引擎主链）无 needs_search/工
   6. LLM 语义信号 needs_search（分析器同一调用内已产出，OR 叠加；层 1/3 仍硬否决）
   7. **语义路由**（k43，本地 bge-m3，零成本）：`semantic_router.route` 的正信号兜底
      （reason=semantic）；层 4/5 的**关键词正信号**可被语义负信号否决（reason=semantic；
-     llm_needs_search=True 时不否决——模型说搜仍搜，OR 语义不变）。
+     llm_needs_search=True 时不否决——模型说搜仍搜，OR 语义不变）；
+     外部时效/事实问句不否决（k43-r1，见下 `_semantic_vetoes`）。
 
 k43（2026-09-13，用户拍板「更彻底向元宝看齐」）分层原则：
   - **硬否决不动**：① 金融排除、③ 命理本地判定仍是先手硬否决，语义层**不得越过**
@@ -31,6 +32,14 @@ k43（2026-09-13，用户拍板「更彻底向元宝看齐」）分层原则：
   - 语义 ACCEPT 加无命名主体护栏（`_has_unnamed_subject_ref`）：「这/那/该/某+量词」
     指代无命名主体的表述不产 query（沿用层 4/5 既有「纯指代不触发」语义，
     护栏用例见 tests/test_k11b_search_trigger.py::test_llm_signal_or）。
+
+k43-r1（2026-09-13，审查 Important-2/3 修复）——外部时效/事实问句「该搜必须搜」：
+  - `_is_external_timely_ask`（外部主体词 且 问句 cue：比赛什么时候开始/这部电影
+    好看吗/这次美联储降息了吗/这台新车值得买吗…）**语义 VETO 免疫**（层 4/5 与
+    实体层时效子分支）且**无命名主体护栏豁免**——该类句主体可检索，是真实用户的
+    外部事实查询，不得为压多搜而被 VETO/护栏误杀（漏搜比多搜更不可接受）。
+  - 反向不变：个人记叙/倾诉（无外部主体词，如「我今天看了一部电影，特别感人」）
+    仍由语义 VETO 正常抑制。
 
 护栏（执行侧，不拦判定）：频控 3 次/60s/用户（handler._search_rate_ok）、域名仅
 http(s)+去重（黑名单扩展占位）、结果长度钳制 2400 字符（handler 侧）——原三层关键词
@@ -222,16 +231,62 @@ _DEICTIC_NAME_RE = re.compile(
     r"工作|部门|楼盘|电影|比赛|项目|城市|地方)")
 
 
+# ============================================================
+# 外部时效/事实问句（k43-r1「该搜必须搜」保护族；审查 Important-2/3）
+# ------------------------------------------------------------
+# 赛事/影视/宏观事实/新品等**外部主体问句**：无命名实体后缀、也不在时效/白名单
+# 词表里，但主体可检索、答案是产品自身算不出的公开信息（比赛什么时候开始/
+# 这部电影好看吗/这次美联储降息了吗/这台新车值得买吗）。它们是真实用户的外部
+# 事实查询，**不得被语义层护栏与 VETO 压掉**（漏搜比多搜更不可接受；base 词表层
+# 本就按「宁搜勿漏」判搜，k43 不得回归）。
+# 判定 = 「外部主体词」**且**「问句形态 cue」——两个条件都满足才豁免，避免
+# 「我今天看了一部电影，特别感人」这类个人记叙/情绪倾诉被误放行。
+# 用途（两处，语义只加不减）：
+#   ① 语义 VETO 免疫（层 4/5 与实体层时效子分支）：关键词正信号不被负信号压掉；
+#   ② 无命名主体护栏豁免（`_has_unnamed_subject_ref`，**语义 ACCEPT 侧专用**）：
+#      这类问句主体可检索，不属「无命名主体指代」，语义 ACCEPT 可正常产 query。
+# 注：**不动** `_is_deictic_only`（词表层层 4/5 的纯指代口径）——改它会破坏
+# 红线「SEMANTIC_ROUTER_DISABLE=1 与 base 逐字一致」（见该函数注释）。
+# 【扩展点】新族在此追加；须同时补 tests/k43_ab_cases.py 的 k43r1 用例
+# （该组用例与示例集逐字不交——见 tests/test_k43_semantic_ab.py 的 held-out 锁）。
+# ============================================================
+_EXTERNAL_SUBJECT_RE = re.compile(
+    r"赛事|比赛|球赛|决赛|半决赛|世界杯|欧洲杯|欧冠|奥运|亚运|联赛|NBA|"
+    r"电影|影片|影视|影院|票房|上映|电视剧|剧集|综艺|演唱会|"
+    r"美联储|央行|降息|加息|诺贝尔|诺奖|奥斯卡|"
+    r"新车|新机|新款|上市|发售|发布会|显卡|芯片|电脑|笔记本|手机|新能源车")
+_EXTERNAL_ASK_CUE_RE = re.compile(
+    r"吗|呢|什么|啥|哪|谁|几|多少|多久|如何|怎么样|怎样|是不是|有没有|"
+    r"值不值得|值得吗|好不好|什么时候|何时|几点|几号")
+
+
+def _is_external_timely_ask(text: str) -> bool:
+    """是否外部时效/事实问句（外部主体词 + 问句形态 cue，见上）。"""
+    t = text or ""
+    return bool(_EXTERNAL_SUBJECT_RE.search(t) and _EXTERNAL_ASK_CUE_RE.search(t))
+
+
 def _is_deictic_only(text: str) -> bool:
-    """是否纯指代泛化表述（无命名主体可检索）。"""
+    """是否纯指代泛化表述（无命名主体可检索）。
+
+    k43-r1（审查 Important-3）：**本判定刻意不改**——它属词表层层 4/5 的既有
+    「纯指代不触发」口径（k11b/k17-4 语义），改它会破坏红线「SEMANTIC_ROUTER_
+    DISABLE=1 时判定与 base 逐字一致」（例如「哪个电影院的票价便宜」会被层 5
+    白名单放行）。外部时效/事实问句的护栏豁免只作用在**语义层 ACCEPT 侧**
+    （`_has_unnamed_subject_ref`，仅当语义层判 search 时才可达 → 关闭语义层后
+    行为与 base 无差异）。该残留类（`哪个电影院…`/`春节档有什么电影`）base 也不搜，
+    非 k43 回归，登记待词表批。
+    """
     return bool(_DEICTIC_NAME_RE.search(text or ""))
 
 
 # 无命名主体指代（k43 语义层 ACCEPT 侧护栏）：指示代词「这/那/该/某」+ 量词
-# （那个中医馆/那家店/这款手机…），或单独的「某」（某新成立的医馆）——无命名
+# （那个中医馆/那家店/这一批货…），或单独的「某」（某新成立的医馆）——无命名
 # 主体 → query 无检索价值，沿用层 4/5「纯指代不触发」既有语义。
 # 注：护栏只作用于语义层 ACCEPT 侧（词表层正信号不受影响——「这个时候房价怎么样」
 # 仍由时效词/白名单触发），因此不放宽也不收紧既有判定。
+# k43-r1：外部时效/事实问句（美联储/诺奖/新车…）由 `_is_external_timely_ask`
+# 豁免——「这次美联储降息了吗」的主体是可检索的外部世界事实，不是无主体指代。
 _UNNAMED_DEICTIC_REF_RE = re.compile(
     r"(?:这|那|该|某)(?:一)?(?:家|个|所|间|款|种|些|位|名|台|辆|部|条|支|只|次|场|"
     r"套|批|张|块|片|座|栋)|某")
@@ -239,7 +294,23 @@ _UNNAMED_DEICTIC_REF_RE = re.compile(
 
 def _has_unnamed_subject_ref(text: str) -> bool:
     """是否含「无命名主体」的指代表述（语义层 ACCEPT 护栏，见上）。"""
-    return bool(_UNNAMED_DEICTIC_REF_RE.search(text or ""))
+    t = text or ""
+    if not _UNNAMED_DEICTIC_REF_RE.search(t):
+        return False
+    return not _is_external_timely_ask(t)
+
+
+def _semantic_vetoes(text: str, llm_needs_search: bool) -> bool:
+    """语义负信号是否可否决本句的词表层正信号（k43；k43-r1 加豁免）。
+
+    否决条件：llm_needs_search=False（模型说搜仍搜，OR 语义不变）且语义层判
+    local 且**不是外部时效/事实问句**（该族「该搜必须搜」，见上）。
+    """
+    if llm_needs_search:
+        return False
+    if _is_external_timely_ask(text):
+        return False
+    return _semantic_label(text) == semantic_router.LABEL_LOCAL
 
 
 def _semantic_label(text: str) -> Optional[str]:
@@ -428,6 +499,8 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
     （reason=semantic；llm_needs_search=True 时否决失效——模型说搜仍搜），
     词表层零触发的问句可由语义路由补搜（reason=semantic）；未知/不可用时
     逐字回退既有词表层行为（无行为差异）。
+    k43-r1：外部时效/事实问句（赛事/影视/宏观/新品…，见 `_is_external_timely_ask`）
+    不被否决、护栏不拦——该搜必须搜。
     """
     msg = (text or "").strip()
     if not msg:
@@ -461,8 +534,7 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
         # k43：语义负信号否决（llm 信号不否决——模型说搜仍搜）
         if not calc and (_TIMELY_EXTERNAL_RE.search(msg)
                          or RESEARCH_WHITELIST_RE.search(msg)):
-            if (not llm_needs_search
-                    and _semantic_label(msg) == semantic_router.LABEL_LOCAL):
+            if _semantic_vetoes(msg, llm_needs_search):
                 return SearchDecision(False, reason="semantic")
             return SearchDecision(True, query=build_search_query(msg, entity),
                                   entity=entity, reason="entity")
@@ -483,9 +555,9 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
     if local:
         return SearchDecision(False, reason="local")
     # 层 4：时效/查证层（纯指代泛化表述——无命名主体，query 无检索价值——不触发）；
-    # k43：语义负信号否决（llm 信号不否决）
+    # k43：语义负信号否决（llm 信号不否决；外部时效/事实问句免疫，见 _semantic_vetoes）
     if _TIMELY_EXTERNAL_RE.search(msg) and not _is_deictic_only(msg):
-        if not llm_needs_search and _semantic_label(msg) == semantic_router.LABEL_LOCAL:
+        if _semantic_vetoes(msg, llm_needs_search):
             return SearchDecision(False, reason="semantic")
         return SearchDecision(True, query=build_search_query(msg),
                               reason="timely")
@@ -499,7 +571,7 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
     # 「可检索主体」启发（纯指代句 + 无时效词才考虑拦），待实体解析增强批评估。
     # k43 已由语义路由接管收紧：本层关键词正信号可被语义负信号否决（llm 不否决）。
     if RESEARCH_WHITELIST_RE.search(msg) and not _is_deictic_only(msg):
-        if not llm_needs_search and _semantic_label(msg) == semantic_router.LABEL_LOCAL:
+        if _semantic_vetoes(msg, llm_needs_search):
             return SearchDecision(False, reason="semantic")
         return SearchDecision(True, query=build_search_query(msg),
                               reason="whitelist")
