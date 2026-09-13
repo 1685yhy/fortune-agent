@@ -12,12 +12,13 @@
 8. 冒烟实跑（keys + 真实库存在时）：--tasks 轻量实跑 + 门禁红验证
    （RUN_EVAL_E6_GATE_RED=1：T017 破坏 canonical_tool_name → RED → 还原 → PASS）
 9. 校准重跑一致率：30 条样本重判（RUN_EVAL_E6_FULL_CALIBRATION=1 全量；
-   默认 3 条快速子集），±1 分内一致率如实报
+   默认 3 条快速子集 × 重复判卷 k=3 轮聚合，k45 去 flaky），±1 分内一致率如实报
 
 红线（本文件零生产写入）：data/eval/agent_tasks.jsonl 只读；--no-ledger 贯穿
 （不污染台账唯一事实源）；运行期隔离（临时库 + USER_MEMORY_DIR/CHARTS_DIR
 重定向）由 l1_eval 兜底；单测不触碰真实 ledger.json（monkeypatch 掉 append）。
 """
+import concurrent.futures
 import json
 import os
 import sqlite3
@@ -821,12 +822,192 @@ def test_gate_red_sabotage_then_restore(tmp_path, monkeypatch):
           f"还原: L1 {row2['value']} PASS exit={code2}")
 
 
+# ================================================================
+# 校准重跑一致率：k=3 聚合去 flaky（k45）
+# 实测分布/阈值依据见 test_calibration_rerun_consistency docstring
+# ================================================================
+
+_CALIBRATION_ROUNDS = 3               # 重复判卷轮数（k=3 聚合 → 45 维，人工对照 27 维）
+_CALIBRATION_JUDGE_ATTEMPTS = 2       # 单样本判卷不可用时的尝试次数（含首次）
+_CALIBRATION_MIN_DIRECT_DIMS = 18     # 可用人工对照维下限（2 轮量，低于此显式失败）
+_CALIBRATION_MIN_RATE = 0.45          # 聚合一致率阈值（实测 2024 组合 min 0.4889 向下留边距）
+_CALIBRATION_MIN_DIRECT_RATE = 0.45   # 聚合人工对照阈值（组合 min 0.5556；rubric 回退检出 80%）
+_CALIBRATION_MIN_ROUND_RATE = 0.25    # 单轮一致率硬下限（实测 24 轮 min 0.400，mean − 5.3σ）
+
+
+def _judge_usable(j):
+    """判卷结果可用性：错误/空/缺维 → 不可用（不参与统计，绝不按低分计）。"""
+    if j.get("skipped") or j.get("judge_error"):
+        return False
+    dims = j.get("dims") or {}
+    return all(d in dims and not dims[d].get("judge_error")
+               for d in judge.DIMS)
+
+
+def _judge_sample_with_retry(task, replies, api_key, attempts=None):
+    """判卷单样本；不可用（判卷错误/空）时重试，返回最后一次结果。"""
+    last = None
+    for _ in range(attempts or _CALIBRATION_JUDGE_ATTEMPTS):
+        last = judge.judge_task(task, replies, api_key)
+        if _judge_usable(last):
+            break
+    return last
+
+
+def _calibration_round(samples, tasks, api_key):
+    """单轮重判（样本并行判卷；不可用样本重试后仍不可用 → 排除出统计）。
+
+    返回 (cons, unusable)：cons = report.calibration_consistency 单轮结果
+    （样本全不可用 → None）；unusable = 本轮不可用样本 id 列表。
+    """
+    def _one(s):
+        return s, _judge_sample_with_retry(
+            tasks[s["id"]], [(r or "") for r in (s.get("replies") or [])],
+            api_key)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(samples)) as ex:
+        judged = list(ex.map(_one, samples))
+    new, e4, unusable = [], [], []
+    for s, j in judged:
+        if not _judge_usable(j):
+            unusable.append(s["id"])
+            continue
+        new.append(j)
+        e4.append({"id": s["id"], "dims": s.get("dims") or {}})
+    if not new:
+        return None, unusable
+    return report.calibration_consistency(new, e4), unusable
+
+
+def _aggregate_calibration(rounds):
+    """多轮 cons 池化聚合（等分母时等价于各轮 rate 均值；None 轮已剔除）。"""
+    rows = [c for c in rounds if c]
+
+    def _pool(key):
+        n = sum(c[key]["n"] for c in rows)
+        hit = sum(c[key]["consistent"] for c in rows)
+        return {"n": n, "consistent": hit, "rate": (hit / n) if n else 0.0}
+
+    total = sum(c["total_dims"] for c in rows)
+    hit = sum(c["consistent"] for c in rows)
+    return {"rounds": len(rows), "total_dims": total, "consistent": hit,
+            "rate": (hit / total) if total else 0.0,
+            "direct": _pool("direct"), "proxy": _pool("proxy")}
+
+
+def test_calibration_round_excludes_unusable_not_zero(monkeypatch):
+    """不可用样本（判卷错误/空）不按低分计：重试后仍不可用 → 排除出统计并如实上报。
+
+    回归项：把错误当低分会让整条样本 5 维全变「不一致」→ 假红。
+    """
+    samples = [{"id": tid, "replies": ["回复"], "dims": {}}
+               for tid in ("T005", "T067", "T058")]
+    tasks = {tid: {"id": tid} for tid in ("T005", "T067", "T058")}
+    calls = []
+
+    def fake_judge(task, replies, api_key):
+        calls.append(task["id"])
+        if task["id"] == "T058":  # 持续不可用
+            return {"id": "T058", "skipped": False, "judge_error": True,
+                    "dims": {d: {"score": 0.0, "judge_error": True}
+                             for d in judge.DIMS}}
+        return {"id": task["id"], "skipped": False, "judge_error": False,
+                "dims": {d: {"score": 5.0, "judge_error": False}
+                         for d in judge.DIMS}}
+
+    monkeypatch.setattr(judge, "judge_task", fake_judge)
+    cons, unusable = _calibration_round(samples, tasks, "k")
+    assert unusable == ["T058"]
+    assert calls.count("T058") == _CALIBRATION_JUDGE_ATTEMPTS
+    assert cons["total_dims"] == 10  # 2 样本 × 5 维（T058 整条排除，不是 0 分）
+    assert cons["direct"]["n"] == 7  # T005 3 维 + T067 4 维
+    assert all(p["id"] != "T058" for p in cons["per_dim"])
+
+
+def test_calibration_round_retries_transient_judge_error(monkeypatch):
+    """瞬时判卷错误（空/失败）→ 重试；第二次可用则正常参与统计（不制造假红）。"""
+    samples = [{"id": "T058", "replies": ["回复"], "dims": {}}]
+    calls = []
+
+    def fake_judge(task, replies, api_key):
+        calls.append(task["id"])
+        if len(calls) == 1:  # 首次判卷失败（空返回）
+            return {"id": "T058", "skipped": True, "skip_reason": "空",
+                    "judge_error": False, "dims": {}}
+        return {"id": "T058", "skipped": False, "judge_error": False,
+                "dims": {d: {"score": 4.0, "judge_error": False}
+                         for d in judge.DIMS}}
+
+    monkeypatch.setattr(judge, "judge_task", fake_judge)
+    cons, unusable = _calibration_round(samples, {"T058": {"id": "T058"}}, "k")
+    assert unusable == [] and len(calls) == 2
+    assert cons["total_dims"] == 5 and cons["direct"]["n"] == 2
+
+
+def test_calibration_aggregation_pools_rounds_and_skips_none():
+    """聚合口径：等分母时 = 各轮 rate 均值；None 轮（样本全不可用）剔除。"""
+    r1 = {"total_dims": 15, "consistent": 9,
+          "direct": {"n": 9, "consistent": 6, "rate": 6 / 9},
+          "proxy": {"n": 6, "consistent": 3, "rate": 0.5}}
+    r2 = {"total_dims": 15, "consistent": 6,
+          "direct": {"n": 9, "consistent": 4, "rate": 4 / 9},
+          "proxy": {"n": 6, "consistent": 2, "rate": 2 / 6}}
+    p = _aggregate_calibration([r1, r2, None])
+    assert p["rounds"] == 2
+    assert p["total_dims"] == 30 and p["consistent"] == 15
+    assert p["rate"] == pytest.approx(0.5)
+    assert p["direct"]["n"] == 18 and p["direct"]["consistent"] == 10
+    assert p["direct"]["rate"] == pytest.approx(10 / 18)
+    assert _aggregate_calibration([None, None])["rate"] == 0.0
+
+
 def test_calibration_rerun_consistency(tmp_path, monkeypatch):
-    """修正 rubric 后重判校准存储样本一致率（±1 分内）。
+    """修正 rubric 后重判校准存储样本一致率（±1 分内）：k=3 轮聚合口径。
 
     默认重判 3 条有记录在案人工分的任务（T005 3 维/T067 4 维/T058 2 维
-    = 9 处直接人工对照维）；RUN_EVAL_E6_FULL_CALIBRATION=1 触发全部 30 条
-    （走 cmd_calibration_rerun 完整路径）。数字如实报。"""
+    = 9 处直接人工对照维/轮；5 维/条 → 15 维/轮），**重复判卷 k=3 轮**后池化
+    统计（人工对照 27 维、总 45 维）：同一批被测/同一份人工对照不变，只把
+    「单次抽样」换成「聚合」——语义不变，消除免费判卷模型的单次抽样噪声。
+    RUN_EVAL_E6_FULL_CALIBRATION=1 触发全部 30 条（走 cmd_calibration_rerun
+    完整路径）。数字如实报。
+
+    k45 去 flaky 实测基线（2026-09-13，免费 glm-4-flash；样本 =
+    data/eval/results/l3-20260831-185821/calibration_samples.json，
+    md5 3d43f1ca7c7241ccd5af7bb358fbaeb4；24 轮 × 3 样本 = 72 次真实判卷）：
+      - 单轮 rate：mean 0.6167 / sd 0.0688 / min 0.400 / max 0.733
+        → 旧口径（单轮 rate ≥ 0.5）恰落在噪声带里（12 轮实测 1 轮翻红 = 8%，
+        24 轮同样 1 轮；改前 5 次实跑 1 红 4 绿、用户侧全量回归两次红）；
+      - k=3 聚合 rate：mean 0.6166 / sd 0.0387；bootstrap 0.5% 分位 0.4889、
+        0.1% 分位 0.4667；2024 个实测组合 min 0.4889 / median 0.6222；
+      - k=3 聚合人工对照维：mean 0.6759 / sd 0.0407；bootstrap 0.1% 分位
+        0.5185；2024 个实测组合 min 0.5556 / median 0.6667。
+
+    阈值（= 实测 k=3 组合 0.1% 分位向下取整，并对实跑最低观测留边距；
+    **不是放宽判别力，是消除抽样噪声**）：
+      - 聚合 rate ≥ 0.45（实测组合 min 0.4889 向下留 0.039 边距；bootstrap
+        假红 0.07%；旧名义线 0.5 会让实测最低组合 0.4889 直接翻红）：抓灾难性
+        退化——可用维数拦不住的全崩会由它兜住（全 0 分口径 ≈ 1/15 = 0.067，
+        9 人工维全崩 + 代理维全绿上限 = 6/15 = 0.40），判卷大面积不可用/
+        解析全挂另由「可用维数下限」拦下（见下）；
+      - 聚合人工对照 rate ≥ 0.45（实测组合 min 0.5556 向下留 0.106 边距；
+        bootstrap 假红 0.00%）：校准主张本体（9 处人工对照维）不被 6 个代理
+        维噪声稀释；也是抓「rubric 修正被回退」的主判据——剥离
+        CALIBRATION_FIX_ANCHORS 的 7 轮对照实测（rate mean 0.514 /
+        direct mean 0.397）里，聚合 0.45 只拦下 3/35 组合（8.6%），本断言
+        拦下 28/35（80%）；
+      - 单轮 rate ≥ 0.25（实测 24 轮 min 0.400，mean − 5.3σ）：抓「某轮掉到
+        0.2」级别的真退化（判卷或 rubric 坏），不作主判据。
+
+    判别力对比（实测，非估算）：旧口径假红 8%（1/12 单轮）、对 rubric 回退
+    检出 29%（2/7 对照单轮）；新口径假红 ≲0.1%（2024 个实测 k=3 组合零翻红，
+    两口径 bootstrap 假红 0.07% / 0.00%）、检出 80%（28/35 对照组合）——
+    抽样噪声降下来、对真退化更敏感。
+
+    结构断言不放宽：3 条全可用时单轮 direct n == 9、聚合 direct n == 27、
+    聚合 total_dims == 45；样本判卷不可用（错误/空，重试后仍不可用）→ 排除出
+    统计（不按低分计，避免假红）并如实打印，可用人工对照维 < 18（2 轮量）时
+    显式失败（无法判定，不静默放行）。
+    """
     if not _llm_keys_ready():
         pytest.skip("缺少 ZHIPU_API_KEY")
     samples_f = runner.DEFAULT_CALIBRATION_DIR / "calibration_samples.json"
@@ -834,20 +1015,8 @@ def test_calibration_rerun_consistency(tmp_path, monkeypatch):
         pytest.skip("校准样本不存在: %s" % samples_f)
     tasks = {t["id"]: t for t in _load_tasks()}
 
-    def _rerun(sample_ids):
-        samples = [s for s in json.loads(
-            samples_f.read_text(encoding="utf-8")) if s["id"] in sample_ids]
-        new = []
-        for s in samples:
-            j = judge.judge_task(tasks[s["id"]],
-                                 [(r or "") for r in (s.get("replies") or [])],
-                                 os.environ["ZHIPU_API_KEY"])
-            new.append(j)
-        e4 = [{"id": s["id"], "dims": s.get("dims") or {}} for s in samples]
-        return report.calibration_consistency(new, e4)
-
     if os.environ.get("RUN_EVAL_E6_FULL_CALIBRATION") == "1":
-        # 走完整路径：直接调 cmd（30 条全部重判）
+        # 走完整路径：直接调 cmd（30 条全部重判 —— 150 维，无抽样噪声问题）
         args = type("A", (), {"calibration_from": str(runner.DEFAULT_CALIBRATION_DIR),
                               "out": str(tmp_path / "full")})()
         code = runner.cmd_calibration_rerun(args)
@@ -859,13 +1028,51 @@ def test_calibration_rerun_consistency(tmp_path, monkeypatch):
               f"（人工对照 {cons['direct']['rate']:.1%}）")
         return
 
-    cons = _rerun({"T005", "T067", "T058"})
-    print(f"\n[calibration] 3 条重判一致率 {cons['rate']:.1%} "
-          f"({cons['consistent']}/{cons['total_dims']} 维，"
-          f"人工对照 {cons['direct']['rate']:.1%} "
-          f"{cons['direct']['consistent']}/{cons['direct']['n']})")
-    assert cons["direct"]["n"] == 9
-    assert cons["rate"] >= 0.5  # 兜底 sanity（真实 LLM 数字如实，不做强断言）
+    samples = [s for s in json.loads(samples_f.read_text(encoding="utf-8"))
+               if s["id"] in ("T005", "T067", "T058")]
+    assert len(samples) == 3, [s["id"] for s in samples]
+
+    rounds, unusable = [], []
+    for i in range(_CALIBRATION_ROUNDS):
+        cons, bad = _calibration_round(samples, tasks,
+                                       os.environ["ZHIPU_API_KEY"])
+        rounds.append(cons)
+        unusable += [(i + 1, sid) for sid in bad]
+        if cons is not None:
+            usable = [s for s in samples if s["id"] not in bad]
+            # 结构契约（不放宽）：5 维/样本；人工对照维 3(T005)+4(T067)+2(T058)
+            assert cons["total_dims"] == 5 * len(usable), cons["total_dims"]
+            assert cons["direct"]["n"] == sum(
+                len(report.CALIBRATION_HUMAN_REF[s["id"]]) for s in usable)
+
+    pooled = _aggregate_calibration(rounds)
+    round_rates = [c["rate"] for c in rounds if c]
+    if not unusable:  # 3 条全可用：聚合结构契约逐项精确
+        assert [c["direct"]["n"] for c in rounds] == [9] * _CALIBRATION_ROUNDS
+        assert pooled["direct"]["n"] == 27 and pooled["total_dims"] == 45
+    print(f"\n[calibration] k=3 聚合一致率 {pooled['rate']:.1%} "
+          f"({pooled['consistent']}/{pooled['total_dims']} 维；人工对照 "
+          f"{pooled['direct']['rate']:.1%} {pooled['direct']['consistent']}/"
+          f"{pooled['direct']['n']})；各轮 rate="
+          + " ".join(f"{r:.1%}" for r in round_rates)
+          + f"；不可用样本={unusable or '无'}")
+
+    # 可用样本量下限（判卷大面积不可用 → 无法判定，显式失败而非静默放行）
+    assert pooled["direct"]["n"] >= _CALIBRATION_MIN_DIRECT_DIMS, (
+        f"可用人工对照维 {pooled['direct']['n']} < "
+        f"{_CALIBRATION_MIN_DIRECT_DIMS}（判卷不可用样本 {unusable}，不按低分计）"
+        "——无法判定")
+    # 单轮极值硬下限（抓判卷/rubric 真坏；实测单轮 min 0.400）
+    assert min(round_rates) >= _CALIBRATION_MIN_ROUND_RATE, (
+        f"某轮一致率 {min(round_rates):.1%} 跌破硬下限 "
+        f"{_CALIBRATION_MIN_ROUND_RATE:.0%}（判卷或 rubric 退化）")
+    # 校准主张本体：9 处人工对照维（聚合）
+    assert pooled["direct"]["rate"] >= _CALIBRATION_MIN_DIRECT_RATE, (
+        f"聚合人工对照一致率 {pooled['direct']['rate']:.1%} < "
+        f"{_CALIBRATION_MIN_DIRECT_RATE:.0%}")
+    # 聚合总一致率（实测基线 0.6168 − 3σ；真退化上限 0.40，见 docstring）
+    assert pooled["rate"] >= _CALIBRATION_MIN_RATE, (
+        f"聚合一致率 {pooled['rate']:.1%} < {_CALIBRATION_MIN_RATE:.0%}")
 
 
 def test_cli_help_has_expected_flags(capsys):
