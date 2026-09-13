@@ -494,7 +494,8 @@ OMP_NUM_THREADS=1 /home/a/fortune-agent/.venv/bin/python -m pytest tests/test_k4
 
 1. **相关性闸门**（`_engine_rows_relevant`）：引擎结果必须与查询**实质匹配**才算「贡献」——
    相关性 = 查询词项在「标题+摘要」里的命中数（零依赖：中文 **2-gram** + 拉丁/数字词），
-   单条达标线 `≥max(2, 34%)` 个词项，引擎需 ≥ `min(2, 条数)` 条达标；
+   单条达标线 `≥max(2, 34%)` 且**封顶 3** 个词项（`RELEVANCE_NEED_CAP`，复审修复：
+   词项多不许把口语长问判死），引擎需 ≥ `min(2, 条数)` 条达标；
    **不达标 → 记 `partial_failures[].reason=irrelevant`、不算达标、继续问下一个引擎**。
 2. **相关优先排序**（`merge_engine_results(..., terms)`）：相关 → 置信度 → 命中数 → 首次出现顺序，
    而不是「谁先出结果谁说了算」；每条结果新增 `relevance_hits` / `relevant`。
@@ -502,7 +503,9 @@ OMP_NUM_THREADS=1 /home/a/fortune-agent/.venv/bin/python -m pytest tests/test_k4
    `relevance=none` 且有结果时打 WARNING 日志；**handler 工具块**在整批不相关时追加
    「不要作为事实依据引用…如实告知用户本次未能检索到相关信息」降级提示
    （`_tool_web_search`，同时覆盖 k43 自动注入路径——两者共用该 executor）。
-   `weak`（有字面沾边但未达标）**不判垃圾**，避免改写措辞被误标。
+   `weak`（有字面沾边但未达标）**不判垃圾**，避免改写措辞被误标；
+   ⚠️ 降级提示的判据是「**所有行 `relevance_hits == 0`**」（不是 `relevant=False`，
+   后者会把 `weak` 误判成「没检索到」——复审 Important，见 §9.5 更正）。
 
 ### 9.3 实跑证据
 
@@ -520,20 +523,31 @@ keys = [confidence, injection_flagged, relevance_hits, relevant, site_name,
         source_engines, text, title, url]
 source_engines = ['bing']  relevance_hits = 5  relevant = True
 
-# ③ 闸门误伤体检（真实感结果，应判相关、不多问引擎）
-易宝支付这家公司靠不靠谱 -> hits=[4,4] need=4  闸门=相关✓
+# ③ 闸门误伤体检（**本批初版用自造行**；复审用真实抓回的行否证了第一行 —— 见下方更正）
+易宝支付这家公司靠不靠谱 -> hits=[4,4] need=4  闸门=相关✓   ← 自造行，hits 恰好等于 need
 最近AI监管有什么新规定   -> hits=[5,2] need=2  闸门=相关✓
 2026年教育行业政策       -> hits=[5]   need=2  闸门=相关✓
+
+# ③-更正（复审 Important，真实行）：同一问句的真实 bing 权威行是 hits=[3,3]，而 need 原为 4
+#   → 判 relevant=False / 包级 weak → handler 追加「未检索到」降级提示 ✗（反向误伤）
+#   修复（need 封顶 3）后实跑：
+易宝支付这家公司靠不靠谱 -> 词项 11 need=3（原 4）| 真实行 hits=3 → relevant=True、闸门=相关✓、包级=ok
+                            工具块含「不要作为事实依据引用」= False（修复前 True ✗）
+新能源车销量（释义卡）    -> hits 全 0 → 包级 relevance=none → 工具块降级提示 = True ✓
+字段缺失（旧缓存/打桩行） -> 未知不判 → 不追加提示 ✓
 ```
 
-- 用例（新增 5 条 + 1 处既有 fixture 改为「与查询相关」的真实构造）：
+- 用例（新增 7 条 + 1 处既有 fixture 改为「与查询相关」的真实构造；末两条为复审反向误伤修复）：
   `test_relevance_gate_does_not_stop_on_irrelevant_engine`（A 垃圾 + B 相关 → 结果来自 B、
   带 `source_engines` 来源标注、A 记 `irrelevant`）、`test_relevance_ranking_beats_arrival_order`、
   `test_relevance_none_marked_when_all_engines_irrelevant`（如实返回 + `relevance=none` +
   逐引擎标注）、`test_relevance_gate_ignores_symbol_only_query`（纯符号 query 不判，防误伤）、
-  `test_tool_block_cautions_when_all_results_irrelevant`（工具块降级提示 + 有相关结果时不提示）。
-- 测试数字：`tests/test_k46_search_unified.py` → **106 passed**；合 `tests/test_web_search.py` →
-  **124 passed**；邻接 `tests/test_k11b_search_trigger.py tests/test_k41_search_seam.py` → **49 passed**。
+  `test_tool_block_cautions_when_all_results_irrelevant`（工具块降级提示 + 有相关结果时不提示）、
+  `test_relevance_need_capped_for_long_colloquial_query`（真实形态 11 词项/命中 3 → need=3、
+  `relevance=ok`、不追加降级提示）、`test_tool_block_no_caution_for_weak_but_touched_results`
+  （双向：真实形态不提示 / 全零仍提示 / 字段缺失不误报）。
+- 测试数字（复审修复后）：`tests/test_k46_search_unified.py` → **108 passed**；合 `tests/test_web_search.py` →
+  **126 passed**；邻接 `tests/test_k11b_search_trigger.py tests/test_k41_search_seam.py` → **49 passed**。
 
 ### 9.4 来源字段（用户验收第 2 点）核查结论
 
@@ -546,9 +560,17 @@ LLM 侧看不到「这条来自哪个引擎」——如需在 prompt 侧可见�
 
 ### 9.5 已知局限（诚实登记）
 
-- 相关性是 **2-gram 命中数**的**代理指标**，不做语义理解：改写/同义表述可能低于阈值
-  → 后果限于「多问一个引擎 + 该批被标 `weak`」，**不会丢结果**（结果仍按稳定顺序返回）。
-- 阈值（`RELEVANCE_MIN_RATIO=0.34` / `RELEVANCE_MAX_NEED=2`）是本机真实样本标定的起点，
-  如需更准，应引入评测集按 precision/recall 调（本批未做，先修「释义卡骗过达标」的真故障）。
+- 相关性是 **2-gram 命中数**的**代理指标**，不做语义理解：改写/同义表述可能低于阈值。
+  **⚠️ 更正（复审后补正）**：这里原先只写「后果限于多问一个引擎、不会丢结果」——
+  **漏了真正的用户可见判决**，且与 §9.2「`weak` 不判垃圾」自相矛盾：初版 handler 把
+  `relevant=False` 直接当成「没检索到」，对 `weak`（有沾边但未达标，如口语长问命中 3/need 4）
+  也追加「不要作为事实依据引用…如实告知用户未能检索到相关信息」→ **检索到权威结果却告诉
+  用户没检索到**（复审用真实 `_tool_web_search` 复现）。现两处已一致：
+  ① `need` **封顶 3**（`RELEVANCE_NEED_CAP`）→ 口语长问不会被判死，释义卡（0 命中）仍必被拦；
+  ② handler 判据改为「**所有行 `relevance_hits == 0`**」（字段缺失 = 未知不判）才降级提示。
+  仍存的后果：误判（含 `weak`）只会「多问一个引擎 + 标注偏保守」，**不会丢结果**。
+- 阈值（`RELEVANCE_MIN_RATIO=0.34` / `RELEVANCE_MAX_NEED=2` / `RELEVANCE_NEED_CAP=3`）
+  是本机真实样本标定的起点，如需更准，应引入评测集按 precision/recall 调
+  （本批未做，先修「释义卡骗过达标」的真故障与复审抓到的反向误伤）。
 - 闸门增加了最坏情况下的引擎调用数（不相关才继续问），单次调用仍受
   `SEARCH_TOTAL_BUDGET_S=14s` 与全局限速约束（§8.2/§8.3），不会越预算。

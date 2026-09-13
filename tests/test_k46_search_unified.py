@@ -1068,3 +1068,55 @@ def test_tool_block_cautions_when_all_results_irrelevant(monkeypatch):
     monkeypatch.setattr(handler_mod, "search_web", lambda q, limit=5: good)
     tr2 = bot._tool_web_search("新能源车销量", "u_care2")
     assert "不要作为事实依据引用" not in tr2.text
+
+
+def test_relevance_need_capped_for_long_colloquial_query(monkeypatch):
+    """复审 Important（反向误伤）：词项多不许把口语长问判死——need 封顶 3。
+
+    真实抓回的行：`易宝支付这家公司靠不靠谱`（11 词项）下权威行命中 3；
+    修复前 need=4 → `relevant=False`／包级 `weak` → handler 追加「未检索到」降级提示，
+    **明明检索到权威结果却告知用户没检索到**。
+    """
+    assert ws._min_relevance_hits(11) == 3, ws._min_relevance_hits(11)
+    assert ws._min_relevance_hits(5) == 2
+    assert ws._min_relevance_hits(1) == 1
+    real_row = _row("易宝支付官网 - 第三方支付平台", "https://www.yeepay.com/",
+                    "易宝支付是第三方支付服务商。")   # 命中 易宝/宝支/支付 = 3（真实行形态）
+    terms = ws._query_terms(ws._simplify_query("易宝支付这家公司靠不靠谱"))
+    assert len(terms) == 11
+    assert ws._relevance_hits(real_row, terms) == 3
+    assert ws._engine_rows_relevant([real_row], terms) is True
+    monkeypatch.setenv("WEB_SEARCH_ENGINES", "bing")
+    ws.reset_engine_state()
+    _patch_searchers(monkeypatch, {"bing": [real_row]})
+    pkg = ws.search_web_structured("易宝支付这家公司靠不靠谱", limit=5)
+    assert pkg["relevance"] == "ok", pkg["results"]
+    assert pkg["results"][0]["relevant"] is True
+    # 同族口语问法同样不得被判死
+    assert ws._engine_rows_relevant(
+        [real_row], ws._query_terms(ws._simplify_query("请问易宝支付这家公司值得去吗"))) is True
+
+
+def test_tool_block_no_caution_for_weak_but_touched_results(monkeypatch):
+    """双向：真实形态（11 词项 + hits=3）**不得**追加降级提示；全零仍要追加。"""
+    import src.bot.handler as handler_mod
+    from src.bot.handler import MessageHandler
+    bot = object.__new__(MessageHandler)
+    bot.__dict__.setdefault("_citations", {})
+    monkeypatch.setattr(handler_mod, "web_search_available", lambda force=False: True)
+    monkeypatch.setattr(bot, "_search_rate_ok", lambda uid: True)
+    real = [{"title": "易宝支付官网", "url": "https://www.yeepay.com/",
+             "text": "易宝支付是第三方支付公司。", "site_name": "",
+             "source_engines": ["bing"], "relevant": True, "relevance_hits": 3}]
+    zero = [{"title": "新（汉语汉字）_百度百科", "url": "https://baike.baidu.com/item/新",
+             "text": "“新”是“薪”的初文。", "site_name": "",
+             "source_engines": ["bing"], "relevant": False, "relevance_hits": 0}]
+    monkeypatch.setattr(handler_mod, "search_web", lambda q, limit=5: real)
+    assert "不要作为事实依据引用" not in bot._tool_web_search("易宝支付这家公司靠不靠谱",
+                                                             "u_r1").text
+    monkeypatch.setattr(handler_mod, "search_web", lambda q, limit=5: zero)
+    assert "不要作为事实依据引用" in bot._tool_web_search("新能源车销量", "u_r2").text
+    # 字段缺失（旧缓存/打桩行）→ 未知不判，不误报
+    stub = [{"title": "T", "url": "https://x.example.com/", "text": "y", "site_name": ""}]
+    monkeypatch.setattr(handler_mod, "search_web", lambda q, limit=5: stub)
+    assert "不要作为事实依据引用" not in bot._tool_web_search("任意查询", "u_r3").text

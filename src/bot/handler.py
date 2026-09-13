@@ -2909,9 +2909,14 @@ class MessageHandler:
                 lines.append(f"    {r['text'][:120]}")
         self._append_citations(user_id, items)
         # 真实用户路径验收修复：引擎可能整批返回「释义卡/无关页」（如搜「新能源车销量」
-        # 却给「新（汉语汉字）」百科条目）。search_web 在这些条目上标 relevant=False
-        # （relevance=none）——此时**不得把垃圾当答案**，显式降级提示模型。
-        if results and not any(r.get("relevant", True) for r in results):
+        # 却给「新（汉语汉字）」百科条目）→ **不得把垃圾当答案**，显式降级提示模型。
+        # ⚠️ 判据用「**所有行 `relevance_hits == 0`**（字面完全不沾）」，不是
+        # `relevant=False`：后者把 `weak`（有沾边但未达标，e.g. 口语长问命中 3/need 原为 4）
+        # 也算成「没检索到」——与 search_web 的「weak 不判垃圾」矛盾，会误报
+        # 「未检索到相关信息」。字段缺失（旧缓存/打桩行）视为未知、不判。
+        _hits = [r.get("relevance_hits") for r in results]
+        _known = [h for h in _hits if h is not None]
+        if _known and not any(_known):
             lines.append(
                 "（注意：以上结果与查询关键词均无实质匹配，可能是搜索引擎返回的释义卡/"
                 "无关页，**不要作为事实依据引用**；请如实告知用户本次未能检索到相关信息。）"
