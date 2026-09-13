@@ -3,6 +3,7 @@
 //         → 点卡片 → /pages/mingren_detail/mingren_detail?name=
 // 门控(服务端强制): 免费/基础会员仅前 35 例(列表底部引导卡) · 高级会员(pro/annual)全量
 // 列表接口不 403: 免费用户永远只拿到前 35 条, is_full=false 驱动引导卡展示
+const { logWarn } = require('../../utils/log');
 const api = require('../../utils/api');
 const payment = require('../../utils/payment');
 const theme = require('../../utils/theme');
@@ -58,7 +59,7 @@ Page({
 
   /* 状态栏高度适配(同 celiang): 原型固定 47px, --nav-off 为差值 */
   _initNavOff() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const info = (wx.getWindowInfo && wx.getWindowInfo()) || {};
     const off = (info.statusBarHeight || 47) - 47;
     if (off !== 0) this.setData({ navOff: off });
   },
@@ -96,7 +97,7 @@ Page({
       })
       .catch((err) => {
         if (token !== this._reqToken) return;
-        console.warn('[mingren] 列表加载失败:', err);
+        logWarn('mingren 列表加载失败', err);
         if (!append) {
           this.setData({ items: [] });
           wx.showToast({ title: '命例库加载失败，请稍后再试', icon: 'none' });

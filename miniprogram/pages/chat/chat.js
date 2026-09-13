@@ -8,6 +8,7 @@
 //       建议卡片（后端 done 事件 suggestions → 白卡朱砂描边，点击直接发送）；
 //       表情反应（气泡尾部 ＋/长按菜单 → emoji 选择，本地 storage 持久化，可追加/移除）；
 //       图片消息预留（msg.image: {url,width?,height?} → 圆角墨框渲染分支）。
+const { logErr, logWarn } = require('../../utils/log');
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const streamHost = require('../../utils/streamHost');
@@ -198,8 +199,8 @@ Page({
   onLoad(options) {
     /* ═══ Task 5 滚动不拽回·阈值按屏宽缩放：屏宽运行期不变，onLoad 算一次。
        换算 100rpx = 屏宽/750*100 px（375px 屏 = 50px 与原常量一致；414px 屏 ≈ 55px）。
-       旧基础库无 wx.getWindowInfo → getSystemInfoSync 兜底 → 仍无则 50px 常量兜底。 */
-    const win = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+       k47-B：只用新 API wx.getWindowInfo（基础库 ≥2.20.1）；异常/旧库 → 50px 常量兜底。 */
+    const win = (wx.getWindowInfo && wx.getWindowInfo()) || {};
     this._nearBottomPx = win.windowWidth ? win.windowWidth / 750 * 100 : NEAR_BOTTOM_PX;
     /* ═══ Task 8 · 深夜模式进入（夜色主题/灯笼/挽留劝睡/灯语卡/要我记得吗/12356） ═══ */
     options = options || {};
@@ -237,8 +238,8 @@ Page({
     } catch (e) { /* ignore */ }
     theme.bindTheme(this);
     // 真机保护：语音/音频初始化失败不阻塞页面（各自再兜一层 try/catch）
-    try { this._initSpeech(); } catch (e) { console.warn('[Chat] 语音初始化失败:', e); }
-    try { this._initAudio(); } catch (e) { console.warn('[Chat] 音频初始化失败:', e); }
+    try { this._initSpeech(); } catch (e) { logWarn('Chat 语音初始化失败', e); }
+    try { this._initAudio(); } catch (e) { logWarn('Chat 音频初始化失败', e); }
   },
 
   /* 阶段 5：从引用详情页返回 → 抽屉状态保留（半屏/全屏 + 打开的列表）；
@@ -283,7 +284,7 @@ Page({
   },
 
   _initNavOff() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const info = (wx.getWindowInfo && wx.getWindowInfo()) || {};
     const off = (info.statusBarHeight || 47) - 47;
     if (off !== 0) this.setData({ navOff: off });
   },
@@ -1018,7 +1019,7 @@ Page({
     try {
       wx.setStorageSync('ylm_cite_' + d.msgId + '_' + i, item);
     } catch (err) {
-      console.warn('[Chat] 引用详情存储失败:', err);
+      logWarn('Chat 引用详情存储失败', err);
     }
     // 记录抽屉状态 → onShow 恢复（半屏/全屏 + 列表）
     this._drawerRestore = { msgId: d.msgId, full: d.full };
@@ -1154,7 +1155,8 @@ Page({
       // page._textSelEngine = 'b' 实例覆盖（不改源码即可调试，见文件头 k10-C 注释）
       const engine = (typeof this._textSelEngine === 'string') ? this._textSelEngine : TEXT_SEL_ENGINE;
       if (engine === 'a') return false;
-      const sys = wx.getSystemInfoSync ? wx.getSystemInfoSync() : {};
+      // k47-B：平台判定取新 API wx.getDeviceInfo()（platform 字段；getSystemInfoSync 已废弃）
+      const sys = (wx.getDeviceInfo && wx.getDeviceInfo()) || {};
       if ((sys.platform || '') === 'ios' && !TEXT_SEL_IOS_OVERLAY) return false;
       if (!para || !model || !model.text) return false;
       if (msg.image) return false;                               // 图片+文字混合：几何不可靠
@@ -1732,12 +1734,12 @@ Page({
         try {
           this._archiveCurrent();
         } catch (e) {
-          console.warn('[Chat] 归档失败（不阻断新开）:', e);
+          logWarn('Chat 归档失败（不阻断新开）', e);
         }
         try {
           this._resetChatUi();
         } catch (e) {
-          console.error('[Chat] 新开对话失败:', e);
+          logErr('Chat 新开对话失败', e);
           wx.showToast({ title: '新开失败，请重试', icon: 'none' });
           return;
         }
@@ -1960,7 +1962,7 @@ Page({
     try {
       plugin = requirePlugin('WechatSI');
     } catch (e) {
-      console.warn('[Chat] WechatSI 插件未配置，语音输入降级为键盘:', e && e.message);
+      logWarn('Chat WechatSI 插件未配置，语音输入降级为键盘', e);
     }
     if (!plugin || !plugin.getRecordRecognitionManager) {
       this._speechPlugin = null;
@@ -1990,7 +1992,7 @@ Page({
       const cbs = this._permCbs || [];
       this._permCbs = null;
       cbs.forEach((f) => {
-        try { f(!!ok); } catch (e) { console.warn('[Chat] 权限回调异常:', e && e.message); }
+        try { f(!!ok); } catch (e) { logWarn('Chat 权限回调异常', e); }
       });
     };
     wx.getSetting({
@@ -2080,7 +2082,7 @@ Page({
     try {
       this._recMgr.start({ duration: REC_MAX_S * 1000, lang: 'zh_CN' });
     } catch (e) {
-      console.warn('[Chat] 录音启动失败:', e);
+      logWarn('Chat 录音启动失败', e);
       this._cleanupVoice();
       wx.showToast({ title: '录音启动失败，请重试', icon: 'none' });
     }
@@ -2144,7 +2146,7 @@ Page({
     try {
       this._recMgr && this._recMgr.stop(); // onStop → _handleRecognitionResult
     } catch (e) {
-      console.warn('[Chat] 录音停止失败:', e);
+      logWarn('Chat 录音停止失败', e);
       this.setData({ converting: false });
       wx.showToast({ title: '录音停止失败，请重试', icon: 'none' });
       this._clearLongPressVoice(); // k6-P2：异常路径同样收尾复位
@@ -2211,7 +2213,7 @@ Page({
     this._audioCtx.onEnded(() => this.setData({ speakingId: '' }));
     this._audioCtx.onStop(() => this.setData({ speakingId: '' }));
     this._audioCtx.onError((err) => {
-      console.warn('[Chat] 语音播放失败:', err);
+      logWarn('Chat 语音播放失败', err);
       this.setData({ speakingId: '' });
       /* 修复：新开/清空/重置流程中 _audioCtx.stop() 可能触发 onError → 报「语音播放失败」。
          清理中（_audioSilent）静默，错误 toast 仅限用户主动点播放时 */
@@ -2278,7 +2280,7 @@ Page({
       // 过期请求的失败不打扰当前播放
       if (seq !== this._speakSeq) return;
       this.setData({ speakingId: '' });
-      console.warn('[Chat] TTS 失败:', e);
+      logWarn('Chat TTS 失败', e);
       if (isManual) wx.showToast({ title: '语音合成失败', icon: 'none' });
     }
   },

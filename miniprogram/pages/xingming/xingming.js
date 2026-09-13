@@ -1,4 +1,5 @@
 // 姓名学 — 五格姓名分析
+const { logWarn } = require('../../utils/log');
 const api = require('../../utils/api');
 const { MESSAGES } = require('../../utils/messages');
 
@@ -46,7 +47,7 @@ Page({
         this.setData({ loading: false, result: res });
       })
       .catch((e) => {
-        console.warn('[xingming] 评测分析失败:', e);
+        logWarn('xingming 评测分析失败', e);
         this.setData({
           showError: true,
           errorType: e.name === 'NetworkError' ? 'network' : 'server',
@@ -110,7 +111,7 @@ Page({
         result: res,
       });
     } catch (e) {
-      console.warn('[xingming] API failed, using demo data:', e);
+      logWarn('xingming API failed, using demo data', e);
 
       this.setData({
         showError: true,

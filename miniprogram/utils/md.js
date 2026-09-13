@@ -14,19 +14,42 @@
 //   {t:'quote',children:[block]}           引用（可嵌套）
 //   {t:'code', lang, s}                    代码块（原始文本）
 //   {t:'table', headers:[{children}], rows:[[{children}]]}
-// 节点协议（inline）：
-//   {t:'text', s}   {t:'strong', children}  {t:'em', children}
-//   {t:'code', s}   {t:'link', url, children}   {t:'cite', idx}（idx=0 为 🔗）
+// 节点协议（inline）—— k47-A：**扁平叶子节点**（模板层零递归）
+//   {t:'text',  s, cls}            纯文本（cls 携带 strong/em 样式标记）
+//   {t:'link',  s, url, cls}       链接文本（点击 copyCode；样式可与 strong/em 叠加）
+//   {t:'code',  s, cls}            行内代码
+//   {t:'image', alt, url}          图片（无文字）
+//   {t:'cite',  idx}               引用角标（idx=0 为 🔗）
+//   cls ∈ '' | 'md-strong' | 'md-em' | 'md-strong md-em'
+// 设计说明：微信模板引擎不支持模板自递归（Template … is being called recursively,
+//   will be stop.），旧协议把 strong/em/link 做成「容器 + children」→ chat.wxml 的
+//   md-inline 必须自递归渲染内层，运行时被中止 → 加粗/斜体/链接内部文字不渲染。
+//   现在递归只发生在 JS 解析侧，产出**一层扁平节点**（每个节点自带样式类标记），
+//   WXML 只做单层遍历、不再有 template 自递归 → 嵌套行内样式完整上屏。
 
 const CITE_LINK = '🔗';
 
-/* ── 行内二级解析（strong/em/link 的内容）：只处理 code / [n] / 🔗 / 链接，不再嵌套加粗斜体 ── */
-function inlineL2(s) {
-  const out = [];
+/* 样式上下文 → 类名（扁平节点唯一渲染标记；样式叠加交给 CSS 多类共存） */
+function clsOf(ctx) {
+  const parts = [];
+  if (ctx.bold) parts.push('md-strong');
+  if (ctx.italic) parts.push('md-em');
+  return parts.join(' ');
+}
+
+/* 文本落节点：处于链接上下文 → link 节点（可点击复制），否则 text */
+function pushText(out, s, ctx) {
+  if (!s) return;
+  if (ctx.link) out.push({ t: 'link', s, url: ctx.link, cls: clsOf(ctx) });
+  else out.push({ t: 'text', s, cls: clsOf(ctx) });
+}
+
+/* ── 行内解析（段落/列表项/单元格/表头；递归在 JS 侧完成，产出扁平叶子） ──
+   ctx = { bold, italic, link }：嵌套样式在递归时累积到子节点，
+   任意深度（strong/em/link 互相嵌套）都在此拍平——模板层无需感知层级。 */
+function parseInlineCtx(s, ctx, out) {
   const buf = [];
-  const flush = () => {
-    if (buf.length) { out.push({ t: 'text', s: buf.join('') }); buf.length = 0; }
-  };
+  const flush = () => { if (buf.length) { pushText(out, buf.join(''), ctx); buf.length = 0; } };
   let i = 0;
   const L = s.length;
   while (i < L) {
@@ -37,7 +60,7 @@ function inlineL2(s) {
       flush();
       let code = s.slice(i + 1, j);
       if (code.length >= 2 && code[0] === ' ' && code[code.length - 1] === ' ') code = code.slice(1, -1);
-      out.push({ t: 'code', s: code });
+      out.push({ t: 'code', s: code, cls: clsOf(ctx) });
       i = j + 1;
       continue;
     }
@@ -57,72 +80,8 @@ function inlineL2(s) {
       const lm = /^\[([^\[\]]+)\]\(([^\s)]+)\)/.exec(s.slice(i));
       if (lm) {
         flush();
-        out.push({ t: 'link', children: inlineL2(lm[1]), url: lm[2] });
-        i += lm[0].length;
-        continue;
-      }
-      const cm = /^\[(\d+)\]/.exec(s.slice(i));
-      if (cm) {
-        flush();
-        out.push({ t: 'cite', idx: parseInt(cm[1], 10) });
-        i += cm[0].length;
-        continue;
-      }
-      buf.push('[');
-      i++;
-      continue;
-    }
-    if (ch === CITE_LINK) {
-      flush();
-      out.push({ t: 'cite', idx: 0 });
-      i++;
-      continue;
-    }
-    buf.push(ch);
-    i++;
-  }
-  flush();
-  return out;
-}
-
-/* ── 行内一级解析（段落/列表项/单元格）：strong / em / code / link / cite / image ── */
-function parseInline(s) {
-  const out = [];
-  const buf = [];
-  const flush = () => {
-    if (buf.length) { out.push({ t: 'text', s: buf.join('') }); buf.length = 0; }
-  };
-  let i = 0;
-  const L = s.length;
-  while (i < L) {
-    const ch = s[i];
-    if (ch === '`') {
-      const j = s.indexOf('`', i + 1);
-      if (j === -1) { buf.push(s.slice(i)); break; }
-      flush();
-      let code = s.slice(i + 1, j);
-      if (code.length >= 2 && code[0] === ' ' && code[code.length - 1] === ' ') code = code.slice(1, -1);
-      out.push({ t: 'code', s: code });
-      i = j + 1;
-      continue;
-    }
-    if (ch === '!') {
-      const im = /^!\[([^\[\]]*)\]\(([^\s)]+)\)/.exec(s.slice(i));
-      if (im) {
-        flush();
-        out.push({ t: 'image', alt: im[1] || '', url: im[2] });
-        i += im[0].length;
-        continue;
-      }
-      buf.push('!');
-      i++;
-      continue;
-    }
-    if (ch === '[') {
-      const lm = /^\[([^\[\]]+)\]\(([^\s)]+)\)/.exec(s.slice(i));
-      if (lm) {
-        flush();
-        out.push({ t: 'link', children: inlineL2(lm[1]), url: lm[2] });
+        // 链接文本同样走完整行内解析（链接内加粗/斜体/行内码照常渲染），并继承外层样式
+        parseInlineCtx(lm[1], { bold: ctx.bold, italic: ctx.italic, link: lm[2] }, out);
         i += lm[0].length;
         continue;
       }
@@ -145,17 +104,27 @@ function parseInline(s) {
     }
     if (ch === '*') {
       if (s[i + 1] === '*') {
+        // ***粗斜***（三连星，LLM 常用）：粗 + 斜同时叠加
+        if (s[i + 2] === '*') {
+          const j3 = s.indexOf('***', i + 3);
+          if (j3 !== -1) {
+            flush();
+            parseInlineCtx(s.slice(i + 3, j3), { bold: true, italic: true, link: ctx.link }, out);
+            i = j3 + 3;
+            continue;
+          }
+        }
         const j = s.indexOf('**', i + 2);
         if (j === -1) { buf.push(s.slice(i)); break; }   // 未闭合：宽容显示
         flush();
-        out.push({ t: 'strong', children: inlineL2(s.slice(i + 2, j)) });
+        parseInlineCtx(s.slice(i + 2, j), { bold: true, italic: ctx.italic, link: ctx.link }, out);
         i = j + 2;
         continue;
       }
       const j = s.indexOf('*', i + 1);
       if (j === -1) { buf.push(s.slice(i)); break; }
       flush();
-      out.push({ t: 'em', children: inlineL2(s.slice(i + 1, j)) });
+      parseInlineCtx(s.slice(i + 1, j), { bold: ctx.bold, italic: true, link: ctx.link }, out);
       i = j + 1;
       continue;
     }
@@ -163,7 +132,49 @@ function parseInline(s) {
     i++;
   }
   flush();
+}
+
+/* ── 行内解析入口（扁平叶子数组；旧调用方语义不变） ── */
+function parseInline(s) {
+  const out = [];
+  parseInlineCtx(String(s == null ? '' : s), { bold: false, italic: false, link: '' }, out);
   return out;
+}
+
+/* 表格 → 行文本（引用块内压平用；与 chatSelect 的表格文本同口径） */
+function tableLine(blk) {
+  const row = (cells) => (cells || []).map((c) => (c.children || []).map((n) => {
+    if (n.t === 'cite') return n.idx > 0 ? '[' + n.idx + ']' : CITE_LINK;
+    return n.s != null ? String(n.s) : '';
+  }).join('')).join(' | ');
+  const rows = [row(blk.headers)];
+  (blk.rows || []).forEach((r) => rows.push(row(r)));
+  return rows.join('\n');
+}
+
+/* ── 引用块「扁平行视图」（k47-A：模板层零递归的第二处） ──
+   实测：md-block 模板在 quote 分支里再调 md-block（引用内块级嵌套）同样触发微信
+   「Template … is being called recursively, will be stop.」→ 引用内文字整体不渲染。
+   这里把引用的子块压成一行行**行内节点**（每行 = {children:[扁平 inline]}），
+   WXML 端只用 md-inline 单层渲染；块级 children 结构保留（chatSelect 段落模型、
+   纯文本提取继续走 children，口径不变）。 */
+function quoteLines(blocks) {
+  const lines = [];
+  const push = (children, prefix) => {
+    const pre = prefix ? [{ t: 'text', s: prefix, cls: '' }] : [];
+    lines.push({ children: pre.concat(children || []) });
+  };
+  (Array.isArray(blocks) ? blocks : []).forEach((blk) => {
+    if (!blk) return;
+    if (blk.t === 'p' || blk.t === 'h') push(blk.children);
+    else if (blk.t === 'quote') quoteLines(blk.children).forEach((ln) => push(ln.children, '│ '));
+    else if (blk.t === 'ul' || blk.t === 'ol') {
+      (blk.items || []).forEach((li) => push(li.children, (blk.t === 'ol' && li.n) ? li.n + '. ' : '· '));
+    } else if (blk.t === 'code') push([{ t: 'code', s: String(blk.s != null ? blk.s : ''), cls: '' }]);
+    else if (blk.t === 'table') push([{ t: 'text', s: tableLine(blk), cls: '' }]);
+    else push(blk.children);
+  });
+  return lines;
 }
 
 /* 表格行 → 单元格节点数组（[{children:[inline]}]） */
@@ -262,7 +273,8 @@ function parseMd(src) {
         buf.push(lines[i].replace(/^>\s?/, ''));
         i++;
       }
-      nodes.push({ t: 'quote', children: parseMd(buf.join('\n')) });
+      const qChildren = parseMd(buf.join('\n'));
+      nodes.push({ t: 'quote', children: qChildren, lines: quoteLines(qChildren) });
       continue;
     }
 

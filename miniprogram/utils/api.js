@@ -1,5 +1,6 @@
 // 易理明灯 v5.0 — API 客户端
 // Backend: https://yilichat.com
+const { logErr, logWarn } = require('./log');
 
 // ---- 配置 ----
 const CONFIG = {
@@ -248,7 +249,7 @@ function doRequest(url, options = {}) {
           try {
             validateBizResponse(res.data, options._bizRequire);
           } catch (e) {
-            console.warn('[API] 业务校验失败:', e && e.message);
+            logWarn('API 业务校验失败', e, pathOnly(url));
             reject(e);
             return;
           }
@@ -272,7 +273,9 @@ function doRequest(url, options = {}) {
             .then(() => request(url, Object.assign({}, options, { _authRetried: true })))
             .then(resolve)
             .catch((err) => {
-              console.warn('[API] 自动重登后请求仍失败:', err && err.message);
+              // k47-D 降噪：同因只报一次（含请求路径，便于定位是哪条链路），其余计数
+              warnOnce('replay', '[API] 自动重登后请求仍失败 路径: ' + pathOnly(url)
+                + ' 原因: ' + (briefErr(err) || '未知'));
               reject(new Error('登录已过期，自动重登失败'));
             });
         } else {
@@ -281,7 +284,7 @@ function doRequest(url, options = {}) {
       },
       fail: (err) => {
         if (showLoading) wx.hideLoading();
-        console.error('[API] request error:', err);
+        logErr('API request', err, pathOnly(url));
         // 网络层失败 → 后台重探候选并刷新缓存（模拟器↔真机切换自愈），不阻塞本次失败
         scheduleReprobe();
         reject(new Error('网络连接失败，请检查网络设置'));
@@ -299,6 +302,8 @@ function doRequest(url, options = {}) {
  */
 function applyAuth(data) {
   if (!data || !data.token) return;
+  // k47-D：登录成功是唯一恢复点 —— 解除重登退避/上限（含用户主动登录）
+  clearReloginHold();
   setToken(data.token);
   try {
     wx.setStorageSync('ylm_token', data.token);
@@ -325,9 +330,111 @@ function applyAuth(data) {
 
 let reloginPromise = null;
 
+/* ═══ k47-D 重登纪律（退避 + 每会话上限 + 不可恢复短路 + 告警降噪） ═══
+   背景：401 → 静默自动重登 → 重放原请求是既有 UX 特性（保持不变）。但登录链路
+   本身故障时（实测开发环境无 appid → wx.login 41002），旧实现「每个 401 请求都
+   再重登一次」→ 34 页日志被 78 条同因告警刷屏、真实错误被淹没。加固点：
+     ① 退避：连续失败 n 次 → 退避 2^n 秒（上限 60s），退避期内不再发起 wx.login，
+        请求直接按「重登失败」返回（不再逐请求热重试）；
+     ② 上限：连续失败达 RELOGIN_MAX_ATTEMPTS 次 → 转「长冷却」（低频重试，仍可
+        自愈——不永久锁死：网络/服务端恢复后仍能静默重登，避免行为倒退）；
+        任何一次登录成功即清零恢复（「会话过期→静默重登→重放」正常链路零影响）；
+     ③ 不可恢复错误（41002 appid missing 等）→ 首次失败即停止本会话尝试
+        （重试无意义，需改配置/重装环境）；
+     ④ 降噪：同因只报一次（场景 + 错误码/摘要，不含用户隐私），其余计数汇总，
+        恢复后补偿一条汇总。
+   ══════════════════════════════════════════════════════════════ */
+const RELOGIN_MAX_ATTEMPTS = 3;          // 连续失败上限（达上限 → 长冷却；成功即清零）
+const RELOGIN_BACKOFF_BASE_MS = 2000;    // 首次失败退避 2s → 4s → 8s…
+const RELOGIN_BACKOFF_MAX_MS = 60000;    // 退避上限 60s
+const RELOGIN_COOLDOWN_LONG_MS = 10 * 60 * 1000;  // 连续失败达上限后的长冷却 10min
+
+let reloginFailStreak = 0;      // 连续失败次数（登录成功后清零）
+let reloginBlockedUntil = 0;    // 退避截止时间戳
+let reloginFatal = false;       // 不可恢复（本会话不再尝试，直到登录成功）
+let reloginLastDetail = '';     // 首次失败摘要（告警用；不含用户隐私原文）
+
+/** 告警降噪桶：同 key 只打印一次，其余计数（恢复时汇总） */
+const warnOnceMap = { seen: Object.create(null), count: Object.create(null) };
+function warnOnce(key, msg) {
+  if (warnOnceMap.seen[key]) { warnOnceMap.count[key] = (warnOnceMap.count[key] || 0) + 1; return; }
+  warnOnceMap.seen[key] = true;
+  console.warn(msg);
+}
+function warnOnceRecover(key, summary) {
+  if (!warnOnceMap.seen[key]) return;
+  const n = warnOnceMap.count[key] || 0;
+  warnOnceMap.seen[key] = false;
+  warnOnceMap.count[key] = 0;
+  if (n > 0 && summary) console.warn(summary(n));
+}
+
+/** 不可恢复的登录链路错误（无 appid / 无 code）：重试无意义，不进入退避重试 */
+function isFatalLoginError(err) {
+  if (!err) return false;
+  const code = err.errCode != null ? err.errCode : err.errno;
+  if (code === 41002) return true;
+  const msg = String(err.errMsg || err.message || '');
+  return /41002/.test(msg) || /appid\s*missing/i.test(msg);
+}
+
+/** 日志用请求路径（去掉 query —— user_id 等不进日志） */
+function pathOnly(url) {
+  const s = String(url || '');
+  const q = s.indexOf('?');
+  return q === -1 ? s : s.slice(0, q);
+}
+
+/** 错误摘要（去时间戳/去长文本；不含用户隐私字段） */
+function briefErr(err) {
+  const msg = String((err && (err.errMsg || err.message)) || err || '').replace(/\[\d{8} \d{6}\]/g, '').trim();
+  return msg.length > 120 ? msg.slice(0, 120) + '…' : msg;
+}
+
+/** 当前「暂停重登」原因（'' = 可正常重登） */
+function reloginHoldReason() {
+  if (reloginFatal) return '不可恢复错误（appid 缺失等）';
+  if (Date.now() < reloginBlockedUntil) {
+    return reloginFailStreak >= RELOGIN_MAX_ATTEMPTS
+      ? '长冷却中（连续失败 ' + reloginFailStreak + ' 次）'
+      : '退避中';
+  }
+  return '';
+}
+
+/** 记录一次重登失败：退避 + 计数 + 降噪告警 */
+function recordReloginFailure(err) {
+  const detail = briefErr(err);
+  if (detail) reloginLastDetail = detail;
+  if (isFatalLoginError(err)) reloginFatal = true;
+  reloginFailStreak += 1;
+  const backoff = reloginFailStreak >= RELOGIN_MAX_ATTEMPTS
+    ? RELOGIN_COOLDOWN_LONG_MS
+    : Math.min(RELOGIN_BACKOFF_BASE_MS * Math.pow(2, reloginFailStreak - 1), RELOGIN_BACKOFF_MAX_MS);
+  reloginBlockedUntil = Date.now() + backoff;
+  const tail = reloginFatal
+    ? '（不可恢复错误，本会话停止重登尝试）'
+    : (reloginFailStreak >= RELOGIN_MAX_ATTEMPTS
+      ? '（连续失败达上限 ' + RELOGIN_MAX_ATTEMPTS + ' 次，转 ' + Math.round(backoff / 60000) + ' 分钟长冷却）'
+      : '（' + Math.round(backoff / 1000) + 's 退避内不再重登）');
+  warnOnce('relogin', '[API] 会话过期自动重登失败' + tail + ' 原因: ' + (reloginLastDetail || '未知') + ' 场景: relogin');
+}
+
+/** 登录成功（重登或用户主动登录）→ 解除退避/上限并汇总抑制的告警 */
+function clearReloginHold() {
+  reloginFailStreak = 0;
+  reloginBlockedUntil = 0;
+  reloginFatal = false;
+  reloginLastDetail = '';
+  warnOnceRecover('relogin', (n) => '[API] 自动重登已恢复（此前抑制同因告警 ' + n + ' 条）');
+  warnOnceRecover('replay', (n) => '[API] 自动重登后重放已恢复（此前抑制同因告警 ' + n + ' 条）');
+}
+
 /**
  * 静默自动重登（仅 401 触发）：wx.login → code → /api/user/login → 更新 token/userId。
  * 并发 401 共享同一次重登；不弹任何 toast。
+ * k47-D：失败进入退避 / 连续失败上限 / 不可恢复错误短路（见文件内常量段），
+ *   正常「会话过期 → 静默重登 → 重放」链路不变（成功即清零恢复）。
  * @returns {Promise<Object>}
  */
 function relogin() {
@@ -335,12 +442,21 @@ function relogin() {
   if (isLoggedOut()) {
     return Promise.reject(new Error('已退出登录，请重新登录'));
   }
-  if (reloginPromise) return reloginPromise;
+  if (reloginPromise) return reloginPromise;   // 并发 401 共享同一次重登
+  const hold = reloginHoldReason();
+  if (hold) {
+    // 退避/上限/不可恢复：本会话不再发起 wx.login（避免逐请求热重试刷屏）
+    return Promise.reject(new Error('登录已过期，自动重登暂停（' + hold + '）'));
+  }
   reloginPromise = new Promise((resolve, reject) => {
+    const fail = (err) => {
+      recordReloginFailure(err);
+      reject(err instanceof Error ? err : new Error(briefErr(err) || '重登失败'));
+    };
     wx.login({
       success: (res) => {
         if (!res || !res.code) {
-          reject(new Error('wx.login 未返回 code'));
+          fail(new Error('wx.login 未返回 code'));
           return;
         }
         request('/api/user/login', {
@@ -350,14 +466,17 @@ function relogin() {
           _skipLoginWait: true,   // 登录请求在 loginPromise 内部：等待会自锁
         }).then((data) => {
           if (data && data.token) {
-            applyAuth(data);
+            applyAuth(data);      // 成功 → clearReloginHold（见 applyAuth）
             resolve(data);
           } else {
-            reject(new Error('登录响应缺少 token'));
+            fail(new Error('登录响应缺少 token'));
           }
-        }).catch(reject);
+        }).catch(fail);
       },
-      fail: (err) => reject(new Error('wx.login 失败: ' + ((err && err.errMsg) || ''))),
+      fail: (err) => fail(Object.assign(
+        new Error('wx.login 失败: ' + ((err && err.errMsg) || '')),
+        { errCode: err && err.errCode, errno: err && err.errno, errMsg: (err && err.errMsg) || '' },
+      )),
     });
   });
   reloginPromise.catch(() => {}).then(() => { reloginPromise = null; });
@@ -1348,7 +1467,7 @@ function uploadAvatar(filePath) {
         }
       },
       fail: (err) => {
-        console.error('[API] uploadAvatar error:', err);
+        logErr('API uploadAvatar', err);
         scheduleReprobe();
         reject(new Error('网络连接失败，请检查网络设置'));
       },
@@ -1381,7 +1500,7 @@ function uploadChatImage(filePath) {
         }
       },
       fail: (err) => {
-        console.error('[API] uploadChatImage error:', err);
+        logErr('API uploadChatImage', err);
         scheduleReprobe();
         reject(new Error('网络连接失败，请检查网络设置'));
       },
@@ -1423,7 +1542,7 @@ function downloadShareQr(landingUrl) {
         }
       },
       fail: (err) => {
-        console.error('[API] downloadShareQr error:', err);
+        logErr('API downloadShareQr', err);
         reject(new Error('二维码下载失败'));
       },
     });

@@ -2,6 +2,7 @@
 // → 深度报告(契合度矩阵/改名对比/备选15) → 墨韵名笺(收藏/分享)
 // 原型 S4/S15: ming-input → ming-result(5名卡+雷达, 第4/5名锁) → ming-report(名笺)
 // 付费边界服务端强制; 体验模式全免费; 会员深度报告免费
+const { logWarn } = require('../../utils/log');
 const api = require('../../utils/api');
 const theme = require('../../utils/theme');
 const payment = require('../../utils/payment');
@@ -76,7 +77,7 @@ Page({
 
   /* 状态栏高度适配(同 celiang/qian) */
   _initNavOff() {
-    const info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    const info = (wx.getWindowInfo && wx.getWindowInfo()) || {};
     const off = (info.statusBarHeight || 47) - 47;
     if (off !== 0) this.setData({ navOff: off });
   },
@@ -196,7 +197,7 @@ Page({
       .exec((res) => {
         if (!res || !res[0] || !res[0].node) return;
         const canvas = res[0].node;
-        const dpr = wx.getSystemInfoSync().pixelRatio || 2;
+        const dpr = ((wx.getWindowInfo && wx.getWindowInfo()) || {}).pixelRatio || 2;   // k47-B：新 API（getSystemInfoSync 已废弃）
         // UX批3：以 canvas 实际显示尺寸（CSS px）为绘制尺寸，避免 172rpx≈86px 显示下
         // 172 逻辑像素画布被 0.5× 缩放、轴标签缩小到不可读（需真机复核）
         const size = Math.round(res[0].width) || 172;
@@ -299,7 +300,7 @@ Page({
       if (!payResult || !payResult.success) return;  // 取消/失败已 toast
       await this._fetchReport();
     } catch (e) {
-      console.warn('[ming] 深度报告失败:', e);
+      logWarn('ming 深度报告失败', e);
       wx.showToast({ title: '报告生成失败，请重试', icon: 'none' });
     } finally {
       this.setData({ purchasing: false });

@@ -1,4 +1,5 @@
 // 易理明灯 v5.0 — AI 命运伴侣
+const { logErr } = require('./utils/log');
 const api = require('./utils/api');
 const security = require('./utils/security');
 
@@ -67,7 +68,7 @@ App({
       if (wx.onError) {
         wx.onError((err) => {
           const msg = (err && (err.message || err.stack || err)) || 'unknown';
-          console.error('[全局错误]', msg);
+          logErr('全局错误', err);
           this._recordError(String(msg));
         });
       }
@@ -76,7 +77,7 @@ App({
       if (wx.onUnhandledRejection) {
         wx.onUnhandledRejection((res) => {
           const reason = (res && (res.reason || res.errMsg)) || '';
-          console.error('[未处理Promise]', reason);
+          logErr('未处理Promise', res && (res.reason || res.errMsg));
           this._recordError('[UnhandledRejection] ' + String(reason));
         });
       }
@@ -243,9 +244,11 @@ App({
   },
 
   // ---- 系统主题检测 ----
+  // k47-B：theme 字段取新 API wx.getAppBaseInfo()（getSystemInfoSync 已废弃；
+  // 基础库 ≥2.20.1 提供；异常/旧库 → 走 catch 回退 'light'，语义不变）
   detectTheme() {
     try {
-      const sysInfo = wx.getSystemInfoSync();
+      const sysInfo = (wx.getAppBaseInfo && wx.getAppBaseInfo()) || {};
       const theme = sysInfo.theme || 'light';
       this.globalData.theme = theme;
 

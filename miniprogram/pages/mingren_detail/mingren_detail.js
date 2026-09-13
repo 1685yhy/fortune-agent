@@ -2,6 +2,7 @@
 // 数据流: GET /api/mingren/{name} → 简介 + 命理评注(穷通宝鉴) + 生平大事时间线
 //         + 命盘卡(chart: 四柱/十神/藏干/纳音/meta) + 大运×大事对照(timeline)（B5-3）
 // 未解锁(免费/基础访问前 35 之外) → 后端 403 {code: VIP_REQUIRED} → 锁定视图 + 开通引导
+const { logWarn } = require('../../utils/log');
 const api = require('../../utils/api');
 const payment = require('../../utils/payment');
 const theme = require('../../utils/theme');
@@ -203,7 +204,7 @@ Page({
         });
       })
       .catch((err) => {
-        console.warn('[mingren] 详情失败:', err);
+        logWarn('mingren 详情失败', err);
         // 未解锁 → 锁定视图 + 开通引导（服务端 403 VIP_REQUIRED 语义）
         if (err && err.detail && err.detail.code === 'VIP_REQUIRED') {
           this.setData({ locked: true, lockMessage: err.detail.message || '' });

@@ -18,6 +18,7 @@
 // 使用方式：
 //   1. 在 wxml 中添加 <canvas type="2d" id="shareCanvas" style="width:750px;height:1200px;position:fixed;left:-9999px;"></canvas>
 //   2. 调用 drawLoveCard / drawInkCard / drawYuanCard / drawChatCard
+const { logErr, logWarn } = require('./log');
 
 // ---- 墨韵设计常量 ----
 const COLORS = {
@@ -380,7 +381,7 @@ function drawLoveCard(data, canvas, qrCodePath, callback) {
       if (callback) callback(res.tempFilePath);
     },
     fail: (err) => {
-      console.error('[ShareCard] love card error:', err);
+      logErr('ShareCard love card', err);
       if (callback) callback(null);
     },
   });
@@ -483,7 +484,7 @@ function drawInkCard(data, canvas, callback) {
         if (callback) callback(res.tempFilePath);
       },
       fail: (err) => {
-        console.error('[ShareCard] ink card error:', err);
+        logErr('ShareCard ink card', err);
         if (callback) callback(null);
       },
     });
@@ -560,7 +561,7 @@ function drawYuanCard(data, canvas, callback) {
     canvas, width: W, height: H, destWidth: W * 2, destHeight: H * 2,
     fileType: 'png', quality: 1,
     success: (res) => { if (callback) callback(res.tempFilePath); },
-    fail: (err) => { console.error('[ShareCard] yuan card error:', err); if (callback) callback(null); },
+    fail: (err) => { logErr('ShareCard yuan card', err); if (callback) callback(null); },
   });
 }
 
@@ -742,7 +743,7 @@ function drawChatCard(data, canvas, callback, qrPath) {
       destWidth: Math.round(W * scale), destHeight: Math.round(H * scale),
       fileType: 'png', quality: 1,
       success: (res) => { if (callback) callback(res.tempFilePath); },
-      fail: (err) => { console.error('[ShareCard] chat card error:', err); if (callback) callback(null); },
+      fail: (err) => { logErr('ShareCard chat card', err); if (callback) callback(null); },
     });
   };
 
@@ -753,7 +754,7 @@ function drawChatCard(data, canvas, callback, qrPath) {
         drawQrBlock();
         ctx.drawImage(qrImg, W / 2 - 85, qrY + 20, 170, 170);
       } catch (e) {
-        console.error('[ShareCard] chat card qr draw error:', e);
+        logErr('ShareCard chat card qr draw', e);
       }
       exportCard();
     };
@@ -882,7 +883,7 @@ function shareCard(tempFilePath, title) {
       console.log('[ShareCard] shared successfully');
     },
     fail: (err) => {
-      console.warn('[ShareCard] share failed:', err);
+      logWarn('ShareCard share failed', err);
       // 降级处理：保存到相册
       saveCardToAlbum(tempFilePath);
     },

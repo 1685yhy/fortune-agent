@@ -1382,6 +1382,8 @@
   color: var(--ink-soft);
 }
 .md-quote .md-p { margin-bottom: 6rpx; }
+.md-quote-ln { margin-bottom: 6rpx; }   /* k47-A：引用内扁平行（替代递归 md-block） */
+.md-quote-ln:last-child { margin-bottom: 0; }
 
 /* 列表 */
 .md-list { margin: 8rpx 0; }

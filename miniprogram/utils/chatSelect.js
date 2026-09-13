@@ -25,12 +25,13 @@
 // 「复制本段」多数诉求。
 const cardUtil = require('./card');
 
-/* 行内节点 → 纯文本（strong/em/link 递归；cite 还原 [n]/🔗；image 不产生文字） */
+/* 行内节点 → 纯文本（k47-A 扁平协议：text/link/code 均自带 s；cite 还原 [n]/🔗；
+   image 不产生文字。末尾 children 分支仅兼容历史容器型节点 strong/em/link） */
 function inlineText(nodes) {
   const out = [];
   (Array.isArray(nodes) ? nodes : []).forEach((n) => {
     if (!n) return;
-    if (n.t === 'text' || n.t === 'code') { out.push(String(n.s != null ? n.s : '')); }
+    if (n.t === 'text' || n.t === 'code' || n.t === 'link') { out.push(String(n.s != null ? n.s : '')); }
     else if (n.t === 'cite') { out.push(n.idx > 0 ? '[' + n.idx + ']' : '🔗'); }
     else if (n.t === 'image') { /* 图片无文字 */ }
     else if (n.children) { out.push(inlineText(n.children)); }

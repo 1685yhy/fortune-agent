@@ -1,6 +1,7 @@
 // 双人合盘 · 缘分契合 — 免费钩子（契合分/等级/三维得分条/缘语+悬念半句/墨韵缘笺）+ ¥19.9 深度报告（四章）
 // 流程：输入双人生辰（可档案直选）→ 免费结果 → [生成墨韵缘笺] → [解锁深度报告]
 // 隐私红线：TA 生辰只存本机 localStorage('yuan_ta_birth')，绝不进 persons 云端接口；缘笺图片数据全为服务端脱敏。
+const { logWarn } = require('../../utils/log');
 const api = require('../../utils/api');
 const payment = require('../../utils/payment');
 const shareCard = require('../../utils/shareCard');
@@ -167,7 +168,7 @@ Page({
       if (def) this._fillFromPerson('p1', def);
       this.setData({ persons: list, personsLoaded: true });
     }).catch((err) => {
-      console.warn('[hehun] getPersons 失败（跳过档案直选）:', err && err.message);
+      logWarn('hehun getPersons 失败（跳过档案直选）', err);
       this.setData({ personsLoaded: true });
     });
   },
@@ -337,7 +338,7 @@ Page({
       this._saveTaCache();
       this.setData({ submitted: true, loading: false });
     } catch (err) {
-      console.warn('[hehun] union 免费档失败:', err);
+      logWarn('hehun union 免费档失败', err);
       this.setData({
         loading: false,
         submitted: false,
@@ -530,7 +531,7 @@ Page({
       }
       this._setPaidResult(paidRes);
     } catch (e) {
-      console.warn('[hehun] 深度报告失败:', e);
+      logWarn('hehun 深度报告失败', e);
       const detail = (e && e.detail) || '';
       // request() 对非 2xx 的 reject 是 {detail}（无 statusCode），403 分支为死代码
       if (typeof detail === 'string' && detail.indexOf('解锁') !== -1) {

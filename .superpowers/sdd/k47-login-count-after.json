@@ -1,0 +1,10 @@
+{
+ "loginCalls": 0,
+ "msgs": [
+  "warn|[\"[Today] API 不可用，保持原型文案\"]",
+  "warn|[\"[WARN] mingren 列表加载失败 — 登录已过期，自动重登失败\"]",
+  "warn|[\"[WARN] hehun getPersons 失败（跳过档案直选） — 登录已过期，自动重登失败\"]",
+  "warn|[\"[Reports] API 不可用，保持原型四卷\"]",
+  "warn|[\"[TodayDetail] API 不可用，保持空态\"]"
+ ]
+}

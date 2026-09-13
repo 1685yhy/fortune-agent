@@ -1,5 +1,6 @@
 // 感情合盘 — Love Compatibility Page
 // Flow: Input (两人生日) -> Payment (¥9.9) -> Result (匹配分析 + 分享)
+const { logErr, logWarn } = require('../../utils/log');
 const api = require('../../utils/api');
 const payment = require('../../utils/payment');
 const shareCard = require('../../utils/shareCard');
@@ -168,7 +169,7 @@ Page({
         wx.showToast({ title: '支付已取消', icon: 'none' });
       }
     } catch (e) {
-      console.error('[Love] payment error:', e);
+      logErr('Love payment', e);
       wx.showToast({ title: '支付异常，请重试', icon: 'none' });
     } finally {
       this.setData({ loading: false });
@@ -203,7 +204,7 @@ Page({
         this._showError('接口返回数据异常，请稍后重试');
       }
     } catch (e) {
-      console.warn('[Love] 合盘接口失败:', e && e.message);
+      logWarn('Love 合盘接口失败', e);
       this._showError('合盘服务暂时不可用，请检查网络后重试');
     } finally {
       this.setData({ loading: false });
@@ -344,7 +345,7 @@ Page({
         }
       });
     } catch (e) {
-      console.warn('[Love] 合盘接口失败:', e && e.message);
+      logWarn('Love 合盘接口失败', e);
       this._showError('合盘服务暂时不可用，请检查网络后重试');
     } finally {
       this.setData({ loading: false });
