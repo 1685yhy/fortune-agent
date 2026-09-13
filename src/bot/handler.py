@@ -225,12 +225,18 @@ _GENDER_SELF_HEAD_RE = re.compile(
     r'^\s*' + _GENDER_CLAUSE_LEAD + r'?\s*' + _GENDER_SELF_PRON + r'\s*'
     + _GENDER_ADVERB + r'?\s*(?:是|就是|系|为)')
 # ②a 第三人主语：他/她/对方 + 系动词（「她是个女孩子」）
+# k41：补**指示代词族**（这人/这个人/那人/那个人/此人/该人）——与 他/她/对方
+# 同属封闭类代词，不是称谓词表（终审 §六 提取层同族「这人1990年出生的…」）。
+_GENDER_THIRD_PRON = r'(?:他|她|它|对方|这人|这个人|那人|那个人|此人|该人|TA|ta)'
 _GENDER_THIRD_PERSON_RE = re.compile(
-    r'(?<!其)(?:他|她|它|对方|TA|ta)\s*' + _GENDER_ADVERB + r'?\s*'
+    r'(?<!其)' + _GENDER_THIRD_PRON + r'\s*' + _GENDER_ADVERB + r'?\s*'
     r'(?:是|就是|系|为)')
-# ②b 第三人主语 + 出生年（「他1990年…」「对方是1992年…」）
+# ②b 第三人主语 + 出生年（「他1990年…」「对方是1992年…」「对方女儿1990年…」
+#    「他的女儿1990年5月20日出生」）——k41：代词与年份之间允许一个短名词跑
+#    （称谓/亲属名词：女儿/老婆/对象…开放类，不枚举），仍限**同一子句内**。
 _GENDER_THIRD_PERSON_BIRTH_RE = re.compile(
-    r'(?<!其)(?:他|她|对方)(?:的|是)?\s*\d{4}\s*年')
+    r'(?<!其)' + _GENDER_THIRD_PRON + r'(?:的|是)?'
+    r'[^，,。.！!？?；;、\n]{0,6}?\d{4}\s*年')
 # 领属语（我/你/咱/俺/您）后不得紧跟这些（那些是自述/非名词中心语）：
 #   「我(的)性别是…」「我本人是…」「我是…」「我其实…」「我1990年…」
 _GENDER_LEAD_GUARD = (
@@ -293,13 +299,40 @@ _GENDER_SELF_COPULA_TAIL_RE = re.compile(
     r'(?:' + _GENDER_SELF_PRON + r')(?:\s*' + _GENDER_ADVERB + r')?\s*'
     r'(?:是|就是|系|为)\s*$')
 
+# ②e 非自述的**名词性修饰/领属短语**（k41 末族，k40 终审 §六 建议的规则级修法）：
+#    子句句首是「X的N / X家N / X介绍(的)N」（X 不是自述代词，中心语 N 不是
+#    自述数据名词）→ 主语是这个名词短语（第三人）。
+#    改前（e45226b 起既有、三版一致）：「房东的女儿」「邻居家女儿」「朋友介绍的
+#    女孩子」这类**无代词**的领属/修饰短语全漏（旧领属语规则以代词为前提）→
+#    消息里的「1990年出生的女孩子」被取作本人性别 → G1 覆盖本人档案（P0 污染，
+#    k40 终审 §六 e2e 实证 3 条）。
+#    判据是**句法主语归属**（名词性修饰结构），不是称谓词表——房东/邻居/同事/
+#    媒人/家里…是开放类，永不枚举。
+#    X 的约束（防误伤本人请求，见 tests/test_k41_gender_residual.py 邻接锁）：
+#      不含数字/空白/标点（「帮我排个盘：1990年…」「排个盘 1990年…」不得被当
+#      名词短语）、不含自述代词（「帮我排的盘1990年…」是本人生辰串）。
+_GENDER_NP_RUN = ("[^，,。.！!？?；;、\n了过吧呢啊嘛不\\d\\s：:（）()「」『』\"']"
+                  "{1,10}?")
+_GENDER_MODIFIER_MARK = r'(?:的|家|介绍(?:的|来的)?|牵线(?:的)?)'
+_GENDER_FOREIGN_NP_RE = re.compile(_GENDER_NP_RUN + _GENDER_MODIFIER_MARK)
+# 名词短语里的自述代词（命中即不是「第三人领属语」，交回既有规则判）
+_GENDER_NP_SELF_RE = re.compile(r'我|你|咱|俺|您|本人|自己|人家|大家')
+# ②f 子句句首的口语性别词 + 紧跟其后的出生信息（无自述代词）→ 第三人。
+#    「女孩子1990年出生的，我们合不合」（终审 §六 提取层同族）——性别词就是
+#    出生信息的主语，整句无本人自述 → 不得当本人性别。
+_GENDER_BIRTH_TAIL_RE = re.compile(
+    r'\s*(?:出生|\d{4}\s*年|\d{1,2}\s*月|\d{1,2}\s*日)')
 
-def _gender_word_subject(msg: str, pos: int) -> str:
-    """性别词出现在 `pos` 处时，它的**主语**是本人还是第三人（k40 返工）。
+
+def _gender_word_subject(msg: str, pos: int, word: str = "") -> str:
+    """性别词出现在 `pos` 处时，它的**主语**是本人还是第三人（k40 返工 + k41）。
 
     返回 "self"（本人自述）/ "third"（指代第三人）。判据见模块级注释
-    （①②③三组规则，句法主语而非称谓词表）。异常一律回落 "self"（保持
-    改前口径，不因判据异常改变用户可见行为）。
+    （①②③组规则 + k41 的 ②e/②f，句法主语而非称谓词表）。异常一律回落
+    "self"（保持改前口径，不因判据异常改变用户可见行为）。
+
+    `word`（可选）= 该位置上的口语性别词（k41 ②e 需要判「性别词中心语」形态：
+    「朋友介绍的女孩子」的名词短语中心语就是性别词本身）。
     """
     try:
         start = 0
@@ -318,6 +351,14 @@ def _gender_word_subject(msg: str, pos: int) -> str:
             return "third"
         if _GENDER_CLAUSE_NOUN_COPULA_RE.match(head):
             return "third"
+        # ②e 非自述名词性修饰/领属短语（k41 末族：「房东的女儿」「邻居家女儿」
+        # 「朋友介绍的女孩子」——无代词，旧领属语规则以代词为前提 → 全漏）。
+        # 中心语可以是短语自带的名词（「房东的女儿1990年…女孩子」）或**性别词
+        # 本身**（「朋友介绍的女孩子」）——故把 word 拼进判定串再匹配。
+        if head or word:
+            _m = _GENDER_FOREIGN_NP_RE.match(head + word)
+            if _m and not _GENDER_NP_SELF_RE.search(_m.group(0)):
+                return "third"
         # ②d 量词/指示词短语的主语归属（取**最靠近性别词**的一个）：其前是
         # 自述代词+系动词（我(是)一个…）→ 自述（「我是一个女孩」）；否则
         # 主语是这个量词短语 → 第三人（「这个1990年出生的女孩子」「我和一个
@@ -328,16 +369,22 @@ def _gender_word_subject(msg: str, pos: int) -> str:
             _qt = _m
         if _qt and not _GENDER_SELF_COPULA_TAIL_RE.search(head[:_qt.start()]):
             return "third"
+        # ②f 子句句首的口语性别词 + 紧跟其后的出生信息（k41：终审 §六 提取层
+        # 同族「女孩子1990年出生的」）——性别词就是出生信息的主语，整句无本人
+        # 自述（前面的 head 里连一个字都没有）→ 第三人。
+        if not head.strip() and word and _GENDER_BIRTH_TAIL_RE.match(
+                msg[pos + len(word):]):
+            return "third"
         return "self"
     except Exception:
         return "self"
 
 
 def _gender_oral_words_in(msg: str):
-    """消息里所有口语性别词的出现（位置）——供主语判定与守卫共用。"""
+    """消息里所有口语性别词的出现（位置，词）——供主语判定与守卫共用。"""
     for w in _ORAL_FEMALE_WORDS + _ORAL_MALE_WORDS:
         for m in re.finditer(re.escape(w), msg):
-            yield m.start()
+            yield m.start(), w
 
 
 # ============================================================
@@ -2784,6 +2831,76 @@ class MessageHandler:
                 break
         return out
 
+    def _ground_search_for_turn(self, msg: str, user_id: str,
+                                analysis: Optional[MessageAnalysis]) -> Optional[dict]:
+        """k41（T104 收尾）：本轮「先检索」接缝——**唯一调用点**，各回复路径共用。
+
+        检索判定与「走哪条回复路径」解耦：`decide_search` 判该搜（尤其
+        `reason=entity`）时，在**路由之前**检索一次，结果由 advisor/bazi/
+        free_chat/… 各路径共用（`_ground_hint_parts` 注入上下文，
+        `_apply_ground_source_trace` 出口补来源）。
+
+        改前实锤（E6 二轮 T104）：调用只挂在 `_will_polish` 块内（条件含
+        `intent not in ("xuetang","advisor")`）→ LLM 判 advisor 时整块跳过，
+        检索根本没发生、回复无实体名无来源。
+
+        判定语义**零放宽**（红线）：触发仍由 `_engine_domain_ground_search` →
+        `decide_search` 单点判定（层 1-4 + 硬锚否决逐字未变）；降级链路
+        （免费额度耗尽）维持既有成本门不检索。
+        返回 None = 不触发/异常 → 调用方按「无检索」处理。
+        """
+        if self._downgraded.get(user_id, False):
+            return None
+        try:
+            g = self._engine_domain_ground_search(msg, user_id, analysis)
+        except Exception as e:
+            logger.warning("k11b 引擎域自动检索异常 user=%s err=%s",
+                           user_id, str(e)[:120])
+            return None
+        return None if (not g or g.get("skip")) else g
+
+    @staticmethod
+    def _ground_hint_parts(ground: Optional[dict]) -> list:
+        """k41：检索结果的上下文注入段（单一实现，各回复路径共用）。
+
+        有结果块 → 块本身 + （检索成功时）使用要求段；无检索/无块 → 空。
+        """
+        block = (ground or {}).get("block") or ""
+        if not block:
+            return []
+        parts = [block]
+        if ground.get("ok"):
+            parts.append(_GROUND_USE_REQUIREMENT)
+        return parts
+
+    def _has_engine_citations(self, user_id: str) -> bool:
+        """k5 润色门判据（k41）：本轮是否已有**引擎/古籍**引用（非 web）。
+
+        自动联网检索注册的 web 引用**不算**——k5 门的语义是「handler 产出了
+        可润色的引擎内容」（原注释：信息收集/错误回复不注册引用 → 不润色，
+        保持原样）。改前该门在自动检索**之前**求值（检索调用挂在门内），故这里
+        排除 web 引用后语义与改前逐字等价；不排除则「只有检索结果」的信息收集
+        轮会被润色（F2 渐进建档文案被 LLM 重写 = 行为漂移）。
+        """
+        return any((c or {}).get("type") != "web"
+                   for c in (self._citations.get(user_id) or []))
+
+    @staticmethod
+    def _apply_ground_source_trace(reply: str, ground: Optional[dict]) -> str:
+        """k41：自动检索的来源尾注（单一实现，所有回复路径出口共用）。
+
+        与 k11b `_will_polish` 分支同款口径：只在「检索成功 + 回复已含实体名」
+        时补确定性尾注（`append_source_trace`，纯文本、禁裸 JSON/泄漏）。
+        """
+        if not reply or not ground or not ground.get("ok") or not ground.get("entity"):
+            return reply
+        try:
+            return append_source_trace(
+                reply, entity=ground.get("entity", ""),
+                domains=ground.get("domains") or [])
+        except Exception:
+            return reply
+
     def _engine_domain_ground_search(self, msg: str, user_id: str,
                                      analysis: Optional[MessageAnalysis]) -> dict:
         """k11b：引擎意图域·外部实体/时效触发 → 执行一次联网检索并准备注入块。
@@ -3558,9 +3675,9 @@ class MessageHandler:
             if _GENDER_THIRD_BIRTH_MSG_RE.search(msg):
                 return True
             _seen_oral = False
-            for _pos in _gender_oral_words_in(msg):
+            for _pos, _w in _gender_oral_words_in(msg):
                 _seen_oral = True
-                if _gender_word_subject(msg, _pos) == "self":
+                if _gender_word_subject(msg, _pos, _w) == "self":
                     return False  # 有本人自述 → 不是「全指第三人」
             return _seen_oral
         except Exception:
@@ -4807,6 +4924,16 @@ class MessageHandler:
                         user_id, getattr(analysis, "needs_search", False),
                         analysis_hint[:60].replace("\n", " "))
 
+        # k41（T104 收尾）：**先检索**——检索判定与回复路径解耦（单一接缝）。
+        # `decide_search` 判该搜时，无论下面走 xuetang/advisor 关键词分支、
+        # confidant、free_chat 还是 handler_map（bazi/hehun/…）哪条路径，都在
+        # 路由前检索一次；结果块注入该路径上下文（advisor 见 `_handle_advisor`
+        # 的 ground_hint；free_chat/润色见 extra_hint），出口统一补来源尾注。
+        # 改前该调用只在 `_will_polish` 块内 → advisor 路径整块跳过（T104 实证：
+        # 检索不发生、回复无实体无来源）。判定语义零放宽（见接缝方法注释）。
+        _k11b_ground = self._ground_search_for_turn(msg, user_id, analysis)
+        _ground_hint = "\n".join(self._ground_hint_parts(_k11b_ground))
+
         # Task 3（思考步骤渐进展示）：不再在此集中预发全部思考步骤——
         # 各 _do_*/_handle_* 在真实工作里程碑处按进度发出（首条开工即发、
         # 每完成一步真实工作推进一步）；简单聊天无意图不发（保持不变）。
@@ -4879,6 +5006,8 @@ class MessageHandler:
                 reply = self._free_chat(msg, user_id, downgraded=True)
             else:
                 reply = self._handle_xuetang(msg, user_id)
+            # k41：早退分支同样过检索来源尾注（该搜的已搜到 → 回复体现来源）
+            reply = self._apply_ground_source_trace(reply, _k11b_ground)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply, intent="xuetang",
                                              temp=deep, session_id=session_id)
@@ -4890,7 +5019,10 @@ class MessageHandler:
             if downgraded:
                 reply = self._free_chat(msg, user_id, downgraded=True)
             else:
-                reply = self._handle_advisor(msg, user_id)
+                # k41：advisor 路径注入检索块（与 handler_map 入口同一实现）
+                reply = self._handle_advisor(msg, user_id,
+                                             ground_hint=_ground_hint)
+            reply = self._apply_ground_source_trace(reply, _k11b_ground)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply, intent="advisor",
                                              temp=deep, session_id=session_id)
@@ -4909,6 +5041,8 @@ class MessageHandler:
                 # B2 reviewer Important：confidant 早退不经 _run_tool_loop——
                 # 兜底剥离工单残留（_handle_confidant 内部已剥，双剥幂等）
                 reply = strip_tool_calls(reply) or reply
+                # k41：早退分支同样过检索来源尾注（该搜的已搜到 → 回复体现来源）
+                reply = self._apply_ground_source_trace(reply, _k11b_ground)
                 if self.session_dao:
                     self.session_dao.add_message(user_id, "assistant", reply,
                                                  temp=deep, session_id=session_id)
@@ -4916,7 +5050,11 @@ class MessageHandler:
 
         if analysis.intent is None:
             self._consume_quota(user_id)
-            hints = [h for h in (topic_hint, analysis_hint) if h]
+            # k41：已自动检索 → 检索块进 extra_hint（并压制旧「先发 web_search
+            # 工单」引导——结果已在上下文；与润色路径同款口径）
+            hints = [h for h in (topic_hint,
+                                 ("" if _k11b_ground else analysis_hint)) if h]
+            hints.extend(self._ground_hint_parts(_k11b_ground))
             if deep:
                 from src.bot.night_persona import NIGHT_TONE_HINT
                 hints.insert(0, NIGHT_TONE_HINT)
@@ -5007,6 +5145,8 @@ class MessageHandler:
                 )
             if analysis.needs_soothe and analysis.soothe_text:
                 reply = analysis.soothe_text + "\n\n" + reply
+            # k41：自由聊路径同样过检索来源尾注（该搜的已搜到 → 回复体现来源）
+            reply = self._apply_ground_source_trace(reply, _k11b_ground)
             # P2 演化链：结论摘要 append 到 topic 时间线（cap 5）
             # Task 5 deepNight：倾诉临时通道不记演化链
             if not deep:
@@ -5060,6 +5200,11 @@ class MessageHandler:
                 if analysis.intent in ("dream", "bazi", "career"):
                     reply = handler(msg, user_id, stream_cb=_gated_cb,
                                     session_id=session_id)
+                elif analysis.intent == "advisor":
+                    # k41：advisor 入口注入已检索结果（与关键词早退分支同一实现；
+                    # 改前 advisor 被 `_will_polish` 排除 → 检索块从不到达 LLM）
+                    reply = handler(msg, user_id, stream_cb=_gated_cb,
+                                    ground_hint=_ground_hint)
                 else:
                     reply = handler(msg, user_id, stream_cb=_gated_cb)
             except Exception as e:
@@ -5082,9 +5227,6 @@ class MessageHandler:
         # 「根据你1976年5月13日在上海出生的命盘…」；D2 因对手文案干支声明
         # 不足 4 个早退、且 chart_records 最新恰为朋友盘，无法兜底）。
         engine_draft = None
-        # k11b：引擎意图域自动检索事实（_will_polish 块内赋值；False 分支零引用
-        # ——兜底 None，下方来源尾注块跳过）
-        _k11b_ground = None
         _r1_self_fortune_turn = (
             not self._is_third_party_birth_request(msg)
             and bool(_SELF_FORTUNE_RE.search(msg)))
@@ -5096,7 +5238,9 @@ class MessageHandler:
         _will_polish = (analysis.intent not in ("xuetang", "advisor")
                         and not downgraded
                         and reply and not reply.startswith("⚠️")
-                        and self._citations.get(user_id)
+                        # k41：判据排除自动检索的 web 引用（与改前在检索前求值
+                        # 逐字等价；见 `_has_engine_citations`）
+                        and self._has_engine_citations(user_id)
                         and not (_r1_self_fortune_turn
                                  and self._history_has_third_party_birth(
                                      user_id, session_id)))
@@ -5116,21 +5260,12 @@ class MessageHandler:
             # 已自动检索 → 压制旧 search_hint 的「先输出 web_search 工单」硬性
             # 要求（结果已在上下文；LLM 若再发同 query 工单由 _tool_web_search
             # 复用表去重，不二次真实检索）。
-            _k11b_ground = None
-            try:
-                _k11b_ground = self._engine_domain_ground_search(
-                    msg, user_id, analysis)
-            except Exception as e:
-                logger.warning("k11b 引擎域自动检索异常 user=%s err=%s",
-                               user_id, str(e)[:120])
-            if not _k11b_ground or _k11b_ground.get("skip"):
-                _k11b_ground = None
-            _k11b_block = (_k11b_ground or {}).get("block") or ""
+            # k41：检索本身已上移到 process 的**路由前接缝**（`_ground_search_for_turn`）
+            # ——本块只消费结果（`_k11b_ground`），不再自带调用点（advisor 路径
+            # 曾被本块的条件排除 → 检索没发生，T104 实锤）。
             _extra_parts = [h for h in (topic_hint,
-                                        ("" if _k11b_ground else analysis_hint),
-                                        _k11b_block) if h]
-            if _k11b_block and _k11b_ground and _k11b_ground.get("ok"):
-                _extra_parts.append(_GROUND_USE_REQUIREMENT)
+                                        ("" if _k11b_ground else analysis_hint))]
+            _extra_parts.extend(self._ground_hint_parts(_k11b_ground))
             try:
                 reply = self._polish_with_engine_draft(
                     msg, user_id, reply, stream_cb,
@@ -5220,13 +5355,8 @@ class MessageHandler:
         # JSON 禁泄漏——来源尾注为确定性纯文本，已走 k11 scrub/stream-guard
         # 出口）；LLM 漏写来源且回复未含检索站点痕迹时确定性补尾注（回复须含
         # 实体名才补，防无关尾注；反馈提示「准/不准」行保留在尾注之后不被挤开）。
-        if _k11b_ground and _k11b_ground.get("ok") and _k11b_ground.get("entity"):
-            try:
-                reply = append_source_trace(
-                    reply, entity=_k11b_ground.get("entity", ""),
-                    domains=_k11b_ground.get("domains") or [])
-            except Exception:
-                pass  # 尾注兜底异常 → 保持原文（来源抽屉仍有 web 引用）
+        # k41：实现收敛到 `_apply_ground_source_trace`（所有回复路径出口共用同一份）。
+        reply = self._apply_ground_source_trace(reply, _k11b_ground)
         # 阶段 2：本轮工具调用日志 → 落库字段
         tool_log = self._pop_tool_log(user_id)
         # E2-1 卡片化：统一出口包装（落库/缓存/返回值一致携带卡片标记；
@@ -6620,7 +6750,7 @@ class MessageHandler:
             return False
         for w in words:
             for m in re.finditer(re.escape(w), msg):
-                if _gender_word_subject(msg, m.start()) == "self":
+                if _gender_word_subject(msg, m.start(), w) == "self":
                     return True
         return False
 
@@ -8780,8 +8910,15 @@ class MessageHandler:
 
     ADVISOR_KEYWORDS = ["建议", "怎么办", "有什么建议", "帮我分析"]
 
-    def _handle_advisor(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
-        """处理 AI 建议请求 — 基于八字 + 用户处境生成个性化建议."""
+    def _handle_advisor(self, msg: str, user_id: str,
+                        stream_cb: Optional[Callable] = None,
+                        ground_hint: str = "") -> str:
+        """处理 AI 建议请求 — 基于八字 + 用户处境生成个性化建议.
+
+        ground_hint（k41）：本轮自动联网检索的结果块 + 使用要求（
+        `_ground_hint_parts` 产出）。**只增不改**——空串 = 改前行为逐字节不变；
+        非空时并入 user_context 交给建议 LLM（外部实体 QA 的事实依据 + 来源）。
+        """
         # 1. 检查用户八字是否已保存
         # k11c：残余 bazi_info 直读 → 统一档案读取（G3c 同源，同 _handle_calendar
         # /_handle_hourly）——persons 建档用户与档案 solar_time 开关同源生效，
@@ -8803,6 +8940,10 @@ class MessageHandler:
         if not user_context:
             # 从消息中提取关键词，如果没有具体语境，使用默认描述
             user_context = "一般运势咨询"
+        # k41（T104）：本轮自动检索结果并入处境——LLM 以检索事实作答并标注来源
+        # （改前 advisor 路径拿不到检索块：回复无实体名、无来源痕迹）。
+        if ground_hint:
+            user_context = user_context + "\n\n" + ground_hint
 
         # 3. 重新排盘
         try:
