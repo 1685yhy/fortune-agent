@@ -36,3 +36,6 @@ data/memory/*.json
 
 # 竞品数据大文件不入库（超 GitHub 100MB 限制）
 data/competitor_data/*.jsonl
+
+# 工作记录/证据目录（2026-09-14 补：分支 worktree 里无嵌套 .gitignore，曾被误提交）
+.superpowers/
