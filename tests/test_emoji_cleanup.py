@@ -154,10 +154,12 @@ class TestEmotionSoother:
 
 class TestMoodDetector:
     def test_emotion_label_stripped(self):
+        # k42：mood_detector 改走统一 LLM 层（Anthropic 兼容端点 + thinking
+        # disabled），模块不再直连 httpx —— mock 点随迁移改为 src.llm.client。
         from src.engines.mood_detector import MoodDetector
         content = '{"mood": "gentle", "confidence": 0.9, "emotion": "焦虑😟"}'
-        with mock.patch("src.engines.mood_detector.httpx.post",
-                        return_value=_httpx_mock(content)) as m:
+        with mock.patch("src.llm.client.deepseek_anthropic_completion",
+                        return_value=content) as m:
             result = MoodDetector(api_key="test-key").detect("最近压力好大")
             m.assert_called_once()
         assert result.mood == "gentle"

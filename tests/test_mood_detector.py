@@ -5,25 +5,41 @@ Tests cover:
 - Analytical/data questions -> analyst mode
 - Casual/humorous messages -> sassy mode
 - Anger -> gentle mode (de-escalation)
-- User override still works
 - Empty/neutral message defaults to sassy
 - Confidence score > 0 for all detections
 - 50+ test cases with >80% accuracy on labeled data
 
 MoodDetector uses DeepSeek Flash for AI-based detection, so we mock the API
 call and verify the _parse_response logic and the detection flow.
+
+k42（用户可见静默错判修复）后的契约：
+- 走统一 LLM 层（src/llm/client.py，Anthropic 兼容端点 + thinking disabled）——
+  patch 点相应地是 src.llm.client.deepseek_anthropic_completion；
+- 解析失败/调用异常**一律**回退安全人设 gentle（温柔），不得回退 sassy（毒舌）；
+- 失败必须 warning 可见（含截断/异常类型，不含用户隐私原文）。
 """
+import hashlib
 import json
+import logging
 from unittest.mock import Mock, patch, MagicMock
 
 import pytest
 
-from src.engines.mood_detector import MoodDetector, MoodResult
+from src.engines.mood_detector import (
+    SAFE_FALLBACK_MOOD,
+    MoodDetector,
+    MoodResult,
+)
 from src.bot.handler import MessageHandler
 
 
+# 统一 LLM 层调用点：mood_detector 为函数内 import（调用期解析模块属性），
+# patch 该模块属性即可覆盖本模块调用（k33/A11 同款接线）。
+LLM_TARGET = "src.llm.client.deepseek_anthropic_completion"
+
+
 # ====================================================================
-# MoodDetector: Unit Tests (mock API)
+# MoodDetector: Unit Tests (mock unified LLM layer)
 # ====================================================================
 
 class TestMoodDetectorParse:
@@ -51,10 +67,15 @@ class TestMoodDetectorParse:
         assert result.mood == "gentle"
         assert result.confidence == 0.78
 
-    def test_parse_invalid_mood_falls_back_to_sassy(self):
+    def test_parse_invalid_mood_falls_back_to_safe_gentle(self, caplog):
+        """非法 mood 值 → 安全兜底（k42：不得再回退毒舌）。"""
         content = '{"mood":"angry","confidence":0.9,"emotion":"愤怒"}'
-        result = self.detector._parse_response(content)
-        assert result.mood == "sassy"
+        with caplog.at_level(logging.WARNING, logger="src.engines.mood_detector"):
+            result = self.detector._parse_response(content)
+        assert result.mood == SAFE_FALLBACK_MOOD
+        assert result.mood == "gentle"
+        assert result.mood != "sassy"
+        assert "mood" in caplog.text  # 失败可见
 
     def test_parse_confidence_clamped(self):
         content = '{"mood":"gentle","confidence":1.5,"emotion":"测试"}'
@@ -65,17 +86,41 @@ class TestMoodDetectorParse:
         result = self.detector._parse_response(content)
         assert result.confidence == 0.0
 
-    def test_parse_non_json_fallback(self):
-        content = "我觉得用户很焦虑"
-        result = self.detector._parse_response(content)
-        assert result.mood == "sassy"
+    def test_parse_truncated_json_falls_back_to_gentle_and_warns(self, caplog):
+        """截断（推理模型吃光 max_tokens 的实测形态）→ 安全兜底 + warning。
+
+        修复前该形态静默回退 sassy/0.5 —— 本用例在旧实现上必失败（行为区分）。
+        """
+        truncated = '{"mood":"gentle","confidence":0.9,"emotion'
+        with caplog.at_level(logging.WARNING, logger="src.engines.mood_detector"):
+            result = self.detector._parse_response(truncated)
+        assert result.mood == "gentle"
+        assert result.mood != "sassy"
         assert result.confidence == 0.5
         assert result.emotion_label == "中性"
+        assert "截断" in caplog.text          # 失败可见：明确标注疑似截断
+        assert str(len(truncated)) in caplog.text  # 失败可见：内容长度
 
-    def test_parse_empty_string_fallback(self):
-        result = self.detector._parse_response("")
-        assert result.mood == "sassy"
+    def test_parse_non_json_fallback(self, caplog):
+        content = "我觉得用户很焦虑"
+        with caplog.at_level(logging.WARNING, logger="src.engines.mood_detector"):
+            result = self.detector._parse_response(content)
+        assert result.mood == "gentle"
+        assert result.mood != "sassy"
         assert result.confidence == 0.5
+        assert result.emotion_label == "中性"
+        assert content not in caplog.text  # 隐私：不回显模型原文
+
+    def test_parse_empty_string_fallback(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="src.engines.mood_detector"):
+            result = self.detector._parse_response("")
+        assert result.mood == "gentle"
+        assert result.confidence == 0.5
+        assert caplog.text  # 空响应也必须可见
+
+    def test_parse_whitespace_only_fallback(self):
+        result = self.detector._parse_response("   \n  ")
+        assert result.mood == "gentle"
 
     def test_confidence_always_positive(self):
         """置信度在所有情况下都应该 > 0"""
@@ -91,10 +136,19 @@ class TestMoodDetectorParse:
             assert result.confidence >= 0.0
 
     def test_cache_hit_no_api_call(self):
-        """Cache hit should skip API call."""
-        self.detector._cache["cached_msg"] = MoodResult("sassy", 0.9, "开心")
-        with patch.object(self.detector, "_parse_response") as mock_parse:
-            result = self.detector.detect("cached_msg")
+        """Cache hit should skip API call.
+
+        k42：旧用例以明文键（"cached_msg"）塞缓存，与实际 md5 键不匹配 →
+        缓存从未命中，走的是 401 静默兜底 sassy，断言"碰巧"通过（假绿）。
+        此处改用真实 md5 键，并同时断言不触发 LLM 调用。
+        """
+        msg = "cached_msg"
+        self.detector._cache[hashlib.md5(msg.encode()).hexdigest()] = \
+            MoodResult("sassy", 0.9, "开心")
+        with patch(LLM_TARGET) as mock_llm, \
+                patch.object(self.detector, "_parse_response") as mock_parse:
+            result = self.detector.detect(msg)
+            mock_llm.assert_not_called()
             mock_parse.assert_not_called()
         assert result.mood == "sassy"
 
@@ -106,103 +160,106 @@ class TestMoodDetectorParse:
 
 
 class TestMoodDetectorAPI:
-    """Test the actual API call flow (with mocked httpx)."""
+    """Test the actual API call flow (unified LLM layer mocked)."""
 
     def setup_method(self):
         self.detector = MoodDetector(api_key="test_key")
 
-    def _mock_http_response(self, content: str, status: int = 200):
-        mock_resp = MagicMock()
-        mock_resp.status_code = status
-        mock_resp.json.return_value = {
-            "choices": [{"message": {"content": content}}],
-            "usage": {"total_tokens": 50},
-        }
-        return mock_resp
-
-    @patch("src.engines.mood_detector.httpx.post")
-    def test_detect_anxiety_message(self, mock_post):
+    @patch(LLM_TARGET)
+    def test_detect_anxiety_message(self, mock_llm):
         """Anxiety messages should be detected as gentle."""
-        mock_post.return_value = self._mock_http_response(
-            '{"mood":"gentle","confidence":0.82,"emotion":"焦虑"}'
-        )
+        mock_llm.return_value = '{"mood":"gentle","confidence":0.82,"emotion":"焦虑"}'
         result = self.detector.detect("我好焦虑啊，不知道该怎么办")
         assert result.mood == "gentle"
         assert result.confidence >= 0.7
-        assert mock_post.called
+        assert mock_llm.called
 
-    @patch("src.engines.mood_detector.httpx.post")
-    def test_detect_data_question(self, mock_post):
+    @patch(LLM_TARGET)
+    def test_detect_data_question(self, mock_llm):
         """Data/analysis questions should be detected as analyst."""
-        mock_post.return_value = self._mock_http_response(
-            '{"mood":"analyst","confidence":0.88,"emotion":"分析需求"}'
-        )
+        mock_llm.return_value = '{"mood":"analyst","confidence":0.88,"emotion":"分析需求"}'
         result = self.detector.detect("帮我分析一下这个投资方案的收益率")
         assert result.mood == "analyst"
 
-    @patch("src.engines.mood_detector.httpx.post")
-    def test_detect_humor(self, mock_post):
+    @patch(LLM_TARGET)
+    def test_detect_humor(self, mock_llm):
         """Humorous messages should be detected as sassy."""
-        mock_post.return_value = self._mock_http_response(
-            '{"mood":"sassy","confidence":0.91,"emotion":"幽默"}'
-        )
+        mock_llm.return_value = '{"mood":"sassy","confidence":0.91,"emotion":"幽默"}'
         result = self.detector.detect("哈哈哈今天运气也太好了吧，笑死")
         assert result.mood == "sassy"
 
-    @patch("src.engines.mood_detector.httpx.post")
-    def test_detect_excitement(self, mock_post):
+    @patch(LLM_TARGET)
+    def test_detect_excitement(self, mock_llm):
         """Excitement/joy should be detected as sassy."""
-        mock_post.return_value = self._mock_http_response(
-            '{"mood":"sassy","confidence":0.85,"emotion":"兴奋"}'
-        )
+        mock_llm.return_value = '{"mood":"sassy","confidence":0.85,"emotion":"兴奋"}'
         result = self.detector.detect("太棒了！我升职了！！！")
         assert result.mood == "sassy"
 
-    @patch("src.engines.mood_detector.httpx.post")
-    def test_detect_anger(self, mock_post):
+    @patch(LLM_TARGET)
+    def test_detect_anger(self, mock_llm):
         """Anger/frustration should be detected as gentle (de-escalate)."""
-        mock_post.return_value = self._mock_http_response(
-            '{"mood":"gentle","confidence":0.80,"emotion":"愤怒"}'
-        )
+        mock_llm.return_value = '{"mood":"gentle","confidence":0.80,"emotion":"愤怒"}'
         result = self.detector.detect("我真的很生气，受不了了")
         assert result.mood == "gentle"
 
-    @patch("src.engines.mood_detector.httpx.post")
-    def test_detect_fear(self, mock_post):
+    @patch(LLM_TARGET)
+    def test_detect_fear(self, mock_llm):
         """Fear/worry should be detected as gentle."""
-        mock_post.return_value = self._mock_http_response(
-            '{"mood":"gentle","confidence":0.86,"emotion":"恐惧"}'
-        )
+        mock_llm.return_value = '{"mood":"gentle","confidence":0.86,"emotion":"恐惧"}'
         result = self.detector.detect("我很害怕面试会失败")
         assert result.mood == "gentle"
 
-    @patch("src.engines.mood_detector.httpx.post")
-    def test_detect_neutral_fallback(self, mock_post):
-        """Neutral message should default to sassy."""
-        mock_post.return_value = self._mock_http_response(
-            '{"mood":"sassy","confidence":0.55,"emotion":"中性"}'
-        )
+    @patch(LLM_TARGET)
+    def test_detect_neutral_fallback(self, mock_llm):
+        """Neutral message should default to sassy (model 判定，非兜底)."""
+        mock_llm.return_value = '{"mood":"sassy","confidence":0.55,"emotion":"中性"}'
         result = self.detector.detect("你好")
         assert result.mood == "sassy"
 
-    @patch("src.engines.mood_detector.httpx.post")
-    def test_api_error_fallback(self, mock_post):
-        """API error should fallback to sassy with 0.5 confidence."""
-        mock_post.side_effect = Exception("API unavailable")
-        result = self.detector.detect("测试消息")
-        assert result.mood == "sassy"
+    @patch(LLM_TARGET)
+    def test_api_error_fallback(self, mock_llm, caplog):
+        """API error → safe fallback gentle/0.5 + warning（k42：不再回退毒舌）。"""
+        mock_llm.side_effect = RuntimeError("upstream 500")
+        with caplog.at_level(logging.WARNING, logger="src.engines.mood_detector"):
+            result = self.detector.detect("测试消息")
+        assert result.mood == "gentle"
+        assert result.mood != "sassy"
         assert result.confidence == 0.5
+        assert "RuntimeError" in caplog.text  # 失败可见：异常类型
 
-    @patch("src.engines.mood_detector.httpx.post")
-    def test_long_messages_truncated(self, mock_post):
+    @patch(LLM_TARGET)
+    def test_long_messages_truncated(self, mock_llm):
         """Messages over 500 chars should be truncated."""
+        mock_llm.return_value = '{"mood":"gentle","confidence":0.8,"emotion":"中性"}'
         long_msg = "测试" * 300
         self.detector.detect(long_msg)
-        # Verify the API was called with truncated content
-        call_args = mock_post.call_args
-        messages = call_args[1]["json"]["messages"]
-        user_content = messages[1]["content"]
+        args, _ = mock_llm.call_args
+        user_content = args[1][1]["content"]
         assert len(user_content) <= 500
+
+    @patch(LLM_TARGET)
+    def test_detect_uses_unified_layer_with_locked_params(self, mock_llm):
+        """k42 接线与口径锁定：统一 LLM 层 + 预算/温度/超时/prompt 逐项同值。
+
+        - key 面不变：仍只用构造传入的 api_key（不新增 env 读取）；
+        - prompt 逐字不变（判定语义零漂移）；
+        - temperature / timeout 与修复前同值（0.1 / 30.0）；
+        - max_tokens 预算 ≥ 200：原生端点下 100 被 reasoning 吃光 = 截断根因。
+        """
+        mock_llm.return_value = '{"mood":"gentle","confidence":0.9,"emotion":"焦虑"}'
+        self.detector.detect("最近压力好大，晚上睡不着")
+        args, kwargs = mock_llm.call_args
+        assert args[0] == "test_key"
+        assert args[1][0]["content"] == MoodDetector.DETECTION_PROMPT
+        assert kwargs["model"] == "deepseek-flash"
+        assert kwargs["temperature"] == 0.1
+        assert kwargs["timeout"] == 30.0
+        assert kwargs["max_tokens"] >= 200
+
+    def test_module_has_no_raw_http_dependency(self):
+        """结构守卫：模块不再持有 httpx 直连（截断根因载体已移除）。"""
+        import src.engines.mood_detector as md
+        assert not hasattr(md, "httpx")
 
 
 # ====================================================================
@@ -225,12 +282,8 @@ class TestMoodDetectorIntegration:
     def test_detect_output_structure(self):
         """detect() should return a MoodResult with all expected fields."""
         detector = MoodDetector(api_key="test")
-        with patch("src.engines.mood_detector.httpx.post") as mock_post:
-            mock_resp = MagicMock()
-            mock_resp.json.return_value = {
-                "choices": [{"message": {"content": '{"mood":"sassy","confidence":0.8,"emotion":"开心"}'}}],
-            }
-            mock_post.return_value = mock_resp
+        with patch(LLM_TARGET,
+                   return_value='{"mood":"sassy","confidence":0.8,"emotion":"开心"}'):
             result = detector.detect("今天好开心")
             assert isinstance(result, MoodResult)
             assert hasattr(result, "mood")
@@ -239,7 +292,6 @@ class TestMoodDetectorIntegration:
 
     def test_all_moods_are_valid(self):
         """detect() should only return valid moods."""
-        detector = MoodDetector(api_key="test")
         valid_moods = {"sassy", "analyst", "gentle"}
         test_cases = [
             ("我好焦虑", "gentle"),
@@ -248,15 +300,27 @@ class TestMoodDetectorIntegration:
             ("我害怕", "gentle"),
             ("我今天太开心了", "sassy"),
         ]
+        detector = MoodDetector(api_key="test")
         for msg, expected in test_cases:
-            with patch("src.engines.mood_detector.httpx.post") as mock_post:
-                mock_resp = MagicMock()
-                mock_resp.json.return_value = {
-                    "choices": [{"message": {"content": '{"mood":"%s","confidence":0.8,"emotion":"测试"}' % expected}}],
-                }
-                mock_post.return_value = mock_resp
+            with patch(LLM_TARGET,
+                       return_value='{"mood":"%s","confidence":0.8,"emotion":"测试"}' % expected):
                 result = detector.detect(msg)
                 assert result.mood in valid_moods, f"Invalid mood: {result.mood}"
+
+    @patch(LLM_TARGET)
+    def test_distress_message_never_gets_sassy_on_llm_failure(self, mock_llm):
+        """用户可见契约（k42 核心）：LLM 失败/截断时，难受的输入不得得到毒舌人设。"""
+        mock_llm.return_value = '{"mood":"gentle","confidence":0.9,"emot'  # 截断
+        distressed = "我好害怕失去这份工作"
+        result = MoodDetector(api_key="test").detect(distressed)
+        assert result.mood == "gentle"
+
+    @patch(LLM_TARGET)
+    def test_distress_message_never_gets_sassy_on_api_exception(self, mock_llm):
+        """用户可见契约（k42 核心）：外呼异常时同样不得回退毒舌。"""
+        mock_llm.side_effect = TimeoutError("read timeout")
+        result = MoodDetector(api_key="test").detect("最近压力好大，晚上睡不着")
+        assert result.mood == "gentle"
 
 
 # ====================================================================
@@ -382,16 +446,8 @@ class TestLabeledAccuracy:
         total = len(LABELED_TEST_CASES)
 
         for msg, expected, category in LABELED_TEST_CASES:
-            with patch("src.engines.mood_detector.httpx.post") as mock_post:
-                mock_resp = MagicMock()
-                mock_resp.json.return_value = {
-                    "choices": [{
-                        "message": {
-                            "content": f'{{"mood":"{expected}","confidence":0.8,"emotion":"{category}"}}'
-                        }
-                    }],
-                }
-                mock_post.return_value = mock_resp
+            with patch(LLM_TARGET,
+                       return_value=f'{{"mood":"{expected}","confidence":0.8,"emotion":"{category}"}}'):
                 result = detector.detect(msg)
                 if result.mood == expected:
                     correct += 1
@@ -404,16 +460,8 @@ class TestLabeledAccuracy:
         """Confidence score should be > 0 for all detections."""
         detector = MoodDetector(api_key="test_key")
         for msg, expected, category in LABELED_TEST_CASES:
-            with patch("src.engines.mood_detector.httpx.post") as mock_post:
-                mock_resp = MagicMock()
-                mock_resp.json.return_value = {
-                    "choices": [{
-                        "message": {
-                            "content": f'{{"mood":"{expected}","confidence":0.8,"emotion":"{category}"}}'
-                        }
-                    }],
-                }
-                mock_post.return_value = mock_resp
+            with patch(LLM_TARGET,
+                       return_value=f'{{"mood":"{expected}","confidence":0.8,"emotion":"{category}"}}'):
                 result = detector.detect(msg)
                 assert result.confidence > 0, \
                     f"Zero confidence for: {msg[:30]}"
