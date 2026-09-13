@@ -337,6 +337,16 @@ def test_ab_matrix_real_model():
     assert semantic_router._disabled() is False
     assert semantic_router.warmup(blocking=True), "bge-m3 语义路由未就绪"
     assert semantic_router.route("帮我查一下苹果公司的最新新闻").label == "search"
+    try:
+        _ab_matrix_body(semantic_router, base, new_decide)
+    finally:
+        # k43-r1（测试隔离）：真机矩阵跑完清进程内状态——真实矩阵/模型**不得泄漏**
+        # 到后续测试文件（同进程后续文件的 decide_search 会因语义层在场而改判定：
+        # 全量跑实测 k17 parity 用例的「这个行业怎么样」被语义 VETO 成 reason=semantic）。
+        semantic_router.reset_for_tests()
+
+
+def _ab_matrix_body(semantic_router, base, new_decide):
 
     groups = _overlap_groups()
     print(f"\n重叠披露：全量 {len(groups['full'])} / held-out {len(groups['heldout'])}"

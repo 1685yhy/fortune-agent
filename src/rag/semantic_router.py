@@ -40,7 +40,10 @@ T079→T026、T084→T084#prefix，text 未动）。
     SEMANTIC_ROUTER_PRELOAD/DISABLE 或在同进程内先加载 FAISS。
 
 线程安全：状态转换与编码均持锁（`_LOCK` / `_ENCODE_LOCK`）；多进程下每进程各自
-一份模型实例（与既有 FAISS 检索器同口径），可用环境变量关闭。
+一份模型实例（与既有 FAISS 检索器同口径），可用环境变量关闭。k43-r1：预加载线程
+句柄保存在 `_LOAD_THREAD`（`warmup(blocking=True)` 据此**确定性 join**，不再轮询；
+单测夹具据此保证「无在飞加载」后再装 stub——否则在飞加载可能抢先装入真实矩阵，
+使「先到者生效」的安装语义在测试里变成时间窗依赖）。
 
 环境变量：
   SEMANTIC_ROUTER_DISABLE=1   关闭语义路由（回词表层；判定与 base 逐字一致）
@@ -103,6 +106,7 @@ _ENCODE_LOCK = threading.Lock()
 _EMBEDDER = None                      # 已就绪的 embedder（复用的或自建的）
 _MATRICES: Optional[Tuple[np.ndarray, np.ndarray]] = None
 _LOAD_STARTED = False                 # 预加载线程是否已启动
+_LOAD_THREAD: Optional[threading.Thread] = None   # 预加载线程句柄（k43-r1）
 _LOAD_FAILED = False
 _QUERY_CACHE: "OrderedDict[str, Verdict]" = OrderedDict()   # k43-r1：真 LRU
 
@@ -273,16 +277,21 @@ def _load_worker() -> None:
 
 
 def _kickoff_preload() -> None:
-    """后台预加载（幂等；请求路径绝不同步等模型）。"""
-    global _LOAD_STARTED
+    """后台预加载（幂等；请求路径绝不同步等模型）。
+
+    k43-r1：保留线程句柄 `_LOAD_THREAD`——`warmup(blocking=True)` 可确定性 join
+    （不再轮询 `is_ready()`），运维/测试也可据此判断「是否仍在加载」。
+    """
+    global _LOAD_STARTED, _LOAD_THREAD
     with _LOCK:
         if _LOAD_STARTED or _LOAD_FAILED or _MATRICES is not None:
             return
         if _disabled() or not _preload_allowed():
             return
         _LOAD_STARTED = True
-    threading.Thread(target=_load_worker, name="k43-semantic-preload",
-                     daemon=True).start()
+        _LOAD_THREAD = threading.Thread(target=_load_worker,
+                                        name="k43-semantic-preload", daemon=True)
+    _LOAD_THREAD.start()
 
 
 def warmup(blocking: bool = False, timeout: float = 180.0) -> bool:
@@ -303,10 +312,14 @@ def warmup(blocking: bool = False, timeout: float = 180.0) -> bool:
         _kickoff_preload()
         return is_ready()
     if _LOAD_STARTED:                      # 已有后台线程 → 等它，不重复加载
-        import time
-        deadline = time.time() + timeout
-        while time.time() < deadline and not is_ready() and not _LOAD_FAILED:
-            time.sleep(0.2)
+        thread = _LOAD_THREAD
+        if thread is not None and thread.is_alive():
+            thread.join(timeout)           # k43-r1：确定性等待（不再轮询 is_ready）
+        else:                              # 无句柄（异常/测试置位）→ 保守轮询兜底
+            import time
+            deadline = time.time() + timeout
+            while time.time() < deadline and not is_ready() and not _LOAD_FAILED:
+                time.sleep(0.2)
         return is_ready()
     try:
         emb = _acquire_embedder()
@@ -389,11 +402,17 @@ def route(text: str) -> Verdict:
 
 
 def reset_for_tests() -> None:
-    """清空进程内状态（单测用；不影响磁盘缓存）。"""
-    global _EMBEDDER, _MATRICES, _LOAD_STARTED, _LOAD_FAILED, _QUERY_CACHE
+    """清空进程内状态（单测用；不影响磁盘缓存）。
+
+    k43-r1：同时清线程句柄（不 kill 线程——Python 无法安全取消在跑线程；
+    需要「完全静默」的单测请先 `_LOAD_THREAD.join()` 再 reset，见
+    tests/test_k43_semantic_route.py::stub_router 夹具）。
+    """
+    global _EMBEDDER, _MATRICES, _LOAD_STARTED, _LOAD_THREAD, _LOAD_FAILED, _QUERY_CACHE
     with _LOCK:
         _EMBEDDER = None
         _MATRICES = None
         _LOAD_STARTED = False
+        _LOAD_THREAD = None
         _LOAD_FAILED = False
         _QUERY_CACHE = OrderedDict()

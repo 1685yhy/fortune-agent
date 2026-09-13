@@ -68,14 +68,48 @@ def _stub_table(extra=None):
     return table
 
 
+def _quiesce_preload(timeout: float = 120.0) -> None:
+    """测试隔离（k43-r1）：等在飞的预加载线程结束。
+
+    `install_embedder` 的语义是「先到者生效」——若进程里还有在飞的真实预加载
+    线程，它可能在用例安装 stub 之前抢先装入真实矩阵（`_MATRICES` 非空 → 本用例
+    的 stub 安装变成 no-op），使 `route()` 判定与 stub 不符：全量跑时机器忙 →
+    加载线程落地时刻飘 → 用例 flaky（单跑必过）。本函数把这条时间窗彻底消掉。
+    """
+    thread = getattr(semantic_router, "_LOAD_THREAD", None)
+    if thread is not None and thread.is_alive():
+        thread.join(timeout)
+
+
 @pytest.fixture
 def stub_router(tmp_path, monkeypatch):
-    """干净的路由状态 + 独立缓存目录（不污染真机向量缓存）。"""
+    """干净的路由状态 + 完全隔离（不依赖时间窗/后台线程/前序用例）。
+
+    k43-r1：① 关掉后台真实预加载与预加载线程启动（单测进程内绝不加载真模型）；
+    ② 等在飞线程结束；③ 清进程内状态；④ 独立缓存目录（不污染真机向量缓存）。
+    """
     monkeypatch.setenv("SEMANTIC_ROUTER_CACHE", str(tmp_path / "cache"))
     monkeypatch.delenv("SEMANTIC_ROUTER_DISABLE", raising=False)
+    monkeypatch.setattr(semantic_router, "_preload_allowed", lambda: False)
+    monkeypatch.setattr(semantic_router, "_kickoff_preload", lambda: None)
+    _quiesce_preload()
+    assert (semantic_router._LOAD_THREAD is None
+            or not semantic_router._LOAD_THREAD.is_alive()), \
+        "隔离失败：仍有在飞的预加载线程（可能导致 stub 被抢先安装）"
     semantic_router.reset_for_tests()
     yield semantic_router
     semantic_router.reset_for_tests()
+
+
+def _install_stub(router, emb):
+    """装 stub embedder 并**断言它确实是生效者**（k43-r1）。
+
+    防「被在飞安装抢先 → `install_embedder` 静默 no-op → 用例假绿」：
+    「先到者生效」语义下，只有 `_EMBEDDER is emb` 才能保证后续 `route()` 用的
+    是本用例的 stub。
+    """
+    assert router.install_embedder(emb) is True
+    assert router._EMBEDDER is emb and router.is_ready(), "stub 未生效（被抢先安装？）"
 
 
 class TestRouterCore:
@@ -86,7 +120,7 @@ class TestRouterCore:
             "否决句": [0.4, 0.9, 0.0, 0.0],     # margin -0.5
             "不确定句": [0.7, 0.7, 0.0, 0.0],   # margin 0
         }))
-        assert stub_router.install_embedder(emb) is True
+        _install_stub(stub_router, emb)
         assert stub_router.route("接受句").label == "search"
         assert stub_router.route("否决句").label == "local"
         assert stub_router.route("不确定句").label == "unknown"
@@ -99,7 +133,12 @@ class TestRouterCore:
                 semantic_router.TAU_LOCAL) == (3, 0.01, 0.02)
 
     def test_unknown_before_ready_and_on_error(self, stub_router):
-        """未就绪 → unknown（零行为变化）；编码异常 → unknown 不抛。"""
+        """未就绪 → unknown（零行为变化）；编码异常 → unknown 不抛。
+
+        k43-r1：前置状态显式断言（未就绪=未装矩阵/未起加载），不依赖前序用例残留。
+        """
+        assert (stub_router._MATRICES is None and stub_router._EMBEDDER is None
+                and stub_router._LOAD_STARTED is False), "夹具未清干净"
         assert stub_router.is_ready() is False
         assert stub_router.route("任何问句").label == "unknown"
 
@@ -107,21 +146,22 @@ class TestRouterCore:
             def encode_single(self, text):
                 raise RuntimeError("boom")
 
-        assert stub_router.install_embedder(_Boom(_stub_table())) is True
+        _install_stub(stub_router, _Boom(_stub_table()))
         assert stub_router.route("炸掉的问句").label == "unknown"
 
     def test_query_cache_avoids_reencode(self, stub_router):
         """同问句判定按文本缓存：只编码一次（延迟护栏的行为面）。"""
         emb = _StubEmbedder(_stub_table({"缓存问句": [0.9, 0.4, 0.0, 0.0]}))
-        stub_router.install_embedder(emb)
+        _install_stub(stub_router, emb)
         first = stub_router.route("缓存问句")
+        assert emb.calls == 1, "首次判定未走本用例的 stub（缓存/状态污染？）"
         calls = emb.calls
         assert stub_router.route("缓存问句") == first
         assert emb.calls == calls
 
     def test_install_embedder_idempotent(self, stub_router):
         emb = _StubEmbedder(_stub_table({"x": [0.9, 0.4, 0.0, 0.0]}))
-        assert stub_router.install_embedder(emb) is True
+        _install_stub(stub_router, emb)
         before = stub_router.route("x")
         assert stub_router.install_embedder(_StubEmbedder(_stub_table())) is True
         assert stub_router.route("x") == before
@@ -144,16 +184,22 @@ class TestRouterCore:
         assert semantic_router._preload_allowed() is True
 
     def test_preload_does_not_block_request_path(self, stub_router):
-        """后台预加载期间（示例矩阵编码 ~1-2s）请求路径不得被长锁阻塞。"""
+        """后台预加载期间（示例集编码）请求路径不得被长锁阻塞。
+
+        k43-r1：不靠 `time.sleep(0.1)` 猜时间窗——用 `started` 事件与编码线程
+        **确定性同步**（满载下也不会因调度延迟落空）。
+        """
         import threading
         import time
 
+        started = threading.Event()
+        done = threading.Event()
+
         class _Slow(_StubEmbedder):
             def encode(self, texts):
+                started.set()
                 time.sleep(0.6)          # 模拟示例集编码耗时
                 return super().encode(texts)
-
-        done = threading.Event()
 
         def _install():
             stub_router.install_embedder(_Slow(_stub_table()))
@@ -161,7 +207,7 @@ class TestRouterCore:
 
         t = threading.Thread(target=_install)
         t.start()
-        time.sleep(0.1)                  # 编码进行中
+        assert started.wait(30.0), "编码线程未启动"   # 确定性：编码确实在飞
         t0 = time.time()
         v = stub_router.route("预加载期间的问句")
         elapsed = time.time() - t0
@@ -190,14 +236,23 @@ class TestRouterCore:
 
         背景：`_LOAD_FAILED=True` 后进程内不再自动重试（避免后台反复拉 40s 冷加载），
         原先连运维显式预热也被闩死 → 只能重启进程。
+
+        k43-r1 flaky 修复（测试隔离，非放宽断言）：① 显式钉死 `_shared_embedder`
+        与 `_acquire_embedder`（不依赖 FAISS/进程内残留）；② 断言前置状态（锁内）；
+        ③ 夹具已保证无在飞预加载线程可抢先安装 → 「装上的 embedder 就是 stub」
+        由确定性保证（不再依赖时间窗）。三条原断言（清闩/重试成功/装上的可用）
+        逐条保留。
         """
         emb = _StubEmbedder(_stub_table({"重试问句": [0.9, 0.4, 0.0, 0.0]}))
+        monkeypatch.setattr(stub_router, "_shared_embedder", lambda: None)
         monkeypatch.setattr(stub_router, "_acquire_embedder", lambda: emb)
         with stub_router._LOCK:
+            assert stub_router._MATRICES is None and stub_router._EMBEDDER is None
             stub_router._LOAD_FAILED = True
             stub_router._LOAD_STARTED = True
         assert stub_router.warmup(blocking=True) is True      # 清闩 → 重试成功
         assert stub_router._LOAD_FAILED is False
+        assert stub_router._EMBEDDER is emb                   # 重试取到的就是 emb
         assert stub_router.route("重试问句").label == "search"
 
     def test_query_cache_is_lru_and_private_dir(self, stub_router, monkeypatch, tmp_path):
@@ -205,7 +260,7 @@ class TestRouterCore:
         （Minor-2）默认缓存目录在用户私有路径，落盘目录 0700。"""
         monkeypatch.setattr(stub_router, "_QUERY_CACHE_MAX", 3)
         table = {f"缓存问句{i}": [0.9, 0.4, 0.0, 0.0] for i in range(4)}
-        stub_router.install_embedder(_StubEmbedder(_stub_table(table)))
+        _install_stub(stub_router, _StubEmbedder(_stub_table(table)))
         for i in range(3):
             stub_router.route(f"缓存问句{i}")
         stub_router.route("缓存问句0")                 # 触达 0（LRU 最近使用）
@@ -458,7 +513,12 @@ def real_router():
         pytest.skip("本地无 bge-m3 权重（真机用例跳过）")
     if not semantic_router.warmup(blocking=True):
         pytest.skip("语义路由真机预热失败")
-    return semantic_router
+    yield semantic_router
+    # k43-r1（测试隔离）：真机用例收尾清进程内状态——真实矩阵/模型**不得泄漏**到
+    # 后续测试文件（同进程后续文件的 `decide_search` 会因语义层在场而改变判定：
+    # 全量跑实测 `test_k17_search_trigger.py::test_timely_and_whitelist_parity`
+    # 的「这个行业怎么样」被语义 VETO 成 reason=semantic）。顺带释放 ~1.2GB。
+    semantic_router.reset_for_tests()
 
 
 @pytest.mark.usefixtures("real_router")
