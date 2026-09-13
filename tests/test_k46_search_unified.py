@@ -232,8 +232,11 @@ def test_waterfall_stops_when_enough_from_two_engines(monkeypatch):
     monkeypatch.setenv("WEB_SEARCH_ENGINES", "bing,so360,baidu")
     ws.reset_engine_state()
     calls = _patch_searchers(monkeypatch, {
-        "bing": [_row(f"B{i}", f"https://b.example.com/{i}", "bing 摘要") for i in range(5)],
-        "so360": [_row(f"S{i}", f"https://b.example.com/{i}", "360 摘要更长一点") for i in range(5)],
+        # 构造**与查询相关**的结果（真实路径验收后新增相关性闸门：不相关不算达标）
+        "bing": [_row(f"测试查询B{i}", f"https://b.example.com/{i}", "测试查询摘要")
+                 for i in range(5)],
+        "so360": [_row(f"测试查询S{i}", f"https://b.example.com/{i}", "测试查询摘要更长一点")
+                  for i in range(5)],
         "baidu": [_row("X", "https://x.example.com/", "不该被调用")],
     })
     pkg = ws.search_web_structured("测试查询", limit=5)
@@ -953,3 +956,115 @@ def test_baidu_per_request_timeout_not_frozen_by_singleton(monkeypatch):
                         lambda timeout=ws.HEALTH_TIMEOUT: _FakeClient())
     ws._search_baidu("测试", 5, 15.0)
     assert seen["timeout"] == 15.0, f"检索超时被冻结：{seen}"
+
+
+# ================================================================
+# 十、真实用户路径验收修复：相关性闸门（达标即停不得被「释义卡」骗过）
+# ================================================================
+
+# 真实复现（部署副本）：搜「2026年新能源车销量」→ 归一化得「新能源车销量」✓，
+# 但 Bing 顶部塞的是「新（汉语汉字）」释义卡 → 旧判据只看条数就达标停了，
+# 全相关的百度（9 条）/360（6 条）根本没被问。
+_BING_CARD = _row("新（汉语汉字）_百度百科", "https://baike.baidu.com/item/%E6%96%B0",
+                  "“新”是“薪”的初文，本义为柴薪，后引申为初始、新鲜。")
+_360_HIT = _row("2026年新能源车销量排行榜", "https://auto.example.com/ev-sales-2026",
+                "新能源车销量同比增长，榜单显示新能源车销量前五…")
+
+
+def test_relevance_gate_does_not_stop_on_irrelevant_engine(monkeypatch):
+    """引擎 A 只给「释义卡」垃圾 + 引擎 B 相关 → 继续问 B，最终结果来自 B 且带来源。
+
+    旧行为：A 一家 5 条即 `len(merged) >= limit` 达标 → 根本不问 B。
+    """
+    monkeypatch.setenv("WEB_SEARCH_ENGINES", "bing,so360")
+    ws.reset_engine_state()
+    calls = _patch_searchers(monkeypatch, {
+        "bing": [_BING_CARD] + [
+            _row(f"新（汉字）_{i}", f"https://zdic.example.com/{i}", "汉字释义：新，初也。")
+            for i in range(4)],
+        "so360": [_360_HIT] + [
+            _row(f"新能源车销量报告{i}", f"https://auto.example.com/{i}",
+                 "新能源车销量数据与同比增速") for i in range(4)],
+    })
+    pkg = ws.search_web_structured("2026年新能源车销量", limit=5)
+    assert pkg["query"] == "新能源车销量"
+    assert calls == ["bing", "so360"], f"不相关必须继续问下一个引擎：{calls}"
+    assert {"engine": "bing", "reason": "irrelevant"} in pkg["partial_failures"]
+    # 最终结果来自 B（相关优先排序），且来源标注透传
+    assert pkg["results"], pkg
+    assert pkg["results"][0]["source_engines"] == ["so360"]
+    assert all(r.get("source_engines") for r in pkg["results"])
+    assert all(r["relevant"] is True for r in pkg["results"])
+    assert pkg["relevance"] == "ok"
+    urls = [r["url"] for r in pkg["results"]]
+    assert "https://baike.baidu.com/item/%E6%96%B0" not in urls[:5], "释义卡不得占前 5"
+
+
+def test_relevance_ranking_beats_arrival_order(monkeypatch):
+    """先到的垃圾不得压过后到的相关结果（旧版「第一个非空说了算」＋按到达顺序）。"""
+    monkeypatch.setenv("WEB_SEARCH_ENGINES", "bing,so360")
+    ws.reset_engine_state()
+    _patch_searchers(monkeypatch, {
+        "bing": [_BING_CARD],
+        "so360": [_360_HIT],
+    })
+    results = ws.search_web("2026年新能源车销量", limit=5)
+    assert results[0]["source_engines"] == ["so360"]
+    assert results[0]["relevance_hits"] > 0
+    assert results[-1]["url"].startswith("https://baike.baidu.com/")
+
+
+def test_relevance_none_marked_when_all_engines_irrelevant(monkeypatch):
+    """所有引擎都不相关 → 如实返回 + `relevance=none` + 逐引擎 `irrelevant` 标注。
+
+    红线（用户验收）：**别把垃圾当答案**——包里必须能看出「这批结果不可信」。
+    """
+    monkeypatch.setenv("WEB_SEARCH_ENGINES", "bing,so360")
+    ws.reset_engine_state()
+    _patch_searchers(monkeypatch, {
+        "bing": [_BING_CARD],
+        "so360": [_row("新（汉字）_汉语国学", "https://guoxue.example.com/xin",
+                       "新：汉语常用字，读音 xīn。")],
+    })
+    pkg = ws.search_web_structured("2026年新能源车销量", limit=5)
+    assert pkg["results"], "如实返回（不静默丢），但必须带标注"
+    assert pkg["relevance"] == "none"
+    assert all(r["relevant"] is False for r in pkg["results"])
+    assert [f["reason"] for f in pkg["partial_failures"]].count("irrelevant") == 2
+    assert all(r.get("source_engines") for r in pkg["results"])
+
+
+def test_relevance_gate_ignores_symbol_only_query(monkeypatch):
+    """纯符号/无可提取词项的 query → 不判相关（不因闸门误伤正常检索）。"""
+    monkeypatch.setenv("WEB_SEARCH_ENGINES", "bing")
+    ws.reset_engine_state()
+    _patch_searchers(monkeypatch, {"bing": [_row("A", "https://a.example.com/", "x")]})
+    assert ws._query_terms("???") == ()
+    pkg = ws.search_web_structured("???", limit=5)
+    assert pkg["results"] and pkg["relevance"] == "ok"
+
+
+def test_tool_block_cautions_when_all_results_irrelevant(monkeypatch):
+    """端到端（handler 工具块）：整批不相关 → 块内显式降级提示（不得当答案）。
+
+    覆盖真实用户路径：搜「新能源车销量」→ 引擎只给「新（汉语汉字）」释义卡。
+    """
+    import src.bot.handler as handler_mod
+    from src.bot.handler import MessageHandler
+    bot = object.__new__(MessageHandler)
+    bot.__dict__.setdefault("_citations", {})
+    bad = [{"title": "新（汉语汉字）_百度百科", "url": "https://baike.baidu.com/item/新",
+            "text": "“新”是“薪”的初文。", "site_name": "", "source_engines": ["bing"],
+            "relevant": False, "relevance_hits": 0}]
+    good = [{"title": "2026年新能源车销量排行榜", "url": "https://auto.example.com/1",
+             "text": "新能源车销量同比增长。", "site_name": "", "source_engines": ["so360"],
+             "relevant": True, "relevance_hits": 5}]
+    monkeypatch.setattr(handler_mod, "web_search_available", lambda force=False: True)
+    monkeypatch.setattr(bot, "_search_rate_ok", lambda uid: True)
+    monkeypatch.setattr(handler_mod, "search_web", lambda q, limit=5: bad)
+    tr = bot._tool_web_search("新能源车销量", "u_care")
+    assert tr.ok is True and "不要作为事实依据引用" in tr.text
+    # 有相关结果时**不得**出现降级提示（不误伤正常检索）
+    monkeypatch.setattr(handler_mod, "search_web", lambda q, limit=5: good)
+    tr2 = bot._tool_web_search("新能源车销量", "u_care2")
+    assert "不要作为事实依据引用" not in tr2.text

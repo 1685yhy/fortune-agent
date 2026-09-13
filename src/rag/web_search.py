@@ -509,6 +509,74 @@ def normalize_url(url: str) -> str:
         return u
 
 
+# ---------------------------------------------------------------------------
+# k46 相关性闸门（真实用户路径验收暴露，2026-09-14）
+# ---------------------------------------------------------------------------
+# 复现：搜「2026年新能源车销量」→ 归一化正确（`新能源车销量`），但 Bing 结果页顶部塞的是
+# 「新（汉语汉字）」释义卡（`li.b_algo` 里就是 baike.baidu.com/item/新），旧「达标即停」只
+# 看**条数**（`len(merged) >= limit` 且 ≥2 引擎出过结果）→ Bing 的 5 条（多为释义卡）就
+# 达标停了，实测全相关的百度（9 条）/360（6 条）**根本没被问**。
+# 现规则：① 引擎结果必须与查询**实质匹配**才算「贡献」（`_engine_rows_relevant`），
+# 否则不算达标、继续问下一个引擎；② 合并后**按相关性排序**（相关优先），而不是
+# 「谁先出结果谁说了算」；③ 全都不相关 → 包上标 `relevance="none"`（别当答案）。
+# 相关性 = 查询词项在「标题+摘要」里的**命中数**（零依赖：中文 2-gram，无分词库；
+# 拉丁/数字词整体作一项）。2-gram 命中是相关性**代理指标**、不做语义理解——
+# 目标是拦「引擎侧释义卡/软性重定向」这类字面都不沾的结果，不追求语义级判定。
+_QUERY_TERM_RE = re.compile(r"[A-Za-z0-9]{2,}")
+_CJK_RUN_RE = re.compile("[\\u4e00-\\u9fff]+")
+RELEVANCE_MIN_RATIO = 0.34      # 单条结果命中率下限
+RELEVANCE_MAX_NEED = 2          # 命中数下限（词项少时不因 ratio 放宽）
+
+
+def _query_terms(query: str) -> tuple:
+    """查询 → 相关性命中的词项（中文 2-gram + 拉丁/数字词，去重保序）。"""
+    q = (query or "").strip()
+    if not q:
+        return ()
+    out: list[str] = []
+    for tok in _QUERY_TERM_RE.findall(q):
+        low = tok.lower()
+        if low not in out:
+            out.append(low)
+    for run in _CJK_RUN_RE.findall(q):
+        for i in range(len(run) - 1):
+            gram = run[i:i + 2]
+            if gram not in out:
+                out.append(gram)
+    return tuple(out)
+
+
+def _min_relevance_hits(n_terms: int) -> int:
+    """判「相关」的命中数下限：≤1 个词项 → 全命中；否则 ≥2 且 ≥34%。"""
+    if n_terms <= 1:
+        return n_terms
+    return min(n_terms, max(RELEVANCE_MAX_NEED,
+                            int(n_terms * RELEVANCE_MIN_RATIO + 0.999)))
+
+
+def _relevance_hits(row, terms) -> int:
+    """该结果命中的查询词项数（标题 + 摘要）。terms 为空 → 0（不判相关）。"""
+    if not terms:
+        return 0
+    blob = f"{row.get('title') or ''} {row.get('text') or ''}".lower()
+    return sum(1 for t in terms if t in blob)
+
+
+def _engine_rows_relevant(rows, terms) -> bool:
+    """引擎结果集是否与查询实质匹配（瀑布「达标」闸门）。
+
+    - terms 为空（纯符号 query）→ 不判，按原有「非空即贡献」语义
+    - 否则：相关条数 ≥ min(2, 返回条数)（只有 1 条时即那 1 条必须相关）
+    """
+    if not rows:
+        return False
+    if not terms:
+        return True
+    need = _min_relevance_hits(len(terms))
+    hit = sum(1 for r in rows if _relevance_hits(r, terms) >= need)
+    return hit >= min(2, len(rows))
+
+
 def _confidence(source_engines: list[str], text: str) -> int:
     """单条结果置信度（1-3）：多引擎命中 = 3；单引擎有摘要 = 2；仅标题 = 1。"""
     if len({e for e in source_engines if e}) >= 2:
@@ -516,13 +584,15 @@ def _confidence(source_engines: list[str], text: str) -> int:
     return 2 if (text or "").strip() else 1
 
 
-def merge_engine_results(per_engine, limit: int) -> list[dict]:
+def merge_engine_results(per_engine, limit: int, terms=None) -> list[dict]:
     """多引擎原始结果 → 去重合并后的结构化列表（k46 §3）。
 
     - 按 URL 归一化去重；同一 URL 多引擎命中 → 合并 source_engines（置信度 3）
     - 摘要取「更长的那个」（信息量优先），标题取首个非空
-    - 排序：置信度降序（交叉验证过的优先），同置信度保持首次出现顺序
-      → **单引擎配置下输出顺序与旧实现逐条一致**（行为兼容）
+    - 排序：**相关优先**（真实路径验收修复，见 `_query_terms` 上方注释）→ 置信度降序
+      → 命中数降序 → 首次出现顺序（稳定）；`terms` 省略（None）时全部同档
+      → 单引擎配置下输出顺序仍与旧实现逐条一致（行为兼容有测试锁）
+    - 每条带 `source_engines`（来源引擎，透传到对外结果）与 `relevance_hits`/`relevant`
     - 入 prompt 前统一注入过滤（sanitize_search_text）——**只覆盖 title/text**；
       url/site_name 原样进 citation（Minor-1：引擎侧 URL 已百分号编码且各适配器
       只收 http(s)，这里补一道协议白名单兜底：非 http(s) 行直接丢弃，防
@@ -530,6 +600,7 @@ def merge_engine_results(per_engine, limit: int) -> list[dict]:
     """
     merged: dict[str, dict] = {}
     order: list[str] = []
+    need = _min_relevance_hits(len(terms)) if terms else 0
     for engine, rows in per_engine:
         for row in rows or []:
             url = (row.get("url") or "").strip()
@@ -540,6 +611,7 @@ def merge_engine_results(per_engine, limit: int) -> list[dict]:
             text, flagged = sanitize_search_text(row.get("text") or "")
             if not title and not text:
                 continue
+            hits = _relevance_hits(row, terms)
             item = merged.get(key)
             if item is None:
                 item = {
@@ -549,6 +621,8 @@ def merge_engine_results(per_engine, limit: int) -> list[dict]:
                     "site_name": row.get("site_name") or "",
                     "source_engines": [engine],
                     "injection_flagged": flagged,
+                    "relevance_hits": hits,
+                    "relevant": (not terms) or hits >= need,
                 }
                 merged[key] = item
                 order.append(key)
@@ -563,14 +637,37 @@ def merge_engine_results(per_engine, limit: int) -> list[dict]:
     items = [merged[k] for k in order]
     for it in items:
         it["confidence"] = _confidence(it["source_engines"], it["text"])
-    items.sort(key=lambda x: -x["confidence"])  # 稳定排序：同分保持首次出现顺序
+    # 相关优先 → 置信度 → 命中数（稳定排序：全同档时保持首次出现顺序）
+    items.sort(key=lambda x: (0 if x.get("relevant") else 1,
+                              -x["confidence"], -x.get("relevance_hits", 0)))
     return items[:limit]
+
+
+def _relevance_grade(results: list[dict]) -> str:
+    """结果集相关性分级（对外标注）：ok / weak / none。
+
+    - ok：达标条数 ≥ min(2, 条数)（正常可用）
+    - weak：有字面沾边（命中 ≥1 词项）但未达标 → 可能只是改写措辞，**不判垃圾**
+    - none：**一条都没沾上查询词**（如引擎侧释义卡/软性重定向）→ 消费方不得当答案
+    """
+    if not results:
+        return "none"
+    rel = sum(1 for it in results if it.get("relevant"))
+    if rel >= min(2, len(results)):
+        return "ok"
+    touched = sum(1 for it in results if it.get("relevance_hits"))
+    return "weak" if touched else "none"
 
 
 def _result_package(results: list[dict], engines_tried, engines_ok,
                     partial_failures, stop_reason: str, query: str,
-                    cache_hit: bool = False) -> dict:
-    """结构化「检索包」（k46 §3）：结果 + 元信息（搜了哪些引擎/停止原因/局部失败）。"""
+                    cache_hit: bool = False, relevance: Optional[str] = None) -> dict:
+    """结构化「检索包」（k46 §3）：结果 + 元信息（搜了哪些引擎/停止原因/局部失败）。
+
+    `relevance`：结果集与查询的相关性分级（ok/weak/none，见 `_relevance_grade`）——
+    真实路径验收修复引入：`none` 表示「各引擎都只给了不相关结果」，消费方据此**不要把
+    垃圾当答案**（如实告知/降级），而不是把释义卡之类当检索结果。
+    """
     if len({e for it in results for e in it.get("source_engines", [])}) >= 2:
         confidence = 3
     elif results:
@@ -586,6 +683,7 @@ def _result_package(results: list[dict], engines_tried, engines_ok,
         "partial_failures": list(partial_failures),
         "confidence": confidence,
         "cache_hit": cache_hit,
+        "relevance": relevance if relevance is not None else _relevance_grade(results),
     }
 
 
@@ -1201,17 +1299,20 @@ def search_web_structured(keywords: str, limit: int = 5,
     # 提交给各引擎的 query 与 Bing 现状一致（_simplify_query 精简长句）；
     # 同一 query 跨引擎 → 交叉验证/去重才有意义（k46 设计取舍，见报告）
     query = _simplify_query(raw)[:QUERY_MAX_CHARS]
+    # 相关性闸门用的词项（真实路径验收修复）：按**实际提交给引擎的 query** 计算
+    terms = _query_terms(query)
     per_engine: list = []
     engines_tried: list[str] = []
     engines_ok: list[str] = []
-    contributing: set[str] = set()   # 出过结果的引擎（成功的空结果不算）
+    # 「贡献」= 出过**相关**结果的引擎（空结果不算；只有不相关的垃圾也不算 → 达标判据）
+    contributing: set[str] = set()
     failures: list[dict] = []
     stop_reason = "exhausted"
 
     def _safe_merge_rows() -> list[dict]:
         """合并兜底（Minor-6）：畸形行/未知异常 → 不抛，按空结果继续。"""
         try:
-            return merge_engine_results(per_engine, limit)
+            return merge_engine_results(per_engine, limit, terms)
         except Exception as e:  # noqa: BLE001 — 绝不让异常越出本函数
             logger.warning("k46 结果合并异常（%s）→ 丢弃本轮结果", str(e)[:120])
             return []
@@ -1271,8 +1372,13 @@ def search_web_structured(keywords: str, limit: int = 5,
             limiter.release()
         engines_ok.append(eng)
         _engine_ok_at[eng] = time.time()   # 可达性判定的「最近成功」证据（Minor-3）
-        if rows:
+        # 相关性闸门：只有**相关**结果才算「贡献」→ 不相关就继续问下一个引擎
+        if rows and _engine_rows_relevant(rows, terms):
             contributing.add(eng)
+        elif rows:
+            failures.append({"engine": eng, "reason": "irrelevant"})
+            logger.info("k46 引擎 %s 返回 %d 条但均与查询不相关 → 不计达标，继续下一引擎",
+                        eng, len(rows))
         per_engine.append((eng, rows))
         merged = _safe_merge_rows()
         if len(merged) >= limit and len(contributing) >= MIN_STOP_ENGINES:
@@ -1295,10 +1401,13 @@ def search_web_structured(keywords: str, limit: int = 5,
         _result_cache[cache_key] = (time.time() + RESULT_CACHE_TTL, pkg)
         if len(_result_cache) > RESULT_CACHE_MAX:
             _trim_result_cache()
-    logger.info("网络检索 '%s' → %d 条（引擎 %s；停止=%s；局部失败 %d）",
+    logger.info("网络检索 '%s' → %d 条（引擎 %s；停止=%s；相关性=%s；局部失败 %d）",
                 raw[:40], len(results),
                 "+".join(ENGINE_LABELS.get(e, e) for e in engines_ok) or "-",
-                stop_reason, len(failures))
+                stop_reason, pkg.get("relevance"), len(failures))
+    if results and pkg.get("relevance") == "none":
+        logger.warning("k46 各引擎结果与查询均不相关（疑似引擎侧释义卡/软性重定向）"
+                       "→ 已标注 relevance=none，消费方不得当答案使用：'%s'", raw[:40])
     if failures:
         logger.info("k46 局部失败明细：%s",
                     "; ".join(f"{ENGINE_LABELS.get(f['engine'], f['engine'])}={f['reason']}"

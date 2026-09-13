@@ -2908,6 +2908,14 @@ class MessageHandler:
             if r.get("text"):
                 lines.append(f"    {r['text'][:120]}")
         self._append_citations(user_id, items)
+        # 真实用户路径验收修复：引擎可能整批返回「释义卡/无关页」（如搜「新能源车销量」
+        # 却给「新（汉语汉字）」百科条目）。search_web 在这些条目上标 relevant=False
+        # （relevance=none）——此时**不得把垃圾当答案**，显式降级提示模型。
+        if results and not any(r.get("relevant", True) for r in results):
+            lines.append(
+                "（注意：以上结果与查询关键词均无实质匹配，可能是搜索引擎返回的释义卡/"
+                "无关页，**不要作为事实依据引用**；请如实告知用户本次未能检索到相关信息。）"
+            )
         lines.append(
             "（引用规则：只引用与用户问题直接相关的内容；"
             "引用网络信息时在陈述后标注编号 [n]；不相关的内容忽略。）"
