@@ -16,6 +16,8 @@
                  外部事实问句（新层目标捕获）；**kw_fp**=旧词表层关键词误触、
                  实为本地/闲聊（新层目标抑制）。
   - `k43r1:*`    k43-r1（审查 Important-1/2/3 修复）新增组，见文末说明。
+  - `k43r2:*`    k43-r2（复审 R1-I1 修复）新增组：指示代词护栏的**双向**用例
+                 （外部公开事实 vs 个人所属/私人体验），见文末说明。
 
 **示例集污染机制说明（k43-r1，审查 Important-1）**：本用例集与示例集
 `src/rag/semantic_router_examples.json` 共用「corpus 快照 + 既有 guard 样例」两个
@@ -301,6 +303,34 @@ _K43_R1 = [
     ("这次世界杯在哪个国家办", "k43r1:deictic_guard", "search"),    # 对照：本已判搜
 ]
 
+# ── k43-r2：复审 R1-I1 修复用例——指示代词护栏的**双向**锁（held-out 组）─────
+# 背景：k43-r1 为放行「这次美联储降息了吗」把 ACCEPT 侧豁免放宽成「外部主体词 +
+# 问句 cue」，于是**分不清「问型号/品类」与「问我自己那台」**，4 条个人指代句
+# 新增多搜（base 与 k43-r1 均不搜，query 无检索价值）。
+# 修复（src/rag/search_trigger.py::_is_exemptible_external_ask）＝三个排除项：
+#   ① 领属框架（我/我的/我家 + 指示代词）；② 私人体验面（买贵/首保/保养/油耗…）；
+#   ③ 消费品主体的非公开信息面（这款手机怎么样 → 回「无命名主体」原口径）。
+# 本组两个方向都必须锁住（各 6 条；全组 12 条均为**新文本**，与示例集逐字不交）：
+#   ① ext_public：外部公开事实（宏观事件/公开信息面）→ **必须仍搜**（不得压回去：
+#      这是 k43-r1 修好的族，base 本不搜、语义 ACCEPT 补搜，reason=semantic）；
+#   ② personal：个人所属/私人体验指代 → **必须不搜**（修复前 = 多搜 FP）。
+_K43_R2 = [
+    # ① ext_public：外部公开事实（base 不搜 → 语义 ACCEPT 补搜，护栏不得拦）
+    ("这台新车什么时候上市", "k43r2:ext_public", "search"),
+    ("这台新车有没有优惠", "k43r2:ext_public", "search"),
+    ("这款新车口碑怎么样", "k43r2:ext_public", "search"),      # 公开信息面（口碑）
+    ("这次奥斯卡奖什么时候颁", "k43r2:ext_public", "search"),   # 宏观事件
+    ("这款新手机什么时候发布", "k43r2:ext_public", "search"),
+    ("这台新电脑值得买吗", "k43r2:ext_public", "search"),       # 公开信息面（值得买）
+    # ② personal：个人所属/私人体验指代（修复前语义 ACCEPT 多搜 → 护栏拦下）
+    ("这台新车是不是很费油", "k43r2:personal", "none"),          # 私人体验面（使用状态）
+    ("我这台新车买贵了吗", "k43r2:personal", "none"),            # 领属框架 + 交易面
+    ("这台新车是不是该做首保了", "k43r2:personal", "none"),      # 私人体验面（养护）
+    ("这款手机怎么样", "k43r2:personal", "none"),                # 纯指代（query 无检索价值）
+    ("这台新机买贵了吗", "k43r2:personal", "none"),              # 交易面（另一主体）
+    ("我的这款新车是不是买贵了", "k43r2:personal", "none"),      # 领属框架 + 交易面
+]
+
 # 需要逐条控制 llm_signal / expect_llm 的用例（其余默认 llm_signal=expect 一致）
 #   cid 由 (text, src) 推导；此处按 text 覆盖。
 _LLM_OVERRIDES = {
@@ -325,17 +355,18 @@ _LLM_OVERRIDES = {
 def _build() -> list:
     out = []
     seen = set()
-    for text, src, expect in _CORPUS + _GUARD + _AUTHORED + _K43_R1:
+    for text, src, expect in _CORPUS + _GUARD + _AUTHORED + _K43_R1 + _K43_R2:
         if not text:
             continue
         key = text
         if key in seen:
             continue
         seen.add(key)
-        # k43r1 组默认**不打**模型信号：真实分析器在这些句上本就漏判（报告 §3.3
-        # 自述 T104/T105 全句 needs_search=False）——「模型信号不在场时语义层仍该
-        # 救回」正是本组要锁的语义；其余用例默认 llm_signal 与 expect 一致。
-        default = (expect == "search") and not src.startswith("k43r1:")
+        # k43r1/k43r2 组默认**不打**模型信号：真实分析器在这些句上本就漏判（报告
+        # §3.3 自述 T104/T105 全句 needs_search=False）——「模型信号不在场时语义层
+        # 仍该救回（或仍该不搜）」正是这两组要锁的语义；其余用例默认 llm_signal 与
+        # expect 一致（k43r2 personal 组 expect=none 本就不打信号）。
+        default = (expect == "search") and not src.startswith(("k43r1:", "k43r2:"))
         llm_sig, expect_llm = _LLM_OVERRIDES.get(text, (default, expect))
         out.append(AB(cid=f"A{len(out)+1:03d}", text=text, expect=expect,
                       llm_signal=llm_sig, expect_llm=expect_llm, src=src))
@@ -348,4 +379,5 @@ CORPUS_COUNT = sum(1 for c in CASES if c.src.startswith("corpus:"))
 GUARD_COUNT = sum(1 for c in CASES if c.src.startswith("guard:"))
 AUTHORED_COUNT = sum(1 for c in CASES if c.src.startswith("authored:"))
 R1_COUNT = sum(1 for c in CASES if c.src.startswith("k43r1:"))
+R2_COUNT = sum(1 for c in CASES if c.src.startswith("k43r2:"))
 POS_COUNT = sum(1 for c in CASES if c.expect == "search")

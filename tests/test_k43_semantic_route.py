@@ -353,17 +353,58 @@ class TestDecideSearchWiring:
 
         base 也不搜（非回归），但它们正是语义 ACCEPT 的目标类，不得被
         `_has_unnamed_subject_ref` 在入口掐掉。
+
+        k43-r2（复审 R1-I1）：豁免收窄为**外部公开事实/公开信息面**
+        （`_is_exemptible_external_ask`），个人所属/私人体验指代见下一用例。
         """
         stub_signal("search")
         for msg in ("这次美联储降息了吗", "这次诺贝尔奖颁给谁了",
                     "这台新车值得买吗", "这款新车什么时候上市",
-                    "这台笔记本电脑值得买吗", "这部电视剧值得追吗"):
+                    "这台笔记本电脑值得买吗", "这部电视剧值得追吗",
+                    # k43-r2：豁免收窄后这一族（外部**公开事实/公开信息面**）不得回归
+                    "这台新车什么时候上市", "这台新车有没有优惠",
+                    "这款新车口碑怎么样", "这次奥斯卡奖什么时候颁",
+                    "这款新手机什么时候发布", "这台新电脑值得买吗"):
             d = decide_search(msg)
             assert d.should_search and d.reason == "semantic" and d.query, (msg, d)
         # 对照：无外部主体词的指代句仍被护栏拦下（沿用层 4/5「纯指代不触发」语义）
         for msg in ("新开的那个中医馆 靠谱吗", "某新成立的医馆口碑如何",
                     "那家店待遇怎么样", "这家公司怎么样"):
             assert decide_search(msg).should_search is False, msg
+
+    def test_deictic_guard_blocks_personal_ownership_ask(self, stub_signal):
+        """k43-r2（复审 R1-I1）：语义 ACCEPT 侧豁免**不得**放行「个人所属/私人
+        体验」指代——它们在 base 与 k43-r1 均不搜，修复前被放宽的豁免放行成了
+        多搜（query 无检索价值：`这款手机怎么样` → query=「这款手机」）。
+
+        排除项（src/rag/search_trigger.py::_is_exemptible_external_ask）：
+          ① 领属框架（我/我的 + 指示代词）；② 私人体验面（买贵/首保/保养/油耗…）；
+          ③ 消费品主体的非公开信息面（怎么样/是不是…）。
+        """
+        stub_signal("search")                      # 语义层说「搜」也必须被护栏拦下
+        for msg in ("这台新车是不是很费油", "我这台新车买贵了吗",
+                    "这台新车是不是该做首保了", "这款手机怎么样",
+                    "这台新机买贵了吗", "我的这款新车是不是买贵了"):
+            d = decide_search(msg)
+            assert d.should_search is False and d.reason == "none", (msg, d)
+        # 对照：同主体 + 公开信息面 → 仍搜（区分的是「面」不是「词」）
+        for msg in ("这台新车值得买吗", "这台新车什么时候上市", "这款新车口碑怎么样"):
+            assert decide_search(msg).should_search is True, msg
+
+    def test_exemptible_external_ask_predicate(self):
+        """k43-r2 豁免判定纯函数双向锁（无 stub、无模型）：
+        外部公开事实 → True；个人所属/私人体验 → False。"""
+        from src.rag.search_trigger import _is_exemptible_external_ask as ok
+        for msg in ("这次美联储降息了吗", "这次诺贝尔奖颁给谁了", "这台新车值得买吗",
+                    "这台新车什么时候上市", "这款新手机什么时候发布",
+                    "这次奥斯卡奖什么时候颁", "这款新车口碑怎么样"):
+            assert ok(msg) is True, msg
+        for msg in ("这台新车是不是很费油", "我这台新车买贵了吗",
+                    "这台新车是不是该做首保了", "这款手机怎么样",
+                    "这台新机买贵了吗", "我的这款新车是不是买贵了",
+                    # 非豁免面（连外部时效/事实问句都算不上）仍为 False
+                    "这家公司怎么样", "那家店待遇怎么样"):
+            assert ok(msg) is False, msg
 
     def test_llm_signal_beats_semantic_veto_in_all_layers(self, stub_signal):
         """llm_needs_search OR 叠加：层 4/5 与实体层时效子分支的语义否决都可被推翻。"""
