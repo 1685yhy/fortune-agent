@@ -1,0 +1,5487 @@
+{
+ "generated_at": "2026-09-14 00:32:52",
+ "mcp_version": "3.2.1",
+ "limit_per_run": 5,
+ "rows": [
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 779,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "明天北京天气",
+   "results": [
+    {
+     "title": "Wish | Shop and Save",
+     "url": "https://www.wish.com/",
+     "snippet": "Discover affordable items for your home and life needs. Enjoy our money back guarantee, frequent discounts, flat rate shipping …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Cheap Fashion, Top Quality. On Sale Now. | Wish",
+     "url": "https://www.wish.com/~/fashion",
+     "snippet": "Buy Fashion at Deep Discounts. Direct from Manufacturer Pricing. Satisfaction Guaranteed. We have Bags and Purses, Cute and …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Wish for Merchants",
+     "url": "https://merchant.wish.com/login",
+     "snippet": "Privacy Policy Unable to connect to Wish",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Wish for Merchants",
+     "url": "https://www.merchant.wish.com/",
+     "snippet": "Wish for Merchants is a platform enabling merchants to upload and manage products, access policies, and optimize their business on …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Managing Your Account | Home - Wish",
+     "url": "https://home.wish.com/faq/managing-account",
+     "snippet": "Discover affordable items for your home and life needs. Enjoy our money back guarantee, frequent discounts, flat rate shipping …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q01",
+   "source": "corpus:T072",
+   "category": "天气时效",
+   "query": "明天北京天气怎么样",
+   "entity": null,
+   "config": "ours-default",
+   "wall_ms": 779,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 582,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "anti_bot"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "明天北京天气",
+   "results": [
+    {
+     "title": "知乎 - 有问题，就会有答案",
+     "url": "https://www.zhihu.com/",
+     "snippet": "知乎，中文互联网高质量的问答社区和创作者聚集的原创内容平台，于 2011 年 1 月正式上线，以「让人们更好的分享知识、经验和见 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "周一，周二，周三，周四，周五，周六，周日。用英语怎么说 ...",
+     "url": "https://zhidao.baidu.com/question/454419419654703525.html",
+     "snippet": "2019年9月16日 · 周一，周二，周三，周四，周五，周六，周日。用英语怎么说？谢谢！1、星期日：Sunday，简写Sun.2、星期 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "帮忙翻译下希腊数字 Ⅰ、Ⅱ、Ⅲ、Ⅳ、Ⅴ、Ⅵ、Ⅶ、Ⅷ、Ⅸ、Ⅹ ...",
+     "url": "https://zhidao.baidu.com/question/436515257968871164.html",
+     "snippet": "2019年11月7日 · Ⅰ、Ⅱ、Ⅲ、Ⅳ、Ⅴ、Ⅵ、Ⅶ、Ⅷ、Ⅸ、Ⅹ、Ⅺ、Ⅻ不是希腊数字，而是 罗马数字，它们分别代表的 阿拉伯数字 是1 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "有什么免费好用的PC桌面端翻译软件？ - 知乎",
+     "url": "https://www.zhihu.com/question/15039042064",
+     "snippet": "copytranslator是免费开源的翻译软件，获得了17.6K Stars 能说明很受欢迎 这个是支持多国语言的，而且不需要复制后再切换至其他软 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "豆包如何使用实时翻译 - 百度经验",
+     "url": "https://jingyan.baidu.com/article/20b68a88ce3cf3386cec62e3.html",
+     "snippet": "2025年10月4日 · ©2026Baidu 使用百度前必读 百度经验协议 作者创作作品协议 企业推广 京ICP证030173号-1 京网文【2023】1034 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q01",
+   "source": "corpus:T072",
+   "category": "天气时效",
+   "query": "明天北京天气怎么样",
+   "entity": null,
+   "config": "ours-bing-baidu",
+   "wall_ms": 582,
+   "entity_hit": false
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1055,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q01",
+   "source": "corpus:T072",
+   "category": "天气时效",
+   "query": "明天北京天气怎么样",
+   "entity": null,
+   "config": "mcp-default",
+   "wall_ms": 1055,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 4,
+   "latency_ms": 1059,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 3,
+   "results": [
+    {
+     "title": "zhihu.comhttps://www.zhihu.com › question",
+     "url": "https://www.zhihu.com/question/665714283",
+     "snippet": "2024年8月30日 · 天地图·多相时影像功能介绍（以北京为例） 可以选择不同时间的地图显示。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "zhihu.comhttps://www.zhihu.com",
+     "url": "https://www.zhihu.com/",
+     "snippet": "知乎，中文互联网高质量的问答社区和创作者聚集的原创内容平台，于 2011 年 1 月正式上线，以「让人们更好的分享知识、经验和见 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "zhihu.comhttps://www.zhihu.com › question › answers › updated",
+     "url": "https://www.zhihu.com/question/548421046/answers/updated",
+     "snippet": "2025年12月10日 · 起码我有印象的几个点都对得上 1.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "baidu.comhttps://jingyan.baidu.com › article",
+     "url": "https://jingyan.baidu.com/article/29697b91d8e608ea21de3c36.html",
+     "snippet": "2023年5月18日 · 高德地图打车后，怎么申请发票,使用高德地图平台打车，如果可以报销就需要申请电子发票呢。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q01",
+   "source": "corpus:T072",
+   "category": "天气时效",
+   "query": "明天北京天气怎么样",
+   "entity": null,
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1059,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 737,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "易宝支付这家公司靠不靠谱 我正考虑换工作过去 我的盘你之前排过",
+   "results": [
+    {
+     "title": "易宝支付-交易服务 成就客户|业内知名聚合支付|第三方支付平台",
+     "url": "https://www.yeepay.com/about-us/company-introduction",
+     "snippet": "易宝支付是中国支付行业的先行者，深耕互联网金融第三方支付服务。 致力于为行业提供量身定制的移动支付、聚合支付解决方案,助 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "易宝支付_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%98%93%E5%AE%9D%E6%94%AF%E4%BB%98/3792416",
+     "snippet": "易宝支付于2021年5月首批成功续展《支付业务许可证》，并于2025年7月获发长期有效支付牌照。 在行业支付领域，易宝支付于2006 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "易宝支付-交易服务 成就客户|业内知名聚合支付|第三方支付平台",
+     "url": "https://www.yeepay.com/?lang=en",
+     "snippet": "2026年7月17日 · 易宝支付是中国支付行业的先行者，深耕互联网金融第三方支付服务。 致力于为行业提供量身定制的移动支付、聚合 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "YeePay",
+     "url": "https://global.yeepay.com/",
+     "snippet": "2026年7月7日 · YeePay International's unique global local payment network offers faster, cost-effective, and transparent payment …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "易宝支付有限公司_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%98%93%E5%AE%9D%E6%94%AF%E4%BB%98%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8/20101063",
+     "snippet": "2003年7月2日 · 易宝支付有限公司（英文名：YeePay）成立于2003年8月，由北京通融通信息技术有限公司创建，总部位于北京并已 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q02",
+   "source": "corpus:T104",
+   "category": "公司口碑",
+   "query": "易宝支付这家公司靠不靠谱？我正考虑换工作过去，我的盘你之前排过。",
+   "entity": "易宝支付",
+   "config": "ours-default",
+   "wall_ms": 737,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 376,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "易宝支付这家公司靠不靠谱 我正考虑换工作过去 我的盘你之前排过",
+   "results": [
+    {
+     "title": "易宝支付-交易服务 成就客户|业内知名聚合支付|第三方支付平台",
+     "url": "https://www.yeepay.com/about-us/company-introduction",
+     "snippet": "易宝支付是中国支付行业的先行者，深耕互联网金融第三方支付服务。 致力于为行业提供量身定制的移动支付、聚合支付解决方案,助 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "易宝支付_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%98%93%E5%AE%9D%E6%94%AF%E4%BB%98/3792416",
+     "snippet": "易宝支付于2021年5月首批成功续展《支付业务许可证》，并于2025年7月获发长期有效支付牌照。 在行业支付领域，易宝支付于2006 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "易宝支付-交易服务 成就客户|业内知名聚合支付|第三方支付平台",
+     "url": "https://www.yeepay.com/?lang=en",
+     "snippet": "2026年7月17日 · 易宝支付是中国支付行业的先行者，深耕互联网金融第三方支付服务。 致力于为行业提供量身定制的移动支付、聚合 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "YeePay",
+     "url": "https://global.yeepay.com/",
+     "snippet": "2026年7月7日 · YeePay International's unique global local payment network offers faster, cost-effective, and transparent payment …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "易宝支付有限公司_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%98%93%E5%AE%9D%E6%94%AF%E4%BB%98%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8/20101063",
+     "snippet": "2003年7月2日 · 易宝支付有限公司（英文名：YeePay）成立于2003年8月，由北京通融通信息技术有限公司创建，总部位于北京并已 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q02",
+   "source": "corpus:T104",
+   "category": "公司口碑",
+   "query": "易宝支付这家公司靠不靠谱？我正考虑换工作过去，我的盘你之前排过。",
+   "entity": "易宝支付",
+   "config": "ours-bing-baidu",
+   "wall_ms": 376,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1086,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q02",
+   "source": "corpus:T104",
+   "category": "公司口碑",
+   "query": "易宝支付这家公司靠不靠谱？我正考虑换工作过去，我的盘你之前排过。",
+   "entity": "易宝支付",
+   "config": "mcp-default",
+   "wall_ms": 1086,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1024,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 4,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 易宝支付有限公司",
+     "url": "https://baike.baidu.com/item/%E6%98%93%E5%AE%9D%E6%94%AF%E4%BB%98%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8/20101063",
+     "snippet": "2003年7月2日 · 易宝支付有限公司（英文名：YeePay）成立于2003年8月，由北京通融通信息技术有限公司创建，总部位于北京并已 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 易宝支付",
+     "url": "https://baike.baidu.com/item/%E6%98%93%E5%AE%9D%E6%94%AF%E4%BB%98/3792416",
+     "snippet": "易宝支付于2021年5月首批成功续展《支付业务许可证》，并于2025年7月获发长期有效支付牌照。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "yeepay.comhttps://www.yeepay.com › about-us › company-introduction",
+     "url": "https://www.yeepay.com/about-us/company-introduction",
+     "snippet": "易宝支付是中国支付行业的先行者，深耕互联网金融第三方支付服务。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "yeepay.comhttps://www.yeepay.com",
+     "url": "https://www.yeepay.com/?lang=en",
+     "snippet": "2026年7月17日 · 易宝支付是中国支付行业的先行者，深耕互联网金融第三方支付服务。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "yeepay.comhttps://global.yeepay.com",
+     "url": "https://global.yeepay.com/",
+     "snippet": "2026年7月7日 · YeePay International's unique global local payment network offers faster, cost-effective, and transparent payment …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q02",
+   "source": "corpus:T104",
+   "category": "公司口碑",
+   "query": "易宝支付这家公司靠不靠谱？我正考虑换工作过去，我的盘你之前排过。",
+   "entity": "易宝支付",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1024,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1003,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "腾讯这家公司怎么样 适合我的事业吗 我的盘你之前排过",
+   "results": [
+    {
+     "title": "腾讯网",
+     "url": "https://www.qq.com/",
+     "snippet": "腾讯网从2003年创立至今，已经成为集新闻信息，区域垂直生活服务、社会化媒体资讯和产品为一体的互联网媒体平台。 腾讯网下设 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "腾讯视频频道 - 热门电影电视剧综艺动漫在线观看 - 腾讯视频",
+     "url": "https://v.qq.com/",
+     "snippet": "腾讯视频频道页提供最新热门电影、电视剧、综艺、动漫、纪录片、体育等高清正版视频内容在线观看，海量资源持续更新，当前热播 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Home - Tencent",
+     "url": "https://www.tencent.com/zh-cn/",
+     "snippet": "2026年8月12日 · of all electricity consumed in our own operations and supply chain will be green power by 2030",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Tencent 腾讯",
+     "url": "https://www.tencent.com/index.php/zh-cn/index.html",
+     "snippet": "2026年3月3日 · 腾讯于1998年11月成立，是一家互联网公司，通过技术丰富互联网用户的生活，助力企业数字化升级。 我们的使命是“ …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "腾讯视频官方最新版下载",
+     "url": "https://v.qq.com/download.html",
+     "snippet": "2026年9月1日 · 腾讯视频PC客户端、腾讯视频Mac版、手机版、iPad版、TV版官方最新版下载，腾讯视频微信小程序二维码扫一扫入 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q03",
+   "source": "corpus:T105",
+   "category": "公司口碑",
+   "query": "腾讯这家公司怎么样，适合我的事业吗？我的盘你之前排过。",
+   "entity": "腾讯",
+   "config": "ours-default",
+   "wall_ms": 1003,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 381,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "腾讯这家公司怎么样 适合我的事业吗 我的盘你之前排过",
+   "results": [
+    {
+     "title": "腾讯网",
+     "url": "https://www.qq.com/",
+     "snippet": "腾讯网从2003年创立至今，已经成为集新闻信息，区域垂直生活服务、社会化媒体资讯和产品为一体的互联网媒体平台。 腾讯网下设 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "腾讯视频频道 - 热门电影电视剧综艺动漫在线观看 - 腾讯视频",
+     "url": "https://v.qq.com/",
+     "snippet": "腾讯视频频道页提供最新热门电影、电视剧、综艺、动漫、纪录片、体育等高清正版视频内容在线观看，海量资源持续更新，当前热播 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Home - Tencent",
+     "url": "https://www.tencent.com/zh-cn/",
+     "snippet": "2026年8月12日 · of all electricity consumed in our own operations and supply chain will be green power by 2030",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Tencent 腾讯",
+     "url": "https://www.tencent.com/index.php/zh-cn/index.html",
+     "snippet": "2026年3月3日 · 腾讯于1998年11月成立，是一家互联网公司，通过技术丰富互联网用户的生活，助力企业数字化升级。 我们的使命是“ …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "腾讯视频官方最新版下载",
+     "url": "https://v.qq.com/download.html",
+     "snippet": "2026年9月1日 · 腾讯视频PC客户端、腾讯视频Mac版、手机版、iPad版、TV版官方最新版下载，腾讯视频微信小程序二维码扫一扫入 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q03",
+   "source": "corpus:T105",
+   "category": "公司口碑",
+   "query": "腾讯这家公司怎么样，适合我的事业吗？我的盘你之前排过。",
+   "entity": "腾讯",
+   "config": "ours-bing-baidu",
+   "wall_ms": 381,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1058,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q03",
+   "source": "corpus:T105",
+   "category": "公司口碑",
+   "query": "腾讯这家公司怎么样，适合我的事业吗？我的盘你之前排过。",
+   "entity": "腾讯",
+   "config": "mcp-default",
+   "wall_ms": 1058,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1047,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 4,
+   "results": [
+    {
+     "title": "tencent.comhttps://www.tencent.com › index.php › zh-cn › index.html",
+     "url": "https://www.tencent.com/index.php/zh-cn/index.html",
+     "snippet": "2026年3月3日 · 腾讯于1998年11月成立，是一家互联网公司，通过技术丰富互联网用户的生活，助力企业数字化升级。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "qq.comhttps://www.qq.com",
+     "url": "https://www.qq.com/",
+     "snippet": "腾讯网从2003年创立至今，已经成为集新闻信息，区域垂直生活服务、社会化媒体资讯和产品为一体的互联网媒体平台。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "qq.comhttps://v.qq.com",
+     "url": "https://v.qq.com/",
+     "snippet": "腾讯视频频道页提供最新热门电影、电视剧、综艺、动漫、纪录片、体育等高清正版视频内容在线观看，海量资源持续更新，当前热播 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "qq.comhttps://v.qq.com › download.html",
+     "url": "https://v.qq.com/download.html",
+     "snippet": "2026年9月1日 · 腾讯视频PC客户端、腾讯视频Mac版、手机版、iPad版、TV版官方最新版下载，腾讯视频微信小程序二维码扫一扫入 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "tencent.comhttps://www.tencent.com › zh-cn",
+     "url": "https://www.tencent.com/zh-cn/",
+     "snippet": "2026年8月12日 · of all electricity consumed in our own operations and supply chain will be green power by 2030",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q03",
+   "source": "corpus:T105",
+   "category": "公司口碑",
+   "query": "腾讯这家公司怎么样，适合我的事业吗？我的盘你之前排过。",
+   "entity": "腾讯",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1047,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 770,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "苹果公司的最新新闻",
+   "results": [
+    {
+     "title": "Apple (中国大陆) - 官方网站",
+     "url": "https://www.apple.com.cn/",
+     "snippet": "探索 Apple 充满创新的世界，选购各式 iPhone、iPad、Apple Watch 和 Mac，浏览各种配件、娱乐产品，并获得相关产品的专家支持 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "iPhone - Apple (中国大陆)",
+     "url": "https://www.apple.com.cn/iphone/",
+     "snippet": "2026年2月1日 · iPhone 由超瓷晶面板守护，这种材质的坚固度超过玻璃或微晶玻璃面板。我们最新款的 iPhone 机型正面配备了超瓷 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Apple",
+     "url": "https://www.apple.com/",
+     "snippet": "Introducing the iPhone Duo. Plus new iPhone 18 Pro, Apple Watch Series 12, Apple Watch Ultra 4, and AirPods 5.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "iCloud",
+     "url": "https://www.icloud.com.cn/",
+     "snippet": "Log in to iCloud to access your photos, mail, notes, documents and more. Sign in with your Apple Account or create a new account to …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "苹果（蔷薇科苹果属植物）_百度百科",
+     "url": "https://baike.baidu.com/item/%E8%8B%B9%E6%9E%9C/14822460",
+     "snippet": "苹果（学名Malus pumila Mill.）是蔷薇科、苹果属植物，别称西洋苹果、柰，属于蔷薇科苹果属的植物。 苹果是全球最广泛种植和销 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q04",
+   "source": "guard:k11b",
+   "category": "公司新闻",
+   "query": "帮我查一下苹果公司的最新新闻",
+   "entity": "苹果",
+   "config": "ours-default",
+   "wall_ms": 770,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 391,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "苹果公司的最新新闻",
+   "results": [
+    {
+     "title": "Apple (中国大陆) - 官方网站",
+     "url": "https://www.apple.com.cn/",
+     "snippet": "探索 Apple 充满创新的世界，选购各式 iPhone、iPad、Apple Watch 和 Mac，浏览各种配件、娱乐产品，并获得相关产品的专家支持 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "iPhone - Apple (中国大陆)",
+     "url": "https://www.apple.com.cn/iphone/",
+     "snippet": "2026年2月1日 · iPhone 由超瓷晶面板守护，这种材质的坚固度超过玻璃或微晶玻璃面板。我们最新款的 iPhone 机型正面配备了超瓷 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Apple",
+     "url": "https://www.apple.com/",
+     "snippet": "Introducing the iPhone Duo. Plus new iPhone 18 Pro, Apple Watch Series 12, Apple Watch Ultra 4, and AirPods 5.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "iCloud",
+     "url": "https://www.icloud.com.cn/",
+     "snippet": "Log in to iCloud to access your photos, mail, notes, documents and more. Sign in with your Apple Account or create a new account to …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "苹果（蔷薇科苹果属植物）_百度百科",
+     "url": "https://baike.baidu.com/item/%E8%8B%B9%E6%9E%9C/14822460",
+     "snippet": "苹果（学名Malus pumila Mill.）是蔷薇科、苹果属植物，别称西洋苹果、柰，属于蔷薇科苹果属的植物。 苹果是全球最广泛种植和销 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q04",
+   "source": "guard:k11b",
+   "category": "公司新闻",
+   "query": "帮我查一下苹果公司的最新新闻",
+   "entity": "苹果",
+   "config": "ours-bing-baidu",
+   "wall_ms": 391,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 988,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q04",
+   "source": "guard:k11b",
+   "category": "公司新闻",
+   "query": "帮我查一下苹果公司的最新新闻",
+   "entity": "苹果",
+   "config": "mcp-default",
+   "wall_ms": 989,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 947,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 5,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 帮",
+     "url": "https://baike.baidu.com/item/%E5%B8%AE/4012240",
+     "snippet": "帮，汉语一级字，读作帮（bāng ），其本义为鞋的边缘部分。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "hgcha.comhttps://www.hgcha.com › zidian",
+     "url": "https://www.hgcha.com/zidian/5d11e9dd.html",
+     "snippet": "3 天之前 · (1) 帮助 英 help 例 你帮我，我帮你；帮人（做佣人）；帮衬（帮忙补衬） (2) 从旁挟持 英 seize sb.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "hanyuguoxue.comhttps://www.hanyuguoxue.com › zidian",
+     "url": "https://www.hanyuguoxue.com/zidian/zi-24110",
+     "snippet": "帮的拼音是bāng，帮字共9画，部首是巾部，本页介绍帮字的意思，帮的详细解释，帮的读音、笔顺，还包括帮的翻译、输入法、异体 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "strokeorder.cchttps://www.strokeorder.cc › hanzi › 帮",
+     "url": "https://www.strokeorder.cc/hanzi/%E5%B8%AE",
+     "snippet": "学习汉字【帮】的正确笔顺规则！",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "doubao.comhttps://www.doubao.com › chat",
+     "url": "https://www.doubao.com/chat/",
+     "snippet": "Seedance 2.",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q04",
+   "source": "guard:k11b",
+   "category": "公司新闻",
+   "query": "帮我查一下苹果公司的最新新闻",
+   "entity": "苹果",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 947,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1050,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "招商银行的待遇",
+   "results": [
+    {
+     "title": "一网通主页 -- 招商银行官方网站",
+     "url": "https://cmbchina.com/",
+     "snippet": "16 小时之前 · 在移动互联时代刚刚开启之际，顺应零售客户行为变迁，推出招商银行和掌上生活两大App，开展平台化经营，在品牌影 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "招商银行企业银行U-BANK",
+     "url": "https://u.ebank.cmbchina.com/CmbBank_FB/UI/Login/FBPOPLogin.aspx",
+     "snippet": "检测到您正在使用 IE 浏览器。系统将于近期停止支持 IE，为避免影响登录，请使用 Google Chrome 或 Microsoft Edge 等现代浏览器 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "招商局集团有限公司_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%8B%9B%E5%95%86%E5%B1%80%E9%9B%86%E5%9B%A2%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8/5527176",
+     "snippet": "截至2022年末，招商证券在中国境内设有12家分公司、259家营业部，同时在中国香港、英国、韩国设有子公司；全资控股招商证券国 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "招商局集团 - Cmhk",
+     "url": "https://www.cmhk.com/main/",
+     "snippet": "2026年7月14日 · 优势互补 互利共赢丨招商局集团与福州市政府签约 9月7日，招商局集团与福州市人民政府在香港签署战略合作框架 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "网上银行全天候银行服务_招商银行",
+     "url": "https://cmbchina.com/personal/netbank/",
+     "snippet": "2026年7月9日 · 招商银行手机银行限时特惠,手机银行转账汇款费率优惠,持卡尊享专属银行理财产品,银行贷款融资快速通道,无抵押贷 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q05",
+   "source": "guard:k11b",
+   "category": "公司待遇",
+   "query": "招商银行的待遇怎么样",
+   "entity": "招商银行",
+   "config": "ours-default",
+   "wall_ms": 1050,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 410,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "招商银行的待遇",
+   "results": [
+    {
+     "title": "一网通主页 -- 招商银行官方网站",
+     "url": "https://cmbchina.com/",
+     "snippet": "16 小时之前 · 在移动互联时代刚刚开启之际，顺应零售客户行为变迁，推出招商银行和掌上生活两大App，开展平台化经营，在品牌影 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "招商银行企业银行U-BANK",
+     "url": "https://u.ebank.cmbchina.com/CmbBank_FB/UI/Login/FBPOPLogin.aspx",
+     "snippet": "检测到您正在使用 IE 浏览器。系统将于近期停止支持 IE，为避免影响登录，请使用 Google Chrome 或 Microsoft Edge 等现代浏览器 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "招商局集团有限公司_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%8B%9B%E5%95%86%E5%B1%80%E9%9B%86%E5%9B%A2%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8/5527176",
+     "snippet": "截至2022年末，招商证券在中国境内设有12家分公司、259家营业部，同时在中国香港、英国、韩国设有子公司；全资控股招商证券国 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "招商局集团 - Cmhk",
+     "url": "https://www.cmhk.com/main/",
+     "snippet": "2026年7月14日 · 优势互补 互利共赢丨招商局集团与福州市政府签约 9月7日，招商局集团与福州市人民政府在香港签署战略合作框架 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "网上银行全天候银行服务_招商银行",
+     "url": "https://cmbchina.com/personal/netbank/",
+     "snippet": "2026年7月9日 · 招商银行手机银行限时特惠,手机银行转账汇款费率优惠,持卡尊享专属银行理财产品,银行贷款融资快速通道,无抵押贷 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q05",
+   "source": "guard:k11b",
+   "category": "公司待遇",
+   "query": "招商银行的待遇怎么样",
+   "entity": "招商银行",
+   "config": "ours-bing-baidu",
+   "wall_ms": 410,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1086,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q05",
+   "source": "guard:k11b",
+   "category": "公司待遇",
+   "query": "招商银行的待遇怎么样",
+   "entity": "招商银行",
+   "config": "mcp-default",
+   "wall_ms": 1087,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1036,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 4,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 招商局集团",
+     "url": "https://baike.baidu.com/item/%E6%8B%9B%E5%95%86%E5%B1%80%E9%9B%86%E5%9B%A2%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8/5527176",
+     "snippet": "截至2022年末，招商证券在中国境内设有12家分公司、259家营业部，同时在中国香港、英国、韩国设有子公司；全资控股招商证券国际有限 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "cmbchina.comhttps://cmbchina.com",
+     "url": "https://cmbchina.com/",
+     "snippet": "16 小时之前 · 在移动互联时代刚刚开启之际，顺应零售客户行为变迁，推出招商银行和掌上生活两大App，开展平台化经营，在品牌影响、服 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "cmbchina.comhttps://cmbchina.com › personal › netbank",
+     "url": "https://cmbchina.com/personal/netbank/",
+     "snippet": "2026年7月9日 · 招商银行手机银行限时特惠,手机银行转账汇款费率优惠,持卡尊享专属银行理财产品,银行贷款融资快速通道,无抵押贷款融资渠 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "cmhk.comhttps://www.cmhk.com › main",
+     "url": "https://www.cmhk.com/main/",
+     "snippet": "2026年7月14日 · 优势互补 互利共赢丨招商局集团与福州市政府签约 9月7日，招商局集团与福州市人民政府在香港签署战略合作框架协议。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "cmbchina.comhttps://u.ebank.cmbchina.com",
+     "url": "https://u.ebank.cmbchina.com/CmbBank_FB/UI/Login/FBPOPLogin.aspx",
+     "snippet": "检测到您正在使用 IE 浏览器。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q05",
+   "source": "guard:k11b",
+   "category": "公司待遇",
+   "query": "招商银行的待遇怎么样",
+   "entity": "招商银行",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1036,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 742,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "小米汽车值得买",
+   "results": [
+    {
+     "title": "小米科技有限责任公司 - 小米商城 - Xiaomi",
+     "url": "https://www.mi.com/about/index.html",
+     "snippet": "5 天之前 · 小米公司是一家专注于高端智能手机、互联网电视以及智能家居生态链建设的创新型科技企业。 小米公司在互联网电视机顶 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "小米科技",
+     "url": "https://mi.cn/",
+     "snippet": "小米公司是一家专注于高端智能手机、互联网电视以及智能家居生态链建设的创新型科技企业。 小米公司在互联网电视机顶盒、互联 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "所有产品-小米商城 - Xiaomi",
+     "url": "https://m.buy.mi.com/search",
+     "snippet": "所有产品-小米商城 对应筛选条件下没有找到商品，换个筛选条件吧",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "小米招聘 | 让全球每个人都能享受科技带来的美好生活",
+     "url": "https://hr.xiaomi.com/",
+     "snippet": "小米2027全球顶尖人才校园招聘正式启动 小米集团实习生招聘火热进行中 小米集团AI人才专项正式启动！ 小米人才日精彩回顾 16年 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "小米汽车",
+     "url": "https://www.xiaomiev.com/",
+     "snippet": "N70 N90 Max N90 Max 探索版 车型对比 定制服务 核心技术 小米汽车核心技术 电子电气架构 超级电机 高压平台 超级大压铸 小米昆 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q06",
+   "source": "guard:k11b",
+   "category": "消费决策",
+   "query": "小米汽车值得买吗",
+   "entity": "小米",
+   "config": "ours-default",
+   "wall_ms": 742,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 371,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "小米汽车值得买",
+   "results": [
+    {
+     "title": "小米科技有限责任公司 - 小米商城 - Xiaomi",
+     "url": "https://www.mi.com/about/index.html",
+     "snippet": "5 天之前 · 小米公司是一家专注于高端智能手机、互联网电视以及智能家居生态链建设的创新型科技企业。 小米公司在互联网电视机顶 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "小米科技",
+     "url": "https://mi.cn/",
+     "snippet": "小米公司是一家专注于高端智能手机、互联网电视以及智能家居生态链建设的创新型科技企业。 小米公司在互联网电视机顶盒、互联 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "所有产品-小米商城 - Xiaomi",
+     "url": "https://m.buy.mi.com/search",
+     "snippet": "所有产品-小米商城 对应筛选条件下没有找到商品，换个筛选条件吧",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "小米招聘 | 让全球每个人都能享受科技带来的美好生活",
+     "url": "https://hr.xiaomi.com/",
+     "snippet": "小米2027全球顶尖人才校园招聘正式启动 小米集团实习生招聘火热进行中 小米集团AI人才专项正式启动！ 小米人才日精彩回顾 16年 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "小米汽车",
+     "url": "https://www.xiaomiev.com/",
+     "snippet": "N70 N90 Max N90 Max 探索版 车型对比 定制服务 核心技术 小米汽车核心技术 电子电气架构 超级电机 高压平台 超级大压铸 小米昆 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q06",
+   "source": "guard:k11b",
+   "category": "消费决策",
+   "query": "小米汽车值得买吗",
+   "entity": "小米",
+   "config": "ours-bing-baidu",
+   "wall_ms": 371,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 888,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q06",
+   "source": "guard:k11b",
+   "category": "消费决策",
+   "query": "小米汽车值得买吗",
+   "entity": "小米",
+   "config": "mcp-default",
+   "wall_ms": 888,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1077,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 2,
+   "results": [
+    {
+     "title": "xiaomiev.comhttps://www.xiaomiev.com",
+     "url": "https://www.xiaomiev.com/",
+     "snippet": "N70 N90 Max N90 Max 探索版 车型对比 定制服务 核心技术 小米汽车核心技术 电子电气架构 超级电机 高压平台 超级大压铸 小米昆 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "mi.comhttps://www.mi.com › about › index.html",
+     "url": "https://www.mi.com/about/index.html",
+     "snippet": "5 天之前 · 小米公司是一家专注于高端智能手机、互联网电视以及智能家居生态链建设的创新型科技企业。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "mi.cnhttps://mi.cn",
+     "url": "https://mi.cn/",
+     "snippet": "小米公司是一家专注于高端智能手机、互联网电视以及智能家居生态链建设的创新型科技企业。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "mi.comhttps://m.buy.mi.com › search",
+     "url": "https://m.buy.mi.com/search",
+     "snippet": "所有产品-小米商城 对应筛选条件下没有找到商品，换个筛选条件吧",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "xiaomi.comhttps://hr.xiaomi.com",
+     "url": "https://hr.xiaomi.com/",
+     "snippet": "小米2027全球顶尖人才校园招聘正式启动 小米集团实习生招聘火热进行中 小米集团AI人才专项正式启动！",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q06",
+   "source": "guard:k11b",
+   "category": "消费决策",
+   "query": "小米汽车值得买吗",
+   "entity": "小米",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1077,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 948,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "字节跳动靠谱",
+   "results": [
+    {
+     "title": "字节跳动招聘官网｜字节跳动社招",
+     "url": "https://jobs.bytedance.com/",
+     "snippet": "字节跳动在全球推出了多款有影响力的产品，包括今日头条、抖音、西瓜视频、飞书等。 业务覆盖150个国家和地区，旗下产品全球月 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "字节_百度百科",
+     "url": "https://baike.baidu.com/item/%E5%AD%97%E8%8A%82/1096318",
+     "snippet": "字节（Byte）是计算机信息中用于描述存储容量和传输容量的一种计量单位，是计算机的基本存储单位。 一个字节由8个相邻的二进制 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "字节跳动 - ByteDance",
+     "url": "https://www.bytedance.com/zh/corporate",
+     "snippet": "结合抖音、今日头条、西瓜视频等字节产品特色，通过公益信息的传递，高效率连接公益信息与社会资源，让人人能够便捷参与公益的 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "bit、byte、KB、B、字节、位、字符之间关系详解 - CSDN博客",
+     "url": "https://blog.csdn.net/qq_41675254/article/details/86481615",
+     "snippet": "2024年10月26日 · 其中1024=210。 1B（byte，字节）= 8 bit（见下文）； 1KiB（Kibibyte， 千字节）=1024B= 2^10 B； 1 MiB …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "位、字节、字_百度百科",
+     "url": "https://baike.baidu.com/item/%E4%BD%8D%E3%80%81%E5%AD%97%E8%8A%82%E3%80%81%E5%AD%97/15650262",
+     "snippet": "Byte，是由八个位组成的一个单元，也就是8个bit组成1个Byte。 字节（Byte）音译为“拜特”，习惯上用大写的“B”表示。 字节有什么用 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q07",
+   "source": "guard:k11b",
+   "category": "公司口碑",
+   "query": "字节跳动靠谱吗",
+   "entity": "字节跳动",
+   "config": "ours-default",
+   "wall_ms": 948,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 373,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "字节跳动靠谱",
+   "results": [
+    {
+     "title": "字节跳动招聘官网｜字节跳动社招",
+     "url": "https://jobs.bytedance.com/",
+     "snippet": "字节跳动在全球推出了多款有影响力的产品，包括今日头条、抖音、西瓜视频、飞书等。 业务覆盖150个国家和地区，旗下产品全球月 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "字节_百度百科",
+     "url": "https://baike.baidu.com/item/%E5%AD%97%E8%8A%82/1096318",
+     "snippet": "字节（Byte）是计算机信息中用于描述存储容量和传输容量的一种计量单位，是计算机的基本存储单位。 一个字节由8个相邻的二进制 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "字节跳动 - ByteDance",
+     "url": "https://www.bytedance.com/zh/corporate",
+     "snippet": "结合抖音、今日头条、西瓜视频等字节产品特色，通过公益信息的传递，高效率连接公益信息与社会资源，让人人能够便捷参与公益的 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "bit、byte、KB、B、字节、位、字符之间关系详解 - CSDN博客",
+     "url": "https://blog.csdn.net/qq_41675254/article/details/86481615",
+     "snippet": "2024年10月26日 · 其中1024=210。 1B（byte，字节）= 8 bit（见下文）； 1KiB（Kibibyte， 千字节）=1024B= 2^10 B； 1 MiB …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "位、字节、字_百度百科",
+     "url": "https://baike.baidu.com/item/%E4%BD%8D%E3%80%81%E5%AD%97%E8%8A%82%E3%80%81%E5%AD%97/15650262",
+     "snippet": "Byte，是由八个位组成的一个单元，也就是8个bit组成1个Byte。 字节（Byte）音译为“拜特”，习惯上用大写的“B”表示。 字节有什么用 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q07",
+   "source": "guard:k11b",
+   "category": "公司口碑",
+   "query": "字节跳动靠谱吗",
+   "entity": "字节跳动",
+   "config": "ours-bing-baidu",
+   "wall_ms": 373,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1341,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q07",
+   "source": "guard:k11b",
+   "category": "公司口碑",
+   "query": "字节跳动靠谱吗",
+   "entity": "字节跳动",
+   "config": "mcp-default",
+   "wall_ms": 1341,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 983,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 5,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 字节",
+     "url": "https://baike.baidu.com/item/%E5%AD%97%E8%8A%82/1096318",
+     "snippet": "字节（Byte）是计算机信息中用于描述存储容量和传输容量的一种计量单位，是计算机的基本存储单位。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 位、字节、字",
+     "url": "https://baike.baidu.com/item/%E4%BD%8D%E3%80%81%E5%AD%97%E8%8A%82%E3%80%81%E5%AD%97/15650262",
+     "snippet": "字节（Byte）音译为“拜特”，习惯上用大写的“B”表示。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "bytedance.comhttps://jobs.bytedance.com",
+     "url": "https://jobs.bytedance.com/",
+     "snippet": "字节跳动在全球推出了多款有影响力的产品，包括今日头条、抖音、西瓜视频、飞书等。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "csdn.nethttps://blog.csdn.net › article › details",
+     "url": "https://blog.csdn.net/qq_41675254/article/details/86481615",
+     "snippet": "1B（byte，字节）= 8 bit（见下文）； 1KiB（Kibibyte， 千字节）=1024B= 2^10 B； 1 MiB …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "bytedance.comhttps://www.bytedance.com › zh › corporate",
+     "url": "https://www.bytedance.com/zh/corporate",
+     "snippet": "结合抖音、今日头条、西瓜视频等字节产品特色，通过公益信息的传递，高效率连接公益信息与社会资源，让人人能够便捷参与公益的 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q07",
+   "source": "guard:k11b",
+   "category": "公司口碑",
+   "query": "字节跳动靠谱吗",
+   "entity": "字节跳动",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 983,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 793,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "阿里巴巴值得去",
+   "results": [
+    {
+     "title": "阿里巴巴",
+     "url": "https://www.1688.com/",
+     "snippet": "阿里巴巴（1688.com）是全球企业间（B2B）电子商务的著名品牌，为数千万网商提供海量商机信息和便捷安全的在线交易市场，也 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "阿里巴巴集团控股有限公司_百度百科",
+     "url": "https://baike.baidu.com/item/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%9B%86%E5%9B%A2%E6%8E%A7%E8%82%A1%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8/54213262",
+     "snippet": "阿里巴巴集团控股有限公司（Alibaba Group，简称阿里巴巴集团）是中国领先的互联网科技企业，1999年6月28日由马云等18人（亦 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Alibaba.com: Manufacturers, Suppliers, Exporters & Importers …",
+     "url": "https://www.alibaba.com/",
+     "snippet": "Find quality Manufacturers, Suppliers, Exporters, Importers, Buyers, Wholesalers, Products and Trade Leads from our award-winning …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "阿里巴巴1688.com - 全球领先的采购批发平台,批发网",
+     "url": "https://p4psearch.1688.com/",
+     "snippet": "阿里巴巴集团 | 阿里巴巴国际站 | 1688 | 全球速卖通 | 淘宝网 | 天猫 | 一淘 | 飞猪 | 阿里妈妈 | 阿里云计算 | AliOS 阿里通信 | UC | 支付 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "alibaba - 阿里1688首页",
+     "url": "https://alibaba.com.cn/",
+     "snippet": "阿里巴巴（1688.com）是全球企业间（B2B）电子商务的著名品牌，为数千万网商提供海量商机信息和便捷安全的在线交易市场，也 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q08",
+   "source": "guard:k11b",
+   "category": "公司口碑",
+   "query": "阿里巴巴值得去吗",
+   "entity": "阿里巴巴",
+   "config": "ours-default",
+   "wall_ms": 793,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 380,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "阿里巴巴值得去",
+   "results": [
+    {
+     "title": "阿里巴巴",
+     "url": "https://www.1688.com/",
+     "snippet": "阿里巴巴（1688.com）是全球企业间（B2B）电子商务的著名品牌，为数千万网商提供海量商机信息和便捷安全的在线交易市场，也 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "阿里巴巴集团控股有限公司_百度百科",
+     "url": "https://baike.baidu.com/item/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%9B%86%E5%9B%A2%E6%8E%A7%E8%82%A1%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8/54213262",
+     "snippet": "阿里巴巴集团控股有限公司（Alibaba Group，简称阿里巴巴集团）是中国领先的互联网科技企业，1999年6月28日由马云等18人（亦 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Alibaba.com: Manufacturers, Suppliers, Exporters & Importers …",
+     "url": "https://www.alibaba.com/",
+     "snippet": "Find quality Manufacturers, Suppliers, Exporters, Importers, Buyers, Wholesalers, Products and Trade Leads from our award-winning …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "阿里巴巴1688.com - 全球领先的采购批发平台,批发网",
+     "url": "https://p4psearch.1688.com/",
+     "snippet": "阿里巴巴集团 | 阿里巴巴国际站 | 1688 | 全球速卖通 | 淘宝网 | 天猫 | 一淘 | 飞猪 | 阿里妈妈 | 阿里云计算 | AliOS 阿里通信 | UC | 支付 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "alibaba - 阿里1688首页",
+     "url": "https://alibaba.com.cn/",
+     "snippet": "阿里巴巴（1688.com）是全球企业间（B2B）电子商务的著名品牌，为数千万网商提供海量商机信息和便捷安全的在线交易市场，也 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q08",
+   "source": "guard:k11b",
+   "category": "公司口碑",
+   "query": "阿里巴巴值得去吗",
+   "entity": "阿里巴巴",
+   "config": "ours-bing-baidu",
+   "wall_ms": 380,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1096,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q08",
+   "source": "guard:k11b",
+   "category": "公司口碑",
+   "query": "阿里巴巴值得去吗",
+   "entity": "阿里巴巴",
+   "config": "mcp-default",
+   "wall_ms": 1096,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 985,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 3,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 阿里巴巴",
+     "url": "https://baike.baidu.com/item/%E9%98%BF%E9%87%8C%E5%B7%B4%E5%B7%B4%E9%9B%86%E5%9B%A2%E6%8E%A7%E8%82%A1%E6%9C%89%E9%99%90%E5%85%AC%E5%8F%B8/54213262",
+     "snippet": "阿里巴巴集团控股有限公司（Alibaba Group，简称阿里巴巴集团）是中国领先的互联网科技企业，1999年6月28日由马云等18人（亦 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "1688.comhttps://www.1688.com",
+     "url": "https://www.1688.com/",
+     "snippet": "阿里巴巴（1688.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "1688.comhttps://p4psearch.1688.com",
+     "url": "https://p4psearch.1688.com/",
+     "snippet": "阿里巴巴集团 | 阿里巴巴国际站 | 1688 | 全球速卖通 | 淘宝网 | 天猫 | 一淘 | 飞猪 | 阿里妈妈 | 阿里云计算 | AliOS 阿里通信 | UC | 支付 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "alibaba.com.cnhttps://alibaba.com.cn",
+     "url": "https://alibaba.com.cn/",
+     "snippet": "阿里巴巴（1688.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "alibaba.comhttps://www.alibaba.com",
+     "url": "https://www.alibaba.com/",
+     "snippet": "Find quality Manufacturers, Suppliers, Exporters, Importers, Buyers, Wholesalers, Products and Trade Leads from our award-winning …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q08",
+   "source": "guard:k11b",
+   "category": "公司口碑",
+   "query": "阿里巴巴值得去吗",
+   "entity": "阿里巴巴",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 985,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 677,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "我朋友推荐我去米哈游 你觉得这家公司值得去",
+   "results": [
+    {
+     "title": "我（汉语汉字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%88%91/85",
+     "snippet": "我，汉语一级通用规范汉字（常用字），读作wǒ，最早见于甲骨文，其甲骨文本义指奴隶社会里一种用来行刑杀人和肢解牲口的凶 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "我（2000年张国荣演唱的流行歌曲）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%88%91/10637921",
+     "snippet": "2000年7月1日 · 《我》是张国荣演唱的歌曲，由林夕填词，张国荣谱曲，赵增熹编曲。 该曲分为粤语和普通话两个版本，均收录于张 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "《我的世界》官网-全新视界 探索无限",
+     "url": "https://mc.163.com/",
+     "snippet": "在《我的世界》中，每一次游玩都拥有独一无二的体验，世界的每一个角落都隐藏着让人难忘的冒险。 尽情探索这无限世界，一步一 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "适合不同设备的 Minecraft 免费试玩 | Minecraft",
+     "url": "https://www.minecraft.net/zh-hans/free-trial",
+     "snippet": "2 天之前 · 免费试玩 Minecraft 时，我可以游玩多人游戏吗？ 免费试玩 Minecraft 期间，你无法加入 在线多人游戏服务器，但可游玩局 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "“我”字怎么解释？从兵器到自称，看懂汉字“我”的千年演变 ...",
+     "url": "https://wenku.baidu.com/view/e4b6d98ce409581b6bd97f19227916888586b909.html",
+     "snippet": "“我”字怎么解释？从兵器到自称，看懂汉字“我”的千年演变与文化内涵-“我”字怎么解释？从兵器到自称，看懂汉字“我”的千年演变与文化 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q09",
+   "source": "authored:k43",
+   "category": "公司口碑",
+   "query": "我朋友推荐我去米哈游，你觉得这家公司值得去吗",
+   "entity": "米哈游",
+   "config": "ours-default",
+   "wall_ms": 678,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 373,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "我朋友推荐我去米哈游 你觉得这家公司值得去",
+   "results": [
+    {
+     "title": "我（汉语汉字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%88%91/85",
+     "snippet": "我，汉语一级通用规范汉字（常用字），读作wǒ，最早见于甲骨文，其甲骨文本义指奴隶社会里一种用来行刑杀人和肢解牲口的凶 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "我（2000年张国荣演唱的流行歌曲）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%88%91/10637921",
+     "snippet": "2000年7月1日 · 《我》是张国荣演唱的歌曲，由林夕填词，张国荣谱曲，赵增熹编曲。 该曲分为粤语和普通话两个版本，均收录于张 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "《我的世界》官网-全新视界 探索无限",
+     "url": "https://mc.163.com/",
+     "snippet": "在《我的世界》中，每一次游玩都拥有独一无二的体验，世界的每一个角落都隐藏着让人难忘的冒险。 尽情探索这无限世界，一步一 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "适合不同设备的 Minecraft 免费试玩 | Minecraft",
+     "url": "https://www.minecraft.net/zh-hans/free-trial",
+     "snippet": "2 天之前 · 免费试玩 Minecraft 时，我可以游玩多人游戏吗？ 免费试玩 Minecraft 期间，你无法加入 在线多人游戏服务器，但可游玩局 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "“我”字怎么解释？从兵器到自称，看懂汉字“我”的千年演变 ...",
+     "url": "https://wenku.baidu.com/view/e4b6d98ce409581b6bd97f19227916888586b909.html",
+     "snippet": "“我”字怎么解释？从兵器到自称，看懂汉字“我”的千年演变与文化内涵-“我”字怎么解释？从兵器到自称，看懂汉字“我”的千年演变与文化 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q09",
+   "source": "authored:k43",
+   "category": "公司口碑",
+   "query": "我朋友推荐我去米哈游，你觉得这家公司值得去吗",
+   "entity": "米哈游",
+   "config": "ours-bing-baidu",
+   "wall_ms": 373,
+   "entity_hit": false
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1001,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q09",
+   "source": "authored:k43",
+   "category": "公司口碑",
+   "query": "我朋友推荐我去米哈游，你觉得这家公司值得去吗",
+   "entity": "米哈游",
+   "config": "mcp-default",
+   "wall_ms": 1001,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 4,
+   "latency_ms": 978,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 4,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 我",
+     "url": "https://baike.baidu.com/item/%E6%88%91/85",
+     "snippet": "我，汉语一级通用规范汉字（常用字），读作wǒ，最早见于甲骨文，其甲骨文本义指奴隶社会里一种用来行刑杀人和肢解牲口的凶 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "163.comhttps://mc.163.com",
+     "url": "https://mc.163.com/",
+     "snippet": "在《我的世界》中，每一次游玩都拥有独一无二的体验，世界的每一个角落都隐藏着让人难忘的冒险。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "minecraft.nethttps://www.minecraft.net › zh-hans › free-trial",
+     "url": "https://www.minecraft.net/zh-hans/free-trial",
+     "snippet": "2 天之前 · 免费试玩 Minecraft 时，我可以游玩多人游戏吗？",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "baidu.comhttps://wenku.baidu.com › view",
+     "url": "https://wenku.baidu.com/view/e4b6d98ce409581b6bd97f19227916888586b909.html",
+     "snippet": "“我”字怎么解释？",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q09",
+   "source": "authored:k43",
+   "category": "公司口碑",
+   "query": "我朋友推荐我去米哈游，你觉得这家公司值得去吗",
+   "entity": "米哈游",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 978,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 712,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "泡泡玛特这个品牌现在",
+   "results": [
+    {
+     "title": "泡泡（日本2022年荒木哲郎执导的动画电影）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%B3%A1%E6%B3%A1/59405314",
+     "snippet": "2022年4月28日 · 《泡泡》是由虚渊玄编剧，荒木哲郎执导，志尊淳、宫野真守等配音的动画电影。 该片于2022年4月28日在日本上映 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "下载 Bubble Chat (PaoPao Chat) - iOS, Android, Windows ...",
+     "url": "https://paopaochat.com/download/",
+     "snippet": "2026年8月8日 · 下载 Bubble Chat (PaoPao Chat / 泡泡聊天) 客户端,支持 iOS (TestFlight)、Android APK、Windows 和 macOS 桌面 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "泡泡IM",
+     "url": "https://app.popoim.com/im/web/user/login",
+     "snippet": "1 天前 · { {key||'#'}} { {$lang ('发送')}} { {$lang ('取消')}} { {$lang ('你需要发送好友请求，对方通过后才能成为好友')}} { {$lang ('确认 ...",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "韩国泡泡软件是干啥的? - 知乎",
+     "url": "https://www.zhihu.com/question/468176456",
+     "snippet": "2022年11月2日 · 我把泡泡当 旅行青蛙，我的爱豆就是那只小呱，他在远方的国家努力工作练习偶尔会给我带来只字片语早安晚安和一 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "网易POPO官方网站",
+     "url": "https://popo.netease.com/index.html",
+     "snippet": "2025年3月7日 · 消息同步随时查阅 无论在哪都能无缝链接工作； 支持多端同时登录，拥有30天同步记录。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q10",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "泡泡玛特这个品牌现在怎么样",
+   "entity": "泡泡玛特",
+   "config": "ours-default",
+   "wall_ms": 712,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 380,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "泡泡玛特这个品牌现在",
+   "results": [
+    {
+     "title": "泡泡（日本2022年荒木哲郎执导的动画电影）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%B3%A1%E6%B3%A1/59405314",
+     "snippet": "2022年4月28日 · 《泡泡》是由虚渊玄编剧，荒木哲郎执导，志尊淳、宫野真守等配音的动画电影。 该片于2022年4月28日在日本上映 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "下载 Bubble Chat (PaoPao Chat) - iOS, Android, Windows ...",
+     "url": "https://paopaochat.com/download/",
+     "snippet": "2026年8月8日 · 下载 Bubble Chat (PaoPao Chat / 泡泡聊天) 客户端,支持 iOS (TestFlight)、Android APK、Windows 和 macOS 桌面 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "泡泡IM",
+     "url": "https://app.popoim.com/im/web/user/login",
+     "snippet": "1 天前 · { {key||'#'}} { {$lang ('发送')}} { {$lang ('取消')}} { {$lang ('你需要发送好友请求，对方通过后才能成为好友')}} { {$lang ('确认 ...",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "韩国泡泡软件是干啥的? - 知乎",
+     "url": "https://www.zhihu.com/question/468176456",
+     "snippet": "2022年11月2日 · 我把泡泡当 旅行青蛙，我的爱豆就是那只小呱，他在远方的国家努力工作练习偶尔会给我带来只字片语早安晚安和一 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "网易POPO官方网站",
+     "url": "https://popo.netease.com/index.html",
+     "snippet": "2025年3月7日 · 消息同步随时查阅 无论在哪都能无缝链接工作； 支持多端同时登录，拥有30天同步记录。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q10",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "泡泡玛特这个品牌现在怎么样",
+   "entity": "泡泡玛特",
+   "config": "ours-bing-baidu",
+   "wall_ms": 380,
+   "entity_hit": false
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1035,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q10",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "泡泡玛特这个品牌现在怎么样",
+   "entity": "泡泡玛特",
+   "config": "mcp-default",
+   "wall_ms": 1035,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 936,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 4,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 泡泡",
+     "url": "https://baike.baidu.com/item/%E6%B3%A1%E6%B3%A1/59405314",
+     "snippet": "2022年4月28日 · 《泡泡》是由虚渊玄编剧，荒木哲郎执导，志尊淳、宫野真守等配音的动画电影。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "zhihu.comhttps://www.zhihu.com › question",
+     "url": "https://www.zhihu.com/question/468176456",
+     "snippet": "2022年11月2日 · 我把泡泡当 旅行青蛙，我的爱豆就是那只小呱，他在远方的国家努力工作练习偶尔会给我带来只字片语早安晚安和一 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "paopaochat.comhttps://paopaochat.com › download",
+     "url": "https://paopaochat.com/download/",
+     "snippet": "2026年8月8日 · 下载 Bubble Chat (PaoPao Chat / 泡泡聊天) 客户端,支持 iOS (TestFlight)、Android APK、Windows 和 macOS 桌面 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "popoim.comhttps://app.popoim.com › im › web › user › login",
+     "url": "https://app.popoim.com/im/web/user/login",
+     "snippet": "1 天前 · { {key||'#'}} { {$lang ('发送')}} { {$lang ('取消')}} { {$lang ('你需要发送好友请求，对方通过后才能成为好友')}} { {$lang ('确认 ...",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "netease.comhttps://popo.netease.com › index.html",
+     "url": "https://popo.netease.com/index.html",
+     "snippet": "2025年3月7日 · 消息同步随时查阅 无论在哪都能无缝链接工作； 支持多端同时登录，拥有30天同步记录。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q10",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "泡泡玛特这个品牌现在怎么样",
+   "entity": "泡泡玛特",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 936,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 701,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "C919 现在投入商业运营了",
+   "results": [
+    {
+     "title": "中国商飞C919_百度百科",
+     "url": "https://baike.baidu.com/item/%E4%B8%AD%E5%9B%BD%E5%95%86%E9%A3%9EC919/4961742",
+     "snippet": "中国商飞C919（英文：COMAC C919），是中国首款按照国际通行适航标准自行研制、具有自主知识产权的喷气式中程干线客机，设 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "中国商飞公司门户网站-C919飞机",
+     "url": "http://www.comac.cc/cpyzr/c919/",
+     "snippet": "C919飞机 C919大型客机是我国首款按照国际通行适航标准自行研制、具有自主知识产权的喷气式干线客机。基本型客机158-192座， …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "C919大型客机工程_百度百科",
+     "url": "https://baike.baidu.com/item/C919%E5%A4%A7%E5%9E%8B%E5%AE%A2%E6%9C%BA%E5%B7%A5%E7%A8%8B/68605920",
+     "snippet": "为实施该项目，中国商用飞机有限责任公司（中国商飞）于2008年5月11日在上海成立。 C919飞机于2015年11月2日完成总装下 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "C919 机场运行指南",
+     "url": "http://www.comac.cc/fujian/C919zhinan.pdf",
+     "snippet": "2023年10月27日 · 2.3.2 旅客登机及航食保障 服务于 C919 飞机的旅客登机及航食保障设备包括旅客登机桥/梯、行动不便旅客登机设 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "订单1500架交付42架，C919的经济账到底怎么算_腾讯新闻",
+     "url": "https://news.qq.com/rain/a/20260819A0DJHL00",
+     "snippet": "2026年8月20日 · C919目前尚未获得美国FAA和欧盟EASA的型号认可证。 EASA方面表态，完整认证仍需3-6年，时间窗口集中 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q11",
+   "source": "authored:k43",
+   "category": "时政时效",
+   "query": "C919 现在投入商业运营了吗",
+   "entity": "C919",
+   "config": "ours-default",
+   "wall_ms": 701,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 385,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "C919 现在投入商业运营了",
+   "results": [
+    {
+     "title": "中国商飞C919_百度百科",
+     "url": "https://baike.baidu.com/item/%E4%B8%AD%E5%9B%BD%E5%95%86%E9%A3%9EC919/4961742",
+     "snippet": "中国商飞C919（英文：COMAC C919），是中国首款按照国际通行适航标准自行研制、具有自主知识产权的喷气式中程干线客机，设 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "中国商飞公司门户网站-C919飞机",
+     "url": "http://www.comac.cc/cpyzr/c919/",
+     "snippet": "C919飞机 C919大型客机是我国首款按照国际通行适航标准自行研制、具有自主知识产权的喷气式干线客机。基本型客机158-192座， …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "C919大型客机工程_百度百科",
+     "url": "https://baike.baidu.com/item/C919%E5%A4%A7%E5%9E%8B%E5%AE%A2%E6%9C%BA%E5%B7%A5%E7%A8%8B/68605920",
+     "snippet": "为实施该项目，中国商用飞机有限责任公司（中国商飞）于2008年5月11日在上海成立。 C919飞机于2015年11月2日完成总装下 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "C919 机场运行指南",
+     "url": "http://www.comac.cc/fujian/C919zhinan.pdf",
+     "snippet": "2023年10月27日 · 2.3.2 旅客登机及航食保障 服务于 C919 飞机的旅客登机及航食保障设备包括旅客登机桥/梯、行动不便旅客登机设 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "订单1500架交付42架，C919的经济账到底怎么算_腾讯新闻",
+     "url": "https://news.qq.com/rain/a/20260819A0DJHL00",
+     "snippet": "2026年8月20日 · C919目前尚未获得美国FAA和欧盟EASA的型号认可证。 EASA方面表态，完整认证仍需3-6年，时间窗口集中 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q11",
+   "source": "authored:k43",
+   "category": "时政时效",
+   "query": "C919 现在投入商业运营了吗",
+   "entity": "C919",
+   "config": "ours-bing-baidu",
+   "wall_ms": 385,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1122,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q11",
+   "source": "authored:k43",
+   "category": "时政时效",
+   "query": "C919 现在投入商业运营了吗",
+   "entity": "C919",
+   "config": "mcp-default",
+   "wall_ms": 1122,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 4,
+   "latency_ms": 1023,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 3,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item",
+     "url": "https://baike.baidu.com/item/%E4%B8%AD%E5%9B%BD%E5%95%86%E9%A3%9EC919/4961742",
+     "snippet": "中国商飞C919（英文：COMAC C919），是中国首款按照国际通行适航标准自行研制、具有自主知识产权的喷气式中程干线客机，设 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "comac.cchttp://www.comac.cc › fujian",
+     "url": "http://www.comac.cc/fujian/C919zhinan.pdf",
+     "snippet": "2 旅客登机及航食保障 服务于 C919 飞机的旅客登机及航食保障设备包括旅客登机桥/梯、行动不便旅客登机设 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "comac.cchttp://www.comac.cc › cpyzr",
+     "url": "http://www.comac.cc/cpyzr/c919/",
+     "snippet": "C919飞机 C919大型客机是我国首款按照国际通行适航标准自行研制、具有自主知识产权的喷气式干线客机。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "qq.comhttps://news.qq.com › rain",
+     "url": "https://news.qq.com/rain/a/20260819A0DJHL00",
+     "snippet": "2026年8月20日 · C919目前尚未获得美国FAA和欧盟EASA的型号认可证。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q11",
+   "source": "authored:k43",
+   "category": "时政时效",
+   "query": "C919 现在投入商业运营了吗",
+   "entity": "C919",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1023,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1312,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "去泰国旅游安全",
+   "results": [
+    {
+     "title": "去（汉语文字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E5%8E%BB/734133",
+     "snippet": "例如《诗经· 大雅·生民》中说：“鸟乃去矣，后稷呱矣。 ”是说鸟飞走了，后稷哇哇地哭。 现代汉语中的“去”更多地表示“到、往”的意 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "《去》的拼音,去字的意思、组词、部首、笔画、笔顺 - 汉语查",
+     "url": "https://www.hgcha.com/zidian/1fd54b99.html",
+     "snippet": "2 天之前 · 去字的读音是qù，上边一个土下边一个厶是什么字，去的部首是土，去的笔画一共5画，其中部外笔画3画，去的五行属木， …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "【去】的笔顺（笔画顺序） - 一笔一画动态演示与详细图解 ...",
+     "url": "https://www.strokeorder.cc/hanzi/%E5%8E%BB",
+     "snippet": "学习汉字【去】的正确笔顺规则！ 去字共5画，部首为土，属于上下结构。 通过动态笔顺动画演示和逐笔分解图解，掌握「去」字的 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "去怎么读_去的拼音 - 新华字典",
+     "url": "https://zidian.gushici.net/5/53bb.html",
+     "snippet": "5 天之前 · 基本字义 去 qù ㄑㄩˋ 离开所在的地方到别处；由自己一方到另一方，与“ 来 ”相对：～处。 ～路。 ～国。 距离，差别： …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "去 - 维基词典，自由的多语言词典",
+     "url": "https://zh.wiktionary.org/wiki/%E5%8E%BB",
+     "snippet": "2024年7月30日 · 去 離開 引文 去 世 ― qùshì 鳥 乃 去 矣， 后稷 呱 矣。 [現代標準漢語， 繁體] 鸟 乃 去 矣， 后稷 呱 矣。 [現代標準 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q12",
+   "source": "authored:k43",
+   "category": "出行安全",
+   "query": "现在去泰国旅游安全吗",
+   "entity": "泰国",
+   "config": "ours-default",
+   "wall_ms": 1312,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 372,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "去泰国旅游安全",
+   "results": [
+    {
+     "title": "去（汉语文字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E5%8E%BB/734133",
+     "snippet": "例如《诗经· 大雅·生民》中说：“鸟乃去矣，后稷呱矣。 ”是说鸟飞走了，后稷哇哇地哭。 现代汉语中的“去”更多地表示“到、往”的意 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "《去》的拼音,去字的意思、组词、部首、笔画、笔顺 - 汉语查",
+     "url": "https://www.hgcha.com/zidian/1fd54b99.html",
+     "snippet": "2 天之前 · 去字的读音是qù，上边一个土下边一个厶是什么字，去的部首是土，去的笔画一共5画，其中部外笔画3画，去的五行属木， …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "【去】的笔顺（笔画顺序） - 一笔一画动态演示与详细图解 ...",
+     "url": "https://www.strokeorder.cc/hanzi/%E5%8E%BB",
+     "snippet": "学习汉字【去】的正确笔顺规则！ 去字共5画，部首为土，属于上下结构。 通过动态笔顺动画演示和逐笔分解图解，掌握「去」字的 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "去怎么读_去的拼音 - 新华字典",
+     "url": "https://zidian.gushici.net/5/53bb.html",
+     "snippet": "5 天之前 · 基本字义 去 qù ㄑㄩˋ 离开所在的地方到别处；由自己一方到另一方，与“ 来 ”相对：～处。 ～路。 ～国。 距离，差别： …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "去 - 维基词典，自由的多语言词典",
+     "url": "https://zh.wiktionary.org/wiki/%E5%8E%BB",
+     "snippet": "2024年7月30日 · 去 離開 引文 去 世 ― qùshì 鳥 乃 去 矣， 后稷 呱 矣。 [現代標準漢語， 繁體] 鸟 乃 去 矣， 后稷 呱 矣。 [現代標準 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q12",
+   "source": "authored:k43",
+   "category": "出行安全",
+   "query": "现在去泰国旅游安全吗",
+   "entity": "泰国",
+   "config": "ours-bing-baidu",
+   "wall_ms": 372,
+   "entity_hit": false
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 957,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q12",
+   "source": "authored:k43",
+   "category": "出行安全",
+   "query": "现在去泰国旅游安全吗",
+   "entity": "泰国",
+   "config": "mcp-default",
+   "wall_ms": 957,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 947,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 5,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 现在",
+     "url": "https://baike.baidu.com/item/%E7%8E%B0%E5%9C%A8/27400",
+     "snippet": "现在 [3]，是汉语基本时间词汇，出自 [3]《维摩诘经 [4]》：“若现在生，现在生无住 [4]。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "sjcx.comhttps://sjcx.com",
+     "url": "https://sjcx.com/",
+     "snippet": "16 小时之前 · • 北京时间在线校准系统 提供 标准北京时间校准 服务，可将 北京标准时间 校准至毫秒级精度，精准显示现在北京时间几点几分 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "time.ishttps://time.is › zh › Beijing,_China",
+     "url": "https://time.is/zh/Beijing,_China",
+     "snippet": "is 现在的 北京 北京时间 2 1: 4 8: 4 8 2026年9月13日星期日，第 37 周 Day of the Programmer / World Sepsis Day",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "syiban.comhttp://time.syiban.com",
+     "url": "http://time.syiban.com/?id=1",
+     "snippet": "16 小时之前 · 中国北京现在的时间是几点几分几秒，当地时间在线查询服务 又称中国标准时间，是由位于陕西西安的中国国家授时中心计算得 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "time.ishttps://time.is › zh › China",
+     "url": "https://time.is/zh/China",
+     "snippet": "16 小时之前 · 中国的时间、时区、时差、日出日落时间等信息。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q12",
+   "source": "authored:k43",
+   "category": "出行安全",
+   "query": "现在去泰国旅游安全吗",
+   "entity": "泰国",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 947,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 930,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "星巴克在中国还赚钱",
+   "results": [
+    {
+     "title": "星巴克 | 用每一杯咖啡传递星巴克独特的咖啡体验",
+     "url": "https://www.starbucks.com.cn/",
+     "snippet": "2026年8月25日 · 欢迎访问星巴克中国官网。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "星巴克（1971年成立的美国咖啡公司）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%98%9F%E5%B7%B4%E5%85%8B/1063",
+     "snippet": "(67)1992年6月26日， (67)公司成功登陆纳斯达克，以巨额募资作为后盾，舒尔茨对星巴克全球化的设想，有了实现的可能。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Starbucks Coffee Company",
+     "url": "https://www.starbucks.com/?lang=zh",
+     "snippet": "Explore our menu of handcrafted drinks, order ahead, sign up for Starbucks® Rewards, manage your gift card and more.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "星巴克在中国 | 星巴克",
+     "url": "https://www.starbucks.com.cn/about/",
+     "snippet": "2026年7月30日 · 进入中国以来，星巴克始终致力于回馈社会，持续在中国内地不同地区和城市开展企业社会责任项目，对于当地社会 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "星巴克（全球最大咖啡连锁品牌）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%98%9F%E5%B7%B4%E5%85%8B/64513791",
+     "snippet": "2018年8月2日 · 星巴克（Starbucks）是全球最大的咖啡连锁品牌，1971年成立于美国西雅图，主营现制咖啡饮品、咖啡豆及周边商品 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q13",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "星巴克在中国还赚钱吗",
+   "entity": "星巴克",
+   "config": "ours-default",
+   "wall_ms": 930,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 364,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "星巴克在中国还赚钱",
+   "results": [
+    {
+     "title": "星巴克 | 用每一杯咖啡传递星巴克独特的咖啡体验",
+     "url": "https://www.starbucks.com.cn/",
+     "snippet": "2026年8月25日 · 欢迎访问星巴克中国官网。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "星巴克（1971年成立的美国咖啡公司）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%98%9F%E5%B7%B4%E5%85%8B/1063",
+     "snippet": "(67)1992年6月26日， (67)公司成功登陆纳斯达克，以巨额募资作为后盾，舒尔茨对星巴克全球化的设想，有了实现的可能。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "Starbucks Coffee Company",
+     "url": "https://www.starbucks.com/?lang=zh",
+     "snippet": "Explore our menu of handcrafted drinks, order ahead, sign up for Starbucks® Rewards, manage your gift card and more.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "星巴克在中国 | 星巴克",
+     "url": "https://www.starbucks.com.cn/about/",
+     "snippet": "2026年7月30日 · 进入中国以来，星巴克始终致力于回馈社会，持续在中国内地不同地区和城市开展企业社会责任项目，对于当地社会 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "星巴克（全球最大咖啡连锁品牌）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%98%9F%E5%B7%B4%E5%85%8B/64513791",
+     "snippet": "2018年8月2日 · 星巴克（Starbucks）是全球最大的咖啡连锁品牌，1971年成立于美国西雅图，主营现制咖啡饮品、咖啡豆及周边商品 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q13",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "星巴克在中国还赚钱吗",
+   "entity": "星巴克",
+   "config": "ours-bing-baidu",
+   "wall_ms": 364,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 978,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q13",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "星巴克在中国还赚钱吗",
+   "entity": "星巴克",
+   "config": "mcp-default",
+   "wall_ms": 978,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 4,
+   "latency_ms": 1023,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 2,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 星巴克",
+     "url": "https://baike.baidu.com/item/%E6%98%9F%E5%B7%B4%E5%85%8B/1063",
+     "snippet": "[67]1992年6月26日， [67]公司成功登陆纳斯达克，以巨额募资作为后盾，舒尔茨对星巴克全球化的设想，有了实现的可能。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "starbucks.com.cnhttps://www.starbucks.com.cn › about",
+     "url": "https://www.starbucks.com.cn/about/",
+     "snippet": "2026年7月30日 · 进入中国以来，星巴克始终致力于回馈社会，持续在中国内地不同地区和城市开展企业社会责任项目，对于当地社会 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "starbucks.com.cnhttps://www.starbucks.com.cn",
+     "url": "https://www.starbucks.com.cn/",
+     "snippet": "2026年8月25日 · 欢迎访问星巴克中国官网。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "starbucks.comhttps://www.starbucks.com",
+     "url": "https://www.starbucks.com/?lang=zh",
+     "snippet": "Explore our menu of handcrafted drinks, order ahead, sign up for Starbucks® Rewards, manage your gift card and more.",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q13",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "星巴克在中国还赚钱吗",
+   "entity": "星巴克",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1023,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 793,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "瑞幸咖啡现在",
+   "results": [
+    {
+     "title": "瑞（汉语文字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E7%91%9E/9356615",
+     "snippet": "瑞（拼音：ruì）是汉语通用规范一级汉字（常用字）。 此字始见于战国包山楚简。 瑞本义指一种信物，通常用玉制成，其作用相当于 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "瑞的意思,瑞的解释,瑞的拼音,瑞的部首,瑞的笔顺-汉语国学",
+     "url": "https://www.hanyuguoxue.com/zidian/zi-29790",
+     "snippet": "瑞的拼音是ruì，瑞字共13画，部首是王部，本页介绍瑞字的意思，瑞的详细解释，瑞的读音、笔顺，还包括瑞的翻译、输入法、异体 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "《瑞》的拼音,瑞字的意思、组词、部首、笔画、笔顺 - 汉语查",
+     "url": "https://www.hgcha.com/zidian/e4c2f1cc.html",
+     "snippet": "1 天前 · 引 日月星辰瑞历，是禹桀之所同也。 —— 《荀子·天论》 例 瑞雪霏霏；瑞应（祥瑞的感应）；瑞星（吉祥之星）；瑞相（吉 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "瑞怎么读_瑞的拼音 - 新华字典",
+     "url": "https://zidian.gushici.net/13/745e.html",
+     "snippet": "2026年9月6日 · 日月星辰瑞历，是禹桀 之所同也。 —— 《荀子·天论》 (2) 又如:瑞雪霏霏;瑞应 (祥瑞的感应);瑞星 (吉祥之星);瑞相 (吉 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "瑞_瑞怎么读_瑞的意思 - 汉语字典",
+     "url": "https://www.chagushici.com/zidian/%E7%91%9E",
+     "snippet": "(2) 同本义 [jade used as tally] 瑞，以玉为信也。 ——《说文》 掌玉瑞器之藏。 ——《周礼·典瑞》。 注;“符信也，人执以见曰瑞。 成 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q14",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "瑞幸咖啡现在怎么样",
+   "entity": "瑞幸",
+   "config": "ours-default",
+   "wall_ms": 793,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 362,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "瑞幸咖啡现在",
+   "results": [
+    {
+     "title": "瑞（汉语文字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E7%91%9E/9356615",
+     "snippet": "瑞（拼音：ruì）是汉语通用规范一级汉字（常用字）。 此字始见于战国包山楚简。 瑞本义指一种信物，通常用玉制成，其作用相当于 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "瑞的意思,瑞的解释,瑞的拼音,瑞的部首,瑞的笔顺-汉语国学",
+     "url": "https://www.hanyuguoxue.com/zidian/zi-29790",
+     "snippet": "瑞的拼音是ruì，瑞字共13画，部首是王部，本页介绍瑞字的意思，瑞的详细解释，瑞的读音、笔顺，还包括瑞的翻译、输入法、异体 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "《瑞》的拼音,瑞字的意思、组词、部首、笔画、笔顺 - 汉语查",
+     "url": "https://www.hgcha.com/zidian/e4c2f1cc.html",
+     "snippet": "1 天前 · 引 日月星辰瑞历，是禹桀之所同也。 —— 《荀子·天论》 例 瑞雪霏霏；瑞应（祥瑞的感应）；瑞星（吉祥之星）；瑞相（吉 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "瑞怎么读_瑞的拼音 - 新华字典",
+     "url": "https://zidian.gushici.net/13/745e.html",
+     "snippet": "2026年9月6日 · 日月星辰瑞历，是禹桀 之所同也。 —— 《荀子·天论》 (2) 又如:瑞雪霏霏;瑞应 (祥瑞的感应);瑞星 (吉祥之星);瑞相 (吉 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "瑞_瑞怎么读_瑞的意思 - 汉语字典",
+     "url": "https://www.chagushici.com/zidian/%E7%91%9E",
+     "snippet": "(2) 同本义 [jade used as tally] 瑞，以玉为信也。 ——《说文》 掌玉瑞器之藏。 ——《周礼·典瑞》。 注;“符信也，人执以见曰瑞。 成 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q14",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "瑞幸咖啡现在怎么样",
+   "entity": "瑞幸",
+   "config": "ours-bing-baidu",
+   "wall_ms": 362,
+   "entity_hit": false
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1142,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q14",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "瑞幸咖啡现在怎么样",
+   "entity": "瑞幸",
+   "config": "mcp-default",
+   "wall_ms": 1142,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1016,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 5,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item",
+     "url": "https://baike.baidu.com/item/%E7%91%9E/9356615",
+     "snippet": "瑞（拼音：ruì）是汉语通用规范一级汉字（常用字）。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "hanyuguoxue.comhttps://www.hanyuguoxue.com › zidian",
+     "url": "https://www.hanyuguoxue.com/zidian/zi-29790",
+     "snippet": "瑞的拼音是ruì，瑞字共13画，部首是王部，本页介绍瑞字的意思，瑞的详细解释，瑞的读音、笔顺，还包括瑞的翻译、输入法、异体 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "hgcha.comhttps://www.hgcha.com › zidian",
+     "url": "https://www.hgcha.com/zidian/e4c2f1cc.html",
+     "snippet": "1 天前 · 引 日月星辰瑞历，是禹桀之所同也。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "gushici.nethttps://zidian.gushici.net",
+     "url": "https://zidian.gushici.net/13/745e.html",
+     "snippet": "2026年9月6日 · 日月星辰瑞历，是禹桀 之所同也。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "chagushici.comhttps://www.chagushici.com › zidian",
+     "url": "https://www.chagushici.com/zidian/%E7%91%9E",
+     "snippet": "(2) 同本义 [jade used as tally] 瑞，以玉为信也。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q14",
+   "source": "authored:k43",
+   "category": "品牌近况",
+   "query": "瑞幸咖啡现在怎么样",
+   "entity": "瑞幸",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1017,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 763,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "蔚来汽车是不是快倒闭了",
+   "results": [
+    {
+     "title": "蔚（汉语汉字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E8%94%9A/34264",
+     "snippet": "蔚（拼音：wèi，yù）是汉语一级通用规范汉字（常用字）。 此字始见于小篆，本义是牡蒿，引申用作形容草木茂盛的样子，又引申用 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "皮城执法官（MOBA竞技网游《英雄联盟》中的英雄角色 ...",
+     "url": "https://baike.baidu.com/item/%E7%9A%AE%E5%9F%8E%E6%89%A7%E6%B3%95%E5%AE%98/2008334",
+     "snippet": "皮城执法官·蔚是MOBA竞技网游《英雄联盟》中的英雄角色，定位为兼具突进与控制的半肉刺客型打野。 该角色手持海克斯科技拳 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "蔚怎么读_蔚的拼音 - 新华字典",
+     "url": "https://zidian.gushici.net/14/851a.html",
+     "snippet": "4 天之前 · 蔚蔚，茂也。 ——《广雅·释训》 茂树荫蔚。 ——《文选·班固·西都赋》 设蔚施伏。 ——《淮南子·兵略》 望之蔚然。 —— …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "蔚_蔚怎么读_蔚的意思 - 汉语字典",
+     "url": "https://www.chagushici.com/zidian/%E8%94%9A",
+     "snippet": "蔚字的基本解释 基本字义 蔚 wèi ㄨㄟˋ 茂盛，荟聚，盛大：蔚然成风。 蔚为大观。 蔚蓝（晴朗天空的颜色）。 文采华丽：云蒸霞蔚。 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "NIO蔚来汽车官方网站",
+     "url": "http://www.nio.cn/",
+     "snippet": "下载NIO App 全面了解蔚来汽车最新资讯 探索有品位的社区活动 还可以个性化配置并订购爱车 下载 NIO App 开发者信息: 上海蔚来汽 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q15",
+   "source": "authored:k43",
+   "category": "公司口碑",
+   "query": "蔚来汽车是不是快倒闭了",
+   "entity": "蔚来",
+   "config": "ours-default",
+   "wall_ms": 763,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 370,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "蔚来汽车是不是快倒闭了",
+   "results": [
+    {
+     "title": "蔚（汉语汉字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E8%94%9A/34264",
+     "snippet": "蔚（拼音：wèi，yù）是汉语一级通用规范汉字（常用字）。 此字始见于小篆，本义是牡蒿，引申用作形容草木茂盛的样子，又引申用 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "皮城执法官（MOBA竞技网游《英雄联盟》中的英雄角色 ...",
+     "url": "https://baike.baidu.com/item/%E7%9A%AE%E5%9F%8E%E6%89%A7%E6%B3%95%E5%AE%98/2008334",
+     "snippet": "皮城执法官·蔚是MOBA竞技网游《英雄联盟》中的英雄角色，定位为兼具突进与控制的半肉刺客型打野。 该角色手持海克斯科技拳 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "蔚怎么读_蔚的拼音 - 新华字典",
+     "url": "https://zidian.gushici.net/14/851a.html",
+     "snippet": "4 天之前 · 蔚蔚，茂也。 ——《广雅·释训》 茂树荫蔚。 ——《文选·班固·西都赋》 设蔚施伏。 ——《淮南子·兵略》 望之蔚然。 —— …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "蔚_蔚怎么读_蔚的意思 - 汉语字典",
+     "url": "https://www.chagushici.com/zidian/%E8%94%9A",
+     "snippet": "蔚字的基本解释 基本字义 蔚 wèi ㄨㄟˋ 茂盛，荟聚，盛大：蔚然成风。 蔚为大观。 蔚蓝（晴朗天空的颜色）。 文采华丽：云蒸霞蔚。 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "NIO蔚来汽车官方网站",
+     "url": "http://www.nio.cn/",
+     "snippet": "下载NIO App 全面了解蔚来汽车最新资讯 探索有品位的社区活动 还可以个性化配置并订购爱车 下载 NIO App 开发者信息: 上海蔚来汽 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q15",
+   "source": "authored:k43",
+   "category": "公司口碑",
+   "query": "蔚来汽车是不是快倒闭了",
+   "entity": "蔚来",
+   "config": "ours-bing-baidu",
+   "wall_ms": 370,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1050,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q15",
+   "source": "authored:k43",
+   "category": "公司口碑",
+   "query": "蔚来汽车是不是快倒闭了",
+   "entity": "蔚来",
+   "config": "mcp-default",
+   "wall_ms": 1050,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 990,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 4,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 蔚",
+     "url": "https://baike.baidu.com/item/%E8%94%9A/34264",
+     "snippet": "蔚（拼音：wèi，yù）是汉语一级通用规范汉字（常用字）。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 皮城执法官",
+     "url": "https://baike.baidu.com/item/%E7%9A%AE%E5%9F%8E%E6%89%A7%E6%B3%95%E5%AE%98/2008334",
+     "snippet": "皮城执法官·蔚是MOBA竞技网游《英雄联盟》中的英雄角色，定位为兼具突进与控制的半肉刺客型打野。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "nio.cnhttp://www.nio.cn",
+     "url": "http://www.nio.cn/",
+     "snippet": "下载NIO App 全面了解蔚来汽车最新资讯 探索有品位的社区活动 还可以个性化配置并订购爱车 下载 NIO App 开发者信息: 上海蔚来汽 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "gushici.nethttps://zidian.gushici.net",
+     "url": "https://zidian.gushici.net/14/851a.html",
+     "snippet": "4 天之前 · 蔚蔚，茂也。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "chagushici.comhttps://www.chagushici.com › zidian › 蔚",
+     "url": "https://www.chagushici.com/zidian/%E8%94%9A",
+     "snippet": "蔚字的基本解释 基本字义 蔚 wèi ㄨㄟˋ 茂盛，荟聚，盛大：蔚然成风。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q15",
+   "source": "authored:k43",
+   "category": "公司口碑",
+   "query": "蔚来汽车是不是快倒闭了",
+   "entity": "蔚来",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 990,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1345,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "新能源汽车购置税政策变化",
+   "results": [
+    {
+     "title": "新（汉语汉字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%96%B0/34058",
+     "snippet": "“新”是“薪”的初文，本义表示砍伐木头，转指柴薪，用作名词，此义后用“薪”表示。 “新”的常用义为初始的、刚出现的，再引申为动词， …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "新浪网",
+     "url": "https://www.sina.com.cn/",
+     "snippet": "16 小时之前 · 新世代宝马 iX3 提供“停车碰撞记录”功能 金价迈向周度下跌 因油价和通胀推高加息预期 黑猫投诉| 金铲铲之战遇bug自动 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "新的意思,新的解释,新的拼音,新的部首,新的笔顺-汉语国学",
+     "url": "https://www.hanyuguoxue.com/zidian/zi-26032",
+     "snippet": "新的拼音是xīn，新字共13画，部首是斤部，本页介绍新字的意思，新的详细解释，新的读音、笔顺，还包括新的翻译、输入法、异体 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "《新》的拼音,新字的意思、组词、部首、笔画、笔顺 - 汉语查",
+     "url": "https://www.hgcha.com/zidian/72f014d8.html",
+     "snippet": "1 天前 · 新字的读音是xīn，左边一个亲右边一个斤是什么字，新的部首是斤，新的笔画一共13画，其中部外笔画9画，新的五行属金， …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "新闻中心首页_新浪网",
+     "url": "https://news.sina.com.cn/",
+     "snippet": "2023年1月22日 · 新浪网新闻中心提供24小时滚动报道，涵盖国内、国际及社会新闻，每日发布数以万计的新闻内容。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q16",
+   "source": "k46:industry",
+   "category": "行业政策",
+   "query": "2026年新能源汽车购置税政策有什么变化",
+   "entity": "购置税",
+   "config": "ours-default",
+   "wall_ms": 1345,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 525,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "anti_bot"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "新能源汽车购置税政策变化",
+   "results": [
+    {
+     "title": "新（汉语汉字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E6%96%B0/34058",
+     "snippet": "“新”是“薪”的初文，本义表示砍伐木头，转指柴薪，用作名词，此义后用“薪”表示。 “新”的常用义为初始的、刚出现的，再引申为动词， …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "新浪网",
+     "url": "https://www.sina.com.cn/",
+     "snippet": "16 小时之前 · 新世代宝马 iX3 提供“停车碰撞记录”功能 金价迈向周度下跌 因油价和通胀推高加息预期 黑猫投诉| 金铲铲之战遇bug自动 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "新的意思,新的解释,新的拼音,新的部首,新的笔顺-汉语国学",
+     "url": "https://www.hanyuguoxue.com/zidian/zi-26032",
+     "snippet": "新的拼音是xīn，新字共13画，部首是斤部，本页介绍新字的意思，新的详细解释，新的读音、笔顺，还包括新的翻译、输入法、异体 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "《新》的拼音,新字的意思、组词、部首、笔画、笔顺 - 汉语查",
+     "url": "https://www.hgcha.com/zidian/72f014d8.html",
+     "snippet": "1 天前 · 新字的读音是xīn，左边一个亲右边一个斤是什么字，新的部首是斤，新的笔画一共13画，其中部外笔画9画，新的五行属金， …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "新闻中心首页_新浪网",
+     "url": "https://news.sina.com.cn/",
+     "snippet": "2023年1月22日 · 新浪网新闻中心提供24小时滚动报道，涵盖国内、国际及社会新闻，每日发布数以万计的新闻内容。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q16",
+   "source": "k46:industry",
+   "category": "行业政策",
+   "query": "2026年新能源汽车购置税政策有什么变化",
+   "entity": "购置税",
+   "config": "ours-bing-baidu",
+   "wall_ms": 525,
+   "entity_hit": false
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1025,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q16",
+   "source": "k46:industry",
+   "category": "行业政策",
+   "query": "2026年新能源汽车购置税政策有什么变化",
+   "entity": "购置税",
+   "config": "mcp-default",
+   "wall_ms": 1025,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1073,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 5,
+   "results": [
+    {
+     "title": "www.gov.cnhttp://big5.www.gov.cn › gate › www.gov.cn › zhengce › zhengceku › ...",
+     "url": "http://big5.www.gov.cn/gate/big5/www.gov.cn/zhengce/zhengceku/202511/content_7047091.htm",
+     "snippet": "經國務院批准，現將2026年元旦、春節、清明節、勞動節、端午節、中秋節和國慶節放假調休日期的具體安排通知如下。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "scio.gov.cnhttp://www.scio.gov.cn › zdgz › jj",
+     "url": "http://www.scio.gov.cn/zdgz/jj/202511/t20251110_938367.html",
+     "snippet": "2025年11月10日 · 国务院办公厅关于2026年部分节假日安排的通知 国办发明电〔2025〕7号 各省、自治区、直辖市人民政府，国务院 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "www.gov.cnhttps://www.gov.cn › zhuanti › index.htm",
+     "url": "https://www.gov.cn/zhuanti/2026qglh/2026zfgzbgjd/index.htm",
+     "snippet": "2026年3月5日 · 四、2026年政府工作任务 党中央对今年工作作出了全面部署，我们要深入贯彻落实，扎实做好各项工作。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "qq.comhttps://news.qq.com › rain",
+     "url": "https://news.qq.com/rain/a/20251231A04Z6M00",
+     "snippet": "2025年12月31日 · 2026年大事、要事、重要节日一览表2026年是农历的丙午年（马年），下面整理了2026年大事、要事及重要节日等 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "zzhuangli.comhttps://rili.zzhuangli.com › year",
+     "url": "https://rili.zzhuangli.com/year/2026",
+     "snippet": "2026年日历全年完整图，带农历、二十四节气、传统节日、周数和放假调休安排，支持30套主题、图片下载及A4年历打印。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q16",
+   "source": "k46:industry",
+   "category": "行业政策",
+   "query": "2026年新能源汽车购置税政策有什么变化",
+   "entity": "购置税",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1073,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 720,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "AI监管新规定",
+   "results": [
+    {
+     "title": "AI工具集官网 | 1000+ AI工具集合，国内外AI工具集导航大全",
+     "url": "https://ai-bot.cn/",
+     "snippet": "16 小时之前 · AI工具集官网收录了国内外数百个AI工具，该导航网站包括AI写作工具、AI图像生成和背景移除、AI视频制作、AI音频转 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "千问 - 阿里Qwen大模型打造的AI对话助手",
+     "url": "https://qianwen.aigc.cn/",
+     "snippet": "2026年8月19日 · 核心定位：从回应式AI到行动式办事助手 阿里千问完成重大战略升级，正式推进Agentic AI（智能体AI）战略，实现 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "百度AI开放平台-全球领先的人工智能服务平台",
+     "url": "https://ai.baidu.com/",
+     "snippet": "百度AI开放平台提供全球领先的语音、图像、NLP等多项人工智能技术，开放对话式人工智能系统、智能驾驶系统两大行业生态，共 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "目前有哪些主流的AI？ - 知乎",
+     "url": "https://www.zhihu.com/question/591009674",
+     "snippet": "1、AI 写作类 ①ChatGPT： chat.openai.com 知名度最高的AI，最好用 ②Ntion AI： notion.ai 非常流畅好用的文档写作类工具 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "每日AI资讯、热点、动态、融资、产品发布 | AI工具集",
+     "url": "https://ai-bot.cn/daily-ai-news/",
+     "snippet": "1 天前 · 上海AI实验室开源国产科研智能体工作台InternAgentS，面向AI for Science领域提供可本地部署、多模型适配的科研协作平台 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q17",
+   "source": "k46:industry",
+   "category": "行业监管",
+   "query": "最近AI监管有什么新规定",
+   "entity": "AI",
+   "config": "ours-default",
+   "wall_ms": 720,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 377,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "AI监管新规定",
+   "results": [
+    {
+     "title": "AI工具集官网 | 1000+ AI工具集合，国内外AI工具集导航大全",
+     "url": "https://ai-bot.cn/",
+     "snippet": "16 小时之前 · AI工具集官网收录了国内外数百个AI工具，该导航网站包括AI写作工具、AI图像生成和背景移除、AI视频制作、AI音频转 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "千问 - 阿里Qwen大模型打造的AI对话助手",
+     "url": "https://qianwen.aigc.cn/",
+     "snippet": "2026年8月19日 · 核心定位：从回应式AI到行动式办事助手 阿里千问完成重大战略升级，正式推进Agentic AI（智能体AI）战略，实现 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "百度AI开放平台-全球领先的人工智能服务平台",
+     "url": "https://ai.baidu.com/",
+     "snippet": "百度AI开放平台提供全球领先的语音、图像、NLP等多项人工智能技术，开放对话式人工智能系统、智能驾驶系统两大行业生态，共 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "目前有哪些主流的AI？ - 知乎",
+     "url": "https://www.zhihu.com/question/591009674",
+     "snippet": "1、AI 写作类 ①ChatGPT： chat.openai.com 知名度最高的AI，最好用 ②Ntion AI： notion.ai 非常流畅好用的文档写作类工具 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "每日AI资讯、热点、动态、融资、产品发布 | AI工具集",
+     "url": "https://ai-bot.cn/daily-ai-news/",
+     "snippet": "1 天前 · 上海AI实验室开源国产科研智能体工作台InternAgentS，面向AI for Science领域提供可本地部署、多模型适配的科研协作平台 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q17",
+   "source": "k46:industry",
+   "category": "行业监管",
+   "query": "最近AI监管有什么新规定",
+   "entity": "AI",
+   "config": "ours-bing-baidu",
+   "wall_ms": 377,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1281,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q17",
+   "source": "k46:industry",
+   "category": "行业监管",
+   "query": "最近AI监管有什么新规定",
+   "entity": "AI",
+   "config": "mcp-default",
+   "wall_ms": 1281,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 4,
+   "latency_ms": 970,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 3,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 最近",
+     "url": "https://baike.baidu.com/item/%E6%9C%80%E8%BF%91/7537775",
+     "snippet": "2006年6月16日 · 《最近》是由李圣杰演唱的华语流行歌曲，于2006年6月16日发行，收录于专辑《关于你的歌》。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "163.comhttps://music.163.com › song",
+     "url": "https://music.163.com/song?id=114369",
+     "snippet": "length == 0} <p>轻敲空格完成输入</p> {else} <p>选择最近@的人或直接输入</p> {/if} <div …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "hanyuguoxue.comhttps://www.hanyuguoxue.com › cidian",
+     "url": "https://www.hanyuguoxue.com/cidian/ci-ad929b3e0",
+     "snippet": "宋 苏轼《省试宗室策问》：“而 唐 之宗室最近而易考。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "tophub.todayhttps://tophub.today › news",
+     "url": "https://tophub.today/c/news",
+     "snippet": "2026年8月31日 · 今日热榜提供各站热榜聚合：微信、今日头条、百度、知乎、V2EX、微博、贴吧、豆瓣、天涯、虎扑、Github、抖 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q17",
+   "source": "k46:industry",
+   "category": "行业监管",
+   "query": "最近AI监管有什么新规定",
+   "entity": "AI",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 971,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 729,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "教培行业2026年最新政策",
+   "results": [
+    {
+     "title": "教培是个什么样的行业 - 知乎",
+     "url": "https://zhuanlan.zhihu.com/p/1949778451134386383",
+     "snippet": "2025年9月13日 · 本人在教培行业多年，先后在几家大型机构工作过，也在开工作室。 教培行业，是什么样的呢？ 我从“存在原因”、“ …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "2025年，教培行业还值得应届生进入吗？ - 知乎",
+     "url": "https://www.zhihu.com/question/13089912739",
+     "snippet": "教培会提供各种家长信息和资源，前端一般有的做社群转化，有的直接电销，不管做什么吧，目的就是把家长邀请过来，给孩子安排试 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "2025年，教培行业还能做吗？ - 知乎",
+     "url": "https://www.zhihu.com/question/9352814044",
+     "snippet": "2025年6月5日 · 能做，但教培也是需要一定门槛，两手空空进来必死无疑。 首先就是选科，最好选英语，数学和物化。 英语和数学优 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "教培行业真的放开了吗？圈里人其实都心知肚明 - 知乎",
+     "url": "https://zhuanlan.zhihu.com/p/1892619299283256306",
+     "snippet": "2025年4月7日 · 最近，“教培放开了” 的消息不绝于耳，让不少人误以为政策松绑，教培行业将重回往日辉煌。 但教培行业真的放开了 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "2026教培行业趋势解析：洗牌后，这4条赛道更有未来",
+     "url": "https://www.toutiao.com/article/7623358619547714099/",
+     "snippet": "2026年3月31日 · 趋势二：AI自习室爆发，成为教培转型核心方向 这是2026年最火的趋势，也是普通人最容易上手的赛道。 传统自习 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q18",
+   "source": "k46:industry",
+   "category": "行业政策",
+   "query": "教培行业2026年最新政策",
+   "entity": "教培",
+   "config": "ours-default",
+   "wall_ms": 729,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 376,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "教培行业2026年最新政策",
+   "results": [
+    {
+     "title": "教培是个什么样的行业 - 知乎",
+     "url": "https://zhuanlan.zhihu.com/p/1949778451134386383",
+     "snippet": "2025年9月13日 · 本人在教培行业多年，先后在几家大型机构工作过，也在开工作室。 教培行业，是什么样的呢？ 我从“存在原因”、“ …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "2025年，教培行业还值得应届生进入吗？ - 知乎",
+     "url": "https://www.zhihu.com/question/13089912739",
+     "snippet": "教培会提供各种家长信息和资源，前端一般有的做社群转化，有的直接电销，不管做什么吧，目的就是把家长邀请过来，给孩子安排试 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "2025年，教培行业还能做吗？ - 知乎",
+     "url": "https://www.zhihu.com/question/9352814044",
+     "snippet": "2025年6月5日 · 能做，但教培也是需要一定门槛，两手空空进来必死无疑。 首先就是选科，最好选英语，数学和物化。 英语和数学优 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "教培行业真的放开了吗？圈里人其实都心知肚明 - 知乎",
+     "url": "https://zhuanlan.zhihu.com/p/1892619299283256306",
+     "snippet": "2025年4月7日 · 最近，“教培放开了” 的消息不绝于耳，让不少人误以为政策松绑，教培行业将重回往日辉煌。 但教培行业真的放开了 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "2026教培行业趋势解析：洗牌后，这4条赛道更有未来",
+     "url": "https://www.toutiao.com/article/7623358619547714099/",
+     "snippet": "2026年3月31日 · 趋势二：AI自习室爆发，成为教培转型核心方向 这是2026年最火的趋势，也是普通人最容易上手的赛道。 传统自习 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q18",
+   "source": "k46:industry",
+   "category": "行业政策",
+   "query": "教培行业2026年最新政策",
+   "entity": "教培",
+   "config": "ours-bing-baidu",
+   "wall_ms": 376,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1161,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q18",
+   "source": "k46:industry",
+   "category": "行业政策",
+   "query": "教培行业2026年最新政策",
+   "entity": "教培",
+   "config": "mcp-default",
+   "wall_ms": 1161,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 3,
+   "latency_ms": 1156,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 3,
+   "results": [
+    {
+     "title": "zhihu.comhttps://zhuanlan.zhihu.com",
+     "url": "https://zhuanlan.zhihu.com/p/1949778451134386383",
+     "snippet": "2025年9月13日 · 本人在教培行业多年，先后在几家大型机构工作过，也在开工作室。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "zhihu.comhttps://www.zhihu.com › question",
+     "url": "https://www.zhihu.com/question/13089912739",
+     "snippet": "教培会提供各种家长信息和资源，前端一般有的做社群转化，有的直接电销，不管做什么吧，目的就是把家长邀请过来，给孩子安排试 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "toutiao.comhttps://www.toutiao.com › article",
+     "url": "https://www.toutiao.com/article/7623358619547714099/",
+     "snippet": "2026年3月31日 · 趋势二：AI自习室爆发，成为教培转型核心方向 这是2026年最火的趋势，也是普通人最容易上手的赛道。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q18",
+   "source": "k46:industry",
+   "category": "行业政策",
+   "query": "教培行业2026年最新政策",
+   "entity": "教培",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1156,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 721,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "英伟达最新一季财报",
+   "results": [
+    {
+     "title": "人工智能计算领域的领导者 | NVIDIA",
+     "url": "https://www.nvidia.cn/",
+     "snippet": "3 天之前 · NVIDIA 发明了 GPU，并推动了 AI、HPC、游戏、创意设计、自动驾驶汽车和机器人开发领域的进步。 NVIDIA 中国开发者 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "NVIDIA GeForce 驱动程序 - N 卡驱动 | NVIDIA",
+     "url": "https://www.nvidia.cn/geforce/drivers/",
+     "snippet": "3 天之前 · 在驱动程序方面存有疑问或问题？ 可以在我们的 论坛 中与其他 NVIDIA® GeForce 用户进行探讨，或扫描下方二维码关注 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "NVIDIA_百度百科",
+     "url": "https://baike.baidu.com/item/nVidia/325313",
+     "snippet": "NVIDIA（中国大陆译名：英伟达，港台译名：辉达，股票名称：英伟达，股票代码：NVDA）1993年成立，总部位于美国加利福尼亚 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "World Leader in Artificial Intelligence Computing | NVIDIA",
+     "url": "https://www.nvidia.com/",
+     "snippet": "1 天前 · We create the world’s fastest supercomputer and largest gaming platform.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "人工智慧運算的全球領袖 | NVIDIA",
+     "url": "https://www.nvidia.com/zh-tw/",
+     "snippet": "1 天前 · 人工智慧和資料科學 人工智慧正在推動所有產業的變革。從生成式人工智慧和語音辨識，到醫學影像和供應鏈管理改良，人工 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q19",
+   "source": "k46:company",
+   "category": "公司财报",
+   "query": "英伟达最新一季财报怎么样",
+   "entity": "英伟达",
+   "config": "ours-default",
+   "wall_ms": 721,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 367,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "英伟达最新一季财报",
+   "results": [
+    {
+     "title": "人工智能计算领域的领导者 | NVIDIA",
+     "url": "https://www.nvidia.cn/",
+     "snippet": "3 天之前 · NVIDIA 发明了 GPU，并推动了 AI、HPC、游戏、创意设计、自动驾驶汽车和机器人开发领域的进步。 NVIDIA 中国开发者 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "NVIDIA GeForce 驱动程序 - N 卡驱动 | NVIDIA",
+     "url": "https://www.nvidia.cn/geforce/drivers/",
+     "snippet": "3 天之前 · 在驱动程序方面存有疑问或问题？ 可以在我们的 论坛 中与其他 NVIDIA® GeForce 用户进行探讨，或扫描下方二维码关注 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "NVIDIA_百度百科",
+     "url": "https://baike.baidu.com/item/nVidia/325313",
+     "snippet": "NVIDIA（中国大陆译名：英伟达，港台译名：辉达，股票名称：英伟达，股票代码：NVDA）1993年成立，总部位于美国加利福尼亚 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "World Leader in Artificial Intelligence Computing | NVIDIA",
+     "url": "https://www.nvidia.com/",
+     "snippet": "1 天前 · We create the world’s fastest supercomputer and largest gaming platform.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "人工智慧運算的全球領袖 | NVIDIA",
+     "url": "https://www.nvidia.com/zh-tw/",
+     "snippet": "1 天前 · 人工智慧和資料科學 人工智慧正在推動所有產業的變革。從生成式人工智慧和語音辨識，到醫學影像和供應鏈管理改良，人工 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q19",
+   "source": "k46:company",
+   "category": "公司财报",
+   "query": "英伟达最新一季财报怎么样",
+   "entity": "英伟达",
+   "config": "ours-bing-baidu",
+   "wall_ms": 367,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1113,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q19",
+   "source": "k46:company",
+   "category": "公司财报",
+   "query": "英伟达最新一季财报怎么样",
+   "entity": "英伟达",
+   "config": "mcp-default",
+   "wall_ms": 1113,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1107,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 4,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › nVidia",
+     "url": "https://baike.baidu.com/item/nVidia/325313",
+     "snippet": "NVIDIA（中国大陆译名：英伟达，港台译名：辉达，股票名称：英伟达，股票代码：NVDA）1993年成立，总部位于美国加利福尼亚 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "nvidia.cnhttps://www.nvidia.cn",
+     "url": "https://www.nvidia.cn/",
+     "snippet": "3 天之前 · NVIDIA 发明了 GPU，并推动了 AI、HPC、游戏、创意设计、自动驾驶汽车和机器人开发领域的进步。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "nvidia.cnhttps://www.nvidia.cn › geforce › drivers",
+     "url": "https://www.nvidia.cn/geforce/drivers/",
+     "snippet": "3 天之前 · 在驱动程序方面存有疑问或问题？",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "nvidia.comhttps://www.nvidia.com",
+     "url": "https://www.nvidia.com/",
+     "snippet": "1 天前 · We create the world’s fastest supercomputer and largest gaming platform.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "nvidia.comhttps://www.nvidia.com › zh-tw",
+     "url": "https://www.nvidia.com/zh-tw/",
+     "snippet": "1 天前 · 人工智慧和資料科學 人工智慧正在推動所有產業的變革。",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q19",
+   "source": "k46:company",
+   "category": "公司财报",
+   "query": "英伟达最新一季财报怎么样",
+   "entity": "英伟达",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1108,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 756,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "胖东来为什么这么火",
+   "results": [
+    {
+     "title": "胖（汉语汉字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E8%83%96/2355792",
+     "snippet": "“胖”字本义为古代祭祀用的半体牲。 其字形左边像一块肉，右边为“半”，意思是把肉分为两半。 对古人来说，祭祀是一件很神圣的事 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "胖的意思,胖的解释,胖的拼音,胖的部首,胖的笔顺-汉语国学",
+     "url": "https://www.hanyuguoxue.com/zidian/zi-32982",
+     "snippet": "〔胖〕字是多音字，拼音是（pàng、pán、pàn），部首是 月部，总笔画是 9画。 〔胖〕字是左右结构，可拆字为“ 月、半 ”或“ ⺼ 、半 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "《胖》的拼音,胖字的意思、组词、部首、笔画、笔顺 - 汉语查",
+     "url": "https://www.hgcha.com/zidian/ef4a4127.html",
+     "snippet": "2026年8月29日 · 部首月部总笔画9画部外笔画5画结构左右结构五笔EUFH仓颉BFQ郑码QUB五行水四角79250电码5160区位1596统一 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "“心宽体胖”中的“胖”不读pàng，竟然99.9%的人都读错了, 正确 ...",
+     "url": "https://www.sohu.com/a/814426660_100191840",
+     "snippet": "2024年10月7日 · 胖，是一个多音字，读作pàng、pán或pàn ，是一个会意兼形声字。 从月（肉），其古文字形像是一块肉，由月（ …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "胖-字典-意思-解释-拼音-注音-读音-部首-出处",
+     "url": "https://www.shidianguji.com/character/%E8%83%96",
+     "snippet": "《江西省大志》卷二（一）， （明） 王某 选、（明） 陆填 校订，万历25年刊本，第13页 胖衣匠作𪸩却元年该府应造额解天启六七等 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q20",
+   "source": "k46:company",
+   "category": "公司口碑",
+   "query": "胖东来为什么这么火",
+   "entity": "胖东来",
+   "config": "ours-default",
+   "wall_ms": 756,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 463,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "胖东来为什么这么火",
+   "results": [
+    {
+     "title": "胖（汉语汉字）_百度百科",
+     "url": "https://baike.baidu.com/item/%E8%83%96/2355792",
+     "snippet": "“胖”字本义为古代祭祀用的半体牲。 其字形左边像一块肉，右边为“半”，意思是把肉分为两半。 对古人来说，祭祀是一件很神圣的事 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "胖的意思,胖的解释,胖的拼音,胖的部首,胖的笔顺-汉语国学",
+     "url": "https://www.hanyuguoxue.com/zidian/zi-32982",
+     "snippet": "〔胖〕字是多音字，拼音是（pàng、pán、pàn），部首是 月部，总笔画是 9画。 〔胖〕字是左右结构，可拆字为“ 月、半 ”或“ ⺼ 、半 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "《胖》的拼音,胖字的意思、组词、部首、笔画、笔顺 - 汉语查",
+     "url": "https://www.hgcha.com/zidian/ef4a4127.html",
+     "snippet": "2026年8月29日 · 部首月部总笔画9画部外笔画5画结构左右结构五笔EUFH仓颉BFQ郑码QUB五行水四角79250电码5160区位1596统一 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "“心宽体胖”中的“胖”不读pàng，竟然99.9%的人都读错了, 正确 ...",
+     "url": "https://www.sohu.com/a/814426660_100191840",
+     "snippet": "2024年10月7日 · 胖，是一个多音字，读作pàng、pán或pàn ，是一个会意兼形声字。 从月（肉），其古文字形像是一块肉，由月（ …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "胖-字典-意思-解释-拼音-注音-读音-部首-出处",
+     "url": "https://www.shidianguji.com/character/%E8%83%96",
+     "snippet": "《江西省大志》卷二（一）， （明） 王某 选、（明） 陆填 校订，万历25年刊本，第13页 胖衣匠作𪸩却元年该府应造额解天启六七等 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q20",
+   "source": "k46:company",
+   "category": "公司口碑",
+   "query": "胖东来为什么这么火",
+   "entity": "胖东来",
+   "config": "ours-bing-baidu",
+   "wall_ms": 463,
+   "entity_hit": false
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1204,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q20",
+   "source": "k46:company",
+   "category": "公司口碑",
+   "query": "胖东来为什么这么火",
+   "entity": "胖东来",
+   "config": "mcp-default",
+   "wall_ms": 1204,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1054,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 4,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 胖",
+     "url": "https://baike.baidu.com/item/%E8%83%96/2355792",
+     "snippet": "“胖”字本义为古代祭祀用的半体牲。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "hanyuguoxue.comhttps://www.hanyuguoxue.com › zidian",
+     "url": "https://www.hanyuguoxue.com/zidian/zi-32982",
+     "snippet": "〔胖〕字是多音字，拼音是（pàng、pán、pàn），部首是 月部，总笔画是 9画。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "hgcha.comhttps://www.hgcha.com › zidian",
+     "url": "https://www.hgcha.com/zidian/ef4a4127.html",
+     "snippet": "2026年8月29日 · 部首月部总笔画9画部外笔画5画结构左右结构五笔EUFH仓颉BFQ郑码QUB五行水四角79250电码5160区位1596统一 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "sohu.comhttps://www.sohu.com",
+     "url": "https://www.sohu.com/a/814426660_100191840",
+     "snippet": "2024年10月7日 · 胖，是一个多音字，读作pàng、pán或pàn ，是一个会意兼形声字。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "shidianguji.comhttps://www.shidianguji.com › character › 胖",
+     "url": "https://www.shidianguji.com/character/%E8%83%96",
+     "snippet": "《江西省大志》卷二（一）， （明） 王某 选、（明） 陆填 校订，万历25年刊本，第13页 胖衣匠作𪸩却元年该府应造额解天启六七等 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q20",
+   "source": "k46:company",
+   "category": "公司口碑",
+   "query": "胖东来为什么这么火",
+   "entity": "胖东来",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1054,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 2271,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "重要的经济政策发布",
+   "results": [
+    {
+     "title": "重要（重大而紧要的汉语形容词）_百度百科",
+     "url": "https://baike.baidu.com/item/%E9%87%8D%E8%A6%81/9154462",
+     "snippet": "《北齐书 ·任胄传》：\"高祖频幸丙姬第，赏赐甚厚。 世宗末年，胄以武帝外戚，渐见疏忌。 胄遂与仪同三司尉瑾谋反，谓瑾曰：'晋州 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "重要的意思_重要的解释-汉语国学",
+     "url": "https://www.hanyuguoxue.com/cidian/ci-42b4e9209",
+     "snippet": "网络解释 重要 （词语解释） 重要是汉语词语，读音zhòng yào，意思是具有重大影响或后果的；有很大意义的。 重要人物 、重要事件 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "“重要” 不止 important！7 个高频近义词深度辨析（含搭配 ...",
+     "url": "https://zhuanlan.zhihu.com/p/1955968857501066184",
+     "snippet": "2025年9月29日 · 今天，我们一起来拆解 7 个高频 “重要” 近义词（essential/ critical /indispensable 等），从核心含义、语气差异到搭 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "重要（重要）_百度百科",
+     "url": "https://baike.baidu.com/item/%E9%87%8D%E8%A6%81/18686373",
+     "snippet": "百度百科是一部内容开放、自由的网络百科全书，旨在创造一个涵盖所有领域知识，服务所有互联网用户的中文知识性百科全书。在这 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "重要的意思|重要是什么意思 - 查字典",
+     "url": "https://www.chazidian.com/r_ci_fc7e3846bc342cf2cf912e4dce12626d/",
+     "snippet": "2025年2月11日 · 详细解释（Detailed Explanation）：表示某事物在整体中占有重要地位，对于整体的发展、结果或影响具有重要作用 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q21",
+   "source": "k46:current",
+   "category": "时政时效",
+   "query": "最近有什么重要的经济政策发布",
+   "entity": null,
+   "config": "ours-default",
+   "wall_ms": 2271,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 404,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "重要的经济政策发布",
+   "results": [
+    {
+     "title": "重要（重大而紧要的汉语形容词）_百度百科",
+     "url": "https://baike.baidu.com/item/%E9%87%8D%E8%A6%81/9154462",
+     "snippet": "《北齐书 ·任胄传》：\"高祖频幸丙姬第，赏赐甚厚。 世宗末年，胄以武帝外戚，渐见疏忌。 胄遂与仪同三司尉瑾谋反，谓瑾曰：'晋州 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "重要的意思_重要的解释-汉语国学",
+     "url": "https://www.hanyuguoxue.com/cidian/ci-42b4e9209",
+     "snippet": "网络解释 重要 （词语解释） 重要是汉语词语，读音zhòng yào，意思是具有重大影响或后果的；有很大意义的。 重要人物 、重要事件 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "“重要” 不止 important！7 个高频近义词深度辨析（含搭配 ...",
+     "url": "https://zhuanlan.zhihu.com/p/1955968857501066184",
+     "snippet": "2025年9月29日 · 今天，我们一起来拆解 7 个高频 “重要” 近义词（essential/ critical /indispensable 等），从核心含义、语气差异到搭 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "重要（重要）_百度百科",
+     "url": "https://baike.baidu.com/item/%E9%87%8D%E8%A6%81/18686373",
+     "snippet": "百度百科是一部内容开放、自由的网络百科全书，旨在创造一个涵盖所有领域知识，服务所有互联网用户的中文知识性百科全书。在这 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "重要的意思|重要是什么意思 - 查字典",
+     "url": "https://www.chazidian.com/r_ci_fc7e3846bc342cf2cf912e4dce12626d/",
+     "snippet": "2025年2月11日 · 详细解释（Detailed Explanation）：表示某事物在整体中占有重要地位，对于整体的发展、结果或影响具有重要作用 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q21",
+   "source": "k46:current",
+   "category": "时政时效",
+   "query": "最近有什么重要的经济政策发布",
+   "entity": null,
+   "config": "ours-bing-baidu",
+   "wall_ms": 404,
+   "entity_hit": false
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1124,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q21",
+   "source": "k46:current",
+   "category": "时政时效",
+   "query": "最近有什么重要的经济政策发布",
+   "entity": null,
+   "config": "mcp-default",
+   "wall_ms": 1124,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 4,
+   "latency_ms": 1054,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 3,
+   "results": [
+    {
+     "title": "baidu.comhttps://baike.baidu.com › item › 最近",
+     "url": "https://baike.baidu.com/item/%E6%9C%80%E8%BF%91/7537775",
+     "snippet": "2006年6月16日 · 《最近》是由李圣杰演唱的华语流行歌曲，于2006年6月16日发行，收录于专辑《关于你的歌》。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "163.comhttps://music.163.com › song",
+     "url": "https://music.163.com/song?id=114369",
+     "snippet": "length == 0} <p>轻敲空格完成输入</p> {else} <p>选择最近@的人或直接输入</p> {/if} <div …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "hanyuguoxue.comhttps://www.hanyuguoxue.com › cidian",
+     "url": "https://www.hanyuguoxue.com/cidian/ci-ad929b3e0",
+     "snippet": "宋 苏轼《省试宗室策问》：“而 唐 之宗室最近而易考。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "tophub.todayhttps://tophub.today › news",
+     "url": "https://tophub.today/c/news",
+     "snippet": "2026年8月31日 · 今日热榜提供各站热榜聚合：微信、今日头条、百度、知乎、V2EX、微博、贴吧、豆瓣、天涯、虎扑、Github、抖 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q21",
+   "source": "k46:current",
+   "category": "时政时效",
+   "query": "最近有什么重要的经济政策发布",
+   "entity": null,
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1054,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 772,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "so360"
+   ],
+   "engines_tried": [
+    "bing",
+    "so360"
+   ],
+   "stop_reason": "enough",
+   "partial_failures": [],
+   "confidence": 2,
+   "query_sent": "黄金价格最近为什么一直涨",
+   "results": [
+    {
+     "title": "今日金价 (实时更新),黄金价格, 最新国际黄金价格走势图_汇率表",
+     "url": "https://www.huilvbiao.com/gold",
+     "snippet": "16 小时之前 · 为您提供今日黄金价格，国内黄金价格，纽约期货国际金价，伦敦现货黄金价格今日最新数据行情及黄金价格走势图。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "金投网 (jt.cn)-黄金价格走势_实时行情_贵金属门户网站",
+     "url": "https://www.cngold.org/index.html",
+     "snippet": "2 天之前 · [信用卡动态] 交易满额最高立省2600元年费 ---2026年9月1日至2027年8月31日（含）白金信用卡交易满额减免首年年费活 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "今日现货黄金价格 (最新现货金行情走势图分析)-行情中心 ...",
+     "url": "https://m.cngold.org/quote/gjs/gjhj_xhhj.html",
+     "snippet": "16 小时之前 · 金投网行情中心为您提供及时的行情数据，包括今日现货黄金价格、现货黄金行情分析、最新现货黄金价格走势图等现 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "黄金频道 - 东方财富网",
+     "url": "https://gold.eastmoney.com/index.html",
+     "snippet": "16 小时之前 · 黄金、白银剧震，市场预计美联储下周90％概率加息. 180亿美元涌入！ 世界黄金协会最新报告. 深夜，全线大涨！ 停 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "sge - 首页-上海黄金交易所",
+     "url": "https://www.sge.com.cn/",
+     "snippet": "2026年8月31日 · 首页-上海黄金交易所 关于吸收周大生珠宝等两家机构入会和终止浙商自 26-08-31 关于撤销上海黄金交易所熊猫普制 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q22",
+   "source": "k46:current",
+   "category": "价格行情",
+   "query": "黄金价格最近为什么一直涨",
+   "entity": "黄金",
+   "config": "ours-default",
+   "wall_ms": 772,
+   "entity_hit": true
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 378,
+   "error": "",
+   "engines_ok": [
+    "bing"
+   ],
+   "engines_tried": [
+    "bing",
+    "baidu"
+   ],
+   "stop_reason": "exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "reason": "cooldown"
+    }
+   ],
+   "confidence": 2,
+   "query_sent": "黄金价格最近为什么一直涨",
+   "results": [
+    {
+     "title": "今日金价 (实时更新),黄金价格, 最新国际黄金价格走势图_汇率表",
+     "url": "https://www.huilvbiao.com/gold",
+     "snippet": "16 小时之前 · 为您提供今日黄金价格，国内黄金价格，纽约期货国际金价，伦敦现货黄金价格今日最新数据行情及黄金价格走势图。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "金投网 (jt.cn)-黄金价格走势_实时行情_贵金属门户网站",
+     "url": "https://www.cngold.org/index.html",
+     "snippet": "2 天之前 · [信用卡动态] 交易满额最高立省2600元年费 ---2026年9月1日至2027年8月31日（含）白金信用卡交易满额减免首年年费活 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "今日现货黄金价格 (最新现货金行情走势图分析)-行情中心 ...",
+     "url": "https://m.cngold.org/quote/gjs/gjhj_xhhj.html",
+     "snippet": "16 小时之前 · 金投网行情中心为您提供及时的行情数据，包括今日现货黄金价格、现货黄金行情分析、最新现货黄金价格走势图等现 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "黄金频道 - 东方财富网",
+     "url": "https://gold.eastmoney.com/index.html",
+     "snippet": "16 小时之前 · 黄金、白银剧震，市场预计美联储下周90％概率加息. 180亿美元涌入！ 世界黄金协会最新报告. 深夜，全线大涨！ 停 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "sge - 首页-上海黄金交易所",
+     "url": "https://www.sge.com.cn/",
+     "snippet": "2026年8月31日 · 首页-上海黄金交易所 关于吸收周大生珠宝等两家机构入会和终止浙商自 26-08-31 关于撤销上海黄金交易所熊猫普制 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q22",
+   "source": "k46:current",
+   "category": "价格行情",
+   "query": "黄金价格最近为什么一直涨",
+   "entity": "黄金",
+   "config": "ours-bing-baidu",
+   "wall_ms": 378,
+   "entity_hit": true
+  },
+  {
+   "ok": false,
+   "n": 0,
+   "latency_ms": 1338,
+   "error": "",
+   "engines_ok": [
+    "duckduckgo",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "duckduckgo",
+     "type": "unknown",
+     "message": "fetch failed",
+     "suggestion": "Try a different engine or check the query"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 0,
+   "results": [],
+   "qid": "Q22",
+   "source": "k46:current",
+   "category": "价格行情",
+   "query": "黄金价格最近为什么一直涨",
+   "entity": "黄金",
+   "config": "mcp-default",
+   "wall_ms": 1338,
+   "entity_hit": false
+  },
+  {
+   "ok": true,
+   "n": 5,
+   "latency_ms": 1102,
+   "error": "",
+   "engines_ok": [
+    "bing",
+    "baidu",
+    "sogou"
+   ],
+   "stop_reason": "phases_exhausted",
+   "partial_failures": [
+    {
+     "engine": "baidu",
+     "type": "bot_challenge",
+     "message": "Baidu returned an anti-bot verification page",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    },
+    {
+     "engine": "sogou",
+     "type": "bot_challenge",
+     "message": "Sogou returned an anti-bot challenge",
+     "suggestion": "Wait for the provider cooldown or use another network runner"
+    }
+   ],
+   "injection_flagged": 4,
+   "results": [
+    {
+     "title": "huilvbiao.comhttps://www.huilvbiao.com › gold",
+     "url": "https://www.huilvbiao.com/gold",
+     "snippet": "16 小时之前 · 为您提供今日黄金价格，国内黄金价格，纽约期货国际金价，伦敦现货黄金价格今日最新数据行情及黄金价格走势图。",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "cngold.orghttps://m.cngold.org › quote › gjs › gjhj_xhhj.html",
+     "url": "https://m.cngold.org/quote/gjs/gjhj_xhhj.html",
+     "snippet": "16 小时之前 · 金投网行情中心为您提供及时的行情数据，包括今日现货黄金价格、现货黄金行情分析、最新现货黄金价格走势图等现 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "eastmoney.comhttps://gold.eastmoney.com › index.html",
+     "url": "https://gold.eastmoney.com/index.html",
+     "snippet": "16 小时之前 · 黄金、白银剧震，市场预计美联储下周90％概率加息.",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "sge.com.cnhttps://www.sge.com.cn",
+     "url": "https://www.sge.com.cn/",
+     "snippet": "2026年8月31日 · 首页-上海黄金交易所 关于吸收周大生珠宝等两家机构入会和终止浙商自 26-08-31 关于撤销上海黄金交易所熊猫普制 …",
+     "sources": [
+      "bing"
+     ]
+    },
+    {
+     "title": "cngold.orghttps://www.cngold.org › index.html",
+     "url": "https://www.cngold.org/index.html",
+     "snippet": "2 天之前 · [信用卡动态] 交易满额最高立省2600元年费 ---2026年9月1日至2027年8月31日（含）白金信用卡交易满额减免首年年费活 …",
+     "sources": [
+      "bing"
+     ]
+    }
+   ],
+   "qid": "Q22",
+   "source": "k46:current",
+   "category": "价格行情",
+   "query": "黄金价格最近为什么一直涨",
+   "entity": "黄金",
+   "config": "mcp-bing-baidu-sogou",
+   "wall_ms": 1102,
+   "entity_hit": true
+  }
+ ]
+}

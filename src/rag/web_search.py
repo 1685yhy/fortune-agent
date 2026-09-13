@@ -1,12 +1,25 @@
-"""网络检索工具（阶段 5）— Bing 免费搜索（唯一/主搜索源，无 key、免费）。
+"""网络检索工具（阶段 5）— **k46 统一联网搜索能力**（多引擎瀑布，全免费零密钥）。
 
-Bing 搜索页抓取：httpx GET https://cn.bing.com/search?q=...（浏览器 UA），
-标准库 HTMLParser 解析 li.b_algo 结果（标题/URL/摘要）。免费、无 key、无需充值。
+对外仍是两个稳定接口（调用方零改动）：
+  - `search_web(keywords, limit)`   → [{title, url, text, site_name, ...}]
+  - `web_search_available()`        → 配置中任一引擎可达即 True
+内部收敛为**单一实现**：引擎适配器（多引擎）→ 瀑布式（达标即停）→
+结构化检索包（去重合并 + 多源交叉验证 + 局部失败隔离 + 注入过滤）。
+
+引擎（k46 本机实测，2026-09-14）：
+  - `bing`  cn.bing.com/search   现有主源，实测可达（li.b_algo 解析）
+  - `so360` www.so.com/s         实测可达，`data-mdurl` 内联真实 URL（无需二次跳转）
+  - `baidu` www.baidu.com/s      实测可达；需先访问首页取 cookie + Referer，
+                                 真实 URL 在容器 mu 属性（锚点是 /link?url= 跳转）
+  - `sogou` www.sogou.com/web    **实测被反爬拦截**（302 → /antispider/）；H5 版
+                                 为纯 JS 壳（结果 XHR 异步拉取，页面无可解析结果），
+                                 故不在默认集，适配器只做「拦截检测 + 如实上报」，
+                                 不编造解析逻辑（详见 _search_sogou）
+零密钥、零付费源（用户红线：不花钱）；配置见 WEB_SEARCH_ENGINES。
 
 ⚠️ 停用说明（2026-08-10）：原智谱 Web Search API（open.bigmodel.cn）欠费，
-用户决定改用完全免费的 Bing 方案，不再使用智谱——search_web() 直接走 Bing；
-原智谱调用逻辑完整保留在 _search_zhipu_legacy() 内，不再被调用，
-若后续恢复付费可在此处重新启用。
+用户决定改用完全免费的抓取方案，不再使用智谱；原智谱调用逻辑完整保留在
+_search_zhipu_legacy() 内，不再被调用，若后续恢复付费可在此处重新启用。
 
 用法（方案 §3.2 网络检索）：
     <tool_call>搜索: 关键词</tool_call> → search_web() → Top 5（title/url/text）→ 注入
@@ -24,6 +37,7 @@ import base64
 import html
 import logging
 import re
+import threading
 import time
 from html.parser import HTMLParser
 from typing import List, Optional
@@ -102,6 +116,26 @@ _QUERY_STOP_SEGMENTS = frozenset({
 _QUERY_SEG_SPLIT_RE = re.compile(r"[\s,，、;；。.!！?？:：|/]+")
 
 
+# k46（真实对照暴露，2026-09-14）：**粘连**在内容词上的修饰词/疑问填充词。
+# 上面 ⑤ 只处理「单独成段」的堆叠词；无空格的中文长句里它们直接粘在内容词上，
+# 于是整句被引擎按修饰词检索——实测「最近AI监管有什么新规定」两个系统（本仓
+# Bing/360/百度 + agent-search-mcp 的 bing）top1 全是歌曲《最近》/词典释义「最近」，
+# 内容词完全没参与匹配 → 归一化后命中正常结果。
+# 规则保守：只在剥离后仍有 ≥2 字时生效（绝不为空/不为单字 query）。
+_QUERY_GLUED_FILLER_RE = re.compile(r"(?:有什么|有哪些|都有些什么|都有什么)")
+_QUERY_GLUED_LEAD_RE = re.compile(r"^(?:最新|最近|近期|现在|目前|今天|今年|眼下)(?=.{2,})")
+
+
+def _strip_glued_modifiers(q: str) -> str:
+    """剥离粘连的修饰前缀与疑问填充词（见上方注释）；剥离后 <2 字则保留原值。"""
+    out = q or ""
+    for pat in (_QUERY_GLUED_FILLER_RE, _QUERY_GLUED_LEAD_RE):
+        cand = " ".join(pat.sub("", out).split())
+        if len(cand) >= 2:
+            out = cand
+    return out
+
+
 def _strip_query_tail(q: str) -> str:
     """剥句尾问句尾巴（多重叠加：…怎么样吗 → 吗 → 怎么样）。"""
     while q:
@@ -139,7 +173,9 @@ def _simplify_query(keywords: str, max_keep: int = 3) -> str:
     q = _strip_query_tail(q)
     segs = [s for s in _QUERY_SEG_SPLIT_RE.split(q) if s]
     if len(segs) <= 1:
-        return q
+        # k46：年份前缀剥离会留下前导空格（'2026年 教育行业政策' → ' 教育行业政策'）
+        # ——空段交给引擎会稀释匹配（实测两引擎对该形态返回 0 条），统一 strip
+        return _strip_glued_modifiers(q.strip()).strip()
     # 多段 query：「人工智能」→「AI」（绕过 Bing CN『人工』词典释义缺陷，见模块注释⑥）
     segs = [s.replace("人工智能", "AI") for s in segs]
     kept = [s for s in segs if s not in _QUERY_STOP_SEGMENTS]
@@ -149,13 +185,256 @@ def _simplify_query(keywords: str, max_keep: int = 3) -> str:
         kept = [s for s in kept if not year_seg_re.match(s)]
     if not kept:
         kept = segs[:1]  # 极端：全为修饰段 → 保第一段，绝不为空
-    return " ".join(kept[:max_keep])
+    return _strip_glued_modifiers(" ".join(kept[:max_keep]))
 
 
 _avail: Optional[bool] = None
 _avail_at: float = 0.0
-# 缓存: {cache_key: (expire_at, results)}
-_result_cache: dict[str, tuple[float, List[dict]]] = {}
+# 缓存: {cache_key: (expire_at, results|检索包)}
+_result_cache: dict[str, tuple[float, dict]] = {}
+# 百度会话客户端（进程内单例；预热 cookie，见 _baidu_client）
+_baidu_client_obj: Optional["httpx.Client"] = None
+_baidu_client_lock = threading.Lock()
+
+
+# ===========================================================================
+# k46 统一搜索：引擎注册表 + 配置 + 结构化「检索包」公共件
+# ===========================================================================
+
+# 全量引擎（适配器实现齐全）；默认启用集见 DEFAULT_ENGINES
+KNOWN_ENGINES = ("bing", "so360", "baidu", "sogou")
+# 默认启用：本机实测可达的零密钥引擎（sogou 实测被反爬拦截 → 不入默认集，
+# 用户可用 WEB_SEARCH_ENGINES 显式打开）
+DEFAULT_ENGINES = ("bing", "so360", "baidu")
+ENGINE_LABELS = {
+    "bing": "Bing", "so360": "360搜索", "baidu": "百度", "sogou": "搜狗",
+}
+# 瀑布停止：结果数达标 **且** 至少来自 2 个引擎（多源交叉验证）即停
+MIN_STOP_ENGINES = 2
+# 引擎失败后的冷却（秒）——避免对已被反爬/故障的站点反复施压（抓取克制）
+ENGINE_FAIL_COOLDOWN = 120.0
+# 不进冷却的失败原因：站点是通的、只是这轮没解析出东西（不该罚站整个引擎）
+NO_COOLDOWN_REASONS = frozenset({"parse_miss"})
+# 引擎之间的最小间隔（秒）——顺序瀑布、不并发轰炸
+ENGINE_SPACING_S = 0.25
+# 单条结果摘要在入 prompt 前的截断长度上限
+SNIPPET_HARD_MAX = 300
+
+
+def _parse_engine_set(raw: Optional[str]) -> tuple[str, ...]:
+    """解析 WEB_SEARCH_ENGINES 配置值 → 引擎名元组（未知名忽略、保序去重）。
+
+    空/未设置 → DEFAULT_ENGINES。
+    """
+    if raw is None or not str(raw).strip():
+        return tuple(DEFAULT_ENGINES)
+    out: list[str] = []
+    for name in str(raw).split(","):
+        name = name.strip().lower()
+        if name in KNOWN_ENGINES and name not in out:
+            out.append(name)
+    return tuple(out) if out else tuple(DEFAULT_ENGINES)
+
+
+def configured_engines() -> tuple[str, ...]:
+    """当前启用的引擎（WEB_SEARCH_ENGINES 环境变量，进程内缓存）。"""
+    global _engines_cache
+    if _engines_cache is None:
+        import os
+        _engines_cache = _parse_engine_set(os.getenv("WEB_SEARCH_ENGINES"))
+        logger.info("k46 联网搜索引擎集: %s", ",".join(_engines_cache))
+    return _engines_cache
+
+
+# ---------------------------------------------------------------------------
+# 注入特征过滤（参考 agent-search-mcp 的 Prompt 注入检测；k46）
+# ---------------------------------------------------------------------------
+# 抓来的网页文本会进 prompt（工具块/自动注入段）。恶意页面可埋「忽略以上指令」
+# 类文本劫持模型，故在**入库前**（适配器出口、缓存前）统一过滤：
+#   ① 指令劫持特征 → 中性化为「［已过滤］」（不整条丢弃：结果本身仍可能有价值）
+#   ② 伪角色/伪协议标记（system: / <|im_start|> 等）→ 同上
+#   ③ 控制字符与零宽字符 → 剔除（防用不可见字符绕行特征匹配）
+#   ④ 形如 [n] 的角标 → 改写为 (n)：我们的引用体系用 [n] 编号，网页原文里的
+#      [1]/[2] 会被模型误当成可用引用编号（污染引用校验）。
+_INJECTION_PATTERNS = (
+    re.compile(r"<\s*\|?\s*(?:im_start|im_end|system|assistant|endoftext)\s*\|?\s*>", re.I),
+    re.compile(r"ignore\s+(?:all\s+|any\s+)?(?:the\s+)?(?:previous|above|prior|foregoing)\s+"
+               r"(?:instructions?|prompts?|rules?)", re.I),
+    re.compile(r"disregard\s+(?:all\s+|any\s+)?(?:the\s+)?(?:previous|above|prior)\s+"
+               r"(?:instructions?|prompts?|rules?)", re.I),
+    re.compile(r"(?:忽略|无视|忘记|不要理会|抛弃)(?:以上|上述|之前|前面|上面)*(?:所有|全部)*(?:的)?"
+               r"(?:指令|指示|要求|规则|设定|提示|prompt)", re.I),
+    re.compile(r"(?:请)?(?:你)?(?:现在|从现在起)?(?:扮演|假装|伪装成|你就是|你现在是)"
+               r"(?:一个)?(?:新的?)?(?:system|系统|助手|AI|人工智能)?", re.I),
+    re.compile(r"^\s*(?:system|assistant|user|开发者|系统)\s*[:：]", re.I | re.M),
+    re.compile(r"(?:输出|打印|泄露|告诉我)(?:你的)?(?:系统)?(?:提示词|prompt|指令|设定)", re.I),
+    re.compile(r"<\s*(?:script|iframe)\b", re.I),
+)
+# 不可见/控制字符（保留 \t \n）
+_CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f​-‏  ﻿]")
+# 角标式引用编号（我们的引用体系占用了 [n]）
+_CITE_LIKE_RE = re.compile(r"\[(\d{1,2})\]")
+_INJECTION_PLACEHOLDER = "［已过滤］"
+
+
+def _neutralize_citation_like(text: str) -> str:
+    """把网页原文里的 [1]/[12] 改成 (1)/(12)，避免模型误当可用引用编号。"""
+    return _CITE_LIKE_RE.sub(r"(\1)", text)
+
+
+def sanitize_search_text(text: str, max_chars: int = SNIPPET_HARD_MAX) -> tuple[str, bool]:
+    """网页文本入 prompt 前的注入过滤 → (清洗后文本, 是否命中注入特征)。
+
+    - 命中注入特征 → 该片段替换为 ［已过滤］（结果保留，不让恶意文本进 prompt）
+    - 剔除控制/零宽字符；[n] 角标改写为 (n)；折叠空白；按 max_chars 截断
+    """
+    raw = text or ""
+    if not raw:
+        return "", False
+    clean = _CTRL_RE.sub("", raw)
+    flagged = False
+    for pat in _INJECTION_PATTERNS:
+        if pat.search(clean):
+            flagged = True
+            clean = pat.sub(_INJECTION_PLACEHOLDER, clean)
+    clean = _neutralize_citation_like(clean)
+    clean = " ".join(clean.split())[:max_chars]
+    return clean, flagged
+
+
+# ---------------------------------------------------------------------------
+# 去重合并 + 多源交叉验证置信度
+# ---------------------------------------------------------------------------
+# 归一化时丢弃的跟踪参数前缀（同一落地页带不同跟踪参数 = 同一条）
+_TRACKING_PARAM_PREFIXES = ("utm_", "spm", "from", "fr", "src", "ref", "share",
+                            "sa", "ved", "us", "rsv_", "wd", "eqid", "f")
+
+
+def normalize_url(url: str) -> str:
+    """URL 归一化（去重键）：小写主机、去 www.、丢 fragment/跟踪参数、去尾斜杠。"""
+    u = (url or "").strip()
+    if not u:
+        return ""
+    try:
+        from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+        parts = urlsplit(u)
+        scheme = (parts.scheme or "http").lower()
+        host = (parts.hostname or "").lower()
+        if host.startswith("www."):
+            host = host[4:]
+        if not host:
+            return u.lower()
+        netloc = host + (f":{parts.port}" if parts.port else "")
+        kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=False)
+                if not any(k.lower().startswith(p) for p in _TRACKING_PARAM_PREFIXES)]
+        path = parts.path or "/"
+        if path != "/" and path.endswith("/"):
+            path = path.rstrip("/")
+        return urlunsplit((scheme, netloc, path, urlencode(kept), ""))
+    except Exception:  # noqa: BLE001 — 归一化失败退回原串
+        return u
+
+
+def _confidence(source_engines: list[str], text: str) -> int:
+    """单条结果置信度（1-3）：多引擎命中 = 3；单引擎有摘要 = 2；仅标题 = 1。"""
+    if len({e for e in source_engines if e}) >= 2:
+        return 3
+    return 2 if (text or "").strip() else 1
+
+
+def merge_engine_results(per_engine, limit: int) -> list[dict]:
+    """多引擎原始结果 → 去重合并后的结构化列表（k46 §3）。
+
+    - 按 URL 归一化去重；同一 URL 多引擎命中 → 合并 source_engines（置信度 3）
+    - 摘要取「更长的那个」（信息量优先），标题取首个非空
+    - 排序：置信度降序（交叉验证过的优先），同置信度保持首次出现顺序
+      → **单引擎配置下输出顺序与旧实现逐条一致**（行为兼容）
+    - 入 prompt 前统一注入过滤（sanitize_search_text）
+    """
+    merged: dict[str, dict] = {}
+    order: list[str] = []
+    for engine, rows in per_engine:
+        for row in rows or []:
+            url = (row.get("url") or "").strip()
+            if not url:
+                continue
+            key = normalize_url(url) or url
+            title, _tf = sanitize_search_text(row.get("title") or "", 120)
+            text, flagged = sanitize_search_text(row.get("text") or "")
+            if not title and not text:
+                continue
+            item = merged.get(key)
+            if item is None:
+                item = {
+                    "title": title,
+                    "url": url,
+                    "text": text,
+                    "site_name": row.get("site_name") or "",
+                    "source_engines": [engine],
+                    "injection_flagged": flagged,
+                }
+                merged[key] = item
+                order.append(key)
+            else:
+                if engine not in item["source_engines"]:
+                    item["source_engines"].append(engine)
+                if len(text) > len(item["text"]):
+                    item["text"] = text
+                if not item["title"] and title:
+                    item["title"] = title
+                item["injection_flagged"] = item["injection_flagged"] or flagged
+    items = [merged[k] for k in order]
+    for it in items:
+        it["confidence"] = _confidence(it["source_engines"], it["text"])
+    items.sort(key=lambda x: -x["confidence"])  # 稳定排序：同分保持首次出现顺序
+    return items[:limit]
+
+
+def _result_package(results: list[dict], engines_tried, engines_ok,
+                    partial_failures, stop_reason: str, query: str,
+                    cache_hit: bool = False) -> dict:
+    """结构化「检索包」（k46 §3）：结果 + 元信息（搜了哪些引擎/停止原因/局部失败）。"""
+    if len({e for it in results for e in it.get("source_engines", [])}) >= 2:
+        confidence = 3
+    elif results:
+        confidence = 2
+    else:
+        confidence = 1
+    return {
+        "results": results,
+        "query": query,
+        "engines_tried": list(engines_tried),
+        "engines_ok": list(engines_ok),
+        "stop_reason": stop_reason,
+        "partial_failures": list(partial_failures),
+        "confidence": confidence,
+        "cache_hit": cache_hit,
+    }
+
+
+class EngineError(Exception):
+    """单引擎失败（局部失败隔离用）——reason 为机器可读短标识。"""
+
+    def __init__(self, engine: str, reason: str, detail: str = ""):
+        super().__init__(f"{engine}:{reason}:{detail}"[:200])
+        self.engine = engine
+        self.reason = reason
+        self.detail = detail
+
+
+_engine_cooldown: dict[str, float] = {}
+_engines_cache: Optional[tuple[str, ...]] = None
+
+
+def _engine_cooling(engine: str) -> bool:
+    return time.time() < _engine_cooldown.get(engine, 0.0)
+
+
+def reset_engine_state() -> None:
+    """测试用：清空引擎配置缓存与失败冷却。"""
+    global _engines_cache
+    _engines_cache = None
+    _engine_cooldown.clear()
 
 
 def _probe_bing_reachable(timeout: float = HEALTH_TIMEOUT) -> bool:
@@ -171,20 +450,55 @@ def _probe_bing_reachable(timeout: float = HEALTH_TIMEOUT) -> bool:
         return False
 
 
-def web_search_available(force: bool = False) -> bool:
-    """cn.bing.com 搜索通道是否可用（可达性探测 + 30s 缓存）。
+def _probe_engine(engine: str, timeout: float = HEALTH_TIMEOUT) -> bool:
+    """单引擎可达性探测（轻量：一次请求 + 反爬页识别）。"""
+    try:
+        if engine == "bing":
+            return _probe_bing_reachable(timeout)
+        if engine == "so360":
+            r = httpx.get(SO360_SEARCH_URL + "?q=" + quote("测试"), headers=SO360_HEADERS,
+                          timeout=timeout, follow_redirects=True)
+            return r.status_code == 200 and "so.com/verify" not in str(r.url)
+        if engine == "baidu":
+            r = _baidu_client(timeout).get(
+                BAIDU_SEARCH_URL + "?wd=" + quote("测试") + "&ie=utf-8",
+                headers={"Referer": "https://www.baidu.com/"})
+            return r.status_code == 200 and not _is_baidu_challenge(r.text)
+        if engine == "sogou":
+            r = httpx.get(SOGOU_SEARCH_URL + "?query=" + quote("测试"), headers=SOGOU_HEADERS,
+                          timeout=timeout, follow_redirects=True)
+            return r.status_code == 200 and not _is_sogou_antispider(r.text, str(r.url))
+    except Exception:  # noqa: BLE001 — 网络不可达
+        return False
+    return False
 
-    失败后周期性重试，网络恢复后自动恢复；仅网络层不通才返回 False。
+
+def web_search_available(force: bool = False) -> bool:
+    """联网搜索是否可用：**配置中任一引擎可达**即 True（可达性探测 + 30s 缓存）。
+
+    探测按配置顺序进行，首个可达即停（健康时只有 1 次探测请求，不给站点压力）；
+    全部不可达 → False（工具注册处标 unavailable、prompt 不宣传、search_web 返回 []）。
+    失败后周期性重试，网络恢复后自动恢复。
     """
     global _avail, _avail_at
     now = time.time()
     if not force and _avail is not None and now < _avail_at:
         return _avail
-    _avail = _probe_bing_reachable()
+    engines = configured_engines()
+    ok = False
+    for eng in engines:
+        if _engine_cooling(eng):
+            ok = True   # 冷却中说明「之前是通的、只是临时失败」→ 不判整体不可用
+            break
+        if _probe_engine(eng):
+            ok = True
+            break
+    _avail = ok
     _avail_at = now + AVAIL_CACHE_TTL
-    if not _avail:
-        logger.info("cn.bing.com 不可达，网络检索标记 unavailable")
-    return _avail
+    if not ok:
+        logger.info("联网搜索不可达（引擎集 %s），网络检索标记 unavailable",
+                    ",".join(engines))
+    return ok
 
 
 def _resolve_bing_url(url: str) -> str:
@@ -277,8 +591,9 @@ def _search_bing(keywords: str, limit: int = 5,
                  timeout: float = SEARCH_TIMEOUT) -> List[dict]:
     """Bing 免费搜索：httpx GET cn.bing.com/search 结果页，标准库 HTMLParser 解析。
 
-    返回 [{title, url, text, site_name}]（site_name 留空字符串）；
-    失败/解析不到 → 返回 []（不抛异常）。
+    返回 [{title, url, text, site_name}]（site_name 留空字符串）；解析不到结果
+    → 返回 []（引擎无结果，不算失败）；请求/解析异常 → 抛 EngineError
+    （k46：由瀑布层记录 partial_failures，局部失败不影响其它引擎）。
     """
     raw = (keywords or "").strip()
     if not raw:
@@ -295,38 +610,443 @@ def _search_bing(keywords: str, limit: int = 5,
         parser = _BingResultParser()
         parser.feed(r.text)
         results = parser.results[:limit]
+        if not results and "b_algo" in r.text:
+            # 结果页形态在（有容器标记）却解析不到 → 如实上报解析失败（防静默劣化）
+            raise EngineError("bing", "parse_miss")
         if results:
             logger.debug("Bing 检索 '%s'（精简自 '%s'）→ %d 条",
                          query[:40], raw[:40], len(results))
         return results
-    except Exception as e:  # noqa: BLE001 — 抓取/解析失败 → 返回 [] 不崩
-        logger.warning("Bing 检索 '%s' 失败: %s", query[:40], str(e)[:120])
-        return []
+    except EngineError:
+        raise
+    except httpx.HTTPStatusError as e:
+        raise EngineError("bing", f"http_{e.response.status_code}") from e
+    except Exception as e:  # noqa: BLE001 — 抓取/解析失败 → 局部失败隔离
+        raise EngineError("bing", "network", str(e)[:80]) from e
+
+
+# ===========================================================================
+# k46 引擎适配器：360搜索 / 百度 / 搜狗（Bing 见上）
+# ===========================================================================
+SO360_SEARCH_URL = "https://www.so.com/s"
+SO360_HEADERS = {
+    "User-Agent": BING_HEADERS["User-Agent"],
+    "Accept-Language": "zh-CN,zh;q=0.9",
+}
+BAIDU_SEARCH_URL = "https://www.baidu.com/s"
+BAIDU_HOME_URL = "https://www.baidu.com/"
+BAIDU_HEADERS = {
+    "User-Agent": BING_HEADERS["User-Agent"],
+    "Accept": ("text/html,application/xhtml+xml,application/xml;q=0.9,"
+               "image/avif,image/webp,*/*;q=0.8"),
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+SOGOU_SEARCH_URL = "https://www.sogou.com/web"
+SOGOU_HEADERS = {
+    "User-Agent": BING_HEADERS["User-Agent"],
+    "Accept-Language": "zh-CN,zh;q=0.9",
+    "Referer": "https://www.sogou.com/",
+}
+# 百度风控页特征（实测：短时间内重复请求会从结果页切到「百度安全验证」）
+_BAIDU_CHALLENGE_MARKERS = ("百度安全验证", "wappass.baidu.com", "verify.baidu.com")
+# 百度容器里的非内容占位域名（广告/推荐位，实测 mu 指向这些）
+_BAIDU_PLACEHOLDER_HOSTS = ("nourl.ubs.baidu.com", "recommend_list.baidu.com",
+                            "baidu.com/link", "baidu.php")
+
+_VOID_TAGS = frozenset({"br", "img", "input", "meta", "link", "hr", "area", "base",
+                        "col", "embed", "source", "track", "wbr", "param"})
+
+
+class _BlockParser(HTMLParser):
+    """容器块解析基类：按 class 命中起始容器，按标签深度闭合（k46 引擎适配器共用）。
+
+    子类实现 `_open_container(tag, attr_map)`（返回 True 表示此标签开启一个新容器）、
+    `_capture(attr_map)`（容器内每个起始标签调用，自行判定是否采集文本）、
+    以及 `_close_container()`（容器闭合时产出结果）。
+    文本采集用 `_text_<field>` 缓冲 + `_field_depth_<field>` 深度区间（含子标签文本）。
+    """
+
+    container_tag = "div"
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.results: List[dict] = []
+        self._depth = 0
+        self._cstart: Optional[int] = None      # 容器起始深度
+        self._fields: dict[str, tuple[int, list]] = {}   # field → (深度, 缓冲)
+        self._done: dict[str, str] = {}                  # field → 已闭合文本
+
+    # --- 采集辅助 ---
+    def _field_begin(self, field: str) -> None:
+        if field not in self._fields and field not in self._done:
+            self._fields[field] = (self._depth, [])
+
+    def _field_end(self, field: str, depth: int) -> None:
+        if self._fields.get(field, (None, None))[0] == depth:
+            self._done[field] = self._field_text(field)
+            self._fields.pop(field, None)
+
+    def _field_text(self, field: str) -> str:
+        if field in self._fields:
+            return " ".join("".join(self._fields[field][1]).split())
+        return self._done.get(field, "")
+
+    def _in_field(self, field: str) -> bool:
+        return field in self._fields
+
+    # --- HTMLParser 钩子 ---
+    def handle_starttag(self, tag, attrs):  # noqa: ANN001
+        attr_map = dict(attrs)
+        if tag not in _VOID_TAGS:
+            self._depth += 1
+        if self._cstart is None:
+            if tag == self.container_tag and self._open_container(tag, attr_map):
+                self._cstart = self._depth
+        else:
+            self._capture(tag, attr_map)
+
+    def handle_data(self, data: str) -> None:
+        for depth, buf in self._fields.values():
+            if self._depth >= depth:
+                buf.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in _VOID_TAGS:
+            return
+        if self._cstart is not None:
+            for field in list(self._fields):
+                self._field_end(field, self._depth)
+            if self._depth == self._cstart:
+                self._close_container()
+                self._cstart = None
+                self._fields.clear()
+                self._done.clear()
+        if self._depth > 0:
+            self._depth -= 1
+
+    # --- 子类实现 ---
+    def _open_container(self, tag: str, attr_map: dict) -> bool:
+        raise NotImplementedError
+
+    def _capture(self, tag: str, attr_map: dict) -> None:
+        raise NotImplementedError
+
+    def _close_container(self) -> None:
+        raise NotImplementedError
+
+
+class _So360ResultParser(_BlockParser):
+    """360 搜索（so.com）结果页：li.res-list → 首个带 data-mdurl 的 <a> + 摘要。
+
+    `data-mdurl` 是内联的**真实落地页**（锚点本体是 /link?m= 跳转）→ 无需二次
+    请求即可拿到真实 URL（省一次抓取，符合"抓取克制"）。摘要取 res-list-summary
+    （普通条目）/ g-des、res-desc（垂直卡）。
+    """
+
+    container_tag = "li"
+    _SUMMARY_CLASSES = ("res-list-summary", "g-des", "res-desc", "res-desc-col")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._url = ""
+
+    def _open_container(self, tag: str, attr_map: dict) -> bool:
+        self._url = ""
+        return "res-list" in (attr_map.get("class") or "").split()
+
+    def _capture(self, tag: str, attr_map: dict) -> None:
+        classes = (attr_map.get("class") or "").split()
+        if tag == "a" and not self._url:
+            md = (attr_map.get("data-mdurl") or "").strip()
+            if md.startswith("http"):
+                self._url = md
+                self._field_begin("title")
+        elif (tag in ("p", "div", "span")
+              and not self._in_field("title") and not self._in_field("text")
+              and not self._field_text("text")):
+            if any(c in self._SUMMARY_CLASSES for c in classes):
+                self._field_begin("text")
+
+    def _close_container(self) -> None:
+        title = self._field_text("title")
+        text = self._field_text("text")
+        if title and self._url:
+            self.results.append({"title": title[:120], "url": self._url,
+                                 "text": text[:SNIPPET_CHARS], "site_name": ""})
+
+
+class _BaiduResultParser(_BlockParser):
+    """百度结果页：div.result.c-container[mu] → 标题/真实 URL/摘要。
+
+    百度把**真实落地页**放在容器的 `mu` 属性（锚点本体是 /link?url= 或
+    /baidu.php 跳转；逐条跟跳转 = 每条一次额外请求，违背抓取克制）→
+    只收 mu 为 http 且非占位域名的容器；mu 缺失（广告/推荐位）整条跳过，
+    绝不产出不可解析的跳转链接。摘要挂点是混淆类名（多套并存），按
+    data-module="abstract" → class 含 summary-text → class 含 c-abstract
+    → class 含 cos-line-clamp 的优先级取第一个非空（容器首块，h3 内不取）。
+    """
+
+    container_tag = "div"
+    _mu = ""
+
+    def _open_container(self, tag: str, attr_map: dict) -> bool:
+        classes = (attr_map.get("class") or "").split()
+        self._mu = ""
+        # 自然结果容器：result / result-op（实测两种）；广告位类是 EC_result（非本规则）
+        if "c-container" not in classes:
+            return False
+        if not any(c == "result" or c.startswith("result-") for c in classes):
+            return False
+        mu = (attr_map.get("mu") or "").strip()
+        if not mu.startswith("http"):
+            return False
+        if any(h in mu for h in _BAIDU_PLACEHOLDER_HOSTS):
+            return False
+        self._mu = mu
+        return True
+
+    def _capture(self, tag: str, attr_map: dict) -> None:
+        if tag == "h3" and not self._in_field("title") and not self._field_text("title"):
+            self._field_begin("title")
+            return
+        if self._in_field("title") or self._in_field("text"):
+            return
+        module = (attr_map.get("data-module") or "")
+        classes = (attr_map.get("class") or "").split()
+        if module == "abstract" or "summary-text" in classes or "c-abstract" in classes:
+            self._field_begin("text")
+
+    def _close_container(self) -> None:
+        title = self._field_text("title")
+        text = self._field_text("text")
+        if title:
+            self.results.append({"title": title[:120], "url": self._mu,
+                                 "text": text[:SNIPPET_CHARS], "site_name": ""})
+
+
+def _is_baidu_challenge(html_text: str) -> bool:
+    """百度风控页（「百度安全验证」）识别 → 该次请求视为被拦截。"""
+    head = (html_text or "")[:4000]
+    return any(m in head for m in _BAIDU_CHALLENGE_MARKERS)
+
+
+def _is_sogou_antispider(html_text: str, final_url: str = "") -> bool:
+    """搜狗反爬页识别（302 → /antispider/）。"""
+    return "antispider" in (final_url or "") or "/antispider" in (html_text or "")[:4000]
+
+
+def _baidu_client(timeout: float) -> httpx.Client:
+    """百度会话客户端（进程内单例）：先访问首页取 cookie，再带 Referer 检索。
+
+    实测（2026-09-14）：不带 cookie 直接检索数次即被切到「百度安全验证」；
+    先取首页 cookie + Referer 后稳定返回结果页。单例复用避免每轮重新握手。
+    """
+    global _baidu_client_obj
+    client = _baidu_client_obj
+    if client is not None:
+        return client
+    with _baidu_client_lock:
+        if _baidu_client_obj is None:
+            c = httpx.Client(headers=BAIDU_HEADERS, timeout=timeout,
+                             follow_redirects=True)
+            try:
+                c.get(BAIDU_HOME_URL)   # 取 cookie（BAIDUID 等）
+            except Exception as e:  # noqa: BLE001 — 预热失败不阻塞（检索再试）
+                logger.debug("百度预热失败: %s", str(e)[:80])
+            _baidu_client_obj = c
+        return _baidu_client_obj
+
+
+def reset_baidu_client() -> None:
+    """测试用：丢弃百度会话客户端（下次调用重建）。"""
+    global _baidu_client_obj
+    with _baidu_client_lock:
+        if _baidu_client_obj is not None:
+            try:
+                _baidu_client_obj.close()
+            except Exception:  # noqa: BLE001
+                pass
+        _baidu_client_obj = None
+
+
+def _search_so360(query: str, limit: int = 5,
+                  timeout: float = SEARCH_TIMEOUT) -> List[dict]:
+    """360 搜索（so.com）免费抓取 → [{title, url, text, site_name}]；失败抛 EngineError。"""
+    url = f"{SO360_SEARCH_URL}?q={quote(query)}"
+    try:
+        r = httpx.get(url, headers=SO360_HEADERS, timeout=timeout, follow_redirects=True)
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise EngineError("so360", f"http_{e.response.status_code}") from e
+    except Exception as e:  # noqa: BLE001
+        raise EngineError("so360", "network", str(e)[:80]) from e
+    parser = _So360ResultParser()
+    parser.feed(r.text)
+    results = parser.results[:limit]
+    if not results and "res-list" in r.text:
+        raise EngineError("so360", "parse_miss")
+    return results
+
+
+def _search_baidu(query: str, limit: int = 5,
+                  timeout: float = SEARCH_TIMEOUT) -> List[dict]:
+    """百度免费抓取 → [{title, url, text, site_name}]；失败/被风控抛 EngineError。
+
+    先取首页 cookie（单例客户端），再带 Referer 检索；命中风控页 → EngineError
+    （reason=anti_bot，调用方降级并冷却，不反复施压）。
+    """
+    url = f"{BAIDU_SEARCH_URL}?wd={quote(query)}&ie=utf-8"
+    try:
+        r = _baidu_client(timeout).get(url, headers={"Referer": BAIDU_HOME_URL})
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise EngineError("baidu", f"http_{e.response.status_code}") from e
+    except Exception as e:  # noqa: BLE001
+        raise EngineError("baidu", "network", str(e)[:80]) from e
+    if _is_baidu_challenge(r.text):
+        raise EngineError("baidu", "anti_bot", "百度安全验证")
+    parser = _BaiduResultParser()
+    parser.feed(r.text)
+    results = parser.results[:limit]
+    if not results and "c-container" in r.text:
+        raise EngineError("baidu", "parse_miss")
+    return results
+
+
+def _search_sogou(query: str, limit: int = 5,
+                  timeout: float = SEARCH_TIMEOUT) -> List[dict]:
+    """搜狗：**本机实测不可用**（桌面版被反爬拦截）→ 如实上报，不编造解析。
+
+    实测（2026-09-14，本机）：www.sogou.com/web 一律 302 → /antispider/（带
+    cookie 预热、Referer、多种 UA 均如此，IP 级风控）；H5 版
+    wap.sogou.com/web/searchList.jsp 返回 200 但为纯 JS 壳（324KB 中无服务端
+    渲染的结果节点，结果走 XHR 异步拉取）→ 无稳定可解析的结果形态。
+    故：这里只做「拦截检测 + 如实上报」（EngineError reason=anti_bot），
+    **不写没有真实样本支撑的解析逻辑**；引擎默认关闭，可用 WEB_SEARCH_ENGINES
+    显式开启（在能直连的网络环境下若上游形态稳定，再按真实样本补解析）。
+    """
+    url = f"{SOGOU_SEARCH_URL}?query={quote(query)}"
+    try:
+        r = httpx.get(url, headers=SOGOU_HEADERS, timeout=timeout, follow_redirects=True)
+        r.raise_for_status()
+    except httpx.HTTPStatusError as e:
+        raise EngineError("sogou", f"http_{e.response.status_code}") from e
+    except Exception as e:  # noqa: BLE001
+        raise EngineError("sogou", "network", str(e)[:80]) from e
+    if _is_sogou_antispider(r.text, str(r.url)):
+        raise EngineError("sogou", "anti_bot", "反爬拦截页")
+    return []
+
+
+_ENGINE_SEARCHERS = {
+    "bing": _search_bing,
+    "so360": _search_so360,
+    "baidu": _search_baidu,
+    "sogou": _search_sogou,
+}
+
+
+def search_web_structured(keywords: str, limit: int = 5,
+                          timeout: float = SEARCH_TIMEOUT,
+                          engines: Optional[list] = None) -> dict:
+    """k46 统一检索：**多引擎瀑布** → 结构化检索包（单一实现，调用方零改动）。
+
+    - 按 `WEB_SEARCH_ENGINES` 顺序逐引擎尝试；每引擎独立超时 + 失败隔离
+      （单引擎挂/被反爬/解析异常 → 记 partial_failures，继续下一引擎，不抛断主链）
+    - 瀑布停止：结果数 ≥ limit **且** 至少 2 个引擎出过结果 → stop_reason=enough；
+      否则跑完配置集 → exhausted；无可用引擎 → unavailable
+    - 去重合并 + 多源交叉验证（同 URL 多引擎命中 → source_engines 列表 + 置信度 3）
+    - 结果入包前统一注入过滤（sanitize_search_text）
+    - 结果缓存 5 分钟 TTL（键含查询与引擎集签名）；失败引擎冷却 120s
+    返回 `{results, query, engines_tried, engines_ok, stop_reason,
+          partial_failures, confidence, cache_hit}`。
+    """
+    raw = (keywords or "").strip()
+    if not raw:
+        return _result_package([], [], [], [], "empty_query", "")
+    engine_list = [e for e in (engines if engines is not None else configured_engines())
+                   if e in _ENGINE_SEARCHERS]
+    if not engine_list:
+        return _result_package([], [], [], [], "unavailable", "")
+    if not web_search_available():
+        return _result_package([], [], [], [], "unavailable", "")
+
+    cache_key = f"v2:{','.join(engine_list)}:{raw}:{limit}"
+    hit = _result_cache.get(cache_key)
+    if hit and time.time() < hit[0]:
+        logger.info("网络检索 '%s' → 命中缓存 %d 条", raw[:40], len(hit[1]["results"]))
+        cached = dict(hit[1])
+        cached["cache_hit"] = True
+        return cached
+
+    # 提交给各引擎的 query 与 Bing 现状一致（_simplify_query 精简长句）；
+    # 同一 query 跨引擎 → 交叉验证/去重才有意义（k46 设计取舍，见报告）
+    query = _simplify_query(raw)[:QUERY_MAX_CHARS]
+    per_engine: list = []
+    engines_tried: list[str] = []
+    engines_ok: list[str] = []
+    contributing: set[str] = set()   # 出过结果的引擎（成功的空结果不算）
+    failures: list[dict] = []
+    stop_reason = "exhausted"
+    for idx, eng in enumerate(engine_list):
+        if idx:
+            time.sleep(ENGINE_SPACING_S)   # 顺序瀑布，不并发轰炸第三方
+        engines_tried.append(eng)
+        if _engine_cooling(eng):
+            failures.append({"engine": eng, "reason": "cooldown"})
+            continue
+        try:
+            rows = _ENGINE_SEARCHERS[eng](query, limit, timeout)
+        except EngineError as e:
+            if e.reason not in NO_COOLDOWN_REASONS:
+                _engine_cooldown[eng] = time.time() + ENGINE_FAIL_COOLDOWN
+            failures.append({"engine": eng, "reason": e.reason})
+            logger.warning("k46 引擎 %s 失败（%s）→ 局部失败隔离，继续下一引擎",
+                           eng, e.reason)
+            continue
+        except Exception as e:  # noqa: BLE001 — 适配器异常一律隔离
+            _engine_cooldown[eng] = time.time() + ENGINE_FAIL_COOLDOWN
+            failures.append({"engine": eng, "reason": "adapter_error"})
+            logger.warning("k46 引擎 %s 异常：%s → 局部失败隔离", eng, str(e)[:100])
+            continue
+        engines_ok.append(eng)
+        if rows:
+            contributing.add(eng)
+        per_engine.append((eng, rows))
+        merged = merge_engine_results(per_engine, limit)
+        if len(merged) >= limit and len(contributing) >= MIN_STOP_ENGINES:
+            stop_reason = "enough"
+            break
+
+    results = merge_engine_results(per_engine, limit)
+    pkg = _result_package(results, engines_tried, engines_ok, failures,
+                          stop_reason, query)
+    if results:
+        _result_cache[cache_key] = (time.time() + RESULT_CACHE_TTL, pkg)
+        if len(_result_cache) > RESULT_CACHE_MAX:
+            _trim_result_cache()
+    logger.info("网络检索 '%s' → %d 条（引擎 %s；停止=%s；局部失败 %d）",
+                raw[:40], len(results),
+                "+".join(ENGINE_LABELS.get(e, e) for e in engines_ok) or "-",
+                stop_reason, len(failures))
+    if failures:
+        logger.info("k46 局部失败明细：%s",
+                    "; ".join(f"{ENGINE_LABELS.get(f['engine'], f['engine'])}={f['reason']}"
+                              for f in failures))
+    return pkg
 
 
 def search_web(keywords: str, limit: int = 5,
                timeout: float = SEARCH_TIMEOUT) -> List[dict]:
-    """Bing 免费搜索 → [{title, url, text, site_name}, ...]（最多 limit 条）。
+    """统一联网搜索 → [{title, url, text, site_name, source_engines, confidence}]。
 
-    - 抓取 cn.bing.com/search 结果页并解析（无 key、免费；智谱已停用）
-    - 结果缓存 5 分钟 TTL（cache_key 前缀 bing:）
-    - 接口不可用/异常 → 返回 []（不抛异常，调用方按"查不到"处理）
+    - **向后兼容**：仍返回结果列表（最多 limit 条），字段为旧字段的超集
+      （新增 source_engines/confidence，旧消费方读 title/url/text 不受影响）
+    - 多引擎瀑布 + 去重 + 交叉验证 + 局部失败隔离（见 search_web_structured）
+    - 结果缓存 5 分钟 TTL；不可用/无结果/异常 → 返回 []（不抛异常）
+    - 结构化元信息（搜了哪些引擎/停止原因/局部失败）走 search_web_structured
     """
-    keywords = (keywords or "").strip()
-    if not keywords or not web_search_available():
-        return []
-    cache_key = f"bing:{keywords}:{limit}"
-    hit = _result_cache.get(cache_key)
-    if hit and time.time() < hit[0]:
-        logger.info("网络检索 '%s' → 命中缓存 %d 条", keywords[:40], len(hit[1]))
-        return hit[1]
-    results = _search_bing(keywords, limit, timeout)
-    if results:
-        _result_cache[cache_key] = (time.time() + RESULT_CACHE_TTL, results)
-        if len(_result_cache) > RESULT_CACHE_MAX:
-            _trim_result_cache()
-    logger.info("网络检索 '%s' → Bing %d 条", keywords[:40], len(results))
-    return results
+    return search_web_structured(keywords, limit, timeout)["results"]
 
 
 # ---------------------------------------------------------------------------
@@ -430,8 +1150,10 @@ def _trim_result_cache() -> None:
 
 
 def reset_web_search() -> None:
-    """测试用：重置可用性缓存与结果缓存。"""
+    """测试用：重置可用性缓存、结果缓存、引擎配置/冷却与百度会话。"""
     global _avail, _avail_at
     _avail = None
     _avail_at = 0.0
     _result_cache.clear()
+    reset_engine_state()
+    reset_baidu_client()
