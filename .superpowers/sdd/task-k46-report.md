@@ -127,6 +127,14 @@ partial_failures, confidence(1-3), cache_hit}`；`search_web()` 只取 `results`
 
 ¹ 结果标题+摘要的中文字符占比（中文可读性代理指标）　² top5 标题/摘要里出现该问句核心实体的比例（20 条带实体问句）
 
+> ⚠️ **指标盲点披露（2026-09-14 真实用户路径验收后补记）**：本表的「覆盖率」口径是
+> **「该配置返回了 N 条结果」**——**完全没有校验相关性**，因此它把「引擎塞了释义卡/无关页」
+> 也算作「覆盖」。真实路径验收已抓到该盲点导致的真实故障（搜「2026年新能源车销量」却返回
+> 「新（汉语汉字）」百科条目，且因旧「达标即停」根本没去问全相关的百度/360，详见 §9）。
+> 结论方向不受影响（MCP 默认组合 0/22 是**不可达**，与本指标无关），但**「我们质量更好」
+> 的论据不应再建立在覆盖率/条数上**——应以「相关性」为口径重测（本批已修出 `relevance`
+> 闸门与标注，见 §9；若要对外引用对照结论，建议用 `relevance` 分级的实测重跑替换本表口径）。
+
 ### 3.2 逐条并列（n=结果条数；实体列 ✓ 命中 / ✗ 未命中 / – 无实体）
 
 | # | 问句（截断） | 类别 | 本仓 默认 | 本仓 bing+baidu | MCP 默认 | MCP bing+baidu+sogou |
@@ -457,5 +465,90 @@ OMP_NUM_THREADS=1 /home/a/fortune-agent/.venv/bin/python -m pytest tests/test_k4
 并发上限 1；6 并发下 2/6 真正打到引擎、其余降级，属刻意的容量取舍，扩容只需调
 `ENGINE_MIN_INTERVAL_S` / `RATE_LIMIT_WAIT_S` / `ENGINE_MAX_CONCURRENCY`。
 
-**返工后实跑数字**：`tests/test_k46_search_unified.py tests/test_web_search.py` → **119 passed**
+**返工后实跑数字**（§9 之前）：`tests/test_k46_search_unified.py tests/test_web_search.py` → **119 passed**
 （k46 本族 101 条）；`tests/test_k41_search_seam.py tests/test_capability_registry.py` → 59 passed。
+（§9 加入相关性闸门用例后：本族 106 / 合 `test_web_search.py` 124，见 §9.3。）
+
+---
+
+## 9. 真实用户路径验收修复（上线后实测暴露）：瀑布「达标」判据太弱
+
+### 9.1 真实故障（部署副本实测）
+
+搜 **「2026年新能源车销量」** → `_simplify_query` 归一化正确得到 `新能源车销量` ✓ →
+但**返回的是「新」这个汉字的百科条目**（百度百科「新（汉语汉字）」/新浪/汉语国学）✗。
+逐引擎实测同一查询：
+
+| 引擎 | 实测结果 |
+|---|---|
+| `_search_baidu` | **9 条，全部相关** ✓ |
+| `_search_so360` | **6 条，全部相关** ✓ |
+| `_search_bing` | 10 条，**第一条就是 Bing 塞的汉字释义卡**（`li.b_algo` 块里就是 `baike.baidu.com/item/新`，原文「"新"是"薪"的初文…」）✗ |
+| `sogou` | 反爬（已知） |
+
+**根因**：旧「达标即停」只看**条数**（`len(merged) >= limit` 且 ≥2 引擎出过结果），
+不校验结果与查询的相关性 → Bing 一家（或 Bing+360 的释义卡）就「达标」停了，
+**全相关的百度/360 根本没被问**；且合并只按「置信度 + 到达顺序」排，先到的垃圾压过相关结果。
+
+### 9.2 修复（三条）
+
+1. **相关性闸门**（`_engine_rows_relevant`）：引擎结果必须与查询**实质匹配**才算「贡献」——
+   相关性 = 查询词项在「标题+摘要」里的命中数（零依赖：中文 **2-gram** + 拉丁/数字词），
+   单条达标线 `≥max(2, 34%)` 个词项，引擎需 ≥ `min(2, 条数)` 条达标；
+   **不达标 → 记 `partial_failures[].reason=irrelevant`、不算达标、继续问下一个引擎**。
+2. **相关优先排序**（`merge_engine_results(..., terms)`）：相关 → 置信度 → 命中数 → 首次出现顺序，
+   而不是「谁先出结果谁说了算」；每条结果新增 `relevance_hits` / `relevant`。
+3. **不得把垃圾当答案**：包级新增 `relevance`（`ok`/`weak`/`none`，`none` = 一条都没沾上查询词）；
+   `relevance=none` 且有结果时打 WARNING 日志；**handler 工具块**在整批不相关时追加
+   「不要作为事实依据引用…如实告知用户本次未能检索到相关信息」降级提示
+   （`_tool_web_search`，同时覆盖 k43 自动注入路径——两者共用该 executor）。
+   `weak`（有字面沾边但未达标）**不判垃圾**，避免改写措辞被误标。
+
+### 9.3 实跑证据
+
+```
+# ① 瀑布闸门：bing 只给释义卡 / so360+baidu 相关（limit=5）
+归一化 query = '新能源车销量' | 调用顺序 = ['bing', 'so360', 'baidu']
+停止 = enough | 相关性 = ok | 局部失败 = [{'engine': 'bing', 'reason': 'irrelevant'}]
+  [so360] relevant=True hits=5 2026年新能源车销量排行榜
+  [baidu] relevant=True hits=5 2026年新能源车销量数据
+  [bing]  relevant=False hits=0 新（汉语汉字）_百度百科   ← 垃圾沉底，不进前 5
+  （旧逻辑：bing 一家即达标停止，从不调用 so360/baidu，返回的全是「新」字条目）
+
+# ② 来源字段透传（对外 search_web 返回项）
+keys = [confidence, injection_flagged, relevance_hits, relevant, site_name,
+        source_engines, text, title, url]
+source_engines = ['bing']  relevance_hits = 5  relevant = True
+
+# ③ 闸门误伤体检（真实感结果，应判相关、不多问引擎）
+易宝支付这家公司靠不靠谱 -> hits=[4,4] need=4  闸门=相关✓
+最近AI监管有什么新规定   -> hits=[5,2] need=2  闸门=相关✓
+2026年教育行业政策       -> hits=[5]   need=2  闸门=相关✓
+```
+
+- 用例（新增 5 条 + 1 处既有 fixture 改为「与查询相关」的真实构造）：
+  `test_relevance_gate_does_not_stop_on_irrelevant_engine`（A 垃圾 + B 相关 → 结果来自 B、
+  带 `source_engines` 来源标注、A 记 `irrelevant`）、`test_relevance_ranking_beats_arrival_order`、
+  `test_relevance_none_marked_when_all_engines_irrelevant`（如实返回 + `relevance=none` +
+  逐引擎标注）、`test_relevance_gate_ignores_symbol_only_query`（纯符号 query 不判，防误伤）、
+  `test_tool_block_cautions_when_all_results_irrelevant`（工具块降级提示 + 有相关结果时不提示）。
+- 测试数字：`tests/test_k46_search_unified.py` → **106 passed**；合 `tests/test_web_search.py` →
+  **124 passed**；邻接 `tests/test_k11b_search_trigger.py tests/test_k41_search_seam.py` → **49 passed**。
+
+### 9.4 来源字段（用户验收第 2 点）核查结论
+
+`source_engines`（复数）**一直是透传的**：`search_web()` 返回项实测含
+`source_engines=['bing']`（见 §9.3 ②）。用户实测看到「来源为空」的那一项是 `site_name`
+——它是**刻意的空串**（`_BingResultParser` 等适配器不填，§7.5 已登记为遗留项），
+不是来源字段缺失。本批另外把「来源」写进用例断言（`results[0]["source_engines"] == ["so360"]`）。
+⚠️ 注意：**handler 的工具块文本目前不展示来源引擎**（只展示 title/url/正文），
+LLM 侧看不到「这条来自哪个引擎」——如需在 prompt 侧可见，另批加（本批未改注入块格式）。
+
+### 9.5 已知局限（诚实登记）
+
+- 相关性是 **2-gram 命中数**的**代理指标**，不做语义理解：改写/同义表述可能低于阈值
+  → 后果限于「多问一个引擎 + 该批被标 `weak`」，**不会丢结果**（结果仍按稳定顺序返回）。
+- 阈值（`RELEVANCE_MIN_RATIO=0.34` / `RELEVANCE_MAX_NEED=2`）是本机真实样本标定的起点，
+  如需更准，应引入评测集按 precision/recall 调（本批未做，先修「释义卡骗过达标」的真故障）。
+- 闸门增加了最坏情况下的引擎调用数（不相关才继续问），单次调用仍受
+  `SEARCH_TOTAL_BUDGET_S=14s` 与全局限速约束（§8.2/§8.3），不会越预算。
