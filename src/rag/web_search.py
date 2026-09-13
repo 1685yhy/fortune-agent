@@ -59,7 +59,20 @@ BING_HEADERS = {
 ZHIPU_WEB_SEARCH_URL = "https://open.bigmodel.cn/api/paas/v4/web_search"
 
 HEALTH_TIMEOUT = 5.0   # 接口可达性探测超时（秒）
-SEARCH_TIMEOUT = 15.0  # 搜索请求超时（秒）
+SEARCH_TIMEOUT = 15.0  # 单引擎搜索请求超时（秒；**单次**，非整次调用）
+# ---- 整次调用的挂钟预算（审查 Important-2：瀑布上界必须与工具执行超时预算一致）----
+# 工具层预算：capability_registry「搜索」timeout_s=20s（handler fut.result 同值）。
+# 工具通道单次调用 = ① `web_search_available()`（探测阶段 ≤ PROBE_TOTAL_BUDGET_S，
+# 30s 缓存，健康时 0 次请求）+ ② `search_web_structured()`（含其内部探测与各引擎分片）。
+# 两个常量按下式锁死：PROBE_TOTAL_BUDGET_S + SEARCH_TOTAL_BUDGET_S = 19s < 20s
+# → 内部超时确定性先触发：返回已有结果，不触发 handler「执行超时」丢弃 + 重试
+# （僵尸线程上界也回到该值，见 handler._run_with_timeout 注释）。
+SEARCH_TOTAL_BUDGET_S = 14.0
+# 可达性探测总预算（秒）：首个可达即停是常态，但多引擎都不可达时不能逐个叠满
+# HEALTH_TIMEOUT（3×5s 会吃光瀑布预算）→ 探测阶段整体 ≤ 一次探测超时。
+PROBE_TOTAL_BUDGET_S = 5.0
+# 单个引擎至少要有的时间片（秒）：剩余预算低于此值 → 不再开新引擎（stop_reason=budget）
+MIN_ENGINE_SLICE_S = 2.0
 # 可用性检测结果缓存（秒）；失败后周期性重试
 AVAIL_CACHE_TTL = 30.0
 # 【停用 2026-08-10】智谱持续失败（鉴权失效/欠费/限流）重试间隔（秒），仅供 legacy 函数
@@ -121,19 +134,56 @@ _QUERY_SEG_SPLIT_RE = re.compile(r"[\s,，、;；。.!！?？:：|/]+")
 # 于是整句被引擎按修饰词检索——实测「最近AI监管有什么新规定」两个系统（本仓
 # Bing/360/百度 + agent-search-mcp 的 bing）top1 全是歌曲《最近》/词典释义「最近」，
 # 内容词完全没参与匹配 → 归一化后命中正常结果。
-# 规则保守：只在剥离后仍有 ≥2 字时生效（绝不为空/不为单字 query）。
-_QUERY_GLUED_FILLER_RE = re.compile(r"(?:有什么|有哪些|都有些什么|都有什么)")
-_QUERY_GLUED_LEAD_RE = re.compile(r"^(?:最新|最近|近期|现在|目前|今天|今年|眼下)(?=.{2,})")
+#
+# ⚠️ 边界安全（2026-09-14 修复，审查 Important-1）：初版两个正则**串联单删**会切出
+# 残句——「现在还有哪些国家对中国免签」删「有哪些」再删「现在」→「还国家对中国免签」、
+# 「最新的政策」删「最新」→「的政策」、「最近的天气如何」→「的天气」。
+# 现规则：修饰词与它带的连接词/助词**整簇原子匹配**（现在还有哪些 / 最新的 / 还有），
+# 且剥离结果必须过边界校验（≥2 字、不以孤立虚词开头，见 _QUERY_ORPHAN_HEADS）；
+# 校验不过 → 该次剥离作废、保留原值（宁可不剥，绝不切残句）。
+_QUERY_GLUED_FILLER_RE = re.compile(
+    r"(?:现在|目前|如今|眼下|最近|近期|今天|今年|当前)?"
+    r"(?:还|又|也|都)?"
+    r"(?:有|是)"
+    r"(?:(?:一些|些)?(?:什么|哪些|啥|哪几种|哪几个|多少))"
+)
+_QUERY_GLUED_LEAD_RE = re.compile(
+    r"^(?:最新|最近|近期|现在|目前|今天|今年|眼下)"
+    r"(?:还有|又|也|都|的|地)?(?=.{2,})"
+)
+# 剥完**不允许**留在串首的孤立虚词/半截词（命中 → 剥离作废、保留原值）。
+# 「确」为跨词边界护栏：「最近的确很热」剥出「确很热」（的确 被切开）→ 回退。
+_QUERY_ORPHAN_HEADS = frozenset("的得了来款地确还就才而而且及或和与也都又是")
+# 句首孤立助词可安全丢弃（「最新的政策」→「的政策」→「政策」；年份剥离同型）。
+_QUERY_LEAD_PARTICLES = frozenset("的")
+
+
+def _peel_leading_particle(text: str) -> str:
+    """丢弃句首孤立助词（仅 的；且需剩余 ≥2 字）——防跨步骤残留残句。"""
+    while len(text) >= 3 and text[0] in _QUERY_LEAD_PARTICLES:
+        text = text[1:].lstrip()
+    return text
+
+
+def _peel_boundary_safe(text: str, pat: "re.Pattern[str]") -> str:
+    """按 pat 剥离**一处**匹配；结果不过边界校验 → 换下一处匹配，全无 → 原样返回。"""
+    for m in pat.finditer(text):
+        cand = _peel_leading_particle(" ".join(
+            (text[:m.start()] + text[m.end():]).split()))
+        if len(cand) < 2 or cand[0] in _QUERY_ORPHAN_HEADS:
+            continue    # 剥了会成残句（孤立虚词/失去主语）→ 该位置不剥
+        return cand
+    return text
 
 
 def _strip_glued_modifiers(q: str) -> str:
-    """剥离粘连的修饰前缀与疑问填充词（见上方注释）；剥离后 <2 字则保留原值。"""
-    out = q or ""
+    """剥离粘连的修饰前缀与疑问填充词（见上方注释）；边界安全，宁不剥不切残句。"""
+    out = (q or "").strip()
+    if not out:
+        return out
     for pat in (_QUERY_GLUED_FILLER_RE, _QUERY_GLUED_LEAD_RE):
-        cand = " ".join(pat.sub("", out).split())
-        if len(cand) >= 2:
-            out = cand
-    return out
+        out = _peel_boundary_safe(out, pat)
+    return _peel_leading_particle(out)
 
 
 def _strip_query_tail(q: str) -> str:
@@ -195,6 +245,89 @@ _result_cache: dict[str, tuple[float, dict]] = {}
 # 百度会话客户端（进程内单例；预热 cookie，见 _baidu_client）
 _baidu_client_obj: Optional["httpx.Client"] = None
 _baidu_client_lock = threading.Lock()
+# 引擎最近一次**成功**时刻（本进程内）：可达性判定里「冷却中仍算可用」的证据（Minor-3）
+_engine_ok_at: dict[str, float] = {}
+# 该证据的有效期（秒）：超过则不再当作「当前可达」的依据（长断网不许靠陈旧成功硬标可用）
+ENGINE_OK_EVIDENCE_TTL = 600.0
+
+
+def _engine_recently_ok(engine: str, now: Optional[float] = None) -> bool:
+    """本进程内该引擎是否**最近**成功过（探测/检索成功都会记录）。"""
+    ts = _engine_ok_at.get(engine)
+    if not ts:
+        return False
+    return (time.time() if now is None else now) - ts <= ENGINE_OK_EVIDENCE_TTL
+
+# ---------------------------------------------------------------------------
+# k46 全局限速（审查 Important-3）：进程级、**每引擎**最小间隔（QPS 上限）+ 并发上限。
+# ---------------------------------------------------------------------------
+# 只有 ENGINE_SPACING_S 的顺序间隔挡不住多用户并发：10 个用户同秒各问一句不同问句
+# → 20 个 bing/360 请求同时发出（缓存只对同 query 生效），对照对象的
+# `dist/infrastructure/rate-limiter.js`（按引擎间隔，如 duckduckgo 1200ms）正是
+# 我们唯一没移植的部件。这里做进程级令牌桶：拿到「下一个可发起时刻」才发；
+# 拉不到槽位/等不到 → **快速降级到下一引擎**（不排队堆积、不打第三方）。
+# 引擎级隔离：不同引擎各自独立（不互相互斥）；顺序间隔 ENGINE_SPACING_S 保留
+# （它管单次调用内不同引擎之间，这里的 min_interval 管同引擎跨调用/跨线程）。
+ENGINE_MIN_INTERVAL_S = {"bing": 1.0, "so360": 1.0, "baidu": 2.0, "sogou": 1.0}
+ENGINE_MAX_CONCURRENCY = 1      # 每引擎同时在途请求上限
+RATE_LIMIT_WAIT_S = 2.0         # 最长排队等待（秒；= 最严间隔）超出即降级到下一引擎
+
+
+class _EngineRateLimiter:
+    """进程级引擎限速（并发槽位 + 最小间隔，零依赖）。
+
+    - `acquire(timeout)`：拿不到并发槽位 → 立刻 False（不排队）；间隔未到 → 最多等
+      `timeout` 秒，仍等不到 / 预约失败 → False。True 表示已占用槽位，调用方必须
+      在 finally 里 `release()`。
+    - 预约在锁内完成：并发线程各自拿到**错开**的发起时刻，实测速率 ≤ 1/min_interval。
+    """
+
+    __slots__ = ("min_interval", "_sem", "_lock", "_next_at")
+
+    def __init__(self, min_interval: float, max_concurrency: int = 1) -> None:
+        self.min_interval = max(0.0, float(min_interval))
+        self._sem = threading.BoundedSemaphore(max(1, int(max_concurrency)))
+        self._lock = threading.Lock()
+        self._next_at = 0.0
+
+    def acquire(self, timeout: float = RATE_LIMIT_WAIT_S) -> bool:
+        if not self._sem.acquire(blocking=False):
+            return False        # 并发上限已满 → 快速降级（不堆积）
+        wait = 0.0
+        with self._lock:
+            now = time.monotonic()
+            wait = max(0.0, self._next_at - now)
+            if wait > max(0.0, timeout):
+                self._sem.release()
+                return False
+            self._next_at = max(now, self._next_at) + self.min_interval
+        if wait > 0:
+            time.sleep(wait)
+        return True
+
+    def release(self) -> None:
+        try:
+            self._sem.release()
+        except ValueError:      # 防御：重复 release
+            pass
+
+
+_rate_limiters: dict[str, _EngineRateLimiter] = {}
+_rate_limiters_lock = threading.Lock()
+
+
+def _engine_limiter(engine: str) -> _EngineRateLimiter:
+    """取（懒建）某引擎的进程级限速器；配置从模块常量读（测试可改后 reset）。"""
+    lim = _rate_limiters.get(engine)
+    if lim is not None:
+        return lim
+    with _rate_limiters_lock:
+        lim = _rate_limiters.get(engine)
+        if lim is None:
+            lim = _EngineRateLimiter(ENGINE_MIN_INTERVAL_S.get(engine, 1.0),
+                                     ENGINE_MAX_CONCURRENCY)
+            _rate_limiters[engine] = lim
+        return lim
 
 
 # ===========================================================================
@@ -256,18 +389,43 @@ def configured_engines() -> tuple[str, ...]:
 #   ③ 控制字符与零宽字符 → 剔除（防用不可见字符绕行特征匹配）
 #   ④ 形如 [n] 的角标 → 改写为 (n)：我们的引用体系用 [n] 编号，网页原文里的
 #      [1]/[2] 会被模型误当成可用引用编号（污染引用校验）。
+# ⚠️ 收紧（2026-09-14 修复，审查 Important-4）：初版多条正则**全部可选组**，等于对
+# 「扮演/假装/你就是」等普通动词、以及任意行首 `system:`/`系统：` 做单字面替换 →
+# 正常中文被就地打码（「你就是你，不一样的烟火」「他在电影里扮演一位医生」
+# 「系统：iOS 17.4 正式版发布」「user: 如何配置代理服务器」），与我们批评 MCP
+# 「按全角标点误报中文」同构。现规则：**只在真正的注入模板命中时过滤**——
+# 角色劫持必须共现角色宾语（系统/助手/AI…）、伪角色行必须同行带注入线索、
+# 索要提示词必须「你(的)+系统/prompt/提示词」共现；普通词汇不再单字命中。
 _INJECTION_PATTERNS = (
+    # ① 伪协议/特殊 token 标记（模型侧 token，正常网页文本不会出现）
     re.compile(r"<\s*\|?\s*(?:im_start|im_end|system|assistant|endoftext)\s*\|?\s*>", re.I),
+    # ②③ 英文指令覆盖模板（必须共现 previous/above 等覆盖范围）
     re.compile(r"ignore\s+(?:all\s+|any\s+)?(?:the\s+)?(?:previous|above|prior|foregoing)\s+"
                r"(?:instructions?|prompts?|rules?)", re.I),
     re.compile(r"disregard\s+(?:all\s+|any\s+)?(?:the\s+)?(?:previous|above|prior)\s+"
                r"(?:instructions?|prompts?|rules?)", re.I),
-    re.compile(r"(?:忽略|无视|忘记|不要理会|抛弃)(?:以上|上述|之前|前面|上面)*(?:所有|全部)*(?:的)?"
+    # ④ 中文指令覆盖模板：**必须**带覆盖范围/归属（以上/之前/所有/你的…），
+    #    否则「无视规则」这类正常措辞会被误伤
+    re.compile(r"(?:忽略|无视|忘记|不要理会|抛弃|覆盖)(?:掉)?"
+               r"(?:以上|上述|之前|前面|上面|先前|所有|全部|一切|任何|你(?:之前)?的|您的)"
+               r"(?:(?:的|所有|全部|一切|任何))*"
                r"(?:指令|指示|要求|规则|设定|提示|prompt)", re.I),
-    re.compile(r"(?:请)?(?:你)?(?:现在|从现在起)?(?:扮演|假装|伪装成|你就是|你现在是)"
-               r"(?:一个)?(?:新的?)?(?:system|系统|助手|AI|人工智能)?", re.I),
-    re.compile(r"^\s*(?:system|assistant|user|开发者|系统)\s*[:：]", re.I | re.M),
-    re.compile(r"(?:输出|打印|泄露|告诉我)(?:你的)?(?:系统)?(?:提示词|prompt|指令|设定)", re.I),
+    # ⑤ 角色劫持模板：**必须**共现角色宾语（系统/助手/AI/模型/越狱…）；
+    #    「扮演一位医生」「假装成顾客」「你就是你」不再命中
+    re.compile(r"(?:扮演|假装|伪装成|你就是|你现在是)\s*(?:一个|一位|一名)?\s*(?:新的?)?\s*"
+               r"(?:系统|助手|AI|人工智能|模型|越狱|无限制|不受限制|开发者模式|管理员)", re.I),
+    # ⑥ 伪角色行（system:/系统：）：仅当**同一行**带注入线索（忽略/扮演/接管/
+    #    you are…）才算——「系统：iOS 17.4 正式版发布」这类正常正文不再命中
+    re.compile(r"^[ \t]*(?:system|assistant|user|developer|系统|开发者|管理员)[ \t]*[:：][^\n]*?"
+               r"(?:忽略|无视|忘记|不要理会|扮演|假装|伪装|泄露|接管|劫持|越狱|绕过|"
+               r"从现在起|从现在开始|接下来你|你是|ignore|disregard|pretend|"
+               r"you\s+are|act\s+as|from\s+now\s+on|instructions?)",
+               re.I | re.M),
+    # ⑦ 索要系统提示词：**必须**「（你/您）+ 的/所有 +（系统/初始…）+ 提示词/prompt…」共现；
+    #    「输出指令」「告诉我你的设定」这类擦边不再命中
+    re.compile(r"(?:输出|打印|泄露|重复|复述|展示|告诉)\s*(?:一下)?\s*(?:你|您)\s*"
+               r"(?:的|所有|全部)\s*(?:系统|初始|原始|隐藏)?\s*"
+               r"(?:提示词|prompt|指令|指示|规则|设定)", re.I),
     re.compile(r"<\s*(?:script|iframe)\b", re.I),
 )
 # 不可见/控制字符（保留 \t \n）
@@ -305,9 +463,15 @@ def sanitize_search_text(text: str, max_chars: int = SNIPPET_HARD_MAX) -> tuple[
 # ---------------------------------------------------------------------------
 # 去重合并 + 多源交叉验证置信度
 # ---------------------------------------------------------------------------
-# 归一化时丢弃的跟踪参数前缀（同一落地页带不同跟踪参数 = 同一条）
-_TRACKING_PARAM_PREFIXES = ("utm_", "spm", "from", "fr", "src", "ref", "share",
-                            "sa", "ved", "us", "rsv_", "wd", "eqid", "f")
+# 归一化时丢弃的跟踪参数（同一落地页带不同跟踪参数 = 同一条）。
+# Minor-4（审查修复）：初版把 f/us/sa/src/ref… 当**前缀**匹配，等于把 `?f=1`/`?f=2`、
+# `?us=alice`/`?us=bob`、`?format=pdf`/`?format=html` 全并成一条（误合并丢真实差异结果，
+# 如 Discuz `forum.php?f=1`/`?f=2`）→ 改精确参数名 + 明确的跟踪前缀。
+# 另：`wd` 是百度检索词参数，`f`/`us` 是论坛真实参数 → 不再当跟踪参数丢。
+_TRACKING_PARAM_PREFIXES = ("utm_", "spm", "rsv_")
+_TRACKING_PARAM_EXACT = frozenset({
+    "from", "fr", "src", "ref", "share", "sa", "ved", "eqid",
+})
 
 
 def normalize_url(url: str) -> str:
@@ -326,7 +490,8 @@ def normalize_url(url: str) -> str:
             return u.lower()
         netloc = host + (f":{parts.port}" if parts.port else "")
         kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=False)
-                if not any(k.lower().startswith(p) for p in _TRACKING_PARAM_PREFIXES)]
+                if not (k.lower() in _TRACKING_PARAM_EXACT
+                        or k.lower().startswith(_TRACKING_PARAM_PREFIXES))]
         path = parts.path or "/"
         if path != "/" and path.endswith("/"):
             path = path.rstrip("/")
@@ -349,14 +514,17 @@ def merge_engine_results(per_engine, limit: int) -> list[dict]:
     - 摘要取「更长的那个」（信息量优先），标题取首个非空
     - 排序：置信度降序（交叉验证过的优先），同置信度保持首次出现顺序
       → **单引擎配置下输出顺序与旧实现逐条一致**（行为兼容）
-    - 入 prompt 前统一注入过滤（sanitize_search_text）
+    - 入 prompt 前统一注入过滤（sanitize_search_text）——**只覆盖 title/text**；
+      url/site_name 原样进 citation（Minor-1：引擎侧 URL 已百分号编码且各适配器
+      只收 http(s)，这里补一道协议白名单兜底：非 http(s) 行直接丢弃，防
+      `javascript:`/`data:` 类伪 URL 进注入块）
     """
     merged: dict[str, dict] = {}
     order: list[str] = []
     for engine, rows in per_engine:
         for row in rows or []:
             url = (row.get("url") or "").strip()
-            if not url:
+            if not url or not url.lower().startswith(("http://", "https://")):
                 continue
             key = normalize_url(url) or url
             title, _tf = sanitize_search_text(row.get("title") or "", 120)
@@ -462,7 +630,7 @@ def _probe_engine(engine: str, timeout: float = HEALTH_TIMEOUT) -> bool:
         if engine == "baidu":
             r = _baidu_client(timeout).get(
                 BAIDU_SEARCH_URL + "?wd=" + quote("测试") + "&ie=utf-8",
-                headers={"Referer": "https://www.baidu.com/"})
+                headers={"Referer": "https://www.baidu.com/"}, timeout=timeout)
             return r.status_code == 200 and not _is_baidu_challenge(r.text)
         if engine == "sogou":
             r = httpx.get(SOGOU_SEARCH_URL + "?query=" + quote("测试"), headers=SOGOU_HEADERS,
@@ -478,20 +646,38 @@ def web_search_available(force: bool = False) -> bool:
 
     探测按配置顺序进行，首个可达即停（健康时只有 1 次探测请求，不给站点压力）；
     全部不可达 → False（工具注册处标 unavailable、prompt 不宣传、search_web 返回 []）。
-    失败后周期性重试，网络恢复后自动恢复。
+    失败后周期性重试，网络恢复后自动恢复。**探测阶段整体不超过
+    PROBE_TOTAL_BUDGET_S**（Important-2：多引擎都不可达时逐个叠满 HEALTH_TIMEOUT
+    会吃光瀑布预算；调用方 search_web_structured 另按整次调用 deadline 收口）。
+
+    冷却中的引擎：**不再拿「冷却」当可用证据**（Minor-3：整网断时冷却原因也可能是
+    network，旧逻辑会在不探测的情况下返回 True，与 docstring 自相矛盾）——只有本进程
+    内**最近（≤ ENGINE_OK_EVIDENCE_TTL）成功过**的引擎（`_engine_ok_at`）才在冷却期
+    算可用；否则按引擎失败处理、继续看下一个引擎。冷却引擎本身仍不额外探测
+    （不落井下石，保持 120s 冷却语义）。
     """
     global _avail, _avail_at
     now = time.time()
     if not force and _avail is not None and now < _avail_at:
         return _avail
     engines = configured_engines()
+    probe_stop = time.monotonic() + PROBE_TOTAL_BUDGET_S
     ok = False
     for eng in engines:
-        if _engine_cooling(eng):
-            ok = True   # 冷却中说明「之前是通的、只是临时失败」→ 不判整体不可用
+        left = probe_stop - time.monotonic()
+        if left <= 0.05:
+            # 探测预算耗尽：未探测的引擎按「最近成功过」证据兜底（Important-2：探测
+            # 不得吃光瀑布预算；证据过期则不认——长时间断网不许靠陈旧成功硬标可用）
+            ok = any(_engine_recently_ok(e, now) for e in engines)
             break
-        if _probe_engine(eng):
+        if _engine_cooling(eng):
+            if _engine_recently_ok(eng, now):
+                ok = True   # 冷却中但最近成功过（曾通的、只是临时失败）
+                break
+            continue        # 冷却且无近期成功证据 → 不拿它当可用证据，继续下一个
+        if _probe_engine(eng, timeout=min(HEALTH_TIMEOUT, left)):
             ok = True
+            _engine_ok_at[eng] = now
             break
     _avail = ok
     _avail_at = now + AVAIL_CACHE_TTL
@@ -741,6 +927,10 @@ class _So360ResultParser(_BlockParser):
     `data-mdurl` 是内联的**真实落地页**（锚点本体是 /link?m= 跳转）→ 无需二次
     请求即可拿到真实 URL（省一次抓取，符合"抓取克制"）。摘要取 res-list-summary
     （普通条目）/ g-des、res-desc（垂直卡）。
+
+    ⚠️ Minor-5 限定：按 `li.res-list` 收容器，**垂直聚合卡**（如「某某_客服电话」
+    这类卡片）也会被当作一条结果（URL 真实、非污染，但标题/摘要形态与自然结果
+    不同、可能无摘要）——「标题最干净」仅对普通结果条目成立。
     """
 
     container_tag = "li"
@@ -835,11 +1025,16 @@ def _is_sogou_antispider(html_text: str, final_url: str = "") -> bool:
     return "antispider" in (final_url or "") or "/antispider" in (html_text or "")[:4000]
 
 
-def _baidu_client(timeout: float) -> httpx.Client:
+def _baidu_client(timeout: float = HEALTH_TIMEOUT) -> httpx.Client:
     """百度会话客户端（进程内单例）：先访问首页取 cookie，再带 Referer 检索。
 
     实测（2026-09-14）：不带 cookie 直接检索数次即被切到「百度安全验证」；
     先取首页 cookie + Referer 后稳定返回结果页。单例复用避免每轮重新握手。
+
+    ⚠️ Minor-2（审查修复）：单例只在**构造时**吃 timeout——若探测先用
+    HEALTH_TIMEOUT=5s 建好客户端，后续真实检索的 15s 超时就被冻结成 5s
+    （百度本应兜底的降级态反被 5s 掐死）。现在 timeout 参数仅用于**首次预热**；
+    检索/探测一律在 `.get(..., timeout=...)` 上按请求传，单例不冻结超时。
     """
     global _baidu_client_obj
     client = _baidu_client_obj
@@ -850,7 +1045,7 @@ def _baidu_client(timeout: float) -> httpx.Client:
             c = httpx.Client(headers=BAIDU_HEADERS, timeout=timeout,
                              follow_redirects=True)
             try:
-                c.get(BAIDU_HOME_URL)   # 取 cookie（BAIDUID 等）
+                c.get(BAIDU_HOME_URL, timeout=timeout)   # 取 cookie（BAIDUID 等）
             except Exception as e:  # noqa: BLE001 — 预热失败不阻塞（检索再试）
                 logger.debug("百度预热失败: %s", str(e)[:80])
             _baidu_client_obj = c
@@ -897,7 +1092,8 @@ def _search_baidu(query: str, limit: int = 5,
     """
     url = f"{BAIDU_SEARCH_URL}?wd={quote(query)}&ie=utf-8"
     try:
-        r = _baidu_client(timeout).get(url, headers={"Referer": BAIDU_HOME_URL})
+        r = _baidu_client(timeout).get(url, headers={"Referer": BAIDU_HOME_URL},
+                                       timeout=timeout)   # 按请求传，单例不冻结超时（Minor-2）
         r.raise_for_status()
     except httpx.HTTPStatusError as e:
         raise EngineError("baidu", f"http_{e.response.status_code}") from e
@@ -948,11 +1144,17 @@ _ENGINE_SEARCHERS = {
 
 def search_web_structured(keywords: str, limit: int = 5,
                           timeout: float = SEARCH_TIMEOUT,
-                          engines: Optional[list] = None) -> dict:
+                          engines: Optional[list] = None,
+                          budget: Optional[float] = None) -> dict:
     """k46 统一检索：**多引擎瀑布** → 结构化检索包（单一实现，调用方零改动）。
 
     - 按 `WEB_SEARCH_ENGINES` 顺序逐引擎尝试；每引擎独立超时 + 失败隔离
       （单引擎挂/被反爬/解析异常 → 记 partial_failures，继续下一引擎，不抛断主链）
+    - **整次调用挂钟预算**（Important-2）：全程 ≤ SEARCH_TOTAL_BUDGET_S（含可达性
+      探测），单引擎分片 = min(调用方 timeout, 剩余预算, 剩余预算/剩余引擎数)；
+      预算不足 → 停开新引擎、`stop_reason=budget`、**返回已拿到的结果**，绝不越预算
+    - **全局限速**（Important-3）：每引擎进程级最小间隔 + 并发上限，拉不到槽位/等不到
+      → 快速降级到下一引擎（`partial_failures[].reason=rate_limited`，不排队堆积）
     - 瀑布停止：结果数 ≥ limit **且** 至少 2 个引擎出过结果 → stop_reason=enough；
       否则跑完配置集 → exhausted；无可用引擎 → unavailable
     - 去重合并 + 多源交叉验证（同 URL 多引擎命中 → source_engines 列表 + 置信度 3）
@@ -961,6 +1163,9 @@ def search_web_structured(keywords: str, limit: int = 5,
     返回 `{results, query, engines_tried, engines_ok, stop_reason,
           partial_failures, confidence, cache_hit}`。
     """
+    t0 = time.monotonic()
+    total_budget = SEARCH_TOTAL_BUDGET_S if budget is None else max(0.1, float(budget))
+    deadline = t0 + total_budget
     raw = (keywords or "").strip()
     if not raw:
         return _result_package([], [], [], [], "empty_query", "")
@@ -988,39 +1193,90 @@ def search_web_structured(keywords: str, limit: int = 5,
     contributing: set[str] = set()   # 出过结果的引擎（成功的空结果不算）
     failures: list[dict] = []
     stop_reason = "exhausted"
+
+    def _safe_merge_rows() -> list[dict]:
+        """合并兜底（Minor-6）：畸形行/未知异常 → 不抛，按空结果继续。"""
+        try:
+            return merge_engine_results(per_engine, limit)
+        except Exception as e:  # noqa: BLE001 — 绝不让异常越出本函数
+            logger.warning("k46 结果合并异常（%s）→ 丢弃本轮结果", str(e)[:120])
+            return []
+
     for idx, eng in enumerate(engine_list):
+        engines_left = len(engine_list) - idx
         if idx:
-            time.sleep(ENGINE_SPACING_S)   # 顺序瀑布，不并发轰炸第三方
+            time.sleep(min(ENGINE_SPACING_S, max(0.0, deadline - time.monotonic())))
+        remaining = deadline - time.monotonic()
+        if remaining < MIN_ENGINE_SLICE_S:
+            # 预算不足：不再开新引擎（已拿到的结果照常返回，见 Important-2）
+            failures.extend({"engine": e, "reason": "budget"}
+                            for e in engine_list[idx:])
+            stop_reason = "budget"
+            logger.info("k46 预算耗尽（剩余 %.2fs < %.1fs）→ 停开引擎 %s，"
+                        "返回已有 %d 个引擎的结果",
+                        remaining, MIN_ENGINE_SLICE_S, ",".join(engine_list[idx:]),
+                        len(per_engine))
+            break
         engines_tried.append(eng)
         if _engine_cooling(eng):
             failures.append({"engine": eng, "reason": "cooldown"})
             continue
+        # 单引擎分片：不超过调用方 timeout、不超过剩余预算、且给后续引擎留份额
+        slice_s = min(timeout, remaining,
+                      max(MIN_ENGINE_SLICE_S, remaining / engines_left))
+        limiter = _engine_limiter(eng)
+        if not limiter.acquire(RATE_LIMIT_WAIT_S):
+            failures.append({"engine": eng, "reason": "rate_limited"})
+            logger.info("k46 引擎 %s 全局限速未拿到槽位 → 降级到下一引擎", eng)
+            continue
+        # 排队等待也算在整次调用预算里：拿到槽位后按剩余预算重新收敛分片
+        slice_s = min(slice_s, deadline - time.monotonic())
+        if slice_s <= 0:
+            limiter.release()
+            failures.append({"engine": eng, "reason": "budget"})
+            failures.extend({"engine": e, "reason": "budget"}
+                            for e in engine_list[idx + 1:])
+            stop_reason = "budget"
+            break
         try:
-            rows = _ENGINE_SEARCHERS[eng](query, limit, timeout)
-        except EngineError as e:
-            if e.reason not in NO_COOLDOWN_REASONS:
+            try:
+                rows = _ENGINE_SEARCHERS[eng](query, limit, slice_s)
+            except EngineError as e:
+                if e.reason not in NO_COOLDOWN_REASONS:
+                    _engine_cooldown[eng] = time.time() + ENGINE_FAIL_COOLDOWN
+                failures.append({"engine": eng, "reason": e.reason})
+                logger.warning("k46 引擎 %s 失败（%s）→ 局部失败隔离，继续下一引擎",
+                               eng, e.reason)
+                continue
+            except Exception as e:  # noqa: BLE001 — 适配器异常一律隔离
                 _engine_cooldown[eng] = time.time() + ENGINE_FAIL_COOLDOWN
-            failures.append({"engine": eng, "reason": e.reason})
-            logger.warning("k46 引擎 %s 失败（%s）→ 局部失败隔离，继续下一引擎",
-                           eng, e.reason)
-            continue
-        except Exception as e:  # noqa: BLE001 — 适配器异常一律隔离
-            _engine_cooldown[eng] = time.time() + ENGINE_FAIL_COOLDOWN
-            failures.append({"engine": eng, "reason": "adapter_error"})
-            logger.warning("k46 引擎 %s 异常：%s → 局部失败隔离", eng, str(e)[:100])
-            continue
+                failures.append({"engine": eng, "reason": "adapter_error"})
+                logger.warning("k46 引擎 %s 异常：%s → 局部失败隔离", eng, str(e)[:100])
+                continue
+        finally:
+            limiter.release()
         engines_ok.append(eng)
+        _engine_ok_at[eng] = time.time()   # 可达性判定的「最近成功」证据（Minor-3）
         if rows:
             contributing.add(eng)
         per_engine.append((eng, rows))
-        merged = merge_engine_results(per_engine, limit)
+        merged = _safe_merge_rows()
         if len(merged) >= limit and len(contributing) >= MIN_STOP_ENGINES:
             stop_reason = "enough"
             break
 
-    results = merge_engine_results(per_engine, limit)
-    pkg = _result_package(results, engines_tried, engines_ok, failures,
-                          stop_reason, query)
+    # Minor-6：合并/组包在 per-engine 的 try 之外，旧版一旦某适配器产出
+    # 非 str/非 dict 行（如 text 为 dict）就会抛到调用方（工具层兜成「执行超时/
+    # 异常」+ 重试）。这里兜底为「无结果」而不是异常——search_web() 的
+    # 「不抛异常」由结构保证（`_safe_merge_rows` 已兜合并，这里再兜组包）。
+    results = _safe_merge_rows()
+    try:
+        pkg = _result_package(results, engines_tried, engines_ok, failures,
+                              stop_reason, query)
+    except Exception as e:  # noqa: BLE001 — 绝不让异常越出本函数
+        logger.warning("k46 检索包组包异常（%s）→ 按无结果返回", str(e)[:120])
+        results = []
+        pkg = _result_package([], engines_tried, engines_ok, failures, "error", query)
     if results:
         _result_cache[cache_key] = (time.time() + RESULT_CACHE_TTL, pkg)
         if len(_result_cache) > RESULT_CACHE_MAX:
@@ -1043,7 +1299,9 @@ def search_web(keywords: str, limit: int = 5,
     - **向后兼容**：仍返回结果列表（最多 limit 条），字段为旧字段的超集
       （新增 source_engines/confidence，旧消费方读 title/url/text 不受影响）
     - 多引擎瀑布 + 去重 + 交叉验证 + 局部失败隔离（见 search_web_structured）
-    - 结果缓存 5 分钟 TTL；不可用/无结果/异常 → 返回 []（不抛异常）
+    - 整次调用 ≤ SEARCH_TOTAL_BUDGET_S（含探测；工具层预算 20s，见 capability_registry）
+    - 结果缓存 5 分钟 TTL；不可用/无结果/异常 → 返回 []（不抛异常；合并/组包异常
+      也已兜底为 []，见 search_web_structured 内 Minor-6 注释）
     - 结构化元信息（搜了哪些引擎/停止原因/局部失败）走 search_web_structured
     """
     return search_web_structured(keywords, limit, timeout)["results"]
@@ -1150,10 +1408,12 @@ def _trim_result_cache() -> None:
 
 
 def reset_web_search() -> None:
-    """测试用：重置可用性缓存、结果缓存、引擎配置/冷却与百度会话。"""
+    """测试用：重置可用性缓存、结果缓存、引擎配置/冷却、限速器与百度会话。"""
     global _avail, _avail_at
     _avail = None
     _avail_at = 0.0
     _result_cache.clear()
+    _engine_ok_at.clear()
+    _rate_limiters.clear()      # 限速器按常量懒建：清掉才能让测试改的小间隔生效
     reset_engine_state()
     reset_baidu_client()

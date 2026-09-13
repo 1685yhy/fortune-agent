@@ -27,7 +27,7 @@ bing/baidu/sogou 后覆盖追平但中文质量与标题洁净度明显更差（
 | 对外接口 | 变化 | 现网调用方 |
 |---|---|---|
 | `search_web(keywords, limit=5, timeout=15)` | **不变**（返回列表；字段为旧字段的**超集**：新增 `source_engines`/`confidence`，旧字段 `title/url/text/site_name` 原样） | `handler._tool_web_search`（tool 通道）、`handler._engine_domain_ground_search`（k43 自动注入段）、来源尾注 |
-| `web_search_available(force=False)` | 语义由「Bing 可达」放宽为「**配置中任一引擎可达**」（默认集里 bing 首位，行为等同现状） | `handler`（3 处）、`prompts`、`capability_registry` |
+| `web_search_available(force=False)` | 语义由「Bing 可达」放宽为「**配置中任一引擎可达**」（默认集里 bing 首位，行为等同现状） | `handler`（**2 处**：`_web_search_allowed` 引导 `:1875`、`_tool_web_search` `:2878`）+ `src/llm/prompts.py`（1 处 `:30`）；**`capability_registry` 不引用它**（静态注册表，web_search 只是 `timeout_s=20.0` 的一条）——审查 Minor-7 更正 |
 | `search_web_structured(...)` | **新增**：结构化检索包（元信息，供运维/观测/后续消费） | 目前只有对照脚本用，生产消费方无需改动 |
 
 `reset_web_search()` / `reset_engine_state()` / `reset_baidu_client()` 为测试用重置点。
@@ -71,8 +71,8 @@ partial_failures, confidence(1-3), cache_hit}`；`search_web()` 只取 `results`
 - **局部失败隔离**：单引擎任何异常都不得影响整体（`EngineError` + 兜底 `except`）；`parse_miss`（结果页形态在却解析不出内容）**如实上报但不进冷却**（站点是通的，不罚站引擎）。
 - **缓存**：沿用 5 分钟 TTL；缓存键含引擎集签名（换引擎集不吃旧缓存）；空结果不写缓存。
 - **可达性**：按配置顺序探测、首个成功即停（健康时每 30s 仅 1 次探测请求）；冷却中的引擎不重复探测。
-- **抓取克制**：顺序瀑布 + 0.25s 间隔 + 单引擎超时 15s + 120s 失败冷却 + 5 分钟结果缓存；handler 侧既有 3 次/60s/用户 频控不变；百度 cookie 会话单例（一次预热，非每轮握手）。
-- **注入过滤**（`sanitize_search_text`，入库前统一做，消费方无需各自处理）：忽略/无视指令、伪角色行（`system:`）、伪协议标记（`<|im_start|>`）、角色劫持、索要系统提示词、`<script>/<iframe>` → 中性化为 `［已过滤］`；控制/零宽字符剔除；**网页原文里的 `[n]` 改写为 `(n)`**（我们的引用体系占用 `[n]`，防模型误引）。
+- **抓取克制**：顺序瀑布 + 0.25s 间隔 + 单引擎超时 15s + 整次调用预算 14s（审查 Important-2 修复；探测 5s + 检索 14s = 19s < 工具层 20s）+ **进程级每引擎限速**（审查 Important-3 修复）+ 120s 失败冷却 + 5 分钟结果缓存；handler 侧既有 3 次/60s/用户 频控不变；百度 cookie 会话单例（一次预热，非每轮握手）。
+- **注入过滤**（`sanitize_search_text`）：忽略/无视指令、伪角色行（`system:`）、伪协议标记（`<|im_start|>`）、角色劫持、索要系统提示词、`<script>/<iframe>` → 中性化为 `［已过滤］`；控制/零宽字符剔除；**网页原文里的 `[n]` 改写为 `(n)`**（我们的引用体系占用 `[n]`，防模型误引）。**过滤范围仅 `title`/`text`**（`url`/`site_name` 原样进 citation；审查 Minor-1 更正：先前「入库前统一做，消费方无需各自处理」的表述过宽，本轮补了 http(s) 协议白名单兜底）。审查 Important-4 后收紧为「只拦真模板」：普通中文（`你就是你…`/`扮演`/`假装`/行首 `系统：`）不再打码，详见 §8。
 - **SSRF**：本能力**不抓取结果 URL**（只用引擎结果页里的内联真实 URL），因此没有「用户可控 URL 出网」面；MCP 的 SSRF 防护属于它的 `free_extract` 工具，本次未引入取页能力。
 
 ### 1.6 对照暴露并顺带修掉的两个真问题
@@ -82,6 +82,8 @@ partial_failures, confidence(1-3), cache_hit}`；`search_web()` 只取 `results`
    没参与匹配。新增 `_strip_glued_modifiers()`（粘连 `最近/最新/近期/现在/目前/今天/今年`
    前缀 + `有什么/有哪些` 填充词，**剥离后 <2 字则保留原值**）→ 发送词变为 `AI监管新规定`，
    top 结果从「歌曲《最近》」回到 AI 领域页。
+   *（⚠️ 初版实现的两个正则串联单删会切出残句——审查 Important-1 实跑复现，
+   已在本修复批改为整簇原子剥离 + 边界校验，见 §8.1。）*
 2. **年份前缀剥离留下前导空格**：`2026年 教育行业政策` → ` 教育行业政策`（空段交给引擎会稀释匹配），统一 `strip`。
 
 ---
@@ -188,7 +190,12 @@ partial_failures, confidence(1-3), cache_hit}`；`search_web()` 只取 `results`
 3. **实体命中略低**：12/20 vs 14/20。
 4. **代价不划算（这也是不建议 b 的理由）**：要引入 Node ≥18.17 运行时 + 常驻/按需 sidecar 进程
    （进程管理、崩溃面、升级维护、内存常驻）、跨语言 stdio/HTTP 桥、以及「它自己的健康/冷却/限流」
-   与我们的频控叠加；而它带来的独有能力（付费源升级路径 bocha/exa/tavily/serper…）**恰恰被用户红线禁止**。
+   与我们的频控叠加；而它带来的独有能力里最值钱的部分（付费源升级路径 bocha/exa/tavily/serper…）
+   **恰恰被用户红线禁止**。**限定说明**：它的独有能力**不全是**付费源——`dist/engines/query-expander.js`
+   的查询改写/中文变体、`synthesis/` 的结果合成、`semantic_bridge` 都是**非付费**能力，本批**未移植**
+   （§7.2 只提了改写；改写与合成会显著增加请求量，与「抓取克制」冲突，故未并入）
+   → 所以更准确的说法是「它的**增量检索能力**集中在付费源，非付费的编排类能力我们按需再评估」，
+   而不是「它没有别的本事」。
 5. **它的设计值得学，且已经学到位**（= 选项 c 的内容）：
    - 结构化「证据包」→ 本仓 `search_web_structured()`（results + engines_tried/engines_ok +
      stop_reason + partial_failures + confidence + cache_hit）；
@@ -222,17 +229,29 @@ partial_failures, confidence(1-3), cache_hit}`；`search_web()` 只取 `results`
 ## 5. 测试（实跑数字，全部离线、不依赖实时网络）
 
 ```
-# k46 本批用例（47 条：配置/解析 fixture/瀑布停止/失败隔离/冷却/去重交叉验证/注入过滤/缓存/可达性/接缝兼容）
+# k46 本批用例（修复批后 94 条：配置/解析 fixture/瀑布停止/失败隔离/冷却/去重交叉验证/注入过滤/缓存/
+#                        可达性/接缝兼容 + §8 的剥离边界/预算/全局限速/过滤收窄回归）
 OMP_NUM_THREADS=1 /home/a/fortune-agent/.venv/bin/python -m pytest tests/test_k46_search_unified.py -q
-→ 47 passed in 0.40s
+→ 94 passed in 9.78s（含 3 项刻意 sleep 的预算/限速用例：最快路径已无网络，慢只来自「等待有上界」的断言）
 
-# 邻接族（检索判定/接缝/工具/回归）
+# 与既有 web_search 用例合跑
+... -m pytest tests/test_k46_search_unified.py tests/test_web_search.py -q
+→ 112 passed in 9.87s
+
+# 消费方邻接族（修复批后复跑）
+... -m pytest tests/test_k41_search_seam.py tests/test_k11b_search_trigger.py tests/test_capability_registry.py \
+    tests/test_tool_calls.py tests/test_k11_fact_discipline.py -q
+→ 153 passed in 109.52s（含既有重用例）
+... -m pytest tests/test_capability_registry.py -k "timeout or budget or web_search" -q
+→ 4 passed（含 test_timeout_zombie_thread_self_terminates_bounded）
+
+# 邻接族（检索判定/接缝/工具/回归；**修复批前**基线，数字未变）
 ... -m pytest tests/test_web_search.py tests/test_k11b_search_trigger.py tests/test_k17_search_trigger.py \
     tests/test_k41_search_seam.py tests/test_k43_semantic_route.py tests/test_k15_eval_tails.py \
     tests/test_capability_registry.py -q
 → 170 passed in 53.95s
 
-# 工具/流程/清理类邻接文件（5 个文件合跑）
+# 工具/流程/清理类邻接文件（5 个文件合跑；**修复批前**基线，数字未变）
 ... -m pytest tests/test_k15_eval_tails.py tests/test_capability_registry.py tests/test_tool_calls.py \
     tests/test_handler_analysis_flow.py tests/test_k33_cleanup_residue.py -q
 → 115 passed, 1 failed；该失败 = test_handler_analysis_flow.py::test_handle_hehun_single_birth_still_guide_card
@@ -242,13 +261,14 @@ OMP_NUM_THREADS=1 /home/a/fortune-agent/.venv/bin/python -m pytest tests/test_k4
 
 - 引擎解析用**离线 fixture**（`tests/fixtures/k46/*.html`，均为真实抓取页裁剪：Bing/360/百度结果块 + 搜狗反爬页），单测零网络。
 - 对照跑（`scripts/k46_compare_search.py`）是**联网实跑**，不属于单测；它的原始记录已归档。
+- 未跑全量 pytest（用户红线）；修复批只复跑了 k46 本族 + 直接消费方邻接族。
 
 ## 6. 文件清单（本批）
 
 | 文件 | 说明 |
 |---|---|
-| `src/rag/web_search.py` | **改**：统一搜索能力（引擎注册表/配置、3+1 适配器、瀑布、去重交叉验证、注入过滤、冷却、可达性、结构化检索包、`_simplify_query` 两处质量修复）；旧接口与旧字段全保留 |
-| `tests/test_k46_search_unified.py` | **新**：47 条离线用例 |
+| `src/rag/web_search.py` | **改**：统一搜索能力（引擎注册表/配置、3+1 适配器、瀑布、去重交叉验证、注入过滤、冷却、可达性、结构化检索包、`_simplify_query` 两处质量修复）；旧接口与旧字段全保留。**修复批**再改：剥离边界安全（I-1）、整次调用预算（I-2）、进程级每引擎限速（I-3）、注入过滤收窄（I-4）+ Minor-1/2/3/4/5/6 |
+| `tests/test_k46_search_unified.py` | **新**：离线用例（初版 47 条 → 修复批 94 条） |
 | `tests/fixtures/k46/{bing,so360,baidu}_results.html`、`sogou_antispider.html` | **新**：真实抓取页裁剪 fixture |
 | `scripts/k46_compare_search.py` | **新**：对照 runner（22 问句 × 4 配置，可复跑） |
 | `.superpowers/sdd/k46-compare-raw.json` | **新**：对照逐条原始记录（报告证据） |
@@ -270,4 +290,100 @@ OMP_NUM_THREADS=1 /home/a/fortune-agent/.venv/bin/python -m pytest tests/test_k4
    「易宝支付这家公司靠不靠谱」这类整句返回 1 条（覆盖对照 22 条里它是 22/22 出结果）；
    这是引擎侧召回行为，不是解析问题，但意味着**多引擎交叉验证对短 query 收益更大**。
 8. **`_simplify_query` 的粘连剥离是保守规则**：仅覆盖 `最近/最新/近期/现在/目前/今天/今年/眼下`
-   + `有什么/有哪些`；其他粘连修饰词（如「目前来看」「据说」）未覆盖，出现新形态再补。
+   + `有什么/有哪些`（修复批后为「整簇原子剥离 + 边界校验」，见 §8.1）；其他粘连修饰词（如「目前来看」「据说」）
+   未覆盖，出现新形态再补。
+9. **全局限速的取舍（限速命中 = 降级跳过该引擎）**：限速命中时该次调用**降级跳过该引擎**（不排队等待超过
+   2s）——极端并发下会少一个源的召回，换取「不打第三方站点」；若后续观测到降级率过高，
+   可把 `RATE_LIMIT_WAIT_S` 或引擎间隔调大（常量集中在 `web_search.py` 顶部）。
+
+---
+
+## 8. 审查修复批（独立审查 4×Important + 6×Minor 收口）
+
+独立审查报告：`.superpowers/sdd/task-k46-review.md`（含实跑复现）。本批只改
+`web_search.py` + 两处注释口径（`capability_registry.py` / `handler.py`）+ 用例，**不改设计、
+不加依赖、不碰付费源**。修复提交见 git log（`fix: k46 审查修复 …`）。
+
+### 8.1 Important-1 粘连剥离改成「整簇原子 + 边界校验」（新引入回归，必修）
+
+- 旧实现两个正则**串联单删**，只校验「剩余 ≥2 字」→ 切出残句（审查实跑复现）：
+  `现在还有哪些国家对中国免签`→`还国家对中国免签`、`最近还有哪些新规`→`还新规`、
+  `最新的政策`→`的政策`、`最近的天气如何`→`的天气`。
+- 现实现：① 填充词模式把前导修饰词/连接词一起**整簇**匹配（`现在还有哪些`/`最近有什么`）；
+  ② 修饰前缀可连同 `还有/的/地` 一起原子剥离（`最新的`）；③ 剥离结果必须过
+  `_QUERY_ORPHAN_HEADS` 边界校验（不得以孤立虚词开头，含「的确」跨词护栏），不过则**保留原值**；
+  ④ 句首孤立「的」在剥离后再收一道（`2026年的政策`→`政策`）。
+- 实跑（修复后）：`现在还有哪些国家对中国免签 → 国家对中国免签`、`最近还有哪些新规 → 新规`、
+  `目前还有哪些风险 → 风险`、`最新的政策 → 政策`、`最新的iPhone多少钱 → iPhone多少钱`、
+  `最近的天气如何 → 天气`；正向例仍成立：`最近AI监管有什么新规定 → AI监管新规定`、
+  `2026年 教育行业政策 → 教育行业政策`；内容词不受伤：`最近还款方式有变化`/`最近了解AI的进展`/
+  `最近的确很热` 均原样。
+- 用例：`test_simplify_glued_strip_no_fragment_shipped_regressions`（审查三例）+
+  `test_simplify_glued_strip_family_boundary_safe`（12 条同族参数化：非空/≥2 字/首尾不成残句/
+  内容词在）+ `test_simplify_glued_strip_keeps_content_words_intact`。
+
+### 8.2 Important-2 整次调用预算与工具层超时口径对齐
+
+- 旧口径：`capability_registry` 写死「Bing SEARCH_TIMEOUT=15s → 20s（15s+5s 余量）」，
+  但瀑布最坏 `3×15 + 2×0.25 = 45.5s` → 外层 `fut.result(20s)` 先触发：**丢弃已拿到的结果**、
+  白重试一次、僵尸线程上界从 15s 变 ~45s（原「bounded」注释失效）。
+- 现实现：`SEARCH_TOTAL_BUDGET_S=14.0`（整次调用，含其内部探测）+ `PROBE_TOTAL_BUDGET_S=5.0`
+  （工具通道在检索前另有一次 `web_search_available()` 探测）→ **探测 5s + 检索 14s = 19s < 20s**；单引擎分片
+  `= min(调用方 timeout, 剩余预算, max(2s, 剩余预算/剩余引擎数))`（公平份额，挂住的引擎吃不掉别人的）；
+  预算不足 → 停开新引擎、`partial_failures[].reason=budget`、`stop_reason=budget`，
+  **已拿到的结果照常返回**。探测阶段整体 ≤ 5s（= 一次探测超时）：多引擎都不通时不再 3×5s 叠满。
+- 实跑证据（三脚本 + 用例）：
+  - 三引擎**全部挂住**：整次调用挂钟 **14.00s**（旧版 45.5s），工具层 20s 余量 6.00s；
+  - 工具通道（真实 `handler._run_with_timeout` + 真注册表 cap）：`bing`/`baidu` 挂住 + `so360` 正常
+    → 挂钟 **14.00s**、`ToolResult.ok=True`、**返回已有结果**（旧版同场景 20.75s → 吐「执行超时/异常（已重试1次）」）；
+  - 用例：`test_waterfall_hanging_engine_still_returns_results_in_budget`、
+    `test_waterfall_budget_exhausted_stops_and_returns_partial`、
+    `test_web_search_budget_matches_tool_timeout_budget`（跨文件口径锁：探测+瀑布 ≤ cap.timeout_s，且留 ≥1s 余量）。
+- 注释与实现同步：`capability_registry.py:141` 口径改写为「探测 5s + 瀑布 14s = 19s < 20s」；
+  `handler._run_with_timeout` 的僵尸线程上界注释改为引用 `SEARCH_TOTAL_BUDGET_S`。
+
+### 8.3 Important-3 进程级全局限速（移植对照对象唯一漏掉的部件）
+
+- 旧状：只有 0.25s 顺序间隔 + 每用户 3 次/60s，**无跨请求/跨线程节流** → N 个用户并发 = N 倍直打同一站点。
+- 现实现：`_EngineRateLimiter`（零依赖，`threading`）：每引擎**并发上限**（BoundedSemaphore，
+  拿不到**立刻**降级，不排队堆积）+ **最小间隔**（锁内预约下一个可发起时刻，实测速率 ≤ 1/interval）；
+  间隔默认 bing/so360 1.0s、baidu 2.0s（百度最敏感）；拉不到槽位/等不到 2s →
+  `partial_failures[].reason=rate_limited` 快速降级到下一引擎；排队等待计入整次调用预算（拿槽后重收分片）。
+- 实跑证据：6 线程同刻并发（同引擎，min_interval=0.25s）→ **实际打到引擎仅 2 次**、发起间隔
+  `[0.25s]`（下限 0.25）、允许上界 2.51 → 速率不超上限且不堆积；顺序两次调用间隔 ≥ interval。
+- 用例：`test_global_rate_limit_spaces_sequential_calls`、
+  `test_global_rate_limit_caps_qps_under_concurrency`、`test_rate_limiter_saturated_degrades_fast`。
+
+### 8.4 Important-4 注入过滤收紧到「真模板」（与批评 MCP 的误报同构）
+
+- 旧状：多条正则**全部可选组** → 普通中文被单字面命中打码（审查实跑）：
+  `你就是你，不一样的烟火`、`你现在是我的唯一选择`、`他在电影里扮演一位医生`、`演员假装成顾客`、
+  `AI 扮演角色对话`、行首 `系统：`/`user:` 全被打成 `［已过滤］`。
+- 现实现：角色劫持**必须共现角色宾语**（系统/助手/AI/模型/越狱/无限制…）；伪角色行**仅当同行带注入线索**
+  （忽略/扮演/接管/you are…）；索要提示词**必须「你(的)+系统/prompt/提示词」共现**；中文指令覆盖
+  **必须带覆盖范围/归属**（以上/之前/所有/你的…）→「无视规则」这类正常措辞不再命中。
+- 实跑证据：6 条正常中文**全部 `flagged=False` 且原文逐字保留**；13 条真注入（中英指令覆盖、
+  角色劫持、伪角色行、索要提示词、伪 token）**全部仍拦下**。
+- 用例：`test_sanitize_keeps_normal_chinese_untouched`（10 条参数化，含审查实跑全部反例）+
+  `test_sanitize_still_flags_real_injection_templates`（11 条参数化双向）+
+  既有 `test_sanitize_flags_injection` 6 条不变。
+
+### 8.5 Minor 收口（6 条：4 收 + 2 记录）
+
+| # | 处置 | 说明 |
+|---|---|---|
+| 1 | **收**（+措辞更正） | `merge_engine_results` 增加 http(s) 协议白名单（非 http(s) 行直接丢弃）；报告措辞收窄为「过滤仅覆盖 title/text」 |
+| 2 | **收** | 百度单例不再冻结超时：检索/探测一律 `.get(..., timeout=...)` 按请求传（1 处预热 + 2 处请求） |
+| 3 | **收** | `web_search_available` 不再「冷却⇒可用」：冷却引擎须有**近期（≤600s）成功证据**才算可用，否则按失败继续；与 docstring 的「全部不可达→False」一致 |
+| 4 | **收** | `normalize_url` 跟踪参数改**精确名**（`from/fr/src/ref/share/sa/ved/eqid`）+ 前缀仅 `utm_/spm/rsv_`；`f/us/wd` 不再误合并（Discuz `?f=1`/`?f=2`、百度 `wd=` 检索词） |
+| 5 | **收（文档）** | `_So360ResultParser` 注明垂直聚合卡会进结果；报告「标题最干净」加限定 |
+| 6 | **收** | 合并/组包全链路兜底（`_safe_merge_rows` + 组包 try）→ `search_web` 的「不抛异常」由结构保证，畸形行返回 `[]` 而不是冒泡成「执行超时」 |
+| 7 | **已更正** | 报告两处事实：`web_search_available` 消费方 = handler **2 处** + prompts 1 处（`capability_registry` 不引用）；见 §1.1 表 |
+| — | **(c) 措辞建议** | 已补进 §4 第 4 条：明确「付费源升级路径被红线禁止」之外，其**非付费**独有能力（查询改写/中文变体、结果合成、semantic_bridge）本批未移植，避免被读成「它没有别的本事」 |
+
+### 8.6 修复批未做/待拍板
+
+- **未改 `timeout_s=20.0` 的数值**：以「压缩内部到预算内」的方式对齐（brief 允许的两种之一），
+  避免把工具层等待上限调大（用户体验 + 重试放大成本）。
+- **百度风控**：限速把 baidu 间隔设 2s 只是缓解，未做随机抖动/更长预热（§7.1 仍在）。
+- **非付费独有能力**（查询改写/合成）：未移植，理由见 §4 第 4 条（请求量 vs 抓取克制），需要时单独立项。

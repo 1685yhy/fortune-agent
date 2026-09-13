@@ -2577,7 +2577,10 @@ class MessageHandler:
 
         Task 4 review I-2：超时/异常后 shutdown(wait=False, cancel_futures=True)，
         不等待被超时的线程结束（旧 with 块默认 wait=True，重试要等前一线程跑完
-        才开始）；僵尸线程靠工具内部超时终会结束（LLM 60s / 网络 15s），
+        才开始）；僵尸线程靠工具内部超时终会结束（LLM 60s / 网络 = web_search
+        检索总预算 SEARCH_TOTAL_BUDGET_S=14s + 一次可达性探测 ≤5s ⇒ 单次工具调用
+        ≈19s < 20s，见 src/rag/web_search.py 与 capability_registry 的 timeout_s
+        注释——k46 审查 Important-2 前这里是 3×15+2×0.25=45.5s，注释「网络 15s」失效），
         进程长驻兜底。成功路径线程已结束，shutdown 即刻返回。
         B1-6：解释器 atexit 对非 daemon 线程的 join 阻塞上界 = 工具内部超时
         （有界不卡死），测试固化于 test_timeout_zombie_thread_self_terminates_bounded。

@@ -138,10 +138,14 @@ class Capability:
 #     模型冷加载，完整管线实测单次 17~94s（src/engines/dream.py 性能注）
 #   · dream：engine.analyze 不调 LLM（api_key 未用），但 FAISS 276 万索引冷加载
 #     可达数十秒——放 70s 防冷启动误杀（reviewer 点名）
-# - 网络类（web_search，Bing SEARCH_TIMEOUT=15s）→ 20s（15s 内部 + 5s 余量，B1-5：
-#   15=15 边界竞态——外层 fut.result 与内部 httpx 超时同刻竞争，外层先触发会误判
-#   超时白重试（最坏 ~30s 双请求）；余量保证内部超时确定性先触发（正常返回失败
-#   结果不触发重试），外层仅兜底，对齐 70s/60s 余量原则）
+# - 网络类（web_search）→ 20s。**口径以瀑布总预算为准**（审查 Important-2 修复）：
+#   单次工具调用 = 可达性探测（≤ PROBE_TOTAL_BUDGET_S=5s，30s 缓存）+
+#   search_web_structured（≤ SEARCH_TOTAL_BUDGET_S=14s，含其内部探测与各引擎分片）
+#   = 19s < 20s（见 src/rag/web_search.py 顶部常量）。旧注释按「Bing 单引擎
+#   SEARCH_TIMEOUT=15s」写死了 15s，而 k46 瀑布最坏是 3×15+2×0.25=45.5s →
+#   外层 fut.result 先触发会**丢弃已拿到的结果**并白重试（僵尸线程上界从 15s 变
+#   ~45s）。现在内部预算先行封顶，内部确定性先返回（拿到部分结果也照常返回、
+#   不触发重试），外层仅兜底。三条常量任一处改动都要同步本注释。
 # - 本地 DB/计算类（bazi_chart/fengshui/zeri/record_lookup）→ 保持 8s
 #
 # ---- 查表强约束句模板（Q1 3f46d75 起 num_omen 锁定措辞；M4 抽常量为四工具
