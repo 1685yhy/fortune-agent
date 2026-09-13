@@ -15,6 +15,22 @@ tool-loop，命理意图域（career/bazi 等引擎主链）无 needs_search/工
   4. 时效/查证层（最近/最新/新闻/政策/多少钱/官网…）→ 无本地锚即搜
   5. 研究白名单兜底（原 handler._WEB_SEARCH_RESEARCH_RE 词条原文迁移，向后兼容）
   6. LLM 语义信号 needs_search（分析器同一调用内已产出，OR 叠加；层 1/3 仍硬否决）
+  7. **语义路由**（k43，本地 bge-m3，零成本）：`semantic_router.route` 的正信号兜底
+     （reason=semantic）；层 4/5 的**关键词正信号**可被语义负信号否决（reason=semantic；
+     llm_needs_search=True 时不否决——模型说搜仍搜，OR 语义不变）。
+
+k43（2026-09-13，用户拍板「更彻底向元宝看齐」）分层原则：
+  - **硬否决不动**：① 金融排除、③ 命理本地判定仍是先手硬否决，语义层**不得越过**
+    （本地算得出的绝不搜）；
+  - **实体层语义不动**：实体抽取 = 检索 query 的来源，必须确定性（embedding 产不出
+    实体名）；强/弱实体问词与 query 构造同源，保持确定性；
+  - **词表层换语义**：层 4/5「无实体时的时效/白名单关键词判定」与实体层的
+    时效/白名单子分支 = 接近关键词表的判定 → 由语义路由 ACCEPT/VETO；
+  - 语义层只在「词表层本来要判不该搜」处补 ACCEPT、在「词表层本来要判该搜」处可
+    VETO（LLM 信号优先）；unknown（模型不可用/失败/不确定）→ 逐字回退词表层行为。
+  - 语义 ACCEPT 加无命名主体护栏（`_has_unnamed_subject_ref`）：「这/那/该/某+量词」
+    指代无命名主体的表述不产 query（沿用层 4/5 既有「纯指代不触发」语义，
+    护栏用例见 tests/test_k11b_search_trigger.py::test_llm_signal_or）。
 
 护栏（执行侧，不拦判定）：频控 3 次/60s/用户（handler._search_rate_ok）、域名仅
 http(s)+去重（黑名单扩展占位）、结果长度钳制 2400 字符（handler 侧）——原三层关键词
@@ -25,9 +41,14 @@ needs_search LLM 信号兜底。
 """
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
+
+from src.rag import semantic_router
+
+logger = logging.getLogger(__name__)
 
 # ============================================================
 # 硬否决 ①：金融行情（T074 防回归——词表沿 handler.py 原 _WEB_SEARCH_FINANCE_EXCLUDE_RE
@@ -206,6 +227,34 @@ def _is_deictic_only(text: str) -> bool:
     return bool(_DEICTIC_NAME_RE.search(text or ""))
 
 
+# 无命名主体指代（k43 语义层 ACCEPT 侧护栏）：指示代词「这/那/该/某」+ 量词
+# （那个中医馆/那家店/这款手机…），或单独的「某」（某新成立的医馆）——无命名
+# 主体 → query 无检索价值，沿用层 4/5「纯指代不触发」既有语义。
+# 注：护栏只作用于语义层 ACCEPT 侧（词表层正信号不受影响——「这个时候房价怎么样」
+# 仍由时效词/白名单触发），因此不放宽也不收紧既有判定。
+_UNNAMED_DEICTIC_REF_RE = re.compile(
+    r"(?:这|那|该|某)(?:一)?(?:家|个|所|间|款|种|些|位|名|台|辆|部|条|支|只|次|场|"
+    r"套|批|张|块|片|座|栋)|某")
+
+
+def _has_unnamed_subject_ref(text: str) -> bool:
+    """是否含「无命名主体」的指代表述（语义层 ACCEPT 护栏，见上）。"""
+    return bool(_UNNAMED_DEICTIC_REF_RE.search(text or ""))
+
+
+def _semantic_label(text: str) -> Optional[str]:
+    """语义路由信号（k43）：'search' / 'local' / None（未知或不可用）。
+
+    失败面一律 None（=词表层原行为）：语义层故障绝不改变判定与硬否决。
+    route() 自身已 try/except，此处再兜一层（判定层纯函数语义）。
+    """
+    try:
+        return semantic_router.route(text).label
+    except Exception as e:  # pragma: no cover — route 内部已兜底
+        logger.warning("语义路由信号异常（按 unknown 处理）: %s", type(e).__name__)
+        return None
+
+
 @dataclass
 class SearchDecision:
     """decide_search 结果。
@@ -213,8 +262,9 @@ class SearchDecision:
     - should_search: 是否应发起联网检索
     - query: 检索关键词（实体名 或 原句精简；空=无 query 可搜）
     - entity: 抽取出的命名实体（空=未抽到，query 为整句精简）
-    - reason: 触发依据（entity / entity_weak / timely / whitelist / llm /
-      none; finance / local / deictic = 否决/不触发）
+    - reason: 触发依据（entity / timely / whitelist / llm / **semantic**（k43
+      语义路由，含接受与否决两侧）/ none; finance / local = 硬否决/不触发）。
+      既有取值语义逐字未变；k43 只新增 semantic。
     """
     should_search: bool
     query: str = ""
@@ -373,11 +423,16 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
 
     llm_needs_search: MessageAnalysis.needs_search（分析器同一次 LLM 调用产出，
     复用既有通道的模型语义信号；OR 叠加，层 1/3 硬否决仍生效）。
+
+    k43：层 4/5（及实体层时效/白名单子分支）的关键词正信号可被语义路由否决
+    （reason=semantic；llm_needs_search=True 时否决失效——模型说搜仍搜），
+    词表层零触发的问句可由语义路由补搜（reason=semantic）；未知/不可用时
+    逐字回退既有词表层行为（无行为差异）。
     """
     msg = (text or "").strip()
     if not msg:
         return SearchDecision(False)
-    # 层 1：金融行情硬排除（词表原文，T074）
+    # 层 1：金融行情硬排除（词表原文，T074）——硬否决，语义层不得越过
     if is_finance_excluded(msg):
         return SearchDecision(False, reason="finance")
     entities = extract_entity_mentions(msg)
@@ -402,23 +457,36 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
         if not calc and weak:
             return SearchDecision(True, query=build_search_query(msg, entity),
                                   entity=entity, reason="entity")
-        # 实体 + 时效/查证词（易宝支付 最近新闻…）→ 搜（query=实体名）
+        # 实体 + 时效/查证词（易宝支付 最近新闻…）→ 搜（query=实体名）；
+        # k43：语义负信号否决（llm 信号不否决——模型说搜仍搜）
         if not calc and (_TIMELY_EXTERNAL_RE.search(msg)
                          or RESEARCH_WHITELIST_RE.search(msg)):
+            if (not llm_needs_search
+                    and _semantic_label(msg) == semantic_router.LABEL_LOCAL):
+                return SearchDecision(False, reason="semantic")
             return SearchDecision(True, query=build_search_query(msg, entity),
                                   entity=entity, reason="entity")
         # 实体纯陈述（无任何问词）+ LLM 判需实时 → 搜（对话续问形态）
         if not calc and llm_needs_search:
             return SearchDecision(True, query=build_search_query(msg, entity),
                                   entity=entity, reason="entity")
+        # k43：实体 + 语义正信号（问词未覆盖的换说法，如「XX是不是骗子」）→ 搜；
+        # 无命名主体指代（「这家公司」类）不产 query → 护栏抑制
+        if (not calc and not _has_unnamed_subject_ref(msg)
+                and _semantic_label(msg) == semantic_router.LABEL_SEARCH):
+            return SearchDecision(True, query=build_search_query(msg, entity),
+                                  entity=entity, reason="semantic")
         # 其余（纯陈述 / 硬锚本地问挂靠）→ 不搜
         return SearchDecision(False, reason="local" if calc else "none")
     # 层 3：命理本地判定（无命名实体时：本地计算/决策问句绝不触发——
     # 含口语决策族与命理主题族，见 has_local_fortune_anchor 注释）
     if local:
         return SearchDecision(False, reason="local")
-    # 层 4：时效/查证层（纯指代泛化表述——无命名主体，query 无检索价值——不触发）
+    # 层 4：时效/查证层（纯指代泛化表述——无命名主体，query 无检索价值——不触发）；
+    # k43：语义负信号否决（llm 信号不否决）
     if _TIMELY_EXTERNAL_RE.search(msg) and not _is_deictic_only(msg):
+        if not llm_needs_search and _semantic_label(msg) == semantic_router.LABEL_LOCAL:
+            return SearchDecision(False, reason="semantic")
         return SearchDecision(True, query=build_search_query(msg),
                               reason="timely")
     # 层 5：研究白名单兜底（向后兼容 chat 域旧门控语义；纯指代不触发）
@@ -429,13 +497,23 @@ def decide_search(text: str, llm_needs_search: bool = False) -> SearchDecision:
     # 为本位——PM 实诉「你自己查」教训；收紧须先有实体/主题解析覆盖证据）：
     # 后续收紧候选 = 语义路由（semantic-router，k11b plan §七备选）或本层加
     # 「可检索主体」启发（纯指代句 + 无时效词才考虑拦），待实体解析增强批评估。
+    # k43 已由语义路由接管收紧：本层关键词正信号可被语义负信号否决（llm 不否决）。
     if RESEARCH_WHITELIST_RE.search(msg) and not _is_deictic_only(msg):
+        if not llm_needs_search and _semantic_label(msg) == semantic_router.LABEL_LOCAL:
+            return SearchDecision(False, reason="semantic")
         return SearchDecision(True, query=build_search_query(msg),
                               reason="whitelist")
     # 层 6：LLM 语义信号（复用既有分析器通道，不新增二判 LLM）
     if llm_needs_search:
         return SearchDecision(True, query=build_search_query(msg),
                               reason="llm")
+    # 层 7：语义路由正信号兜底（k43；本地 bge-m3，零成本）——词表层漏搜的
+    # 「换说法」外部事实问句（无实体名/无关键词形态）由此补搜。
+    # 无命名主体指代（「这家公司/某医馆」类）不产 query → 护栏抑制（沿用层 4/5 语义）。
+    if (not _is_deictic_only(msg) and not _has_unnamed_subject_ref(msg)
+            and _semantic_label(msg) == semantic_router.LABEL_SEARCH):
+        return SearchDecision(True, query=build_search_query(msg),
+                              reason="semantic")
     return SearchDecision(False, reason="none")
 
 

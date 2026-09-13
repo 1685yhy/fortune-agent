@@ -111,6 +111,15 @@ class FaissRetriever:
     def load_error(self) -> Optional[str]:
         return self._load_error
 
+    @property
+    def loaded_embedder(self):
+        """已加载的 bge-m3 embedder（未就绪 = None）。
+
+        k43：同进程的语义路由（src/rag/semantic_router.py）复用同一实例
+        （同模型同维度），避免 .load() 第二份 ~2GB 模型副本。只读、不触发加载。
+        """
+        return self._embedder if self._loaded else None
+
     def ensure_ready(self) -> bool:
         """线程安全地确保索引 + embedder 已加载；失败返回 False。"""
         if self._loaded:
