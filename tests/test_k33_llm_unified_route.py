@@ -165,16 +165,31 @@ _SOLILOQUY = (
 assert 100 <= len(_SOLILOQUY) <= 260, len(_SOLILOQUY)  # 夹具自检（校验红线）
 
 
-class _FakeSessionDAO:
-    """够用的会话语义：当日有对话 + 摘要含锚点。"""
+def _bj_today(now=None) -> str:
+    """北京「当日」——被测管线的基准日（has_today_chat 对 created_at 做 +8 换算）。
 
-    def __init__(self, summary="用户正在准备面试，聊了工作和加班"):
+    夹具必须与产品同一时钟推导，不得写死日期：写死会随真实时钟腐化
+    （跨过该日 00:00 后 in-suite / 单跑一律变红，反而掩盖真实回归）。
+    """
+    now = now or datetime.now(timezone.utc)
+    return (now + timedelta(hours=8)).strftime("%Y-%m-%d")
+
+
+class _FakeSessionDAO:
+    """够用的会话语义：当日有对话 + 摘要含锚点。
+
+    「此刻」在构造时固定一次，get_history 的 created_at 与 .today 同源
+    （UTC 时间戳 ↔ 其北京日期），故跑在零点前后也不会自相矛盾。
+    """
+
+    def __init__(self, summary="用户正在准备面试，聊了工作和加班", now=None):
         self.summary = summary
+        self.now = now or datetime.now(timezone.utc)  # UTC（产品契约口径）
+        self.today = _bj_today(self.now)              # 该时刻的北京当日
 
     def get_history(self, user_id, limit=50):
-        # created_at 为 UTC；+8 换算后落在北京当日
-        bj_now = datetime.now(timezone(timedelta(hours=8)))
-        ca = (bj_now - timedelta(hours=8)).strftime("%Y-%m-%d %H:%M:%S")
+        # created_at 为 UTC；+8 换算后即落在 self.today 北京当日
+        ca = self.now.strftime("%Y-%m-%d %H:%M:%S")
         return [{"role": "user", "content": "聊了面试", "created_at": ca}]
 
     def get_summary(self, user_id):
@@ -198,7 +213,8 @@ class TestNightSoliloquyRoute:
         monkeypatch.setenv("DEEPSEEK_API_KEY", "k2")
         monkeypatch.setattr(llm_client, "deepseek_anthropic_completion", fake)
 
-        out = ns.build_soliloquy("u1", "2026-09-12", _FakeSessionDAO())
+        dao = _FakeSessionDAO()
+        out = ns.build_soliloquy("u1", dao.today, dao)
 
         assert fake.calls, "统一层函数必须被调用（patch/降级注入生效）"
         assert out["fallback"] is False
@@ -211,7 +227,8 @@ class TestNightSoliloquyRoute:
         monkeypatch.setenv("DEEPSEEK_API_KEY", "k2")
         monkeypatch.setattr(llm_client, "deepseek_anthropic_completion",
                             _Capture(RuntimeError("boom")))
-        out = ns.build_soliloquy("u2", "2026-09-12", _FakeSessionDAO())
+        dao = _FakeSessionDAO()
+        out = ns.build_soliloquy("u2", dao.today, dao)
         assert out["fallback"] is True
         assert out["text"]  # 兜底灯语（绝不空）
 
@@ -219,7 +236,8 @@ class TestNightSoliloquyRoute:
         from src.engines import night_soliloquy as ns
         fake = _Capture(_SOLILOQUY)
         monkeypatch.setattr(llm_client, "deepseek_anthropic_completion", fake)
-        out = ns.build_soliloquy("u3", "2026-09-12", _FakeSessionDAO())
+        dao = _FakeSessionDAO()
+        out = ns.build_soliloquy("u3", dao.today, dao)
         assert fake.calls == []
         assert out["fallback"] is True
 
