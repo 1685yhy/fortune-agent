@@ -69,8 +69,12 @@ SEARCH_TIMEOUT = 15.0  # 单引擎搜索请求超时（秒；**单次**，非整
 # （僵尸线程上界也回到该值，见 handler._run_with_timeout 注释）。
 SEARCH_TOTAL_BUDGET_S = 14.0
 # 可达性探测总预算（秒）：首个可达即停是常态，但多引擎都不可达时不能逐个叠满
-# HEALTH_TIMEOUT（3×5s 会吃光瀑布预算）→ 探测阶段整体 ≤ 一次探测超时。
+# HEALTH_TIMEOUT（3×5s 会吃光瀑布预算）→ 探测阶段整体 ≤ 一次探测超时；
+# 且单个引擎的探测分片 ≤ 剩余预算/剩余引擎数（复审 R4）：首个引擎黑洞不得
+# 把预算吃光、让后续可达引擎从不被探测。
 PROBE_TOTAL_BUDGET_S = 5.0
+# 单引擎探测分片下限（秒）：低于此值不再细分（受 left 钳制，不会越预算）
+MIN_PROBE_SLICE_S = 1.0
 # 单个引擎至少要有的时间片（秒）：剩余预算低于此值 → 不再开新引擎（stop_reason=budget）
 MIN_ENGINE_SLICE_S = 2.0
 # 可用性检测结果缓存（秒）；失败后周期性重试
@@ -411,9 +415,14 @@ _INJECTION_PATTERNS = (
                r"(?:(?:的|所有|全部|一切|任何))*"
                r"(?:指令|指示|要求|规则|设定|提示|prompt)", re.I),
     # ⑤ 角色劫持模板：**必须**共现角色宾语（系统/助手/AI/模型/越狱…）；
-    #    「扮演一位医生」「假装成顾客」「你就是你」不再命中
-    re.compile(r"(?:扮演|假装|伪装成|你就是|你现在是)\s*(?:一个|一位|一名)?\s*(?:新的?)?\s*"
-               r"(?:系统|助手|AI|人工智能|模型|越狱|无限制|不受限制|开发者模式|管理员)", re.I),
+    #    「扮演一位医生」「假装成顾客」「你就是你」不再命中。
+    #    ⚠️ 复审 R1 修复：动词必须**盖住「X 成」形态**（假装成/扮演成/伪装成）——
+    #    收窄时漏了「成」，`假装成开发者模式` 等 4 例由「能拦」变「漏拦」，
+    #    这里用 `(?:扮演|假装|伪装)成?` 把动词族收敛回来（含 root）。
+    re.compile(r"(?:(?:扮演|假装|伪装)成?|你就是|你现在是)\s*(?:一个|一位|一名)?\s*"
+               r"(?:新的?)?\s*"
+               r"(?:系统|助手|AI|人工智能|模型|root|越狱|无限制|不受限制|开发者模式|管理员)",
+               re.I),
     # ⑥ 伪角色行（system:/系统：）：仅当**同一行**带注入线索（忽略/扮演/接管/
     #    you are…）才算——「系统：iOS 17.4 正式版发布」这类正常正文不再命中
     re.compile(r"^[ \t]*(?:system|assistant|user|developer|系统|开发者|管理员)[ \t]*[:：][^\n]*?"
@@ -663,7 +672,7 @@ def web_search_available(force: bool = False) -> bool:
     engines = configured_engines()
     probe_stop = time.monotonic() + PROBE_TOTAL_BUDGET_S
     ok = False
-    for eng in engines:
+    for i, eng in enumerate(engines):
         left = probe_stop - time.monotonic()
         if left <= 0.05:
             # 探测预算耗尽：未探测的引擎按「最近成功过」证据兜底（Important-2：探测
@@ -675,7 +684,12 @@ def web_search_available(force: bool = False) -> bool:
                 ok = True   # 冷却中但最近成功过（曾通的、只是临时失败）
                 break
             continue        # 冷却且无近期成功证据 → 不拿它当可用证据，继续下一个
-        if _probe_engine(eng, timeout=min(HEALTH_TIMEOUT, left)):
+        # ⚠️ 复审 R4 修复：探测也按**公平份额**分片（left/剩余引擎数，末位拿走全部剩余）
+        # ——否则首个引擎黑洞（吃满 HEALTH_TIMEOUT）会把预算吃光，后续可达引擎**从不被
+        # 探测** → available() 恒 False 且 30s 内无解除路径（旧版会探到下一个引擎返回 True）。
+        probe_timeout = min(HEALTH_TIMEOUT, left,
+                            max(MIN_PROBE_SLICE_S, left / (len(engines) - i)))
+        if _probe_engine(eng, timeout=probe_timeout):
             ok = True
             _engine_ok_at[eng] = now
             break
