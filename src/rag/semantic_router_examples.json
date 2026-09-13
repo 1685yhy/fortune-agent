@@ -1,0 +1,549 @@
+{
+ "version": 3,
+ "note": "k43 联网触发语义路由的标注示例集（bge-m3 kNN 双类）。正例=该搜（外部事实/公司/行业/时效/人物现状/价格政策），负例=不该搜（本地命理计算/个人运势/排盘择日/情绪倾诉/产品自有业务/闲聊）。来源见每条 src；label 语义与 decide_search 的 should_search 一致。",
+ "examples": [
+  {
+   "text": "易宝支付这家公司靠不靠谱？我正考虑换工作过去，我的盘你之前排过。",
+   "label": "search",
+   "src": "corpus:T104"
+  },
+  {
+   "text": "腾讯这家公司怎么样，适合我的事业吗？我的盘你之前排过。",
+   "label": "search",
+   "src": "corpus:T105"
+  },
+  {
+   "text": "明天北京天气怎么样",
+   "label": "search",
+   "src": "corpus:T072"
+  },
+  {
+   "text": "帮我查一下苹果公司的最新新闻",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "招商银行的待遇怎么样",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "小米汽车值得买吗",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "字节跳动靠谱吗",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "阿里巴巴值得去吗",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "腾讯怎么样",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "易宝支付靠谱吗",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "最近有什么行业新闻",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "最近有什么政策变化",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "帮我查一下最近的行业新闻",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "最近有什么新闻",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "XX科技公司什么时候发财报",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "新开的那个中医馆 靠谱吗",
+   "label": "search",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "我想去米哈游上班，那边加班多不多",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "南极人的保暖内衣质量怎么样",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "现在去日本旅游安全吗",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "Windows 11 值得升级吗",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "最近机票是不是涨价了",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "哪家雅思培训机构比较靠谱",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "最近有什么新的 AI 大模型发布吗",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "听说极兔速递最近出了点事，是真的吗",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "三甲医院的挂号费一般多少钱",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "小米SU7 和 Model 3 哪个更值得买",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "房价还会继续跌吗",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "DeepSeek 和 GPT 哪个更好用",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "最近金价怎么样",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "今年的诺贝尔奖颁给谁了",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "帮我查查深圳的落户政策",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "刘德华最近有什么新电影",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "携程上订的酒店能退吗",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "特斯拉今年在国内降价了吗",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "现在开网店需要什么资质",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "我想买个戴森的吹风机，哪款性价比高",
+   "label": "search",
+   "src": "authored:paraphrase"
+  },
+  {
+   "text": "今年运势如何",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "我明年财运怎么样",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "这个月适合搬家吗",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "我和她八字合不合",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "给孩子起个名字",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "帮我算算我明年的流年",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "属猴的人今年运势怎么样",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "帮我看看我的运势怎么样",
+   "label": "local",
+   "src": "corpus:T086"
+  },
+  {
+   "text": "我在易宝支付上班，今年运势怎么样？",
+   "label": "local",
+   "src": "corpus:T108"
+  },
+  {
+   "text": "1990年5月20日 15:30 北京 男，帮我排盘",
+   "label": "local",
+   "src": "corpus:T001"
+  },
+  {
+   "text": "今天股市行情怎么样",
+   "label": "local",
+   "src": "corpus:T074"
+  },
+  {
+   "text": "看看最近的股票行情",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "最近工作运怎么样",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "什么时候适合跳槽",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "五行属水的行业适合开公司吗",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "金融行业适合我吗",
+   "label": "local",
+   "src": "k11b:guard"
+  },
+  {
+   "text": "我最近抽的灵签是哪一支",
+   "label": "local",
+   "src": "corpus:T051"
+  },
+  {
+   "text": "帮我摇一卦，看看下个月能不能升职",
+   "label": "local",
+   "src": "corpus:T058"
+  },
+  {
+   "text": "最近想换工作，帮我起一卦",
+   "label": "local",
+   "src": "corpus:T059"
+  },
+  {
+   "text": "我最近老失眠，凌晨两三点醒了就睡不着，是不是身体有什么毛病",
+   "label": "local",
+   "src": "authored:example",
+   "note": "k43-r1 溯源更正：原 src=corpus:insomnia_01 在 data/eval/agent_tasks.jsonl 中不存在（失眠题只存在于 data/eval/eval_set.json 的近似改写句）→ 实为本批自造负例"
+  },
+  {
+   "text": "最近工作压力好大，心里很累",
+   "label": "local",
+   "src": "corpus:T071"
+  },
+  {
+   "text": "帮我看看我的婚姻状况",
+   "label": "local",
+   "src": "corpus:T076"
+  },
+  {
+   "text": "开会员多少钱",
+   "label": "local",
+   "src": "corpus:T087"
+  },
+  {
+   "text": "帮我充一下会员",
+   "label": "local",
+   "src": "corpus:T088"
+  },
+  {
+   "text": "我的会员额度还剩多少",
+   "label": "local",
+   "src": "corpus:T026",
+   "note": "k43-r1 溯源更正：原 src=corpus:T079 与语料台账不符（该 turn 属 T026）"
+  },
+  {
+   "text": "你算得真准！太厉害了",
+   "label": "local",
+   "src": "corpus:T073"
+  },
+  {
+   "text": "最近总觉得日子过得特别快，一转眼这一年又过了一大半",
+   "label": "local",
+   "src": "corpus:T084#prefix",
+   "note": "k43-r1 溯源更正：原 src=corpus:T084 为真实 turn 的截断前缀（非逐字），前缀标注以示区别"
+  },
+  {
+   "text": "我家猫叫小白，特别可爱",
+   "label": "local",
+   "src": "corpus:T049"
+  },
+  {
+   "text": "这个手机号 13812345678 怎么样",
+   "label": "local",
+   "src": "corpus:T094"
+  },
+  {
+   "text": "帮我看看『李沐宸』这个名字怎么样",
+   "label": "local",
+   "src": "corpus:T046"
+  },
+  {
+   "text": "我适合做什么行业",
+   "label": "local",
+   "src": "corpus:T095"
+  },
+  {
+   "text": "2026年9月15日搬家 帮我选个日子",
+   "label": "local",
+   "src": "corpus:T028"
+  },
+  {
+   "text": "下个月结婚 帮我选个吉日",
+   "label": "local",
+   "src": "corpus:T030"
+  },
+  {
+   "text": "我昨晚梦见一条蛇追我，还梦到掉牙齿",
+   "label": "local",
+   "src": "corpus:T097"
+  },
+  {
+   "text": "关帝灵签第三签是什么意思",
+   "label": "local",
+   "src": "corpus:T056"
+  },
+  {
+   "text": "我的灯语是什么",
+   "label": "local",
+   "src": "corpus:T055"
+  },
+  {
+   "text": "重新帮我算一遍我的盘",
+   "label": "local",
+   "src": "corpus:T092"
+  },
+  {
+   "text": "我是女孩儿，不是男孩",
+   "label": "local",
+   "src": "corpus:T008"
+  },
+  {
+   "text": "你觉得我应该养一只猫吗",
+   "label": "local",
+   "src": "corpus:T070"
+  },
+  {
+   "text": "蜜雪冰城现在还火吗",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "奈雪的茶最近怎么样了",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "现在考驾照大概要多少钱",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "iPhone 17 什么时候上市",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "顺丰和京东物流哪个更快",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "现在还能买英伟达的显卡吗",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "大疆的无人机值得买吗",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "科大讯飞的翻译机好用吗",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "北京现在限行尾号是多少",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "今年春节放假怎么安排",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "华为新出的手机多少钱",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "美团和饿了么哪个便宜",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "三只松鼠的坚果怎么样",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "理想汽车现在卖得好吗",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "盒马和山姆哪个更划算",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "海底捞现在还排长队吗",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "钟薛高是不是倒闭了",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "喜茶的联名款值得买吗",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "小鹏和比亚迪哪个保值",
+   "label": "search",
+   "src": "authored:example"
+  },
+  {
+   "text": "我这段时间运气怎么样",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "我女儿的学业运势怎么样",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "帮我看看我今年的事业运",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "帮我起一卦看看什么时候能找到工作",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "我昨晚做梦梦见了前任",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "帮我算算这个月还能攒下多少钱",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "我这份工作还能做多久",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "帮我看看我今天穿什么颜色好",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "我最近心慌，是不是有什么预兆",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "你帮我看看我这个梦是什么意思",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "我最近总觉得很累，是不是亚健康",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "帮我看看我孩子适合学什么",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "我这鼻炎最近又犯了",
+   "label": "local",
+   "src": "authored:example"
+  },
+  {
+   "text": "最近行情不好，生意难做",
+   "label": "local",
+   "src": "authored:example"
+  }
+ ]
+}
