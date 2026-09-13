@@ -168,6 +168,18 @@ class JWTHandler:
 BINDINGS_ENV = "FORTUNE_API_KEY_USERS"
 SINGLE_BINDING_ENV = "FORTUNE_API_KEY_USER"
 
+# ── k41：**受信多用户键**（显式 opt-in，控制方 2026-09-13 拍板）──────────────
+# 绑定值写成 `*` = 「该 key 允许请求自带 user_id」（仅限服务端受信集成，如 CoW
+# bot 的 `user=session.session_id` 每会话一个用户——见 scripts/cow_multi_user.patch）。
+# 关键约束：
+#   - **默认行为逐字节不变**：不带 `*` 的绑定仍是严格绑定（请求 user 与绑定
+#     身份不一致 → 403）；无绑定的 key 仍是无状态 + 零写入；
+#   - 受信多用户键**没有单一身份**（`bound_user_for_key` 返回空 → 限流退 IP 档），
+#     自带 user 必须过基本校验（非空/长度上限/字符集，见 openai_compat）；
+#   - 启用时 `_load_api_keys` 启动日志**大声提示**（key 只打掩码，绝不明文）；
+#   - **回退**：去掉配置里的 `:*`（改回 `key:uid`）即回到严格绑定，零代码改动。
+TRUSTED_MULTI_USER_MARKER = "*"
+
 
 def _mask_key(key: str) -> str:
     """日志用：不明文回显 key（只留首位与长度）。"""
@@ -181,6 +193,11 @@ def resolve_key_user_bindings(env: Optional[Dict[str, str]] = None) -> Dict[str,
     """解析 key→user 绑定配置（纯函数，便于测试注入 env）。
 
     非法条目一律**跳过并告警**（绝不做模糊匹配/前缀猜测，防配置事故变成越权面）。
+
+    k41：绑定值 `*` = 受信多用户 marker（**显式 opt-in**，原样保留在返回值里；
+    语义见 `TRUSTED_MULTI_USER_MARKER`）。单 key 变量 `FORTUNE_API_KEY_USER`
+    **不接受** `*`（该变量语义是「把这把 key 绑到一个用户」，写 `*` 属歧义配置
+    → 跳过并告警，宁可该 key 无身份零写入，也不把严格绑定悄悄升级成多用户）。
     """
     src = os.environ if env is None else env
     out: Dict[str, str] = {}
@@ -199,7 +216,12 @@ def resolve_key_user_bindings(env: Optional[Dict[str, str]] = None) -> Dict[str,
         out[key] = uid
 
     uid = (src.get(SINGLE_BINDING_ENV, "") or "").strip()
-    if uid:
+    if uid == TRUSTED_MULTI_USER_MARKER:
+        logger.warning(
+            "%s='*' 不生效（该变量是「把 key 绑到一个用户」；受信多用户请改用 "
+            "%s=\"<key>:*\"）→ 本 key 无身份（零写入）",
+            SINGLE_BINDING_ENV, BINDINGS_ENV)
+    elif uid:
         single = (src.get("FORTUNE_API_KEY", "") or "").strip()
         if single:
             out[single] = uid
@@ -245,6 +267,15 @@ class AuthHandler:
         for key, uid in resolve_key_user_bindings().items():
             if key in self.api_keys:
                 self.api_keys[key]["user"] = uid
+                if uid == TRUSTED_MULTI_USER_MARKER:
+                    # k41：受信多用户键启用 → **大声提示**（key 只打掩码）。
+                    # 默认（不带 `*`）不会有这行；去掉 `:*` 即回退严格绑定。
+                    logger.warning(
+                        "⚠️ 受信多用户通道已启用：API key %s 绑定为 user=*"
+                        "（该 key 的请求可自带 user_id，仅限服务端受信集成；"
+                        "多用户隔离由调用方保证）。默认严格绑定不受影响；"
+                        "回退：把配置里的 ':*' 去掉即恢复严格绑定。",
+                        _mask_key(key))
             else:
                 logger.warning(
                     "key→user 绑定了一个未配置的 key（忽略，不建 key）: %s", _mask_key(key))
@@ -256,17 +287,30 @@ class AuthHandler:
             return key_info
         return None
 
-    def bound_user_for_key(self, api_key: str) -> str:
-        """该 key 绑定的用户身份（k39 审查 I1）。
+    def binding_for_key(self, api_key: str) -> str:
+        """该 key 的绑定值**原样**返回（k41：含受信多用户 marker `*`）。
 
-        - 未配置绑定 / key 无效 / key 未激活 → `""`（调用方必须按"无身份"处理，
-          即**零写入**）；
+        - 未配置绑定 / key 无效 / key 未激活 → `""`（调用方按"无身份"处理）；
         - 只认服务端配置（环境变量），请求体里的任何字段都不参与。
+        判「是哪种绑定」的调用方（openai_compat.resolve_request_identity）用本
+        方法；只要「唯一身份」的调用方（限流）用 `bound_user_for_key`。
         """
         info = self.validate_api_key(api_key)
         if not info:
             return ""
         return str(info.get("user", "") or "").strip()
+
+    def bound_user_for_key(self, api_key: str) -> str:
+        """该 key 绑定的**单一**用户身份（k39 审查 I1）。
+
+        - 未配置绑定 / key 无效 / key 未激活 → `""`（调用方必须按"无身份"处理，
+          即**零写入**）；
+        - k41 受信多用户键（`user=*`）**没有单一身份** → 同样返回 `""`
+          （限流等消费方退回 IP 档；身份裁决走 `binding_for_key`）；
+        - 只认服务端配置（环境变量），请求体里的任何字段都不参与。
+        """
+        bound = self.binding_for_key(api_key)
+        return "" if bound == TRUSTED_MULTI_USER_MARKER else bound
 
     def authenticate_request(self, request: Request) -> Tuple[bool, Optional[Dict], Optional[str]]:
         """Try all authentication methods. Returns (authenticated, user_info, error)."""

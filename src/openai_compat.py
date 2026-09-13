@@ -20,8 +20,18 @@ k39 审查 I1（本批补充，收紧而非放宽）：`/v1/*` 从 422 复活后
      - 请求体 `user` 与绑定身份不一致 → **403**（不得用于指定他人身份）；
      - 请求体 `user` 与绑定一致（或不传）→ 一律以**绑定身份**落库/问答。
   6. `/v1/*` 纳入既有限流中间件（`RATE_LIMITED_PATHS`）——见 ratelimit.py。
+
+k41（受信多用户通道，显式 opt-in，控制方 2026-09-13 拍板）：
+  7. 绑定值写成 `key:*`（`security.auth.TRUSTED_MULTI_USER_MARKER`）时，该 key
+     允许**请求自带 user_id**（服务端受信集成，如 CoW bot 每会话一个用户）。
+     - **默认（不带 `*`）逐字节不变**：身份仍由 key 决定，请求 user 不一致 → 403；
+     - 受信多用户键**不传 user** → 仍是无状态应答 + **零写入**（不放宽「无身份
+       = 无状态」）；
+     - 自带 user 必须过基本校验（非空 / 长度上限 / 字符集）→ 非法 400 + 零写入；
+     - 回退：去掉 `:*` 即回到严格绑定（零代码改动）。
 """
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -33,6 +43,11 @@ logger = logging.getLogger(__name__)
 
 # 显式用户标识的最长长度（防御：超长标识不落库、不撑爆日志）
 USER_ID_MAX_LEN = 128
+
+# k41：受信多用户键自带 user 的字符集（保守白名单，够 openid/会话 id 用）。
+# 只用于**受信多用户通道**的基本校验；严格绑定通道口径不变（归一 + 与绑定比对）。
+# 超长**拒绝**而非静默截断——截断会把两个不同会话并成同一档案（隔离被破坏）。
+_USER_ID_CHARSET_RE = re.compile(r"^[A-Za-z0-9_.:@\-]{1,%d}$" % USER_ID_MAX_LEN)
 
 # 无状态合约正文（确定性、零 LLM、零落库）——所有"没有身份"的应答共用这段内核
 STATELESS_NOTICE = (
@@ -148,35 +163,65 @@ def normalize_user(user) -> str:
     return uid[:USER_ID_MAX_LEN]
 
 
+def is_valid_trusted_user(requested_user) -> bool:
+    """受信多用户键自带 user 的**基本校验**（k41）：非空 + 长度上限 + 字符集。
+
+    只在受信多用户通道使用（严格绑定通道无需本判：归一后与绑定身份比对即可）。
+    """
+    s = (requested_user or "").strip()
+    return bool(s and _USER_ID_CHARSET_RE.match(s))
+
+
 def resolve_request_identity(api_key: str, requested_user) -> Tuple[str, str]:
-    """请求身份裁决（k39 审查 I1，两路由共用，唯一事实源）。
+    """请求身份裁决（k39 审查 I1 + k41 受信多用户，两路由共用，唯一事实源）。
 
     返回 `(identity, reject_reason)`：
       - `("u_bound", "")`      → 放行，身份 = key 绑定身份（请求里的 user 只允许
         与之一致；一致时等价，不一致见下）；
       - `("", "mismatch")`     → 403：请求里的 `user` 与绑定身份不一致
         （持 key 者不得指定他人身份）；
-      - `("", "unbound")`      → key 未配置绑定 → 无状态应答 + **零写入**。
-    """
-    from src.security.auth import get_auth_handler
+      - `("", "unbound")`      → 无绑定 / 受信多用户键未传 user → 无状态应答
+        + **零写入**；
+      - `("", "invalid_user")` → 400：受信多用户键自带的 user 非法
+        （空/超长/字符集外）→ 零写入。
 
-    bound = get_auth_handler().bound_user_for_key(api_key)
+    k41（opt-in）：只有绑定值恰为 `*`（受信多用户 marker）时，请求自带的 user
+    才被采信；其余 key 的判定路径与 k39 **逐字节一致**。
+    """
+    from src.security.auth import get_auth_handler, TRUSTED_MULTI_USER_MARKER
+
+    bound = get_auth_handler().binding_for_key(api_key)
     requested = normalize_user(requested_user)
     if not bound:
         # 未配置绑定 → 该通道零写入（请求里的 user 一律不采信）
         return "", "unbound"
+    if bound == TRUSTED_MULTI_USER_MARKER:
+        # 受信多用户键：允许请求自带 user，但仍要**过基本校验**；不传 → 零写入
+        if not requested:
+            return "", "unbound"
+        if not is_valid_trusted_user(requested_user):
+            return "", "invalid_user"
+        return requested, ""
     if requested and requested != bound:
         return "", "mismatch"
     return bound, ""
 
 
 def _reject(reason: str, path: str) -> Optional[str]:
-    """裁决结果 → 响应文案 / 抛 403；返回无状态文案或 None（放行）。"""
+    """裁决结果 → 响应文案 / 抛 4xx；返回无状态文案或 None（放行）。"""
     if reason == "mismatch":
         logger.warning("鉴权拒绝 403: path=%s 请求 user 与 API key 绑定身份不一致", path)
         raise HTTPException(
             status_code=403,
             detail="请求中的 user 与 API 密钥绑定的身份不一致（身份由密钥决定）",
+        )
+    if reason == "invalid_user":
+        logger.warning(
+            "鉴权拒绝 400: path=%s 受信多用户键的请求 user 非法（空/超长/字符集）", path)
+        raise HTTPException(
+            status_code=400,
+            detail=("请求中的 user 不合法：只允许字母、数字与 . _ : @ - "
+                    "（长度 1-%d，超长不做截断）" % USER_ID_MAX_LEN),
         )
     if reason == "unbound":
         logger.warning("openai_compat: API key 未绑定用户身份 → 无状态应答（零写入）path=%s", path)

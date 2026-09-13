@@ -225,12 +225,18 @@ _GENDER_SELF_HEAD_RE = re.compile(
     r'^\s*' + _GENDER_CLAUSE_LEAD + r'?\s*' + _GENDER_SELF_PRON + r'\s*'
     + _GENDER_ADVERB + r'?\s*(?:是|就是|系|为)')
 # ②a 第三人主语：他/她/对方 + 系动词（「她是个女孩子」）
+# k41：补**指示代词族**（这人/这个人/那人/那个人/此人/该人）——与 他/她/对方
+# 同属封闭类代词，不是称谓词表（终审 §六 提取层同族「这人1990年出生的…」）。
+_GENDER_THIRD_PRON = r'(?:他|她|它|对方|这人|这个人|那人|那个人|此人|该人|TA|ta)'
 _GENDER_THIRD_PERSON_RE = re.compile(
-    r'(?<!其)(?:他|她|它|对方|TA|ta)\s*' + _GENDER_ADVERB + r'?\s*'
+    r'(?<!其)' + _GENDER_THIRD_PRON + r'\s*' + _GENDER_ADVERB + r'?\s*'
     r'(?:是|就是|系|为)')
-# ②b 第三人主语 + 出生年（「他1990年…」「对方是1992年…」）
+# ②b 第三人主语 + 出生年（「他1990年…」「对方是1992年…」「对方女儿1990年…」
+#    「他的女儿1990年5月20日出生」）——k41：代词与年份之间允许一个短名词跑
+#    （称谓/亲属名词：女儿/老婆/对象…开放类，不枚举），仍限**同一子句内**。
 _GENDER_THIRD_PERSON_BIRTH_RE = re.compile(
-    r'(?<!其)(?:他|她|对方)(?:的|是)?\s*\d{4}\s*年')
+    r'(?<!其)' + _GENDER_THIRD_PRON + r'(?:的|是)?'
+    r'[^，,。.！!？?；;、\n]{0,6}?\d{4}\s*年')
 # 领属语（我/你/咱/俺/您）后不得紧跟这些（那些是自述/非名词中心语）：
 #   「我(的)性别是…」「我本人是…」「我是…」「我其实…」「我1990年…」
 _GENDER_LEAD_GUARD = (
@@ -293,22 +299,108 @@ _GENDER_SELF_COPULA_TAIL_RE = re.compile(
     r'(?:' + _GENDER_SELF_PRON + r')(?:\s*' + _GENDER_ADVERB + r')?\s*'
     r'(?:是|就是|系|为)\s*$')
 
+# ②e 非自述的**名词性修饰/领属短语**（k41 末族，k40 终审 §六 建议的规则级修法）：
+#    子句句首是「X的N / X家N / X介绍(的)N」（X 不是自述代词，中心语 N 不是
+#    自述数据名词）→ 主语是这个名词短语（第三人）。
+#    改前（e45226b 起既有、三版一致）：「房东的女儿」「邻居家女儿」「朋友介绍的
+#    女孩子」这类**无代词**的领属/修饰短语全漏（旧领属语规则以代词为前提）→
+#    消息里的「1990年出生的女孩子」被取作本人性别 → G1 覆盖本人档案（P0 污染，
+#    k40 终审 §六 e2e 实证 3 条）。
+#    判据是**句法主语归属**（名词性修饰结构），不是称谓词表——房东/邻居/同事/
+#    媒人/家里…是开放类，永不枚举。
+#    X 的约束（防误伤本人请求，见 tests/test_k41_gender_residual.py 邻接锁）：
+#      不含数字/空白/标点（「帮我排个盘：1990年…」「排个盘 1990年…」不得被当
+#      名词短语）、不含自述代词（「帮我排的盘1990年…」是本人生辰串）。
+_GENDER_NP_RUN = ("[^，,。.！!？?；;、\n了过吧呢啊嘛不\\d\\s：:「」『』\"']"
+                  "{1,10}?")
+_GENDER_MODIFIER_MARK = r'(?:的|家|介绍(?:的|来的)?|牵线(?:的)?)'
+_GENDER_FOREIGN_NP_RE = re.compile(_GENDER_NP_RUN + _GENDER_MODIFIER_MARK)
+# 名词短语里的自述代词（命中即不是「第三人领属语」，交回既有规则判）
+_GENDER_NP_SELF_RE = re.compile(r'我|你|咱|俺|您|本人|自己|人家|大家')
 
-def _gender_word_subject(msg: str, pos: int) -> str:
-    """性别词出现在 `pos` 处时，它的**主语**是本人还是第三人（k40 返工）。
+# ②f 子句句首的口语性别词 + 紧跟**出生小句**（无自述代词）→ 第三人。
+#    「女孩子1990年出生的，我们合不合」（k40 终审 §六 注册变体 / k41 Critical-1）
+#    ——性别词是「…出生的」这个**相对/谓词小句**所描述的人，整句无本人自述 →
+#    不得当本人性别。
+#    形态判据（k41 修：偏移+词形覆盖）：出生谓词（出生/生的/出生的）紧跟日期/时间
+#    跑——「1990年出生的」「1990年5月20日出生的」「1992年10月1日 上海出生的」；
+#    而**裸出生数据元组**（年/月/日[/时间][/地点]，无出生谓词，如「1990年5月20日
+#    15:30 北京」「…北京出生」）不是小句描述，是用户供给自己的出生信息（F2 裸
+#    生辰串口径，评测 T048/T050 同款「…8:00 北京出生」）→ 不判第三人（②g/默认）。
+_GENDER_BIRTH_DATE_RUN = (
+    r'(?:\d{4}\s*年(?:\s*\d{1,2}\s*月)?(?:\s*\d{1,2}\s*[日号])?'
+    r'|\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?)'
+    r'(?:\s*\d{1,2}\s*[:：点]\s*\d{0,2})?')
+# 日期与出生谓词之间的短跑（地点/修饰；不含自述/第三人代词与出生谓词本身）
+_GENDER_BIRTH_SHORT_RUN = (r'[^\s\d，,。.！!？?；;、\n我你他她咱俺您它出生]{0,8}?')
+_GENDER_BIRTH_CLAUSE_TAIL_RE = re.compile(
+    r'\s*[，,]?\s*(?:是)?\s*' + _GENDER_BIRTH_DATE_RUN
+    + r'(?:' + _GENDER_BIRTH_SHORT_RUN + r'(?:出生的|生的)'
+    + r'|\s*(?:出生|生的)' + r')')
+# ②g 兜底出口（k41）：裸出生数据供给——年/月/日[/时间] + 若干**短数据 token**
+#    （时辰/地点/出生谓词，空白或逗号分隔，每条 ≤4 字、不含自述/第三人代词）
+#    + 其后**不再有其他内容**。
+#    用于区分「纯供给」（本人自述，如「女的 1990年5月20日 15:30 北京」、
+#    评测 T045「…2019年3月15日 午时 北京出生」）与「供给 + 其他内容」
+#    （「…北京，我们合不合」——结构不可辨，见 `_gender_ambiguous_word`）。
+#    贪心匹配（非 lazy）：尽量把数据 token 吃完，剩下的才是「其他内容」；
+#    长于 4 字的串（「帮我排个盘」「我们合不合」）不是数据 token → 落入「其他
+#    内容」→ 触发歧义确认（宁可问一句，不静默改写/丢弃）。
+_GENDER_SUPPLY_TOKEN = (r'(?:\d{1,2}\s*[:：]\s*\d{1,2}'
+                        r'|[^\s，,。.！!？?；;、\n我你他她咱俺您它]{1,4})')
+_GENDER_BARE_SUPPLY_RE = re.compile(
+    r'\s*[，,]?\s*(?:是)?\s*' + _GENDER_BIRTH_DATE_RUN
+    + r'(?:[，,]?\s*' + _GENDER_SUPPLY_TOKEN + r')?'          # 首 token
+    + r'(?:[\s，,、]+' + _GENDER_SUPPLY_TOKEN + r')*')        # 后续 token：**必须**有分隔符
 
-    返回 "self"（本人自述）/ "third"（指代第三人）。判据见模块级注释
-    （①②③三组规则，句法主语而非称谓词表）。异常一律回落 "self"（保持
-    改前口径，不因判据异常改变用户可见行为）。
+
+def _gender_clause_head(msg: str, pos: int) -> str:
+    """性别词 `pos` 之前的**子句头**（往前到最近一个子句边界；上限 64 字）。
+
+    主语判定的窗口单一实现（② 组各规则与 ②f/②g 共用；k41 抽出）。
+    """
+    floor = max(0, pos - 64)
+    for i in range(pos - 1, floor - 1, -1):
+        if msg[i] in _GENDER_CLAUSE_BOUNDARY:
+            return msg[i + 1:pos]
+    return msg[0:pos]
+
+
+def _gender_birth_tail_kind(msg: str, tail_start: int) -> str:
+    """性别词之后的出生信息形态（k41 ②f/②g 的**形态判据**，非词表）：
+
+      ""       无出生数据（或元组之后还有其他内容且非数据形态）
+      "clause" 出生小句/谓词小句（…年[/月[/日]][时间][短跑]出生的|生的|出生）
+               → 性别词是这个小句描述的人 → 第三人（②f）
+      "supply" **裸**出生数据供给（年/月/日[/时间][/地点][/出生谓词] 且其后
+               无其他内容）→ 用户供给自己的出生信息 → 本人（F2 裸生辰串口径）
+      "mixed"  裸出生数据元组 + 元组之后**还有其他内容** → 本人口语自述与
+               第三人领属**结构不可辨**（②g 兜底出口：询问确认）
+    """
+    tail = msg[tail_start:]
+    if _GENDER_BIRTH_CLAUSE_TAIL_RE.match(tail):
+        return "clause"
+    m = _GENDER_BARE_SUPPLY_RE.match(tail)
+    if not m:
+        return ""
+    if not re.search(r'[0-9A-Za-z一-鿿]', tail[m.end():]):
+        return "supply"
+    return "mixed"
+
+
+def _gender_word_subject(msg: str, pos: int, word: str = "") -> str:
+    """性别词出现在 `pos` 处时，它的**主语**是本人还是第三人（k40 返工 + k41）。
+
+    返回 "self"（本人自述）/ "third"（指代第三人）/ "ambiguous"（②g 结构不可辨，
+    见 `_gender_ambiguous_word`）。判据见模块级注释（①②③组规则 + k41 的
+    ②e/②f/②g，句法主语而非称谓词表）。异常一律回落 "self"（保持改前口径，
+    不因判据异常改变用户可见行为）。
+
+    `word`（可选）= 该位置上的口语性别词（k41 ②e 需要判「性别词中心语」形态：
+    「朋友介绍的女孩子」的名词短语中心语就是性别词本身）。
     """
     try:
-        start = 0
-        floor = max(0, pos - 64)
-        for i in range(pos - 1, floor - 1, -1):
-            if msg[i] in _GENDER_CLAUSE_BOUNDARY:
-                start = i + 1
-                break
-        head = msg[start:pos]
+        head = _gender_clause_head(msg, pos)
         # ② 第三人主语优先（P0 宁漏勿误：有第三人主体即不得当本人性别）
         if _GENDER_THIRD_PERSON_RE.search(head):
             return "third"
@@ -318,6 +410,19 @@ def _gender_word_subject(msg: str, pos: int) -> str:
             return "third"
         if _GENDER_CLAUSE_NOUN_COPULA_RE.match(head):
             return "third"
+        # ②e 非自述名词性修饰/领属短语（k41 末族：「房东的女儿」「邻居家女儿」
+        # 「朋友介绍的女孩子」——无代词，旧领属语规则以代词为前提 → 全漏）。
+        # 中心语可以是短语自带的名词（「房东的女儿1990年…女孩子」）或**性别词
+        # 本身**（「朋友介绍的女孩子」）——故把 word 拼进判定串再匹配。
+        # k41 修：修饰/领属标记必须落在**性别词之前**（`_m.end() <= len(head)`）
+        # ——否则「女的 1990年5月20日 15:30 北京」这类裸口语性别词会被当成
+        # 「X的N」（run「女」+ mark「的」）误判第三人（Important-1 回归的第二条
+        # 路径：②e），本人自述被静默丢弃。
+        if head or word:
+            _m = _GENDER_FOREIGN_NP_RE.match(head + word)
+            if (_m and _m.end() <= len(head)
+                    and not _GENDER_NP_SELF_RE.search(_m.group(0))):
+                return "third"
         # ②d 量词/指示词短语的主语归属（取**最靠近性别词**的一个）：其前是
         # 自述代词+系动词（我(是)一个…）→ 自述（「我是一个女孩」）；否则
         # 主语是这个量词短语 → 第三人（「这个1990年出生的女孩子」「我和一个
@@ -328,16 +433,86 @@ def _gender_word_subject(msg: str, pos: int) -> str:
             _qt = _m
         if _qt and not _GENDER_SELF_COPULA_TAIL_RE.search(head[:_qt.start()]):
             return "third"
+        # ②f 子句句首的口语性别词 + 紧跟**出生小句**（k41：终审 §六 注册变体
+        # 「女孩子1990年出生的」；Critical-1 = 词形覆盖「女孩子/男孩子」+ 偏移）
+        # → 第三人；②g 裸数据元组 + 其他内容 → 结构不可辨（询问确认）。
+        if word and not head.strip():
+            _kind = _gender_birth_tail_kind(msg, pos + len(word))
+            if _kind == "clause":
+                return "third"
+            if _kind == "mixed":
+                return "ambiguous"
         return "self"
     except Exception:
         return "self"
 
 
 def _gender_oral_words_in(msg: str):
-    """消息里所有口语性别词的出现（位置）——供主语判定与守卫共用。"""
+    """消息里所有口语性别词的出现（位置，词）——供主语判定与守卫共用。
+
+    k41 修（Critical-1 的**词形覆盖**）：产出**最大词形**——
+      ① 后缀形态合并：「女孩子/男孩子/女孩儿/男孩儿」是词表词 + 子/儿（词法，
+         不是新词表词）：命中「女孩」时若其后紧跟 子/儿，token 延到「女孩子」，
+         否则 `pos+len(word)` 偏移落在「子」上 → ②f 整体失效（Critical-1 根因）；
+      ② 子串去重（最长匹配优先）：「小姑娘」不再额外产出「姑娘」子串——否则同一
+         位置既有 third（小姑娘）又有 self（姑娘），守卫/提取层按「任一处 self」
+         放行 → P0 漏网。判据仍是词表内词形，不新增称谓词表。
+    """
+    _toks = []
     for w in _ORAL_FEMALE_WORDS + _ORAL_MALE_WORDS:
         for m in re.finditer(re.escape(w), msg):
-            yield m.start()
+            word = w
+            nxt = msg[m.start() + len(w):m.start() + len(w) + 1]
+            if w.endswith("孩") and nxt in ("子", "儿"):
+                word = w + nxt
+            _toks.append((m.start(), word))
+    for pos, word in _toks:
+        end = pos + len(word)
+        if any(o_pos <= pos and o_pos + len(o_word) >= end
+               and (o_pos, o_word) != (pos, word)
+               for o_pos, o_word in _toks):
+            continue          # 被更长的词形覆盖 → 不重复产出
+        yield pos, word
+
+
+def _gender_ambiguous_word(msg: str) -> str:
+    """②g 兜底出口（k41）：消息里**结构不可辨**的口语性别词（无 → ""）。
+
+    触发条件（三条同时成立；判据是句法结构，不涉及词表）：
+      ① 口语性别词位于**子句句首**（`_gender_clause_head` 为空——与 ②f 同一
+         位置条件；消息里若有自述//第三人主语则不属本类）；
+      ② 其后紧跟**裸出生数据元组**（年/月/日[/时间][/地点][/出生谓词]），
+         不是 ②f 的出生小句（「…出生的」判第三人，无歧义）；
+      ③ 元组之后**还有其他内容**（不是纯建档供给——纯供给按 F2 裸生辰串口径
+         判本人，见 Important-1「女的 1990年5月20日 15:30 北京」必须仍纠正）。
+
+    本类里「本人口语自述」（「女孩子 1990年5月20日 15:30 北京，帮我排个盘」）
+    与「第三人领属」（同句作合婚对方描述）**同形同序**，任何一侧硬判都要付
+    反向代价（改写 = P0 档案污染；丢弃 = 本人自述被静默忽略）→ 交给调用方
+    回一句**询问确认**（不静默改写、也不静默丢弃，k41 控制方口径的兜底出口）。
+    """
+    try:
+        _amb = ""
+        for pos, word in _gender_oral_words_in(msg):
+            verdict = _gender_word_subject(msg, pos, word)
+            if verdict == "self":
+                return ""            # 消息含自述 → 不是「全不可辨」
+            if verdict == "ambiguous":
+                _amb = word
+        return _amb
+    except Exception:
+        return ""
+
+
+def _gen_gender_confirm_ask(word: str) -> str:
+    """②g 询问确认文案（确定性、零 LLM）：不静默改写、也不静默丢弃。
+
+    引导用户用**自述句式**（「我是{word}」——① 组规则直接生效）复述，
+    因此无需跨轮状态：下一轮照常走 G1 纠正（重排 + 双写档案 + 回执）。
+    """
+    return (f"（另外确认一下：这条消息里的「{word}」说的是您本人吗？"
+            f"如果是您本人，回我一句「我是{word}」，我马上按这个性别重新排盘；"
+            f"如果指对方，忽略这句就好。）")
 
 
 # ============================================================
@@ -1055,6 +1230,9 @@ class MessageHandler:
         # R1-2（评测 T008）：性别纠正固定回执暂存（user_id → ack），润色后
         # 幂等重挂——纠正回执（含新性别断言）必须存活于最终回复（零 LLM）
         self._gender_acks: dict = {}
+        # k41（②g 兜底出口）：结构不可辨的性别声明（本人口语自述 vs 第三人领属）
+        # 询问确认暂存（user_id → ask），出口幂等重挂——不静默改写也不静默丢弃
+        self._gender_confirms: dict = {}
         # k11b：本轮引擎意图域已自动联网检索事实（user_id → {entity, query,
         # domains, ok, text}）——LLM 再发同 query 搜索工单时 executor 直取首查
         # 结果（防二次真实检索/引用编号分裂）；每轮 process 入口清空
@@ -2784,6 +2962,87 @@ class MessageHandler:
                 break
         return out
 
+    def _ground_search_for_turn(self, msg: str, user_id: str,
+                                analysis: Optional[MessageAnalysis]) -> Optional[dict]:
+        """k41（T104 收尾）：本轮「先检索」接缝——**唯一调用点**，各回复路径共用。
+
+        检索判定与「走哪条回复路径」解耦：`decide_search` 判该搜（尤其
+        `reason=entity`）时，在**路由之前**检索一次，结果由 advisor/bazi/
+        free_chat/… 各路径共用（`_ground_hint_parts` 注入上下文，
+        `_apply_ground_source_trace` 出口补来源）。
+
+        改前实锤（E6 二轮 T104）：调用只挂在 `_will_polish` 块内（条件含
+        `intent not in ("xuetang","advisor")`）→ LLM 判 advisor 时整块跳过，
+        检索根本没发生、回复无实体名无来源。
+
+        判定语义**零放宽**（红线）：触发仍由 `_engine_domain_ground_search` →
+        `decide_search` 单点判定（层 1-4 + 硬锚否决逐字未变）；降级链路
+        （免费额度耗尽）维持既有成本门不检索。
+        返回 None = 不触发/异常 → 调用方按「无检索」处理。
+        """
+        if self._downgraded.get(user_id, False):
+            return None
+        try:
+            g = self._engine_domain_ground_search(msg, user_id, analysis)
+        except Exception as e:
+            logger.warning("k11b 引擎域自动检索异常 user=%s err=%s",
+                           user_id, str(e)[:120])
+            return None
+        return None if (not g or g.get("skip")) else g
+
+    @staticmethod
+    def _ground_hint_parts(ground: Optional[dict]) -> list:
+        """k41：检索结果的上下文注入段（单一实现，各回复路径共用）。
+
+        有结果块 → 块本身 + （检索成功时）使用要求段；无检索/无块 → 空。
+        """
+        block = (ground or {}).get("block") or ""
+        if not block:
+            return []
+        parts = [block]
+        if ground.get("ok"):
+            parts.append(_GROUND_USE_REQUIREMENT)
+        return parts
+
+    def _has_engine_citations(self, user_id: str) -> bool:
+        """k5 润色门判据（k41）：本轮是否已有**引擎/古籍**引用（非 web）。
+
+        自动联网检索注册的 web 引用**不算**——k5 门的语义是「handler 产出了
+        可润色的引擎内容」（原注释：信息收集/错误回复不注册引用 → 不润色，
+        保持原样）。改前该门在自动检索**之前**求值（检索调用挂在门内），故这里
+        排除 web 引用后语义与改前逐字等价；不排除则「只有检索结果」的信息收集
+        轮会被润色（F2 渐进建档文案被 LLM 重写 = 行为漂移）。
+        """
+        return any((c or {}).get("type") != "web"
+                   for c in (self._citations.get(user_id) or []))
+
+    @staticmethod
+    def _apply_ground_source_trace(reply: str, ground: Optional[dict]) -> str:
+        """k41：自动检索的来源尾注（单一实现，所有回复路径出口共用）。
+
+        与 k11b `_will_polish` 分支同款口径：只在「检索成功 + 回复已含实体名」
+        时补确定性尾注（`append_source_trace`，纯文本、禁裸 JSON/泄漏）。
+        """
+        if not reply or not ground or not ground.get("ok") or not ground.get("entity"):
+            return reply
+        try:
+            return append_source_trace(
+                reply, entity=ground.get("entity", ""),
+                domains=ground.get("domains") or [])
+        except Exception:
+            return reply
+
+    def _apply_gender_confirm(self, reply: str, user_id: str) -> str:
+        """k41（②g 兜底出口）：歧义类（`_gender_ambiguous_word`）的询问确认重挂。
+
+        与 `_gender_acks`（T008 回执重挂）/ `_apply_ground_source_trace` 同一范式：
+        出口幂等重挂（已含则不加），保证润色/工具循环/早退分支都不会把它吃掉。
+        """
+        _ask = (getattr(self, "_gender_confirms", None) or {}).pop(user_id, "")
+        if _ask and _ask not in reply:
+            return (reply.rstrip() + "\n\n" + _ask) if reply else _ask
+        return reply
+
     def _engine_domain_ground_search(self, msg: str, user_id: str,
                                      analysis: Optional[MessageAnalysis]) -> dict:
         """k11b：引擎意图域·外部实体/时效触发 → 执行一次联网检索并准备注入块。
@@ -3558,9 +3817,9 @@ class MessageHandler:
             if _GENDER_THIRD_BIRTH_MSG_RE.search(msg):
                 return True
             _seen_oral = False
-            for _pos in _gender_oral_words_in(msg):
+            for _pos, _w in _gender_oral_words_in(msg):
                 _seen_oral = True
-                if _gender_word_subject(msg, _pos) == "self":
+                if _gender_word_subject(msg, _pos, _w) == "self":
                     return False  # 有本人自述 → 不是「全指第三人」
             return _seen_oral
         except Exception:
@@ -4789,6 +5048,15 @@ class MessageHandler:
                         analysis.intent = "bazi"
             except Exception:
                 pass  # 门控失败 → 保持原意图（不阻断主链）
+        # k41（②g 兜底出口）：结构不可辨的性别声明（子句句首口语性别词 + 裸出生
+        # 元组 + 消息还有其他内容）→ 不静默改写（`_gender_ref_is_third_party` 已
+        # 按非本人拦下 G1 纠正/画像写入），也不静默丢弃：出口回一句询问确认
+        # （确定性文案，零 LLM；用户按「我是{词}」复述即走 ① 组自述规则 → 纠正
+        # 生效，无需跨轮状态）。见 `_gender_ambiguous_word` 注释与报告。
+        _amb_word = _gender_ambiguous_word(msg)
+        if _amb_word:
+            self._gender_confirms = getattr(self, "_gender_confirms", None) or {}
+            self._gender_confirms[user_id] = _gen_gender_confirm_ask(_amb_word)
         # 阶段 5（方案 v5）：记录本轮理解出的关键事实（subject=other 时排盘不写本人画像）
         self._analysis_facts[user_id] = analysis.facts or {}
         # P2 System1 每轮提取钩子（阶段 5）：facts → L2 事实条目（去重入库）
@@ -4806,6 +5074,16 @@ class MessageHandler:
             logger.info("P3 联网引导注入 user=%s needs_search=%s hint=%s",
                         user_id, getattr(analysis, "needs_search", False),
                         analysis_hint[:60].replace("\n", " "))
+
+        # k41（T104 收尾）：**先检索**——检索判定与回复路径解耦（单一接缝）。
+        # `decide_search` 判该搜时，无论下面走 xuetang/advisor 关键词分支、
+        # confidant、free_chat 还是 handler_map（bazi/hehun/…）哪条路径，都在
+        # 路由前检索一次；结果块注入该路径上下文（advisor 见 `_handle_advisor`
+        # 的 ground_hint；free_chat/润色见 extra_hint），出口统一补来源尾注。
+        # 改前该调用只在 `_will_polish` 块内 → advisor 路径整块跳过（T104 实证：
+        # 检索不发生、回复无实体无来源）。判定语义零放宽（见接缝方法注释）。
+        _k11b_ground = self._ground_search_for_turn(msg, user_id, analysis)
+        _ground_hint = "\n".join(self._ground_hint_parts(_k11b_ground))
 
         # Task 3（思考步骤渐进展示）：不再在此集中预发全部思考步骤——
         # 各 _do_*/_handle_* 在真实工作里程碑处按进度发出（首条开工即发、
@@ -4879,6 +5157,10 @@ class MessageHandler:
                 reply = self._free_chat(msg, user_id, downgraded=True)
             else:
                 reply = self._handle_xuetang(msg, user_id)
+            # k41：早退分支同样过检索来源尾注（该搜的已搜到 → 回复体现来源）
+            reply = self._apply_ground_source_trace(reply, _k11b_ground)
+            # k41（②g）：歧义性别声明的询问确认同点重挂（早退分支不吞）
+            reply = self._apply_gender_confirm(reply, user_id)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply, intent="xuetang",
                                              temp=deep, session_id=session_id)
@@ -4890,7 +5172,12 @@ class MessageHandler:
             if downgraded:
                 reply = self._free_chat(msg, user_id, downgraded=True)
             else:
-                reply = self._handle_advisor(msg, user_id)
+                # k41：advisor 路径注入检索块（与 handler_map 入口同一实现）
+                reply = self._handle_advisor(msg, user_id,
+                                             ground_hint=_ground_hint)
+            reply = self._apply_ground_source_trace(reply, _k11b_ground)
+            # k41（②g）：歧义性别声明的询问确认同点重挂（早退分支不吞）
+            reply = self._apply_gender_confirm(reply, user_id)
             if self.session_dao:
                 self.session_dao.add_message(user_id, "assistant", reply, intent="advisor",
                                              temp=deep, session_id=session_id)
@@ -4909,6 +5196,10 @@ class MessageHandler:
                 # B2 reviewer Important：confidant 早退不经 _run_tool_loop——
                 # 兜底剥离工单残留（_handle_confidant 内部已剥，双剥幂等）
                 reply = strip_tool_calls(reply) or reply
+                # k41：早退分支同样过检索来源尾注（该搜的已搜到 → 回复体现来源）
+                reply = self._apply_ground_source_trace(reply, _k11b_ground)
+                # k41（②g）：歧义性别声明的询问确认同点重挂（早退分支不吞）
+                reply = self._apply_gender_confirm(reply, user_id)
                 if self.session_dao:
                     self.session_dao.add_message(user_id, "assistant", reply,
                                                  temp=deep, session_id=session_id)
@@ -4916,7 +5207,11 @@ class MessageHandler:
 
         if analysis.intent is None:
             self._consume_quota(user_id)
-            hints = [h for h in (topic_hint, analysis_hint) if h]
+            # k41：已自动检索 → 检索块进 extra_hint（并压制旧「先发 web_search
+            # 工单」引导——结果已在上下文；与润色路径同款口径）
+            hints = [h for h in (topic_hint,
+                                 ("" if _k11b_ground else analysis_hint)) if h]
+            hints.extend(self._ground_hint_parts(_k11b_ground))
             if deep:
                 from src.bot.night_persona import NIGHT_TONE_HINT
                 hints.insert(0, NIGHT_TONE_HINT)
@@ -5007,6 +5302,10 @@ class MessageHandler:
                 )
             if analysis.needs_soothe and analysis.soothe_text:
                 reply = analysis.soothe_text + "\n\n" + reply
+            # k41：自由聊路径同样过检索来源尾注（该搜的已搜到 → 回复体现来源）
+            reply = self._apply_ground_source_trace(reply, _k11b_ground)
+            # k41（②g）：歧义性别声明的询问确认同点重挂（自由聊分支不吞）
+            reply = self._apply_gender_confirm(reply, user_id)
             # P2 演化链：结论摘要 append 到 topic 时间线（cap 5）
             # Task 5 deepNight：倾诉临时通道不记演化链
             if not deep:
@@ -5060,6 +5359,11 @@ class MessageHandler:
                 if analysis.intent in ("dream", "bazi", "career"):
                     reply = handler(msg, user_id, stream_cb=_gated_cb,
                                     session_id=session_id)
+                elif analysis.intent == "advisor":
+                    # k41：advisor 入口注入已检索结果（与关键词早退分支同一实现；
+                    # 改前 advisor 被 `_will_polish` 排除 → 检索块从不到达 LLM）
+                    reply = handler(msg, user_id, stream_cb=_gated_cb,
+                                    ground_hint=_ground_hint)
                 else:
                     reply = handler(msg, user_id, stream_cb=_gated_cb)
             except Exception as e:
@@ -5082,9 +5386,6 @@ class MessageHandler:
         # 「根据你1976年5月13日在上海出生的命盘…」；D2 因对手文案干支声明
         # 不足 4 个早退、且 chart_records 最新恰为朋友盘，无法兜底）。
         engine_draft = None
-        # k11b：引擎意图域自动检索事实（_will_polish 块内赋值；False 分支零引用
-        # ——兜底 None，下方来源尾注块跳过）
-        _k11b_ground = None
         _r1_self_fortune_turn = (
             not self._is_third_party_birth_request(msg)
             and bool(_SELF_FORTUNE_RE.search(msg)))
@@ -5096,7 +5397,9 @@ class MessageHandler:
         _will_polish = (analysis.intent not in ("xuetang", "advisor")
                         and not downgraded
                         and reply and not reply.startswith("⚠️")
-                        and self._citations.get(user_id)
+                        # k41：判据排除自动检索的 web 引用（与改前在检索前求值
+                        # 逐字等价；见 `_has_engine_citations`）
+                        and self._has_engine_citations(user_id)
                         and not (_r1_self_fortune_turn
                                  and self._history_has_third_party_birth(
                                      user_id, session_id)))
@@ -5116,21 +5419,12 @@ class MessageHandler:
             # 已自动检索 → 压制旧 search_hint 的「先输出 web_search 工单」硬性
             # 要求（结果已在上下文；LLM 若再发同 query 工单由 _tool_web_search
             # 复用表去重，不二次真实检索）。
-            _k11b_ground = None
-            try:
-                _k11b_ground = self._engine_domain_ground_search(
-                    msg, user_id, analysis)
-            except Exception as e:
-                logger.warning("k11b 引擎域自动检索异常 user=%s err=%s",
-                               user_id, str(e)[:120])
-            if not _k11b_ground or _k11b_ground.get("skip"):
-                _k11b_ground = None
-            _k11b_block = (_k11b_ground or {}).get("block") or ""
+            # k41：检索本身已上移到 process 的**路由前接缝**（`_ground_search_for_turn`）
+            # ——本块只消费结果（`_k11b_ground`），不再自带调用点（advisor 路径
+            # 曾被本块的条件排除 → 检索没发生，T104 实锤）。
             _extra_parts = [h for h in (topic_hint,
-                                        ("" if _k11b_ground else analysis_hint),
-                                        _k11b_block) if h]
-            if _k11b_block and _k11b_ground and _k11b_ground.get("ok"):
-                _extra_parts.append(_GROUND_USE_REQUIREMENT)
+                                        ("" if _k11b_ground else analysis_hint))]
+            _extra_parts.extend(self._ground_hint_parts(_k11b_ground))
             try:
                 reply = self._polish_with_engine_draft(
                     msg, user_id, reply, stream_cb,
@@ -5220,13 +5514,10 @@ class MessageHandler:
         # JSON 禁泄漏——来源尾注为确定性纯文本，已走 k11 scrub/stream-guard
         # 出口）；LLM 漏写来源且回复未含检索站点痕迹时确定性补尾注（回复须含
         # 实体名才补，防无关尾注；反馈提示「准/不准」行保留在尾注之后不被挤开）。
-        if _k11b_ground and _k11b_ground.get("ok") and _k11b_ground.get("entity"):
-            try:
-                reply = append_source_trace(
-                    reply, entity=_k11b_ground.get("entity", ""),
-                    domains=_k11b_ground.get("domains") or [])
-            except Exception:
-                pass  # 尾注兜底异常 → 保持原文（来源抽屉仍有 web 引用）
+        # k41：实现收敛到 `_apply_ground_source_trace`（所有回复路径出口共用同一份）。
+        reply = self._apply_ground_source_trace(reply, _k11b_ground)
+        # k41（②g）：歧义性别声明的询问确认（主链出口重挂）
+        reply = self._apply_gender_confirm(reply, user_id)
         # 阶段 2：本轮工具调用日志 → 落库字段
         tool_log = self._pop_tool_log(user_id)
         # E2-1 卡片化：统一出口包装（落库/缓存/返回值一致携带卡片标记；
@@ -6614,14 +6905,20 @@ class MessageHandler:
     # （「我妹妹1990年出生的女孩子」）→ 整条消息的口语性别词一律不取。
     # 修 Important-1：「我(是)一个女孩」的「一个」不再被当第三人修饰——量词
     # 前若为自述系动词（我是一个）→ 仍判本人自述。
+    # k41（Critical-1 词形覆盖）：遍历口径与守卫同源——`_gender_oral_words_in`
+    # 的**最大词形**（女孩子/男孩子/女孩儿/男孩儿/小姑娘…），否则「女孩子1990年
+    # 出生的…」在提取层用裸词「女孩」判 self（偏移落在「子」上）→ 守卫修好了、
+    # 提取层仍取到 女（数据面分裂：同一判定两套 token 口径）。
     @staticmethod
     def _has_self_gender_word(msg: str, words) -> bool:
         if _GENDER_THIRD_BIRTH_MSG_RE.search(msg):
             return False
-        for w in words:
-            for m in re.finditer(re.escape(w), msg):
-                if _gender_word_subject(msg, m.start()) == "self":
-                    return True
+        _words = tuple(words)
+        for _pos, _w in _gender_oral_words_in(msg):
+            if not any(_w.startswith(_x) for _x in _words):
+                continue          # 男/女系各查各的（词表单一事实源 + 词法后缀）
+            if _gender_word_subject(msg, _pos, _w) == "self":
+                return True
         return False
 
     def _collect_partial_birth(self, user_id: str,
@@ -8780,8 +9077,15 @@ class MessageHandler:
 
     ADVISOR_KEYWORDS = ["建议", "怎么办", "有什么建议", "帮我分析"]
 
-    def _handle_advisor(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
-        """处理 AI 建议请求 — 基于八字 + 用户处境生成个性化建议."""
+    def _handle_advisor(self, msg: str, user_id: str,
+                        stream_cb: Optional[Callable] = None,
+                        ground_hint: str = "") -> str:
+        """处理 AI 建议请求 — 基于八字 + 用户处境生成个性化建议.
+
+        ground_hint（k41）：本轮自动联网检索的结果块 + 使用要求（
+        `_ground_hint_parts` 产出）。**只增不改**——空串 = 改前行为逐字节不变；
+        非空时并入 user_context 交给建议 LLM（外部实体 QA 的事实依据 + 来源）。
+        """
         # 1. 检查用户八字是否已保存
         # k11c：残余 bazi_info 直读 → 统一档案读取（G3c 同源，同 _handle_calendar
         # /_handle_hourly）——persons 建档用户与档案 solar_time 开关同源生效，
@@ -8803,6 +9107,10 @@ class MessageHandler:
         if not user_context:
             # 从消息中提取关键词，如果没有具体语境，使用默认描述
             user_context = "一般运势咨询"
+        # k41（T104）：本轮自动检索结果并入处境——LLM 以检索事实作答并标注来源
+        # （改前 advisor 路径拿不到检索块：回复无实体名、无来源痕迹）。
+        if ground_hint:
+            user_context = user_context + "\n\n" + ground_hint
 
         # 3. 重新排盘
         try:
