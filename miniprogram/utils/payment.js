@@ -2,6 +2,7 @@
 // 支付策略（与后端 .env 联动）：
 //   后端配置齐（WECHAT_PAY_ENABLED=true + MIDAS_OFFER_ID/MIDAS_APP_KEY）→ 微信虚拟支付（米大师）
 //   未配置 → 保留原 mock 支付（后端订单直接置 paid，前端演示成功）
+const { logWarn } = require('./log');
 const api = require('./api');
 
 // ---- 演示支付判定（G2 D1：任何环境不得假成功） ----
@@ -239,13 +240,16 @@ async function tryVirtualPay(productId) {
       wx.showToast({ title: '请重新登录后重试', icon: 'none' });
       return { success: false, needRelogin: true };
     }
-    console.warn('[Payment] 虚拟支付建单失败:', e);
+    logWarn('Payment 虚拟支付建单失败', { errCode: backendErrorCode(e), errMsg: ((e && (e.errMsg || e.message)) || '') });
     return { success: false, fallback: true };
   }
 
   const { signData, paySig, signature, mode, outTradeNo } = orderRes || {};
   if (!signData || !paySig || !signature || !outTradeNo) {
-    console.warn('[Payment] 后端未返回完整三要素，降级 mock:', orderRes);
+    // 隐私：订单响应体（含 outTradeNo 等要素）不进日志，只列缺失字段名
+    logWarn('Payment 后端未返回完整三要素，降级 mock', { errMsg: 'missing: ' + [
+      !signData && 'signData', !paySig && 'paySig', !signature && 'signature', !outTradeNo && 'outTradeNo',
+    ].filter(Boolean).join(',') });
     return { success: false, fallback: true };
   }
 

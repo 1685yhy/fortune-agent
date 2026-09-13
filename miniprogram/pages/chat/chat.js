@@ -2180,7 +2180,9 @@ Page({
       this._clearLongPressVoice(); // k6-P2：错误结果被丢弃 → 复位回文字态
       return;
     }
-    console.warn('[Chat] 语音识别失败:', res);
+    // k47-C 隐私：识别结果对象可能含用户语音转写原文 → 只打结果码，不回显内容
+    logWarn('Chat 语音识别失败', { errCode: (res && (res.retcode != null ? res.retcode : res.errCode)) != null
+      ? (res.retcode != null ? res.retcode : res.errCode) : '', errMsg: '语音识别失败（内容不回显）' });
     wx.showToast({ title: '识别失败，请再试一次', icon: 'none' });
     this._clearLongPressVoice(); // k6-P2：识别失败 = 会话结束 → 复位回文字态
   },

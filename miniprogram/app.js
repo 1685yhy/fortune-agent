@@ -1,5 +1,5 @@
 // 易理明灯 v5.0 — AI 命运伴侣
-const { logErr } = require('./utils/log');
+const { logErr, logErrDetail } = require('./utils/log');
 const api = require('./utils/api');
 const security = require('./utils/security');
 
@@ -67,18 +67,19 @@ App({
     try {
       if (wx.onError) {
         wx.onError((err) => {
-          const msg = (err && (err.message || err.stack || err)) || 'unknown';
-          logErr('全局错误', err);
-          this._recordError(String(msg));
+          // k47-E：日志 = 场景 + 消息 + 堆栈摘要（可定位、无隐私）；工具侧噪音
+          // （开发者工具/插件加载崩溃，如 WechatSI 插件 reportPluginCodeRequire）
+          // 标注后**不计入 ylm_last_error 留痕**，避免污染真实错误线索
+          const d = logErrDetail('全局错误', err);
+          if (!d.noise) this._recordError(d.text);
         });
       }
     } catch (e) { /* ignore */ }
     try {
       if (wx.onUnhandledRejection) {
         wx.onUnhandledRejection((res) => {
-          const reason = (res && (res.reason || res.errMsg)) || '';
-          logErr('未处理Promise', res && (res.reason || res.errMsg));
-          this._recordError('[UnhandledRejection] ' + String(reason));
+          const d = logErrDetail('未处理Promise', res && (res.reason || res.errMsg));
+          if (!d.noise) this._recordError('[UnhandledRejection] ' + d.text);
         });
       }
     } catch (e) { /* ignore */ }
@@ -249,13 +250,10 @@ App({
   detectTheme() {
     try {
       const sysInfo = (wx.getAppBaseInfo && wx.getAppBaseInfo()) || {};
-      const theme = sysInfo.theme || 'light';
-      this.globalData.theme = theme;
-
-      // 监听主题变化
-      wx.onThemeChange((result) => {
-        this.globalData.theme = result.theme;
-      });
+      this.globalData.theme = sysInfo.theme || 'light';
+      // k47-E：不再在此注册 wx.onThemeChange —— 全局唯一监听器由 utils/theme.js 单例持有
+      // （该单例在主题变化时同步本字段）。旧实现每个页面各注册一次且从不解绑，
+      // 累积到 20+ 触发开发者工具「listeners of event ThemeChange … memory leak」告警。
     } catch (e) {
       this.globalData.theme = 'light';
     }
