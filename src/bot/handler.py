@@ -956,10 +956,10 @@ def _extract_age(msg: str) -> Optional[int]:
 # ════════════════════════════════════════════════════════════════════
 
 # ① 非生辰数字语境：命中片段**紧后**出现这些单位/符号 → 是金额/比例/计量，不是日期。
-#    （百分号/千分号/货币/计数单位；"+"/"倍"/"折"用于 ROI 与折扣话术）
+#    （百分号/千分号/货币/计数单位/薪资简写 k·w；"倍"/"折"用于 ROI 与折扣话术）
 _NON_DATE_UNIT_RE = re.compile(
-    r'^\s*(?:%|％|‰|元|块|万|亿|折|成|倍|薪|元/|/月|每月|个月|个|人|次|件|'
-    r'份|斤|公斤|公里|米|平|岁|年化|利率)')
+    r'^\s*(?:%|％|‰|元|块|万|亿|折|成|倍|薪|元/|/月|每月|个月|小时|分钟|'
+    r'个|人|次|件|份|斤|公斤|公里|米|平|岁|年化|利率|k|K|w|W)')
 # ① 命中片段**紧前**是"利率/缴纳/税/费/薪/工资/比例/ROI"等 → 非出生日期语境
 _NON_DATE_HEAD_RE = re.compile(
     r'(?:利率|缴纳|缴|税|费|薪|工资|比例|ROI|投资|收益|折|折扣|首付|月供|'
@@ -984,13 +984,45 @@ def _in_paren_span(msg: str, pos: int) -> bool:
                ((m.start(), m.end()) for m in _PAREN_SPAN_RE.finditer(msg)))
 
 
+def _valid_month_day(m) -> bool:
+    """候选月日是否落在合法范围（1-12 月 / 1-31 日）——I-2 候选遍历用。
+
+    `1985.3.28` 的首个正则候选是无 `(?<!\d)` 时的 `85.3`：它过了闸门形态
+    检查（附近有"出生"）却 month=85 无效，若不在这里淘汰就会把后面**真的**
+    `3.28` 一起带丢（改前实测：`1985.3.28 出生 男` 整条月日丢失）。
+    """
+    try:
+        month, day = int(m.group(1)), int(m.group(2))
+    except (TypeError, ValueError):
+        return False
+    return 1 <= abs(month) <= 12 and 1 <= day <= 31
+
+
+# ③-d：形态含混的候选（裸 `4.5` / `11.20` / `5/20` / `8-15`）必须**候选附近**
+# 有出生语境才取——语境词必须紧邻候选（±6 字），不是"整条消息里有就行"：
+# `我1999年生的，offer给4.5k` 里的 "生的" 距候选 >6 字 → 不构成放行。
+_BIRTH_CTX_NEAR_RE = re.compile(r'出生|生于|生的|生日|生辰|生人|命主')
+
+
 def _numeric_date_looks_like_birth(msg: str, m) -> bool:
     """数字月日命中片段是否"像出生日期"（k48 闸门①+③）。
 
-    ① 紧邻比例/金额/计量单位（`4.5%`、`20000元`、`3.5倍`、`利率4.9`）→ False；
-    ③ 必须完整日期形态：带 月/日/号 字，或 4 位年份，或 农历/阴历 标记，
-       或斜杠/横杠分隔（`1990-05-20`）→ 否则（如 `4.5`）→ False。
-    ④ 小数点分隔符 "." 在无 月/日 字时一律不算日期（`4.5` 是小数不是 4月5日）。
+    审查（k48-r2 C-1）修正：原 ③ 用**整条消息**判据（`\\d{4}\\s*年`）——
+    全量提取器本就强制要求 4 位年份 ⇒ ③ 恒真、实际只剩①黑名单在挡，
+    `我1999年生的，offer给4.5k` / `房租4.5千` 仍被当生辰。现改为对**候选
+    本身**的形态要求 + 候选附近的出生语境：
+
+    ① 第二道黑名单：紧邻比例/金额/计量/薪资单位（`4.5%`、`20000元`、`4.5k`、
+       `4.5小时`）或紧前是"利率/缴纳/月供"等 → 非日期；
+    ③ 形态（对候选本身）：
+       a) 自带日期单位 `月`/`日`/`号`（`4月5日`、`5月20`）→ 强形态；
+       b) 候选紧前是 `YYYY-` / `YYYY/` / `YYYY.`（`1990-05-20`）→ 强形态；
+       c) 整条消息带显式历法标记（农历/阴历/公历/阳历/公元）→ 生辰陈述；
+       d) 以上都不是（含混形态 `4.5` / `11.20` / `5/20` / `8-15`）→ 候选
+          **附近 ±6 字**必须有出生语境词（出生/生于/生的/生日/生辰），
+          否则不是日期（`4.5` 是小数不是 4月5日）。
+    双向：`1990-05-20 15:00 深圳 女` / `1999年3月28日` 等既有格式零回退；
+    `我11.20出生` 这类带出生语境的含混形态照旧可用（I-3，此前被静默废弃）。
     """
     s, e = m.span()
     text = m.group(0)
@@ -999,16 +1031,12 @@ def _numeric_date_looks_like_birth(msg: str, m) -> bool:
     if _NON_DATE_UNIT_RE.match(tail) or _NON_DATE_HEAD_RE.search(head):
         return False
     if re.search(r'月|日|号', text):
-        return True                      # "4月5日" / "4月5" / "5日" 形态
-    if re.search(r'农历|阴历|旧历', msg):
-        return True                      # 显式农历口径（"农历1999年3月28"）
-    if re.search(r'\d{4}\s*年', msg):
-        return True                      # 完整年份在句（"1999年3月28日"）
-    if re.search(r'\d{4}\s*[-/.]', head[-6:]):
-        return True                      # 斜杠/横杠/点 y-m-d（"1990-05-20"、"1985.3.28"）
-    if re.search(r'[-/]\s*\d{1,2}\s*[-/]', msg):
-        return True                      # "5-20" / "5/20"
-    return False
+        return True                      # a) "4月5日" / "4月5" / "5日" 形态
+    if re.search(r'\d{4}\s*[-/.]\s*$', head):
+        return True                      # b) 候选紧前 YYYY- → y-m-d（1990-05-20）
+    if re.search(r'农历|阴历|旧历|公历|阳历|公元', msg):
+        return True                      # c) 显式历法标记 = 生辰陈述
+    return bool(_BIRTH_CTX_NEAR_RE.search(msg[max(0, s - 6):e + 6]))   # d)
 
 
 def _city_looks_like_birth(msg: str, name: str, pos: int) -> bool:
@@ -6231,6 +6259,15 @@ class MessageHandler:
         reuse_text = self._try_reuse_chart(user_id, msg)
         if reuse_text:
             return reuse_text
+        # ── k48-r2 I-1①：出生信息确认的「承接」 ─────────────────────────
+        # 冲突确认问句（_gen_birth_conflict_ask）发出后暂存本轮待更新字段；
+        # 用户回确认词 → 直接应用待更新值并排盘（改前：重发完整生辰→再被问
+        # 的循环、回「确认」→ 按旧档案（错月日+旧性别）排盘）。回「按档案」
+        # → 作废待更新值，走既有档案复用分支；其它消息一律作废，绝不跨轮误伤。
+        _confirm_reply = self._consume_birth_confirmation(
+            msg, user_id, session_id, stream_cb)
+        if _confirm_reply is not None:
+            return _confirm_reply
         # R1-1（评测 T096 修复·跨用户污染·持久化半环闭环）：subject 由消息
         # 确定性判定（B3-1 规则2 消息级检测），不依赖 LLM analyzer 的 facts
         # ——真实 analyzer 对「帮我朋友排个盘…」返回 facts={} → 旧逻辑 subject
@@ -6316,6 +6353,8 @@ class MessageHandler:
                     # 明示纠正句式/表单哨兵豁免（k19 同口径）→ 直接写。
                     from src.storage.person_dao import birth_conflict_fields
                     if birth_conflict_fields(saved, cur, ctx=msg):
+                        # I-1①：暂存待更新值，用户回确认词即可承接（不循环）
+                        self._stash_pending_birth(user_id, session_id, saved, cur)
                         return self._gen_birth_conflict_ask(msg, cur, saved)
                     # 档案为基线 + 当前消息补充（已判定一致或未提）
                     merged = dict(saved)
@@ -6444,6 +6483,7 @@ class MessageHandler:
                 # → 问一句，不排盘不落库。
                 from src.storage.person_dao import birth_conflict_fields
                 if birth_conflict_fields(saved, cur, ctx=msg):
+                    self._stash_pending_birth(user_id, session_id, saved, cur)
                     return self._gen_birth_conflict_ask(msg, cur, saved)
             # C2b（2026-08-29）：parsed 直排路径同款性别纠正判定——消息提取
             # 到已确认性别（男/女）且档案性别也已确认、两者不一致 → 视为
@@ -6665,12 +6705,18 @@ class MessageHandler:
             month, day = cn_md
             is_lunar = True  # 中文数字月日（三月初三/三月28）→ 农历口径
         else:
-            # Try numeric date: 8月15日, 8-15, 10月10日, 11.20
+            # Try numeric date: 8月15日, 10月10日（自带日期单位，强形态）,
+            # 8-15 / 11.20（**含混形态**，k48 起需候选附近有出生语境才取，
+            # 见 _numeric_date_looks_like_birth ③-d）
             # (?<!\d) 防止 dash 年份被误拆（"1990-05-20" 不能匹配成 "90-05"）
-            md = re.search(r'(?<!\d)(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
-            # k48 闸门①③：百分比/小数/金额/薪资类数字与非法日期形态不作数
-            if md and not _numeric_date_looks_like_birth(msg, md):
-                md = None
+            # k48-r2 I-2：**遍历全部候选**逐个过闸门，取首个通过者（不是
+            # "只取首个候选，被否决即整条月日作废"——`房贷利率4.9%，我1990年
+            # 5月20日出生` 改前只剩 year）。取"首个通过"而非"最后一个"：
+            # 最后一个会把「…出生，2026年10月1日结婚」的婚期当日辰。
+            md = next((c for c in re.finditer(
+                r'(?<!\d)(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
+                if _valid_month_day(c) and _numeric_date_looks_like_birth(msg, c)),
+                None)
             if md:
                 month = int(md.group(1))
                 day = int(md.group(2))
@@ -6942,11 +6988,15 @@ class MessageHandler:
         if cn_md:
             month, day = cn_md
         else:
-            md = re.search(r'(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
-            # k48 闸门①③：百分比/小数/金额/薪资类数字与非法日期形态不作数
-            # （用户原话「各缴纳4.5%」修前在此被当 4月5日 → 污染档案两张盘）
-            if md and not _numeric_date_looks_like_birth(msg, md):
-                md = None
+            # k48-r2 I-2：遍历全部候选取首个通过闸门者（见 _extract_bazi_info
+            # 同款说明）；k48 闸门①③：百分比/小数/金额/薪资类数字与非法日期
+            # 形态不作数（用户原话「各缴纳4.5%」修前在此被当 4月5日 → 两张盘）
+            # `(?<!\d)`：与全量提取器同口径（防"1985.3.28"被 `85.3` 抢先命中
+            # 而把真的 `3.28` 整条带丢——k48-r2 I-2 家族）
+            md = next((c for c in re.finditer(
+                r'(?<!\d)(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
+                if _valid_month_day(c) and _numeric_date_looks_like_birth(msg, c)),
+                None)
             if md:
                 month = int(md.group(1))
                 day = int(md.group(2))
@@ -7135,6 +7185,73 @@ class MessageHandler:
         if "gender" not in merged:
             missing.append("性别")
         return merged, missing
+
+    # ── k48-r2 I-1①：出生信息确认问句的「承接」 ────────────────────────
+    # 确认词（用户对确认问句的肯定回答）——整条消息命中才算，避免"确认一下
+    # 这个盘"之类误触发。
+    _BIRTH_CONFIRM_RE = re.compile(
+        r'^(?:是|对|对的|是的|好|好的|嗯|确认|确定|可以|没问题|没错|没错的|'
+        r'按我说的|按我说的排|按这个|按这个排|按新信息|更新|改过来|'
+        r'以我说的为准|听我的|就以我说的)[。.!！~～]?$')
+    # 选「按档案」→ 作废待更新值（既有档案复用分支自有语义）
+    _BIRTH_USE_ARCHIVE_RE = re.compile(
+        r'按档案|用档案|以档案为准|按原来的|保持原样|不用改|不改|按旧')
+
+    def _pending_birth_key(self, user_id: str, session_id) -> tuple:
+        """待更新值的暂存键 = (user_id, session_id) 作用域（防跨用户/跨会话串味）。"""
+        return (str(user_id or ""), str(session_id or ""))
+
+    def _peek_pending_birth(self, user_id: str, session_id):
+        """取待更新值。精确键 (user, session) 未命中时回落 (user, "")——
+        紫微路径取不到 session_id（`_handle_ziwei` 无该形参），确认问句存于
+        该回落键，用户回确认词时才能承接。"""
+        store = getattr(self, "_pending_birth", None) or {}
+        key = self._pending_birth_key(user_id, session_id)
+        if key in store:
+            return store[key]
+        return store.get((key[0], ""))
+
+    def _clear_pending_birth(self, user_id: str, session_id) -> None:
+        store = getattr(self, "_pending_birth", None)
+        if store:
+            store.pop(self._pending_birth_key(user_id, session_id), None)
+            store.pop((str(user_id or ""), ""), None)
+
+    def _consume_birth_confirmation(self, msg: str, user_id: str,
+                                    session_id, stream_cb=None):
+        """k48-r2 I-1①：本条消息是否是对确认问句的回答。
+
+        - 有待更新值 + 命中确认词 → 应用待更新值排盘，返回回复文本；
+        - 有待更新值 + 其它消息 → 作废待更新值（绝不跨轮误伤），返回 None
+          （「按档案」也走此路：作废后由既有档案复用分支处理）；
+        - 无待更新值 → None。
+        """
+        _pending = self._peek_pending_birth(user_id, session_id)
+        if _pending is None:
+            return None
+        self._clear_pending_birth(user_id, session_id)
+        if not self._BIRTH_CONFIRM_RE.match((msg or "").strip()):
+            return None
+        _src = dict(_pending["saved"])
+        for _k in ("year", "month", "day", "hour", "minute", "city", "gender"):
+            if _pending["cur"].get(_k) is not None:
+                _src[_k] = _pending["cur"][_k]
+        return self._feed_birth(_src, msg, user_id, stream_cb=stream_cb,
+                                force_gender=bool(_pending.get("force_gender")))
+
+    def _stash_pending_birth(self, user_id: str, session_id,
+                             saved: dict, cur: dict) -> None:
+        """确认问句发出时暂存待更新值 + 性别是否需强制覆写（G1 纠正穿透）。"""
+        if not hasattr(self, "_pending_birth") or self._pending_birth is None:
+            self._pending_birth = {}
+        _cur_g, _saved_g = cur.get("gender"), (saved or {}).get("gender")
+        self._pending_birth[self._pending_birth_key(user_id, session_id)] = {
+            "saved": dict(saved or {}),
+            "cur": {k: v for k, v in (cur or {}).items() if not k.startswith("_")},
+            "force_gender": bool(
+                _cur_g in ("男", "女") and _saved_g in ("男", "女")
+                and _cur_g != _saved_g),
+        }
 
     def _gen_birth_conflict_ask(self, msg: str, cur: dict,
                                 saved: dict) -> str:
@@ -8086,6 +8203,11 @@ class MessageHandler:
 
     def _handle_ziwei(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
         """处理紫微斗数请求 - 与八字相同的信息收集"""
+        # k48-r2 I-1①：确认问句的承接（与 _handle_bazi 同一实现）
+        _confirm_reply = self._consume_birth_confirmation(
+            msg, user_id, None, stream_cb)
+        if _confirm_reply is not None:
+            return _confirm_reply
         parsed = self._extract_bazi_info(msg)
 
         if parsed is None:
@@ -8113,6 +8235,29 @@ class MessageHandler:
 💡 示例：1990年5月20日 下午3点 北京 男"""
 
         year, month, day, hour, minute, city, gender = parsed
+        # k48-r2 I-4：与 _handle_bazi **同一判定点**（先问后写）——紫微路径
+        # 此前冲突时静默不写档案、盘面照排 → 盘面与档案分裂。此处补上确认
+        # 问句（完整生辰陈述由 birth_conflict_fields 内部豁免 → 直写）。
+        if not self._is_third_party_birth_request(msg):
+            try:
+                saved = self._get_user_birth_profile(user_id)
+            except Exception as e:
+                # 读取失败 fail-open：守卫是安全网，不得让紫微排盘整体失败
+                logger.warning("紫微冲突守卫读取档案失败（放行）user=%s: %s",
+                               user_id, e)
+                saved = None
+            if (isinstance(saved, dict) and saved.get("year")
+                    and saved.get("month") and saved.get("day")):
+                _cur = {"year": year, "month": month, "day": day,
+                        "hour": hour, "minute": minute}
+                if city and city != "北京":
+                    _cur["city"] = city
+                if gender and gender != "unknown":
+                    _cur["gender"] = gender
+                from src.storage.person_dao import birth_conflict_fields
+                if birth_conflict_fields(saved, _cur, ctx=msg):
+                    self._stash_pending_birth(user_id, None, saved, _cur)
+                    return self._gen_birth_conflict_ask(msg, _cur, saved)
         return self._do_ziwei_analysis(
             year, month, day, hour, minute, city, gender, msg, user_id,
             stream_cb=stream_cb,

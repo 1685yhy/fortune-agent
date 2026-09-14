@@ -75,6 +75,13 @@ test('k48 P0.5：空回复兜底文案仍生效', () => {
   assert.equal(read(), '我走神了，你再说一遍？');
 });
 
+test('k48-r2：整泡替换保留 welcome 开场（开场不消失）', () => {
+  const WELCOME = '欢迎回来，好久不见。\n\n';
+  const read = mountStreaming(WELCOME + POLISHED);
+  streamHost._onSseEvent({ type: 'done', content: POLISHED });
+  assert.equal(read(), WELCOME + POLISHED, '开场必须保留在气泡里');
+});
+
 test('k48 P0.5：chunk 之后 done 替换 —— 整轮形态（已流润色版 → 定稿引擎稿）', () => {
   const read = mountStreaming('');
   streamHost._onSseEvent({ type: 'chunk', content: POLISHED });

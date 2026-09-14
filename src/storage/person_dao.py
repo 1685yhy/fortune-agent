@@ -9,6 +9,7 @@
 import json
 import logging
 import os
+import re
 import sqlite3
 from datetime import datetime
 from typing import Optional, Dict, List
@@ -76,6 +77,33 @@ def is_correction_text(text: str) -> bool:
     return any(m in t for m in _CORRECTION_MARKERS)
 
 
+# k48-r2 I-1②：完整生辰陈述（**年 + 月 + 日齐全** 且带出生语境词）。
+# 口径来源 = 产品 brief 原文「高置信出生语境（出生/生于/我是X年X月X日生的/
+# 报年龄）→ 仍**直接写**（保留"说一次就记住"的体验）」。用户把完整生辰一口气
+# 说全 = 高置信明示声明，与"明示纠正句式"同权：**月/日/城市**冲突不再询问；
+# 但**年份**仍由 k19 阈值（YEAR_SHIFT_MAX_GAP）守护——21:44 事故正是 4 年
+# 跳变，完整陈述不解除年份保护（保守边界，见 k48-r2 报告）。
+_COMPLETE_STATEMENT_DATE_RE = re.compile(
+    r'(?:\d{4}|[〇零一二三四五六七八九]{2,4})\s*年'
+    r'[^，。！？；;、\n]{0,8}?\d{1,2}\s*[月\-/.]\s*\d{1,2}\s*[日号]?')
+_COMPLETE_STATEMENT_CTX_RE = re.compile(
+    r'出生|生于|生的|日生|月生|生日|生辰|农历|阴历|公历|阳历|生人|命主')
+
+
+def is_complete_birth_statement(text: str) -> bool:
+    """消息是否为**完整生辰陈述**（年+月+日齐 + 出生语境；k48-r2 I-1②）。
+
+    与 `is_correction_text` 同族（本模块唯一的两类豁免判定）：命中即视为
+    用户主动、高置信地声明自己的生辰 → 月/日/城市不询问（年份仍守 k19）。
+    """
+    t = str(text or "")
+    if not t:
+        return False
+    if not _COMPLETE_STATEMENT_CTX_RE.search(t):
+        return False
+    return bool(_COMPLETE_STATEMENT_DATE_RE.search(t))
+
+
 def year_shift_exceeds(old_year, new_year, max_gap: int = YEAR_SHIFT_MAX_GAP) -> bool:
     """年份差是否超过阈值（1995 vs 1999 = 4 > 2 → True 可拦截族）。"""
     try:
@@ -109,24 +137,36 @@ def birth_conflict_fields(existing: Optional[dict], new: Optional[dict],
     new 的键允许两种命名：year/month/day/city（对话侧）或
     birth_year/birth_month/birth_day/city（存储侧），两者同键名自动兼容。
     """
-    if not existing or not new:
+    if not isinstance(existing, dict) or not isinstance(new, dict):
         return []
 
     def _get(d, name):
-        """取字段：兼容 person 行命名（birth_*）与档案命名（year/month/day）。"""
-        if name in d:
-            return d.get(name)
-        return d.get("birth_" + name)
+        """取字段：兼容 person 行命名（birth_*）与档案命名（year/month/day）。
+
+        类型不可信（非 dict 行/字段值为 Mock/容器等）→ 视为"该字段无值"（None），
+        不参与比对——守卫只在**双方都拿到真实标量**时才判冲突，绝不因调用方
+        传了异形对象而误报（Mock dao 的测试装配实测过这类误判）。
+        """
+        if not isinstance(d, dict):
+            return None
+        v = d[name] if name in d else d.get("birth_" + name)
+        return v if isinstance(v, (str, int, float)) else None
 
     if is_correction_text(ctx):
         return []
     out: List[str] = []
+    # 年份冲突恒查（完整陈述也不解除 21:44 族的大差年份保护——k19 阈值）
     if year_shift_exceeds(_get(existing, "year"), _get(new, "year")):
         out.append("year")
+    # k48-r2 I-1②：完整生辰陈述（年+月+日齐+出生语境）= 高置信明示声明 →
+    # 月日/城市不再询问（只有零散/含混的冲突才走确认问句）。
+    if is_complete_birth_statement(ctx):
+        return out
     for name in ("month", "day", "city"):
         old_v, new_v = _get(existing, name), _get(new, name)
         if name == "city":
-            old_s, new_s = str(old_v or "").strip(), str(new_v or "").strip()
+            old_s = old_v.strip() if isinstance(old_v, str) else ""
+            new_s = new_v.strip() if isinstance(new_v, str) else ""
             if old_s and new_s and old_s != new_s:
                 out.append("city")
         else:
@@ -512,15 +552,22 @@ class PersonDAO:
         conflict = birth_conflict_fields(existing, new_b, ctx=birth_ctx)
         if not conflict:
             return []
+        # k48-r2（守卫日志 PII）：**绝不记录写入上下文原文**——用户消息里可能
+        # 夹带住址/公司/薪资等隐私（对话原文属 PII，日志会外流到文件/采集）。
+        # 只留可审计的判定要素：冲突字段、前后出生值、上下文长度与豁免类别。
         logger.warning(
             "④-4 档案守卫拒绝：默认命主出生信息改写 %s → %s（冲突字段 %s）"
-            "user=%s person=%s ctx=%s",
+            "user=%s person=%s ctx_len=%s ctx_kind=%s",
             {k: existing.get(k) for k in
              ("birth_year", "birth_month", "birth_day", "city")},
             {k: new_b.get(k) for k in ("birth_year", "birth_month", "birth_day",
                                        "city", "year", "month", "day")},
             ",".join(conflict), user_id,
-            existing.get("name") or existing.get("id"), (birth_ctx or "")[:80])
+            existing.get("name") or existing.get("id"),
+            len(str(birth_ctx or "")),
+            ("correction" if is_correction_text(birth_ctx) else
+             ("complete_statement" if is_complete_birth_statement(birth_ctx)
+              else "plain")))
         return conflict
 
     # 冲突字段名 → 需保留既有值的存储键（update_person 逐字段保留用）

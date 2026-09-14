@@ -664,7 +664,21 @@ class StreamHost {
     // 保守边界：只有 payload 确实是非空字符串才替换——done 的早退分支不带
     // content（无定稿），此时保留已流出的内容，绝不把气泡清空。
     if (typeof finalContent === 'string' && finalContent.trim()) {
-      content = finalContent;
+      // k48-r2 Minor：**保开场**——已流内容里的 welcome 前置语（"欢迎回来…"）
+      // 不在定稿 reply 里（后端把开场当"回复之外的前置内容"，见
+      // compute_stream_remaining 注释），直接整泡替换会把开场弄丢。
+      // 判据：以定稿开头 ANCHOR 个字为锚，在已流内容里定位（流式正常时
+      // 已流 = 开场 + 定稿正文…），锚点之前的头部即开场，替换时原样保留。
+      // 锚点找不到（如 D2 两条文本完全不同）→ 无从判断开场，直接替换。
+      var ANCHOR = 12;
+      var prev = String(content || '');
+      if (finalContent.length >= ANCHOR) {
+        var at = prev.indexOf(finalContent.slice(0, ANCHOR));
+        if (at > 0) content = prev.slice(0, at) + finalContent;
+        else content = finalContent;
+      } else {
+        content = finalContent;
+      }
     }
     // 空回复兜底（v8 8.3）："我走神了，你再说一遍？"
     if (!content.trim()) content = '我走神了，你再说一遍？';

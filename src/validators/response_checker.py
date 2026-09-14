@@ -39,21 +39,34 @@ class ResponseValidator:
         r'远离|拒绝|劝阻|提醒)[^，。！？；;：:、\n]{0,6}$')
     # 劝阻/提醒收尾（紧后窗口内、同句内）——"稳赚"话术带走 / ，请务必警惕
     _NEGATION_AFTER = re.compile(
-        r'^[^。！？!?\n]{0,12}?(?:话术|说法|陷阱|套路|带走|忽悠|骗人|骗局|'
-        r'夸大|不可信|别当真|不要信|别信|别被|警惕|当心|小心|谨慎|提防|防范)')
+        r'^[^。！？!?\n]{0,12}?(?:话术|说法|陷阱|套路|带走|忽悠|骗人|骗子|'
+        r'骗局|夸大|不可信|别当真|不要信|别信|别被|警惕|当心|小心|谨慎|'
+        r'提防|防范)')
     _NEG_WINDOW = 8
+    # 引号（"提及"形态标记）：命中词被引号包住 = 在**引用**该说法，不是在承诺
+    _QUOTE_CHARS = '“”"\'「」『』《》'
 
     @staticmethod
     def _in_negation_context(response: str, start: int, end: int) -> bool:
         """命中片段是否处于劝阻/否定语境（k48 P1）。
 
-        判据 = 命中片段前 _NEG_WINDOW 字内有劝阻/否定词（同句内、允许中间
-        夹"相信任何"等少量字），或其后同句 12 字内有劝阻收尾词。命中即视为
-        "提及/提醒"而非"承诺"，不算违规。
+        判据（其一即可）：
+        - **前**：命中片段前 _NEG_WINDOW 字内有劝阻/否定词（同句内、允许
+          中间夹"相信任何"等少量字）——最强证据（"别被'稳赚'话术带走"）；
+        - **后**：命中词**被引号包住**（= 在引用该说法）且其后同句 12 字内
+          有劝阻收尾词（"承诺'保证收益'的都是骗子" / "'稳赚'，请务必警惕"）。
+          引号前置条件是必须的——否则「跟着我买，保证收益翻倍，请警惕风险」
+          这种"真承诺 + 尾巴挂个警惕"会被误放行（k48-r2 Minor）。
         """
         before = response[max(0, start - ResponseValidator._NEG_WINDOW):start]
         if ResponseValidator._NEGATION_BEFORE.search(before):
             return True
+        quoted = (start > 0
+                  and response[start - 1] in ResponseValidator._QUOTE_CHARS) or (
+                      end < len(response)
+                      and response[end] in ResponseValidator._QUOTE_CHARS)
+        if not quoted:
+            return False
         after = response[end:end + 12]
         return bool(ResponseValidator._NEGATION_AFTER.match(after))
 

@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-32-bytes-long!!")
 
 import logging  # noqa: E402
+from unittest.mock import Mock  # noqa: E402
 
 import pytest  # noqa: E402
 
@@ -276,6 +277,260 @@ class TestAskBeforeWrite:
                                                  "day": None}
         h._handle_bazi("我是3月8日出生的", "u1")
         h._gen_birth_conflict_ask.assert_not_called()
+
+
+# ================================================================
+# 5) k48-r2 复审轮（C-1 / I-1 / I-2 / I-3 / I-4 + Minor）
+# ================================================================
+
+class TestC1GateFormIsOnCandidateNotMessage:
+    """C-1（Critical）：闸门③ 原为**整条消息**判据（`\\d{4}\\s*年`）→ 全量提取器
+    本就要求 4 位年份 ⇒ ③ 恒真、实际只剩①黑名单在挡。改为对**日期候选本身**
+    的形态要求 + 候选附近出生语境，裸 4.5/4.5k/4.5千/4.5小时/4.5% 一律不是日期。
+
+    审查实测三条（改前 `_extract_bazi_info` 都得 (1999,4,5,北京)）：
+    """
+
+    @pytest.mark.parametrize("text", [
+        "我1999年生的，offer给4.5k",     # 审查实测：年份+裸小数
+        "房租4.5千",                     # 审查实测：裸小数
+        "每天睡4.5小时",                 # 审查实测：裸小数
+    ])
+    def test_review_cases_month_day_never_extracted(self, text):
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth(text)
+        assert "month" not in got and "day" not in got, f"{text!r} → {got}"
+        assert h._extract_bazi_info(text) is None, f"{text!r} 全量提取未作废"
+
+    def test_review_case_keeps_legit_year_only(self):
+        """`我1999年生的…` 的**年份**是真实出生陈述 → 保留（月日不得取）。"""
+        h = make_handler()
+        assert h._extract_partial_birth("我1999年生的，offer给4.5k") == {
+            "year": 1999}
+
+    def test_e2e_no_archive_no_chart_no_write(self):
+        """C-1 e2e（审查点名）：无档案用户发 `我1999年生的，offer给4.5k`
+        → **不得出盘、不得写档**（与事故同型的 1999-04-05 错盘绝不出现）。"""
+        h = _h_bazi(_get_user_birth_profile=Mock(return_value=None))
+        h._extract_bazi_info = Mock(
+            side_effect=lambda m: MessageHandler._extract_bazi_info(h, m))
+        out = h._handle_bazi("我1999年生的，offer给4.5k", "u1")
+        h._do_bazi_analysis.assert_not_called()
+        h._sync_person_profile.assert_not_called()
+        assert out == "渐进引导"          # 落回缺什么问什么，不出盘不写档
+
+    @pytest.mark.parametrize("text,expect", [
+        # I-3：分隔符形态真正支持（带出生语境）——改前被静默废弃
+        ("我11.20出生", (11, 20)),
+        ("我5/20出生", (5, 20)),
+        ("我8-15出生", (8, 15)),
+        ("我10.10生日", (10, 10)),
+    ])
+    def test_i3_ambiguous_separator_forms_supported_with_birth_ctx(self, text,
+                                                                   expect):
+        h = make_handler()
+        got = h._extract_partial_birth(text)
+        assert (got.get("month"), got.get("day")) == expect, f"{text!r} → {got}"
+
+    @pytest.mark.parametrize("text", [
+        "各缴纳4.5%", "每天睡4.5小时", "房租4.5千", "offer给4.5k",
+    ])
+    def test_i3_ambiguous_forms_still_rejected_without_birth_ctx(self, text):
+        """反向：同样的分隔符形态但**无出生语境**（或语境太远）→ 仍不取。"""
+        h = make_handler()
+        got = h._extract_partial_birth(text)
+        assert "month" not in got and "day" not in got, f"{text!r} → {got}"
+
+    def test_birth_ctx_must_be_near_candidate_not_anywhere(self):
+        """出生语境必须**紧邻候选**：`我1999年生的，offer给4.5k` 里 "生的"
+        离候选很远 → 不构成放行（否则闸门形同虚设）。"""
+        h = make_handler()
+        got = h._extract_partial_birth("我1999年生的，offer给4.5k")
+        assert "month" not in got and "day" not in got, got
+
+    def test_i2_prefers_first_accepted_candidate(self):
+        """I-2：只取首个候选 → 被否决即丢整条月日。改为遍历全部候选后取
+        **首个通过闸门的**（不是"最后一个"——最后一个会误取婚期；
+        未来日期由 MessageAnalyzer.birth_dates_all_future 单独兜底）。"""
+        h = make_handler()
+        got = h._extract_partial_birth("房贷利率4.9%，我1990年5月20日出生")
+        assert (got.get("year"), got.get("month"), got.get("day")) == \
+            (1990, 5, 20), got
+        info = h._extract_bazi_info("房贷利率4.9%，我1990年5月20日出生")
+        assert info is not None and info[:3] == (1990, 5, 20), info
+
+    def test_i2_bogus_candidate_must_not_swallow_real_one(self):
+        """I-2 家族：`1985.3.28 出生 男` 的首个正则候选在无 `(?<!\d)` 时是
+        `85.3`（month=85 无效）——若它把后面的 `3.28` 一起消耗掉，整条月日
+        就丢了（改前实测）。现在候选须**同时**过闸门与合法月日校验。"""
+        h = make_handler()
+        got = h._extract_partial_birth("1985.3.28 出生 男")
+        assert (got.get("month"), got.get("day")) == (3, 28), got
+
+    def test_i3_full_separator_form_also_works_in_partial(self):
+        """I-3：`1990-05-20` 这类分隔符形态在**部分**提取器同样不得被静默
+        废弃（改前部分提取器把它丢成 {}，与全量提取器口径分裂）。"""
+        h = make_handler()
+        got = h._extract_partial_birth("1990-05-20 15:00 深圳 女")
+        assert (got.get("month"), got.get("day")) == (5, 20), got
+        assert got.get("city") == "深圳"
+
+    def test_strong_form_needs_no_birth_context(self):
+        """双向：**带日期单位**的强形态（M月D日 / YYYY-M-D）无出生词也照取
+        （既有格式零回退：「1990-05-20 15:00 深圳 女」）。"""
+        h = make_handler()
+        assert h._extract_bazi_info("1990-05-20 15:00 深圳 女") == (
+            1990, 5, 20, 15, 0, "深圳", "女")
+        assert h._extract_partial_birth("我4月5日出生")["month"] == 4
+
+
+class TestI1ConfirmCanBeAnswered:
+    """I-1（Important）：G1 场景改前"问=1、排=0、纠正=0"，且按提示重发完整
+    生辰→再被问（循环）、回「确认」→按旧档案（错月日+旧性别）排盘。
+
+    修法：① 确认可承接（暂存本轮待更新字段，确认词 → 应用并排盘）；
+    ② 更窄收口：完整生辰陈述（年+月+日齐 + 出生语境）视为明示声明直接写，
+       只有零散/含混的才走确认问句。"""
+
+    def test_complete_statement_writes_directly_no_ask(self):
+        """② 完整生辰陈述（年+月+日 + 出生词）→ 直接写，不问。
+
+        fixture 与 G1 实测同型：档案月日是**错的占位值** 1990-02-26，
+        消息给真生辰 1990-05-20 —— 改前（k48 首版）会被确认问句拦下，
+        现在必须排盘+纠正。"""
+        h = _h_bazi(_get_user_birth_profile=Mock(return_value={
+            "year": 1990, "month": 2, "day": 26, "hour": 7, "minute": 0,
+            "city": "北京", "gender": "男"}))
+        h._handle_bazi("我是1990年5月20日7点北京生的女孩儿", "u9")
+        h._gen_birth_conflict_ask.assert_not_called()
+        h._do_bazi_analysis.assert_called_once()
+        args = h._do_bazi_analysis.call_args[0]
+        assert (args[1], args[2], args[6]) == (5, 20, "女"), args[:7]
+
+    def test_fragment_conflict_still_asks(self):
+        """反向：零散冲突（只给月日，无年份）**仍要问**（本项要保的行为）。"""
+        h = _h_bazi()
+        h._handle_bazi("我是3月8日出生的", "u9")
+        h._gen_birth_conflict_ask.assert_called_once()
+        h._do_bazi_analysis.assert_not_called()
+
+    def test_year_conflict_of_complete_statement_still_guarded(self):
+        """边界（与 k19 年份守卫同口径）：完整陈述但**年份大差**（>2）仍拦
+        ——21:44 事故正是 4 年跳变；② 的"直接写"只放行 月/日/城市，
+        年份仍由 k19 阈值守护。"""
+        h = _h_bazi()
+        h._handle_bazi("我是1995年3月8日出生的", "u9")
+        h._gen_birth_conflict_ask.assert_called_once()
+        h._do_bazi_analysis.assert_not_called()
+
+    def test_pending_confirm_applies_and_charts(self):
+        """① 确认可承接：问句发出后回「确认」→ 应用待更新值并排盘（不再循环）。"""
+        h = _h_bazi()
+        h._handle_bazi("我是3月8日出生的", "u9")     # 零散 → 问
+        h._gen_birth_conflict_ask.assert_called_once()
+        h._do_bazi_analysis.reset_mock()
+        h._handle_bazi("确认", "u9")                 # 承接
+        h._do_bazi_analysis.assert_called_once()
+        args = h._do_bazi_analysis.call_args[0]
+        assert (args[1], args[2]) == (3, 8), f"应应用待更新月日，实收 {args[:3]}"
+
+    def test_pending_archive_choice_charts_with_archive(self):
+        """① 反向：回「按档案」→ 用档案排（既有语义），且待更新值作废。"""
+        h = _h_bazi()
+        h._handle_bazi("我是3月8日出生的", "u9")
+        h._do_bazi_analysis.reset_mock()
+        h._handle_bazi("按档案", "u9")
+        h._do_bazi_analysis.assert_called_once()
+        args = h._do_bazi_analysis.call_args[0]
+        assert (args[1], args[2]) == (5, 20), f"应按档案，实收 {args[:3]}"
+
+    def test_pending_stale_dropped_on_unrelated_message(self):
+        """① 反向：待更新值不得跨轮误伤——用户改说别的（非确认词）→ 作废。"""
+        h = _h_bazi()
+        h._handle_bazi("我是3月8日出生的", "u9")
+        h._do_bazi_analysis.reset_mock()
+        h._handle_bazi("我出生时辰是上午11点", "u9")   # 非确认词 → 正常叠加
+        h._do_bazi_analysis.assert_called_once()
+        args = h._do_bazi_analysis.call_args[0]
+        assert (args[1], args[2]) == (5, 20), f"待更新值应作废，实收 {args[:3]}"
+
+
+class TestI4ZiweiConflictAsks:
+    """I-4：紫微路径冲突时静默不写、盘面照排 → 盘面与档案分裂。
+    修：与 _handle_bazi 同一判定点（先问后写）。"""
+
+    def _h_ziwei(self, **kw):
+        h = object.__new__(MessageHandler)
+        h.engine = None
+        h.llm = None
+        h.dao = None
+        h.retriever = None
+        h.memory = None
+        h.memory_system = None
+        h.session_dao = None
+        h._downgraded = {}
+        h._analysis_facts = {}
+        h._extract_bazi_info = Mock(
+            return_value=(1995, 3, 8, 10, 0, "北京", "女"))
+        h._get_user_birth_profile = Mock(return_value=dict(ARCHIVE))
+        h._gen_birth_conflict_ask = Mock(return_value="先确认一下？")
+        h._do_ziwei_analysis = Mock(return_value="紫微分析")
+        for k, v in kw.items():
+            setattr(h, k, v)
+        return h
+
+    def test_ziwei_conflict_asks(self):
+        """年份冲突（>2，完整陈述也拦）→ 问一句，不排紫微。"""
+        h = self._h_ziwei()
+        out = h._handle_ziwei("帮我排紫微，1995年3月8日10点北京女", "u1")
+        h._gen_birth_conflict_ask.assert_called_once()
+        h._do_ziwei_analysis.assert_not_called()
+        assert out == "先确认一下？"
+
+    def test_ziwei_guard_fail_open_on_read_error(self):
+        """守卫是安全网：档案读取失败 → 放行照排，不得让紫微整体失败
+        （Mock dao 装配实测过这条：`_get_user_birth_profile` 抛异常
+        → 曾把整轮变成"服务暂时不可用"）。"""
+        h = self._h_ziwei(_get_user_birth_profile=Mock(
+            side_effect=RuntimeError("boom")))
+        h._handle_ziwei("帮我排紫微，1995年3月8日10点北京女", "u1")
+        h._do_ziwei_analysis.assert_called_once()
+        h._gen_birth_conflict_ask.assert_not_called()
+
+    def test_ziwei_no_conflict_charts(self):
+        """双向：与档案一致 → 照排紫微（既有行为零回退）。"""
+        h = self._h_ziwei(_extract_bazi_info=Mock(
+            return_value=(1990, 5, 20, 10, 0, "北京", "男")))
+        h._handle_ziwei("帮我排紫微，1990年5月20日10点北京男", "u1")
+        h._gen_birth_conflict_ask.assert_not_called()
+        h._do_ziwei_analysis.assert_called_once()
+
+
+class TestMinorGuardAndPII:
+    """Minor：①守卫同类误报（承诺"保证收益"…是骗子）+ 后窗口放行真承诺
+    （跟着我买，保证收益翻倍，请警惕风险）；②守卫日志不得含原文片段（PII）。"""
+
+    def test_warning_about_promise_with_pianzi_exempt(self):
+        """警告性表述（…是骗子）不算违规。"""
+        assert _violations('承诺"保证收益"的都是骗子，别信。') == []
+
+    def test_real_promise_with_trailing_warning_still_caught(self):
+        """真承诺 + 尾巴挂个"请警惕风险"→ 仍判违规（后窗口不得放行）。"""
+        assert _violations("跟着我买，保证收益翻倍，请警惕风险。")
+
+    def test_guard_log_has_no_raw_message(self, tmp_path, caplog):
+        """守卫日志新增 PII：确认/拒绝日志**不得含原文片段**。"""
+        from src.storage.person_dao import PersonDAO
+        pdao = PersonDAO(str(tmp_path / "u.db"))
+        _mk_default(pdao)
+        p = pdao.list_persons("u1")[0]
+        secret = "我住在北京市朝阳区某小区3号楼501"
+        with caplog.at_level(logging.WARNING, logger="src.storage.person_dao"):
+            pdao.update_person("u1", p["id"], birth={"city": "广州"},
+                               birth_ctx=secret)
+        assert "④-4" in caplog.text
+        assert secret[:8] not in caplog.text, "日志含原文片段（PII）"
+        assert "朝阳区" not in caplog.text, "日志含原文片段（PII）"
 
 
 # ================================================================
