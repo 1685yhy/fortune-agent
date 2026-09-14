@@ -26,19 +26,29 @@ BIRTH_KEYS = ("gender", "birth_year", "birth_month", "birth_day",
 RELATION_VALUES = ("自己", "父母", "伴侣", "子女", "朋友", "其他")
 
 # ────────────────────────────────────────────────────────────────────
-# ④-4 档案年份合理性守卫（k19，2026-09-10，保守版——默认仅告警）。
+# ④-4 档案出生信息一致性守卫（k19 立，k48 升级为"先问后写"）。
 # 背景：21:44 事故前置根因 A = 默认命主 persons 曾整 2.5 周存错年份
-# （1995 实为 1999），来源是 QA/对话期某次带错年份的写入。本守卫在
-# 「默认命主行被改写出生年且与既有年份差 > 2」时默认只打告警日志
-# （绝不拒绝——防误伤用户真纠正），并留下可审计痕迹；「明示纠正句式」
-# （对话上下文含 不是/其实/更正 等）视为用户主动纠正 → 不告警。
-# YEAR_SHIFT_REJECT = True 为预留参数位：未来产品拍板后可开「拒绝写入」，
-# 语义 = 非明示纠正的大差年份写入被拦下（调用方得到原样返回+warning）。
-# 明示纠正/表单显式提交（FORM_EXPLICIT_CTX 哨兵 ctx）永远豁免，拒绝模式
-# 不误伤真纠正。
+# （1995 实为 1999），来源是 QA/对话期某次带错年份的写入。k19 在
+# 「默认命主行被改写出生年且与既有年份差 > 2」时只打告警日志并留审计
+# 痕迹（YEAR_SHIFT_REJECT=False 保守版），「明示纠正句式」（对话上下文含
+# 不是/其实/更正 等）视为用户主动纠正 → 不告警。
+#
+# k48（2026-09-15，产品拍板"先问后写"）：升级为**拒绝写入**是唯一收口点。
+# 背景 = 用户实机反馈「档案被职场文本污染 → 同一会话两张盘」：offer 文本里的
+# 「各缴纳4.5%」被当 4 月 5 日写进档案（根因在提取器，见 handler k48 语境闸门），
+# 而写档案这一步**从不询问**。口径（用户已批准）：
+#   - 高置信出生语境（报年龄 / 我是X年X月X日生的）→ 上游照旧直接写；
+#   - 与既有档案**冲突**（年/月/日/城市不一致）且非明示纠正、非表单
+#     → 本守卫拒绝写入（调用方得到原样返回 + warning），
+#       上游 handler 在同一判定下回一句确认（_gen_birth_conflict_ask），
+#       用户确认后才写 —— **不再静默改档案**；
+#   - 明示纠正/表单哨兵永远豁免（不误伤真纠正）。
+# 判定实现唯一：`birth_conflict_fields`（本模块）——storage 拒绝与 handler
+# 询问同源，绝不新增第二套判定（k48 brief 同族收口要求）。
+# YEAR_SHIFT_REJECT=False 可一键退回 k19 的"仅告警"旧行为（应急开关）。
 # ────────────────────────────────────────────────────────────────────
 YEAR_SHIFT_MAX_GAP = 2
-YEAR_SHIFT_REJECT = False
+YEAR_SHIFT_REJECT = True
 
 # 明示纠正句式（对话路径判定；子串命中即视为纠正声明，宁可漏报不可误伤）
 _CORRECTION_MARKERS = (
@@ -76,6 +86,61 @@ def year_shift_exceeds(old_year, new_year, max_gap: int = YEAR_SHIFT_MAX_GAP) ->
     if not a or not b:
         return False
     return abs(a - b) > max_gap
+
+
+def birth_conflict_fields(existing: Optional[dict], new: Optional[dict],
+                          ctx: str = "") -> List[str]:
+    """**唯一**出生信息冲突判定（k19 年份守卫 + k48 先问后写同源实现）。
+
+    返回冲突字段名列表（[] = 不冲突或豁免）。既有档案（默认命主行）与
+    新值逐字段比对：
+
+    - **year**：双方都有值且差值 > YEAR_SHIFT_MAX_GAP（=2，k19 既有阈值，
+      容忍周岁/虚岁/年龄推算的 ±1~2 噪声）→ 冲突；
+    - **month / day**：**既有侧**该字段有值、新值也有值且不同 → 冲突（对外
+      统一报 "month_day"）；既有侧缺该字段 = F2 渐进累积"补全缺失项"，是正常
+      流程不是冲突（用户实机污染形态是月日**一起**被当生辰，两边都有值）；
+    - **city**：既有侧非空、新值非空且不同 → 冲突（空串/None = 未提供，不算）。
+
+    豁免（返回 []）：ctx 命中「明示纠正句式」或表单哨兵（is_correction_text）
+    ——用户主动纠正/亲手编辑表单永远直接写，不询问不拒绝（k19 同口径）。
+
+    existing 可为 None（无档案/新增命主）→ 无冲突可比 → []。
+    new 的键允许两种命名：year/month/day/city（对话侧）或
+    birth_year/birth_month/birth_day/city（存储侧），两者同键名自动兼容。
+    """
+    if not existing or not new:
+        return []
+
+    def _get(d, name):
+        """取字段：兼容 person 行命名（birth_*）与档案命名（year/month/day）。"""
+        if name in d:
+            return d.get(name)
+        return d.get("birth_" + name)
+
+    if is_correction_text(ctx):
+        return []
+    out: List[str] = []
+    if year_shift_exceeds(_get(existing, "year"), _get(new, "year")):
+        out.append("year")
+    for name in ("month", "day", "city"):
+        old_v, new_v = _get(existing, name), _get(new, name)
+        if name == "city":
+            old_s, new_s = str(old_v or "").strip(), str(new_v or "").strip()
+            if old_s and new_s and old_s != new_s:
+                out.append("city")
+        else:
+            try:
+                old_n = int(old_v) if old_v not in (None, "") else None
+                new_n = int(new_v) if new_v not in (None, "") else None
+            except (TypeError, ValueError):
+                continue
+            if old_n is not None and new_n is not None and old_n != new_n:
+                out.append(name)
+    # month/day 任一不同即"月日不一致"（对外统一成一个冲突名，便于上游文案）
+    if "month" in out or "day" in out:
+        out = [f for f in out if f not in ("month", "day")] + ["month_day"]
+    return out
 
 
 def solar_time_on(raw) -> int:
@@ -422,30 +487,48 @@ class PersonDAO:
     # ------------------------------------------------------------
 
     def _year_shift_guard(self, user_id: str, existing: Optional[dict],
-                          new_birth_year, birth_ctx: str = "") -> bool:
-        """④-4 年份守卫（保守版，仅默认命主行）：返回 True = 写入被拒绝。
+                          new_birth, birth_ctx: str = "") -> List[str]:
+        """④-4 出生信息一致性守卫（k19 立，k48 升级"先问后写"）。
 
-        - existing 为默认命主且带既有 birth_year、新 year 与之差 > 2，
-          且上下文非明示纠正（is_correction_text）→ 触发；默认仅告警
-          （YEAR_SHIFT_REJECT=False）；预留参数位开拒绝时返回 True。
-        - 正常建档（无既有年份）/ 差 ≤ 2 / 明示纠正 / 表单显式提交 → 放行。
+        返回**冲突字段名列表**（[] = 不冲突/不适用）并打告警日志；调用方按
+        场景决定处置（storage 只报冲突，不替调用方决定"整条拒绝"还是"逐字段
+        保留既有值"）：
+
+        - 仅默认命主行（非默认=家人/朋友档案，生日本就不同，不设限）；
+        - 冲突判定复用**唯一实现** `birth_conflict_fields`（年差 > 2 / 月日不一致
+          / 城市不一致，明示纠正与表单哨兵豁免）——storage 与 handler 询问同源，
+          避免两套判定漂移。
+
+        参数 new_birth 兼容两种形态：单个 birth_year（k19 旧调用）或
+        {"year"/"birth_year", "month"/"birth_month", ...} 整份出生 dict（k48）。
+        处置口径见 create_person（整条拒绝）/ update_person（冲突字段保留既有值）。
         """
         if not existing or not existing.get("is_default"):
-            return False
-        if not year_shift_exceeds(existing.get("birth_year"), new_birth_year):
-            return False
-        if is_correction_text(birth_ctx):
-            # 明示纠正/表单显式 → 豁免（拒绝模式同样豁免，防误伤真纠正）
-            return False
-        gap = abs(int(existing.get("birth_year") or 0) - int(new_birth_year or 0))
-        reject = bool(YEAR_SHIFT_REJECT)
+            return []
+        if isinstance(new_birth, dict):
+            new_b = new_birth
+        else:
+            new_b = {"birth_year": new_birth}
+        conflict = birth_conflict_fields(existing, new_b, ctx=birth_ctx)
+        if not conflict:
+            return []
         logger.warning(
-            "④-4 年份守卫%s：默认命主出生年改写 %s → %s（差 %s 年 > %s）"
+            "④-4 档案守卫拒绝：默认命主出生信息改写 %s → %s（冲突字段 %s）"
             "user=%s person=%s ctx=%s",
-            "拒绝" if reject else "告警", existing.get("birth_year"),
-            new_birth_year, gap, YEAR_SHIFT_MAX_GAP, user_id,
+            {k: existing.get(k) for k in
+             ("birth_year", "birth_month", "birth_day", "city")},
+            {k: new_b.get(k) for k in ("birth_year", "birth_month", "birth_day",
+                                       "city", "year", "month", "day")},
+            ",".join(conflict), user_id,
             existing.get("name") or existing.get("id"), (birth_ctx or "")[:80])
-        return reject
+        return conflict
+
+    # 冲突字段名 → 需保留既有值的存储键（update_person 逐字段保留用）
+    _CONFLICT_TO_KEYS = {
+        "year": ("birth_year",),
+        "month_day": ("birth_month", "birth_day"),
+        "city": ("city",),
+    }
 
     def create_person(self, user_id: str, name: str, relation: str = "其他",
                       birth: Optional[dict] = None,
@@ -477,9 +560,12 @@ class PersonDAO:
                 "WHERE user_id = ? AND is_default = 1 ORDER BY id ASC LIMIT 1",
                 (user_id,)).fetchone()
             prev_row = self._row_to_person(prev_default) if prev_default else None
-            if self._year_shift_guard(user_id, prev_row,
-                                      (birth or {}).get("birth_year"),
-                                      birth_ctx=birth_ctx):
+            # k48：与既有默认命主出生信息冲突（且非明示纠正）→ **不顶替**
+            # （整条拒绝：替换默认命主=整份档案换人，不能只保留部分字段）。
+            # YEAR_SHIFT_REJECT=False 可退回 k19 的"仅告警、照建"旧行为。
+            if (self._year_shift_guard(user_id, prev_row, birth,
+                                       birth_ctx=birth_ctx)
+                    and YEAR_SHIFT_REJECT):
                 conn.close()
                 return prev_row or None
             conn.execute("UPDATE persons SET is_default=0 WHERE user_id=?",
@@ -559,13 +645,15 @@ class PersonDAO:
                 for k in BIRTH_KEYS:
                     nv = new_birth.get(k)
                     merged[k] = nv if nv is not None else existing.get(k)
-                # ④-4 年份守卫：默认命主行出生年大差改写 → 默认仅告警日志
-                # （YEAR_SHIFT_REJECT=True 时拒绝整次写入并返回原行）
-                if self._year_shift_guard(user_id, existing,
-                                          merged.get("birth_year"),
-                                          birth_ctx=birth_ctx):
-                    conn.close()
-                    return existing
+                # ④-4 档案守卫（k19 立，k48 升级"先问后写"）：与既有档案冲突的
+                # 出生字段**保留既有值**（不静默改写 = 用户实机两张盘的直接
+                # 成因），其余字段照写。逐字段（而非整条 return）是必须的——
+                # G1 性别纠正实测：整条回退会连带吞掉用户真纠正的性别双写
+                # （tests/test_g1_gender_contract.py 锁）。
+                for _f in self._year_shift_guard(user_id, existing, merged,
+                                                 birth_ctx=birth_ctx):
+                    for _k in self._CONFLICT_TO_KEYS.get(_f, ()):
+                        merged[_k] = existing.get(_k)
                 if merged.get("solar_time") != existing.get("solar_time"):
                     _solar_flipped = True
                 _birth_written = True

@@ -596,7 +596,10 @@ class StreamHost {
       return;
     }
     if (type === 'done') {
-      this._onDone(evt.consultation_id, evt.citations, evt.suggestions);
+      // k48 P0.5：done 事件携带**定稿全文**（后端 chat_stream done 载荷
+      // `content`，与落库同文）→ 透传给 _onDone 做整泡替换。
+      this._onDone(evt.consultation_id, evt.citations, evt.suggestions,
+                   evt.content);
       return;
     }
     if (type === 'error') {
@@ -643,7 +646,7 @@ class StreamHost {
   }
 
   /* v1.2：done 事件携带 suggestions（回复后的推荐追问，失败/超时 → 无） */
-  _onDone(consultationId, citations, suggestions) {
+  _onDone(consultationId, citations, suggestions, finalContent) {
     this._flushAccum();   // 收尾前冲刷未 flush 的尾部增量（防最后 chunk 被 _clearFlush 丢弃）
     this._clearFlush();
     this._clearWatchdog();
@@ -651,6 +654,18 @@ class StreamHost {
     const msg = this._find(this.msgId);
     if (!msg) return;
     let content = msg.content || '';
+    // k48 P0.5（用户实机：一个气泡里两张命盘）：**整泡替换**。
+    // 背景：流式推的是润色版，D2 数据一致性终审把回复换成**引擎原稿**（两条
+    // 文本完全不同、无重叠）——服务端"只补未发部分"无处可补 → 若前端继续
+    // 按"追加"理解，气泡里就会是 润色版+引擎原稿（两张盘，且因档案已变两张
+    // 盘不同）。done 载荷 `content` 是**定稿全文**（与落库同文，见后
+    // chat_stream.py done 注释）→ 收尾时直接以它覆盖气泡内容，显示 = 落库
+    // （数据一致性铁律：回看与屏幕永远同稿）。
+    // 保守边界：只有 payload 确实是非空字符串才替换——done 的早退分支不带
+    // content（无定稿），此时保留已流出的内容，绝不把气泡清空。
+    if (typeof finalContent === 'string' && finalContent.trim()) {
+      content = finalContent;
+    }
     // 空回复兜底（v8 8.3）："我走神了，你再说一遍？"
     if (!content.trim()) content = '我走神了，你再说一遍？';
     const cits = Array.isArray(citations) ? citations : [];

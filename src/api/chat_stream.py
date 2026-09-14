@@ -62,6 +62,22 @@ _SENT_SPLIT_CAP = re.compile(r"([。！？!?；;])")
 _SENT_END_CHARS = "。！？…\n"
 
 
+# k48 P0.5「替换而非续写」判据的已流文本长度下限（字符）。
+# 语义 = 「已经把一条像样的**完整回答**流出去了」的门槛（40 字 ≈ 一个完整的
+# 短回答/一段完整正文），**不是**调参用的魔法数字：
+#   - covered==0（定稿与已流文本毫无重叠）**且**已流文本 ≥ 本阈值 ⇒ 已流出的
+#     是一条完整回答、定稿是**另一条**回答 ⇒ 判为**替换**（D2 冲突回退引擎
+#     原稿的实机形态：流式推的是润色版，定稿换成引擎原稿，两条文本完全不同）
+#     ⇒ **不再整条追加**，改由前端消费 done 事件的 `content` 定稿全文**整泡替换**
+#     （chat_stream done 载荷早已携带；前端 streamHost._onDone 本批接上）。
+#   - 已流文本很短（正文几乎没流过，如只流了草稿尾巴/welcome 语）⇒ 那是
+#     「该补发」的正常形态，照旧整条补发——**绝不因本判据丢内容**。
+# 设计取舍（与前端配套，缺一时宁可保留追加）：追加在极端情况下最坏是内容
+# 重复一次（可见但信息不丢）；替换路径若前端没接住 done.content 就是空白。
+# 因此本判据只在"能确定已流出的是一条完整回答"时才抑制追加。
+REPLACEMENT_MIN_STREAMED = 40
+
+
 def compute_stream_remaining(reply: str, streamed_text: str) -> str:
     """流式收尾对齐：计算需要补发的剩余文本（分句模拟流式前调用）。
 
@@ -163,6 +179,13 @@ def compute_stream_remaining(reply: str, streamed_text: str) -> str:
             # 流出 → 返回 ""；失真 → 返回含正文尾少量重叠，绝不丢字）
             if mid_len >= max(20, int(len(streamed_text) * 0.9)):
                 return reply[:mid_start] + reply[mid_start + mid_len:]
+        # k48 P0.5（用户实机：一个气泡里两张命盘）：covered==0（毫无重叠）且
+        # 已流文本本身 ≥REPLACEMENT_MIN_STREAMED（已流出一个完整回答）⇒ 定稿
+        # 与已流内容**不是同一条回答** ⇒ 判为替换，**不整条追加**（前端用 done
+        # 的定稿全文整泡替换；服务端不再把引擎原稿又发一遍）。covered>0 的
+        # 句中截断（真续写，只是补发点正好落在句首）不在此列，照旧补差。
+        if covered == 0 and len(streamed_text) >= REPLACEMENT_MIN_STREAMED:
+            return ""
     # 正文从未流出（降级/非流式兜底）→ 整段模拟流式（保持现状语义）
     return reply[start:]
 

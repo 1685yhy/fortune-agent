@@ -573,7 +573,13 @@ def test_g1_c2b_parsed_path_full_chain(tmp_path):
         return "分析结果"
     h._do_bazi_analysis = _fake_analysis
 
-    out = h._handle_bazi("我是1990年5月20日7点北京生的女孩儿", "u9")
+    # k48 交互（2026-09-15）：本条 fixture 的 persons 生辰是占位值 1990-02-26，
+    # 而消息给的是 1990-05-20——k48 把"与档案冲突（年/月/日/城市）"统一为
+    # **先问后写**（明示纠正句式豁免），若照旧无纠正词会被确认问句拦下、不再
+    # 直排。故消息补上 G1 用户原话里的纠正句式「不是男孩」——与真实用户语句
+    # 一致（G1 实诉原话即「我是女孩儿，不是男孩」），且走 k48 明示纠正豁免
+    # 直写路径（与 k19 守卫同口径），本用例其余断言与意图不变。
+    out = h._handle_bazi("我是1990年5月20日7点北京生的女孩儿，不是男孩", "u9")
 
     assert _calls["gender"] == "女"                      # 女命重排
     assert _calls["force_gender"] is True                # 纠正穿透

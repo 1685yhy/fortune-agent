@@ -931,6 +931,101 @@ def _extract_age(msg: str) -> Optional[int]:
                 best = (m.start(), age)
     return best[1] if best else None
 
+# ════════════════════════════════════════════════════════════════════
+# k48 P0 出生信息提取的语境闸门（2026-09-15）——单一实现，供
+# `_extract_bazi_info`（全量）与 `_extract_partial_birth`（部分）共用。
+#
+# 根因（用户实机，session s_mtme8nc9afzo）：从**任意文本**里抠"像出生信息"
+# 的片段就直接写档案。用户原话（offer 对比）：
+#   「我目前有2个offer…（北京，顶格五险一金，口径统一）…个人企业年金各缴纳
+#     4.5%…」
+# 修前提取器输出 {'month': 4, 'day': 5, 'city': '北京'} ——「4.5%」被当
+# 「4月5日」、「（北京…）」被当出生地 → 写进档案（1999-04-05 北京）→ 同一
+# 会话出现两张盘（前两轮 己卯 己巳 乙丑 壬午 / 第三轮 己卯 丁卯 丁亥 乙巳）
+# → 触发 D2 冲突回退引擎原稿（handler.py D2 日志实锤 2026-09-14 20:15:18）。
+#
+# 闸门只做三件事（brief ①②③），且**逐片段判定**而非整条消息一封了之——
+# 「我1999年3月28日生的，现在月薪20000元」这种混排仍要取到生日：
+#   ① 百分比/小数/金额/薪资/计量单位紧邻的数字不当日期（4.5% / 20000元 / 3.5倍）；
+#   ② 城市只在出生语境取：括号内的业务/办公地名 ✗、纯职场语境无出生词 ✗；
+#   ③ 数字月日必须是**完整日期形态**（带 月/日/号 字，或带 4 位年份，或显式
+#      农历/阴历标记，或带斜杠/横杠分隔的 y-m-d）——孤立的 "4、5" 不成日期。
+# 双向保护：真实 F2 场景（"我今年50岁" / "1999年3月28日 早上十点 长春" /
+# "我是女孩儿，不是男孩"）与既有格式（"1990-05-20 15:00 深圳 女"）零回退，
+# 由 tests/test_k48_pollution_guard_ask.py 双向用例锁定。
+# ════════════════════════════════════════════════════════════════════
+
+# ① 非生辰数字语境：命中片段**紧后**出现这些单位/符号 → 是金额/比例/计量，不是日期。
+#    （百分号/千分号/货币/计数单位；"+"/"倍"/"折"用于 ROI 与折扣话术）
+_NON_DATE_UNIT_RE = re.compile(
+    r'^\s*(?:%|％|‰|元|块|万|亿|折|成|倍|薪|元/|/月|每月|个月|个|人|次|件|'
+    r'份|斤|公斤|公里|米|平|岁|年化|利率)')
+# ① 命中片段**紧前**是"利率/缴纳/税/费/薪/工资/比例/ROI"等 → 非出生日期语境
+_NON_DATE_HEAD_RE = re.compile(
+    r'(?:利率|缴纳|缴|税|费|薪|工资|比例|ROI|投资|收益|折|折扣|首付|月供|'
+    r'房贷|违约金|保费|手续费)\s*$')
+
+# ② 括号区间（中/英文）——括号内一律视为"业务/办公/补充说明"区，不取城市
+_PAREN_SPAN_RE = re.compile(r'[（(][^）)]*[）)]')
+
+# ② 职场/办公语境词（无出生词时，城市不取）
+_WORK_CTX_RE = re.compile(
+    r'办公|公司|任职|在职|入职|面试|offer|Offer|OFFER|跳槽|出差|合同|社保|'
+    r'公积金|五险一金|工资|月薪|年薪|薪资|薪酬|项目|客户|老板|同事|上下班|'
+    r'通勤|工作')
+# ② 出生语境词（城市取用放行）
+_BIRTH_CTX_RE = re.compile(
+    r'出生|生于|出生于|老家|户籍|户口|籍贯|祖籍|来自|出生地|生辰|生人')
+
+
+def _in_paren_span(msg: str, pos: int) -> bool:
+    """位置 pos 是否落在某个括号区间内（k48 闸门②）。"""
+    return any(s <= pos < e for s, e in
+               ((m.start(), m.end()) for m in _PAREN_SPAN_RE.finditer(msg)))
+
+
+def _numeric_date_looks_like_birth(msg: str, m) -> bool:
+    """数字月日命中片段是否"像出生日期"（k48 闸门①+③）。
+
+    ① 紧邻比例/金额/计量单位（`4.5%`、`20000元`、`3.5倍`、`利率4.9`）→ False；
+    ③ 必须完整日期形态：带 月/日/号 字，或 4 位年份，或 农历/阴历 标记，
+       或斜杠/横杠分隔（`1990-05-20`）→ 否则（如 `4.5`）→ False。
+    ④ 小数点分隔符 "." 在无 月/日 字时一律不算日期（`4.5` 是小数不是 4月5日）。
+    """
+    s, e = m.span()
+    text = m.group(0)
+    tail = msg[e:]
+    head = msg[:s]
+    if _NON_DATE_UNIT_RE.match(tail) or _NON_DATE_HEAD_RE.search(head):
+        return False
+    if re.search(r'月|日|号', text):
+        return True                      # "4月5日" / "4月5" / "5日" 形态
+    if re.search(r'农历|阴历|旧历', msg):
+        return True                      # 显式农历口径（"农历1999年3月28"）
+    if re.search(r'\d{4}\s*年', msg):
+        return True                      # 完整年份在句（"1999年3月28日"）
+    if re.search(r'\d{4}\s*[-/.]', head[-6:]):
+        return True                      # 斜杠/横杠/点 y-m-d（"1990-05-20"、"1985.3.28"）
+    if re.search(r'[-/]\s*\d{1,2}\s*[-/]', msg):
+        return True                      # "5-20" / "5/20"
+    return False
+
+
+def _city_looks_like_birth(msg: str, name: str, pos: int) -> bool:
+    """城市候选是否出生语境（k48 闸门②）。
+
+    - 括号内（业务/办公地点补充说明）→ 不取（用户原话的「（北京，顶格五险一金）」）；
+    - 消息含职场/办公语境词且**无**出生语境词 → 不取（"我办公地在上海…"）；
+    - 其余情况照旧取（"三月初三，吉林省长春市榆树市出生，男" / "1990-05-20
+      15:00 深圳 女" 等既有格式零回退）。
+    """
+    if _in_paren_span(msg, pos):
+        return False
+    if not _BIRTH_CTX_RE.search(msg) and _WORK_CTX_RE.search(msg):
+        return False
+    return True
+
+
 # k33/A16：时辰回显的「以后/之后/过后」锚定——只在【时间表达紧邻之后】识别，
 # 防别的日期后缀污染时辰回显（"我5月13日以后出生，10点" 原实现全串 search →
 # 回显成"10点以后"，把用户没说的时间限定词硬塞回去）。
@@ -6212,9 +6307,17 @@ class MessageHandler:
                         msg, lite=_dg, known=known, missing=missing)
                 saved = self._get_user_birth_profile(user_id)
                 if saved and saved.get("year") and saved.get("month") and saved.get("day"):
-                    if (cur.get("year") and cur["year"] != saved["year"]):
+                    # k48 P2（先问后写）：冲突判定收口到 person_dao 的**唯一**
+                    # 实现 `birth_conflict_fields`（与 storage 层 ④-4 守卫同源
+                    # ——handler 问、person_dao 拦，一套判定两处消费，不新增
+                    # 第二套守卫）。冲突范围由"仅年份"扩为 年/月/日/城市：
+                    # 用户实机就是「只说城市/月日」时被静默改进档案（offer
+                    # 文本的 4.5% → 4月5日 + （北京）→ 出生地）→ 同会话两张盘。
+                    # 明示纠正句式/表单哨兵豁免（k19 同口径）→ 直接写。
+                    from src.storage.person_dao import birth_conflict_fields
+                    if birth_conflict_fields(saved, cur, ctx=msg):
                         return self._gen_birth_conflict_ask(msg, cur, saved)
-                    # 档案为基线 + 当前消息补充（年份已判定一致或未提）
+                    # 档案为基线 + 当前消息补充（已判定一致或未提）
                     merged = dict(saved)
                     for _k in ("year", "month", "day", "hour", "minute",
                                "city", "gender"):
@@ -6327,7 +6430,7 @@ class MessageHandler:
             _st_raw = (saved or {}).get("solar_time")
             _solar_self = (_st_raw not in (0, "0", False)) if saved else True
             if (saved and saved.get("year") and saved.get("month")
-                    and saved.get("day") and saved["year"] != year):
+                    and saved.get("day")):
                 cur = {"year": year, "month": month, "day": day}
                 if hour or minute:
                     cur["hour"] = hour
@@ -6336,7 +6439,12 @@ class MessageHandler:
                     cur["city"] = city
                 if gender and gender != "unknown":
                     cur["gender"] = gender
-                return self._gen_birth_conflict_ask(msg, cur, saved)
+                # k48 P2（先问后写）：与上方部分信息路径同一判定实现
+                # （birth_conflict_fields）——年/月/日/城市任一冲突且非明示纠正
+                # → 问一句，不排盘不落库。
+                from src.storage.person_dao import birth_conflict_fields
+                if birth_conflict_fields(saved, cur, ctx=msg):
+                    return self._gen_birth_conflict_ask(msg, cur, saved)
             # C2b（2026-08-29）：parsed 直排路径同款性别纠正判定——消息提取
             # 到已确认性别（男/女）且档案性别也已确认、两者不一致 → 视为
             # 用户明示纠正：force_gender=True 穿透（_do_bazi_analysis →
@@ -6560,6 +6668,9 @@ class MessageHandler:
             # Try numeric date: 8月15日, 8-15, 10月10日, 11.20
             # (?<!\d) 防止 dash 年份被误拆（"1990-05-20" 不能匹配成 "90-05"）
             md = re.search(r'(?<!\d)(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
+            # k48 闸门①③：百分比/小数/金额/薪资类数字与非法日期形态不作数
+            if md and not _numeric_date_looks_like_birth(msg, md):
+                md = None
             if md:
                 month = int(md.group(1))
                 day = int(md.group(2))
@@ -6665,12 +6776,19 @@ class MessageHandler:
 
         # Step 5: Extract city — D7 嵌套城市取最内层"XX市"
         # （"吉林省长春市榆树市"→ 榆树市，不再误取省名）
+        # k48 闸门②：括号内业务/办公地名与纯职场语境地名不作出生地
         city = "北京"
-        city_matches = re.findall(r'([一-鿿]{2,5}?市)', msg)
+        city_matches = [(m.group(1), m.start()) for m in
+                        re.finditer(r'([一-鿿]{2,5}?市)', msg)]
+        city_matches = [c for c in city_matches
+                        if _city_looks_like_birth(msg, c[0], c[1])]
         if city_matches:
-            city = city_matches[-1]
+            city = city_matches[-1][0]
         else:
-            city_match = re.search(r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
+            city_match = next(
+                (m for m in re.finditer(
+                    r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
+                 if _city_looks_like_birth(msg, m.group(1), m.start())), None)
             if city_match:
                 city = city_match.group(1)
 
@@ -6825,6 +6943,10 @@ class MessageHandler:
             month, day = cn_md
         else:
             md = re.search(r'(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
+            # k48 闸门①③：百分比/小数/金额/薪资类数字与非法日期形态不作数
+            # （用户原话「各缴纳4.5%」修前在此被当 4月5日 → 污染档案两张盘）
+            if md and not _numeric_date_looks_like_birth(msg, md):
+                md = None
             if md:
                 month = int(md.group(1))
                 day = int(md.group(2))
@@ -6884,12 +7006,19 @@ class MessageHandler:
             out["minute"] = minute
 
         # ── city/gender ──
-        city_matches = re.findall(r'([一-鿿]{2,5}?市)', msg)
+        city_matches = [(m.group(1), m.start()) for m in
+                        re.finditer(r'([一-鿿]{2,5}?市)', msg)]
+        # k48 闸门②：括号内业务/办公地名（用户原话「（北京，顶格五险一金…）」）
+        # 与纯职场语境地名不作出生地
+        city_matches = [c for c in city_matches
+                        if _city_looks_like_birth(msg, c[0], c[1])]
         if city_matches:
-            out["city"] = city_matches[-1]  # 最内层（"吉林省长春市榆树市"→榆树市）
+            out["city"] = city_matches[-1][0]  # 最内层（吉林省长春市榆树市→榆树市）
         else:
-            city_match = re.search(r'({})'.format('|'.join(self.COMMON_CITIES)),
-                                   msg)
+            city_match = next(
+                (m for m in re.finditer(
+                    r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
+                 if _city_looks_like_birth(msg, m.group(1), m.start())), None)
             if city_match:
                 out["city"] = city_match.group(1)
         # G1（2026-08-29 P0-C）：性别口语词扩展（保持防"渣男/美女"误伤）——

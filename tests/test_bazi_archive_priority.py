@@ -350,12 +350,18 @@ def test_parsed_conflicting_year_mom_said_asks():
 
 
 def test_parsed_matching_year_charts_normally():
-    """parsed 完整信息与档案年份一致 → 正常排盘（规则1不破坏）。"""
+    """parsed 完整信息与档案一致 → 正常排盘（规则1不破坏）。
+
+    k48 输入微调：原用例消息是「1990年5月13日」而档案是 1990-05-20——k48
+    把冲突判定从"仅年份"扩为 年/月/日/城市（先问后写），月日不一致现在会走
+    确认问句，故此处改为与档案**完全一致**的生辰以保持本用例原意（年份一致
+    → 用消息值正常排盘）；月日冲突的新行为另由
+    test_k48_pollution_guard_ask.py::TestAskBeforeWrite 锁定。"""
     h = make_handler()
-    h._extract_bazi_info = Mock(return_value=(1990, 5, 13, 10, 0, "北京", "男"))
-    out = h._handle_bazi("帮我排个盘，1990年5月13日10点", "u1")
+    h._extract_bazi_info = Mock(return_value=(1990, 5, 20, 10, 0, "北京", "男"))
+    out = h._handle_bazi("帮我排个盘，1990年5月20日10点", "u1")
     h._do_bazi_analysis.assert_called_once()
-    assert h._do_bazi_analysis.call_args[0][:7] == (1990, 5, 13, 10, 0,
+    assert h._do_bazi_analysis.call_args[0][:7] == (1990, 5, 20, 10, 0,
                                                     "北京", "男")
 
 
