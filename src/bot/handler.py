@@ -6344,10 +6344,10 @@ class MessageHandler:
                         msg, lite=_dg, known=known, missing=missing)
                 saved = self._get_user_birth_profile(user_id)
                 if saved and saved.get("year") and saved.get("month") and saved.get("day"):
-                    # k48 P2（先问后写）：冲突判定收口到 person_dao 的**唯一**
-                    # 实现 `birth_conflict_fields`（与 storage 层 ④-4 守卫同源
-                    # ——handler 问、person_dao 拦，一套判定两处消费，不新增
-                    # 第二套守卫）。冲突范围由"仅年份"扩为 年/月/日/城市：
+                    # k48 P2（先问后写，**只在本层**）：冲突判定收口到 person_dao
+                    # 的**唯一**实现 `birth_conflict_fields`（纯谓词、无副作用
+                    # ——存储层不拦任何写入，k48-r3 分层修正）。冲突范围由
+                    # "仅年份"扩为 年/月/日/城市：
                     # 用户实机就是「只说城市/月日」时被静默改进档案（offer
                     # 文本的 4.5% → 4月5日 + （北京）→ 出生地）→ 同会话两张盘。
                     # 明示纠正句式/表单哨兵豁免（k19 同口径）→ 直接写。
@@ -6479,8 +6479,9 @@ class MessageHandler:
                 if gender and gender != "unknown":
                     cur["gender"] = gender
                 # k48 P2（先问后写）：与上方部分信息路径同一判定实现
-                # （birth_conflict_fields）——年/月/日/城市任一冲突且非明示纠正
-                # → 问一句，不排盘不落库。
+                # （birth_conflict_fields）——年/月/日/城市任一冲突、且**非
+                # 显式出生陈述**（显式陈述直接写，k9_B1 行为）→ 问一句，
+                # 不排盘不落库。
                 from src.storage.person_dao import birth_conflict_fields
                 if birth_conflict_fields(saved, cur, ctx=msg):
                     self._stash_pending_birth(user_id, session_id, saved, cur)
@@ -8237,7 +8238,7 @@ class MessageHandler:
         year, month, day, hour, minute, city, gender = parsed
         # k48-r2 I-4：与 _handle_bazi **同一判定点**（先问后写）——紫微路径
         # 此前冲突时静默不写档案、盘面照排 → 盘面与档案分裂。此处补上确认
-        # 问句（完整生辰陈述由 birth_conflict_fields 内部豁免 → 直写）。
+        # 问句（**显式出生陈述**由 birth_conflict_fields 内部豁免 → 直写）。
         if not self._is_third_party_birth_request(msg):
             try:
                 saved = self._get_user_birth_profile(user_id)
