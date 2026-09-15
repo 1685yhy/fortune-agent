@@ -573,6 +573,10 @@ def test_g1_c2b_parsed_path_full_chain(tmp_path):
         return "分析结果"
     h._do_bazi_analysis = _fake_analysis
 
+    # k48-r2 I-1②：本场景（档案占位月日 1990-02-26 + 完整生辰陈述）必须
+    # **排盘 + 纠正**——k48 首版会先弹确认问句把它挡下（审查 Critical/Important
+    # 实锤），现由「完整生辰陈述（年+月+日齐 + 出生语境）= 高置信明示声明」
+    # 豁免月日/城市冲突，G1 行为回到改前。
     out = h._handle_bazi("我是1990年5月20日7点北京生的女孩儿", "u9")
 
     assert _calls["gender"] == "女"                      # 女命重排
