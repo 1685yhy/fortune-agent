@@ -101,24 +101,20 @@ def test_state_genuine_correction_ctx_no_warn(tmp_path, caplog):
     assert "④-4" not in caplog.text
 
 
-def test_state_abnormal_big_gap_warns_and_blocks(tmp_path, caplog):
+def test_state_abnormal_big_gap_warns_but_writes(tmp_path, caplog):
     """异常大差（21:44 族）：既有默认 1999，新写入 1995 无纠正句式 → 告警日志
-    + **写入被拒绝**（返回原行、年份仍是 1999）。
-
-    k48（2026-09-15）行为升级：本条原断言"告警但照写"（k19 保守版），产品针对
-    用户实机「档案被职场文本污染 → 同会话两张盘」拍板改为**先问后写**——
-    storage 层拒绝静默改写，上游 handler 在同一判定（birth_conflict_fields）
-    下回一句确认，用户确认后才写。见 tests/test_k48_pollution_guard_ask.py。"""
+    + 写入照常（保守版默认不拒绝——防误伤真纠正）。"""
     pdao = PersonDAO(str(tmp_path / "u.db"))
     p = _mk(pdao, "u1", 1999)
     with caplog.at_level(logging.WARNING, logger="src.storage.person_dao"):
         p2 = pdao.update_person("u1", p["id"],
                                 birth={"birth_year": 1995, "birth_month": 3,
                                        "birth_day": 8})
-    assert p2 is not None and p2["birth_year"] == 1999, "冲突写入必须被拦下"
+    assert p2 is not None and p2["birth_year"] == 1995
     assert "④-4" in caplog.text
     assert "1999" in caplog.text and "1995" in caplog.text
-    assert "拒绝" in caplog.text
+    assert "告警" in caplog.text
+    assert "拒绝" not in caplog.text
 
 
 def test_non_default_person_no_guard(tmp_path, caplog):

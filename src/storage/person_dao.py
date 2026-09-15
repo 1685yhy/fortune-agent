@@ -34,22 +34,19 @@ RELATION_VALUES = ("自己", "父母", "伴侣", "子女", "朋友", "其他")
 # 痕迹（YEAR_SHIFT_REJECT=False 保守版），「明示纠正句式」（对话上下文含
 # 不是/其实/更正 等）视为用户主动纠正 → 不告警。
 #
-# k48（2026-09-15，产品拍板"先问后写"）：升级为**拒绝写入**是唯一收口点。
-# 背景 = 用户实机反馈「档案被职场文本污染 → 同一会话两张盘」：offer 文本里的
-# 「各缴纳4.5%」被当 4 月 5 日写进档案（根因在提取器，见 handler k48 语境闸门），
-# 而写档案这一步**从不询问**。口径（用户已批准）：
-#   - 高置信出生语境（报年龄 / 我是X年X月X日生的）→ 上游照旧直接写；
-#   - 与既有档案**冲突**（年/月/日/城市不一致）且非明示纠正、非表单
-#     → 本守卫拒绝写入（调用方得到原样返回 + warning），
-#       上游 handler 在同一判定下回一句确认（_gen_birth_conflict_ask），
-#       用户确认后才写 —— **不再静默改档案**；
-#   - 明示纠正/表单哨兵永远豁免（不误伤真纠正）。
-# 判定实现唯一：`birth_conflict_fields`（本模块）——storage 拒绝与 handler
-# 询问同源，绝不新增第二套判定（k48 brief 同族收口要求）。
-# YEAR_SHIFT_REJECT=False 可一键退回 k19 的"仅告警"旧行为（应急开关）。
+# k48-r3（2026-09-15，**分层修正**）：存储层**恢复 k19 语义** ✓——只保留既有
+# 年份守卫（warn-only，差 > 2 且非明示纠正才告警；YEAR_SHIFT_REJECT=True 时
+# 拒绝，参数位保留），**不得新增任何拒绝/拦截**：存储层是被调用方，只接受
+# 显式写入，不做产品判定（"要不要先问用户"是对话层的事）。
+# 事故复盘：k48 首版把"先问后写"下沉到本层 → 开始拒绝**合法**写入（普通改
+# 城市 / 仅翻真太阳时开关 / 月日增补）→ 全量回归 8 条真回归（生产已回滚到
+# k46/47）。"先问后写"因此只留在对话层 `handler._handle_bazi`（提取→写档
+# 之间的判定点），且口径放宽为"显式出生陈述 → 直接写"。
+# `birth_conflict_fields`（本模块，纯谓词、无副作用）供对话层与年份守卫共用，
+# 保证"问"的判定与"年份告警"同源不漂移。
 # ────────────────────────────────────────────────────────────────────
 YEAR_SHIFT_MAX_GAP = 2
-YEAR_SHIFT_REJECT = True
+YEAR_SHIFT_REJECT = False
 
 # 明示纠正句式（对话路径判定；子串命中即视为纠正声明，宁可漏报不可误伤）
 _CORRECTION_MARKERS = (
@@ -77,31 +74,27 @@ def is_correction_text(text: str) -> bool:
     return any(m in t for m in _CORRECTION_MARKERS)
 
 
-# k48-r2 I-1②：完整生辰陈述（**年 + 月 + 日齐全** 且带出生语境词）。
-# 口径来源 = 产品 brief 原文「高置信出生语境（出生/生于/我是X年X月X日生的/
-# 报年龄）→ 仍**直接写**（保留"说一次就记住"的体验）」。用户把完整生辰一口气
-# 说全 = 高置信明示声明，与"明示纠正句式"同权：**月/日/城市**冲突不再询问；
-# 但**年份**仍由 k19 阈值（YEAR_SHIFT_MAX_GAP）守护——21:44 事故正是 4 年
-# 跳变，完整陈述不解除年份保护（保守边界，见 k48-r2 报告）。
-_COMPLETE_STATEMENT_DATE_RE = re.compile(
-    r'(?:\d{4}|[〇零一二三四五六七八九]{2,4})\s*年'
-    r'[^，。！？；;、\n]{0,8}?\d{1,2}\s*[月\-/.]\s*\d{1,2}\s*[日号]?')
-_COMPLETE_STATEMENT_CTX_RE = re.compile(
-    r'出生|生于|生的|日生|月生|生日|生辰|农历|阴历|公历|阳历|生人|命主')
+# k48-r3：**显式出生陈述**（对话层"先问后写"的豁免判据）——消息带明确出生
+# 语境词即视为用户主动在说某人的出生信息（含"我是农历腊月廿六出生的"这类
+# **不带年份的月日陈述**、报年龄、"1999年3月28日 早上十点 长春"等），
+# 一律**直接写 + 排盘**（恢复 k9_B1 行为：月日增补/覆写不得被问句挡下）。
+# 只有**零散/含混**（无任何出生语境词，或从非出生文本里抠出来的）才需要问。
+# 口径来源 = 产品 brief「高置信出生语境（出生/生于/我是X年X月X日生的/报年龄）
+# → 仍直接写（保留"说一次就记住"的体验）」。
+_BIRTH_CTX_WORD_RE = re.compile(
+    r'出生|生于|生的|日生|月生|生日|生辰|农历|阴历|公历|阳历|生人|命主|周岁|虚岁|\d{1,3}\s*岁')
 
 
-def is_complete_birth_statement(text: str) -> bool:
-    """消息是否为**完整生辰陈述**（年+月+日齐 + 出生语境；k48-r2 I-1②）。
+def is_explicit_birth_statement(text: str) -> bool:
+    """消息是否带**明确出生语境**（k48-r3：月日/城市冲突的豁免判据）。
 
-    与 `is_correction_text` 同族（本模块唯一的两类豁免判定）：命中即视为
-    用户主动、高置信地声明自己的生辰 → 月/日/城市不询问（年份仍守 k19）。
+    与 `is_correction_text` 同族（本模块仅有的两类出生豁免判定）。命中即
+    视为用户在主动陈述出生信息 → 对话层直接写+排盘，不弹确认问句。
     """
     t = str(text or "")
     if not t:
         return False
-    if not _COMPLETE_STATEMENT_CTX_RE.search(t):
-        return False
-    return bool(_COMPLETE_STATEMENT_DATE_RE.search(t))
+    return bool(_BIRTH_CTX_WORD_RE.search(t))
 
 
 def year_shift_exceeds(old_year, new_year, max_gap: int = YEAR_SHIFT_MAX_GAP) -> bool:
@@ -139,6 +132,8 @@ def birth_conflict_fields(existing: Optional[dict], new: Optional[dict],
     """
     if not isinstance(existing, dict) or not isinstance(new, dict):
         return []
+    if not existing:
+        return []
 
     def _get(d, name):
         """取字段：兼容 person 行命名（birth_*）与档案命名（year/month/day）。
@@ -158,9 +153,10 @@ def birth_conflict_fields(existing: Optional[dict], new: Optional[dict],
     # 年份冲突恒查（完整陈述也不解除 21:44 族的大差年份保护——k19 阈值）
     if year_shift_exceeds(_get(existing, "year"), _get(new, "year")):
         out.append("year")
-    # k48-r2 I-1②：完整生辰陈述（年+月+日齐+出生语境）= 高置信明示声明 →
-    # 月日/城市不再询问（只有零散/含混的冲突才走确认问句）。
-    if is_complete_birth_statement(ctx):
+    # k48-r3：显式出生语境陈述（含"我是农历腊月廿六出生的"这类不带年份的
+    # 月日陈述）→ 月日/城市不再询问（直接写+排盘）。只有零散/含混
+    # （无出生语境词、从非出生文本抠出）的冲突才走对话层确认问句。
+    if is_explicit_birth_statement(ctx):
         return out
     for name in ("month", "day", "city"):
         old_v, new_v = _get(existing, name), _get(new, name)
@@ -527,55 +523,39 @@ class PersonDAO:
     # ------------------------------------------------------------
 
     def _year_shift_guard(self, user_id: str, existing: Optional[dict],
-                          new_birth, birth_ctx: str = "") -> List[str]:
-        """④-4 出生信息一致性守卫（k19 立，k48 升级"先问后写"）。
+                          new_birth_year, birth_ctx: str = "") -> bool:
+        """④-4 年份守卫（k19 语义，k48-r3 恢复）：返回 True = 写入被拒绝。
 
-        返回**冲突字段名列表**（[] = 不冲突/不适用）并打告警日志；调用方按
-        场景决定处置（storage 只报冲突，不替调用方决定"整条拒绝"还是"逐字段
-        保留既有值"）：
-
-        - 仅默认命主行（非默认=家人/朋友档案，生日本就不同，不设限）；
-        - 冲突判定复用**唯一实现** `birth_conflict_fields`（年差 > 2 / 月日不一致
-          / 城市不一致，明示纠正与表单哨兵豁免）——storage 与 handler 询问同源，
-          避免两套判定漂移。
-
-        参数 new_birth 兼容两种形态：单个 birth_year（k19 旧调用）或
-        {"year"/"birth_year", "month"/"birth_month", ...} 整份出生 dict（k48）。
-        处置口径见 create_person（整条拒绝）/ update_person（冲突字段保留既有值）。
+        - existing 为默认命主且带既有 birth_year、新 year 与之差 > 2，
+          且上下文非明示纠正（is_correction_text）→ 触发；默认仅告警
+          （YEAR_SHIFT_REJECT=False）；参数位开拒绝时返回 True。
+        - 正常建档（无既有年份）/ 差 ≤ 2 / 明示纠正 / 表单显式提交 → 放行。
+        - **只看年份**（k48-r3 分层修正）：月日/城市等其余出生字段的冲突判定
+          属对话层"先问后写"（`birth_conflict_fields`），存储层不拦——存储层
+          是被调用方，永远接受显式写入。
         """
         if not existing or not existing.get("is_default"):
-            return []
-        if isinstance(new_birth, dict):
-            new_b = new_birth
-        else:
-            new_b = {"birth_year": new_birth}
-        conflict = birth_conflict_fields(existing, new_b, ctx=birth_ctx)
-        if not conflict:
-            return []
-        # k48-r2（守卫日志 PII）：**绝不记录写入上下文原文**——用户消息里可能
-        # 夹带住址/公司/薪资等隐私（对话原文属 PII，日志会外流到文件/采集）。
-        # 只留可审计的判定要素：冲突字段、前后出生值、上下文长度与豁免类别。
+            return False
+        if not year_shift_exceeds(existing.get("birth_year"), new_birth_year):
+            return False
+        if is_correction_text(birth_ctx):
+            # 明示纠正/表单显式 → 豁免（拒绝模式同样豁免，防误伤真纠正）
+            return False
+        gap = abs(int(existing.get("birth_year") or 0) - int(new_birth_year or 0))
+        reject = bool(YEAR_SHIFT_REJECT)
+        # k48-r2（守卫日志 PII）：不记录上下文原文（用户消息可能夹带住址/公司等
+        # 隐私）——只留可审计的判定要素：前后年份、差值、上下文长度与豁免类别。
         logger.warning(
-            "④-4 档案守卫拒绝：默认命主出生信息改写 %s → %s（冲突字段 %s）"
+            "④-4 年份守卫%s：默认命主出生年改写 %s → %s（差 %s 年 > %s）"
             "user=%s person=%s ctx_len=%s ctx_kind=%s",
-            {k: existing.get(k) for k in
-             ("birth_year", "birth_month", "birth_day", "city")},
-            {k: new_b.get(k) for k in ("birth_year", "birth_month", "birth_day",
-                                       "city", "year", "month", "day")},
-            ",".join(conflict), user_id,
+            "拒绝" if reject else "告警", existing.get("birth_year"),
+            new_birth_year, gap, YEAR_SHIFT_MAX_GAP, user_id,
             existing.get("name") or existing.get("id"),
             len(str(birth_ctx or "")),
             ("correction" if is_correction_text(birth_ctx) else
-             ("complete_statement" if is_complete_birth_statement(birth_ctx)
+             ("birth_statement" if is_explicit_birth_statement(birth_ctx)
               else "plain")))
-        return conflict
-
-    # 冲突字段名 → 需保留既有值的存储键（update_person 逐字段保留用）
-    _CONFLICT_TO_KEYS = {
-        "year": ("birth_year",),
-        "month_day": ("birth_month", "birth_day"),
-        "city": ("city",),
-    }
+        return reject
 
     def create_person(self, user_id: str, name: str, relation: str = "其他",
                       birth: Optional[dict] = None,
@@ -607,12 +587,9 @@ class PersonDAO:
                 "WHERE user_id = ? AND is_default = 1 ORDER BY id ASC LIMIT 1",
                 (user_id,)).fetchone()
             prev_row = self._row_to_person(prev_default) if prev_default else None
-            # k48：与既有默认命主出生信息冲突（且非明示纠正）→ **不顶替**
-            # （整条拒绝：替换默认命主=整份档案换人，不能只保留部分字段）。
-            # YEAR_SHIFT_REJECT=False 可退回 k19 的"仅告警、照建"旧行为。
-            if (self._year_shift_guard(user_id, prev_row, birth,
-                                       birth_ctx=birth_ctx)
-                    and YEAR_SHIFT_REJECT):
+            if self._year_shift_guard(user_id, prev_row,
+                                      (birth or {}).get("birth_year"),
+                                      birth_ctx=birth_ctx):
                 conn.close()
                 return prev_row or None
             conn.execute("UPDATE persons SET is_default=0 WHERE user_id=?",
@@ -692,15 +669,14 @@ class PersonDAO:
                 for k in BIRTH_KEYS:
                     nv = new_birth.get(k)
                     merged[k] = nv if nv is not None else existing.get(k)
-                # ④-4 档案守卫（k19 立，k48 升级"先问后写"）：与既有档案冲突的
-                # 出生字段**保留既有值**（不静默改写 = 用户实机两张盘的直接
-                # 成因），其余字段照写。逐字段（而非整条 return）是必须的——
-                # G1 性别纠正实测：整条回退会连带吞掉用户真纠正的性别双写
-                # （tests/test_g1_gender_contract.py 锁）。
-                for _f in self._year_shift_guard(user_id, existing, merged,
-                                                 birth_ctx=birth_ctx):
-                    for _k in self._CONFLICT_TO_KEYS.get(_f, ()):
-                        merged[_k] = existing.get(_k)
+                # ④-4 年份守卫（k19 语义，k48-r3 恢复）：默认命主行出生年大差
+                # 改写 → 默认仅告警日志（YEAR_SHIFT_REJECT=True 时拒绝整次写入
+                # 并返回原行）。月日/城市等字段写入**永不拦截**。
+                if self._year_shift_guard(user_id, existing,
+                                          merged.get("birth_year"),
+                                          birth_ctx=birth_ctx):
+                    conn.close()
+                    return existing
                 if merged.get("solar_time") != existing.get("solar_time"):
                     _solar_flipped = True
                 _birth_written = True

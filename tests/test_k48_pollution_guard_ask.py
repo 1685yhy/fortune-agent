@@ -223,26 +223,35 @@ def _h_bazi(**kw) -> MessageHandler:
 
 
 class TestAskBeforeWrite:
+    """k48-r3 分层口径（对话层"先问后写"）：
+
+    - **无出生语境的零散/含混**冲突 → 问（本类主用例）；
+    - **显式出生陈述**（带 出生/生的/农历… 等语境词，含不带年份的月日陈述）
+      → 直接写 + 排盘（见 TestExplicitStatementWritesDirectly，k9_B1 行为）；
+    - **年份大差**冲突恒问（k19 阈值，与 B3-1 规则3 同源）；
+    - 存储层不参与判定（`person_dao` 恢复 k19 语义，见 TestStorageKeepsK19）。
+    """
+
     def test_conflict_month_day_asks_and_does_not_chart(self):
-        """冲突且非明示 → 必被问且**不写不排**（用户档案 1990-05-20，
-        消息只说 3月8日 —— 正是污染写档的形态）。"""
+        """无出生语境的零散月日冲突 → 必被问且**不写不排**（用户档案
+        1990-05-20，消息只说「3月8日」——正是从非出生文本抠出月日的形态）。"""
         h = _h_bazi()
-        out = h._handle_bazi("我是3月8日出生的，帮我看看今年的运势", "u1")
+        out = h._handle_bazi("帮我排个盘，3月8日", "u1")
         h._gen_birth_conflict_ask.assert_called_once()
         h._do_bazi_analysis.assert_not_called()
         assert out == "您刚说的和档案不一致，先确认一下？"
 
     def test_conflict_year_asks(self):
-        """年份冲突（既有行为保留）：档案 1990，消息 1995 → 问一句。"""
+        """年份冲突（既有行为保留，B3-1 规则3）：档案 1990，消息 1995 → 问一句。"""
         h = _h_bazi()
         h._handle_bazi("我是1995年3月8日出生的", "u1")
         h._gen_birth_conflict_ask.assert_called_once()
         h._do_bazi_analysis.assert_not_called()
 
     def test_conflict_city_asks(self):
-        """城市冲突同属"不一致"（新值 vs 已存城市）→ 问一句。"""
+        """无出生语境的零散城市冲突（新值 vs 已存城市）→ 问一句。"""
         h = _h_bazi()
-        h._handle_bazi("我出生在广州市", "u1")
+        h._handle_bazi("帮我排个盘，广州", "u1")
         h._gen_birth_conflict_ask.assert_called_once()
         h._do_bazi_analysis.assert_not_called()
 
@@ -360,7 +369,7 @@ class TestC1GateFormIsOnCandidateNotMessage:
         assert info is not None and info[:3] == (1990, 5, 20), info
 
     def test_i2_bogus_candidate_must_not_swallow_real_one(self):
-        """I-2 家族：`1985.3.28 出生 男` 的首个正则候选在无 `(?<!\d)` 时是
+        r"""I-2 家族：`1985.3.28 出生 男` 的首个正则候选在无 `(?<!\d)` 时是
         `85.3`（month=85 无效）——若它把后面的 `3.28` 一起消耗掉，整条月日
         就丢了（改前实测）。现在候选须**同时**过闸门与合法月日校验。"""
         h = make_handler()
@@ -407,10 +416,30 @@ class TestI1ConfirmCanBeAnswered:
         args = h._do_bazi_analysis.call_args[0]
         assert (args[1], args[2], args[6]) == (5, 20, "女"), args[:7]
 
-    def test_fragment_conflict_still_asks(self):
-        """反向：零散冲突（只给月日，无年份）**仍要问**（本项要保的行为）。"""
+    def test_explicit_lunar_md_statement_writes_directly(self):
+        """k9_B1 行为恢复（r3 全量回归实锤的回归点）：档案 solar 1990-05-20 +
+        「**我是农历腊月廿六出生的**」（不带年份的月日陈述，带出生语境）→
+        **直接写 + 排盘**，绝不被确认问句挡下。"""
+        h = _h_bazi()
+        h._handle_bazi("我是农历腊月廿六出生的", "u9")
+        h._gen_birth_conflict_ask.assert_not_called()
+        h._do_bazi_analysis.assert_called_once()
+        args = h._do_bazi_analysis.call_args[0]
+        # 引擎收**公历**（R2-6 单点转换）：原值 1990-12-26（lunar）→ 1991-02-10
+        assert (args[0], args[1], args[2]) == (1991, 2, 10), args[:5]
+
+    def test_explicit_md_statement_writes_directly(self):
+        """同上：带出生语境的月日陈述「我是3月8日出生的」→ 直接写（显式陈述
+        的口径 = **有出生语境词**，不要求年份齐全）。"""
         h = _h_bazi()
         h._handle_bazi("我是3月8日出生的", "u9")
+        h._gen_birth_conflict_ask.assert_not_called()
+        assert h._do_bazi_analysis.call_args[0][1:3] == (3, 8)
+
+    def test_fragment_conflict_still_asks(self):
+        """反向：**无出生语境**的零散月日冲突**仍要问**（本项要保的行为）。"""
+        h = _h_bazi()
+        h._handle_bazi("帮我排个盘，3月8日", "u9")
         h._gen_birth_conflict_ask.assert_called_once()
         h._do_bazi_analysis.assert_not_called()
 
@@ -426,7 +455,7 @@ class TestI1ConfirmCanBeAnswered:
     def test_pending_confirm_applies_and_charts(self):
         """① 确认可承接：问句发出后回「确认」→ 应用待更新值并排盘（不再循环）。"""
         h = _h_bazi()
-        h._handle_bazi("我是3月8日出生的", "u9")     # 零散 → 问
+        h._handle_bazi("帮我排个盘，3月8日", "u9")   # 无出生语境 → 问
         h._gen_birth_conflict_ask.assert_called_once()
         h._do_bazi_analysis.reset_mock()
         h._handle_bazi("确认", "u9")                 # 承接
@@ -437,7 +466,7 @@ class TestI1ConfirmCanBeAnswered:
     def test_pending_archive_choice_charts_with_archive(self):
         """① 反向：回「按档案」→ 用档案排（既有语义），且待更新值作废。"""
         h = _h_bazi()
-        h._handle_bazi("我是3月8日出生的", "u9")
+        h._handle_bazi("帮我排个盘，3月8日", "u9")
         h._do_bazi_analysis.reset_mock()
         h._handle_bazi("按档案", "u9")
         h._do_bazi_analysis.assert_called_once()
@@ -447,7 +476,7 @@ class TestI1ConfirmCanBeAnswered:
     def test_pending_stale_dropped_on_unrelated_message(self):
         """① 反向：待更新值不得跨轮误伤——用户改说别的（非确认词）→ 作废。"""
         h = _h_bazi()
-        h._handle_bazi("我是3月8日出生的", "u9")
+        h._handle_bazi("帮我排个盘，3月8日", "u9")
         h._do_bazi_analysis.reset_mock()
         h._handle_bazi("我出生时辰是上午11点", "u9")   # 非确认词 → 正常叠加
         h._do_bazi_analysis.assert_called_once()
@@ -519,14 +548,14 @@ class TestMinorGuardAndPII:
         assert _violations("跟着我买，保证收益翻倍，请警惕风险。")
 
     def test_guard_log_has_no_raw_message(self, tmp_path, caplog):
-        """守卫日志新增 PII：确认/拒绝日志**不得含原文片段**。"""
+        """守卫日志 PII：年份告警日志**不得含原文片段**（只记 ctx_len/ctx_kind）。"""
         from src.storage.person_dao import PersonDAO
         pdao = PersonDAO(str(tmp_path / "u.db"))
         _mk_default(pdao)
         p = pdao.list_persons("u1")[0]
         secret = "我住在北京市朝阳区某小区3号楼501"
         with caplog.at_level(logging.WARNING, logger="src.storage.person_dao"):
-            pdao.update_person("u1", p["id"], birth={"city": "广州"},
+            pdao.update_person("u1", p["id"], birth={"birth_year": 1995},
                                birth_ctx=secret)
         assert "④-4" in caplog.text
         assert secret[:8] not in caplog.text, "日志含原文片段（PII）"
@@ -551,27 +580,50 @@ def _mk_default(pdao, user_id="u1", **over):
                               is_default=True, birth=b)
 
 
-class TestStorageBackstopNoSilentWrite:
-    """任何绕过对话层询问的写入，只要与既有档案冲突且非明示纠正，一律拦下
-    （档案绝不被静默改写——用户实机两张盘的直接成因）。"""
+class TestStorageKeepsK19:
+    """k48-r3 分层修正：**存储层恢复 k19 语义**——只有年份守卫（warn-only +
+    明示/表单豁免），**不新增任何拒绝/拦截**。存储层是被调用方，永远接受
+    显式写入；"要不要先问用户"是对话层 `handler._handle_bazi` 的事。
 
-    def test_month_day_conflict_blocked(self, tmp_path):
-        """污染形态：既有 1990-05-20，新写入 1990-03-08（非明示）→ 不写。"""
+    事故复盘（k48 首版把"先问后写"下沉到本层）：开始拒绝**合法**写入
+    （普通改城市 / 仅翻真太阳时开关 / 月日增补）→ 全量回归 8 条真回归。"""
+
+    def test_month_day_update_writes(self, tmp_path):
+        """合法月日更新（含无出生语境的普通写入）→ **照写**。"""
         pdao = PersonDAO(str(tmp_path / "u.db"))
         p = _mk_default(pdao)
         back = pdao.update_person("u1", p["id"],
                                   birth={"birth_month": 3, "birth_day": 8},
-                                  birth_ctx="我是3月8日出生的")
-        assert (back["birth_month"], back["birth_day"]) == (5, 20)
-        assert pdao.get_person("u1", p["id"])["birth_month"] == 5
+                                  birth_ctx="帮我排个盘，3月8日")
+        assert (back["birth_month"], back["birth_day"]) == (3, 8)
+        assert pdao.get_person("u1", p["id"])["birth_month"] == 3
 
-    def test_city_conflict_blocked(self, tmp_path):
-        """城市冲突（新值 vs 已存城市）→ 不写。"""
+    def test_city_update_writes(self, tmp_path):
+        """普通改城市（k11c/常规档案维护）→ **照写**，存储层不拦。"""
         pdao = PersonDAO(str(tmp_path / "u.db"))
         p = _mk_default(pdao)
-        back = pdao.update_person("u1", p["id"], birth={"city": "广州市"},
-                                  birth_ctx="我出生在广州市")
-        assert back["city"] == "北京"
+        back = pdao.update_person("u1", p["id"], birth={"city": "广州市"})
+        assert back["city"] == "广州市"
+
+    def test_solar_time_flip_writes(self, tmp_path):
+        """仅翻真太阳时开关（k11c 实测回归）→ **照写**（birth_enc 全量替换
+        含既有 city，不得因"城市未变"类判据被拦）。"""
+        pdao = PersonDAO(str(tmp_path / "u.db"))
+        p = _mk_default(pdao, solar_time=1)
+        back = pdao.update_person("u1", p["id"], birth={"solar_time": 0},
+                                  birth_ctx="")
+        assert back["solar_time"] == 0
+        assert back["city"] == "北京", "翻开关不得丢既有字段"
+
+    def test_year_guard_warn_only_writes(self, tmp_path, caplog):
+        """年份大差（>2，非明示）→ k19 语义 = **告警但照写**（绝不拒绝）。"""
+        pdao = PersonDAO(str(tmp_path / "u.db"))
+        p = _mk_default(pdao)
+        with caplog.at_level(logging.WARNING, logger="src.storage.person_dao"):
+            back = pdao.update_person("u1", p["id"], birth={"birth_year": 1995})
+        assert back["birth_year"] == 1995, "存储层不得拦截合法写入"
+        assert "④-4" in caplog.text and "告警" in caplog.text
+        assert "拒绝" not in caplog.text
 
     def test_explicit_correction_writes(self, tmp_path):
         """明示纠正句式 → 直接写（左移不误伤真纠正）。"""
