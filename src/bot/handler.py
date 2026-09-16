@@ -1,4 +1,5 @@
 """消息处理 - 意图识别和信息收集."""
+import functools
 import json
 import logging
 import os
@@ -841,6 +842,22 @@ def _parse_cn_num(s):
         return _CN_NUMS[s]
     return None
 
+# k49：中文月日正则提为模块常量——`_parse_cn_month_day`（解析）与
+# `_numeric_date_looks_like_birth` 判据**同一正则**，不另起一套。
+_CN_MD_RE = re.compile(
+    r'(闰)?(正月|一月|二月|三月|四月|五月|六月|七月|八月|九月|十月|'
+    r'冬月|十一月|腊月|十二月|'
+    r'正|一|二|三|四|五|六|七|八|九|十|冬|腊)'
+    r'\s*月\s*'
+    r'(初[一二三四五六七八九十]|'
+    r'[一二二两三三四四五五六六七七八八九九]?十[一二三四五六七八九]?|'
+    r'二十|廿[一二三四五六七八九]?|三十|卅十?|'
+    r'零[一二三四五六七八九]|'
+    r'[一二三四五六七八九]|\d{1,2})'
+    r'\s*[日号]?'
+)
+
+
 def _parse_cn_month_day(text):
     """Try to parse Chinese lunar date like 三月初三, 六月十八, 冬月十一, 腊月廿五.
 
@@ -849,19 +866,7 @@ def _parse_cn_month_day(text):
     - 阿拉伯数字日：三月28、三月初3、三月28日
     - 闰月：闰三月28 → 返回负月（-3），调用方按 lunar-python 闰月口径转阳历
     Returns (month, day) or None；month 为负表示闰月。"""
-    m = re.search(
-        r'(闰)?(正月|一月|二月|三月|四月|五月|六月|七月|八月|九月|十月|'
-        r'冬月|十一月|腊月|十二月|'
-        r'正|一|二|三|四|五|六|七|八|九|十|冬|腊)'
-        r'\s*月\s*'
-        r'(初[一二三四五六七八九十]|'
-        r'[一二二两三三四四五五六六七七八八九九]?十[一二三四五六七八九]?|'
-        r'二十|廿[一二三四五六七八九]?|三十|卅十?|'
-        r'零[一二三四五六七八九]|'
-        r'[一二三四五六七八九]|\d{1,2})'
-        r'\s*[日号]?',
-        text
-    )
+    m = _CN_MD_RE.search(text)
     if m:
         month_str = m.group(2)
         day_str = m.group(3)
@@ -985,7 +990,7 @@ def _in_paren_span(msg: str, pos: int) -> bool:
 
 
 def _valid_month_day(m) -> bool:
-    """候选月日是否落在合法范围（1-12 月 / 1-31 日）——I-2 候选遍历用。
+    r"""候选月日是否落在合法范围（1-12 月 / 1-31 日）——I-2 候选遍历用。
 
     `1985.3.28` 的首个正则候选是无 `(?<!\d)` 时的 `85.3`：它过了闸门形态
     检查（附近有"出生"）却 month=85 无效，若不在这里淘汰就会把后面**真的**
@@ -1001,42 +1006,417 @@ def _valid_month_day(m) -> bool:
 # ③-d：形态含混的候选（裸 `4.5` / `11.20` / `5/20` / `8-15`）必须**候选附近**
 # 有出生语境才取——语境词必须紧邻候选（±6 字），不是"整条消息里有就行"：
 # `我1999年生的，offer给4.5k` 里的 "生的" 距候选 >6 字 → 不构成放行。
-_BIRTH_CTX_NEAR_RE = re.compile(r'出生|生于|生的|生日|生辰|生人|命主')
+# k49：邻近判据收敛到 person_dao 的 `birth_ctx_near`（**唯一实现**，红线：
+# 判定单一），本模块不再自带正则——"同一小句"硬约束（`我1999年生的，视力4.5`
+# 的"生的"跨逗号 → 不算邻近）由彼处统一裁决。
+_MD_CAND_RE = re.compile(r'(?<!\d)(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?')
+
+# ── k49-r3：非出生谓语（日期紧后挂着"生活事件"）→ 不是生辰（R2-1 起，r3 补词族）─
+# brief D 的婚期形态与真陈述**只差日期之后那截谓语**：
+#   `我出生在长春，1991年7月8日`      （真陈述 → 建档出盘）
+#   `我出生在长春，1991年7月8日结的婚`（婚期 → 不得写成生辰）
+# 二者的"出生"都在前一小句、距日期**同样 9 字**——距离/语境相邻分不开它们，
+# 故按**日期上挂着什么谓语**判：婚/考试/出差/面试/述职… = 生活事件日 ≠ 生辰。
+# 只认**紧贴日期之后**（≤12 字）的谓语、锚定匹配（不全文搜索，防远处词误伤
+# 真陈述），并先剥 `的/了/着/过`（`结的婚`=`结婚`）。
+# r3（R3-3）：按**构成规则**补齐词族，不再零散加词——
+#   「(助动/量词前缀)* + 事件名词」：前缀含 要/去/办/摆/开/领/订/过/有/个/次/场…
+#   名词含 婚/婚礼/领结婚证/酒席/喜酒/喜宴/答谢宴/开席/喜事/嫁人/娶媳妇…
+# 实测覆盖：审查给的 22 条婚期形态（r2 只拦 10 条）+ Minor-2 的量词形态。
+# **单字条目规则（k49-r4，实测教训）**：事件名词表**不收单字**，除非该字没有
+# 常见"非事件"构词。r3 的 `酒`/`席`/`考` 三个单字条目会前缀误伤地名/品牌/普通
+# 名词（实测误伤：`酒泉`/`酒泉市`/`酒店`/`酒家`/`酒泉出生`/`在酒泉市人民医院出生`/
+# `的酒泉出生证`/`席家村`/`席梦思`/`席`）——`我1991年7月8日在酒泉市人民医院出生`
+# 被整条判成"事件日"，连小句里的"出生"都救不回来。已换成**多字词形**
+#（`酒席/喜酒/喜宴/摆酒/办酒/喝酒/吃酒`、`开席/宴席/席面/摆席/坐席`、
+#  `考试/考上/考场/考研/考公`），覆盖面不减（22 条婚期形态全绿）。
+# 保留的单字只有 `嫁`/`娶`：二者无常见非事件构词（嫁人/嫁妆/娶亲/娶媳妇），
+# 且 `嫁到长春`/`娶亲` 必须拦（审查点名的"应拦"形态）。**单字白名单 = {"嫁","娶"}**
+#（测试 `test_no_unlisted_single_char_nouns` 结构性锁死，新增单字必须先在报告说明）。
+_EVENT_SINGLE_CHAR_WHITELIST = ("嫁", "娶")
+_EVENT_TAIL_RE = re.compile(
+    r'^[的了着过\s，,。;；:：、]*'
+    r'(?:(?:要|去|得|准备|打算|计划|安排|参加|出席|举行|举办|办|摆|开|领|订|'
+    r'过|吃|喝|有|在|被|把|约|定|赶|回|来|给|帮|和|跟|同|陪|请|想|会|能|'
+    r'需要|开始|继续|个|次|场|位|回|件|顿|台|部|期)\s*)*'
+    r'(?:领结婚证|结婚证|结婚纪念日|结婚|婚事|婚礼|婚宴|婚庆|订婚|离婚|领证|'
+    r'登记|答谢宴|喜宴|喜酒|酒席|宴席|宴会|席面|开席|摆席|坐席|喜事|嫁人|嫁|'
+    r'娶媳妇|娶|出嫁|成家|摆酒|办酒|喝酒|吃酒|'
+    r'考试|考上|考场|考研|考公|面试|笔试|体检|出差|述职|汇报|答辩|旅游|旅行|'
+    r'出行|搬家|乔迁|入职|离职|跳槽|开会|会议|聚餐|聚会|宴请|请客|签约|签合同|'
+    r'合同|交房|交租|交房租|房租|还款|还贷|付款|缴费|过户|上线|发布|交付|'
+    r'投产|开张|开业|放假|休假|请假|加班|值班|比赛|演出|彩排|拍摄|采访|直播|'
+    r'上课|培训|报到|入学|毕业|年检|审核|评审)'
+)
+
+
+def _event_tail_matches(tail: str) -> bool:
+    """日期之后紧贴的是不是**生活事件谓语**（k49-r3，D 的婚期判据）。
+
+    先把 `的/了/着/过` 剥离再锚定匹配——`结的婚`/`办的喜酒` 与 `结婚`/`办喜酒`
+    同判（用户口语形态）；`生的`/`出生` 不命中任何事件词（真陈述零误伤）。
+    """
+    return bool(_EVENT_TAIL_RE.match(re.sub(r'[的了着过]', '', str(tail)[:12])))
+
+
+def _birth_word_leads(tail: str) -> bool:
+    """日期紧后**先**出现出生语境词（`出生`/`生的`/`生日`/`农历`…）→ 生辰陈述。
+
+    k49-r4：把"出生语境优先于事件词"写成**显式**规则（r3 只是靠"事件词必须
+    紧贴日期开头"的副作用实现——一旦某个事件词能与紧后的出生词前缀撞上就会
+    失效）。词表复用 `person_dao._BIRTH_CTX_NEAR_WORD_RE`（单一事实源），
+    锚定在尾串起点（先跳过 `的/了/着/过/语气/标点`）。
+    """
+    try:
+        from src.storage.person_dao import _BIRTH_CTX_NEAR_WORD_RE
+    except Exception:            # noqa: BLE001 — 词表不可用 → 不启用 shield
+        return False
+    t = re.sub(r'^[的了着过\s，,。;；:：、]+', '', str(tail or ""))
+    return bool(_BIRTH_CTX_NEAR_WORD_RE.match(t))
+
+
+@functools.lru_cache(maxsize=256)
+def _fn_supports_kw(fn, kw_name: str) -> bool:
+    """函数是否接受某关键字形参（k49 A 上下文注入兼容探测）。
+
+    `lru_cache(maxsize=256)` 有界（R2-4：r1 的无上限类级 dict 在测试/多实例
+    场景下随 lambda 数量增长）——键是函数对象，容量封顶即自然淘汰。
+    """
+    try:
+        import inspect
+        _params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    return (kw_name in _params
+            or any(p.kind == p.VAR_KEYWORD for p in _params.values()))
+
+
+# ── k49-r3：否定/纠正句式取**被肯定**的值（R2-3 起，r3 修判反与"合成体"）──
+# 现象：`我不是1995年生的，是1999年生的` → 档案被写成 1995（取首个年份命中，
+# 恰好是被否定的那个）；base 与本分支逐字相同（既有缺陷，同族一并修）。
+# r2 的"否定词左侧 6 字内优先"在中文 `A，不是B`（否定词在 B 前、左侧恰有 A）
+# 判反 → 把被否认的值写进档案（R3-1 Critical），r3 重写为**两侧分明 + 成分同源**：
+#   ① 否定目标**优先右侧**：标记紧后到候选之间**无断句标点**时，否定最近的右侧
+#      日期组（`我不是1995年…` 间隙空 ✓；`A，不是1995年` 间隙空 ✓）；
+#   ② 否则回落**左侧**最近的日期组（`我1995年生的？不是，我1999年生的`——
+#      "不是"到 1999 之间隔了 `，` → 撤回左侧的 1995 ✓）；
+#   ③ **成分同源（日期组）**：`1999年5月20日` 这种"年+紧邻月日"算**一组**，否定
+#      按组裁决——年与月日绝不会被拆到两个小句各取一半（r2 的合成体
+#      `1999-03-08` 即此洞：年取肯定小句、月日取被否定小句）；
+#   ④ 全部组都被否定 / 无否定 / 非明示纠正句式 → 回落**基线首命中**口径
+#      （保守失败：绝不因新逻辑丢值或写被否认的值）。
+# 判据族仍是 `person_dao.is_correction_text`（k19/k48 同源）。
+_NEGATION_MARKERS = ("不是", "不对", "不算", "并非", "没是", "错了", "弄错",
+                     "说错", "记错", "填错", "写错", "不对的")
+_NEGATION_WINDOW = 6
+# 日期组内"年 → 月日"允许的最大空隙（`1999年5月20日`=0、`1999年 5月20日`=1）
+_DATE_GROUP_GAP = 2
+_CLAUSE_SEP_RE = re.compile(r'[，,。.！!？?；;、\n：:]')
+
+
+def _date_groups(msg: str, year_matches, md_matches) -> list:
+    """把"年 + 紧邻月日"并为**同一日期组**（成分同源的最小单位）。
+
+    返回 [{"span": (s, e), "y": year_match|None, "m": md_match|None}, …]，按位置
+    排序。合并条件：前一组已有年、尚无月日，当前命中是月日，且两者之间空隙
+    ≤ `_DATE_GROUP_GAP` 且**不含断句标点**（`1999年5月20日` 并组；
+    `我1976年生的，5月13日` 不并组——分步口述的年/月日本就分属两句）。
+    """
+    items = ([("y", m) for m in (year_matches or [])]
+             + [("m", m) for m in (md_matches or [])])
+    items.sort(key=lambda kv: kv[1].start())
+    groups: list = []
+    for kind, m in items:
+        if groups:
+            g = groups[-1]
+            gap = msg[g["span"][1]:m.start()]
+            if (kind == "m" and g["y"] is not None and g["m"] is None
+                    and len(gap) <= _DATE_GROUP_GAP
+                    and not _CLAUSE_SEP_RE.search(gap)):
+                g["m"] = m
+                g["span"] = (g["span"][0], m.end())
+                continue
+        groups.append({"span": m.span(),
+                       "y": m if kind == "y" else None,
+                       "m": m if kind == "m" else None})
+    return groups
+
+
+def _negated_group_ids(msg: str, groups) -> set:
+    """被否定的日期组下标集合（两侧分明：右侧优先且须无标点，否则回落左侧）。"""
+    negated: set = set()
+    if not groups:
+        return negated
+    for _mk in re.finditer("|".join(_NEGATION_MARKERS), msg or ""):
+        _right = [(_g["span"][0] - _mk.end(), _i)
+                  for _i, _g in enumerate(groups)
+                  if _g["span"][0] >= _mk.end()
+                  and _g["span"][0] - _mk.end() <= _NEGATION_WINDOW
+                  and not _CLAUSE_SEP_RE.search(msg[_mk.end():_g["span"][0]])]
+        if _right:
+            negated.add(min(_right)[1])
+            continue
+        _left = [(abs(_mk.start() - _g["span"][1]), _i)
+                 for _i, _g in enumerate(groups)
+                 if _g["span"][1] <= _mk.start()
+                 and _mk.start() - _g["span"][1] <= _NEGATION_WINDOW]
+        if _left:
+            negated.add(min(_left)[1])
+    return negated
+
+
+def _affirmed_pick(msg: str, year_matches, md_matches):
+    """取**被肯定**的年/月日命中（同源成组）。
+
+    返回 (applied, year_match|None, md_match|None)：
+    - applied=False → 调用方走**基线首命中**口径（非纠正消息 / 无否定 / 全被否定）；
+    - applied=True → 用返回的命中（None = 该项无被肯定值，调用方据此放弃该项，
+      绝不回退去写被否定的值）。
+    """
+    if not (year_matches or md_matches):
+        return False, None, None
+    try:
+        from src.storage.person_dao import is_correction_text
+    except Exception:            # noqa: BLE001 — 判据不可用 → 基线口径
+        return False, None, None
+    if not is_correction_text(msg):
+        return False, None, None
+    groups = _date_groups(msg, year_matches, md_matches)
+    negated = _negated_group_ids(msg, groups)
+    if not negated or len(negated) == len(groups):
+        return False, None, None
+    _y = next((g["y"] for i, g in enumerate(groups)
+               if i not in negated and g["y"] is not None), None)
+    _m = next((g["m"] for i, g in enumerate(groups)
+               if i not in negated and g["m"] is not None), None)
+    return True, _y, _m
+
+
+# ── k49-r3：F2 会话式应答的**一致剥离规则**（R2-1 起，r3 补全词类）──────
+# 总原则（一条规则，不再零散加词）：**"出生信息自带成分"与"对出生信息的会话式
+# 应答"都不算'别的内容'**——把它们全部剥离后**仍有残留**，才判"这条消息不是在
+# 报生辰"。七个成分类（每类都是"用户报生辰时会一起说出来的东西"）：
+#   ① 时间/钟点/时辰类：数字（ASCII/中文）、点/时/分/刻/钟、时辰字+时、时段词
+#      （凌晨/早上/…/半夜）、模糊词（左右/大概/大约/约/前后/以后/之前…）
+#   ② 相对年/年龄短语：今年/去年/明年/前年/后年/现在/已经/都/满
+#   ③ 地点类：既有城市库（`COMMON_CITIES` + `CITY_LONGLAT`，含 市/省 后缀）
+#   ④ 性别类：男/女 + 口语词族（男孩子/女生/…）
+#   ⑤ 出生语境类：出生/生于/生的/生日/生辰/生人/命主/农历/阴历/公历/阳历/公元/
+#      周岁/虚岁/岁 —— 出生信息自身的措辞
+#   ⑥ 排盘请求类：`person_dao._CHART_INTENT_WORD_RE`（排盘/排个盘/看盘/命盘/
+#      起盘/盘面/八字/紫微/斗数）——**单一事实源复用**，不再另抄一份词表
+#   ⑦ 会话应答类：请求/礼貌词（帮我/麻烦/谢谢/看看/算算/一下…）+ 确认词
+#      （没错/应该/对的/好的/好的/行/嗯/哦/我确定/确定/就是…）+ 忘记/不确定类
+#      （忘了/忘记/记不清/不记得/不定/不清楚/不确定/具体/时间/时辰）
+# 反向（**刻意不剥**，剥掉就会把 8 条误报消息重新放进来）：事件谓语与叙述连接
+#   词 —— `要去出差`/`妇女节快乐`/`有个面试`/`国庆想去旅游`/`要交房租`/`我朋友
+#   结婚`/`要述职`/`考试`；连接词 `还有`/`和`/`跟`；`可以`（"5月13日可以"是
+#   对日程的同意，不是报生辰——r2 已声明的选边，r3 保持）
+_BARE_MD_TIME_RE = re.compile(
+    r'[0-9０-９:：]+'
+    r'|[〇零一二三四五六七八九十两]{1,4}'
+    r'|凌晨|清晨|早晨|早上|上午|中午|正午|下午|傍晚|黄昏|晚上|夜里|夜间|半夜'
+    r'|左右|前后|大概|大约|约|以后|之后|以前|之前|以来|之间'
+    r'|[子丑寅卯辰巳午未申酉戌亥]\s*时'
+    r'|今年|去年|明年|前年|后年|现在|已经|都|满'
+    r'|点|时|分|刻|钟|整|多|半|初|末')
+
+# ⑦ 会话应答类（确认/请求/忘记）——审查 R3-2 点名的会话式应答形态
+_BARE_MD_REPLY_TOKENS = (
+    "帮我", "帮忙", "麻烦", "谢谢", "多谢", "感谢", "看看", "算算", "一下",
+    "给我", "请问", "请",
+    "没错的", "没错", "应该没错", "应该", "对的", "对", "是的", "是", "好的",
+    "好", "行的", "行", "嗯", "哦", "就是", "正是", "确定", "我确定", "肯定",
+    "忘了", "忘记", "记不清", "记不得", "不记得", "记不住", "想不起来",
+    "不确定", "不清楚", "不定", "具体", "时间", "时辰",
+    "这天", "那天", "该天",
+)
+# ④ 性别类 + ⑤ 出生语境类 + 语气/代词/系词（长词优先）
+_BARE_MD_FILLER = (
+    "帮我", "我", "你", "他", "她", "请", "是", "的", "了", "呢", "啊", "吧",
+    "哦", "嗯", "嘛", "就", "那", "这", "个", "呀", "啦", "对", "好像", "似乎",
+    "补充", "填", "写", "记", "报", "说", "来", "在", "于",
+    # 性别（口语词族，与 `_has_self_gender_word` 同源；长词优先）
+    "性别男", "性别女", "男孩子", "女孩子", "男生", "女生", "男的", "女的",
+    "男孩", "女孩", "男", "女",
+    # 出生语境词（本就是"这是出生信息"的证据，不构成"别的内容"）
+    "出生", "生于", "生的", "日生", "月生", "生日", "生辰", "生人", "命主",
+    "农历", "阴历", "旧历", "公历", "阳历", "公元", "周岁", "虚岁", "岁",
+) + _BARE_MD_REPLY_TOKENS
+_BARE_MD_IGNORE_RE = re.compile(r'[\s，,。.；;、！!？?~～:：\'"“”「」（）()\[\]{}]')
+
+_CITY_TOKEN_CACHE: list = []
+
+
+def _known_city_tokens() -> list:
+    """已知城市名（含 市/省 后缀）——"整条消息只有日期"判据里地点不算内容。"""
+    if _CITY_TOKEN_CACHE:
+        return _CITY_TOKEN_CACHE
+    names = set(MessageHandler.COMMON_CITIES)
+    try:
+        from src.engines.bazi import CITY_LONGLAT
+        names.update(CITY_LONGLAT.keys())
+    except Exception:            # noqa: BLE001 — 城市库不可用则只用对话城市库
+        pass
+    toks = {n for n in names if len(str(n)) >= 2}
+    toks.update(n + suf for n in names for suf in ("市", "省"))
+    _CITY_TOKEN_CACHE.extend(sorted(toks, key=len, reverse=True))
+    return _CITY_TOKEN_CACHE
+
+
+def _msg_is_bare_month_day(msg: str, m) -> bool:
+    """整条消息是否**只有**这个日期（七个成分类剥离后无残留才算）。
+
+    见上方"一致剥离规则"——判据本身只有这一条：剥离出生信息自带成分与会话式
+    应答后还有别的叙述（`要去出差`/`妇女节快乐`/`有个面试`）→ 不是在报生辰。
+    """
+    residue = msg[:m.start()] + msg[m.end():]
+    # 顺序要紧：**先按词剥**（排盘请求 / 会话应答 / 城市），**再**跑数字与时间
+    # 正则——正则里的中文数字类（`[〇零一二三四五六七八九十两]{1,4}`）会把词里
+    # 的数字吃掉（实测：`看看八字` 的"八"被当数字剥 → 残留"看看字" → 误判非
+    # 生辰）。词级剥离精确、优先执行。
+    try:                          # ⑥ 排盘请求类：单一事实源（person_dao 词表）
+        from src.storage.person_dao import _CHART_INTENT_WORD_RE
+        residue = _CHART_INTENT_WORD_RE.sub('', residue)
+    except Exception:             # noqa: BLE001 — 词表不可用则该类不剥
+        pass
+    for _w in sorted(_BARE_MD_FILLER, key=len, reverse=True):
+        residue = residue.replace(_w, "")
+    for _c in _known_city_tokens():
+        if _c in residue:
+            residue = residue.replace(_c, "")
+    residue = _BARE_MD_TIME_RE.sub('', residue)
+    residue = _BARE_MD_IGNORE_RE.sub('', residue)
+    residue = (residue.replace("年", "").replace("月", "")
+               .replace("日", "").replace("号", ""))
+    return not residue.strip()
 
 
 def _numeric_date_looks_like_birth(msg: str, m) -> bool:
-    """数字月日命中片段是否"像出生日期"（k48 闸门①+③）。
+    r"""数字月日命中片段是否"像出生日期"（k48 闸门 + k49/k49-r2 语境与谓语口径）。
 
-    审查（k48-r2 C-1）修正：原 ③ 用**整条消息**判据（`\\d{4}\\s*年`）——
-    全量提取器本就强制要求 4 位年份 ⇒ ③ 恒真、实际只剩①黑名单在挡，
-    `我1999年生的，offer给4.5k` / `房租4.5千` 仍被当生辰。现改为对**候选
-    本身**的形态要求 + 候选附近的出生语境：
+    k48-r2 C-1：原判据用**整条消息**（`\d{4}\s*年` 恒真）→ 只剩①黑名单在挡，
+    `我1999年生的，offer给4.5k` / `房租4.5千` 仍被当生辰。现按**候选本身**判：
 
-    ① 第二道黑名单：紧邻比例/金额/计量/薪资单位（`4.5%`、`20000元`、`4.5k`、
-       `4.5小时`）或紧前是"利率/缴纳/月供"等 → 非日期；
-    ③ 形态（对候选本身）：
-       a) 自带日期单位 `月`/`日`/`号`（`4月5日`、`5月20`）→ 强形态；
-       b) 候选紧前是 `YYYY-` / `YYYY/` / `YYYY.`（`1990-05-20`）→ 强形态；
-       c) 整条消息带显式历法标记（农历/阴历/公历/阳历/公元）→ 生辰陈述；
-       d) 以上都不是（含混形态 `4.5` / `11.20` / `5/20` / `8-15`）→ 候选
-          **附近 ±6 字**必须有出生语境词（出生/生于/生的/生日/生辰），
-          否则不是日期（`4.5` 是小数不是 4月5日）。
-    双向：`1990-05-20 15:00 深圳 女` / `1999年3月28日` 等既有格式零回退；
-    `我11.20出生` 这类带出生语境的含混形态照旧可用（I-3，此前被静默废弃）。
+    ① 非日期单位黑名单：紧邻比例/金额/计量/薪资单位（`4.5%`/`20000元`/`4.5k`）
+       或紧前是"利率/缴纳/月供"等 → 非日期；
+    ①b **非出生谓语**（k49-r2）：日期紧后挂着生活事件（`结的婚`/`考试`/`要去
+       出差`/`有个面试`/`要交房租`）→ 该日期是事件日不是生辰（D 的婚期收口）；
+    ② **语境相邻**（k49）：候选同一小句内有出生语境词（`我是3月8日出生的`），
+       或 ±6 字内有排盘请求词（`帮我排个盘，3月8日`）→ 生辰，直接写+排盘；
+    ③ **含混形态**（无 `月/日/号` 单位、无 `YYYY-` 前缀、无历法标记：裸 `4.5`/
+       `11.20`）→ 只有②能放行（`视力4.5`/`血压11.8`/`offer给4.5k` 不是日期）；
+    ④ **完整日期形态**（候选紧前 `YYYY-` / `YYYY年`，或整条消息带历法标记）→
+       生辰陈述，**不看语境**（k49-r2：`我出生在长春，1991年7月8日` 这类真陈述
+       日期在后一小句，r1 曾按"语境必须相邻"整条丢弃 = R2-2 回归，现恢复）；
+    ⑤ **整条消息就是这个日期**（F2 分步口述：`5月13日，早上6点`/`5月13日辰时`/
+       `5月13日，男`/`5月13日，长春`）→ 生辰（k49-r2 否定式，见
+       `_msg_is_bare_month_day`）；
+    ⑥ 明示纠正句式（`其实是5月13日`）→ 生辰（与 `birth_conflict_fields` 的纠正
+       豁免同源，F2 分步补全口吻）。
+    其余（裸 `M月D日` + 别的叙述 = `我4月5日要去出差`/`3月8日妇女节快乐`/
+    `10月1日国庆想去旅游`）→ 非生辰：**不问也不写**（brief B）。
+    双向零回退：`1990-05-20 15:00 深圳 女`/`1999年3月28日 早上十点 长春`/
+    `房贷利率4.9%，我1990年5月20日出生`/`我11.20出生`。
     """
+    from src.storage.person_dao import (birth_ctx_near, is_correction_text)
     s, e = m.span()
     text = m.group(0)
     tail = msg[e:]
     head = msg[:s]
     if _NON_DATE_UNIT_RE.match(tail) or _NON_DATE_HEAD_RE.search(head):
+        return False                     # ①
+    if not _birth_word_leads(tail) and _event_tail_matches(tail):
+        # ①b 非出生谓语（婚期/考试/出差…）；日期紧后**先**出现出生语境词时
+        # 不判事件日（k49-r4 shield：`…出生，那天办酒席` 这类日期是生辰）
         return False
-    if re.search(r'月|日|号', text):
-        return True                      # a) "4月5日" / "4月5" / "5日" 形态
-    if re.search(r'\d{4}\s*[-/.]\s*$', head):
-        return True                      # b) 候选紧前 YYYY- → y-m-d（1990-05-20）
-    if re.search(r'农历|阴历|旧历|公历|阳历|公元', msg):
-        return True                      # c) 显式历法标记 = 生辰陈述
-    return bool(_BIRTH_CTX_NEAR_RE.search(msg[max(0, s - 6):e + 6]))   # d)
+    if birth_ctx_near(msg, s, e):        # ② 语境相邻（同一小句出生词 / 排盘请求）
+        return True
+    _full_date = bool(re.search(r'\d{4}\s*[-/.]\s*$', head)
+                      or re.search(r'\d{4}\s*年\s*$', head)
+                      or re.search(r'农历|阴历|旧历|公历|阳历|公元', msg))
+    if not re.search(r'月|日|号', text):  # ③ 含混形态（裸小数）：只有②能放行
+        return _full_date
+    if _full_date:
+        return True                      # ④ 完整日期形态（真陈述恢复）
+    if _msg_is_bare_month_day(msg, m):
+        return True                      # ⑤ 整条消息就是这个日期（F2 分步口述）
+    if is_correction_text(msg):
+        return True                      # ⑥ 明示纠正句式（"其实是5月13日"）
+    return False                         # 其余：非生辰（不问不写）
+
+
+# k49 E：城市语境前缀剥离（"我出生在长春市" → XX市 候选是 "出生在长春市"）。
+# 正则从任意"起算位"起步（`([一-鿿]{2,5}?市)` 懒匹配 → 语境词被卷进候选）：
+# 用户原话 "我出生在长春市" 实收 city="出生在长春市"，且脏值同时进 persons /
+# users.bazi_info / chart_records 三源（数据一致性面）。此处按**语境前缀**剥。
+# 校验（红线"宁可不动不可改错"）：剥完必须仍是**已知城市**（BaziEngine.
+# CITY_LONGLAT 117 城 + COMMON_CITIES，见 `_city_name_ok`）——否则原样返回，
+# 罕见地名不被误改。尾随助词无需处理：XX市 正则本身止于"市"
+#（"长春市人"→"长春市"）。产出保留后缀"市"（与既有"广州市"口径一致）。
+# 未扩大城市识别范围（`我来自吉林长春` 仍不取城市：长春无"市"尾缀且不在
+# COMMON_CITIES——放开裸城市名会让"下个月去三亚"一类行程地名变成出生地）。
+_CITY_CTX_PREFIXES = ("出生于", "出生在", "出生地是", "出生地", "出生",
+                      "生长在", "生在", "生于", "来自", "籍贯是", "籍贯",
+                      "老家是", "老家在", "老家", "户籍是", "户籍",
+                      "户口在", "户口", "我是", "我的", "我", "你", "他", "她",
+                      "是", "在",
+                      # k49-r4：**日期残尾**（`…8日在酒泉市` 的 XX市 窗口会从
+                      # "日在"起算 → 脏值 "日在酒泉市"；基线同形，属 E 项同类
+                      # 未覆盖形态）。单字进表由**校验兜底**保证安全：剥完必须
+                      # 仍是已知城市，否则原样返回（`日喀则市`/`日照市` 一类
+                      # 以该字开头的地名剥完不再命中 → 不动）。
+                      "日", "月", "年", "号")
+
+
+def _city_name_ok(name: str, known=()) -> bool:
+    """剥前缀后的残留是否仍是**已知城市**（宁可不动不可改错，k49 E）。
+
+    校验源 = 既有城市库：`BaziEngine.CITY_LONGLAT`（117 城，真太阳时经度表）
+    + `COMMON_CITIES`（对话城市库）；两侧都按"去 市/省 尾缀"再查一次
+   （表键多为无尾缀形态：长春/榆树/沈阳）。**不**用形态兜底（尾字"市"即算）
+    ——否则 `在X市` 一类罕见地名会被误剥；未知小城剥不动 → 原值返回（与改前
+    同形，见报告诚实披露）。
+    """
+    t = str(name or "").strip()
+    if len(t) < 2:
+        return False
+    if t in known:
+        return True
+    try:
+        from src.engines.bazi import CITY_LONGLAT
+    except Exception:          # noqa: BLE001 — 校验源不可用时只认 known
+        CITY_LONGLAT = {}
+    if t in CITY_LONGLAT:
+        return True
+    shaved = t.rstrip("市省")
+    return bool(shaved) and len(shaved) >= 2 and (
+        shaved in CITY_LONGLAT or shaved in known)
+
+
+def _clean_city_name(name: str, known=()) -> str:
+    """剥掉城市名前的出生语境前缀（k49 E，单一实现，两个提取器共用）。
+
+    `我出生在长春市` → "出生在长春市" → "长春市"；`我在长春市` → "长春市"；
+    `广州市`（无前缀）→ 原样。
+    剥不动 / 剥完不是已知城市 → 原样返回（绝不为"修脏值"改错真地名）。
+    """
+    t = str(name or "").strip()
+    if not t:
+        return t
+    cur = t
+    changed = True
+    while changed:                        # 反复剥（"我在长春市" 要剥 我 + 在）
+        changed = False
+        for p in _CITY_CTX_PREFIXES:      # 长前缀在前（定序元组，长→短）
+            if not cur.startswith(p):
+                continue
+            rest = cur[len(p):].strip()
+            if len(rest) >= 2:            # 剩 <2 字不再剥（防剥成空/单字）
+                cur, changed = rest, True
+                break
+    # 剥完必须是**已知城市**，否则原样返回（宁可不动不可改错）
+    return cur if _city_name_ok(cur, known) else t
 
 
 def _city_looks_like_birth(msg: str, name: str, pos: int) -> bool:
@@ -1375,28 +1755,33 @@ class MessageHandler:
         from src.bot.capability_registry import bind_executors
         bind_executors(
             {
-                "bazi_chart": lambda p, user_id="", user_question="": self._tool_bazi(p, user_id),
-                "quote_rag": lambda p, user_id="", user_question="": self._tool_search(
+                # k49 A：排盘工具是本批唯一的**写型**工具（写 persons/bazi_info/
+                # chart_records），必须拿到当轮用户原文（守卫判"是否显式出生
+                # 陈述"）与 session_id（确认问句的暂存/承接按 (user,session)
+                # 键控）——改前两者都被 lambda 丢弃 → 工具路径可静默改档。
+                "bazi_chart": lambda p, user_id="", user_question="", session_id=None: \
+                    self._tool_bazi(p, user_id, user_question, session_id),
+                "quote_rag": lambda p, user_id="", user_question="", session_id=None: self._tool_search(
                     p, user_id=user_id, user_question=user_question),
-                "web_search": lambda p, user_id="", user_question="": self._tool_web_search(
+                "web_search": lambda p, user_id="", user_question="", session_id=None: self._tool_web_search(
                     p, user_id=user_id),
-                "dream": lambda p, user_id="", user_question="": self._tool_dream(p, user_id),
-                "fengshui": lambda p, user_id="", user_question="": self._tool_fengshui(p),
-                "zeri": lambda p, user_id="", user_question="": self._tool_zeri(p, user_id),
-                "record_lookup": lambda p, user_id="", user_question="": self._tool_query_records(
+                "dream": lambda p, user_id="", user_question="", session_id=None: self._tool_dream(p, user_id),
+                "fengshui": lambda p, user_id="", user_question="", session_id=None: self._tool_fengshui(p),
+                "zeri": lambda p, user_id="", user_question="", session_id=None: self._tool_zeri(p, user_id),
+                "record_lookup": lambda p, user_id="", user_question="", session_id=None: self._tool_query_records(
                     p, user_id),
                 # 批次 2 E1 合婚工具：新增绑定只做加法（既有 7 个零改动）
-                "hehun": lambda p, user_id="", user_question="": self._tool_hehun(p, user_id),
+                "hehun": lambda p, user_id="", user_question="", session_id=None: self._tool_hehun(p, user_id),
                 # 批次 2 E2 起名工具：新增绑定只做加法（既有 8 个零改动）
-                "naming": lambda p, user_id="", user_question="": self._tool_naming(p, user_id),
+                "naming": lambda p, user_id="", user_question="", session_id=None: self._tool_naming(p, user_id),
                 # 批次 2 E3 流月流年工具：新增绑定只做加法（既有 9 个零改动）
-                "fortune_cycle": lambda p, user_id="", user_question="": self._tool_fortune_cycle(
+                "fortune_cycle": lambda p, user_id="", user_question="", session_id=None: self._tool_fortune_cycle(
                     p, user_id),
                 # 批次 2 E4 择业/方位匹配工具：新增绑定只做加法（既有 10 个零改动）
-                "career_dir": lambda p, user_id="", user_question="": self._tool_career_dir(
+                "career_dir": lambda p, user_id="", user_question="", session_id=None: self._tool_career_dir(
                     p, user_id),
                 # 批次 2 E5 数字吉凶工具：新增绑定只做加法（既有 11 个零改动）
-                "num_omen": lambda p, user_id="", user_question="": self._tool_num_omen(
+                "num_omen": lambda p, user_id="", user_question="", session_id=None: self._tool_num_omen(
                     p, user_id),
             },
             {
@@ -2180,13 +2565,13 @@ class MessageHandler:
                                         c.name, f"正在{c.name}…")})
                                 except Exception:
                                     pass
-                            r = self._execute_tool_call(
+                            r = self._call_tool_with_ctx(
                                 c.name,
                                 self._with_relative_cycle_year(
                                     c.name,
                                     c.params_obj if c.params_obj is not None else c.params,
                                     msg),
-                                user_id, user_question=msg)
+                                user_id, msg, session_id)
                             executed_keys[ckey] = r  # 供后续同参数原生块/工单去重
                             executed_calls.append({
                                 "type": r.name,
@@ -2271,13 +2656,13 @@ class MessageHandler:
                         pass
                 # 批次 1（spec 1.2）：结构化工单的 dict 参数必须传进执行层，
                 # 否则校验/序列化永远不会触发（文本标签兜底保持原样）
-                r = self._execute_tool_call(
+                r = self._call_tool_with_ctx(
                     c.name,
                     self._with_relative_cycle_year(
                         c.name,
                         c.params_obj if c.params_obj is not None else c.params,
                         msg),
-                    user_id, user_question=msg)
+                    user_id, msg, session_id)
                 executed_keys[ckey] = r  # 供原生块/后续工单同参数去重（review I-1/B1-4）
                 results.append(r)
                 executed_calls.append({
@@ -2676,7 +3061,7 @@ class MessageHandler:
         return polished + tail
 
     def _execute_tool_call(self, name: str, params: Union[str, dict], user_id: str,
-                           user_question: str = "") -> ToolResult:
+                           user_question: str = "", session_id=None) -> ToolResult:
         """执行单个工具调用，返回可注入对话的结果文本。
 
         批次 1（spec 1.2）：注册表分派 + 参数校验 + 超时重试。
@@ -2692,10 +3077,38 @@ class MessageHandler:
             if err:
                 return ToolResult(name, False, err)  # 参数不合法：不执行、不计重试
             params = serialize_params(params)
-        return self._run_with_timeout(cap, params, user_id, user_question)
+        return self._run_with_timeout(cap, params, user_id, user_question,
+                                      session_id)
+
+    # k49 A：关键字形参兼容探测（**不改既有绑定契约**）——本批给工具链新增
+    # `session_id` 注入点，生产绑定统一签名已含它，但测试/外部自定义包装可能
+    # 只到 `(params, user_id, user_question)`（仓库内实测：10 个测试文件绑
+    # 执行器 + 1 处 `_execute_tool_call` 包装器）。盲目注入新 kwarg 会让这些
+    # 绑定 TypeError → 被 `_run_with_timeout` 当"异常重试"吞掉 → 静默降级成
+    # "工具不可用"（首轮回归实测 6 条既有测试因此翻红）。
+    # k49-r2（R2-4）：判定结果缓存改**有界**（`functools.lru_cache(maxsize)`，
+    # 见 `_fn_supports_kw`）——r1 用类级 dict 以函数对象为键且无上限，
+    # 测试/多实例场景下每次 `bind_executors` 新建 12 个 lambda → 弱泄漏。
+    @classmethod
+    def _supports_kw(cls, fn, kw_name: str) -> bool:
+        return bool(fn is not None and _fn_supports_kw(fn, kw_name))
+
+    def _call_tool_with_ctx(self, name: str, params, user_id: str,
+                            user_question: str, session_id) -> ToolResult:
+        """工具调用（带轮次上下文）：`session_id` 只给支持的调用方注入。
+
+        兼容测试/外部对 `_execute_tool_call` 的老签名包装（4 参形态）——否则
+        工具链在多处 TypeError 静默降级。
+        """
+        if self._supports_kw(self._execute_tool_call, "session_id"):
+            return self._execute_tool_call(
+                name, params, user_id, user_question=user_question,
+                session_id=session_id)
+        return self._execute_tool_call(name, params, user_id,
+                                       user_question=user_question)
 
     def _run_with_timeout(self, cap, params: str, user_id: str,
-                          user_question: str = "") -> ToolResult:
+                          user_question: str = "", session_id=None) -> ToolResult:
         """带超时重试执行注册表 executor（线程池包装，不阻塞事件循环）。
 
         Task 4 review I-2：超时/异常后 shutdown(wait=False, cancel_futures=True)，
@@ -2712,8 +3125,14 @@ class MessageHandler:
         for attempt in range(max(1, cap.retries + 1)):
             ex = ThreadPoolExecutor(max_workers=1)
             try:
-                fut = ex.submit(cap.executor, params, user_id=user_id,
-                                user_question=user_question)
+                # k49 A：session_id 一并注入执行器（写型工具「排盘」的确认问句
+                # 需按 (user,session) 暂存；其余工具形参接住不用，实现零改动）。
+                # 老签名绑定（测试/外部）→ 探测后不注入，行为逐字回到改前。
+                _kw = {"user_id": user_id, "user_question": user_question}
+                if self._supports_kw(getattr(cap, "executor", None),
+                                     "session_id"):
+                    _kw["session_id"] = session_id
+                fut = ex.submit(cap.executor, params, **_kw)
                 return fut.result(timeout=cap.timeout_s)
             except FutTimeout:
                 pass  # 超时 → 重试（最后一次循环走失败兜底）
@@ -2726,8 +3145,18 @@ class MessageHandler:
             f"「{cap.name}」执行超时/异常（已重试{cap.retries}次），"
             "请基于已有信息继续回答，或明确告知用户该能力暂不可用。")
 
-    def _tool_bazi(self, params: str, user_id: str) -> ToolResult:
-        """工具「排盘」：解析出生信息（文本描述）→ BaziEngine.calculate。"""
+    def _tool_bazi(self, params: str, user_id: str, user_question: str = "",
+                   session_id=None) -> ToolResult:
+        """工具「排盘」：解析出生信息（文本描述）→ BaziEngine.calculate。
+
+        k49 A（Important-1，第三写入口收口）：
+        - user_question：**当轮用户原文**（`_execute_tool_call` 由工具循环注入；
+          直接调用/旧路径缺省 ""）；守卫判"是否显式出生陈述"必需——工具是
+          LLM 填参的写型入口，参数文本不能自证用户说过（改前 `_tool_bazi(
+          "1995年3月8日10点 北京 女")` 直接把默认命主改成 1995-03-08 北京）。
+        - session_id：确认问句的待更新值按 (user, session) 暂存，用户回确认词
+          由对话层 `_consume_birth_confirmation` 承接再写。
+        """
         if self.engine is None:
             return ToolResult("排盘", False, "「排盘」工具暂不可用，请直接与用户聊天。")
         # R2-5：档案兜底持久化原始值标记（lunar 转公历排盘后不把原始输入
@@ -2810,6 +3239,53 @@ class MessageHandler:
         }
         if _arch_raw is not None:
             _persist["calendar"] = "lunar"
+        # ── k49 A（Important-1）：工具路径与对话层**同一守卫** ─────────────
+        # 工具是第三个写入口（经 `capability_registry` 暴露给 LLM 工具循环，
+        # params 由模型填；`_run_tool_loop` 两处调用点均注入当轮用户原文与
+        # session_id）。改前无守卫 → `_tool_bazi("1995年3月8日10点 北京 女")`
+        # 把默认命主 1999-03-28 长春 直接改成 1995-03-08 北京（21:44 事故的
+        # 4 年跳变形态）；`_tool_bazi("我1999年生的，视力4.5")` 改成 1999-04-05。
+        # 判据与 `_handle_bazi` / `_handle_ziwei` **同一实现**（person_dao
+        # `birth_conflict_fields`，纯谓词、无副作用——本处只判"要不要先问"，
+        # 不改存储层语义）；语境 = 当轮用户原文（user_question），工具参数原文
+        # 仅在其缺失时兜底（直调/旧路径）：模型填的参数**不能自证用户说过**。
+        # 命中 → 暂存待更新值（(user, session) 键控）+ 回确认问句，**不写档不
+        # 落盘不写画像**；用户回确认词经对话层 `_consume_birth_confirmation`
+        # 承接再写（"说一次就记住"体验不变：无冲突照旧直写）。
+        _subject_guard = (self._analysis_facts.get(user_id) or {}).get(
+            "subject", "self")
+        if _subject_guard != "other":
+            _conflict_ctx = user_question or params
+            # 与 `_handle_bazi` parsed 直排分支**同一装配口径**（否则同一句
+            # 生辰经工具/直达两路由得不同问答）：city="北京"= 引擎缺省（"未
+            # 提供"，北京用户与未填城市不可区分——k48-r3 既有产品口径），
+            # 不参与冲突比较；gender 守卫不看（birth_conflict_fields 只比
+            # 年/月/日/城市）。
+            _conflict_new = {"year": _persist.get("year"),
+                             "month": _persist.get("month"),
+                             "day": _persist.get("day")}
+            if _persist.get("city") and _persist["city"] != "北京":
+                _conflict_new["city"] = _persist["city"]
+            try:
+                from src.storage.person_dao import birth_conflict_fields
+                _saved_guard = self._get_user_birth_profile(user_id)
+                _conflict = birth_conflict_fields(
+                    _saved_guard, _conflict_new, ctx=_conflict_ctx)
+            except Exception as e:  # noqa: BLE001 — 守卫 fail-open（与紫微守卫
+                # 同口径：安全网异常不得让排盘工具整体不可用）
+                logger.warning("排盘工具冲突守卫异常（放行）user=%s: %s",
+                               user_id, type(e).__name__)
+                _conflict = []
+                _saved_guard = None
+            if _conflict:
+                self._stash_pending_birth(user_id, session_id, _saved_guard,
+                                          _persist)
+                return ToolResult(
+                    "排盘", False,
+                    self._gen_birth_conflict_ask(_conflict_ctx, _persist,
+                                                 _saved_guard)
+                    + "\n\n（如信息正确，直接回复「确认」即可按新信息排盘；"
+                    "若按档案信息排，回复「按档案」。本次未改动你的档案。）")
         try:
             _subject = (self._analysis_facts.get(user_id) or {}).get("subject", "self")
             _facts_this = self._analysis_facts.get(user_id) or {}
@@ -5495,7 +5971,9 @@ class MessageHandler:
                     _gated_cb = stream_cb
                 # 会话隔离：解梦需读会话历史（P0-1 已有梦境免重复描述），
                 # 仅 dream 处理器感知 session_id；其余引擎处理器不读历史
-                if analysis.intent in ("dream", "bazi", "career"):
+                # k49 I-3：ziwei 同样需要 session_id（待确认值 (user,session)
+                # 键控——见 _handle_ziwei 注释）
+                if analysis.intent in ("dream", "bazi", "career", "ziwei"):
                     reply = handler(msg, user_id, stream_cb=_gated_cb,
                                     session_id=session_id)
                 elif analysis.intent == "advisor":
@@ -6352,6 +6830,9 @@ class MessageHandler:
                     # 文本的 4.5% → 4月5日 + （北京）→ 出生地）→ 同会话两张盘。
                     # 明示纠正句式/表单哨兵豁免（k19 同口径）→ 直接写。
                     from src.storage.person_dao import birth_conflict_fields
+                    # k49-r2：豁免回到 k48-r3 **消息级**口径（真陈述直接写，
+                    # R2-2）；"婚期不得写成生辰"由**提取层**的非出生谓语判据
+                    # 承担（`_numeric_date_looks_like_birth` ①b），此处不再窄化。
                     if birth_conflict_fields(saved, cur, ctx=msg):
                         # I-1①：暂存待更新值，用户回确认词即可承接（不循环）
                         self._stash_pending_birth(user_id, session_id, saved, cur)
@@ -6483,6 +6964,7 @@ class MessageHandler:
                 # 显式出生陈述**（显式陈述直接写，k9_B1 行为）→ 问一句，
                 # 不排盘不落库。
                 from src.storage.person_dao import birth_conflict_fields
+                # k49-r2：同 partial 分支——消息级豁免（见上）
                 if birth_conflict_fields(saved, cur, ctx=msg):
                     self._stash_pending_birth(user_id, session_id, saved, cur)
                     return self._gen_birth_conflict_ask(msg, cur, saved)
@@ -6691,7 +7173,19 @@ class MessageHandler:
         # 追加 `(\d{4})\s*[-/]\s*\d{1,2}` 替代项（group 5）恢复该格式，
         # 不触碰现有 年/公历/阳历/公元 各格式。
         year = None
-        ym = re.search(r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})|(\d{4})\s*[-/]\s*\d{1,2}', msg)
+        # k49-r3（R2-3/R3-1）：明示纠正句式下取**被肯定**的年/月日（同源成组，
+        # 见 `_affirmed_pick`）——`我不是1995年生的，是1999年生的` → 1999；
+        # `我1999年5月20日生的，不是1995年3月8日生的` → 1999-05-20（年与月日
+        # 不得被拆到两个小句各取一半）。applied=False → 基线首命中口径。
+        _ym_all = list(re.finditer(
+            r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})|'
+            r'(\d{4})\s*[-/]\s*\d{1,2}', msg))
+        _md_all = [c for c in _MD_CAND_RE.finditer(msg)
+                   if _valid_month_day(c)
+                   and _numeric_date_looks_like_birth(msg, c)]
+        _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all)
+        ym = _py if _applied else (_ym_all[0] if _ym_all else None)
+        _md_pick = _pm if _applied else None
         if ym:
             year = int(ym.group(1) or ym.group(2) or ym.group(3) or ym.group(4) or ym.group(5))
 
@@ -6714,10 +7208,8 @@ class MessageHandler:
             # "只取首个候选，被否决即整条月日作废"——`房贷利率4.9%，我1990年
             # 5月20日出生` 改前只剩 year）。取"首个通过"而非"最后一个"：
             # 最后一个会把「…出生，2026年10月1日结婚」的婚期当日辰。
-            md = next((c for c in re.finditer(
-                r'(?<!\d)(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
-                if _valid_month_day(c) and _numeric_date_looks_like_birth(msg, c)),
-                None)
+            # k49-r3：`_md_all` 已在上方与年份同源裁决（`_affirmed_pick`）
+            md = _md_pick if _applied else (_md_all[0] if _md_all else None)
             if md:
                 month = int(md.group(1))
                 day = int(md.group(2))
@@ -6830,14 +7322,15 @@ class MessageHandler:
         city_matches = [c for c in city_matches
                         if _city_looks_like_birth(msg, c[0], c[1])]
         if city_matches:
-            city = city_matches[-1][0]
+            # k49 E：剥语境前缀（"出生在长春市"→"长春市"，三源同值）
+            city = _clean_city_name(city_matches[-1][0], self.COMMON_CITIES)
         else:
             city_match = next(
                 (m for m in re.finditer(
                     r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
                  if _city_looks_like_birth(msg, m.group(1), m.start())), None)
             if city_match:
-                city = city_match.group(1)
+                city = _clean_city_name(city_match.group(1), self.COMMON_CITIES)
 
         return (year, month, day, hour, minute, city, gender)
 
@@ -6952,8 +7445,17 @@ class MessageHandler:
         # k33/A16：「公历/阳历/公元」前缀式年份（"公历1976"无「年」字）与
         # _extract_bazi_info:5516 同口径收口——此前 F2 只认 `\d{4}年`，
         # "我公历1976生的"在渐进累积通道里年份永远缺失（分步补全死循环问年份）。
-        ym = re.search(
-            r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})', msg)
+        # k49-r3（R2-3/R3-1）：明示纠正句式下取**被肯定**的年/月日（同源成组，
+        # 与 `_extract_bazi_info` 同一助手 `_affirmed_pick`）
+        _ym_all = list(re.finditer(
+            r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})',
+            msg))
+        _md_all = [c for c in _MD_CAND_RE.finditer(msg)
+                   if _valid_month_day(c)
+                   and _numeric_date_looks_like_birth(msg, c)]
+        _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all)
+        ym = _py if _applied else (_ym_all[0] if _ym_all else None)
+        _md_pick = _pm if _applied else None
         if ym:
             y = int(next(g for g in ym.groups() if g))
             if 1900 <= y <= 2100:
@@ -6994,10 +7496,8 @@ class MessageHandler:
             # 形态不作数（用户原话「各缴纳4.5%」修前在此被当 4月5日 → 两张盘）
             # `(?<!\d)`：与全量提取器同口径（防"1985.3.28"被 `85.3` 抢先命中
             # 而把真的 `3.28` 整条带丢——k48-r2 I-2 家族）
-            md = next((c for c in re.finditer(
-                r'(?<!\d)(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?', msg)
-                if _valid_month_day(c) and _numeric_date_looks_like_birth(msg, c)),
-                None)
+            # k49-r3：`_md_all` 已在上方与年份同源裁决（`_affirmed_pick`）
+            md = _md_pick if _applied else (_md_all[0] if _md_all else None)
             if md:
                 month = int(md.group(1))
                 day = int(md.group(2))
@@ -7064,14 +7564,15 @@ class MessageHandler:
         city_matches = [c for c in city_matches
                         if _city_looks_like_birth(msg, c[0], c[1])]
         if city_matches:
-            out["city"] = city_matches[-1][0]  # 最内层（吉林省长春市榆树市→榆树市）
+            # 最内层（吉林省长春市榆树市→榆树市）；k49 E：剥语境前缀
+            out["city"] = _clean_city_name(city_matches[-1][0], self.COMMON_CITIES)
         else:
             city_match = next(
                 (m for m in re.finditer(
                     r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
                  if _city_looks_like_birth(msg, m.group(1), m.start())), None)
             if city_match:
-                out["city"] = city_match.group(1)
+                out["city"] = _clean_city_name(city_match.group(1), self.COMMON_CITIES)
         # G1（2026-08-29 P0-C）：性别口语词扩展（保持防"渣男/美女"误伤）——
         # 女系：女孩/女生/姑娘/丫头/女的/小姑娘/闺女/性别女 + 原独立「女」规则
         # 男系：男孩/男生/男的/小伙子/性别男 + 原独立「男」规则
@@ -7203,20 +7704,22 @@ class MessageHandler:
         return (str(user_id or ""), str(session_id or ""))
 
     def _peek_pending_birth(self, user_id: str, session_id):
-        """取待更新值。精确键 (user, session) 未命中时回落 (user, "")——
-        紫微路径取不到 session_id（`_handle_ziwei` 无该形参），确认问句存于
-        该回落键，用户回确认词时才能承接。"""
+        """取待更新值：**精确键 (user, session)** 命中才算（k49 Important-3）。
+
+        改前对任意会话都回落 (user, "")（紫微路径无 session_id 形参，只能存
+        该键）→ 会话 A 的问句可被**会话 B** 的「确认」承接（跨会话串味，档案
+        被改成 A 会话问句里的生辰并出盘）。现键控与注释自述口径一致：不回落。
+        session_id=None（旧调用方/轻量装配）→ 键即 (user, "")，语义不变。
+        """
         store = getattr(self, "_pending_birth", None) or {}
-        key = self._pending_birth_key(user_id, session_id)
-        if key in store:
-            return store[key]
-        return store.get((key[0], ""))
+        return store.get(self._pending_birth_key(user_id, session_id))
 
     def _clear_pending_birth(self, user_id: str, session_id) -> None:
         store = getattr(self, "_pending_birth", None)
         if store:
+            # k49 I-3：只清本作用域键（不再顺带清 (user,"")——那会误伤
+            # 另一作用域的待更新值；承接/作废路径都只作用于本会话）
             store.pop(self._pending_birth_key(user_id, session_id), None)
-            store.pop((str(user_id or ""), ""), None)
 
     def _consume_birth_confirmation(self, msg: str, user_id: str,
                                     session_id, stream_cb=None):
@@ -8202,11 +8705,19 @@ class MessageHandler:
     # 紫微斗数 (Ziwei)
     # ============================================================
 
-    def _handle_ziwei(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None) -> str:
-        """处理紫微斗数请求 - 与八字相同的信息收集"""
+    def _handle_ziwei(self, msg: str, user_id: str, stream_cb: Optional[Callable] = None,
+                      session_id: Optional[str] = None) -> str:
+        """处理紫微斗数请求 - 与八字相同的信息收集
+
+        k49（Important-3）：补 session_id 形参——待确认值/承接按
+        **(user, session)** 键控（对齐 k48-r2 给 bazi/career/dream 三意图线程化
+        session_id 的做法）。改前本形参缺失 → `_stash_pending_birth(user, None)`
+        落 (user,"") 而 `_peek` 对**任意**会话都回落该键 → 另一会话发「确认」
+        即承接生效（档案被改成问句里的生辰并出盘 = 跨会话串味）。
+        """
         # k48-r2 I-1①：确认问句的承接（与 _handle_bazi 同一实现）
         _confirm_reply = self._consume_birth_confirmation(
-            msg, user_id, None, stream_cb)
+            msg, user_id, session_id, stream_cb)
         if _confirm_reply is not None:
             return _confirm_reply
         parsed = self._extract_bazi_info(msg)
@@ -8256,8 +8767,10 @@ class MessageHandler:
                 if gender and gender != "unknown":
                     _cur["gender"] = gender
                 from src.storage.person_dao import birth_conflict_fields
+                # k49-r2：同 _handle_bazi——消息级豁免（见上）
                 if birth_conflict_fields(saved, _cur, ctx=msg):
-                    self._stash_pending_birth(user_id, None, saved, _cur)
+                    # k49 I-3：按 (user, session) 暂存（不再落 (user,"") 通用键）
+                    self._stash_pending_birth(user_id, session_id, saved, _cur)
                     return self._gen_birth_conflict_ask(msg, _cur, saved)
         return self._do_ziwei_analysis(
             year, month, day, hour, minute, city, gender, msg, user_id,

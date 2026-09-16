@@ -85,16 +85,95 @@ _BIRTH_CTX_WORD_RE = re.compile(
     r'出生|生于|生的|日生|月生|生日|生辰|农历|阴历|公历|阳历|生人|命主|周岁|虚岁|\d{1,3}\s*岁')
 
 
+# ── k49：出生语境**邻近**判据（"语境相邻"收口，与 `_BIRTH_CTX_WORD_RE` 同族）──
+# 背景（k49 A/B/D 三项共因）：k48 的豁免/闸门用 `_BIRTH_CTX_WORD_RE` 判**整条
+# 消息**——只要消息里**任何位置**出现出生语境词，该消息内的日期就被当生辰：
+#  · `我出生在长春，1991年7月8日结的婚` → 婚期被当生辰（D 残留②）；
+#  · `我1999年生的，视力4.5` → "生的"够近（±6 内含），裸小数成月日（B 残留①）。
+# 语境词与日期**不在同一小句**时不构成出生语境（"先说出生信息、再说别的日程"
+# 是真实口语形态）。本模块是该判据的**唯一实现**（红线：判定单一），handler
+# 只传候选区间、不另起一套（`_numeric_date_looks_like_birth` /
+# `_handle_bazi` / `_handle_ziwei` / `_tool_bazi` 四处共用）。
+#
+# 窗口 N=6 的实测依据（2026-09-16 本批语料）：
+#  · 需放行的真实陈述（10 条夹具 + G1 实测句）语境词与候选距离全部 ≤5 字
+#    （`我生日是3月8日`=1、`我是农历腊月廿六出生的`=2、`我是3月8日生的`=1…）；
+#  · 需拦下的 `我1999年生的，视力4.5`：语境词"生的"距候选 3 字——**距离本身
+#    拦不住**（k48-r3 正是被此漏过），故引入"同一小句"硬约束（断句标点切断），
+#    窗口只作小句判据的兜底上界；
+#  · 无出生词的小句（`视力4.5` / `1991年7月8日结的婚`）跨小句一律不算邻近。
+# 排盘请求词（排盘/八字/命盘…）单独一类：**消息级出生意图**（"帮我排个盘，
+# 3月8日" = 用 3月8日 排盘），只用于"候选像不像生辰"的闸门，**不构成豁免**
+#（豁免仍只认出生语境词——"要不要先问"是对话层口径，见 k48-r3 分层）；
+# 允许跨小句但同样受 ±N 限（防"我4月5日去出差，顺便看看八字"式的远距离串味）。
+BIRTH_CTX_NEAR_WINDOW = 6
+
+_BIRTH_CTX_NEAR_WORD_RE = re.compile(
+    r'出生|生于|生的|日生|月生|生日|生辰|生人|命主|农历|阴历|旧历|公历|阳历|公元|'
+    r'周岁|虚岁|\d{1,3}\s*岁')
+
+# 排盘请求词（表意"请按出生信息给我排盘"）——闸门用，豁免不用（见上）
+_CHART_INTENT_WORD_RE = re.compile(
+    r'排盘|排个盘|排一下盘|排盘面|看盘|命盘|起盘|盘面|八字|紫微|斗数')
+
+# 断句标点 / 换行（小句边界）：语境词与候选之间出现任一 → 不同小句
+_CLAUSE_SEP_CHARS = "，,。.！!？?；;、\n：:"
+
+
+def _clause_span(text: str, start: int, end: int) -> tuple:
+    """候选 [start,end) 所在小句的区间（以断句标点/换行为界，不含标点本身）。"""
+    a = max(0, int(start))
+    while a > 0 and text[a - 1] not in _CLAUSE_SEP_CHARS:
+        a -= 1
+    b = max(a, int(end))
+    while b < len(text) and text[b] not in _CLAUSE_SEP_CHARS:
+        b += 1
+    return a, b
+
+
+def birth_ctx_near(text: str, start=None, end=None,
+                   window: int = BIRTH_CTX_NEAR_WINDOW,
+                   allow_chart_intent: bool = True) -> bool:
+    """出生语境是否**紧邻候选**（k49：语境相邻，单一实现）。
+
+    - start=None（或 end=None）→ 整串检索（等价 `is_explicit_birth_statement`
+      的消息级口径；兼容既有调用方与测试装配）。
+    - start/end 给定 → 只认两类证据：
+      ① **同一小句**内的出生语境词（断句标点切断：跨小句不算——`我1999年生
+         的，视力4.5` 的"生的"在小句外）；
+      ② `allow_chart_intent=True` 时，候选 ±window 内的**排盘请求词**
+         （消息级出生意图，允许跨小句，如`帮我排个盘，3月8日`）。
+    """
+    t = str(text or "")
+    if not t:
+        return False
+    if start is None or end is None:
+        return bool(_BIRTH_CTX_WORD_RE.search(t))
+    s, e = int(start), int(end)
+    if s > e:
+        s, e = e, s
+    a, b = _clause_span(t, s, e)
+    if _BIRTH_CTX_NEAR_WORD_RE.search(t[a:b]):
+        return True
+    if not allow_chart_intent:
+        return False
+    return bool(_CHART_INTENT_WORD_RE.search(
+        t[max(0, s - window):e + window]))
+
+
 def is_explicit_birth_statement(text: str) -> bool:
     """消息是否带**明确出生语境**（k48-r3：月日/城市冲突的豁免判据）。
 
     与 `is_correction_text` 同族（本模块仅有的两类出生豁免判定）。命中即
     视为用户在主动陈述出生信息 → 对话层直接写+排盘，不弹确认问句。
+
+    **整串**口径（k49-r2 回到 k48-r3 逐字语义）：k49-r1 曾加 `span=` 参数把
+    豁免窄化成"语境必须与候选相邻"，代价是真陈述 `我出生在长春，1991年7月8日`
+    被整条丢弃（R2-2 回归）——婚期（`…1991年7月8日结的婚`）现由**提取层**的
+    非出生谓语判据（`handler._numeric_date_looks_like_birth` ①b）挡住，不再需要
+    在豁免侧窄化。本函数保持纯谓词、无副作用（红线）。
     """
-    t = str(text or "")
-    if not t:
-        return False
-    return bool(_BIRTH_CTX_WORD_RE.search(t))
+    return birth_ctx_near(text)
 
 
 def year_shift_exceeds(old_year, new_year, max_gap: int = YEAR_SHIFT_MAX_GAP) -> bool:
