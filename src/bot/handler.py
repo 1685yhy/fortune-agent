@@ -1011,37 +1011,180 @@ def _valid_month_day(m) -> bool:
 # 的"生的"跨逗号 → 不算邻近）由彼处统一裁决。
 _MD_CAND_RE = re.compile(r'(?<!\d)(\d{1,2})\s*[月\-/.]\s*(\d{1,2})\s*[日号]?')
 
-# ── k49-r2：非出生谓语（日期紧后挂着"生活事件"）→ 不是生辰 ──────────────
+# ── k49-r3：非出生谓语（日期紧后挂着"生活事件"）→ 不是生辰（R2-1 起，r3 补词族）─
 # brief D 的婚期形态与真陈述**只差日期之后那截谓语**：
 #   `我出生在长春，1991年7月8日`      （真陈述 → 建档出盘）
 #   `我出生在长春，1991年7月8日结的婚`（婚期 → 不得写成生辰）
-# 二者的"出生"都在前一小句、距日期**同样 9 字**——距离/语境相邻分不开它们
-# （r1 用"语境必须相邻"挡婚期，代价是把真陈述整条丢弃 = R2-2 回归）。r2 改为看
-# **日期上挂着什么谓语**：婚/考试/出差/面试/述职… = 生活事件日 ≠ 生辰。
-# 只认**紧贴日期之后**（≤6 字、允许 的|了|语气 与 要|去|有|在 等前缀助词）的
-# 谓语，锚定匹配（不全文搜索）——否则 `我1991年7月8日出生，想问你旅游的事`
-# 这类真陈述会被远处的词误伤。
+# 二者的"出生"都在前一小句、距日期**同样 9 字**——距离/语境相邻分不开它们，
+# 故按**日期上挂着什么谓语**判：婚/考试/出差/面试/述职… = 生活事件日 ≠ 生辰。
+# 只认**紧贴日期之后**（≤12 字）的谓语、锚定匹配（不全文搜索，防远处词误伤
+# 真陈述），并先剥 `的/了/着/过`（`结的婚`=`结婚`）。
+# r3（R3-3）：按**构成规则**补齐词族，不再零散加词——
+#   「(助动/量词前缀)* + 事件名词」：前缀含 要/去/办/摆/开/领/订/过/有/个/次/场…
+#   名词含 婚/婚礼/领结婚证/酒席/喜酒/喜宴/答谢宴/开席/喜事/嫁人/娶媳妇…
+# 实测覆盖：审查给的 22 条婚期形态（r2 只拦 10 条）+ Minor-2 的量词形态。
 _EVENT_TAIL_RE = re.compile(
     r'^[的了着过\s，,。;；:：、]*'
-    r'(?:(?:要|去|得|准备|打算|计划|安排|参加|出席|举行|举办|办|有|在|被|把|'
-    r'约|定|赶|回|来|给|帮|和|跟|同|陪|请|想|会|能|开始|继续|需要|准备)\s*)*'
-    r'(?:结婚|婚事|婚礼|订婚|婚宴|离婚|领证|登记|考试|考研|考公|面试|笔试|'
-    r'体检|出差|述职|汇报|答辩|旅游|旅行|出行|搬家|乔迁|入职|离职|跳槽|'
-    r'开会|会议|聚餐|聚会|宴请|请客|签约|签合同|合同|交房|交租|交房租|房租|'
-    r'还款|还贷|付款|缴费|过户|上线|发布|交付|投产|开张|开业|放假|休假|'
-    r'请假|加班|值班|比赛|演出|彩排|拍摄|采访|直播|上课|培训|报到|入学|'
-    r'毕业|年检|审核|评审|面试)'
+    r'(?:(?:要|去|得|准备|打算|计划|安排|参加|出席|举行|举办|办|摆|开|领|订|'
+    r'过|吃|喝|有|在|被|把|约|定|赶|回|来|给|帮|和|跟|同|陪|请|想|会|能|'
+    r'需要|开始|继续|个|次|场|位|回|件|顿|台|部|期)\s*)*'
+    r'(?:领结婚证|结婚证|结婚纪念日|结婚|婚事|婚礼|婚宴|婚庆|订婚|离婚|领证|'
+    r'登记|答谢宴|喜宴|喜酒|酒席|宴席|宴会|席面|开席|席|喜事|嫁人|嫁|娶媳妇|'
+    r'娶|成家|酒|'
+    r'考试|考研|考公|面试|笔试|体检|出差|述职|汇报|答辩|旅游|旅行|出行|搬家|'
+    r'乔迁|入职|离职|跳槽|开会|会议|聚餐|聚会|宴请|请客|签约|签合同|合同|'
+    r'交房|交租|交房租|房租|还款|还贷|付款|缴费|过户|上线|发布|交付|投产|'
+    r'开张|开业|放假|休假|请假|加班|值班|比赛|演出|彩排|拍摄|采访|直播|'
+    r'上课|培训|报到|入学|毕业|年检|审核|评审|考)'
 )
 
 
-# ── k49-r2：F2 分步口述的**否定式**判据（"整条消息就是这个日期"）──────────
-# r1 用**白名单**（残留必须为空才认）→ 真实 F2 口述被误杀（R2-1 回归）：
-#   `5月13日，早上6点` 残留 "早上点"、`5月13日辰时` 残留 "辰时"、
-#   `5月13日，长春` 残留城市名… 20 条现实语料 18 条丢月日。
-# r2 改**否定式**：把"时间/钟点/时辰/地点/性别/语气/出生语境/历法"这些
-# **出生信息自带成分**剥掉，剥完**还剩别的叙述**（`要去出差`/`妇女节快乐`/
-# `有个面试`/`国庆想去旅游`/`要交房租`/`我朋友结婚`/`要述职`）才判"不是在说
-# 生辰"。两个方向的语料同时满足（测试逐条锁）。
+def _event_tail_matches(tail: str) -> bool:
+    """日期之后紧贴的是不是**生活事件谓语**（k49-r3，D 的婚期判据）。
+
+    先把 `的/了/着/过` 剥离再锚定匹配——`结的婚`/`办的喜酒` 与 `结婚`/`办喜酒`
+    同判（用户口语形态）；`生的`/`出生` 不命中任何事件词（真陈述零误伤）。
+    """
+    return bool(_EVENT_TAIL_RE.match(re.sub(r'[的了着过]', '', str(tail)[:12])))
+
+
+@functools.lru_cache(maxsize=256)
+def _fn_supports_kw(fn, kw_name: str) -> bool:
+    """函数是否接受某关键字形参（k49 A 上下文注入兼容探测）。
+
+    `lru_cache(maxsize=256)` 有界（R2-4：r1 的无上限类级 dict 在测试/多实例
+    场景下随 lambda 数量增长）——键是函数对象，容量封顶即自然淘汰。
+    """
+    try:
+        import inspect
+        _params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+    return (kw_name in _params
+            or any(p.kind == p.VAR_KEYWORD for p in _params.values()))
+
+
+# ── k49-r3：否定/纠正句式取**被肯定**的值（R2-3 起，r3 修判反与"合成体"）──
+# 现象：`我不是1995年生的，是1999年生的` → 档案被写成 1995（取首个年份命中，
+# 恰好是被否定的那个）；base 与本分支逐字相同（既有缺陷，同族一并修）。
+# r2 的"否定词左侧 6 字内优先"在中文 `A，不是B`（否定词在 B 前、左侧恰有 A）
+# 判反 → 把被否认的值写进档案（R3-1 Critical），r3 重写为**两侧分明 + 成分同源**：
+#   ① 否定目标**优先右侧**：标记紧后到候选之间**无断句标点**时，否定最近的右侧
+#      日期组（`我不是1995年…` 间隙空 ✓；`A，不是1995年` 间隙空 ✓）；
+#   ② 否则回落**左侧**最近的日期组（`我1995年生的？不是，我1999年生的`——
+#      "不是"到 1999 之间隔了 `，` → 撤回左侧的 1995 ✓）；
+#   ③ **成分同源（日期组）**：`1999年5月20日` 这种"年+紧邻月日"算**一组**，否定
+#      按组裁决——年与月日绝不会被拆到两个小句各取一半（r2 的合成体
+#      `1999-03-08` 即此洞：年取肯定小句、月日取被否定小句）；
+#   ④ 全部组都被否定 / 无否定 / 非明示纠正句式 → 回落**基线首命中**口径
+#      （保守失败：绝不因新逻辑丢值或写被否认的值）。
+# 判据族仍是 `person_dao.is_correction_text`（k19/k48 同源）。
+_NEGATION_MARKERS = ("不是", "不对", "不算", "并非", "没是", "错了", "弄错",
+                     "说错", "记错", "填错", "写错", "不对的")
+_NEGATION_WINDOW = 6
+# 日期组内"年 → 月日"允许的最大空隙（`1999年5月20日`=0、`1999年 5月20日`=1）
+_DATE_GROUP_GAP = 2
+_CLAUSE_SEP_RE = re.compile(r'[，,。.！!？?；;、\n：:]')
+
+
+def _date_groups(msg: str, year_matches, md_matches) -> list:
+    """把"年 + 紧邻月日"并为**同一日期组**（成分同源的最小单位）。
+
+    返回 [{"span": (s, e), "y": year_match|None, "m": md_match|None}, …]，按位置
+    排序。合并条件：前一组已有年、尚无月日，当前命中是月日，且两者之间空隙
+    ≤ `_DATE_GROUP_GAP` 且**不含断句标点**（`1999年5月20日` 并组；
+    `我1976年生的，5月13日` 不并组——分步口述的年/月日本就分属两句）。
+    """
+    items = ([("y", m) for m in (year_matches or [])]
+             + [("m", m) for m in (md_matches or [])])
+    items.sort(key=lambda kv: kv[1].start())
+    groups: list = []
+    for kind, m in items:
+        if groups:
+            g = groups[-1]
+            gap = msg[g["span"][1]:m.start()]
+            if (kind == "m" and g["y"] is not None and g["m"] is None
+                    and len(gap) <= _DATE_GROUP_GAP
+                    and not _CLAUSE_SEP_RE.search(gap)):
+                g["m"] = m
+                g["span"] = (g["span"][0], m.end())
+                continue
+        groups.append({"span": m.span(),
+                       "y": m if kind == "y" else None,
+                       "m": m if kind == "m" else None})
+    return groups
+
+
+def _negated_group_ids(msg: str, groups) -> set:
+    """被否定的日期组下标集合（两侧分明：右侧优先且须无标点，否则回落左侧）。"""
+    negated: set = set()
+    if not groups:
+        return negated
+    for _mk in re.finditer("|".join(_NEGATION_MARKERS), msg or ""):
+        _right = [(_g["span"][0] - _mk.end(), _i)
+                  for _i, _g in enumerate(groups)
+                  if _g["span"][0] >= _mk.end()
+                  and _g["span"][0] - _mk.end() <= _NEGATION_WINDOW
+                  and not _CLAUSE_SEP_RE.search(msg[_mk.end():_g["span"][0]])]
+        if _right:
+            negated.add(min(_right)[1])
+            continue
+        _left = [(abs(_mk.start() - _g["span"][1]), _i)
+                 for _i, _g in enumerate(groups)
+                 if _g["span"][1] <= _mk.start()
+                 and _mk.start() - _g["span"][1] <= _NEGATION_WINDOW]
+        if _left:
+            negated.add(min(_left)[1])
+    return negated
+
+
+def _affirmed_pick(msg: str, year_matches, md_matches):
+    """取**被肯定**的年/月日命中（同源成组）。
+
+    返回 (applied, year_match|None, md_match|None)：
+    - applied=False → 调用方走**基线首命中**口径（非纠正消息 / 无否定 / 全被否定）；
+    - applied=True → 用返回的命中（None = 该项无被肯定值，调用方据此放弃该项，
+      绝不回退去写被否定的值）。
+    """
+    if not (year_matches or md_matches):
+        return False, None, None
+    try:
+        from src.storage.person_dao import is_correction_text
+    except Exception:            # noqa: BLE001 — 判据不可用 → 基线口径
+        return False, None, None
+    if not is_correction_text(msg):
+        return False, None, None
+    groups = _date_groups(msg, year_matches, md_matches)
+    negated = _negated_group_ids(msg, groups)
+    if not negated or len(negated) == len(groups):
+        return False, None, None
+    _y = next((g["y"] for i, g in enumerate(groups)
+               if i not in negated and g["y"] is not None), None)
+    _m = next((g["m"] for i, g in enumerate(groups)
+               if i not in negated and g["m"] is not None), None)
+    return True, _y, _m
+
+
+# ── k49-r3：F2 会话式应答的**一致剥离规则**（R2-1 起，r3 补全词类）──────
+# 总原则（一条规则，不再零散加词）：**"出生信息自带成分"与"对出生信息的会话式
+# 应答"都不算'别的内容'**——把它们全部剥离后**仍有残留**，才判"这条消息不是在
+# 报生辰"。七个成分类（每类都是"用户报生辰时会一起说出来的东西"）：
+#   ① 时间/钟点/时辰类：数字（ASCII/中文）、点/时/分/刻/钟、时辰字+时、时段词
+#      （凌晨/早上/…/半夜）、模糊词（左右/大概/大约/约/前后/以后/之前…）
+#   ② 相对年/年龄短语：今年/去年/明年/前年/后年/现在/已经/都/满
+#   ③ 地点类：既有城市库（`COMMON_CITIES` + `CITY_LONGLAT`，含 市/省 后缀）
+#   ④ 性别类：男/女 + 口语词族（男孩子/女生/…）
+#   ⑤ 出生语境类：出生/生于/生的/生日/生辰/生人/命主/农历/阴历/公历/阳历/公元/
+#      周岁/虚岁/岁 —— 出生信息自身的措辞
+#   ⑥ 排盘请求类：`person_dao._CHART_INTENT_WORD_RE`（排盘/排个盘/看盘/命盘/
+#      起盘/盘面/八字/紫微/斗数）——**单一事实源复用**，不再另抄一份词表
+#   ⑦ 会话应答类：请求/礼貌词（帮我/麻烦/谢谢/看看/算算/一下…）+ 确认词
+#      （没错/应该/对的/好的/好的/行/嗯/哦/我确定/确定/就是…）+ 忘记/不确定类
+#      （忘了/忘记/记不清/不记得/不定/不清楚/不确定/具体/时间/时辰）
+# 反向（**刻意不剥**，剥掉就会把 8 条误报消息重新放进来）：事件谓语与叙述连接
+#   词 —— `要去出差`/`妇女节快乐`/`有个面试`/`国庆想去旅游`/`要交房租`/`我朋友
+#   结婚`/`要述职`/`考试`；连接词 `还有`/`和`/`跟`；`可以`（"5月13日可以"是
+#   对日程的同意，不是报生辰——r2 已声明的选边，r3 保持）
 _BARE_MD_TIME_RE = re.compile(
     r'[0-9０-９:：]+'
     r'|[〇零一二三四五六七八九十两]{1,4}'
@@ -1051,19 +1194,28 @@ _BARE_MD_TIME_RE = re.compile(
     r'|今年|去年|明年|前年|后年|现在|已经|都|满'
     r'|点|时|分|刻|钟|整|多|半|初|末')
 
-# 出生信息自带的其余成分：语气/代词/系词 + 性别词 + 出生语境词 + 历法词
+# ⑦ 会话应答类（确认/请求/忘记）——审查 R3-2 点名的会话式应答形态
+_BARE_MD_REPLY_TOKENS = (
+    "帮我", "帮忙", "麻烦", "谢谢", "多谢", "感谢", "看看", "算算", "一下",
+    "给我", "请问", "请",
+    "没错的", "没错", "应该没错", "应该", "对的", "对", "是的", "是", "好的",
+    "好", "行的", "行", "嗯", "哦", "就是", "正是", "确定", "我确定", "肯定",
+    "忘了", "忘记", "记不清", "记不得", "不记得", "记不住", "想不起来",
+    "不确定", "不清楚", "不定", "具体", "时间", "时辰",
+    "这天", "那天", "该天",
+)
+# ④ 性别类 + ⑤ 出生语境类 + 语气/代词/系词（长词优先）
 _BARE_MD_FILLER = (
     "帮我", "我", "你", "他", "她", "请", "是", "的", "了", "呢", "啊", "吧",
-    "哦", "嗯", "嘛", "就", "那", "这", "个", "呀", "啦", "对", "应该", "好像",
-    "似乎", "补充", "填", "写", "记", "报", "说", "看看", "一下", "来", "在",
-    "于",
+    "哦", "嗯", "嘛", "就", "那", "这", "个", "呀", "啦", "对", "好像", "似乎",
+    "补充", "填", "写", "记", "报", "说", "来", "在", "于",
     # 性别（口语词族，与 `_has_self_gender_word` 同源；长词优先）
     "性别男", "性别女", "男孩子", "女孩子", "男生", "女生", "男的", "女的",
     "男孩", "女孩", "男", "女",
     # 出生语境词（本就是"这是出生信息"的证据，不构成"别的内容"）
     "出生", "生于", "生的", "日生", "月生", "生日", "生辰", "生人", "命主",
     "农历", "阴历", "旧历", "公历", "阳历", "公元", "周岁", "虚岁", "岁",
-)
+) + _BARE_MD_REPLY_TOKENS
 _BARE_MD_IGNORE_RE = re.compile(r'[\s，,。.；;、！!？?~～:：\'"“”「」（）()\[\]{}]')
 
 _CITY_TOKEN_CACHE: list = []
@@ -1086,95 +1238,31 @@ def _known_city_tokens() -> list:
 
 
 def _msg_is_bare_month_day(msg: str, m) -> bool:
-    """整条消息是否**只有**这个日期（时间/时辰/地点/性别/语气/出生语境不计）。
+    """整条消息是否**只有**这个日期（七个成分类剥离后无残留才算）。
 
-    k49-r2 否定式（见上方语料依据）：剥净"出生信息自带成分"后**无残留**才算。
+    见上方"一致剥离规则"——判据本身只有这一条：剥离出生信息自带成分与会话式
+    应答后还有别的叙述（`要去出差`/`妇女节快乐`/`有个面试`）→ 不是在报生辰。
     """
     residue = msg[:m.start()] + msg[m.end():]
-    residue = _BARE_MD_TIME_RE.sub('', residue)
-    residue = _BARE_MD_IGNORE_RE.sub('', residue)
-    residue = (residue.replace("年", "").replace("月", "")
-               .replace("日", "").replace("号", ""))
+    # 顺序要紧：**先按词剥**（排盘请求 / 会话应答 / 城市），**再**跑数字与时间
+    # 正则——正则里的中文数字类（`[〇零一二三四五六七八九十两]{1,4}`）会把词里
+    # 的数字吃掉（实测：`看看八字` 的"八"被当数字剥 → 残留"看看字" → 误判非
+    # 生辰）。词级剥离精确、优先执行。
+    try:                          # ⑥ 排盘请求类：单一事实源（person_dao 词表）
+        from src.storage.person_dao import _CHART_INTENT_WORD_RE
+        residue = _CHART_INTENT_WORD_RE.sub('', residue)
+    except Exception:             # noqa: BLE001 — 词表不可用则该类不剥
+        pass
     for _w in sorted(_BARE_MD_FILLER, key=len, reverse=True):
         residue = residue.replace(_w, "")
     for _c in _known_city_tokens():
         if _c in residue:
             residue = residue.replace(_c, "")
+    residue = _BARE_MD_TIME_RE.sub('', residue)
+    residue = _BARE_MD_IGNORE_RE.sub('', residue)
+    residue = (residue.replace("年", "").replace("月", "")
+               .replace("日", "").replace("号", ""))
     return not residue.strip()
-
-
-# ── k49-r2：否定/纠正句式取**被肯定**的值（R2-3）─────────────────────────
-# 现象：`我不是1995年生的，是1999年生的` → 档案被写成 1995（取首个年份命中，
-# 恰好是被否定的那个）。base/branch 逐字相同（既有缺陷，本批同族一并修）。
-# 判据与 k19/k48 同源（`person_dao.is_correction_text`：明示纠正句式才启用本
-# 逻辑，非纠正消息行为逐字不变），否定定位用"就近归属"：
-#   · 否定词（不是/并非/错了…）**左侧 6 字内有日期候选** → 它撤回的是那个值
-#     （`我1995年生的？不是，…` 的"不是"撤回 1995）；
-#   · 否则否定它**右侧 6 字内的首个候选**（`我不是1995年生的` 前缀否定）；
-#   · 全部候选都被否定（语料边界）→ 回落首个命中（基线口径，不因新逻辑丢值）。
-_NEGATION_MARKERS = ("不是", "不对", "不算", "并非", "没是", "错了", "弄错",
-                     "说错", "记错", "填错", "写错", "不对的")
-_NEGATION_WINDOW = 6
-
-
-def _negated_candidate_ids(msg: str, spans) -> set:
-    """按"就近归属"求被否定的候选下标集合（见上方口径）。"""
-    negated = set()
-    if not spans:
-        return negated
-    for _mk in re.finditer("|".join(_NEGATION_MARKERS), msg or ""):
-        _left = [(abs(_s_ - _mk.start()), _i) for _i, (_s_, _e_) in enumerate(spans)
-                 if _e_ <= _mk.start() and _mk.start() - _e_ <= _NEGATION_WINDOW]
-        if _left:
-            negated.add(min(_left)[1])
-            continue
-        _right = [(_s_ - _mk.end(), _i) for _i, (_s_, _e_) in enumerate(spans)
-                  if _s_ >= _mk.end() and _s_ - _mk.end() <= _NEGATION_WINDOW]
-        if _right:
-            negated.add(min(_right)[1])
-    return negated
-
-
-def _affirmed_index(msg: str, matches, spans=None) -> int:
-    """取**被肯定**命中的下标（0 起）：明示纠正句式 + 存在否定 → 跳被否定的；
-    其余情况（含"全被否定"）→ 0（首个命中，基线口径）。"""
-    try:
-        from src.storage.person_dao import is_correction_text
-    except Exception:            # noqa: BLE001 — 判据不可用 → 基线口径
-        return 0
-    if not matches or not is_correction_text(msg):
-        return 0
-    _spans = spans if spans is not None else [m.span() for m in matches]
-    _neg = _negated_candidate_ids(msg, _spans)
-    for _i in range(len(matches)):
-        if _i not in _neg:
-            return _i
-    return 0
-
-
-@functools.lru_cache(maxsize=256)
-def _fn_supports_kw(fn, kw_name: str) -> bool:
-    """函数是否接受某关键字形参（k49 A 上下文注入兼容探测）。
-
-    `lru_cache(maxsize=256)` 有界（R2-4：r1 的无上限类级 dict 在测试/多实例
-    场景下随 lambda 数量增长）——键是函数对象，容量封顶即自然淘汰。
-    """
-    try:
-        import inspect
-        _params = inspect.signature(fn).parameters
-    except (TypeError, ValueError):
-        return False
-    return (kw_name in _params
-            or any(p.kind == p.VAR_KEYWORD for p in _params.values()))
-
-
-def _event_tail_matches(tail: str) -> bool:
-    """日期之后紧贴的是不是**生活事件谓语**（k49-r2，D 的婚期判据）。
-
-    先把 `的/了/着/过` 剥离再锚定匹配——`结的婚` 与 `结婚` 同判（用户口语
-    形态），`生的`/`出生` 不命中任何事件词（真陈述零误伤）。
-    """
-    return bool(_EVENT_TAIL_RE.match(re.sub(r'[的了着过]', '', str(tail)[:12])))
 
 
 def _numeric_date_looks_like_birth(msg: str, m) -> bool:
@@ -7050,12 +7138,19 @@ class MessageHandler:
         # 追加 `(\d{4})\s*[-/]\s*\d{1,2}` 替代项（group 5）恢复该格式，
         # 不触碰现有 年/公历/阳历/公元 各格式。
         year = None
-        # k49-r2（R2-3）：明示纠正句式下取**被肯定**的年份命中
-        # （`我不是1995年生的，是1999年生的` → 1999，不再写被否定的 1995）
+        # k49-r3（R2-3/R3-1）：明示纠正句式下取**被肯定**的年/月日（同源成组，
+        # 见 `_affirmed_pick`）——`我不是1995年生的，是1999年生的` → 1999；
+        # `我1999年5月20日生的，不是1995年3月8日生的` → 1999-05-20（年与月日
+        # 不得被拆到两个小句各取一半）。applied=False → 基线首命中口径。
         _ym_all = list(re.finditer(
             r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})|'
             r'(\d{4})\s*[-/]\s*\d{1,2}', msg))
-        ym = _ym_all[_affirmed_index(msg, _ym_all)] if _ym_all else None
+        _md_all = [c for c in _MD_CAND_RE.finditer(msg)
+                   if _valid_month_day(c)
+                   and _numeric_date_looks_like_birth(msg, c)]
+        _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all)
+        ym = _py if _applied else (_ym_all[0] if _ym_all else None)
+        _md_pick = _pm if _applied else None
         if ym:
             year = int(ym.group(1) or ym.group(2) or ym.group(3) or ym.group(4) or ym.group(5))
 
@@ -7078,12 +7173,8 @@ class MessageHandler:
             # "只取首个候选，被否决即整条月日作废"——`房贷利率4.9%，我1990年
             # 5月20日出生` 改前只剩 year）。取"首个通过"而非"最后一个"：
             # 最后一个会把「…出生，2026年10月1日结婚」的婚期当日辰。
-            # k49-r2（R2-3）：明示纠正句式下跳过**被否定**的月日候选
-            # （`不是3月8日，是5月20日生的` → 取 5/20）
-            _md_all = [c for c in _MD_CAND_RE.finditer(msg)
-                       if _valid_month_day(c)
-                       and _numeric_date_looks_like_birth(msg, c)]
-            md = (_md_all[_affirmed_index(msg, _md_all)] if _md_all else None)
+            # k49-r3：`_md_all` 已在上方与年份同源裁决（`_affirmed_pick`）
+            md = _md_pick if _applied else (_md_all[0] if _md_all else None)
             if md:
                 month = int(md.group(1))
                 day = int(md.group(2))
@@ -7319,12 +7410,17 @@ class MessageHandler:
         # k33/A16：「公历/阳历/公元」前缀式年份（"公历1976"无「年」字）与
         # _extract_bazi_info:5516 同口径收口——此前 F2 只认 `\d{4}年`，
         # "我公历1976生的"在渐进累积通道里年份永远缺失（分步补全死循环问年份）。
-        # k49-r2（R2-3）：明示纠正句式下取**被肯定**的年份命中（同
-        # `_extract_bazi_info`，单一助手 `_affirmed_index`）
+        # k49-r3（R2-3/R3-1）：明示纠正句式下取**被肯定**的年/月日（同源成组，
+        # 与 `_extract_bazi_info` 同一助手 `_affirmed_pick`）
         _ym_all = list(re.finditer(
             r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})',
             msg))
-        ym = _ym_all[_affirmed_index(msg, _ym_all)] if _ym_all else None
+        _md_all = [c for c in _MD_CAND_RE.finditer(msg)
+                   if _valid_month_day(c)
+                   and _numeric_date_looks_like_birth(msg, c)]
+        _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all)
+        ym = _py if _applied else (_ym_all[0] if _ym_all else None)
+        _md_pick = _pm if _applied else None
         if ym:
             y = int(next(g for g in ym.groups() if g))
             if 1900 <= y <= 2100:
@@ -7365,12 +7461,8 @@ class MessageHandler:
             # 形态不作数（用户原话「各缴纳4.5%」修前在此被当 4月5日 → 两张盘）
             # `(?<!\d)`：与全量提取器同口径（防"1985.3.28"被 `85.3` 抢先命中
             # 而把真的 `3.28` 整条带丢——k48-r2 I-2 家族）
-            # k49-r2（R2-3）：明示纠正句式下跳过**被否定**的月日候选
-            # （`不是3月8日，是5月20日生的` → 取 5/20）
-            _md_all = [c for c in _MD_CAND_RE.finditer(msg)
-                       if _valid_month_day(c)
-                       and _numeric_date_looks_like_birth(msg, c)]
-            md = (_md_all[_affirmed_index(msg, _md_all)] if _md_all else None)
+            # k49-r3：`_md_all` 已在上方与年份同源裁决（`_affirmed_pick`）
+            md = _md_pick if _applied else (_md_all[0] if _md_all else None)
             if md:
                 month = int(md.group(1))
                 day = int(md.group(2))
