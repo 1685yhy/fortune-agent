@@ -237,21 +237,41 @@ class TestWeddingDateNotABirth:
         h._handle_bazi("我1991年7月8日出生在长春", "u1")
         assert _snap(db)[:3] == (1991, 7, 8)
 
-    def test_wedding_exempt_narrowed_in_predicate(self):
-        """谓词层直证：豁免改按**语境相邻**（同一实现 person_dao）。"""
+    @pytest.mark.parametrize("msg", [
+        "我出生在长春，1991年7月8日结的婚",
+        "我出生在长春，1991年7月8日结婚",
+        "我出生在长春，1991年7月8日，办了婚礼",
+        "我1991年7月8日结的婚",
+    ])
+    def test_wedding_blocked_at_extraction_gate(self, msg):
+        """**k49-r2**：婚期的收口在**提取层**——日期紧后挂着非出生谓语
+        （结的婚/结婚/婚礼…）→ 整条不进出生路径（r1 曾在豁免侧按"语境相邻"
+        窄化，代价是真陈述被整条丢弃 = R2-2 回归，已改）。"""
+        h = object.__new__(MessageHandler)
+        assert h._extract_bazi_info(msg) is None, msg
+        assert "month" not in h._extract_partial_birth(msg), msg
+
+    def test_true_statement_late_clause_not_dropped(self):
+        """**k49-r2（R2-2）**：语境不相邻的**真陈述**不得被丢弃——日期带完整
+        年份 + 消息里有出生语境词 → 照常采纳（不再要求语境与候选相邻）。"""
+        h = object.__new__(MessageHandler)
+        for msg in ("我出生在长春，1991年7月8日",
+                    "我出生在长春，1991年7月8日 女",
+                    "我出生在长春，是1991年7月8日",
+                    "我妈说我出生在长春，1991年7月8日"):
+            got = h._extract_bazi_info(msg)
+            assert got is not None and got[:3] == (1991, 7, 8), (msg, got)
+
+    def test_predicate_exemption_is_message_level(self):
+        """豁免回到 k48-r3 **消息级**口径（纯谓词、无副作用）；"婚期不写档"
+        由提取层承担（见上），豁免侧不再窄化 → 真陈述冲突时按既有语义直接写。"""
         from src.storage.person_dao import (birth_conflict_fields,
                                             is_explicit_birth_statement)
-        saved = {"birth_year": 1990, "birth_month": 5, "birth_day": 20}
-        new = {"year": 1991, "month": 7, "day": 8}
-        wedding = "我出生在长春，1991年7月8日结的婚"
-        true_stmt = "我1991年7月8日出生在长春"
-        w_span = true_span = (7, 13)      # 两个句子的日期候选区间
-        assert is_explicit_birth_statement(wedding) is True       # 整串口径（既有）
-        assert is_explicit_birth_statement(wedding, span=w_span) is False
-        assert is_explicit_birth_statement(true_stmt, span=true_span) is True
-        # 年份冲突恒查（k19）：把年份差挪开，看月日是否被豁免
         saved0 = {"birth_year": 1991, "birth_month": 3, "birth_day": 28}
-        assert birth_conflict_fields(saved0, new, ctx=wedding,
-                                     span=w_span) == ["month_day"]
-        assert birth_conflict_fields(saved0, new, ctx=true_stmt,
-                                     span=true_span) == []
+        new = {"year": 1991, "month": 7, "day": 8}
+        true_stmt = "我出生在长春，1991年7月8日"
+        assert is_explicit_birth_statement(true_stmt) is True
+        assert birth_conflict_fields(saved0, new, ctx=true_stmt) == []
+        # 年份大差仍恒查（k19 阈值不受本项影响）
+        assert birth_conflict_fields(saved0, {"year": 1999, "month": 7,
+                                              "day": 8}, ctx=true_stmt) == ["year"]
