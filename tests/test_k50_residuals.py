@@ -656,3 +656,136 @@ class TestSingleDateWithTimeMatrix:
         h = object.__new__(MessageHandler)
         got = h._extract_partial_birth(msg)
         assert (got.get("month"), got.get("day")) == (5, 13), (msg, got)
+
+
+class TestThirdPartyCompetitorNotCompeting:
+    """R4-1（Critical）：本人 + 他人两个生日同句 → 本人月日被丢 + 复读。
+
+    根因：消息级闸门只看"消息里还有别的日期候选"，**不看候选分属不同人**。
+    修法（结构化）：竞争候选所在**小句的主语**是第三人（`_is_third_party_date_
+    candidate`，复用既有 `_THIRD_PARTY_MARKERS`）→ 那个日期是别人的，不算竞争。
+    另：年必须与采纳的月日**同源**（同一日期组，`_ym_group_year_for_md`）——
+    否则会把对方的年配到本人的月日上（`我老公是1999年…，我1995年3月8日生的`
+    改前写成 1999-03-08）。
+    """
+
+    @pytest.mark.parametrize("msg,ymd", [
+        ("我1995年3月8日生的，我老公是1999年5月20日生的", (1995, 3, 8)),
+        ("我是1999年3月28日出生的，我老公1995年3月8日生的", (1999, 3, 28)),
+        ("我出生于1990年5月20日，我妻子是1991年7月8日的", (1990, 5, 20)),
+        ("我老公是1999年5月20日生的，我1995年3月8日生的", (1995, 3, 8)),
+        ("我是1999年3月28日出生的，之前那个1995年3月8日是错的", (1999, 3, 28)),
+        ("我1999年3月28日生的，1995年3月8日是错的", (1999, 3, 28)),
+    ])
+    def test_own_date_and_year_kept(self, msg, ymd):
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth(msg)
+        assert (got.get("year"), got.get("month"), got.get("day")) == ymd, (msg, got)
+
+    def test_only_month_day(self):
+        """无年的一条（第 2 条同族）：月日仍须取回（不得因对方候选而丢）。"""
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth("我5月13日生的，我老公6月7日生的")
+        assert (got.get("month"), got.get("day")) == (5, 13), got
+
+    def test_bazi_extractor_same_source(self):
+        """单发排盘路径（建档/出盘面）：年与月日同源，不得取到对方的年。"""
+        h = object.__new__(MessageHandler)
+        info = h._extract_bazi_info("我老公是1999年5月20日生的，我1995年3月8日生的")
+        assert info is not None and info[:3] == (1995, 3, 8), info
+
+    def test_f2_accumulation_no_repeat_ask(self):
+        """F2 累积（审查 E2E 同路径）：历史「我1991年生的」+ 本句 → 不再追问出生月日。"""
+        h = object.__new__(MessageHandler)
+        known, missing = h._collect_partial_birth(
+            "u1", msg="我1995年3月8日生的，我老公是1999年5月20日生的",
+            history=[{"role": "user", "content": "我1991年生的"}])
+        assert (known.get("year"), known.get("month"), known.get("day")) == (1995, 3, 8)
+        assert "出生月日" not in missing, (known, missing)
+
+    def test_predicate_direct(self):
+        """结构直证：谁的年/月日属第三人（同小句主语段末尾是指代）。"""
+        from src.bot.handler import _is_third_party_date_candidate
+        msg = "我老公是1999年5月20日生的，我1995年3月8日生的"
+        hits = {m.group(0): _is_third_party_date_candidate(msg, m)
+                for m in re.finditer(r"\d{4}年|\d{1,2}月\d{1,2}日", msg)}
+        assert hits == {"1999年": True, "5月20日": True,
+                        "1995年": False, "3月8日": False}, hits
+
+
+class TestThirdPartySubjectGuard:
+    """R4-1 反向：指代必须**直接领属**该日期；出处句与常见词一律不得误判。
+
+    B3-1-fix 教训（`我妈说我1976年生的` 是本人信息，妈只是出处）——本判据
+    要求主语段**末尾即指代**（`我老公是` → 剥填充 → `我老公`）；出处句主语段
+    末尾是 `我`（`我妈说我`）→ 不命中 ✓。
+    """
+
+    @pytest.mark.parametrize("msg", [
+        "我妈说我1995年3月8日生的，我1999年5月20日生的",
+        "我老公说我是1995年3月8日生的，我1999年5月20日生的",
+    ])
+    def test_source_clause_is_not_third_party(self, msg):
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth(msg)
+        assert "month" not in got and "day" not in got, (msg, got)
+
+    def test_source_clause_single_date_kept(self):
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth("我妈说我是1995年3月8日生的")
+        assert (got.get("month"), got.get("day")) == (3, 8), got
+
+    @pytest.mark.parametrize("msg", [
+        "5月13日挺不错的日子来搬家", "5月13日不错的",
+    ])
+    def test_common_phrases_not_correction(self, msg):
+        """`挺不错的日子` 含 `错的` 子串——不得被当"纠正"放行（实测误伤后窄化）。"""
+        from src.storage.person_dao import is_correction_text
+        assert is_correction_text(msg) is False, msg
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth(msg)
+        assert "month" not in got and "day" not in got, (msg, got)
+
+    def test_same_clause_still_own(self):
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth("我1995年3月8日生的，那天不错的")
+        assert (got.get("month"), got.get("day")) == (3, 8), got
+
+
+class TestCorrectionMarkerNarrowing:
+    """R4-1 第二方向：`是错的` 纳入纠正/否定判定（裸 `错的` 不收——见上）。"""
+
+    def test_marker_registered(self):
+        from src.storage.person_dao import is_correction_text
+        assert is_correction_text("我1999年3月28日生的，1995年3月8日是错的") is True
+        assert is_correction_text("5月20日是不对的") is True
+
+    @pytest.mark.parametrize("msg,ymd", [
+        ("我1999年3月28日生的，1995年3月8日是错的", (1999, 3, 28)),
+        ("我1995年3月8日是错的，我1999年3月28日生的", (1999, 3, 28)),
+        ("我是1999年3月28日出生的，之前那个1995年3月8日是错的", (1999, 3, 28)),
+    ])
+    def test_negation_picks_affirmed(self, msg, ymd):
+        """两个序都取**被肯定**的那个（错的在前/在后一致）。"""
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth(msg)
+        assert (got.get("year"), got.get("month"), got.get("day")) == ymd, (msg, got)
+
+
+class TestYearSameGroupAsMonthDay:
+    """R4-1 同族：年与月日**同源**（同一日期组），且不得取同组的第三人年。"""
+
+    def test_target_year_not_taken_as_birth(self):
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth("2027年看运势，1990年5月20日 午时 北京 男")
+        assert got.get("year") == 1990, got
+
+    def test_stepwise_split_sentence_kept(self):
+        h = object.__new__(MessageHandler)
+        assert h._extract_partial_birth("1995年生的，5月13日").get("year") == 1995
+
+    def test_third_party_group_year_not_promoted(self):
+        """同组年是对方的 → 回落首命中（保持改前口径，不升级成"整条都是别人的"）。"""
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth("我1995年生的，我老公是1999年5月20日生的")
+        assert got.get("year") == 1995, got

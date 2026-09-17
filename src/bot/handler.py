@@ -1151,8 +1151,8 @@ def _fn_supports_kw(fn, kw_name: str) -> bool:
 #   ④ 全部组都被否定 / 无否定 / 非明示纠正句式 → 回落**基线首命中**口径
 #      （保守失败：绝不因新逻辑丢值或写被否认的值）。
 # 判据族仍是 `person_dao.is_correction_text`（k19/k48 同源）。
-_NEGATION_MARKERS = ("不是", "不对", "不算", "并非", "没是", "错了", "弄错",
-                     "说错", "记错", "填错", "写错", "不对的")
+_NEGATION_MARKERS = ("不是", "不对", "不算", "并非", "没是", "错了", "是错的",
+                     "弄错", "说错", "记错", "填错", "写错", "不对的")
 _NEGATION_WINDOW = 6
 # 日期组内"年 → 月日"允许的最大空隙（`1999年5月20日`=0、`1999年 5月20日`=1）
 _DATE_GROUP_GAP = 2
@@ -1385,6 +1385,63 @@ def _is_strong_md_candidate(msg: str, cand) -> bool:
                 or re.search(r'\d{4}\s*年\s*$', head))
 
 
+# k50-r4：**第三方候选不算竞争日期**——竞争候选所在小句的**主语**是第三人
+# （老公/妻子/孩子/朋友…）时，那个日期是**别人的**，不是"我这条消息里的另一个
+# 日期"（`我1995年3月8日生的，我老公是1999年5月20日生的`：改前两条互相当成竞争
+# → 谁的月日都不取，用户刚给的 3月8日被丢掉还被追问一遍 = Critical）。
+# 判据（结构化）：候选**同小句**内的主语段，剥掉系动词/助词/出生词等填充后
+# **以第三方指代结尾**（`我老公是1999年5月20日生的` → 主语段 `我老公是` → 剥 `是`
+# → `我老公` ✓）。复用既有 `MessageHandler._THIRD_PARTY_MARKERS`（同一事实源，
+# 不新起词表）；**不搬** `_is_third_party_birth_request`——那是**消息级**第三方
+# 排盘路由（帮/给/为/替 + 排盘），口径更严且作用于整条消息，搬来既漏
+# `我老公是…生的`，又会把 B3-1-fix 明确不许误判的 `我妈说我1976年生的`（出处，
+# 非排盘对象）重新拉进来：本判据要求指代**直接领属该日期**（主语段末尾即指代），
+# 出处类 `我妈说我是…` 的主语段末尾是 `我` → 不命中 ✓。
+_TP_SUBJECT_FILLER_RE = re.compile(
+    r'(?:\d{4}\s*[-/.年]|出生于|生于|出生|生的|生|就是|是|叫|的'
+    r'|今年|也|还|已经|都|现在|\s)*$')
+_TP_SUBJECT_TAIL_RE = None
+
+
+def _tp_subject_tail_re():
+    """第三方指代"直接领属日期"的尾锚正则（懒构造：词表取自 MessageHandler）。"""
+    global _TP_SUBJECT_TAIL_RE
+    if _TP_SUBJECT_TAIL_RE is None:
+        _TP_SUBJECT_TAIL_RE = re.compile(
+            r'(?:^|[我你他她]的?|\s)(?:'
+            + '|'.join(MessageHandler._THIRD_PARTY_MARKERS) + r')$')
+    return _TP_SUBJECT_TAIL_RE
+
+
+def _is_third_party_date_candidate(msg: str, c) -> bool:
+    """该日期候选（年或月日）是否属于**第三人**（同小句主语段末尾是第三方指代）。"""
+    from src.storage.person_dao import _clause_span
+    a, _b = _clause_span(msg, c.start(), c.end())
+    _head = _TP_SUBJECT_FILLER_RE.sub('', msg[a:c.start()])
+    return bool(_tp_subject_tail_re().search(_head))
+
+
+def _ym_group_year_for_md(msg: str, year_matches, md_pick):
+    """与采纳月日**同一日期组**、且**属于本人**的年（k50-r4）；无 → None。
+
+    `我老公是1999年5月20日生的，我1995年3月8日生的`：采纳的月日是 3月8日 →
+    同组年是 **1995**（改前取 `_ym_all[0]` = 1999 = **老公的年 + 本人的月日** →
+    档案写成 1999-03-08，比"什么都不写"更糟）。
+    同组年若本身是**第三人**的年（`我1995年生的，我老公是1999年5月20日生的`：
+    采纳月日 5月20日 的同组年是老公的 1999）→ 返回 None，回落既有首命中口径
+    （保持改前行为，不把跨人混搭升级成"整条都是别人的"）；跨小句分步口述
+    （`1995年生的，5月13日`）本就无同组年 → 同样回落 ✓。
+    """
+    if md_pick is None:
+        return None
+    for g in _date_groups(msg, year_matches, [md_pick]):
+        if (g["m"] is not None and g["m"].span() == md_pick.span()
+                and g["y"] is not None
+                and not _is_third_party_date_candidate(msg, g["y"])):
+            return g["y"]
+    return None
+
+
 def _has_other_date_candidate(msg: str, m) -> bool:
     """消息里除当前候选外**还有没有别的日期候选**（k50-r2-1 结构化闸门）。
 
@@ -1403,6 +1460,8 @@ def _has_other_date_candidate(msg: str, m) -> bool:
             continue
         if _is_time_like_md_candidate(msg, c):
             continue                     # 钟点（8.15分）不是日期候选
+        if _is_third_party_date_candidate(msg, c):
+            continue                     # k50-r4：别人（老公/妻子…）的日期不竞争
         # 已被既有闸门排除的 token 不算"另一个日期"（**复用同源谓词**，不新写判据）：
         #   ① 单位/金额/比例黑名单：`房贷利率4.9%，我1990年5月20日出生` 的 `4.9%`
         #      不是日期 → 不该让整条消息因它而"多日期不取"（k48 I-2 夹具）；
@@ -1421,7 +1480,8 @@ def _has_other_date_candidate(msg: str, m) -> bool:
                 continue
         return True
     for c in _CN_MD_RE.finditer(msg):
-        if c.span() != m.span() and _cn_month_day_of(c):
+        if (c.span() != m.span() and _cn_month_day_of(c)
+                and not _is_third_party_date_candidate(msg, c)):
             return True
     return False
 
@@ -7458,6 +7518,12 @@ class MessageHandler:
         _cn_all = [_CnMdCand(c) for c in _CN_MD_RE.finditer(msg)
                    if _cn_month_day_of(c)]
         _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all, _cn_all)
+        # k50-r4：非纠正路径的年**与采纳的月日同源**（同一日期组；中文月日优先
+        # 的路径不适用——那时月日不来自数字候选）。无同组年 → 回落首命中 ✓
+        if not _applied and _md_all and not _parse_cn_month_day(msg):
+            _gy = _ym_group_year_for_md(msg, _ym_all, _md_all[0])
+            if _gy is not None:
+                _ym_all = [_gy]
         ym = _py if _applied else (_ym_all[0] if _ym_all else None)
         if ym:
             year = int(ym.group(1) or ym.group(2) or ym.group(3) or ym.group(4) or ym.group(5))
@@ -7740,6 +7806,12 @@ class MessageHandler:
         _cn_all = [_CnMdCand(c) for c in _CN_MD_RE.finditer(msg)
                    if _cn_month_day_of(c)]
         _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all, _cn_all)
+        # k50-r4：非纠正路径的年**与采纳的月日同源**（同一日期组；中文月日优先
+        # 的路径不适用——那时月日不来自数字候选）。无同组年 → 回落首命中 ✓
+        if not _applied and _md_all and not _parse_cn_month_day(msg):
+            _gy = _ym_group_year_for_md(msg, _ym_all, _md_all[0])
+            if _gy is not None:
+                _ym_all = [_gy]
         ym = _py if _applied else (_ym_all[0] if _ym_all else None)
         if ym:
             y = int(next(g for g in ym.groups() if g))
