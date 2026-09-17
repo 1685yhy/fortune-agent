@@ -536,3 +536,123 @@ class TestCityExplicitNonPlaceContext:
         r = h._tool_bazi("1999年5月13日10点55分 北京 男", "u1", "北京烤鸭真好吃", "s1")
         assert not r.ok and "不太一致" in r.text, r.text
         assert _snap(db)[3] == "长春", _snap(db)
+
+# ════════════════════════════════════════════════════════════════
+# k50-r3-①② 时间样候选 + 消息级多日期闸门
+# ════════════════════════════════════════════════════════════════
+class TestTimeLikeCandidateNotDate:
+    """r2 的闸门落在**候选级** → "不取第一个"退化成"**取第二个**"：
+    `我5月13日8.15分生的` 回退到时间样候选 8.15 → 档案被写成 8月15日（写错值）。
+    r3 修两条：①闸门提到 `_numeric_date_looks_like_birth` 顶部（**消息级**：
+    多日期消息内任何候选都不采纳）；②**时间样候选不算日期候选**（紧后跟
+    分/秒/时/点 → 是钟点），并把"含混形态 8.15 且左侧已有强形态日期"也排除
+    （`5月13日，8.15出生` 里 8.15 是前一日期的钟点）。"""
+
+    @pytest.mark.parametrize("msg", [
+        "我5月13日8.15分生的",
+        "5月13日，8.15出生",
+        "我5月13日8.15分生的 男",
+        "我是5月13日8.15分出生的",
+        "5月13日8时15分出生的",
+        "5月13日，10点55分",
+        "5月13日，10:55",
+        "5月13日，8点",
+        "5月13日，12点30分",
+        "5月13日 10点55分 长春 男",
+    ])
+    def test_single_date_plus_time_keeps_date(self, msg):
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth(msg)
+        assert (got.get("month"), got.get("day")) == (5, 13), (msg, got)
+
+    def test_e2e_archive_gets_the_date_not_the_time(self, tmp_path):
+        """E2E（审查最小复现）：历史「我1991年生的」→「我5月13日8.15分生的」
+        → 建档 1991-05-13（**不是** 1991-08-15）+ 出盘。"""
+        h, db = _h(tmp_path, seed=None)
+        h.session_dao = Mock()
+        h.session_dao.get_context_for_llm.return_value = [
+            {"role": "user", "content": "我1991年生的"}]
+        h._handle_bazi("我5月13日8.15分生的", "u1")
+        assert _snap(db)[:3] == (1991, 5, 13), _snap(db)
+        assert h.chart_dao.get_latest_chart("u1") is not None
+
+    @pytest.mark.parametrize("msg,mode", [
+        ("我8-15出生", (8, 15)),
+        ("我10.10生日", (10, 10)),
+        ("我11.20出生", (11, 20)),
+        ("1985.3.28 出生 男", (3, 28)),
+        ("1999.3.28 10:55 深圳 女", (3, 28)),
+    ])
+    def test_reverse_decimal_forms_still_dates(self, msg, mode):
+        """反例清单（②要求）：后随**不是**时间单位的数字样 token 仍是日期。"""
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth(msg)
+        assert (got.get("month"), got.get("day")) == mode, (msg, got)
+
+    def test_full_date_forms_unaffected(self):
+        h = object.__new__(MessageHandler)
+        assert h._extract_bazi_info("1990-05-20 15:00 深圳 女") == (
+            1990, 5, 20, 15, 0, "深圳", "女")
+        assert h._extract_bazi_info("1999年3月28日 早上十点 长春")[:3] == (1999, 3, 28)
+
+    def test_rule_direct(self):
+        """结构直证：时间样判定 = 候选紧后跟 分/秒/时/点（可隔空白）。"""
+        from src.bot.handler import (_MD_CAND_RE, _has_other_date_candidate,
+                                     _is_time_like_md_candidate)
+        m = "我5月13日8.15分生的"
+        c = [x for x in _MD_CAND_RE.finditer(m) if x.group(0) == "8.15"][0]
+        assert _is_time_like_md_candidate(m, c) is True
+        first = next(x for x in _MD_CAND_RE.finditer(m) if x.group(0) == "5月13日")
+        assert _has_other_date_candidate(m, first) is False   # 时间样不算别的日期
+        # 含混形态 + 左侧强形态日期 → 也不算（是钟点）
+        m2 = "5月13日，8.15出生"
+        f2 = next(x for x in _MD_CAND_RE.finditer(m2) if x.group(0) == "5月13日")
+        assert _has_other_date_candidate(m2, f2) is False
+        # 两个真日期 → 仍算（拒绝）
+        m3 = "5月13日或者6月7日"
+        f3 = next(x for x in _MD_CAND_RE.finditer(m3) if x.group(0) == "5月13日")
+        assert _has_other_date_candidate(m3, f3) is True
+
+
+class TestMultiDateMessageLevel:
+    """①的消息级语义：多日期消息内**任何**候选都不采纳（不再回退取第二个）。"""
+
+    @pytest.mark.parametrize("msg", [
+        "5月13日或者6月7日",
+        "5月13日，或者是6月7日",
+        "5月13日，可能是6月7日",
+        # R3-2（**控制方口径：不取**，安全侧——有意行为变更，见报告）
+        "5月13日 1999年3月28日",
+        "1999年3月28日 5月13日",
+        # 含混形态在前 + 强形态在后 → 同族（不取）
+        "8.15 5月13日",
+        "11.20 5月13日",
+    ])
+    def test_not_adopted(self, msg):
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth(msg)
+        assert "month" not in got and "day" not in got, (msg, got)
+
+    def test_negation_exception_still_picks_affirmed(self):
+        """例外（r3）：明示纠正句式里用户已说清哪个作数 → 仍走否定裁决取被肯定值。"""
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth("不是腊月廿六生的，是5月20日生的")
+        assert (got.get("month"), got.get("day")) == (5, 20), got
+        got2 = h._extract_partial_birth("不是5月13日生的，是6月7日生的")
+        assert (got2.get("month"), got2.get("day")) == (6, 7), got2
+
+
+class TestSingleDateWithTimeMatrix:
+    """R3-3：① 最可能的新误伤面——"单日期 + 时间"矩阵扩测（16 条）。"""
+
+    @pytest.mark.parametrize("msg", [
+        "5月13日，10点", "5月13日，10点55分", "5月13日 10:55", "5月13日，8点",
+        "5月13日，12点30分", "5月13日 8时", "5月13日，下午3点半",
+        "5月13日，早上6点", "5月13日 10点 榆树市 男", "5月13日10点出生",
+        "5月13日 23:00", "5月13日，凌晨3点", "5月13日 0点", "5月13日，19点05分",
+        "5月13日，晚上11点", "5月13日 5:30 男",
+    ])
+    def test_kept(self, msg):
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth(msg)
+        assert (got.get("month"), got.get("day")) == (5, 13), (msg, got)

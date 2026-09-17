@@ -1357,6 +1357,34 @@ def _strip_birth_filler(text: str) -> str:
     return residue
 
 
+# k50-r3-②：**时间样候选**——`8.15分` 的 `8.15` 本身是合法日期书写（k48 起支持
+# `8-15`/`10.10`/`1985.3.28`），判据必须是"**紧后跟着时间单位**"：分/秒/时/点
+# （可隔空白）→ 它是**钟点**不是日期，不进日期候选集。
+# 反例（必须**仍是日期**）：`8-15`（后面无时间单位）、`10.10`、`1985.3.28`、
+# `1999.3.28 10:55`（候选 `3.28` 紧后是" 10:55"→数字，不是时间单位）、
+# `我11.20出生`/`我10.10生日`（紧后是出生词/生日）。
+_TIME_UNIT_AFTER_RE = re.compile(r'^\s*(?:分|秒|时|点)')
+
+
+def _is_time_like_md_candidate(msg: str, m) -> bool:
+    """该月日候选是否其实是**钟点**（紧后跟时间单位）。"""
+    return bool(_TIME_UNIT_AFTER_RE.match(str(msg)[m.end():]))
+
+
+def _is_strong_md_candidate(msg: str, cand) -> bool:
+    """强形态日期候选：自带 `月/日/号` 单位，或紧前是 `YYYY-`/`YYYY年`（k50-r3）。
+
+    与"含混形态"（裸 `8.15`/`11.20`，k48 起需候选附近有出生语境才取）相对——
+    含混形态与日期**或钟点**同形，故只在"左侧没有强形态日期"时才算一个候选
+    （`5月13日，8.15出生` 里的 8.15 是前一日期的钟点）。
+    """
+    if re.search(r'月|日|号', cand.group(0)):
+        return True
+    head = msg[:cand.start()]
+    return bool(re.search(r'\d{4}\s*[-/.]\s*$', head)
+                or re.search(r'\d{4}\s*年\s*$', head))
+
+
 def _has_other_date_candidate(msg: str, m) -> bool:
     """消息里除当前候选外**还有没有别的日期候选**（k50-r2-1 结构化闸门）。
 
@@ -1371,8 +1399,27 @@ def _has_other_date_candidate(msg: str, m) -> bool:
     里都没有第二个**合法月日**候选（`10点55分`/`15:00` 不匹配候选正则）✓。
     """
     for c in _MD_CAND_RE.finditer(msg):
-        if c.span() != m.span() and _valid_month_day(c):
-            return True
+        if c.span() == m.span() or not _valid_month_day(c):
+            continue
+        if _is_time_like_md_candidate(msg, c):
+            continue                     # 钟点（8.15分）不是日期候选
+        # 已被既有闸门排除的 token 不算"另一个日期"（**复用同源谓词**，不新写判据）：
+        #   ① 单位/金额/比例黑名单：`房贷利率4.9%，我1990年5月20日出生` 的 `4.9%`
+        #      不是日期 → 不该让整条消息因它而"多日期不取"（k48 I-2 夹具）；
+        #   ①b 非出生谓语（生活事件）：`我1990年5月20日出生，2026年10月1日结婚`
+        #      的婚期是**事件日**不是竞争日期（k48 R-I-4b 夹具）。
+        _ctail, _chead = msg[c.end():], msg[:c.start()]
+        if (_NON_DATE_UNIT_RE.match(_ctail)
+                or _NON_DATE_HEAD_RE.search(_chead)
+                or _event_tail_matches(_ctail)):
+            continue
+        if not _is_strong_md_candidate(msg, c):
+            # 含混形态：左侧已有强形态日期 → 它是那个日期的钟点，不算另一个候选
+            if any(x.end() <= c.start() and _valid_month_day(x)
+                   and _is_strong_md_candidate(msg, x)
+                   for x in _MD_CAND_RE.finditer(msg)):
+                continue
+        return True
     for c in _CN_MD_RE.finditer(msg):
         if c.span() != m.span() and _cn_month_day_of(c):
             return True
@@ -1387,8 +1434,8 @@ def _msg_is_bare_month_day(msg: str, m) -> bool:
     k50-r2-1：再加一道**结构化**前置闸门——消息里有别的日期候选 → 不是单日期
     （`5月13日或者6月7日`：用户给了两个候选，绝不静默取第一个）。
     """
-    if _has_other_date_candidate(msg, m):
-        return False
+    # 多日期闸门已在 `_numeric_date_looks_like_birth` **消息级**把关（k50-r3-①），
+    # 此处只判"剥离后无残留"（单一实现，不重复把关）。
     return not _strip_birth_filler(msg[:m.start()] + msg[m.end():]).strip()
 
 
@@ -1424,6 +1471,18 @@ def _numeric_date_looks_like_birth(msg: str, m) -> bool:
     text = m.group(0)
     tail = msg[e:]
     head = msg[:s]
+    # k50-r3-①：**消息级**多日期闸门——消息里还有别的日期候选（数字或中文）时，
+    # 该消息内**任何**候选都不采纳。改前它落在"候选级"（`_msg_is_bare_month_day`
+    # 内部）→ "不取第一个"退化成"**取第二个**"（`我5月13日8.15分生的` 回退到时间样
+    # 候选 8.15 → 写错成 8月15日）。
+    # 例外：**明示纠正/否定句式**（`不是腊月廿六生的，是5月20日生的`）里用户已经
+    # 说清哪个值作数 → 不套用"多日期就不取"，交给否定裁决取被肯定值
+    #（`is_correction_text`，与 k19/k48/k50-1 同源判据；非纠正消息一律套用 ✓）。
+    if (_has_other_date_candidate(msg, m)
+            and not is_correction_text(msg)):
+        return False
+    if _is_time_like_md_candidate(msg, m):
+        return False                     # k50-r3-②：钟点（8.15分）不是日期
     if _NON_DATE_UNIT_RE.match(tail) or _NON_DATE_HEAD_RE.search(head):
         return False                     # ①
     if not _birth_word_leads(tail) and _event_tail_matches(tail):
