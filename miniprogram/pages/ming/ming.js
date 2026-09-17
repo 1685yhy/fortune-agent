@@ -56,9 +56,6 @@ Page({
     // 付费
     paywall: false,
     purchasing: false,
-    /* k52-1：iOS/平台未判定 → 付费入口改只读引导（引导文案单一事实源 = payment.IOS_GUIDE） */
-    iosBlocked: false,
-    iosGuide: payment.IOS_GUIDE,
     // 名笺报告
     report: null,
     saving: false,
@@ -68,8 +65,6 @@ Page({
   onLoad(opts) {
     this._initNavOff();
     theme.bindTheme(this);
-    // k52-1：平台受限（iOS）→ 付费入口整体切换为引导视图
-    this.setData({ iosBlocked: payment.isPurchaseBlocked() });
     // 从姓名学页「觉得名字不满意？去 AI 取名」跳入: 预填姓氏/性别
     if (opts && opts.surname) {
       this.setData({

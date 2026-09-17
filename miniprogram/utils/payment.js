@@ -21,81 +21,20 @@ function isDevDemo() {
   }
 }
 
-// ---- k52-1：iOS 端虚拟支付屏蔽（合规硬性要求） ----
-// 微信虚拟支付（米大师 wx.requestVirtualPayment）在 iOS 端不可用：苹果要求虚拟商品走
-// 内购，微信亦禁止 iOS 端小程序内虚拟支付。iOS 端若露出可点击的付费入口 → 审核硬伤，
-// 上线被扫到会封支付能力。故本模块**在 iOS 端不调起任何支付**，统一走引导路径。
-// ⚠ 平台判定只用未废弃 API（k47-B 同口径，getDeviceInfo 属 getAppBaseInfo/
-//   getWindowInfo 同一套新 API 家族）——不引入 wx.getSystemInfoSync。
-// ⚠ 只拦「发起购买」的动作；已购/会员状态**读取**不受影响（iOS 用户仍能看已购内容）。
-let _platformCache = null;
-
-/**
- * 当前平台：'ios' | 'android' | 'devtools' | 'windows' | 'mac' | 'ohos' | ''（无法判定）
- * @returns {string}
- */
-function getPlatform() {
-  if (_platformCache !== null) return _platformCache;
-  let platform = '';
-  try {
-    // 新 API（基础库 ≥2.20.1）：wx.getDeviceInfo().platform
-    const info = (typeof wx !== 'undefined' && wx && wx.getDeviceInfo && wx.getDeviceInfo()) || {};
-    platform = String(info.platform || '').toLowerCase();
-  } catch (e) {
-    platform = ''; // 设备信息异常 → 交由 isPurchaseBlocked 按保守策略处理
-  }
-  // 只缓存**已判定**的结果：'' （无法判定）不缓存，避免异常态被永久固化
-  if (platform) _platformCache = platform;
-  return platform;
-}
-
-/** 是否 iOS 端（Apple 平台统一上报 'ios'）——判定不可用时返回 false（由可购买性另判） */
-function isIOS() {
-  return getPlatform() === 'ios';
-}
-
-/**
- * 是否屏蔽「发起购买」：
- *   ① iOS → 恒屏蔽（合规红线）
- *   ② 平台无法判定（基础库过旧/设备信息异常）→ 保守屏蔽：宁可拦错，不可在 iOS 露出支付
- * @returns {boolean}
- */
-function isPurchaseBlocked() {
-  const p = getPlatform();
-  return p === 'ios' || p === '';
-}
-
-/* iOS 端引导文案（不出现「支付/购买」字样；与墨韵调性一致）。
-   渠道：关注公众号「易理明灯」/ 设置页「关于与隐私」中的联系方式（现有页面已列明）。 */
-const IOS_GUIDE = {
-  title: '此项暂未开放',
-  lines: [
-    '遵循平台规则，当前设备暂不支持在应用内开通',
-    '如需获取完整内容，可关注公众号「易理明灯」',
-    '或在「我的 — 设置 — 关于与隐私」查看联系方式',
-  ],
-  confirmText: '知道了',
-};
-IOS_GUIDE.content = IOS_GUIDE.lines.join('；');
-
-/** 弹出 iOS 引导（付费入口在 iOS 端统一走此路径，不调起支付） */
-function showIosGuide() {
-  try {
-    if (typeof wx === 'undefined' || !wx || typeof wx.showModal !== 'function') return;
-    wx.showModal({
-      title: IOS_GUIDE.title,
-      content: IOS_GUIDE.content,
-      showCancel: false,
-      confirmText: IOS_GUIDE.confirmText,
-    });
-  } catch (e) { /* 引导显示失败不影响「不调起支付」这一硬约束 */ }
-}
-
-/** 屏蔽结果：调用方据 blocked 判定「已引导，不再提示支付失败」 */
-function blockedResult() {
-  showIosGuide();
-  return { success: false, blocked: true, reason: 'platform_restricted' };
-}
+// ---- k52（r2 复核后）：全终端虚拟支付口径（2026-02-27《小程序虚拟支付业务管理规范》） ----
+// 政策事实（2026-09-17 控制方复核，多来源一致）：
+//   ① 微信小程序 iOS 端虚拟支付自 2025-11 起已支持（走 Apple IAP 结算、苹果抽成）；
+//   ② 自 2026-04-01 起虚拟支付**全终端强制接入**（iOS / Android / Windows / 鸿蒙），
+//      逾期按违规处理；
+//   ③ 规范**明令禁止**把用户「引导至 App、公众号、H5、个人号、网站等外部渠道」完成支付。
+// 因此本模块的红线是：
+//   ⚠ **不按平台屏蔽 iOS**（三端一律走 wx.requestVirtualPayment）；
+//   ⚠ **不把用户引导到任何外部渠道**完成支付（含公众号/客服/H5/个人号）；
+//   ⚠ 只有「当前客户端根本不支持该 API」这一真不可用场景，给**中性**提示
+//     （提示升级微信，可重试），且**不做任何外部引导、不静默改走其它支付通道**。
+// iOS 端能不能真正付款，取决于小程序后台是否开启「iOS 苹果支付」开关、是否开通
+// 虚拟支付专用商户号 —— 那是**用户侧后台配置**（清单见报告 r2 节），不是前端该拦的理由。
+// 另：已购/会员状态**读取**与支付入口无关，任何情况下都不受影响。
 
 // ---- 产品定价 ----
 const PRODUCTS = {
@@ -299,14 +238,12 @@ function backendErrorCode(e) {
  * @returns {Promise<{success: boolean, orderId?: string, fallback?: boolean, needRelogin?: boolean}>}
  */
 async function tryVirtualPay(productId) {
-  // k52-1 兜底闸门：任何直接调用本函数者也不得在 iOS 端调起虚拟支付
-  if (isPurchaseBlocked()) {
-    console.log('[Payment] 平台受限（iOS/未判定），不调起虚拟支付');
-    return { success: false, blocked: true, reason: 'platform_restricted' };
-  }
+  // k52：真不可用（基础库 <2.19.2 / 客户端未提供该 API）→ 中性提示，可重试；
+  // 不引导任何外部渠道，也不静默改走其它支付通道（虚拟商品必须走虚拟支付）
   if (!canUseVirtualPayment()) {
-    console.log('[Payment] 基础库不支持 requestVirtualPayment，降级 mock');
-    return { success: false, fallback: true };
+    console.log('[Payment] 当前客户端不支持 requestVirtualPayment');
+    wx.showToast({ title: '当前微信版本暂不支持，请升级微信后重试', icon: 'none' });
+    return { success: false, unsupported: true };
   }
 
   let orderRes;
@@ -376,20 +313,16 @@ async function purchase(productId) {
     return { success: false };
   }
 
-  // 免费产品直接"购买"成功（免费领取不涉及虚拟支付，不在 k52-1 屏蔽范围）
+  // 免费产品直接"购买"成功（免费领取不涉及虚拟支付）
   if (product.price === 0) {
     return { success: true, orderId: 'free_' + Date.now() };
   }
 
-  // k52-1：iOS 端不调起支付 → 引导路径（返回 blocked，调用方据此走引导，不再提示支付失败）
-  if (isPurchaseBlocked()) {
-    return blockedResult();
-  }
-
-  // Step 1: 虚拟支付（米大师）——后端 .env 配置齐才启用
+  // Step 1: 虚拟支付（米大师）——三端一致（iOS/Android/Windows/鸿蒙）
   const virtual = await tryVirtualPay(productId);
   if (virtual.success) return virtual;
-  if (!virtual.fallback) return virtual; // 取消/失败/需重登：不再降级 mock
+  if (virtual.unsupported) return virtual; // 真不可用：中性提示已给，不降级其它通道（可重试）
+  if (!virtual.fallback) return virtual;   // 取消/失败/需重登：不再降级 mock
 
   // Step 2: 降级 mock 支付（后端 WECHAT_PAY_ENABLED=false）
   try {
@@ -429,14 +362,10 @@ async function subscribeMember(planId) {
     return { success: false };
   }
 
-  // k52-1：iOS 端不调起支付 → 引导路径（同 purchase）
-  if (isPurchaseBlocked()) {
-    return blockedResult();
-  }
-
-  // Step 1: 虚拟支付（米大师）——会员开通（product_id = 套餐 id）
+  // Step 1: 虚拟支付（米大师）——会员开通（product_id = 套餐 id；三端一致）
   const virtual = await tryVirtualPay(planId);
   if (virtual.success) return virtual;
+  if (virtual.unsupported) return virtual; // 真不可用：中性提示已给（可重试）
   if (!virtual.fallback) return virtual;
 
   // Step 2: 降级 mock（后端 WECHAT_PAY_ENABLED=false）
@@ -464,7 +393,6 @@ async function subscribeMember(planId) {
 module.exports = {
   PRODUCTS,
   MEMBER_BENEFITS,
-  IOS_GUIDE,
   getProduct,
   getAllProducts,
   getMemberBenefits,
@@ -472,11 +400,6 @@ module.exports = {
   subscribeMember,
   canUseVirtualPayment,
   isDevDemo,
-  // k52-1：虚拟支付内部主流程也对齐导出——兜底闸门（iOS 不调起）需可被测试覆盖
+  // k52：虚拟支付主流程导出，便于测试覆盖「真不可用 → 中性提示」这条降级
   tryVirtualPay,
-  // k52-1：平台判定与 iOS 屏蔽（页面用它决定「显示付费入口」还是「显示引导」）
-  getPlatform,
-  isIOS,
-  isPurchaseBlocked,
-  showIosGuide,
 };

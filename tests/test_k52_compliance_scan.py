@@ -10,6 +10,9 @@
    - miniprogram/pages/**/*.js        → **字符串字面量**（含模板串；保守起见内部键值也一起扫，
                                         宁可多报不漏报；注释不算用户可见 → 剥离）
    - miniprogram/utils/**/*.js        → 同上
+   - miniprogram/pages/**/*.json    → navigationBarTitleText 等用户可见标题（r2 M-3 新增）
+   - miniprogram/components/**      → 组件 wxml 文本 / js 字符串 / json+wxss 文本（r2 M-3 新增）
+   - miniprogram/app.js / app.json  → 全局兜底文案与 tabBar 文案（r2 M-3 新增）
 ② 面向输出的提示词面
    - src/**/*prompt*.py               → 当前 = src/llm/prompts.py + src/llm/report_prompts.py
    - src/bot/handler.py               → 全部字符串字面量（**含 docstring**）：
@@ -51,10 +54,14 @@ BASELINE_WORDS = (
     "法事", "开光", "辟邪", "驱邪", "招财", "旺财", "灵验", "大师", "改命",
 )
 
-# ── 扫描面定义 ──
+# ── 扫描面定义（r2 M-3 加固：补 components / 页面 json 标题 / app.js / app.json） ──
 WXML_GLOB = "miniprogram/pages/**/*.wxml"
 PAGE_JS_GLOB = "miniprogram/pages/**/*.js"
 UTIL_JS_GLOB = "miniprogram/utils/**/*.js"
+PAGE_JSON_GLOB = "miniprogram/pages/**/*.json"     # navigationBarTitleText 等用户可见标题
+COMPONENT_GLOB = "miniprogram/components/**/*"     # 组件 wxml/js/json/wxss 同样是用户可见面
+APP_JS = "miniprogram/app.js"                      # 全局提示/兜底文案
+APP_JSON = "miniprogram/app.json"                  # tabBar 文案等
 PROMPT_PY_GLOB = "src/**/*prompt*.py"
 PROMPT_PY_REQUIRED = {"src/llm/prompts.py", "src/llm/report_prompts.py"}
 HANDLER_PY = "src/bot/handler.py"
@@ -234,6 +241,46 @@ def _collect() -> tuple[list[Hit], dict[str, int]]:
         for lineno, text in py_string_literals(src):
             add(rel, lineno, text, src_lines)
 
+    # r2 M-3：页面 json（navigationBarTitleText 等用户可见标题）——整体按文本扫
+    page_json = sorted(ROOT.glob(PAGE_JSON_GLOB))
+    counts[PAGE_JSON_GLOB] = len(page_json)
+    for f in page_json:
+        rel = f.relative_to(ROOT).as_posix()
+        src_lines = f.read_text(encoding="utf-8").splitlines()
+        for i, text in enumerate(src_lines, 1):
+            add(rel, i, text, src_lines)
+
+    # r2 M-3：组件面（wxml 文本 / js 字符串 / json+wxss 文本去块注释）
+    component_files = sorted(f for f in ROOT.glob(COMPONENT_GLOB) if f.is_file())
+    counts[COMPONENT_GLOB] = len(component_files)
+    for f in component_files:
+        rel = f.relative_to(ROOT).as_posix()
+        raw = f.read_text(encoding="utf-8")
+        src_lines = raw.splitlines()
+        if f.suffix == ".wxml":
+            for i, text in enumerate(strip_wxml_comments(raw).split("\n"), 1):
+                add(rel, i, text, src_lines)
+        elif f.suffix == ".js":
+            for lineno, text in js_string_literals(raw):
+                add(rel, lineno, text, src_lines)
+        elif f.suffix in (".json", ".wxss"):
+            stripped = re.sub(r"/\*.*?\*/", lambda m: "\n" * m.group(0).count("\n"), raw, flags=re.S)
+            for i, text in enumerate(stripped.split("\n"), 1):
+                add(rel, i, text, src_lines)
+        # 其余后缀（.wxs 等）：当前无用户可见文案，如需纳入在此追加分支
+
+    # r2 M-3：app.js（字符串字面量）+ app.json（tabBar 等文案）
+    app_js = ROOT / APP_JS
+    assert app_js.is_file(), f"扫描面缺失：{APP_JS}"
+    src_lines = app_js.read_text(encoding="utf-8").splitlines()
+    for lineno, text in js_string_literals("\n".join(src_lines)):
+        add(APP_JS, lineno, text, src_lines)
+    app_json = ROOT / APP_JSON
+    if app_json.is_file():
+        src_lines = app_json.read_text(encoding="utf-8").splitlines()
+        for i, text in enumerate(src_lines, 1):
+            add(APP_JSON, i, text, src_lines)
+
     handler = ROOT / HANDLER_PY
     assert handler.is_file(), f"扫描面缺失：{HANDLER_PY}"
     src = handler.read_text(encoding="utf-8")
@@ -245,8 +292,17 @@ def _collect() -> tuple[list[Hit], dict[str, int]]:
 
 
 def _is_whitelisted(hit: Hit) -> bool:
+    """白名单判定：文件 + 行 + **词**三者都对上才放行（r2 修复）。
+
+    ⚠ 历史漏洞（k52 初版，审查者实测）：只按「文件 + 行」放行、不校验词 ——
+    往已白名单的行上再塞一个**表内但未登记**的词（如把「化解」加到 handler.py:1549）
+    仍会判白、测试恒绿。现要求 `hit.word in entry["words"]`；
+    「白名单行的词必须与登记一致」另由 test_whitelist_words_exactly_cover_hits 反向锁住。
+    """
     for entry in WHITELIST:
-        if entry["file"] == hit.path and entry["line_contains"] in hit.line:
+        if (entry["file"] == hit.path
+                and entry["line_contains"] in hit.line
+                and hit.word in set(entry["words"])):
             return True
     return False
 
@@ -259,6 +315,8 @@ def test_scan_surface_and_wordlist_never_shrink():
     assert counts[WXML_GLOB] >= 30, f"wxml 面文件数异常（{counts}）：不得排除 pages"
     assert counts[PAGE_JS_GLOB] >= 30, f"pages js 面文件数异常（{counts}）"
     assert counts[UTIL_JS_GLOB] >= 10, f"utils 面文件数异常（{counts}）"
+    assert counts[PAGE_JSON_GLOB] >= 30, f"页面 json 面文件数异常（{counts}）"
+    assert counts[COMPONENT_GLOB] >= 15, f"组件面文件数异常（{counts}）"
     assert counts[PROMPT_PY_GLOB] >= 2, f"提示词面文件数异常（{counts}）"
     prompt_files = {f.relative_to(ROOT).as_posix() for f in ROOT.glob(PROMPT_PY_GLOB)}
     assert PROMPT_PY_REQUIRED <= prompt_files, f"提示词面文件缺失：{PROMPT_PY_REQUIRED - prompt_files}"
@@ -312,16 +370,34 @@ def test_whitelist_entries_have_reasons_and_are_used():
     assert not stale, f"白名单条目已失效（对应命中已消除 → 请删除该条目）：{stale}"
 
 
-def test_no_deprecated_platform_api_in_payment():
-    """k52-1 伴随红线：支付模块不得引入已废弃的平台 API（平台判定用新 API）。"""
+def test_payment_policy_red_lines():
+    """支付模块红线（r2 按 2026-02-27《小程序虚拟支付业务管理规范》口径）：
+
+    ① 不按平台屏蔽 iOS（全终端强制接入虚拟支付）；
+    ② 不把用户引导到任何外部渠道完成支付（禁 App/公众号/H5/个人号/网站）；
+    ③ 真不可用时只给中性提示、可重试、不静默改走其它通道；
+    ④ 不引入已废弃平台 API；三端走同一套 wx.requestVirtualPayment。
+    """
     src = (ROOT / "miniprogram/utils/payment.js").read_text(encoding="utf-8")
-    code = "\n".join(re.sub(r"//.*$", "", line) for line in re.sub(r"/\*.*?\*/", "", src, flags=re.S).split("\n"))
-    assert "getSystemInfoSync" not in code and "getSystemInfo(" not in code
-    assert "getDeviceInfo" in code, "平台判定应使用 wx.getDeviceInfo（新 API）"
-    # iOS 屏蔽必须落在「发起购买」的三个入口上
+    code = "\n".join(re.sub(r"//.*$", "", line)
+                     for line in re.sub(r"/\*.*?\*/", "", src, flags=re.S).split("\n"))
+    # ① 平台屏蔽已撤（代码里不得再有平台分支）
+    for banned in ("isPurchaseBlocked", "getDeviceInfo", "getSystemInfoSync", "getSystemInfo("):
+        assert banned not in code, f"支付代码不得再出现平台分支/废弃 API：{banned}"
+    # ③ 真不可用降级存在且是「中性提示 + unsupported」
+    assert "unsupported" in code, "真不可用必须有显式标记（调用方据此走中性提示）"
+    assert "当前微信版本暂不支持，请升级微信后重试" in src, "真不可用应给中性提示"
+    # ② 对外话术不得含外部渠道引导（注释除外 —— 政策注释需要引用被禁词）
+    strings = []
+    for m in re.finditer(r"'([^'\\]*(?:\\.[^'\\]*)*)'|\"([^\"\\]*(?:\\.[^\"\\]*)*)\"", code):
+        strings.append(m.group(1) or m.group(2) or "")
+    for s in strings:
+        for banned in ("公众号", "客服", "个人号", "H5", "外部", "联系"):
+            assert banned not in s, f"支付路径不得出现外部引导话术「{banned}」：{s}"
+    # ④ 三个入口都在（撤屏蔽不等于撤功能）
     for marker in ("function tryVirtualPay", "async function purchase", "async function subscribeMember"):
         assert marker in src, f"支付入口缺失：{marker}"
-    assert src.count("isPurchaseBlocked()") >= 3, "三个购买入口都要过平台闸门"
+    assert code.count("requestVirtualPayment") >= 2 and "canUseVirtualPayment()" in code
 
 
 @pytest.mark.parametrize("word", BASELINE_WORDS)
@@ -420,3 +496,44 @@ def test_sampling_sample_set_is_not_empty_and_covers_key_surfaces():
     # 六爻图表串必须已改名（旧「六爻占卜结果：」会进提示词）
     liuyao = dict(samples)["MessageHandler._format_liuyao_chart()"]
     assert liuyao.startswith("六爻推演结果："), liuyao[:40]
+
+
+# ══════════════════ r2：白名单「按词放行」+ 无未登记词溜过 ══════════════════
+# 背景（审查者实测 · Important）：初版 _is_whitelisted 只校验「文件 + 行」，
+# 于是往已白名单的行上再加一个**表内但未登记**的词仍然判白 → 扫描形同虚设。
+# 下面两条：① 机制自检（合成命中必须判红）② 反向锁（白名单行的真实命中词 = 登记词集合）。
+
+def test_whitelist_is_word_scoped_unregistered_word_on_whitelisted_line_fails():
+    """在白名单行上加一个**表内但未登记**的词 → 必须判红（不得判白）。"""
+    entry = WHITELIST[0]                      # handler.py:1549 知识卡 keywords（登记词：转运/改运）
+    whitelisted_line = next(
+        line for line in (ROOT / entry["file"]).read_text(encoding="utf-8").split("\n")
+        if entry["line_contains"] in line)
+    # ① 已登记的词 → 放行
+    ok = Hit(entry["file"], 1549, whitelisted_line, sorted(entry["words"])[0], whitelisted_line)
+    assert _is_whitelisted(ok) is True, "登记词应放行"
+    # ② 同一行、表内但**未登记**的词 → 必须判红（这正是审查者植入「化解」的复现）
+    for word in HIGH_RISK_WORDS:
+        if word in set(entry["words"]):
+            continue
+        planted = Hit(entry["file"], 1549, whitelisted_line, word, whitelisted_line)
+        assert _is_whitelisted(planted) is False, (
+            f"白名单行上的未登记词「{word}」必须判红（白名单只许按词放行）")
+    # ③ 别的文件/别的行也不得被这条 entry 顺带放行
+    other = Hit("miniprogram/pages/me/me.js", 1, whitelisted_line, "占卜", whitelisted_line)
+    assert _is_whitelisted(other) is False, "白名单不得跨文件放行"
+
+
+def test_whitelist_words_exactly_cover_hits():
+    """反向锁：每条白名单**登记的词集合**必须等于该行**真实命中**的词集合。
+
+    效果 = 白名单行上出现任何新词（哪怕是表内词）都会红，逼着人来这里显式登记 + 写理由。
+    """
+    hits, _ = _collect()
+    for entry in WHITELIST:
+        actual = {h.word for h in hits
+                  if h.path == entry["file"] and entry["line_contains"] in h.line}
+        assert actual, f"白名单条目已失效（对应行无命中）：{entry['line_contains']}"
+        assert actual == set(entry["words"]), (
+            f"白名单词集合与真实命中不一致：登记={sorted(entry['words'])} 实际={sorted(actual)} "
+            f"（行：{entry['line_contains']}）——请改词或更新白名单并补理由")

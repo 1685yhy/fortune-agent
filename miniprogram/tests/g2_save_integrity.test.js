@@ -158,13 +158,10 @@ test('D1 isDevDemo：仅 develop 环境为演示；trial/release/异常/无 wx �
   }
 });
 
-/* 支付全链路：虚拟支付未启用 → 降级 mock → mock 支付失败（非取消）
-   k52-1：桩需显式声明平台——getDeviceInfo().platform='android' 即「安卓端行为逐字不变」
-   的那条路径（iOS/未判定会被 k52 闸门拦下，见 k52_ios_pay.test.js）。 */
+/* 支付全链路：虚拟支付未启用 → 降级 mock → mock 支付失败（非取消） */
 function stubPayWx(envVersion, toasts) {
   global.wx = {
     canIUse: () => true,
-    getDeviceInfo: () => ({ platform: 'android' }),
     getAccountInfoSync: () => ({ miniProgram: { envVersion } }),
     getStorageSync: () => undefined,
     setStorageSync: () => {},

@@ -389,28 +389,3 @@ page, view, text, input, textarea, button, image, scroll-view, rich-text, icon, 
 /* 灯笼 2 秒渐亮(每日一次,可关) */
 .lamp-fade { animation: lampFade 2s ease-out; }
 @keyframes lampFade { from { opacity: .12; } to { opacity: 1; } }
-
-/* ═══════════════════════════════════════════════════════════════
-   k52-1 平台受限引导（iOS 端虚拟支付屏蔽）：替代付费按钮的只读提示，
-   无任何可点击的支付元素。全局类，各页复用；配色沿用墨韵 token
-   （随暗黑/夜色主题自动适配）。
-   ═══════════════════════════════════════════════════════════════ */
-.k52-ios-guide {
-  margin: 28rpx 8rpx 8rpx;
-  padding: 28rpx 30rpx;
-  background: var(--paper-card);
-  border: 1rpx dashed var(--line);
-  border-radius: 16rpx;
-}
-.k52-ios-guide-title {
-  font-family: var(--font-song);
-  font-size: 30rpx;
-  color: var(--ink);
-  letter-spacing: 2rpx;
-  margin-bottom: 14rpx;
-}
-.k52-ios-guide-line {
-  font-size: 25rpx;
-  line-height: 1.8;
-  color: var(--ink-mid);
-}

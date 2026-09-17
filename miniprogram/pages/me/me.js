@@ -42,10 +42,6 @@ Page({
     memberIsMember: false,
     memberBenefits: [],
     memberExpireText: '',
-    /* k52-1：iOS/平台未判定 → 关闭付费入口，改只读引导（引导文案单一事实源 = payment.IOS_GUIDE）。
-       会员**状态读取**不受影响：memberIsMember/memberStatus/已购内容照常展示。 */
-    iosBlocked: false,
-    iosGuide: payment.IOS_GUIDE,
     favCount: 0,                // v1.1 收藏数（我的收藏行 val）
     personCount: 0,             // 档案行 val：本地缓存命主数
     curTab: 'me',
@@ -65,8 +61,6 @@ Page({
 
   onLoad(options) {
     this._initNavOff();
-    // k52-1：平台受限（iOS）→ 付费入口整体切换为引导视图
-    this.setData({ iosBlocked: payment.isPurchaseBlocked() });
     // 会员开通方案（L5-2：基础三档 + 高级一档，价格与后端 SUBSCRIBE_PLANS 对齐）
     const plans = ['monthly', 'quarterly', 'yearly', 'pro_monthly']
       .map((id) => payment.getProduct(id))
@@ -563,8 +557,6 @@ Page({
         if (res && res.success) {
           this.setData({ memberDialogVisible: false });
           this._loadMember();
-        } else if (res && res.blocked) {
-          // k52-1：平台受限（iOS）→ payment 侧已弹引导，此处不叠加「支付未完成」误导提示
         } else {
           wx.showToast({ title: '支付未完成', icon: 'none' });
         }

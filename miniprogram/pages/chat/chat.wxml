@@ -295,8 +295,7 @@
     <!-- L5-1/L5-2 对话额度条：免费用户「今日 X/15」；超限降级 → 精简提示 + 开通会员入口 -->
     <view wx:if="{{quotaBar.show}}" class="quota-bar {{quotaBar.downgraded ? 'qb-downgraded' : ''}}">
       <text class="qb-text">{{quotaBar.text}}</text>
-      <!-- k52-1：iOS/平台未判定 → 文案改「了解会员」（目标是只读引导，不调起支付） -->
-      <view wx:if="{{quotaBar.downgraded}}" class="qb-btn" hover-class="qb-btn-active" hover-stay-time="0" bindtap="goMember">{{iosBlocked ? '了解会员' : '开通会员'}}</view>
+      <view wx:if="{{quotaBar.downgraded}}" class="qb-btn" hover-class="qb-btn-active" hover-stay-time="0" bindtap="goMember">开通会员</view>
     </view>
     <!-- B4-1 输入区改版（对齐豆包）：[输入框（内嵌 相机|文本|小话筒）] [+钮] [发送钮]
          文字模式 = 输入框内嵌相机图标（选图/拍照）+ 自动长高文本区 + 内嵌小话筒（点一下切按住说话）
