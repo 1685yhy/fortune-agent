@@ -414,3 +414,125 @@ class TestBeijingDefaultVsExplicit:
         assert _city_explicit_in("", "北京") is False
         # 括号内的业务地名不算（沿用既有门）
         assert _city_explicit_in("我在公司（北京，五险一金）上班", "北京") is False
+
+# ════════════════════════════════════════════════════════════════
+# k50-r2-1 多日期保护（结构化：候选计数闸门）
+# ════════════════════════════════════════════════════════════════
+class TestMultiDateProtection:
+    """`5月13日或者6月7日` 曾因 k50-3 把"或者/可能"加进剥离表而失效（第二个日期
+    被"年月日号删除 + 中文数字类删除"双重擦除 → 静默取第一个建档）。修法为**结构化
+    前置闸门**：`_msg_is_bare_month_day` 先数候选——消息里有别的合法日期候选
+    （数字或中文数字）→ 不是"单日期消息"（不采纳）。"""
+
+    @pytest.mark.parametrize("msg", [
+        "5月13日或者6月7日",
+        "5月13日，或者是6月7日",
+        "5月13日，可能是6月7日",
+        "5月13日，也许6月7日",
+        "5月13日还有6月7日",
+        "5月13日和6月7日",
+        "5月13日、6月7日",
+    ])
+    def test_two_dates_not_adopted(self, msg):
+        h = object.__new__(MessageHandler)
+        assert "month" not in h._extract_partial_birth(msg), (
+            msg, h._extract_partial_birth(msg))
+
+    def test_e2e_two_dates_no_archive_no_chart(self, tmp_path):
+        """E2E（审查给的最小复现）：历史「我1991年生的」→「5月13日或者6月7日」
+        → 不建档、不出盘（用户给了两个候选）。"""
+        h, db = _h(tmp_path, seed=None)
+        h.session_dao = Mock()
+        h.session_dao.get_context_for_llm.return_value = [
+            {"role": "user", "content": "我1991年生的"}]
+        h._handle_bazi("5月13日或者6月7日", "u1")
+        assert _snap(db) is None, "两个候选日期被静默取第一个建档"
+        assert h.chart_dao.get_latest_chart("u1") is None, "不该出盘"
+
+    def test_single_date_still_adopted(self):
+        """反向：只有一个日期的消息不受影响（K50-3 的 3 条目标不退化）。"""
+        h = object.__new__(MessageHandler)
+        for msg in ["5月13日", "5月13日，印象中是", "5月13日，可能是",
+                    "5月13日，天快黑的时候", "5月13日，一大早"]:
+            got = h._extract_partial_birth(msg)
+            assert (got.get("month"), got.get("day")) == (5, 13), (msg, got)
+
+    def test_full_date_forms_not_affected(self):
+        """反向：完整日期形态里没有"第二个合法月日候选"，不得被误伤。"""
+        h = object.__new__(MessageHandler)
+        assert h._extract_bazi_info("1999年3月28日 早上十点 长春")[:3] == (1999, 3, 28)
+        assert h._extract_bazi_info("1990-05-20 15:00 深圳 女") == (
+            1990, 5, 20, 15, 0, "深圳", "女")
+
+    def test_rule_is_candidate_count(self):
+        """规则直证：`_has_other_date_candidate` 只看**原始消息**里的候选计数
+        （中文数字候选也算），不依赖"连接词是否被剥掉"。"""
+        from src.bot.handler import (_MD_CAND_RE, _has_other_date_candidate,
+                                     _valid_month_day)
+        msg = "5月13日或者6月7日"
+        first = next(c for c in _MD_CAND_RE.finditer(msg) if _valid_month_day(c))
+        assert _has_other_date_candidate(msg, first) is True
+        msg2 = "5月13日，早上6点"
+        first2 = next(c for c in _MD_CAND_RE.finditer(msg2) if _valid_month_day(c))
+        assert _has_other_date_candidate(msg2, first2) is False
+
+    def test_cn_second_date_counts(self):
+        """规则覆盖中文数字候选：`5月13日…腊月廿六` 里的中文月日也算第二个候选
+        （数字/中文任一类在别处出现即非单日期）。"""
+        from src.bot.handler import (_MD_CAND_RE, _has_other_date_candidate,
+                                     _valid_month_day)
+        msg = "腊月廿六或者5月13日"
+        first = next(c for c in _MD_CAND_RE.finditer(msg) if _valid_month_day(c))
+        assert _has_other_date_candidate(msg, first) is True
+
+
+# ════════════════════════════════════════════════════════════════
+# k50-r2-2 口语化时段短语：分支顺序（`一大早` 曾是死条目）
+# ════════════════════════════════════════════════════════════════
+class TestTimePhraseBranchOrder:
+    @pytest.mark.parametrize("msg", [
+        "5月13日，一大早", "5月13日，天快黑的时候", "5月13日，一大早，男",
+        "5月13日，清早", "5月13日，太阳落山的时候",
+    ])
+    def test_phrase_kept(self, msg):
+        h = object.__new__(MessageHandler)
+        got = h._extract_partial_birth(msg)
+        assert (got.get("month"), got.get("day")) == (5, 13), (msg, got)
+
+    def test_numeral_class_no_longer_eats_phrase(self):
+        """结构直证：短语在中文数字类**之前**，`一大早` 整词被剥掉（不是只剩"大早"）。"""
+        from src.bot.handler import _BARE_MD_TIME_RE
+        assert _BARE_MD_TIME_RE.sub("", "一大早") == ""
+        assert _BARE_MD_TIME_RE.sub("", "天快黑的时候") == ""
+
+
+# ════════════════════════════════════════════════════════════════
+# k50-r2-3 `_city_explicit_in` 非地名语境
+# ════════════════════════════════════════════════════════════════
+class TestCityExplicitNonPlaceContext:
+    """审查要求核实：出现"北京"但不是**地名主张**的文本不得判为"显式城市"
+    （否则 K50-6 会少问一句、静默改档）。实测改前 9/10 误判 → 已结构化修好。"""
+
+    @pytest.mark.parametrize("text", [
+        "北京烤鸭真好吃", "我在北京路", "北京的房价", "北京东路怎么走",
+        "北京银行办卡", "北京现代汽车", "北京同仁堂的药", "北京烤鸭",
+        "北京和上海哪个好", "去北京出差",
+    ])
+    def test_non_place_context_not_explicit(self, text):
+        from src.bot.handler import _city_explicit_in
+        assert _city_explicit_in(text, "北京") is False, text
+
+    @pytest.mark.parametrize("text", [
+        "我是1999年7月8日在北京出生的", "我出生在北京",
+        "1999年3月28日10点55分 北京 男", "北京",
+    ])
+    def test_real_place_context_explicit(self, text):
+        from src.bot.handler import _city_explicit_in
+        assert _city_explicit_in(text, "北京") is True, text
+
+    def test_tool_guard_not_fooled_by_non_place(self, tmp_path):
+        """E2E：档案长春 + 参数北京 + 原文只有"北京烤鸭"（非地名主张）→ 仍走问句。"""
+        h, db = _h(tmp_path, seed=dict(ARCHIVE, birth_month=5, birth_day=13))
+        r = h._tool_bazi("1999年5月13日10点55分 北京 男", "u1", "北京烤鸭真好吃", "s1")
+        assert not r.ok and "不太一致" in r.text, r.text
+        assert _snap(db)[3] == "长春", _snap(db)
