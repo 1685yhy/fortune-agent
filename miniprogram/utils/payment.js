@@ -251,6 +251,8 @@ async function tryVirtualPay(productId) {
     orderRes = await api.createVirtualOrder(productId);
   } catch (e) {
     if (backendErrorCode(e) === 'virtual_pay_not_enabled') {
+      // 唯一的回落场景：后端**确定性**地告知「虚拟支付未启用」（部署配置项，
+      // 开发/演示环境用 mock 通道；生产必须开启虚拟支付，见报告 r3 部署门禁）
       console.log('[Payment] 后端未启用虚拟支付，降级 mock');
       return { success: false, fallback: true };
     }
@@ -258,17 +260,25 @@ async function tryVirtualPay(productId) {
       wx.showToast({ title: '请重新登录后重试', icon: 'none' });
       return { success: false, needRelogin: true };
     }
+    // k52 r3：**瞬时失败不回落到其它支付通道**（网络抖动/5xx/未知错误）。
+    // 旧实现回落 mock → 白建一条 pending 订单 + 用占位参数调 wx.requestPayment（必失败）+ 多一条 toast。
+    // 现在只给一条中性提示，用户可直接重试；回落仅保留给「虚拟支付未启用」这一确定性部署信号。
     logWarn('Payment 虚拟支付建单失败', { errCode: backendErrorCode(e), errMsg: ((e && (e.errMsg || e.message)) || '') });
-    return { success: false, fallback: true };
+    wx.showToast({ title: '支付暂时不可用，请稍后再试', icon: 'none' });
+    return { success: false, retryable: true };
   }
 
   const { signData, paySig, signature, mode, outTradeNo } = orderRes || {};
   if (!signData || !paySig || !signature || !outTradeNo) {
     // 隐私：订单响应体（含 outTradeNo 等要素）不进日志，只列缺失字段名
-    logWarn('Payment 后端未返回完整三要素，降级 mock', { errMsg: 'missing: ' + [
+    // k52 r3：三要素缺失属**后端契约异常**（不是「未启用」）→ 同样不回落其它通道，
+    // 中性提示 + 可重试，避免用占位参数发起一笔必然失败、还会留下 pending 单的流程。
+    // 隐私：订单响应体（含 outTradeNo 等要素）不进日志，只列缺失字段名
+    logWarn('Payment 后端未返回完整三要素', { errMsg: 'missing: ' + [
       !signData && 'signData', !paySig && 'paySig', !signature && 'signature', !outTradeNo && 'outTradeNo',
     ].filter(Boolean).join(',') });
-    return { success: false, fallback: true };
+    wx.showToast({ title: '支付暂时不可用，请稍后再试', icon: 'none' });
+    return { success: false, retryable: true };
   }
 
   // 调起米大师支付

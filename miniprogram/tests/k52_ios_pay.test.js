@@ -67,8 +67,9 @@ function stubApi(opts = {}) {
   apiRec.confirmed = 0;
   api.createVirtualOrder = (productId) => {
     apiRec.virtualOrders.push(productId);
+    if (opts.virtualOrderError) return Promise.reject(opts.virtualOrderError);  // 瞬时失败（网络/5xx）
     if (opts.virtualOrder) return Promise.resolve(opts.virtualOrder);
-    return Promise.reject({ detail: { code: 'virtual_pay_not_enabled' } });
+    return Promise.reject({ detail: { code: 'virtual_pay_not_enabled' } });     // 确定性：未启用
   };
   api.createOrder = (productId) => {
     apiRec.orders.push(productId);
@@ -95,6 +96,37 @@ function paymentStrings(src) {
   const re = /'([^'\\]*(?:\\.[^'\\]*)*)'|"([^"\\]*(?:\\.[^"\\]*)*)"|`([^`\\]*(?:\\.[^`\\]*)*)`/g;
   let m;
   while ((m = re.exec(code))) out.push(m[1] || m[2] || m[3] || '');
+  return out;
+}
+
+/* ── r3：外部渠道引导探测（近邻窗口 · 去换行 · 非按行） ──
+   旧实现按行匹配且语境词缺「付费」→ 两条对抗夹具都能溜过去（实测判绿）：
+     ① `付费遇到问题请关注公众号`（语境词缺 付费）
+     ② 引导语跨行拆分（按行匹配时上下两行各自不成立）
+   现实现：剥注释 → 全部空白折叠为单空格 → 以「渠道词」为锚点，检查其前后 30 字窗口内
+   是否出现支付语境词。既抓住跨行拆分，又不会把「分享/协议联系方式」误判成付费引导。 */
+const CHANNEL_RE = /公众号|关注公众号|联系客服|个人号|私人号|微信号|外部链接|外链|\bH5\b|网站/g;
+const PAY_CTX_RE = /支付|付款|付费|购买|开通|解锁|充值|订阅|下单|订单|收费|消费|结账/;
+const GUIDE_WINDOW = 30;
+
+function stripJsWxmlComments(text, isWxml) {
+  let t = text.replace(/\/\*[\s\S]*?\*\//g, ' ');
+  t = t.split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
+  if (isWxml) t = t.replace(/<!--[\s\S]*?-->/g, ' ');
+  return t;
+}
+
+function findExternalPayGuidance(rawText, isWxml) {
+  const text = stripJsWxmlComments(rawText, isWxml).replace(/\s+/g, ' ');
+  const out = [];
+  CHANNEL_RE.lastIndex = 0;
+  let m;
+  while ((m = CHANNEL_RE.exec(text))) {
+    const from = Math.max(0, m.index - GUIDE_WINDOW);
+    const to = Math.min(text.length, m.index + m[0].length + GUIDE_WINDOW);
+    const win = text.slice(from, to);
+    if (PAY_CTX_RE.test(win)) out.push({ word: m[0], snippet: win.trim() });
+  }
   return out;
 }
 
@@ -167,37 +199,41 @@ test('k52-B：付费受阻时只给中性提示，绝不弹「去别处付」的
   });
 });
 
+test('k52-B：外部引导探测本身要能抓住跨行/付费语境（对抗夹具 · 防规则偏窄）', () => {
+  // ① 语境词齐全：`付费`（旧规则缺）→ 必抓
+  assert.ok(findExternalPayGuidance('付费遇到问题请关注公众号', false).length > 0, '付费+关注公众号 必被抓');
+  // ② 跨行拆分（旧规则按行匹配 → 判绿）→ 必抓
+  const crossLine = '如需完整内容\n请关注公众号\n（付费用户优先）';
+  assert.ok(findExternalPayGuidance(crossLine, false).length > 0, '跨行引导语必被抓');
+  // ③ 其余语境词族（充值/订阅/订单/解锁/开通…）也都要能锚定
+  for (const ctx of ['充值', '订阅', '订单', '解锁', '开通', '消费', '结账']) {
+    assert.ok(findExternalPayGuidance(`客服说${ctx}遇到问题请联系客服`, false).length > 0,
+      `语境词「${ctx}」应能锚定外部引导`);
+  }
+  // ④ 反例：非支付语境不得误报；注释不算文案
+  assert.deepEqual(findExternalPayGuidance('扫一扫 关注公众号 领取礼品', false), [], '非支付语境不得误报');
+  assert.deepEqual(findExternalPayGuidance('<view>协助</view><!-- 公众号 支付 -->', true), [], '注释应剔除');
+});
+
 test('k52-B：全仓小程序侧不得存在「引导外部支付」话术残留', () => {
-  // 扫描用户可见面（pages/utils 的 wxml/js）中与「付款引导」直接相关的外部渠道组合。
-  // 注释不算用户可见（且政策注释本身会引用被禁词），故先剥注释。
   const MINI = __dirname + '/..';
   const bad = [];
-  const strip = (text, isWxml) => {
-    let t = text.replace(/\/\*[\s\S]*?\*\//g, '');
-    t = t.split('\n').map((l) => l.replace(/\/\/.*$/, '')).join('\n');
-    if (isWxml) t = t.replace(/<!--[\s\S]*?-->/g, '');
-    return t;
-  };
   const walk = (dir) => {
     for (const name of fs.readdirSync(dir, { withFileTypes: true })) {
       const p = dir + '/' + name.name;
       if (name.isDirectory()) { walk(p); continue; }
       if (!/\.(wxml|js)$/.test(name.name)) continue;
-      const text = strip(fs.readFileSync(p, 'utf8'), /\.wxml$/.test(name.name));
-      // 只揪「公众号/客服/个人号」与支付语境的组合（分享按钮、关于页联系方式不算付费引导）
-      for (const line of text.split('\n')) {
-        if (/公众号|关注公众号|联系客服|个人号/.test(line) &&
-            /支付|付款|购买|开通|解锁|充值/.test(line)) {
-          bad.push(p.replace(MINI + '/', 'miniprogram/') + ': ' + line.trim().slice(0, 90));
-        }
+      const text = fs.readFileSync(p, 'utf8');
+      for (const hit of findExternalPayGuidance(text, /\.wxml$/.test(name.name))) {
+        bad.push(p.replace(MINI + '/', 'miniprogram/') + ' [' + hit.word + '] ' + hit.snippet.slice(0, 90));
       }
     }
   };
   walk(MINI + '/pages');
   walk(MINI + '/utils');
+  walk(MINI + '/components');
   assert.deepEqual(bad, [], '存在「付费受阻 → 引导外部渠道」话术：\n' + bad.join('\n'));
 });
-
 /* ══════════════ C. 真不可用 → 中性提示、可重试、不走别的通道 ══════════════ */
 
 test('k52-C：客户端不支持该 API → 中性提示 + 不建单/不调起/不降级其它通道', async () => {
@@ -243,6 +279,53 @@ test('k52-C：调起失败 → 中性失败提示（不引导外部渠道），�
   global.wx.requestVirtualPayment = (o) => { rec.virtual.push(o); o.success({}); };
   const r2 = await payment.purchase('deep_report');
   assert.equal(r2.success, true, '失败可重试，链路不粘滞');
+});
+
+/* ══════════════ D. r3：瞬时失败/契约异常不回落其它通道 ══════════════ */
+
+test('k52 r3：建单瞬时失败（网络/5xx）→ 零 mock 建单、零 requestPayment、单条中性提示、可重试', async () => {
+  const { payment, rec } = loadPayment({});
+  stubApi({ virtualOrderError: { errMsg: 'request:fail timeout' }, mockOrder: { orderId: 'MOCK', payment: {} } });
+  const r = await payment.purchase('deep_report');
+  assert.equal(r.success, false);
+  assert.equal(r.retryable, true, '瞬时失败应标记可重试');
+  assert.equal(apiRec.orders.length, 0, '不得回落 mock 通道（否则白建一条 pending 单）');
+  assert.equal(apiRec.confirmed, 0, '不得调起 wx.requestPayment（占位参数必失败）');
+  assert.equal(rec.virtual.length, 0);
+  assert.deepEqual(rec.toasts, ['支付暂时不可用，请稍后再试'], '只给一条中性提示：' + JSON.stringify(rec.toasts));
+  // 可重试：第二次建单成功 → 正常完成
+  stubApi({ virtualOrder: PAY_ORDER });
+  const r2 = await payment.purchase('deep_report');
+  assert.equal(r2.success, true, '重试必须能成功（不粘滞）');
+});
+
+test('k52 r3：会员开通瞬时失败同样零回落', async () => {
+  const { payment, rec } = loadPayment({});
+  stubApi({ virtualOrderError: { errMsg: 'request:fail' }, mockOrder: { orderId: 'M', payment: {} } });
+  const r = await payment.subscribeMember('monthly');
+  assert.equal(r.retryable, true);
+  assert.equal(apiRec.orders.length, 0, '会员路径也不得回落 mock');
+  assert.equal(apiRec.confirmed, 0);
+  assert.deepEqual(rec.toasts, ['支付暂时不可用，请稍后再试']);
+});
+
+test('k52 r3：后端返回三要素不完整（契约异常）→ 也不回落，单条提示 + 可重试', async () => {
+  const { payment, rec } = loadPayment({});
+  stubApi({ virtualOrder: { signData: 'S', paySig: 'P' }, mockOrder: { orderId: 'M', payment: {} } }); // 缺 signature/outTradeNo
+  const r = await payment.purchase('deep_report');
+  assert.equal(r.retryable, true);
+  assert.equal(apiRec.orders.length, 0, '契约异常不得回落 mock');
+  assert.equal(rec.virtual.length, 0, '三要素不全不得调起支付');
+  assert.deepEqual(rec.toasts, ['支付暂时不可用，请稍后再试']);
+});
+
+test('k52 r3：回落 mock 只保留给「虚拟支付未启用」这一确定性部署信号', async () => {
+  const { payment, rec } = loadPayment({ envVersion: 'develop' });
+  stubApi({ mockOrder: { orderId: 'MOCK-X', payment: {} } });   // 默认桩 = virtual_pay_not_enabled
+  const r = await payment.purchase('deep_report');
+  assert.equal(r.success, true);
+  assert.deepEqual(apiRec.orders, ['deep_report'], '确定性「未启用」仍走 mock（开发/演示配置）');
+  assert.equal(apiRec.confirmed, 1);
 });
 
 /* ══════════════ 安卓既有链路逐字不变（回归锁） ══════════════ */
