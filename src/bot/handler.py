@@ -858,15 +858,12 @@ _CN_MD_RE = re.compile(
 )
 
 
-def _parse_cn_month_day(text):
-    """Try to parse Chinese lunar date like 三月初三, 六月十八, 冬月十一, 腊月廿五.
+def _cn_month_day_of(m):
+    """从 `_CN_MD_RE` 的一条命中解析出 (month, day)（k50-1 起为**唯一实现**）。
 
-    D7（2026-08-24 生产实测）：口语长句"阴历三月28出生"——中文数字月 +
-    阿拉伯数字日——此前不命中 → 排盘整体放弃。现支持：
-    - 阿拉伯数字日：三月28、三月初3、三月28日
-    - 闰月：闰三月28 → 返回负月（-3），调用方按 lunar-python 闰月口径转阳历
-    Returns (month, day) or None；month 为负表示闰月。"""
-    m = _CN_MD_RE.search(text)
+    `_parse_cn_month_day`（首个命中）与否定裁决的候选构造（`_CnMdCand`，全部命中）
+    共用本函数——中文月日不再有第二套解析。
+    """
     if m:
         month_str = m.group(2)
         day_str = m.group(3)
@@ -889,6 +886,48 @@ def _parse_cn_month_day(text):
         if month and day and abs(month) <= 12 and 1 <= day <= 31:
             return month, day
     return None
+
+
+def _parse_cn_month_day(text):
+    """Try to parse Chinese lunar date like 三月初三, 六月十八, 冬月十一, 腊月廿五.
+
+    D7（2026-08-24 生产实测）：口语长句"阴历三月28出生"——中文数字月 +
+    阿拉伯数字日——此前不命中 → 排盘整体放弃。现支持：
+    - 阿拉伯数字日：三月28、三月初3、三月28日
+    - 闰月：闰三月28 → 返回负月（-3），调用方按 lunar-python 闰月口径转阳历
+    Returns (month, day) or None；month 为负表示闰月。"""
+    return _cn_month_day_of(_CN_MD_RE.search(text))
+
+
+class _CnMdCand:
+    """中文月日候选的 match 适配器（k50-1）——让中文月日进**同一套**否定裁决
+    （`_date_groups`/`_negated_group_ids` 只用 start/end/span），不再另起第二套。
+
+    值从 `_cn_month_day_of` 取（与 `_parse_cn_month_day` 同源）。
+    """
+
+    __slots__ = ("_m", "month", "day")
+
+    def __init__(self, m):
+        self._m = m
+        self.month, self.day = _cn_month_day_of(m)
+
+    def start(self):
+        return self._m.start()
+
+    def end(self):
+        return self._m.end()
+
+    def span(self):
+        return self._m.span()
+
+
+def _md_value(cand):
+    """候选（数字 match / `_CnMdCand`）→ (month, day)。"""
+    if isinstance(cand, _CnMdCand):
+        return cand.month, cand.day
+    return int(cand.group(1)), int(cand.group(2))
+
 
 # ── F2 渐进式出生信息累积：中文数字年 + 年龄→年份推算 ──────────────
 # 中文数字年份逐字转阿拉伯（"一九七六"→1976，"七六"→76；〇/零 均可）
@@ -962,8 +1001,14 @@ def _extract_age(msg: str) -> Optional[int]:
 
 # ① 非生辰数字语境：命中片段**紧后**出现这些单位/符号 → 是金额/比例/计量，不是日期。
 #    （百分号/千分号/货币/计数单位/薪资简写 k·w；"倍"/"折"用于 ROI 与折扣话术）
+# k50-4（结构化，总则①）：单位词**必须紧跟在数字之后**——候选本身以数字结尾，
+# 故"紧贴"= 单位出现在**候选紧后第一个字符**（不允许空格等间隔）。
+# 改前这里是 `^\s*(?:…)`：`1991年7月8日 个人 男` 的尾串以" 个"开头 → 被当计量
+# 单位 → 月日整条丢弃（`…次数…` 同形）。
+# 反例（**不得**再被判为计量单位）：`个人`/`次数`/`个别`/`人次`（前面都没有数字、
+# 也没紧贴候选）；仍须拦：`4.5%`/`4.5k`/`20000元`/`4.5小时`/`4.5千`/`18.5%` ✓。
 _NON_DATE_UNIT_RE = re.compile(
-    r'^\s*(?:%|％|‰|元|块|万|亿|折|成|倍|薪|元/|/月|每月|个月|小时|分钟|'
+    r'^(?:%|％|‰|元|块|万|亿|折|成|倍|薪|元/|/月|每月|个月|小时|分钟|'
     r'个|人|次|件|份|斤|公斤|公里|米|平|岁|年化|利率|k|K|w|W)')
 # ① 命中片段**紧前**是"利率/缴纳/税/费/薪/工资/比例/ROI"等 → 非出生日期语境
 _NON_DATE_HEAD_RE = re.compile(
@@ -1106,8 +1151,8 @@ def _fn_supports_kw(fn, kw_name: str) -> bool:
 #   ④ 全部组都被否定 / 无否定 / 非明示纠正句式 → 回落**基线首命中**口径
 #      （保守失败：绝不因新逻辑丢值或写被否认的值）。
 # 判据族仍是 `person_dao.is_correction_text`（k19/k48 同源）。
-_NEGATION_MARKERS = ("不是", "不对", "不算", "并非", "没是", "错了", "弄错",
-                     "说错", "记错", "填错", "写错", "不对的")
+_NEGATION_MARKERS = ("不是", "不对", "不算", "并非", "没是", "错了", "是错的",
+                     "弄错", "说错", "记错", "填错", "写错", "不对的")
 _NEGATION_WINDOW = 6
 # 日期组内"年 → 月日"允许的最大空隙（`1999年5月20日`=0、`1999年 5月20日`=1）
 _DATE_GROUP_GAP = 2
@@ -1165,15 +1210,20 @@ def _negated_group_ids(msg: str, groups) -> set:
     return negated
 
 
-def _affirmed_pick(msg: str, year_matches, md_matches):
+def _affirmed_pick(msg: str, year_matches, md_matches, cn_matches=None):
     """取**被肯定**的年/月日命中（同源成组）。
 
-    返回 (applied, year_match|None, md_match|None)：
+    返回 (applied, year_match|None, md_cand|None)：
     - applied=False → 调用方走**基线首命中**口径（非纠正消息 / 无否定 / 全被否定）；
     - applied=True → 用返回的命中（None = 该项无被肯定值，调用方据此放弃该项，
       绝不回退去写被否定的值）。
+
+    cn_matches（k50-1）：中文数字月日候选（`_CnMdCand` 列表）——与数字月日**合流**
+    进同一份候选表参与分组与否定裁决（`我不是腊月廿六生的，是正月初一生的` 取
+    正月初一），不另起第二套。
     """
-    if not (year_matches or md_matches):
+    md_all = list(md_matches or []) + list(cn_matches or [])
+    if not (year_matches or md_all):
         return False, None, None
     try:
         from src.storage.person_dao import is_correction_text
@@ -1181,7 +1231,7 @@ def _affirmed_pick(msg: str, year_matches, md_matches):
         return False, None, None
     if not is_correction_text(msg):
         return False, None, None
-    groups = _date_groups(msg, year_matches, md_matches)
+    groups = _date_groups(msg, year_matches, md_all)
     negated = _negated_group_ids(msg, groups)
     if not negated or len(negated) == len(groups):
         return False, None, None
@@ -1213,9 +1263,18 @@ def _affirmed_pick(msg: str, year_matches, md_matches):
 #   结婚`/`要述职`/`考试`；连接词 `还有`/`和`/`跟`；`可以`（"5月13日可以"是
 #   对日程的同意，不是报生辰——r2 已声明的选边，r3 保持）
 _BARE_MD_TIME_RE = re.compile(
-    r'[0-9０-９:：]+'
+    # **短语分支必须排在"中文数字类"之前**（k50-r2-2 实测）：`[〇零一二三四五六七八
+    # 九十两]{1,4}` 会把 `一大早` 的"一"先吃掉（只剩"大早"）→ 该分支成死条目、
+    # `5月13日，一大早` 丢月日。故"口语化时段"整段前置。
+    # k50-3 ⑨ **口语化时段描述**（不是钟点，是"天快黑/一大早"这类模糊时段）：
+    # 结构 = `天+[快|刚|才|已|都|就要|要]?+[黑|亮]+[的时候|了]?` 或 一大早/清早/
+    # 晌午/太阳落山…。反例（**不得**因此被采纳）：`5月13日见客户` / `4月5日开会`
+    # ——"见客户/开会"不属任何 token 类 ✓。
+    r'天(?:快|刚|才|已|都|就要|要)?(?:黑|亮)(?:的?时候|了)?'
+    r'|(?:一大早|清晨|清早|晌午头|晌午|太阳落山|日头|傍晚|黄昏)(?:的?时候|时分)?'
+    r'|[0-9０-９:：]+'
     r'|[〇零一二三四五六七八九十两]{1,4}'
-    r'|凌晨|清晨|早晨|早上|上午|中午|正午|下午|傍晚|黄昏|晚上|夜里|夜间|半夜'
+    r'|凌晨|早晨|早上|上午|中午|正午|下午|傍晚|黄昏|晚上|夜里|夜间|半夜'
     r'|左右|前后|大概|大约|约|以后|之后|以前|之前|以来|之间'
     r'|[子丑寅卯辰巳午未申酉戌亥]\s*时'
     r'|今年|去年|明年|前年|后年|现在|已经|都|满'
@@ -1230,6 +1289,12 @@ _BARE_MD_REPLY_TOKENS = (
     "忘了", "忘记", "记不清", "记不得", "不记得", "记不住", "想不起来",
     "不确定", "不清楚", "不定", "具体", "时间", "时辰",
     "这天", "那天", "该天",
+    # k50-3 ⑧ **推测/不确定语气**（用户对已给信息表示"记不太准"）：与确认词同类，
+    # 属"对出生信息的会话式应答"而非"别的内容"。反例（不得放行）：`5月13日可能
+    # 出差` → 剥掉"可能"后仍剩"出差" → 仍判非生辰 ✓；`5月13日见客户` 无关词不在
+    # 任何类里 → 拒绝 ✓。
+    "印象中是", "印象里", "印象中", "可能是", "可能", "也许是", "也许",
+    "或者是", "或者", "说不定", "保不齐", "应该是",
 )
 # ④ 性别类 + ⑤ 出生语境类 + 语气/代词/系词（长词优先）
 _BARE_MD_FILLER = (
@@ -1264,13 +1329,13 @@ def _known_city_tokens() -> list:
     return _CITY_TOKEN_CACHE
 
 
-def _msg_is_bare_month_day(msg: str, m) -> bool:
-    """整条消息是否**只有**这个日期（七个成分类剥离后无残留才算）。
+def _strip_birth_filler(text: str) -> str:
+    """剥离"出生信息自带成分"后的**残留**（k49-r3 七类规则，单一实现）。
 
-    见上方"一致剥离规则"——判据本身只有这一条：剥离出生信息自带成分与会话式
-    应答后还有别的叙述（`要去出差`/`妇女节快乐`/`有个面试`）→ 不是在报生辰。
+    调用方：`_msg_is_bare_month_day`（整条消息是否只有这个日期）与 k50-5 的
+    "城市小句是否只有这个城市"——同一套 token 类，不另起一份。
     """
-    residue = msg[:m.start()] + msg[m.end():]
+    residue = str(text or "")
     # 顺序要紧：**先按词剥**（排盘请求 / 会话应答 / 城市），**再**跑数字与时间
     # 正则——正则里的中文数字类（`[〇零一二三四五六七八九十两]{1,4}`）会把词里
     # 的数字吃掉（实测：`看看八字` 的"八"被当数字剥 → 残留"看看字" → 误判非
@@ -1289,7 +1354,149 @@ def _msg_is_bare_month_day(msg: str, m) -> bool:
     residue = _BARE_MD_IGNORE_RE.sub('', residue)
     residue = (residue.replace("年", "").replace("月", "")
                .replace("日", "").replace("号", ""))
-    return not residue.strip()
+    return residue
+
+
+# k50-r3-②：**时间样候选**——`8.15分` 的 `8.15` 本身是合法日期书写（k48 起支持
+# `8-15`/`10.10`/`1985.3.28`），判据必须是"**紧后跟着时间单位**"：分/秒/时/点
+# （可隔空白）→ 它是**钟点**不是日期，不进日期候选集。
+# 反例（必须**仍是日期**）：`8-15`（后面无时间单位）、`10.10`、`1985.3.28`、
+# `1999.3.28 10:55`（候选 `3.28` 紧后是" 10:55"→数字，不是时间单位）、
+# `我11.20出生`/`我10.10生日`（紧后是出生词/生日）。
+_TIME_UNIT_AFTER_RE = re.compile(r'^\s*(?:分|秒|时|点)')
+
+
+def _is_time_like_md_candidate(msg: str, m) -> bool:
+    """该月日候选是否其实是**钟点**（紧后跟时间单位）。"""
+    return bool(_TIME_UNIT_AFTER_RE.match(str(msg)[m.end():]))
+
+
+def _is_strong_md_candidate(msg: str, cand) -> bool:
+    """强形态日期候选：自带 `月/日/号` 单位，或紧前是 `YYYY-`/`YYYY年`（k50-r3）。
+
+    与"含混形态"（裸 `8.15`/`11.20`，k48 起需候选附近有出生语境才取）相对——
+    含混形态与日期**或钟点**同形，故只在"左侧没有强形态日期"时才算一个候选
+    （`5月13日，8.15出生` 里的 8.15 是前一日期的钟点）。
+    """
+    if re.search(r'月|日|号', cand.group(0)):
+        return True
+    head = msg[:cand.start()]
+    return bool(re.search(r'\d{4}\s*[-/.]\s*$', head)
+                or re.search(r'\d{4}\s*年\s*$', head))
+
+
+# k50-r4：**第三方候选不算竞争日期**——竞争候选所在小句的**主语**是第三人
+# （老公/妻子/孩子/朋友…）时，那个日期是**别人的**，不是"我这条消息里的另一个
+# 日期"（`我1995年3月8日生的，我老公是1999年5月20日生的`：改前两条互相当成竞争
+# → 谁的月日都不取，用户刚给的 3月8日被丢掉还被追问一遍 = Critical）。
+# 判据（结构化）：候选**同小句**内的主语段，剥掉系动词/助词/出生词等填充后
+# **以第三方指代结尾**（`我老公是1999年5月20日生的` → 主语段 `我老公是` → 剥 `是`
+# → `我老公` ✓）。复用既有 `MessageHandler._THIRD_PARTY_MARKERS`（同一事实源，
+# 不新起词表）；**不搬** `_is_third_party_birth_request`——那是**消息级**第三方
+# 排盘路由（帮/给/为/替 + 排盘），口径更严且作用于整条消息，搬来既漏
+# `我老公是…生的`，又会把 B3-1-fix 明确不许误判的 `我妈说我1976年生的`（出处，
+# 非排盘对象）重新拉进来：本判据要求指代**直接领属该日期**（主语段末尾即指代），
+# 出处类 `我妈说我是…` 的主语段末尾是 `我` → 不命中 ✓。
+_TP_SUBJECT_FILLER_RE = re.compile(
+    r'(?:\d{4}\s*[-/.年]|出生于|生于|出生|生的|生|就是|是|叫|的'
+    r'|今年|也|还|已经|都|现在|\s)*$')
+_TP_SUBJECT_TAIL_RE = None
+
+
+def _tp_subject_tail_re():
+    """第三方指代"直接领属日期"的尾锚正则（懒构造：词表取自 MessageHandler）。"""
+    global _TP_SUBJECT_TAIL_RE
+    if _TP_SUBJECT_TAIL_RE is None:
+        _TP_SUBJECT_TAIL_RE = re.compile(
+            r'(?:^|[我你他她]的?|\s)(?:'
+            + '|'.join(MessageHandler._THIRD_PARTY_MARKERS) + r')$')
+    return _TP_SUBJECT_TAIL_RE
+
+
+def _is_third_party_date_candidate(msg: str, c) -> bool:
+    """该日期候选（年或月日）是否属于**第三人**（同小句主语段末尾是第三方指代）。"""
+    from src.storage.person_dao import _clause_span
+    a, _b = _clause_span(msg, c.start(), c.end())
+    _head = _TP_SUBJECT_FILLER_RE.sub('', msg[a:c.start()])
+    return bool(_tp_subject_tail_re().search(_head))
+
+
+def _ym_group_year_for_md(msg: str, year_matches, md_pick):
+    """与采纳月日**同一日期组**、且**属于本人**的年（k50-r4）；无 → None。
+
+    `我老公是1999年5月20日生的，我1995年3月8日生的`：采纳的月日是 3月8日 →
+    同组年是 **1995**（改前取 `_ym_all[0]` = 1999 = **老公的年 + 本人的月日** →
+    档案写成 1999-03-08，比"什么都不写"更糟）。
+    同组年若本身是**第三人**的年（`我1995年生的，我老公是1999年5月20日生的`：
+    采纳月日 5月20日 的同组年是老公的 1999）→ 返回 None，回落既有首命中口径
+    （保持改前行为，不把跨人混搭升级成"整条都是别人的"）；跨小句分步口述
+    （`1995年生的，5月13日`）本就无同组年 → 同样回落 ✓。
+    """
+    if md_pick is None:
+        return None
+    for g in _date_groups(msg, year_matches, [md_pick]):
+        if (g["m"] is not None and g["m"].span() == md_pick.span()
+                and g["y"] is not None
+                and not _is_third_party_date_candidate(msg, g["y"])):
+            return g["y"]
+    return None
+
+
+def _has_other_date_candidate(msg: str, m) -> bool:
+    """消息里除当前候选外**还有没有别的日期候选**（k50-r2-1 结构化闸门）。
+
+    规则（一条，不逐个补丁）：**"整条消息就是这个日期"的前提是消息里只有一个日期**
+    ——剥离表里有多个 token 类会**擦掉第二个日期**（`年/月/日/号` 单字、
+    `[〇零一二三四五六七八九十两]` 中文数字类、`点/时/分/初/半`），于是"多日期保护"
+    曾完全寄生在"连接词（还有/和/跟）没被剥掉"上——一旦把 `或者/可能` 这类**应答词**
+    加进剥离表（k50-3），保护随之失效（`5月13日或者6月7日` 被当单日期采纳）。
+    故改为**先数候选**：数字候选（`_MD_CAND_RE` + 合法月日）与中文数字月日候选
+    （`_CN_MD_RE`）任一在别处出现 → 不是"单日期消息"。
+    反例（不得被误伤）：`1999年3月28日 早上十点 长春` / `1990-05-20 15:00 深圳 女`
+    里都没有第二个**合法月日**候选（`10点55分`/`15:00` 不匹配候选正则）✓。
+    """
+    for c in _MD_CAND_RE.finditer(msg):
+        if c.span() == m.span() or not _valid_month_day(c):
+            continue
+        if _is_time_like_md_candidate(msg, c):
+            continue                     # 钟点（8.15分）不是日期候选
+        if _is_third_party_date_candidate(msg, c):
+            continue                     # k50-r4：别人（老公/妻子…）的日期不竞争
+        # 已被既有闸门排除的 token 不算"另一个日期"（**复用同源谓词**，不新写判据）：
+        #   ① 单位/金额/比例黑名单：`房贷利率4.9%，我1990年5月20日出生` 的 `4.9%`
+        #      不是日期 → 不该让整条消息因它而"多日期不取"（k48 I-2 夹具）；
+        #   ①b 非出生谓语（生活事件）：`我1990年5月20日出生，2026年10月1日结婚`
+        #      的婚期是**事件日**不是竞争日期（k48 R-I-4b 夹具）。
+        _ctail, _chead = msg[c.end():], msg[:c.start()]
+        if (_NON_DATE_UNIT_RE.match(_ctail)
+                or _NON_DATE_HEAD_RE.search(_chead)
+                or _event_tail_matches(_ctail)):
+            continue
+        if not _is_strong_md_candidate(msg, c):
+            # 含混形态：左侧已有强形态日期 → 它是那个日期的钟点，不算另一个候选
+            if any(x.end() <= c.start() and _valid_month_day(x)
+                   and _is_strong_md_candidate(msg, x)
+                   for x in _MD_CAND_RE.finditer(msg)):
+                continue
+        return True
+    for c in _CN_MD_RE.finditer(msg):
+        if (c.span() != m.span() and _cn_month_day_of(c)
+                and not _is_third_party_date_candidate(msg, c)):
+            return True
+    return False
+
+
+def _msg_is_bare_month_day(msg: str, m) -> bool:
+    """整条消息是否**只有**这个日期（七个成分类剥离后无残留才算）。
+
+    见上方"一致剥离规则"——判据本身只有这一条：剥离出生信息自带成分与会话式
+    应答后还有别的叙述（`要去出差`/`妇女节快乐`/`有个面试`）→ 不是在报生辰。
+    k50-r2-1：再加一道**结构化**前置闸门——消息里有别的日期候选 → 不是单日期
+    （`5月13日或者6月7日`：用户给了两个候选，绝不静默取第一个）。
+    """
+    # 多日期闸门已在 `_numeric_date_looks_like_birth` **消息级**把关（k50-r3-①），
+    # 此处只判"剥离后无残留"（单一实现，不重复把关）。
+    return not _strip_birth_filler(msg[:m.start()] + msg[m.end():]).strip()
 
 
 def _numeric_date_looks_like_birth(msg: str, m) -> bool:
@@ -1324,6 +1531,18 @@ def _numeric_date_looks_like_birth(msg: str, m) -> bool:
     text = m.group(0)
     tail = msg[e:]
     head = msg[:s]
+    # k50-r3-①：**消息级**多日期闸门——消息里还有别的日期候选（数字或中文）时，
+    # 该消息内**任何**候选都不采纳。改前它落在"候选级"（`_msg_is_bare_month_day`
+    # 内部）→ "不取第一个"退化成"**取第二个**"（`我5月13日8.15分生的` 回退到时间样
+    # 候选 8.15 → 写错成 8月15日）。
+    # 例外：**明示纠正/否定句式**（`不是腊月廿六生的，是5月20日生的`）里用户已经
+    # 说清哪个值作数 → 不套用"多日期就不取"，交给否定裁决取被肯定值
+    #（`is_correction_text`，与 k19/k48/k50-1 同源判据；非纠正消息一律套用 ✓）。
+    if (_has_other_date_candidate(msg, m)
+            and not is_correction_text(msg)):
+        return False
+    if _is_time_like_md_candidate(msg, m):
+        return False                     # k50-r3-②：钟点（8.15分）不是日期
     if _NON_DATE_UNIT_RE.match(tail) or _NON_DATE_HEAD_RE.search(head):
         return False                     # ①
     if not _birth_word_leads(tail) and _event_tail_matches(tail):
@@ -1360,24 +1579,47 @@ _CITY_CTX_PREFIXES = ("出生于", "出生在", "出生地是", "出生地", "�
                       "生长在", "生在", "生于", "来自", "籍贯是", "籍贯",
                       "老家是", "老家在", "老家", "户籍是", "户籍",
                       "户口在", "户口", "我是", "我的", "我", "你", "他", "她",
-                      "是", "在",
-                      # k49-r4：**日期残尾**（`…8日在酒泉市` 的 XX市 窗口会从
-                      # "日在"起算 → 脏值 "日在酒泉市"；基线同形，属 E 项同类
-                      # 未覆盖形态）。单字进表由**校验兜底**保证安全：剥完必须
-                      # 仍是已知城市，否则原样返回（`日喀则市`/`日照市` 一类
-                      # 以该字开头的地名剥完不再命中 → 不动）。
-                      "日", "月", "年", "号")
+                      "是", "在")
+
+# k49-r4/k50-2：**日期残尾**（`…8日在酒泉市` 的 XX市 窗口从"日"起算 → 脏值
+# "日在酒泉市"）。残尾字**不进通用前缀表**——`日喀则市` 的"日"是城市名首字，
+# 通用表会把它剥成"喀则市"（形态判据恰好也通过 → 真地名被改坏，k50-2 反例）。
+# 改为**结构化条件**：残尾字后面**紧跟语境/助词字**（在/于/是）时才算残尾
+#（"8日|在X市" 的真实结构）。
+_DATE_REMNANT_RE = re.compile(r'^[年月日号](?=[在于是])')
+
+
+# ── k50-2：城市采纳判据从"在不在城市库"改为"**形态**像不像城市名" ────────
+# 现象：`我1991年7月8日在酒泉市人民医院出生` 的 XX市 候选是 `日在酒泉市`（日期残尾
+# 被卷进窗口）；旧判据要求剥完必须在城市库（117 城 + COMMON_CITIES）里，而酒泉/
+# 日照/日喀则都不在表 → 宁愿保留脏值 `日在酒泉市`（**反而更脏**）。
+# 结构判据（总则①）：核心 = 2-4 个汉字，尾缀 ∈ 市/省/县/区/州/盟/旗/镇/乡。
+# 城市库从此只用于**经纬度**（真太阳时），不参与"要不要剥"。
+# 反例（形态判据必须拒掉的）：
+#   · `在庄市` → 剥完剩"庄市"（核心 1 字）→ 拒（红线：不得误改）
+#   · `我在北` → 剥完剩"在北"（**无尾缀**）→ 拒（无尾缀的 2-4 字名无法自证是地名，
+#     只有城市库能证明——故形态判据要求尾缀，库内命中仍照旧放行）
+#   · 纯时间词核心（今天/明天/今年/下午…）→ 拒（闭类排除，非开放词表）
+_CITY_FORM_RE = re.compile(r'^[一-鿿]{2,4}(?:市|省|县|区|州|盟|旗|镇|乡)$')
+# 闭类：时间/日期词（不是地名核心）。仅用于**形态判据**的排除，不参与识别。
+_CITY_FORM_TIME_RE = re.compile(
+    r'^(?:今天|明天|昨天|前天|后天|今天|今年|明年|去年|前年|上午|下午|中午|'
+    r'早上|早晨|晚上|夜里|凌晨|半夜|现在|当时|当天|次日)$')
+
+
+def _city_form_ok(name: str) -> bool:
+    """形态判据：`2-4 汉字 + 市/省/县/区/州/盟/旗/镇/乡 尾缀`（k50-2）。
+
+    结构化（总则①）：只看核心长度与尾缀，不查词表；核心为闭类时间词 → 拒。
+    """
+    t = str(name or "").strip()
+    if not _CITY_FORM_RE.match(t):
+        return False
+    return not _CITY_FORM_TIME_RE.match(t.rstrip("市省县区州盟旗镇乡"))
 
 
 def _city_name_ok(name: str, known=()) -> bool:
-    """剥前缀后的残留是否仍是**已知城市**（宁可不动不可改错，k49 E）。
-
-    校验源 = 既有城市库：`BaziEngine.CITY_LONGLAT`（117 城，真太阳时经度表）
-    + `COMMON_CITIES`（对话城市库）；两侧都按"去 市/省 尾缀"再查一次
-   （表键多为无尾缀形态：长春/榆树/沈阳）。**不**用形态兜底（尾字"市"即算）
-    ——否则 `在X市` 一类罕见地名会被误剥；未知小城剥不动 → 原值返回（与改前
-    同形，见报告诚实披露）。
-    """
+    """剥离结果是否可用：**已知城市**（库，供经纬度）**或**形态像城市名（k50-2）。"""
     t = str(name or "").strip()
     if len(t) < 2:
         return False
@@ -1385,26 +1627,38 @@ def _city_name_ok(name: str, known=()) -> bool:
         return True
     try:
         from src.engines.bazi import CITY_LONGLAT
-    except Exception:          # noqa: BLE001 — 校验源不可用时只认 known
+    except Exception:          # noqa: BLE001 — 库不可用时只用 known/形态
         CITY_LONGLAT = {}
     if t in CITY_LONGLAT:
         return True
     shaved = t.rstrip("市省")
-    return bool(shaved) and len(shaved) >= 2 and (
-        shaved in CITY_LONGLAT or shaved in known)
+    if bool(shaved) and len(shaved) >= 2 and (
+            shaved in CITY_LONGLAT or shaved in known):
+        return True
+    return _city_form_ok(t)
 
 
 def _clean_city_name(name: str, known=()) -> str:
-    """剥掉城市名前的出生语境前缀（k49 E，单一实现，两个提取器共用）。
+    """剥掉城市名前的出生语境前缀（k49 E / k50-2，单一实现，两个提取器共用）。
 
     `我出生在长春市` → "出生在长春市" → "长春市"；`我在长春市` → "长春市"；
-    `广州市`（无前缀）→ 原样。
-    剥不动 / 剥完不是已知城市 → 原样返回（绝不为"修脏值"改错真地名）。
+    `日在日照市` → "日照市"（k50-2）；`广州市`（无前缀）→ 原样。
+
+    **逐级剥离 + 每步校验**（k50-2）：每剥掉一个前缀就校验一次，**取最深的可用
+    状态**；一旦某步剥完不可用就停止（不再往里剥）——这样
+    `日在日照市` 能剥到"日照市"（"照市"核心 1 字不可用 → 停在上一层），而
+    `在庄市`/`我在北` 首步就不可用 → 原样返回。绝不为"修脏值"改错真地名。
     """
     t = str(name or "").strip()
     if not t:
         return t
+    _rem = _DATE_REMNANT_RE.match(t)      # 先剥日期残尾（带"后随助词"条件）
+    if _rem:
+        _rest = t[_rem.end():].strip()
+        if len(_rest) >= 2 and _city_name_ok(_rest, known):
+            t = _rest
     cur = t
+    best = t if _city_name_ok(t, known) else None
     changed = True
     while changed:                        # 反复剥（"我在长春市" 要剥 我 + 在）
         changed = False
@@ -1412,24 +1666,83 @@ def _clean_city_name(name: str, known=()) -> str:
             if not cur.startswith(p):
                 continue
             rest = cur[len(p):].strip()
-            if len(rest) >= 2:            # 剩 <2 字不再剥（防剥成空/单字）
-                cur, changed = rest, True
-                break
-    # 剥完必须是**已知城市**，否则原样返回（宁可不动不可改错）
-    return cur if _city_name_ok(cur, known) else t
+            if len(rest) < 2:             # 剩 <2 字不再剥（防剥成空/单字）
+                continue
+            if _city_name_ok(rest, known):   # 每步校验：可用才继续往里剥
+                cur, best, changed = rest, rest, True
+            break
+    return best if best is not None else t
+
+
+def _city_explicit_in(text: str, city: str) -> bool:
+    """文本里是否**显式**出现了该城市（k50-6：区分"显式说了北京"与"缺省填了北京"）。
+
+    判据 = 复用**同一套城市提取**（`_extract_partial_birth` 的城市键，含括号/职场
+    语境门）→ 提取结果恰为该城市才算显式。**不另写一份城市识别**（总则：单一实现）。
+    注意：提取器对"全未来日期"会整体早退（`birth_dates_all_future`）→ 此时判为
+    "非显式"，方向偏安全（宁可走问句）。
+
+    k50-r2-3（**结构化补强**）：还要**确实是地名主张**——仅"文本里出现过该城市串"不够：
+    `北京烤鸭`/`我在北京路`/`北京的房价`/`北京银行办卡` 里"北京"是修饰语不是地名
+    （实测 9/10 非地名语境被误判为"显式"→ 会少问一句、静默改档）。判据 = 该城市**所在
+    小句**要么含出生语境词（`birth_ctx_near`，与日期/城市闸门同一实现），要么**除该城市
+    外无别的内容**（`_strip_birth_filler` 复用）。反例：上述 4 类 → 残留非空 → 非显式 ✗；
+    `1999年3月28日10点55分 北京 男`（数据串，城市是唯一实体）→ 残留为空 ✓ 仍算显式 ✓。
+    """
+    if not text or not city:
+        return False
+    try:
+        h = MessageHandler.__new__(MessageHandler)
+        if h._extract_partial_birth(text).get("city") != city:
+            return False
+        pos = str(text).find(city)
+        if pos < 0:                       # 值不在原文（异常装配）→ 保守判非显式
+            return False
+        end = pos + len(city)
+        from src.storage.person_dao import _clause_span, birth_ctx_near
+        if birth_ctx_near(text, pos, end):
+            return True
+        _a, _b = _clause_span(text, pos, end)
+        _rest = text[_a:pos] + text[end:_b]
+        return not _strip_birth_filler(_rest).strip()
+    except Exception:            # noqa: BLE001 — 判据不可用 → 视为非显式（更安全）
+        return False
 
 
 def _city_looks_like_birth(msg: str, name: str, pos: int) -> bool:
-    """城市候选是否出生语境（k48 闸门②）。
+    """城市候选是否出生语境（k48 闸门② + k50-5 与日期同族的邻近/谓语收口）。
 
     - 括号内（业务/办公地点补充说明）→ 不取（用户原话的「（北京，顶格五险一金）」）；
     - 消息含职场/办公语境词且**无**出生语境词 → 不取（"我办公地在上海…"）；
-    - 其余情况照旧取（"三月初三，吉林省长春市榆树市出生，男" / "1990-05-20
-      15:00 深圳 女" 等既有格式零回退）。
+    - **k50-5 ①（与出生语境相邻）**：消息里**有**出生语境词时，候选须与该语境词
+      **同一小句**（`person_dao.birth_ctx_near`，与日期闸门同一实现）——
+      `我出生在贵阳，1991年7月8日在长春市结的婚` 的"长春市"小句里没有出生语境
+      → 不取；`我现在住广州` 同根（"住广州"小句无出生语境）。
+      消息里**没有**任何出生语境词 → 维持既有行为（`1999年3月28日 早上十点 长春`
+      / `我在长春市` / `1990-05-20 15:00 深圳 女` 等零回退）。
+    - **k50-5 ②（非出生谓语挡）**：候选紧后挂着生活事件谓语（复用日期侧
+      `_event_tail_matches`，如"…长春市结的婚"）→ 不取。
     """
     if _in_paren_span(msg, pos):
         return False
-    if not _BIRTH_CTX_RE.search(msg) and _WORK_CTX_RE.search(msg):
+    end = pos + len(str(name or ""))
+    if _event_tail_matches(msg[end:]):
+        return False
+    if _BIRTH_CTX_RE.search(msg):
+        try:
+            from src.storage.person_dao import _clause_span, birth_ctx_near
+            if not birth_ctx_near(msg, pos, end):
+                # k50-5 补：小句里除**城市本身**外没有别的内容（`我来自吉林，
+                # 长春市` 的"长春市"独立成句）→ 视为前一小句出生语境的对象，
+                # 照旧取（既有行为零回退）；有别的叙述（`…在长春市结的婚` /
+                # `我现在住广州`）→ 不取。
+                _a, _b = _clause_span(msg, pos, end)
+                _rest = msg[_a:pos] + msg[end:_b]
+                if _strip_birth_filler(_rest).strip():
+                    return False
+        except Exception:            # noqa: BLE001 — 判据不可用 → 退回消息级口径
+            pass
+    elif _WORK_CTX_RE.search(msg):
         return False
     return True
 
@@ -3269,6 +3582,21 @@ class MessageHandler:
             try:
                 from src.storage.person_dao import birth_conflict_fields
                 _saved_guard = self._get_user_birth_profile(user_id)
+                # k50-6：判据下在**参数字面所说的城市**（`_extract_partial_birth`
+                # 的 city 键 = 真有 token 才有值），而不是引擎缺省值——否则
+                # "1999年5月13日 10:55 长春 男"（长春不在对话城市库/无"市"尾缀 →
+                # 提取器回落缺省"北京"）会把**与档案一致**的输入误判成冲突
+                #（k11c 回归实测）。
+                #   · 参数字面说了城市 + 与档案城市不同 + **当轮用户原文没有它**
+                #     → 纳入冲突集 → 走问句（k49 A 在"缺省北京"形态上的洞）；
+                #   · 参数字面没说城市（引擎缺省"北京"）→ **不是主张**，不判冲突；
+                #   · 无档案 / 档案无城市 → 无可比，不判。
+                _city_said = self._extract_partial_birth(params).get("city")
+                if (_city_said and (_saved_guard or {}).get("city")
+                        and _saved_guard.get("city") != _city_said
+                        and not _city_explicit_in(user_question or "",
+                                                  _city_said)):
+                    _conflict_new["city"] = _city_said
                 _conflict = birth_conflict_fields(
                     _saved_guard, _conflict_new, ctx=_conflict_ctx)
             except Exception as e:  # noqa: BLE001 — 守卫 fail-open（与紫微守卫
@@ -6955,7 +7283,10 @@ class MessageHandler:
                 if hour or minute:
                     cur["hour"] = hour
                     cur["minute"] = minute
-                if city and city != "北京":
+                # k49/k50-6：city=="北京" 缺省不参与比较；**显式**说了北京才算
+                #（`_city_explicit_in` 复用同一套城市提取；与工具守卫同口径）
+                if city and (city != "北京"
+                             or _city_explicit_in(msg, "北京")):
                     cur["city"] = city
                 if gender and gender != "unknown":
                     cur["gender"] = gender
@@ -7183,9 +7514,17 @@ class MessageHandler:
         _md_all = [c for c in _MD_CAND_RE.finditer(msg)
                    if _valid_month_day(c)
                    and _numeric_date_looks_like_birth(msg, c)]
-        _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all)
+        # k50-1：中文数字月日候选（全部命中）与数字月日**合流**进同一套否定裁决
+        _cn_all = [_CnMdCand(c) for c in _CN_MD_RE.finditer(msg)
+                   if _cn_month_day_of(c)]
+        _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all, _cn_all)
+        # k50-r4：非纠正路径的年**与采纳的月日同源**（同一日期组；中文月日优先
+        # 的路径不适用——那时月日不来自数字候选）。无同组年 → 回落首命中 ✓
+        if not _applied and _md_all and not _parse_cn_month_day(msg):
+            _gy = _ym_group_year_for_md(msg, _ym_all, _md_all[0])
+            if _gy is not None:
+                _ym_all = [_gy]
         ym = _py if _applied else (_ym_all[0] if _ym_all else None)
-        _md_pick = _pm if _applied else None
         if ym:
             year = int(ym.group(1) or ym.group(2) or ym.group(3) or ym.group(4) or ym.group(5))
 
@@ -7195,11 +7534,23 @@ class MessageHandler:
         # Step 2: Extract month and day — try Chinese lunar first
         month = day = None
         is_lunar = False
-        cn_md = _parse_cn_month_day(msg)
+        if _applied:
+            # k49-r3/k50-1：否定裁决已给出**被肯定**的月日候选（数字或中文数字，
+            # 同源成组）——直接采用；pm=None 表示无被肯定值（放弃月日，绝不回退
+            # 去写被否定的那个）。
+            if _pm is not None:
+                month, day = _md_value(_pm)
+                if isinstance(_pm, _CnMdCand):
+                    is_lunar = True
+                elif re.search(r'农历|阴历', msg):
+                    is_lunar = True
+            cn_md = None
+        else:
+            cn_md = _parse_cn_month_day(msg)
         if cn_md:
             month, day = cn_md
             is_lunar = True  # 中文数字月日（三月初三/三月28）→ 农历口径
-        else:
+        elif not _applied:
             # Try numeric date: 8月15日, 10月10日（自带日期单位，强形态）,
             # 8-15 / 11.20（**含混形态**，k48 起需候选附近有出生语境才取，
             # 见 _numeric_date_looks_like_birth ③-d）
@@ -7208,11 +7559,9 @@ class MessageHandler:
             # "只取首个候选，被否决即整条月日作废"——`房贷利率4.9%，我1990年
             # 5月20日出生` 改前只剩 year）。取"首个通过"而非"最后一个"：
             # 最后一个会把「…出生，2026年10月1日结婚」的婚期当日辰。
-            # k49-r3：`_md_all` 已在上方与年份同源裁决（`_affirmed_pick`）
-            md = _md_pick if _applied else (_md_all[0] if _md_all else None)
+            md = _md_all[0] if _md_all else None
             if md:
-                month = int(md.group(1))
-                day = int(md.group(2))
+                month, day = _md_value(md)
                 # 阿拉伯数字 + 显式农历/阴历前缀（"农历1999年3月28"）→ 农历
                 if re.search(r'农历|阴历', msg):
                     is_lunar = True
@@ -7453,9 +7802,17 @@ class MessageHandler:
         _md_all = [c for c in _MD_CAND_RE.finditer(msg)
                    if _valid_month_day(c)
                    and _numeric_date_looks_like_birth(msg, c)]
-        _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all)
+        # k50-1：中文数字月日候选合流（与 `_extract_bazi_info` 同一助手）
+        _cn_all = [_CnMdCand(c) for c in _CN_MD_RE.finditer(msg)
+                   if _cn_month_day_of(c)]
+        _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all, _cn_all)
+        # k50-r4：非纠正路径的年**与采纳的月日同源**（同一日期组；中文月日优先
+        # 的路径不适用——那时月日不来自数字候选）。无同组年 → 回落首命中 ✓
+        if not _applied and _md_all and not _parse_cn_month_day(msg):
+            _gy = _ym_group_year_for_md(msg, _ym_all, _md_all[0])
+            if _gy is not None:
+                _ym_all = [_gy]
         ym = _py if _applied else (_ym_all[0] if _ym_all else None)
-        _md_pick = _pm if _applied else None
         if ym:
             y = int(next(g for g in ym.groups() if g))
             if 1900 <= y <= 2100:
@@ -7487,20 +7844,27 @@ class MessageHandler:
         # ── month/day（农历口径在齐全时由 _extract_bazi_info/_do_bazi_analysis
         #    现有链路处理；部分信息阶段保持原文即可）──
         month = day = None
-        cn_md = _parse_cn_month_day(msg)
+        _md_is_cn = False
+        if _applied:
+            # k49-r3/k50-1：否定裁决给出的**被肯定**月日（数字或中文数字，同源）
+            if _pm is not None:
+                month, day = _md_value(_pm)
+                _md_is_cn = isinstance(_pm, _CnMdCand)
+            cn_md = None
+        else:
+            cn_md = _parse_cn_month_day(msg)
+            _md_is_cn = bool(cn_md)
         if cn_md:
             month, day = cn_md
-        else:
+        elif not _applied:
             # k48-r2 I-2：遍历全部候选取首个通过闸门者（见 _extract_bazi_info
             # 同款说明）；k48 闸门①③：百分比/小数/金额/薪资类数字与非法日期
             # 形态不作数（用户原话「各缴纳4.5%」修前在此被当 4月5日 → 两张盘）
             # `(?<!\d)`：与全量提取器同口径（防"1985.3.28"被 `85.3` 抢先命中
             # 而把真的 `3.28` 整条带丢——k48-r2 I-2 家族）
-            # k49-r3：`_md_all` 已在上方与年份同源裁决（`_affirmed_pick`）
-            md = _md_pick if _applied else (_md_all[0] if _md_all else None)
+            md = _md_all[0] if _md_all else None
             if md:
-                month = int(md.group(1))
-                day = int(md.group(2))
+                month, day = _md_value(md)
         if month and day and abs(month) <= 12 and 1 <= day <= 31:
             out["month"] = month
             out["day"] = day
@@ -7509,7 +7873,7 @@ class MessageHandler:
             # 口径（D7 既有约定）。marker 随 known 累积最新者胜（下游
             # _collect_partial_birth），齐全自动排盘时驱动 _feed_birth 单点
             # 转公历——残余直喂点不因分步口述的农历日期再漏网。
-            out["_md_lunar"] = bool(cn_md or re.search(r'农历|阴历', msg))
+            out["_md_lunar"] = bool(_md_is_cn or re.search(r'农历|阴历', msg))
 
         # ── hour/minute（复用 _extract_bazi_info 三段口径，只记数值不做校验）──
         hour = minute = None
