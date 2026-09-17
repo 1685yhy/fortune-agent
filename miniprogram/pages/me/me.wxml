@@ -99,26 +99,35 @@
   <view class="member-mask" wx:if="{{memberDialogVisible}}" bindtap="closeMemberDialog">
     <view class="member-dialog" catchtap="noop">
       <view class="md-seal"><view class="seal md-seal-seal"><text class="seal-char">明</text></view></view>
-      <view class="md-title">{{memberIsMember ? '会员权益' : '开通会员'}}</view>
-      <view class="md-sub">{{memberIsMember ? '明灯长明 · 专属守护' : '全功能解锁 · 明灯长明'}}</view>
-      <view class="md-benefits" wx:if="{{memberIsMember}}">
+      <view class="md-title">{{iosBlocked ? iosGuide.title : (memberIsMember ? '会员权益' : '开通会员')}}</view>
+      <view class="md-sub">{{iosBlocked ? '灯下相候 · 可循下方指引' : (memberIsMember ? '明灯长明 · 专属守护' : '全功能解锁 · 明灯长明')}}</view>
+      <!-- k52-1：平台受限（iOS/未判定）→ 只读引导，无任何可点击的付费元素 -->
+      <view class="md-benefits" wx:if="{{iosBlocked}}">
+        <view class="md-b-item" wx:for="{{iosGuide.lines}}" wx:key="*this">
+          <view class="md-b-dot"></view>
+          <text>{{item}}</text>
+        </view>
+      </view>
+      <view class="md-benefits" wx:elif="{{memberIsMember}}">
         <view class="md-b-item" wx:for="{{memberBenefits}}" wx:key="*this">
           <view class="md-b-dot"></view>
           <text>{{item}}</text>
         </view>
         <view class="md-b-expire" wx:if="{{memberExpireText}}">会员有效期至 {{memberExpireText}}</view>
       </view>
-      <view class="md-plan" wx:for="{{memberPlans}}" wx:key="id"
-        hover-class="md-plan-active" hover-stay-time="0"
-        data-plan="{{item.id}}" bindtap="buyPlan">
-        <view class="mp-ic"><view class="seal mp-seal"><text class="seal-char">阅</text></view></view>
-        <view class="mp-info">
-          <view class="mp-name">{{item.name}}</view>
-          <view class="mp-desc">{{item.description}}</view>
+      <block wx:if="{{!iosBlocked}}">
+        <view class="md-plan" wx:for="{{memberPlans}}" wx:key="id"
+          hover-class="md-plan-active" hover-stay-time="0"
+          data-plan="{{item.id}}" bindtap="buyPlan">
+          <view class="mp-ic"><view class="seal mp-seal"><text class="seal-char">阅</text></view></view>
+          <view class="mp-info">
+            <view class="mp-name">{{item.name}}</view>
+            <view class="mp-desc">{{item.description}}</view>
+          </view>
+          <view class="mp-price"><text class="mp-num">{{item.priceNum}}</text><text class="mp-unit">{{item.priceUnit}}</text></view>
         </view>
-        <view class="mp-price"><text class="mp-num">{{item.priceNum}}</text><text class="mp-unit">{{item.priceUnit}}</text></view>
-      </view>
-      <view class="md-close" bindtap="closeMemberDialog">暂不开通</view>
+      </block>
+      <view class="md-close" bindtap="closeMemberDialog">{{iosBlocked ? '知道了' : '暂不开通'}}</view>
     </view>
   </view>
 

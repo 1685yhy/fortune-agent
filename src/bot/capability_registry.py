@@ -175,7 +175,7 @@ _TOOL_CAPS = [
                _TOOL_PARAMS_SCHEMAS["dream"], timeout_s=70.0,
                requires="梦境描述"),
     Capability("fengshui", "风水",
-               "输入房屋坐向/布局描述，输出吉凶判断+化解建议",
+               "输入房屋坐向/布局描述，输出吉凶判断+调和建议",
                _TOOL_PARAMS_SCHEMAS["fengshui"], timeout_s=8.0,
                requires="房屋坐向（如：坐北朝南）"),
     Capability("zeri", "择日",
@@ -243,7 +243,7 @@ _TOOL_CAPS = [
 _INTENT_CAPS = [
     Capability("bazi", "八字", "八字排盘：出生信息+命理分析", {}, cap_type="intent"),
     Capability("ziwei", "紫微", "紫微斗数排盘分析", {}, cap_type="intent"),
-    Capability("liuyao", "六爻", "易经六爻占卜", {}, cap_type="intent"),
+    Capability("liuyao", "六爻", "易经六爻推演", {}, cap_type="intent"),
     Capability("fengshui", "风水", "风水分析", {}, cap_type="intent"),
     Capability("mianxiang", "面相", "面相分析", {}, cap_type="intent"),
     Capability("zeri", "择日", "择吉日", {}, cap_type="intent"),

@@ -87,7 +87,7 @@
       <view wx:if="{{mode === 'adult' && issues.length}}" class="diag-box">
         <view class="diag-title">现名诊断 · 免费</view>
         <view wx:for="{{issues}}" wx:key="*this" class="diag-item">{{item}}</view>
-        <view class="diag-more">完整改名对比见付费报告（¥29.9）</view>
+        <view class="diag-more">{{iosBlocked ? '完整改名对比见深度报告' : '完整改名对比见付费报告（¥29.9）'}}</view>
       </view>
 
       <view wx:for="{{names}}" wx:key="given" wx:for-index="idx"
@@ -111,14 +111,20 @@
               </text>
             </view>
             <text wx:if="{{item.ping}}" class="nc-ping">「{{item.ping}}」</text>
-            <view wx:if="{{item.locked}}" class="nc-locked-note">点下方解锁：八字契合推理 · 补益矩阵 · 备选扩展 15 名</view>
+            <view wx:if="{{item.locked}}" class="nc-locked-note">{{iosBlocked ? '深度内容：八字契合推理 · 补益矩阵 · 备选扩展 15 名' : '点下方解锁：八字契合推理 · 补益矩阵 · 备选扩展 15 名'}}</view>
           </view>
         </view>
       </view>
 
       <view class="hp-btns">
-        <button class="btn-primary ming-unlock" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告 {{mode === 'adult' ? '¥29.9' : '¥19.9'}}</button>
+        <!-- k52-1：iOS/平台未判定 → 不出现可点击的付费按钮 -->
+        <button wx:if="{{!iosBlocked}}" class="btn-primary ming-unlock" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告 {{mode === 'adult' ? '¥29.9' : '¥19.9'}}</button>
         <button class="btn-secondary ming-sample" bindtap="onShowReport">查看名笺</button>
+      </view>
+      <!-- k52-1：平台受限引导（只读） -->
+      <view class="k52-ios-guide" wx:if="{{iosBlocked}}">
+        <view class="k52-ios-guide-title">{{iosGuide.title}}</view>
+        <view class="k52-ios-guide-line" wx:for="{{iosGuide.lines}}" wx:key="*this">{{item}}</view>
       </view>
       <view class="footnote">五格 / 81 数理 / 三才引擎 · 古籍出处可溯源</view>
     </block>
@@ -259,14 +265,19 @@
       <view class="pw-seal">名</view>
       <view class="pw-t">名笺深度报告</view>
       <view class="pw-s">{{mode === 'adult' ? '含改名对比 · ' : ''}}八字用神 → 五行补益矩阵 · 5 名逐名契合推理 · 备选 15 名 · 墨韵名笺</view>
-      <view class="pw-price">{{mode === 'adult' ? '¥29.9' : '¥19.9'}}<text class="pw-price-u"> 单买</text></view>
-      <view class="pw-btns">
+      <!-- k52-1：iOS/平台未判定 → 报价与付费按钮整体隐藏，改只读引导 -->
+      <view class="pw-price" wx:if="{{!iosBlocked}}">{{mode === 'adult' ? '¥29.9' : '¥19.9'}}<text class="pw-price-u"> 单买</text></view>
+      <view class="k52-ios-guide" wx:if="{{iosBlocked}}">
+        <view class="k52-ios-guide-title">{{iosGuide.title}}</view>
+        <view class="k52-ios-guide-line" wx:for="{{iosGuide.lines}}" wx:key="*this">{{item}}</view>
+      </view>
+      <view class="pw-btns" wx:if="{{!iosBlocked}}">
         <button class="btn-primary pw-buy" bindtap="onBuyNow" disabled="{{purchasing}}">
           {{purchasing ? '生成中…' : '立即解锁'}}
         </button>
         <button class="btn-secondary pw-member" bindtap="onMemberFree">会员免费</button>
       </view>
-      <view class="pw-close" bindtap="onPaywallClose">再想想</view>
+      <view class="pw-close" bindtap="onPaywallClose">{{iosBlocked ? '知道了' : '再想想'}}</view>
     </view>
   </view>
 </view>

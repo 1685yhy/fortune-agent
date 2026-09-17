@@ -457,7 +457,7 @@ class LuckyCalendar:
             ],
             "ji": [
                 {"action": "冲动决策", "time": "全天", "reason": "心浮气躁易失误"},
-                {"action": "过度消费", "time": "酉时17-19点", "reason": "金旺易破财"},
+                {"action": "过度消费", "time": "酉时17-19点", "reason": "金旺易超支"},
                 {"action": "熬夜", "time": "子时23点后", "reason": "伤肝损运势"},
             ],
             "lucky_color": wx_color.get(day_wx, "蓝色"),

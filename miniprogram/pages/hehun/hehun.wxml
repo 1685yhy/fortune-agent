@@ -200,7 +200,13 @@
     <!-- 按钮行（历史查看态：无双方生辰，不可解锁深度报告） -->
     <view class="hh-action-row">
       <button class="hh-btn hh-btn-primary" bindtap="onGenerateCard" disabled="{{generatingCard}}" loading="{{generatingCard}}">生成墨韵缘笺（免费）</button>
-      <button wx:if="{{!viewingHistory}}" class="hh-btn hh-btn-gold" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告 ¥19.9</button>
+      <!-- k52-1：iOS/平台未判定 → 不出现可点击的付费按钮 -->
+      <button wx:if="{{!viewingHistory && !iosBlocked}}" class="hh-btn hh-btn-gold" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告 ¥19.9</button>
+    </view>
+    <!-- k52-1：平台受限引导（只读） -->
+    <view class="k52-ios-guide" wx:if="{{iosBlocked}}">
+      <view class="k52-ios-guide-title">{{iosGuide.title}}</view>
+      <view class="k52-ios-guide-line" wx:for="{{iosGuide.lines}}" wx:key="*this">{{item}}</view>
     </view>
     <view wx:if="{{viewingHistory}}" class="hh-hist-note">历史记录不含双方生辰 · 如需深度报告请重新输入后再测</view>
     <view class="hh-action-row hh-action-row-sub">
@@ -268,9 +274,14 @@
     <view class="paywall-seal"><text>深</text></view>
     <text class="paywall-title">缘分之谜，未完待续</text>
     <text class="paywall-cliff" wx:if="{{cliffhanger}}">{{cliffhanger}}</text>
-    <text class="paywall-desc">解锁深度报告，看前世今生 / 相处模式 / 矛盾点与化解 / 契合详情 四章完整解读</text>
-    <view class="paywall-price">¥19.9 <text class="paywall-price-sub">一次解锁 · 永久回看</text></view>
-    <button class="hh-btn hh-btn-gold paywall-btn" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告</button>
+    <text class="paywall-desc">解锁深度报告，看前世今生 / 相处模式 / 矛盾点与调和 / 契合详情 四章完整解读</text>
+    <!-- k52-1：iOS/平台未判定 → 报价与付费按钮整体隐藏，改只读引导 -->
+    <view class="paywall-price" wx:if="{{!iosBlocked}}">¥19.9 <text class="paywall-price-sub">一次解锁 · 永久回看</text></view>
+    <view class="k52-ios-guide" wx:if="{{iosBlocked}}">
+      <view class="k52-ios-guide-title">{{iosGuide.title}}</view>
+      <view class="k52-ios-guide-line" wx:for="{{iosGuide.lines}}" wx:key="*this">{{item}}</view>
+    </view>
+    <button wx:if="{{!iosBlocked}}" class="hh-btn hh-btn-gold paywall-btn" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告</button>
     <text class="paywall-close" hover-class="paywall-close-active" hover-stay-time="0" bindtap="onClosePaywall">暂不，再想想</text>
   </view>
 

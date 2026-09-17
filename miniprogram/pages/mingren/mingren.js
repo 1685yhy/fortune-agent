@@ -33,11 +33,17 @@ Page({
     memberDialogVisible: false,
     memberPlans: [],
     _buying: false,
+    /* k52-1：iOS/平台未判定 → 付费入口改只读引导（引导文案单一事实源 = payment.IOS_GUIDE）。
+       会员**状态读取**（isFull 全量解锁）不受影响。 */
+    iosBlocked: false,
+    iosGuide: payment.IOS_GUIDE,
   },
 
   onLoad() {
     this._initNavOff();
     theme.bindTheme(this);
+    // k52-1：平台受限（iOS）→ 付费入口整体切换为引导视图
+    this.setData({ iosBlocked: payment.isPurchaseBlocked() });
     // 会员开通方案(同 me.js: 基础三档 + 高级一档; 高级会员=全量解锁)
     const plans = ['monthly', 'quarterly', 'yearly', 'pro_monthly']
       .map((id) => payment.getProduct(id))
@@ -173,6 +179,8 @@ Page({
           // 刷新: 高级会员后重新拉全量
           this.setData({ items: [], finished: false });
           this._load(false);
+        } else if (res && res.blocked) {
+          // k52-1：平台受限（iOS）→ payment 侧已弹引导，此处不叠加失败提示
         }
       })
       .catch(() => {

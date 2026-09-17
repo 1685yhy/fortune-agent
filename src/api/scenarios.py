@@ -27,7 +27,7 @@ SCENARIOS = [
         "icon": "💰",
         "title": "今年财运如何",
         "description": "分析正财偏财运，掌握财富机遇",
-        "prompt_template": "我想了解今年的财运，请根据我的八字分析：1)今年正财运和偏财运趋势 2)财运最佳的时间窗口 3)适合的投资和理财方向 4)需要注意的破财风险",
+        "prompt_template": "我想了解今年的财运，请根据我的八字分析：1)今年正财运和偏财运趋势 2)财运最佳的时间窗口 3)适合的投资和理财方向 4)需要注意的财务风险",
         "required_info": ["birth_date", "birth_time", "gender"],
         "category": "wealth",
     },

@@ -84,6 +84,9 @@ Page({
     purchasing: false,
     report: null,
     reportId: '',
+    /* k52-1：iOS/平台未判定 → 付费入口改只读引导（引导文案单一事实源 = payment.IOS_GUIDE） */
+    iosBlocked: false,
+    iosGuide: payment.IOS_GUIDE,
 
     // 弹层
     showPaywall: false,    // 付费墙（悬念半句展开）
@@ -104,6 +107,8 @@ Page({
 
   onLoad() {
     theme.bindTheme(this);
+    // k52-1：平台受限（iOS）→ 付费入口整体切换为引导视图
+    this.setData({ iosBlocked: payment.isPurchaseBlocked() });
     this.restoreTaCache();
     this.loadDefaultSelf();
   },

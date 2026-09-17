@@ -157,6 +157,12 @@ Page({
   },
 
   async startPayment() {
+    // k52-1：平台受限（iOS/未判定）→ 不调起支付，走引导（本页 onLoad 已 reLaunch 到
+    // hehun，入口实际不可达；此处为纵深防御，payment 层闸门之外再多一道）
+    if (payment.isPurchaseBlocked()) {
+      payment.showIosGuide();
+      return;
+    }
     this.setData({ loading: true, errorMsg: '' });
 
     try {
@@ -165,6 +171,8 @@ Page({
       if (payResult.success) {
         // 支付成功（或演示模式），开始合盘分析
         await this.doAnalysis();
+      } else if (payResult && payResult.blocked) {
+        // k52-1：平台受限 → 引导已在 payment 侧弹出，不再提示「支付已取消」
       } else {
         wx.showToast({ title: '支付已取消', icon: 'none' });
       }

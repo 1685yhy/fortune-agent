@@ -237,7 +237,7 @@ async def get_today_calendar(
     if not ji_detail:
         ji_detail = [
             {"action": "冲动决策", "time": "全天", "reason": "心浮气躁易失误"},
-            {"action": "过度消费", "time": "酉时17-19点", "reason": "金旺易破财"},
+            {"action": "过度消费", "time": "酉时17-19点", "reason": "金旺易超支"},
             {"action": "熬夜", "time": "子时23点后", "reason": "伤肝损运势"},
         ]
 
@@ -384,7 +384,7 @@ def _generate_generic_calendar(date_str: str = None) -> dict:
         ],
         "ji_detail": [
             {"action": "冲动决策", "time": "全天", "reason": "心浮气躁易失误"},
-            {"action": "过度消费", "time": "酉时17-19点", "reason": "金旺易破财"},
+            {"action": "过度消费", "time": "酉时17-19点", "reason": "金旺易超支"},
             {"action": "熬夜", "time": "子时23点后", "reason": "伤肝损运势"},
         ],
         "fortune4": derive_fortune4(day_wuxing, "", score),

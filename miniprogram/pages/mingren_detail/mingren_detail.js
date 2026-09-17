@@ -80,6 +80,10 @@ Page({
     memberDialogVisible: false,
     memberPlans: [],
     _buying: false,
+    /* k52-1：iOS/平台未判定 → 付费入口改只读引导（引导文案单一事实源 = payment.IOS_GUIDE）。
+       已解锁会员的**读取**（detail 内容）不受影响。 */
+    iosBlocked: false,
+    iosGuide: payment.IOS_GUIDE,
     // B5-3 盘面折叠 + 知识弹层
     chartOpen: true,
     explain: { visible: false, title: '', sections: [] },
@@ -149,6 +153,8 @@ Page({
 
   onLoad(options) {
     theme.bindTheme(this);
+    // k52-1：平台受限（iOS）→ 付费入口整体切换为引导视图
+    this.setData({ iosBlocked: payment.isPurchaseBlocked() });
     const name = decodeURIComponent(options.name || '');
     this.setData({ name });
     // 会员开通方案(同列表页: 基础三档 + 高级一档)
@@ -245,6 +251,8 @@ Page({
           this.setData({ memberDialogVisible: false });
           wx.showToast({ title: '开通成功 · 全量解锁', icon: 'none' });
           this._load();  // 解锁后重拉详情
+        } else if (res && res.blocked) {
+          // k52-1：平台受限（iOS）→ payment 侧已弹引导，此处不叠加失败提示
         }
       })
       .catch(() => {

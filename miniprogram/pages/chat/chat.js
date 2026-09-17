@@ -15,6 +15,7 @@ const streamHost = require('../../utils/streamHost');
 const md = require('../../utils/md');
 const cardUtil = require('../../utils/card');   // E2-2 对话卡片化：卡片标记解析
 const chatSelect = require('../../utils/chatSelect'); // k10-C 文字选取：段落模型（乙覆盖层/甲高亮/复制本段共用事实源）
+const payment = require('../../utils/payment');       // k52-1 平台受限判定（额度引导入口文案）
 
 /* 原型 aiComplete 精选文案（dir_b.html 532-537 行 CURATED，后端不可用时兜底） */
 const CURATED = {
@@ -192,6 +193,8 @@ Page({
     saveBanner: false,
     /* L5-1/L5-2 对话额度条：免费用户「今日 X/15」；超限降级 → 精简提示 + 会员引导 */
     quotaBar: { show: false, text: '', downgraded: false },
+    /* k52-1：iOS/平台未判定 → 额度引导按钮改「了解会员」（跳转目标页只剩只读引导，不调起支付） */
+    iosBlocked: false,
     /* B4-1 「+」更多面板：拍照 / 从相册选择 */
     morePanel: { show: false },
   },
@@ -200,6 +203,7 @@ Page({
     /* ═══ Task 5 滚动不拽回·阈值按屏宽缩放：屏宽运行期不变，onLoad 算一次。
        换算 100rpx = 屏宽/750*100 px（375px 屏 = 50px 与原常量一致；414px 屏 ≈ 55px）。
        k47-B：只用新 API wx.getWindowInfo（基础库 ≥2.20.1）；异常/旧库 → 50px 常量兜底。 */
+    this.setData({ iosBlocked: payment.isPurchaseBlocked() });   // k52-1：平台受限 → 引导入口文案切换
     const win = (wx.getWindowInfo && wx.getWindowInfo()) || {};
     this._nearBottomPx = win.windowWidth ? win.windowWidth / 750 * 100 : NEAR_BOTTOM_PX;
     /* ═══ Task 8 · 深夜模式进入（夜色主题/灯笼/挽留劝睡/灯语卡/要我记得吗/12356） ═══ */

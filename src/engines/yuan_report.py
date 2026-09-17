@@ -1,9 +1,9 @@
-"""深度合盘报告管线（付费后生成）：前世今生 / 相处模式 / 矛盾点与化解 / 契合详情。
+"""深度合盘报告管线（付费后生成）：前世今生 / 相处模式 / 矛盾点与调和 / 契合详情。
 
 管线：
 - 前世今生：纳音+日柱+天乙贵人 → 古籍 RAG（category='hehun'）→ 引用书名原文 → LLM 叙事（300-500 字）；
 - 相处模式：合婚引擎三维明细 + 合盘引擎特征 → 体感描述（规则 + 特征口诀）；
-- 矛盾点与化解：六冲/六害/相刑/纳音相克 规则逐条提取 → 每条配一条化解建议；
+- 矛盾点与调和：六冲/六害/相刑/纳音相克 规则逐条提取 → 每条配一条调和建议；
 - 契合详情：双引擎分数明细直出（无 LLM），可对照复核。
 质量红线：不出现「注定/必离婚/必分手/必成/化灾/改运/斩桃花」类绝对断言与承诺。
 """
@@ -112,7 +112,7 @@ def _build_xiangchu(union: dict) -> str:
 
 
 def _build_maodun(union: dict) -> str:
-    """矛盾点与化解：规则提取负特征，逐条配化解建议。"""
+    """矛盾点与调和：规则提取负特征，逐条配调和建议。"""
     items = []
     for f in union["features"]:
         for kw, advice in _RESOLVE_ADVICE.items():
@@ -121,7 +121,7 @@ def _build_maodun(union: dict) -> str:
                 break
     if not items:
         return _GENERIC_RESOLVE
-    return "以下矛盾点可逐一化解：\n" + "\n".join(items)
+    return "以下矛盾点可逐条调和：\n" + "\n".join(items)
 
 
 def _build_qihe(union: dict) -> str:
@@ -149,7 +149,7 @@ def build_report(union: dict, bazi1, bazi2, retriever=None, llm=None) -> dict:
     chapters = [
         {"title": "前世今生", "content": _build_qianshi(union, bazi1, bazi2, refs, llm)},
         {"title": "相处模式", "content": _build_xiangchu(union)},
-        {"title": "矛盾点与化解", "content": _build_maodun(union)},
+        {"title": "矛盾点与调和", "content": _build_maodun(union)},
         {"title": "契合详情", "content": _build_qihe(union)},
     ]
     full_text = "\n\n".join(f"【{c['title']}】\n{c['content']}" for c in chapters)

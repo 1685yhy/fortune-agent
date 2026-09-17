@@ -187,7 +187,7 @@ Page({
   // ---- Share ----
   onShareAppMessage() {
     return {
-      title: '奇门遁甲 · 天机占卜',
+      title: '奇门遁甲 · 天机推演',
       path: '/pages/qimen/qimen',
     };
   },

@@ -1524,7 +1524,7 @@ _BAZI_GENERAL_KNOWLEDGE = [
             "火喜红色（红绳、南红玛瑙、石榴石），土喜黄色（黄水晶、蜜蜡、黄玉），"
             "金喜白色（金银饰品、白水晶），水喜黑色（黑曜石、海蓝宝、黑玛瑙）。"
             "身弱命局（日主力量不足）宜补印比——选择生扶日主的五行材质与颜色；"
-            "「财多身弱、反为财累」，财星过旺而日主弱时，不宜过早佩戴过强的招财物件。"
+            "「财多身弱、反为财累」，财星过旺而日主弱时，不宜过早佩戴过强的聚财物件。"
             "《滴天髓》讲「何知其人富，财气通门户」——身强能任财才是富的根基。"
             "稳妥做法是先固本培元：作息规律、饮食均衡、多接触喜用神方位的环境，"
             "饰品只是辅助。具体戴什么最合你，需结合你的八字喜用神精确判断。"
@@ -1972,7 +1972,7 @@ class MessageHandler:
         },
         "wealth": {
             "id": "wealth_year",
-            "prompt_template": "我想了解今年的财运，请根据我的八字分析：1)今年正财运和偏财运趋势 2)财运最佳的时间窗口 3)适合的投资和理财方向 4)需要注意的破财风险",
+            "prompt_template": "我想了解今年的财运，请根据我的八字分析：1)今年正财运和偏财运趋势 2)财运最佳的时间窗口 3)适合的投资和理财方向 4)需要注意的财务风险",
         },
         "health": {
             "id": "health_concern",
@@ -5986,7 +5986,7 @@ class MessageHandler:
             except Exception as e:
                 reply = f"⚠️ 服务暂时不可用：{str(e)[:100]}\n\n请稍后再试或换一种命理方式。"
         else:
-            reply = f"🔧 {analysis.intent} 模块暂未开放，试试：\n• 八字命理\n• 紫微斗数\n• 易经占卜\n• 风水分析"
+            reply = f"🔧 {analysis.intent} 模块暂未开放，试试：\n• 八字命理\n• 紫微斗数\n• 易经推演\n• 风水分析"
 
         # 方案 B·引擎结果注入（AI 原生统一）：有意图的问题也走 LLM 自主二次生成。
         # _handle_* 完成真实分析（注册了 engine/book 引用）时，把引擎结果注入
@@ -8922,7 +8922,7 @@ class MessageHandler:
 
     def _format_liuyao_chart(self, r: LiuyaoResult) -> str:
         """格式化六爻占卜结果为文本"""
-        lines = ["六爻占卜结果："]
+        lines = ["六爻推演结果："]
         lines.append(f"所问之事：{r.question or '一般运势'}")
         lines.append(f"本卦：{r.original_hexagram}")
         if r.changed_hexagram and r.changed_hexagram != r.original_hexagram:
@@ -9663,7 +9663,7 @@ class MessageHandler:
             pass
 
         self._emit_stream_event(stream_cb, "thinking", "推演五行互补…")
-        analysis = self.llm.analyze(chart_str, refs, f"分析这对男女的婚姻匹配度，给出3条化解建议")
+        analysis = self.llm.analyze(chart_str, refs, f"分析这对男女的婚姻匹配度，给出3条相处调和建议")
 
         return analysis.response
 
@@ -10616,7 +10616,7 @@ def _get_welcome_message() -> str:
 🔹 **紫微斗数** — 十二宫详解、流年大限
     试试：帮我排紫微斗数
 
-🔹 **易经占卜** — 具体事情问卦
+🔹 **易经推演** — 具体事情问卦
     试试：帮我算个卦 这次跳槽能成吗
 
 🔹 **风水分析** — 家居布局、坐向吉凶
@@ -10642,7 +10642,7 @@ def _get_welcome_message() -> str:
 我能帮您：
 • 八字命理 — 看命格、运势、事业、婚姻
 • 紫微斗数 — 十二宫详解
-• 易经占卜 — 具体事情问卦
+• 易经推演 — 具体事情问卦
 • 风水分析 — 家居布局指导
 • 择日 — 婚嫁、开业吉日
 • 面相手相 — 通过面相手相看运势性格

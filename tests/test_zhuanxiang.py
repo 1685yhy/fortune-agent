@@ -163,7 +163,10 @@ def test_lun_cai_shen_ruo_jiecai_duocai():
     assert "弱" in d["summary"]  # 日主身弱前提
     assert "劫财夺财" in d["summary"]
     geju_point = [p for p in d["points"] if p["title"] == "财运格局"][0]
-    assert "破财" in geju_point["text"]
+    # k52-3：风险措辞「防破财漏财」→「防财务损耗」（审核敏感词）；
+    # 断言仍须证明凶局风险文案在场（格局名 + 损耗提示）
+    assert "劫财" in geju_point["text"]
+    assert "损耗" in geju_point["text"]
 
 
 # ── 论事业锚点 ──────────────────────────────────────────────────
