@@ -428,7 +428,7 @@ class HehunEngine:
         if total_score >= 80:
             parts.append("天作之合！双方八字匹配度极高，五行互补，生肖和合，日柱相生，是天赐良缘。")
         elif total_score >= 65:
-            parts.append("上等婚配。双方八字较为匹配，互补性良好，虽有少许冲突但可通过沟通化解。")
+            parts.append("上等婚配。双方八字较为匹配，互补性良好，虽有少许冲突但可通过沟通调和。")
         elif total_score >= 50:
             parts.append("中等婚配。双方各有优劣，需要相互包容理解，在相处中培养默契。")
         elif total_score >= 35:
@@ -446,7 +446,7 @@ class HehunEngine:
             weaknesses.append(f"日柱{rizhu.get('ri_zhi_relation','不睦')}")
 
         if weaknesses:
-            parts.append(f"注意事项：{'；'.join(weaknesses)}。建议通过风水布局、命名调整等方式化解。")
+            parts.append(f"注意事项：{'；'.join(weaknesses)}。建议通过风水布局、命名调整等方式调和。")
 
         if total_score < 50:
             parts.append("建议咨询专业命理师做进一步详细分析。")

@@ -1220,7 +1220,7 @@ app.include_router(favorites_router)         # /api/favorites
 SCENARIO_INTENTS = {
     "bazi": ("bazi", "八字命理"),
     "ziwei": ("ziwei", "紫微斗数"),
-    "liuyao": ("liuyao", "六爻占卜"),
+    "liuyao": ("liuyao", "六爻推演"),
     "fengshui": ("fengshui", "风水堪舆"),
     "mianxiang": ("mianxiang", "面相手相"),
     "zeri": ("zeri", "择日吉时"),

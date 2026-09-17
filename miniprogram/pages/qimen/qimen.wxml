@@ -5,7 +5,7 @@
   <view class="header-section">
     <text class="header-icon">☯</text>
     <text class="header-title">奇门遁甲</text>
-    <text class="header-desc">天地人三才定位，排盘占卜吉凶祸福</text>
+    <text class="header-desc">天地人三才定位，排盘推演 · 格局解析</text>
   </view>
 
   <skeleton loading="{{skeletonLoading}}" type="card" lines="{{[80, 50, 90, 70]}}">
@@ -64,7 +64,7 @@
       <!-- Submit Button -->
       <view class="form-submit">
         <button class="btn btn-primary btn-submit" bindtap="onSubmit" disabled="{{loading}}">
-          <text wx:if="{{!loading}}">开始占卜</text>
+          <text wx:if="{{!loading}}">开始推演</text>
           <text wx:if="{{loading}}">排盘中...</text>
         </button>
       </view>
@@ -142,14 +142,14 @@
 
       <!-- Re-divinate Button -->
       <view class="form-submit" style="padding: 0 var(--space-md) var(--space-xl);">
-        <button class="btn btn-ghost btn-submit" bindtap="onReset">重新占卜</button>
+        <button class="btn btn-ghost btn-submit" bindtap="onReset">重新推演</button>
       </view>
     </view>
 
     <!-- === Empty State (no interaction yet) === -->
     <view class="empty-state" wx:if="{{!submitted && !loading && !result && !error}}">
       <image class="empty-state-icon" src="/assets/images/ic-scroll.png"></image>
-      <text class="empty-state-text">请填写信息开始奇门占卜</text>
+      <text class="empty-state-text">请填写信息开始奇门推演</text>
     </view>
 
     <!-- Bottom Space -->

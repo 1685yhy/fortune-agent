@@ -461,7 +461,7 @@ async def get_report_page(reading_id: str):
     # Share text for social media
     share_text = (
         f"我的2026运势报告来了！{report['insights'][0][:50]}..."
-        f" #易理明灯 #AI算命"
+        f" #易理明灯 #AI命理"
     )
 
     html = _build_report_html(report, share_text)

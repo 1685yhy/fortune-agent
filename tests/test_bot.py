@@ -490,7 +490,8 @@ def test_split_long_message_mixed_normal_and_overflow():
 def test_format_greeting_all_categories():
     """format_greeting 应包含全部9个分类"""
     greeting = format_greeting()
-    categories = ["八字", "紫微", "占卜", "风水", "择日", "面相",
+    # k52-2：分类名「易经占卜」→「易经推演」（审核敏感词），断言随之同步
+    categories = ["八字", "紫微", "推演", "风水", "择日", "面相",
                   "奇门", "姓名", "合婚", "解梦"]
     for cat in categories:
         assert cat in greeting, f"缺少分类: {cat}"
@@ -510,7 +511,8 @@ def test_help_message_all_categories():
     from src.bot.handler import _get_welcome_message
     assert not hasattr(MessageHandler, "_help_message")
     help_text = _get_welcome_message()
-    categories = ["八字", "紫微", "占卜", "风水", "择日", "面相",
+    # k52-2：同上（易经占卜 → 易经推演）
+    categories = ["八字", "紫微", "推演", "风水", "择日", "面相",
                   "奇门", "姓名", "合婚", "解梦"]
     for cat in categories:
         assert cat in help_text, f"缺少分类: {cat}"

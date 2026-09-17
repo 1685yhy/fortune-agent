@@ -268,7 +268,7 @@
     <view class="paywall-seal"><text>深</text></view>
     <text class="paywall-title">缘分之谜，未完待续</text>
     <text class="paywall-cliff" wx:if="{{cliffhanger}}">{{cliffhanger}}</text>
-    <text class="paywall-desc">解锁深度报告，看前世今生 / 相处模式 / 矛盾点与化解 / 契合详情 四章完整解读</text>
+    <text class="paywall-desc">解锁深度报告，看前世今生 / 相处模式 / 矛盾点与调和 / 契合详情 四章完整解读</text>
     <view class="paywall-price">¥19.9 <text class="paywall-price-sub">一次解锁 · 永久回看</text></view>
     <button class="hh-btn hh-btn-gold paywall-btn" bindtap="onUnlock" disabled="{{purchasing}}">解锁深度报告</button>
     <text class="paywall-close" hover-class="paywall-close-active" hover-stay-time="0" bindtap="onClosePaywall">暂不，再想想</text>

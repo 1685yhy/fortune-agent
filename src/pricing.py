@@ -32,6 +32,6 @@ NEW_USER_FREE_READINGS: int = 3
 
 # Anti-scam declaration
 TRUST_STATEMENT: str = (
-    "我们不做化灾改运，不卖转运符咒，不算命定生死。"
+    "我们不承诺扭转命数，不卖符咒器物，不代断言生死祸福。"
     "我们只做基于传统命理学的分析和建议。"
 )

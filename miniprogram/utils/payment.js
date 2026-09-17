@@ -21,6 +21,21 @@ function isDevDemo() {
   }
 }
 
+// ---- k52（r2 复核后）：全终端虚拟支付口径（2026-02-27《小程序虚拟支付业务管理规范》） ----
+// 政策事实（2026-09-17 控制方复核，多来源一致）：
+//   ① 微信小程序 iOS 端虚拟支付自 2025-11 起已支持（走 Apple IAP 结算、苹果抽成）；
+//   ② 自 2026-04-01 起虚拟支付**全终端强制接入**（iOS / Android / Windows / 鸿蒙），
+//      逾期按违规处理；
+//   ③ 规范**明令禁止**把用户「引导至 App、公众号、H5、个人号、网站等外部渠道」完成支付。
+// 因此本模块的红线是：
+//   ⚠ **不按平台屏蔽 iOS**（三端一律走 wx.requestVirtualPayment）；
+//   ⚠ **不把用户引导到任何外部渠道**完成支付（含公众号/客服/H5/个人号）；
+//   ⚠ 只有「当前客户端根本不支持该 API」这一真不可用场景，给**中性**提示
+//     （提示升级微信，可重试），且**不做任何外部引导、不静默改走其它支付通道**。
+// iOS 端能不能真正付款，取决于小程序后台是否开启「iOS 苹果支付」开关、是否开通
+// 虚拟支付专用商户号 —— 那是**用户侧后台配置**（清单见报告 r2 节），不是前端该拦的理由。
+// 另：已购/会员状态**读取**与支付入口无关，任何情况下都不受影响。
+
 // ---- 产品定价 ----
 const PRODUCTS = {
   // 单次购买
@@ -223,9 +238,12 @@ function backendErrorCode(e) {
  * @returns {Promise<{success: boolean, orderId?: string, fallback?: boolean, needRelogin?: boolean}>}
  */
 async function tryVirtualPay(productId) {
+  // k52：真不可用（基础库 <2.19.2 / 客户端未提供该 API）→ 中性提示，可重试；
+  // 不引导任何外部渠道，也不静默改走其它支付通道（虚拟商品必须走虚拟支付）
   if (!canUseVirtualPayment()) {
-    console.log('[Payment] 基础库不支持 requestVirtualPayment，降级 mock');
-    return { success: false, fallback: true };
+    console.log('[Payment] 当前客户端不支持 requestVirtualPayment');
+    wx.showToast({ title: '当前微信版本暂不支持，请升级微信后重试', icon: 'none' });
+    return { success: false, unsupported: true };
   }
 
   let orderRes;
@@ -233,6 +251,8 @@ async function tryVirtualPay(productId) {
     orderRes = await api.createVirtualOrder(productId);
   } catch (e) {
     if (backendErrorCode(e) === 'virtual_pay_not_enabled') {
+      // 唯一的回落场景：后端**确定性**地告知「虚拟支付未启用」（部署配置项，
+      // 开发/演示环境用 mock 通道；生产必须开启虚拟支付，见报告 r3 部署门禁）
       console.log('[Payment] 后端未启用虚拟支付，降级 mock');
       return { success: false, fallback: true };
     }
@@ -240,17 +260,25 @@ async function tryVirtualPay(productId) {
       wx.showToast({ title: '请重新登录后重试', icon: 'none' });
       return { success: false, needRelogin: true };
     }
+    // k52 r3：**瞬时失败不回落到其它支付通道**（网络抖动/5xx/未知错误）。
+    // 旧实现回落 mock → 白建一条 pending 订单 + 用占位参数调 wx.requestPayment（必失败）+ 多一条 toast。
+    // 现在只给一条中性提示，用户可直接重试；回落仅保留给「虚拟支付未启用」这一确定性部署信号。
     logWarn('Payment 虚拟支付建单失败', { errCode: backendErrorCode(e), errMsg: ((e && (e.errMsg || e.message)) || '') });
-    return { success: false, fallback: true };
+    wx.showToast({ title: '支付暂时不可用，请稍后再试', icon: 'none' });
+    return { success: false, retryable: true };
   }
 
   const { signData, paySig, signature, mode, outTradeNo } = orderRes || {};
   if (!signData || !paySig || !signature || !outTradeNo) {
     // 隐私：订单响应体（含 outTradeNo 等要素）不进日志，只列缺失字段名
-    logWarn('Payment 后端未返回完整三要素，降级 mock', { errMsg: 'missing: ' + [
+    // k52 r3：三要素缺失属**后端契约异常**（不是「未启用」）→ 同样不回落其它通道，
+    // 中性提示 + 可重试，避免用占位参数发起一笔必然失败、还会留下 pending 单的流程。
+    // 隐私：订单响应体（含 outTradeNo 等要素）不进日志，只列缺失字段名
+    logWarn('Payment 后端未返回完整三要素', { errMsg: 'missing: ' + [
       !signData && 'signData', !paySig && 'paySig', !signature && 'signature', !outTradeNo && 'outTradeNo',
     ].filter(Boolean).join(',') });
-    return { success: false, fallback: true };
+    wx.showToast({ title: '支付暂时不可用，请稍后再试', icon: 'none' });
+    return { success: false, retryable: true };
   }
 
   // 调起米大师支付
@@ -295,15 +323,16 @@ async function purchase(productId) {
     return { success: false };
   }
 
-  // 免费产品直接"购买"成功
+  // 免费产品直接"购买"成功（免费领取不涉及虚拟支付）
   if (product.price === 0) {
     return { success: true, orderId: 'free_' + Date.now() };
   }
 
-  // Step 1: 虚拟支付（米大师）——后端 .env 配置齐才启用
+  // Step 1: 虚拟支付（米大师）——三端一致（iOS/Android/Windows/鸿蒙）
   const virtual = await tryVirtualPay(productId);
   if (virtual.success) return virtual;
-  if (!virtual.fallback) return virtual; // 取消/失败/需重登：不再降级 mock
+  if (virtual.unsupported) return virtual; // 真不可用：中性提示已给，不降级其它通道（可重试）
+  if (!virtual.fallback) return virtual;   // 取消/失败/需重登：不再降级 mock
 
   // Step 2: 降级 mock 支付（后端 WECHAT_PAY_ENABLED=false）
   try {
@@ -343,9 +372,10 @@ async function subscribeMember(planId) {
     return { success: false };
   }
 
-  // Step 1: 虚拟支付（米大师）——会员开通（product_id = 套餐 id）
+  // Step 1: 虚拟支付（米大师）——会员开通（product_id = 套餐 id；三端一致）
   const virtual = await tryVirtualPay(planId);
   if (virtual.success) return virtual;
+  if (virtual.unsupported) return virtual; // 真不可用：中性提示已给（可重试）
   if (!virtual.fallback) return virtual;
 
   // Step 2: 降级 mock（后端 WECHAT_PAY_ENABLED=false）
@@ -380,4 +410,6 @@ module.exports = {
   subscribeMember,
   canUseVirtualPayment,
   isDevDemo,
+  // k52：虚拟支付主流程导出，便于测试覆盖「真不可用 → 中性提示」这条降级
+  tryVirtualPay,
 };

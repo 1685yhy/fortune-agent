@@ -475,7 +475,7 @@ class MianxiangEngine:
         elif normalized_score >= 4:
             verdict = "面相中等。虽有不足，但通过修身养性可改善运势。"
         else:
-            verdict = "面相有待改善。某些部位需要加强，建议多行善积德以改运。"
+            verdict = "面相有待改善。某些部位需要加强，建议多行善积德以养运。"
 
         parts.append(f"综合评分为{normalized_score}/10，{verdict}")
 

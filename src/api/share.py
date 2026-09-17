@@ -511,7 +511,7 @@ async def get_share_metadata(report_id: str, uid: str = Depends(require_user)):
         # 兼容旧字段（原 get_share_metadata 契约）
         "title": card["title"],
         "description": card["summary"],
-        "share_text": f"我的命书来了！{card['summary']}… #易理明灯 #AI算命",
+        "share_text": f"我的命书来了！{card['summary']}… #易理明灯 #AI命理",
         "wechat_text": f"{card['user_name']}：{card['summary']}",
         "user_name": card["user_name"],
         "day_master": card["day_master"],
@@ -578,7 +578,7 @@ async def get_share_redirect(reading_id: str):
 
     <!-- Standard meta -->
     <meta name="description" content="{description}">
-    <meta name="keywords" content="命运报告,AI算命,八字,运势,易理明灯">
+    <meta name="keywords" content="命运报告,AI命理,八字,运势,易理明灯">
 
     <style>
         body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0a0a0f; color: #e8e8ed;

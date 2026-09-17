@@ -50,9 +50,9 @@ def _pick_template(level: str, features: list, relation: str) -> str:
 
 
 def _pick_cliffhanger(features: list) -> str:
-    """悬念半句（免费档付费墙钩子）：负特征 → 化解钩子；否则默契钩子。"""
+    """悬念半句（免费档付费墙钩子）：负特征 → 调和钩子；否则默契钩子。"""
     if any(k in f for f in features for k in _NEGATIVE_MARK):
-        return "只是暗处尚有一克，需一份化解的智慧……"
+        return "只是暗处尚有一克，需一份调和的智慧……"
     return "还有一份暗藏的默契，等着你们亲手揭开……"
 
 

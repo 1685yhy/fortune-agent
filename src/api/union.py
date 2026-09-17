@@ -191,6 +191,6 @@ async def union_match(req: UnionRequest, uid: str = Depends(require_user)):
         "quote": quote["full"], "quoteParts": quote,
         "yuan_card": union["yuan_card"],
         "paywall": {"product": "deep_report", "price": 19.9,
-                    "message": "解锁深度合盘报告：前世今生 / 相处模式 / 矛盾点与化解 / 契合详情"},
+                    "message": "解锁深度合盘报告：前世今生 / 相处模式 / 矛盾点与调和 / 契合详情"},
         "transient": True,
     }
