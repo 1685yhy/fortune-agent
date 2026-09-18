@@ -1,0 +1,119 @@
+#!/usr/bin/env python3
+"""把 k55 清洗后的语料入库（既有 chunker + Retriever 链路）。
+
+落**独立向量库目录**（默认 /mnt/d/fortune-data/vectordb_k55），与生产库
+（vectordb_v2）物理隔离——红线：不碰生产。
+
+⚠️ 为什么必须独立目录（实测踩坑，2026-09-18）：
+`Retriever` 有「空集合自愈」逻辑（k28）：请求的集合不存在/为空时，**会自动
+改用权威库 fortune_books_v2**。所以「新建一个集合名去写」是危险的——一旦
+集合为空，写入会落到生产库上（本批实测触发过，好在 add_chunks 前已终止，
+生产库未受影响）。独立 persist 目录 + 显式跳过自愈检查，双保险。
+
+用法：
+    python scripts/k55_dream/index_corpus.py [--collection dreams_k55] [--limit 0]
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from scripts.k55_dream.crawl_lib import DATA_ROOT, now_iso, read_jsonl  # noqa: E402
+
+CORPUS = DATA_ROOT / "clean" / "dream_corpus.jsonl"
+REPORT = DATA_ROOT / "reports" / "index_stats.json"
+
+
+def log(msg: str) -> None:
+    print(f"{now_iso()} {msg}", flush=True)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="k55 解梦语料入库（独立集合）")
+    ap.add_argument("--collection", default="dreams_k55")
+    ap.add_argument("--vectordb", default="/mnt/d/fortune-data/vectordb_k55",
+                    help="k55 独立库（默认与生产库物理隔离）")
+    ap.add_argument("--batch", type=int, default=128)
+    ap.add_argument("--limit", type=int, default=0, help="0=全部（便于小样本试跑）")
+    args = ap.parse_args()
+
+    from src.config import load_settings
+    from src.rag.chunker import chunk_text
+    from src.rag.embedder import Embedder
+    from src.rag.retriever import Retriever
+
+    settings = load_settings()
+    prod_dir = str(settings.vectordb_dir)
+    vectordb = args.vectordb
+    if Path(vectordb).resolve() == Path(prod_dir).resolve():
+        raise SystemExit("拒绝在生产向量库目录上跑 k55 入库（红线：不碰生产）")
+    Path(vectordb).mkdir(parents=True, exist_ok=True)
+
+    embedder = Embedder(model_name="BAAI/bge-m3")
+    embedder.load()
+    retriever = Retriever(vectordb, embedder, collection_name=args.collection)
+    # 显式跳过「空集合自愈」：本集合是本批专用库，新建时必然为空，
+    # 自愈会把它改写成生产集合 fortune_books_v2（那就写到生产上了）。
+    retriever._collection_checked = True  # noqa: SLF001（脚本侧显式绕过，见模块注释）
+
+    count_before = retriever.count()
+    if retriever.collection_name != args.collection:
+        raise SystemExit(f"集合自愈到 {retriever.collection_name}，已中止（绝不写生产）")
+    log(f"[index] 集合 {args.collection} 现有 {count_before} 条")
+
+    records = list(read_jsonl(CORPUS))
+    if args.limit:
+        records = records[:args.limit]
+    log(f"[index] 待入库语料 {len(records)} 条（{CORPUS.name}）")
+
+    existing_ids = set(retriever.collection.get()["ids"])
+    log(f"[index] 集合内已有 {len(existing_ids)} 个 chunk")
+
+    chunks, new_count = [], 0
+    for i, r in enumerate(records):
+        text = f"{r['title']}：{r['content']}"
+        # 公版古籍标「书名+卷次」，第三方标来源站（引用可溯源，产品既有口径）
+        if r.get("corpus_class") == "public_domain":
+            author = (r.get("book") or "古籍") + (f"·{r['volume']}" if r.get("volume") else "")
+            category = "dream_classic"
+        else:
+            author = r.get("source") or "解梦语料"
+            category = "dream"
+        cs = chunk_text(text=text, source=r.get("source") or "k55", author=author,
+                        category=category, chunk_size=500, overlap=50)
+        for ci, c in enumerate(cs):
+            h = hashlib.md5(f"{r['title']}|{r.get('content','')[:40]}".encode()).hexdigest()[:10]
+            c.chunk_id = f"k55_{h}_{i:06d}_{ci:02d}"
+            c.source = f"{r.get('source') or 'k55'}｜{r.get('book') or ''}".rstrip("｜")
+            if c.chunk_id not in existing_ids:
+                chunks.append(c)
+
+    log(f"[index] 生成 {len(chunks)} 个新 chunk（跳过已存在）")
+    t0 = time.time()
+    for i in range(0, len(chunks), args.batch):
+        batch = chunks[i:i + args.batch]
+        retriever.add_chunks(batch, batch_size=args.batch)
+        new_count += len(batch)
+        log(f"[index] {new_count}/{len(chunks)}（{time.time()-t0:.0f}s）")
+
+    count_after = retriever.count()
+    stats = {
+        "generated_at": now_iso(), "collection": args.collection,
+        "vectordb": vectordb, "records": len(records),
+        "chunks_added": new_count, "count_before": count_before,
+        "count_after": count_after, "elapsed_s": round(time.time() - t0, 1),
+    }
+    REPORT.parent.mkdir(parents=True, exist_ok=True)
+    REPORT.write_text(json.dumps(stats, ensure_ascii=False, indent=2), encoding="utf-8")
+    log(f"[index] 完成：{count_before} → {count_after}（+{count_after-count_before}）")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
