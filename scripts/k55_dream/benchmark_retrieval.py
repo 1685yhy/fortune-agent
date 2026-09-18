@@ -163,7 +163,9 @@ def run_config(name: str, engine, retriever, queries: list, use_patterns: bool) 
 def main() -> int:
     ap = argparse.ArgumentParser(description="解梦检索命中率对比（改前/改后）")
     ap.add_argument("--n", type=int, default=20)
-    ap.add_argument("--vectordb", default=None)
+    ap.add_argument("--vectordb", default=None, help="生产库目录（默认取 settings）")
+    ap.add_argument("--k55-vectordb", default="/mnt/d/fortune-data/vectordb_k55",
+                    help="k55 独立库目录（与生产库物理隔离）")
     args = ap.parse_args()
 
     queries = build_queries(args.n)
@@ -182,7 +184,7 @@ def main() -> int:
     prod = Retriever(vectordb, embedder, collection_name=PROD_COLLECTION)
     log(f"[bench] 生产集合 {PROD_COLLECTION}: {prod.count()} 条")
     try:
-        k55 = Retriever(vectordb, embedder, collection_name=K55_COLLECTION)
+        k55 = Retriever(args.k55_vectordb, embedder, collection_name=K55_COLLECTION)
         n_k55 = k55.count()
     except Exception as e:
         log(f"[bench] k55 集合不可用（{e}）→ 只跑改前档")

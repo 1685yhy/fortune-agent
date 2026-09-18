@@ -115,7 +115,12 @@ def load_stats() -> tuple:
 
 
 def load_site_categories() -> dict:
-    """站点自有分类 → {元素: 类型}（数据来源：competitor_data 的 category 字段）。"""
+    """站点自有分类 → {元素: 类型}。
+
+    数据来源（都是站点自己的分类，不是我们编的）：
+    1. data/competitor_data/*.jsonl 的 `category` 字段（query → 分类）；
+    2. k55 新抓的好梦网详情记录里的 `category`（页面所属栏目目录）。
+    """
     out: dict = {}
     for p in sorted((Path(__file__).resolve().parents[2] / "data" / "competitor_data").glob("*.jsonl")):
         try:
@@ -128,11 +133,24 @@ def load_site_categories() -> dict:
                 if not cat or cat not in SITE_CAT_TO_TYPE:
                     continue
                 el = normalize_core(q)
-                if not el:
-                    continue
-                out.setdefault(el[:6], SITE_CAT_TO_TYPE[cat])
+                if el:
+                    out.setdefault(el[:6], SITE_CAT_TO_TYPE[cat])
         except Exception:
             continue
+    # k55 抓取产物（好梦网栏目分类）
+    hmw = DATA_ROOT / "raw" / "haomengwang_detail.jsonl"
+    if hmw.exists():
+        for line in hmw.open(encoding="utf-8"):
+            try:
+                d = json.loads(line)
+            except Exception:
+                continue
+            cat = d.get("category")
+            if not cat or cat not in SITE_CAT_TO_TYPE:
+                continue
+            el = normalize_core(d.get("title") or "")
+            if el:
+                out.setdefault(el[:6], SITE_CAT_TO_TYPE[cat])
     return out
 
 

@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """把 k55 清洗后的语料入库（既有 chunker + Retriever 链路）。
 
-落**独立集合**（默认 `dreams_k55`），不动生产集合（红线：不碰生产）。
-检索对比时由 benchmark_retrieval.py 做「生产集合 ∪ k55 集合」的联合检索，
-这样「改前/改后」可精确区分，且随时可回退（删集合即可）。
+落**独立向量库目录**（默认 /mnt/d/fortune-data/vectordb_k55），与生产库
+（vectordb_v2）物理隔离——红线：不碰生产。
+
+⚠️ 为什么必须独立目录（实测踩坑，2026-09-18）：
+`Retriever` 有「空集合自愈」逻辑（k28）：请求的集合不存在/为空时，**会自动
+改用权威库 fortune_books_v2**。所以「新建一个集合名去写」是危险的——一旦
+集合为空，写入会落到生产库上（本批实测触发过，好在 add_chunks 前已终止，
+生产库未受影响）。独立 persist 目录 + 显式跳过自愈检查，双保险。
 
 用法：
     python scripts/k55_dream/index_corpus.py [--collection dreams_k55] [--limit 0]
@@ -32,7 +37,8 @@ def log(msg: str) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description="k55 解梦语料入库（独立集合）")
     ap.add_argument("--collection", default="dreams_k55")
-    ap.add_argument("--vectordb", default=None)
+    ap.add_argument("--vectordb", default="/mnt/d/fortune-data/vectordb_k55",
+                    help="k55 独立库（默认与生产库物理隔离）")
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--limit", type=int, default=0, help="0=全部（便于小样本试跑）")
     args = ap.parse_args()
@@ -43,12 +49,22 @@ def main() -> int:
     from src.rag.retriever import Retriever
 
     settings = load_settings()
-    vectordb = args.vectordb or str(settings.vectordb_dir)
+    prod_dir = str(settings.vectordb_dir)
+    vectordb = args.vectordb
+    if Path(vectordb).resolve() == Path(prod_dir).resolve():
+        raise SystemExit("拒绝在生产向量库目录上跑 k55 入库（红线：不碰生产）")
+    Path(vectordb).mkdir(parents=True, exist_ok=True)
+
     embedder = Embedder(model_name="BAAI/bge-m3")
     embedder.load()
     retriever = Retriever(vectordb, embedder, collection_name=args.collection)
+    # 显式跳过「空集合自愈」：本集合是本批专用库，新建时必然为空，
+    # 自愈会把它改写成生产集合 fortune_books_v2（那就写到生产上了）。
+    retriever._collection_checked = True  # noqa: SLF001（脚本侧显式绕过，见模块注释）
 
     count_before = retriever.count()
+    if retriever.collection_name != args.collection:
+        raise SystemExit(f"集合自愈到 {retriever.collection_name}，已中止（绝不写生产）")
     log(f"[index] 集合 {args.collection} 现有 {count_before} 条")
 
     records = list(read_jsonl(CORPUS))
