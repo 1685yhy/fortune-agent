@@ -52,7 +52,24 @@ def clean_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def no_experience_mode(monkeypatch):
+    """本文件所有用例都在「体验模式关闭」的前提下测（要开体验模式的用例自行显式开启）。
+
+    k54 r3 修夹具隔离（**不改任何断言**）：本文件此前只 patch 了 `chat_quota` 里的
+    符号，**漏了 `src.bot.handler` 里已导入的同名符号**——而 `is_experience_mode()`
+    是按 `os.getenv("EXPERIENCE_MODE")` **调用时**求值的，于是主检出
+    （`.env` 软链 → 生产 .env，`EXPERIENCE_MODE=true`）里跑 pytest 时体验模式会
+    泄漏进整个进程：`TestEngineQuotaExemption` 测的就不是它想测的东西。
+
+    修法（两层，语义等价于「让体验模式真的关掉」，与仓库既有惯例一致
+    ——见 test_k11b / test_k15 / test_k37 / test_member_quota_limit 的同类 fixture）：
+      ① 删掉泄漏源：把 `EXPERIENCE_MODE` 移出进程环境（根因修复，对所有消费模块生效）；
+      ② 把 handler 里已导入的符号一并 patch（不依赖「开关只由 env 驱动」这一实现细节）。
+    只影响本文件的用例作用域，用例内可再显式开回来（`monkeypatch` 后设者胜）。
+    """
+    from src.bot import handler as handler_mod  # 延迟导入：不在收集期拉起重依赖
+    monkeypatch.delenv("EXPERIENCE_MODE", raising=False)
     monkeypatch.setattr(cq, "is_experience_mode", lambda: False)
+    monkeypatch.setattr(handler_mod, "is_experience_mode", lambda: False)
     yield
 
 
