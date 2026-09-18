@@ -1427,7 +1427,19 @@ _SELF_SUBJECT_RE = re.compile(r'(?:^|[^他她其])?(?:我|俺|咱|咱们|本人|
 # 他人（`我和我老婆都是` 剥掉"是/都"后末尾是"我老婆"，前一字恰为"我"，满足尾锚
 # 的 `[我你他她]的?` 前缀）→ 用户自己的出生信息**整条丢掉**（审查 R3-1 Critical）。
 # 判据：连词**左侧**含自述代词 → 主语含本人 → self（采纳）。
-_COORD_RE = re.compile(r'和|跟|与|、|及')
+_COORD_RE = re.compile(r'和|跟|与|及')
+# k56-r4：`跟` 作**动词**（跟…说/讲/聊/提/道）不是并列连词——`我跟你说我老公是
+# 1999年5月20日生的` 里主语只有"我老公"，日期是**对方的**（r2 已正确不取，
+# r3 的连词判据把它误判成并列含本人 → 又把对方生日当本人，回退）。
+# 判据：连词右侧紧跟（可带 你/您/他/她/我 + 过/了）说/讲/聊/提/道 → 动词用法，跳过。
+_CONJ_VERB_TAIL_RE = re.compile(r'^(?:你|您|他|她|我)?(?:过|了)?(?:说|讲|聊|提|道)')
+
+
+def _is_conjunction_at(seg: str, m) -> bool:
+    """该连词命中是不是**并列连词**（`跟` 后接言说动词 → 动词用法，不算）。"""
+    if m.group(0) == '跟' and _CONJ_VERB_TAIL_RE.match(seg[m.end():]):
+        return False
+    return True
 
 
 def _subject_owner(msg: str, pos: int, end: int) -> str:
@@ -1435,22 +1447,40 @@ def _subject_owner(msg: str, pos: int, end: int) -> str:
 
     与 k50-r4 的第三方判据**同一套机器**（`person_dao._clause_span` +
     `_TP_SUBJECT_FILLER_RE` + `_tp_subject_tail_re()`）：主语段末尾是第三方指代
-    （`我老公`/`他`/`朋友`）→ `other`；是自述代词（`我`/`咱`/`本人`）→ `self`；
-    无主语线索 → `unknown`（**按本人处理**，保持"未指明即本人"的既有口径）。
+    （`我老公`/`他`/`朋友`）→ `other`；主语段含**本人**（自述代词，含并列/列表里
+    的任一项）→ `self`；无主语线索 → `unknown`（**按本人处理**，既有的"未指明即
+    本人"口径）。
+
+    并联/列表判据（k56-r3 + r4）：`、` 与 和/跟/与/及 都是并列分隔——**整段列表
+    里任一项**是自述代词即含本人（`我、我老婆、我儿子都是…` 三项列表、`我老婆、
+    我和我女儿都是…`「我」不在首位，都算）；只查"紧邻前一段"会在 ≥3 项列表上漏
+    （r3 的洞）。`跟` 作言说动词时不算连词（见 `_is_conjunction_at`）。
     """
     from src.storage.person_dao import _clause_span
     a, _b = _clause_span(msg, pos, end)
-    _head = _TP_SUBJECT_FILLER_RE.sub('', msg[a:pos])
-    # k56-r3：并列主语含本人（`我和我老婆都是…`）→ self
-    _c = _COORD_RE.search(_head)
-    if _c and _SELF_SUBJECT_RE.search(_head[:_c.start()]):
-        return ATT_SELF
-    if a > 0 and msg[a - 1] == '、':
-        # `我、我老婆都是1990年生的`：`、` 是 `_clause_span` 的断句符，但本层要按
-        # **并列连词**看待——前一节的末尾若是自述代词 → 主语是并列（我、我老婆）→ self
-        _pa, _pb = _clause_span(msg, max(0, a - 2), max(0, a - 2))
-        if _SELF_SUBJECT_RE.search(_TP_SUBJECT_FILLER_RE.sub('', msg[_pa:_pb])):
+    # k56-r4：`、` 是 `_clause_span` 的断句符，但本层按**并列分隔**看待——向左跨过
+    # 连续的 `、` 段，取到**整段主语列表**（≥3 项列表 `我、我老婆、我儿子都是…`
+    # 只查紧邻前一段会在第 3 项上漏＝r3 的洞）。
+    _guard = 0
+    while a > 0 and msg[a - 1] == '、':
+        _na, _pb = _clause_span(msg, max(0, a - 2), max(0, a - 2))
+        if _na >= a or _guard > 20:
+            break
+        a, _guard = _na, _guard + 1
+    _seg = msg[a:pos]
+    # ① `、` 列表：把整段按 `、` 切开，任一项以自述代词结尾 → 含本人 → self
+    if '、' in _seg:
+        _parts = [_TP_SUBJECT_FILLER_RE.sub('', _p) for _p in _seg.split('、')]
+        if any(_SELF_SUBJECT_RE.search(_p) for _p in _parts):
             return ATT_SELF
+    # ② 连词（和/跟/与/及）左侧含自述代词 → 含本人 → self（`跟` 动词用法跳过）
+    for _m in _COORD_RE.finditer(_seg):
+        if not _is_conjunction_at(_seg, _m):
+            continue
+        if _SELF_SUBJECT_RE.search(
+                _TP_SUBJECT_FILLER_RE.sub('', _seg[:_m.start()])):
+            return ATT_SELF
+    _head = _TP_SUBJECT_FILLER_RE.sub('', _seg)
     if _tp_subject_tail_re().search(_head):
         return ATT_OTHER
     if _SELF_SUBJECT_RE.search(_head):

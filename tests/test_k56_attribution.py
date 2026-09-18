@@ -26,7 +26,7 @@ import pytest  # noqa: E402
 
 from src.bot.handler import (  # noqa: E402
     ATT_OTHER, ATT_SELF, ATT_UNKNOWN, MessageHandler, _cand_owner,
-    _first_by_position, _subject_owner, _year_of_match,
+    _first_by_position, _is_conjunction_at, _subject_owner, _year_of_match,
 )
 
 
@@ -281,3 +281,77 @@ class TestCoordinatedSubject:
         msg = "他和我老婆都是1990年生的"
         m = re.search(r'\d{4}\s*年', msg)
         assert _subject_owner(msg, m.start(), m.end()) != ATT_SELF, msg
+
+
+# ════════════════════════════════════════════════════════════════
+# ⑤ R4-1：`、` 列表（≥3 项）仍含本人 / R4-2：`跟` 作动词不算并列
+# ════════════════════════════════════════════════════════════════
+LIST_FAMILY = [
+    # ≥3 项 `、` 列表（r3 的洞：只查紧邻前一段 → 第 3 项起漏）
+    ("我、我老婆、我儿子都是1990年生的", 1990),
+    ("我、我老公、我女儿都是1990年生的", 1990),
+    ("我、我老婆、我儿子都是1995年3月8日生的", 1995),
+    ("我、我老婆、我妈妈都是1990年生的", 1990),
+    ("我、我老婆、我儿子、我女儿都是1990年生的", 1990),
+    # 分隔符混用 / "我"不在首位
+    ("我、我老婆和我儿子都是1990年生的", 1990),
+    ("我和我老婆、我儿子都是1990年生的", 1990),
+    ("我、我老婆还有我儿子都是1990年生的", 1990),
+    ("我老婆、我和我女儿都是1990年生的", 1990),
+    ("我老婆、我儿子、我都是1990年生的", 1990),
+    # 连词覆盖
+    ("我与我老婆都是1990年生的", 1990),
+    ("我及我老婆都是1990年生的", 1990),
+    # 集体/配偶主语
+    ("我俩都是1990年生的", 1990),
+    ("我们俩都是1990年生的", 1990),
+    ("咱们都是1990年生的", 1990),
+    ("我和她都是1990年生的", 1990),
+]
+VERB_CONJ_NOT_ADOPTED = [
+    # R4-2：`跟` 作言说动词 → 主语只有"我老公"（对方）→ 不得采纳
+    "我跟你说我老公是1999年5月20日生的",
+    "我跟你说我儿子是2021年3月8日生的",
+    "我跟你说过我老公1999年生的",
+    "我跟她说过我老公是1999年5月20日生的",
+    "我跟你说，我老公1999年生的",
+]
+CONJ_NEGATIVE = [
+    "他和我老婆都是1990年生的",     # 不含本人 → 不取
+    "他跟我老婆都是1990年生的",
+]
+
+
+class TestListAndConjunctionSpace:
+    """R4-1/R4-2/R4-3：并列**列表**（`、` 也是并列分隔）与连词歧义的语法空间。"""
+
+    @pytest.mark.parametrize("msg,year", LIST_FAMILY)
+    def test_list_includes_self(self, msg, year):
+        got = _p(msg)
+        assert got.get("year") == year, (msg, got)
+
+    def test_list_month_day(self):
+        assert _md("我、我老婆、我儿子都是1995年3月8日生的") == (3, 8)
+
+    @pytest.mark.parametrize("msg", VERB_CONJ_NOT_ADOPTED)
+    def test_verb_conjunction_not_coordination(self, msg):
+        """`跟` 后接说/讲/聊/提/道 → 言说动词，不是连词（R4-2，与 r2 同值）。"""
+        assert _p(msg).get("year") is None, (msg, _p(msg))
+
+    @pytest.mark.parametrize("msg", CONJ_NEGATIVE)
+    def test_conjunction_without_self(self, msg):
+        """负例：连词两侧都无自述代词 → 不含本人 → 不取。"""
+        assert _p(msg).get("year") is None, (msg, _p(msg))
+
+    def test_self_on_right_side_of_conjunction(self):
+        """`我老婆和我都是…`：自述代词在连词**右侧**也算含本人。"""
+        assert _p("我老婆和我都是1990年生的").get("year") == 1990
+        assert _p("我老公和我都是1990年生的").get("year") == 1990
+
+    def test_conjunction_verb_helper_direct(self):
+        """结构直证：`跟` 动词用法 vs 连词用法。"""
+        import re
+        for msg, want in [("我跟你说我老公1999年生的", False),
+                          ("我跟我老婆都是1990年生的", True)]:
+            m = re.search(r'跟', msg)
+            assert _is_conjunction_at(msg, m) is want, msg
