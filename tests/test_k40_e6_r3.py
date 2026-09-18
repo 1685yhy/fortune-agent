@@ -176,16 +176,25 @@ def test_t041_third_party_birth_side_guard_precondition():
     守卫与提取层同源但**独立生效**（守卫不限场景、且不经口语词路径），
     本用例三层证明：
     ① parsed 直排路径（`_extract_bazi_info` 的裸子串性别规则，主语无关）
-       ——「我朋友1990年5月20日出生的女生」该函数仍返回 女，只有守卫能
-       拦住它触发 force_gender/档案覆写（见 `_handle_bazi` 的守卫接线）；
+       —— k56 归属层把**对方的完整生辰**挡在采纳面外（`我朋友1990年5月20日
+       出生的女生` 现在返回 None，改前返回 女 = 当时的真实泄漏）；
+       ①b「本人出生信息 + **第三人**性别词」形态该函数**仍**返回 女（裸子串
+       规则主语无关）→ 守卫仍是**独立且非空洞**的一道闸，只有它能拦住
+       force_gender/档案覆写（见 `_handle_bazi` 的守卫接线）；
     ② 口语词路径：守卫与提取层双闸都关（改前此处两闸皆漏）；
     ③ 反向（不该走）：本人自述 + 本人出生信息 → 守卫 False。
     """
     h = object.__new__(MessageHandler)
-    # ① 守卫独立生效：parsed 提取器仍取到 女（主语无关的裸子串规则）
+    # ① k56 归属层后：**对方的完整生辰不再被当本人信息提取**（提取器返回 None）
     parsed_msg = "我朋友1990年5月20日出生的女生，帮我看看"
-    assert h._extract_bazi_info(parsed_msg)[6] == "女"
+    assert h._extract_bazi_info(parsed_msg) is None
     assert h._gender_ref_is_third_party(None, parsed_msg) is True
+    # ①b **守卫非空洞**（k56 复审要求）：本人出生信息 + 第三人性别词 →
+    #    提取器**仍**按主语无关的裸子串规则给出 女（真实泄漏；本人出生信息
+    #    属本人 → 归属层不拦），且**只有守卫**能拦住它 → 守卫断言有真实夹具。
+    leak_msg = "我1990年5月20日生的，我朋友是女生"
+    assert h._extract_bazi_info(leak_msg)[6] == "女"
+    assert h._gender_ref_is_third_party(None, leak_msg) is True
     # ② 口语词路径：守卫与提取层双闸都关（改前此处两闸皆漏）
     msg = "我和对方1992年10月1日 上海出生的女生合不合"
     assert (h._extract_partial_birth(msg) or {}).get("gender") is None
