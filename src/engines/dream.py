@@ -17,6 +17,10 @@ import re
 
 from src.book_categories import ref_text
 
+# k55 r4：输出边界净化（与 k52 合规扫描咬合）。
+# 规则表/语料**保持逐字原文**，只在「送进 prompt / 呈现给用户」的文本上做中性化。
+from src.engines.dream_sanitize import neutralize
+
 # k55：语料统计生成的新规则层（模式条数见 dream_rules.RULE_COUNT，当前 263 条
 # + HVDC 常模 + 现实投影口径）。
 # 生成脚本 scripts/k55_dream/build_rules.py；模块缺失时退化为「无规则层」，
@@ -441,6 +445,18 @@ class DreamEngine:
         if pattern_hits or element_hits:
             reality_projection = self._reality_projection_text()
 
+        # r4：呈现层净化（存储层原文不动）。放在构造 DreamResult 时统一做，
+        # 保证「进 prompt」与「handler 直接展示」两条路都干净。
+        elements = [neutralize(x) for x in elements]
+        emotions = [neutralize(x) for x in emotions]
+        dream_type = neutralize(dream_type)
+        element_notes = [neutralize(x) for x in element_notes]
+        symbols = [neutralize(x) for x in symbols]
+        tones = [neutralize(x) for x in tones]
+        rule_notes = [neutralize(x) for x in rule_notes]
+        luck_reason = neutralize(luck_reason)
+        reality_projection = neutralize(reality_projection)
+
         return DreamResult(
             original_text=dream_text,
             dream_type=dream_type,
@@ -451,7 +467,7 @@ class DreamEngine:
             # 必须走 book_categories.ref_text 契约 —— 命中空 title 语料
             # （237 条 `": 正文"` 形态，解梦检索不设 category、降级回落 27k
             # 集合）时由契约剥掉行首悬空冒号，绝不在各消费点复制剥离逻辑。
-            interpretations=[ref_text(r) for r in all_results[:15]],
+            interpretations=[neutralize(ref_text(r)) for r in all_results[:15]],
             source="、".join(sources) if sources else "",
             symbols=symbols,
             emotions=emotions,
@@ -732,7 +748,7 @@ def format_dream_prompt(
             "3. 两层之间要明确区分（例如用「传统上认为…」「而从现实看…」），"
             "不能把传统寓意说成必然会发生的事；\n"
             "4. 结尾给一条可执行的现实建议（调整作息、处理某个待办、和某人沟通等），"
-            "不要给「化解灾难」类的迷信操作。")
+            "也不要给出任何迷信操作类的做法。")
 
     # 古籍参考
     interpretations = getattr(dream_result, "interpretations", None) or []
@@ -766,4 +782,5 @@ def format_dream_prompt(
 禁止使用任何 emoji 表情符号（不用表情图标、不用颜文字），
 只用文字与中文标点表达语气。""")
 
-    return "\n".join(parts)
+    # r4 收口：整份 prompt 再净化一次（幂等），兜住模板与拼接文本的漏网
+    return neutralize("\n".join(parts))
