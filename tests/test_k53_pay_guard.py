@@ -68,6 +68,8 @@ SESSION_KEY = "test-session-key-0123456789"
 # 守卫门禁涉及的 env（每个测试前一律清空 → 测试之间零串味、与开发机 shell 无关）
 _GUARD_ENVS = ("PAY_REQUIRE_REAL", "APP_ENV", "FORTUNE_ENV", "EXPERIENCE_MODE")
 _PAY_ENVS = ("WECHAT_PAY_ENABLED", "MIDAS_OFFER_ID", "MIDAS_APP_KEY", "MIDAS_ENV")
+# k54 起 ④b 组涉及超管白名单（判定必须由用例显式声明，否则 = 零超管 → 全拒）
+_ADMIN_ENVS = ("ADMIN_IDS", "ADMIN_KEY")
 
 
 # ───────────────────────── fixtures ─────────────────────────
@@ -95,9 +97,18 @@ def member_dao(db_path):
 
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch):
-    """清空守卫/支付相关 env：默认 = 非生产 + 未配置（判定必须显式声明）。"""
-    for name in _GUARD_ENVS + _PAY_ENVS:
+    """清空守卫/支付/超管相关 env：默认 = 非生产 + 未配置 + 零超管（判定必须显式声明）。"""
+    for name in _GUARD_ENVS + _PAY_ENVS + _ADMIN_ENVS:
         monkeypatch.delenv(name, raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
+def isolate_admin_audit(monkeypatch, tmp_path):
+    """k54 起 ④b 组会命中超管门 → 写既有审计通道：重定向到 tmp，绝不污染仓库日志。"""
+    from src.security import auth as auth_mod
+    monkeypatch.setenv("AUDIT_LOG_PATH", str(tmp_path / "audit.log"))
+    monkeypatch.setattr(auth_mod, "_ADMIN_AUDIT_LOGGER", None, raising=False)
     yield
 
 
@@ -481,58 +492,144 @@ class TestNonProductionUnchanged:
         assert _count(db_path, "payments") == 1  # 只有 1 单（503 那次没有落单）
 
 
-# ───────── ④b 同类一并修：遗留「模拟支付」自助升级端点（brief 三个端点之外） ─────────
+# ───────── ④b 遗留「模拟支付」自助升级端点（k53 建门 → k54 收口为超管专属） ─────────
 # POST /api/membership/{user_id}/upgrade（src/main.py）只有「模拟支付 + 自动确认」一条
-# 路径：任何登录用户对**自己**调用即可免费拿到付费会员（生产同样成立，门槛比 mock
-# 支付端点更低）。前端不调用该端点（已 grep 确认），仅 scripts/test_auth.py 在本地
-# dev 环境用于验 owner 校验。k53 按同一 fail-closed 口径在生产拒绝；非生产逐字不变。
+# 路径：k53 时点任何登录用户对**自己**调用即可免费拿到付费会员（生产同样成立，门槛
+# 比 mock 支付端点更低）。前端不调用该端点（已 grep 确认），仅 scripts/test_auth.py
+# 在本地 dev 环境用于验 owner 校验。
+#
+# ⚠ 口径变更（控制方 2026-09-18 裁决，随 k54 合入生效；**同日取代** k53 §3.5 的
+#   test_production_refuses_paid_upgrade / test_production_refuses_even_when_real_pay_
+#   configured / test_non_production_demo_path_unchanged / test_production_free_reset_
+#   still_allowed 四条断言——不是放宽历史断言，而是同一天被 k54 收口取代）：
+#     非超管：无论生产 / 非生产、无论 plan（**含 free**）→ **403 + 零副作用**
+#     超管  ：非生产 → 演示路径照常（付费档 + free 降级均可用）；
+#             生产   → 付费档 503 `pay_unavailable`（k53 门）；free 降级不放行权益
+#                      → 不在 k53 门内（仍放行）
+#   理由：本端点是「开发 / 运维自测口」，真实用户链路是 `/api/pay/*`；把它的可用性
+#   收敛到 `ADMIN_IDS`（k36 单一事实源）是 fail-closed 的正确方向（详见
+#   .superpowers/sdd/task-k54-report.md §2 / §6 / §r2）。
+#   覆盖面不缩水：生产 / 非生产 × 超管 / 非超管 × 付费档 / free 四个象限两侧都有断言。
+
+ADMIN_USER = "k54_su_user"
+PLAIN_USER = "k54_plain_user"
+
 
 class TestLegacySimulateUpgradeEndpoint:
+    """k54 起本端点 = 超管专属改档口：非超管 403（零副作用），超管再受 k53 生产门约束。"""
+
+    @staticmethod
+    def _request(user: str):
+        """最小 ASGI Request 桩（承载 Authorization 头）——k54 给端点加了 `request` 形参。"""
+        from starlette.requests import Request
+        tok = JWTHandler(os.environ["JWT_SECRET_KEY"]).create_token(user)
+        return Request({
+            "type": "http", "scheme": "http", "method": "POST",
+            "path": f"/api/membership/{user}/upgrade",
+            "root_path": "", "query_string": b"",
+            "headers": [(b"authorization", f"Bearer {tok}".encode())],
+            "server": ("testserver", 80), "client": ("testclient", 50000),
+        })
+
     def _call(self, member_dao, monkeypatch, user: str, plan: str):
-        """直调端点协程（不启 lifespan，避免拉起全应用）。"""
+        """直调端点协程（不启 lifespan，避免拉起全应用）。
+
+        k54 起端点签名多了 `request: Request`（超管判据读 Authorization 头）→ 传桩。
+        """
         import asyncio
         import src.main as main_mod
         monkeypatch.setattr(main_mod, "member_dao", member_dao)
-        return asyncio.run(main_mod.upgrade_membership(user_id=user, plan=plan, uid=user))
+        return asyncio.run(main_mod.upgrade_membership(
+            request=self._request(user), user_id=user, plan=plan, uid=user))
 
-    def test_production_refuses_paid_upgrade(self, member_dao, db_path, monkeypatch):
+    @staticmethod
+    def _arm_admin(monkeypatch, user: str):
+        monkeypatch.setenv("ADMIN_IDS", user)
+
+    # ── 超管 × 生产：k53 门生效（付费档 503）──
+    def test_admin_production_refuses_paid_upgrade(self, member_dao, db_path, monkeypatch):
         from fastapi import HTTPException
         _arm_production(monkeypatch)
         _mock_only(monkeypatch)
+        self._arm_admin(monkeypatch, ADMIN_USER)
         with pytest.raises(HTTPException) as ei:
-            self._call(member_dao, monkeypatch, "g1", "basic")
+            self._call(member_dao, monkeypatch, ADMIN_USER, "basic")
         assert ei.value.status_code == 503
         assert ei.value.detail["code"] == "pay_unavailable"
         # 零副作用：不开会员、不下订单
-        assert member_dao.get_membership("g1")["plan"] == "free"
+        assert member_dao.get_membership(ADMIN_USER)["plan"] == "free"
         assert _count(db_path, "payments") == 0
 
-    def test_production_refuses_even_when_real_pay_configured(self, member_dao, monkeypatch):
+    def test_admin_production_refuses_even_when_real_pay_configured(self, member_dao, monkeypatch):
         """该端点没有真实支付通道：生产即使支付已配置也不得自助发放权益。"""
         from fastapi import HTTPException
         _arm_production(monkeypatch)
         _configure_real_pay(monkeypatch)
+        self._arm_admin(monkeypatch, ADMIN_USER)
         for plan in ("basic", "pro", "annual"):
             with pytest.raises(HTTPException) as ei:
-                self._call(member_dao, monkeypatch, "g2", plan)
+                self._call(member_dao, monkeypatch, ADMIN_USER, plan)
             assert ei.value.status_code == 503
 
-    def test_non_production_demo_path_unchanged(self, member_dao, monkeypatch):
-        """非生产：演示路径逐字不变（模拟支付 → 自动确认 → 会员生效）。"""
+    def test_admin_production_free_reset_allowed(self, member_dao, db_path, monkeypatch):
+        """plan=free 不放行任何权益 → 不在 k53 门内：生产下超管仍可用，且零订单。"""
+        _arm_production(monkeypatch)
         _mock_only(monkeypatch)
-        r = self._call(member_dao, monkeypatch, "g3", "basic")
+        self._arm_admin(monkeypatch, ADMIN_USER)
+        r = self._call(member_dao, monkeypatch, ADMIN_USER, "free")
+        assert r["status"] == "ok" and r["plan"] == "free"
+        assert _count(db_path, "payments") == 0
+
+    # ── 超管 × 非生产：演示路径照常（付费档 + free 两侧）──
+    def test_admin_non_production_demo_path_unchanged(self, member_dao, monkeypatch):
+        """非生产：超管演示路径不变（模拟支付 → 自动确认 → 会员生效）。"""
+        _mock_only(monkeypatch)
+        self._arm_admin(monkeypatch, ADMIN_USER)
+        r = self._call(member_dao, monkeypatch, ADMIN_USER, "basic")
         assert r["status"] == "ok"
         assert r["payment_id"] and r["amount"] > 0
         assert r["membership"]["plan"] == "basic"
         # 落库口径也未变：模拟支付单 ⇒ paid
-        assert member_dao.get_user_payments("g3")[0]["status"] == "paid"
+        assert member_dao.get_user_payments(ADMIN_USER)[0]["status"] == "paid"
 
-    def test_production_free_reset_still_allowed(self, member_dao, monkeypatch):
-        """plan=free（降级）不放行任何权益 → 不在门禁内，生产仍可用。"""
-        _arm_production(monkeypatch)
-        _mock_only(monkeypatch)
-        r = self._call(member_dao, monkeypatch, "g4", "free")
+    def test_admin_non_production_free_reset_ok(self, member_dao, monkeypatch):
+        self._arm_admin(monkeypatch, ADMIN_USER)
+        r = self._call(member_dao, monkeypatch, ADMIN_USER, "free")
         assert r["status"] == "ok" and r["plan"] == "free"
+
+    # ── 非超管：生产 / 非生产 × 付费档 / free，一律 403 + 零副作用 ──
+    @pytest.mark.parametrize("production", [True, False])
+    @pytest.mark.parametrize("plan", ["basic", "pro", "annual", "free"])
+    def test_non_admin_always_rejected_zero_side_effects(
+            self, member_dao, db_path, monkeypatch, production, plan):
+        from fastapi import HTTPException
+        if production:
+            _arm_production(monkeypatch)
+        _mock_only(monkeypatch)
+        with pytest.raises(HTTPException) as ei:
+            self._call(member_dao, monkeypatch, PLAIN_USER, plan)
+        assert ei.value.status_code == 403
+        # 零副作用：不开会员、不下订单、不落 memberships 行
+        assert member_dao.get_membership(PLAIN_USER)["plan"] == "free"
+        assert _count(db_path, "payments") == 0
+        assert _count(db_path, "memberships") == 0
+
+    def test_non_admin_rejected_even_if_whitelist_has_others(self, member_dao, monkeypatch):
+        """判据是「sub ∈ 白名单」，不是「白名单非空」：有别人在名单 ≠ 自己有权限。"""
+        from fastapi import HTTPException
+        self._arm_admin(monkeypatch, ADMIN_USER)
+        with pytest.raises(HTTPException) as ei:
+            self._call(member_dao, monkeypatch, PLAIN_USER, "pro")
+        assert ei.value.status_code == 403
+
+    # ── 顺序契约：计划名校验先于 k53 生产门（超管在生产传非法 plan → 400 而非 503）──
+    def test_admin_production_invalid_plan_still_400(self, member_dao, monkeypatch):
+        from fastapi import HTTPException
+        _arm_production(monkeypatch)
+        self._arm_admin(monkeypatch, ADMIN_USER)
+        with pytest.raises(HTTPException) as ei:
+            self._call(member_dao, monkeypatch, ADMIN_USER, "ultra_plan")
+        assert ei.value.status_code == 400
 
 
 # ───────────── ⑤ 非空洞证明：改前漏损真实存在（守卫是唯一拦阻） ─────────────
