@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Query, Depends, Header, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
-from .config import is_experience_mode, load_settings
+from .config import is_experience_mode, is_production, load_settings
 from .engines.bazi import BaziEngine
 from .engines.ziwei import ZiweiEngine
 from .engines.liuyao import LiuyaoEngine
@@ -2691,6 +2691,12 @@ async def upgrade_membership(user_id: str, plan: str = Query(..., description="f
     """升级会员计划 (模拟支付)。
 
     安全修复（审计 E8）：必须登录 + owner 校验（防给别人改会员）。
+
+    k53 生产门禁：本端点**只有「模拟支付 + 自动确认」一条路径**（不存在真实支付通道，
+    也就没有「配置齐全」的合法状态）——生产放行 = 任何登录用户都能自助领取付费会员
+    （分文未收但权益已发，与 k53 堵的 mock 漏损同类，且门槛更低：仅需一个 JWT）。
+    故生产一律 503 {code: pay_unavailable}；非生产（dev/体验态）演示路径不变。
+    注意 `plan=free`（降级回免费版）不放行权益，不在门禁内，生产仍可用。
     """
     ensure_owner(user_id, uid)
     if member_dao is None:
@@ -2705,6 +2711,10 @@ async def upgrade_membership(user_id: str, plan: str = Query(..., description="f
         # Reset to free
         member_dao.create_membership(user_id, "free")
         return {"status": "ok", "message": "已切换回免费版", "plan": plan}
+
+    if is_production():
+        from .api.pay import raise_pay_unavailable
+        raise_pay_unavailable("/api/membership/{user_id}/upgrade", uid)
 
     # Simulate payment
     payment_id = member_dao.create_payment(
