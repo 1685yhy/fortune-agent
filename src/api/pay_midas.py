@@ -20,6 +20,12 @@
     回调验签：X-WeChat-Signature = hex(hmac_sha256(appKey, 原始请求体))（兼容 "sha256=" 前缀）；
         无该请求头时兼容 body 内 pay_event_sig = hex(hmac_sha256(appKey, Event+"&"+payload))。
 
+k53 部署门禁：
+    生产（`is_production()`）+ 真实支付未配置时，create 一律 **503 {code: pay_unavailable}**
+    （不落单、不置 paid、不开会员；也**不**回 virtual_pay_not_enabled——那是前端唯一
+    「降级 mock」信号，生产回它会导致回落 /api/pay/create 免费发货）。notify 是微信
+    验签发货回调（非 mock 通道），不受守卫影响。
+
 安全：
     create/status 挂 require_user，user_id 一律取 JWT sub，status 仅本人可查（owner 校验）；
     notify 无鉴权但必须验签通过才发货；outTradeNo 全局唯一（主键约束+重试）；
@@ -38,7 +44,10 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
-from src.api.pay import PRODUCTS, SUBSCRIBE_PLANS
+from src.api.pay import (
+    PRODUCTS, SUBSCRIBE_PLANS,
+    mock_pay_blocked, real_pay_configured, raise_pay_unavailable,
+)
 from src.security.auth import require_user
 from src.storage.models import connect as db_connect
 
@@ -58,7 +67,8 @@ def setup(member_dao):
     if member_dao is not None:
         _db_path = member_dao.db_path
         _ensure_midas_orders_table()
-    logger.info("虚拟支付（米大师）就绪: enabled=%s", virtual_pay_enabled())
+    logger.info("虚拟支付（米大师）就绪: enabled=%s 生产守卫(k53)=%s",
+                virtual_pay_enabled(), "REJECT_503" if mock_pay_blocked() else "off")
 
 
 # ── 配置（.env）──────────────────────────────────────────────────
@@ -85,8 +95,12 @@ def wechat_pay_enabled() -> bool:
 
 
 def virtual_pay_enabled() -> bool:
-    """虚拟支付是否启用：WECHAT_PAY_ENABLED=true 且 MIDAS_OFFER_ID/MIDAS_APP_KEY 配齐。"""
-    return wechat_pay_enabled() and bool(midas_offer_id()) and bool(midas_app_key())
+    """虚拟支付是否启用：WECHAT_PAY_ENABLED=true 且 MIDAS_OFFER_ID/MIDAS_APP_KEY 配齐。
+
+    k53：判定**单一事实源**改为 `pay.real_pay_configured()`（同一表达式，语义不变），
+    避免「守卫判定」与「启用判定」两处漂移导致一边放行一边发货。
+    """
+    return real_pay_configured()
 
 
 # ── 签名（HMAC-SHA256 → hex 小写）───────────────────────────────
@@ -286,8 +300,14 @@ async def virtual_pay_create(req: VirtualPayCreateRequest, uid: str = Depends(re
     """创建虚拟支付订单，返回前端三要素（signData/paySig/signature）+ mode。
 
     前端 wx.requestVirtualPayment({signData, paySig, signature, mode}) 调起米大师支付。
+
+    k53 部署门禁：生产 + 真实支付未配置 → **503 pay_unavailable**（在建单之前拦截）。
+    注意**不得**返回 `virtual_pay_not_enabled`——前端 k52 把它当作「降级 mock」的唯一
+    信号，生产回该 code 会让客户端回落 `/api/pay/create`（旧行为下即免费发货）。
     """
     global _member_dao
+    if mock_pay_blocked():
+        raise_pay_unavailable("/api/pay/virtual/create", uid)
     if not virtual_pay_enabled():
         raise HTTPException(
             status_code=400,

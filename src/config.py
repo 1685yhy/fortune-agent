@@ -75,6 +75,32 @@ def is_experience_mode() -> bool:
     return os.getenv("EXPERIENCE_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def is_production() -> bool:
+    """本部署是否生产环境（k53 部署门禁：生产禁用 mock 支付）。
+
+    诚实前提（k53 审查结论）：**仓库此前没有后端环境判定**，也造不出可靠的自动判定：
+      - 客户端 `wx.getAccountInfoSync().miniProgram.envVersion`（develop/trial/release）
+        只存在于小程序端，**不随请求到后端**，后端无法据此区分环境；
+      - `EXPERIENCE_MODE` 是「内容全免费/跳配额」的**内容开关**，与真实/模拟支付正交：
+        线上可以开着（当前体验版就是），测试里也常显式关成 false 去验付费墙——
+        拿它当生产判定会在开发机误伤、又会在线上漏配时静默失效（假安全）；
+      - `MIDAS_ENV` 是米大师沙箱/现网，标识的是微信侧通道，不是本服务的部署环境。
+
+    因此这里用**显式声明 + fail-closed**（宁可拒绝服务，不可静默发货）：
+      - `PAY_REQUIRE_REAL=1/true/yes/on` → 本部署必须真实支付（**主闸门，生产必配**）；
+      - `APP_ENV` / `FORTUNE_ENV` = `production`/`prod` → 常规部署标记，等价开启（便利别名；
+        仓库当前没有任何代码/脚本设置它们，配了即视为生产）。
+    两者任一成立即为生产；未声明 → 非生产（dev/体验态），行为与改动前一字不差。
+
+    注意：本函数只回答「是不是生产」，**不代表支付已配置**——是否拒绝 mock 支付
+    由 `src/api/pay.py: mock_pay_blocked()`（生产 且 真实支付未配置）决定。
+    """
+    if os.getenv("PAY_REQUIRE_REAL", "").strip().lower() in ("1", "true", "yes", "on"):
+        return True
+    return (os.getenv("APP_ENV", "").strip().lower() in ("production", "prod")
+            or os.getenv("FORTUNE_ENV", "").strip().lower() in ("production", "prod"))
+
+
 def tts_upstream_base() -> str:
     """TTS 合成服务内部地址（转发目标，默认本机 8768；可经 TTS_UPSTREAM_BASE 覆盖）。
 
