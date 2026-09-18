@@ -125,6 +125,12 @@ JI_RE = re.compile(r"(大吉|吉利|吉兆|吉凶指数\d+【?大吉|好运|发�
 XIONG_RE = re.compile(r"(大凶|不祥|凶兆|灾祸|倒霉|损失|破财|疾病|病痛|死亡|丧事|口舌|"
                       r"官司|离别|不顺|小人|血光|主凶|凶事|有灾|患病)")
 SENT_SPLIT_RE = re.compile(r"[。！？!?\n]")
+# 标题/疑问式句子 + 页面套话（都无解读内容，选中当 gloss 等于没给依据）
+TITLE_JUNK_RE = re.compile(
+    r"(好不好|是什么意思|是什么预兆|代表着什么|代表什么|意味着什么|怎么回事|"
+    r"怎么办|有什么预兆|什么征兆|的解析|请看下面|是什么意思呢)[？?。]?$"
+    r"|(希望能为网友答疑解惑|走出迷途|转载请注明|周公解梦权威解梦|由.{0,10}整理|"
+    r"小编|权威解梦|免费查询|本文来源|点击查看|扫一扫|关注我们)")
 
 
 def log(msg: str) -> None:
@@ -195,7 +201,10 @@ def load_classic_quotes() -> dict:
             continue
         el = (d.get("element") or "").strip()
         if el:
-            out[el].append({"text": d["content"], "book": d.get("book", "")})
+            # content = 「<条文>。（《书名》·转录未校勘）」—— 出处由 gloss 统一标注，
+            # 这里剥掉，免得「《敦煌本梦书》（转录未校勘）记载：…（《敦煌本梦书》·转录未校勘）」
+            text = re.sub(r"。（《[^》]+》[^）]*）\s*$", "", d["content"])
+            out[el].append({"text": text, "book": d.get("book", "")})
     return out
 
 
@@ -227,8 +236,15 @@ def scan_corpus(elements: set) -> tuple:
             uniq.append(e)
     log(f"[scan] 去重语料 {len(uniq)} 条，目标元素 {len(elements)} 个")
 
-    sentences: dict = defaultdict(Counter)     # 含该元素的判词句
-    head_sentences: dict = defaultdict(Counter)  # **词条就是该元素**的条目里的判词句
+    # r3 I-A 修法：**句池与计数共用同一 scope**。
+    # 旧实现的句池多了一道 `[主有宜忌吉凶]` 字面过滤，而 ji/xiong 计数走
+    # same_scenario() 拼出的 scope **没有这道过滤** → 「梦见刀，不祥之兆，会面临
+    # 困难。」这类判词（不含「主/有/宜/忌/吉/凶」字面）只进计数、不进句池 →
+    # gloss 找不到 → 假兜底（「语料里没有匹配到…」）+ luck 被强制中性，
+    # 与自身 type/tone 自相矛盾。现在两者共用 scope，不变式：
+    # **fallback_no_same_scenario ⟹ ji+xiong == 0**（已加测试）。
+    sentences: dict = defaultdict(Counter)       # 同场景句池（与计数同源）
+    head_sentences: dict = defaultdict(Counter)  # **词条就是该元素**的同场景句
     ji: Counter = Counter()
     xiong: Counter = Counter()
     for e in uniq:
@@ -237,34 +253,31 @@ def scan_corpus(elements: set) -> tuple:
         if not hits:
             continue
         is_head = core in elements          # 「梦见X」的标题正好就是这个元素
-        for s in SENT_SPLIT_RE.split(text or ""):
-            s = s.strip()
-            if not (6 <= len(s) <= 120):
-                continue
-            if not re.search(r"[主有宜忌吉凶]", s):
-                continue
-            for el in hits:
-                if el in s:
-                    sentences[el][s] += 1
-                    if is_head:
-                        head_sentences[el][s] += 1
-        # 吉凶倾向只在**同场景证据**上统计：词条即该元素的条目，或句子的主角
-        # 就是该元素。旧实现把整个条目正文（可能大半在讲别的场景）都算进去，
-        # 才会出现「车祸=吉」这种由别场景判词推出来的方向。
+        all_sents = [s.strip() for s in SENT_SPLIT_RE.split(text or "")]
+        all_sents = [s for s in all_sents if 6 <= len(s) <= 120]
+        # 去掉「标题/疑问式」句子（页面把标题重复进正文，如「梦见了异性好不好」
+        # 「梦见X是什么意思」）——它们不含解读内容，选中当 gloss 等于没给依据
+        all_sents = [re.sub(r"[\(（](©|&|版权|来源)[^)）]*[)）]", "", s).strip()
+                     for s in all_sents]
+        all_sents = [s for s in all_sents
+                     if 6 <= len(s) <= 120 and not TITLE_JUNK_RE.search(s)]
         for el in hits:
-            scope = ""
-            if is_head:
-                scope = text or ""
-            else:
-                scope = " ".join(s for s in SENT_SPLIT_RE.split(text or "")
-                                 if same_scenario(s.strip(), el))
-            if not scope:
+            # 同场景证据：词条即该元素（整条都算），或句子的主角是该元素
+            scope_sents = all_sents if is_head else \
+                [s for s in all_sents if same_scenario(s, el)]
+            if not scope_sents:
                 continue
-            if JI_RE.search(scope):
+            for s in scope_sents:
+                sentences[el][s] += 1
+                if is_head:
+                    head_sentences[el][s] += 1
+            blob = " ".join(scope_sents)
+            if JI_RE.search(blob):
                 ji[el] += 1
-            if XIONG_RE.search(scope):
+            if XIONG_RE.search(blob):
                 xiong[el] += 1
-    log(f"[scan] 其中「词条即元素」的同场景条目覆盖 {len(head_sentences)} 个元素")
+    log(f"[scan] 同场景句池覆盖 {len(sentences)} 个元素；"
+        f"其中「词条即元素」覆盖 {len(head_sentences)} 个")
     return uniq, sentences, ji, xiong, head_sentences
 
 
@@ -292,8 +305,51 @@ def same_scenario(sentence: str, el: str) -> bool:
     return False
 
 
+# 一致性检查用的**更宽极性词表**（r3 I-B 加严）：
+# 计数口径（JI_RE/XIONG_RE）只认判词术语，漏掉了「不很顺利」「慎防小人」这类
+# 表述 —— 实测「异性」luck=大吉 却配「代表**不很顺利**」（否定式，JI_RE 里的
+# 「顺利」被反向使用）。否定前缀 + 明确负面词一并纳入，只用于**一致性判定**。
+NEG_PREFIX_RE = re.compile(r"(不|没|未|难以|无法|避免|别|勿)\s*(很|太|会|能|要|可)?\s*$")
+EXTRA_NEG_RE = re.compile(r"(损失|不利|不顺|慎防|小心|谨慎|警惕|防范|挫折|失败|"
+                          r"纠纷|忧伤|烦恼|灾|病痛|愁|破坏|障碍|阻碍|是非|口舌)")
+
+
+def sentence_polarity(s: str, extended: bool = True) -> str:
+    """句子的吉凶极性：吉/凶/空（同时含两向或都不含 → 空）。
+
+    extended=True（默认，用于一致性校验）：识别否定式与更多负面表述。
+    """
+    pos = False
+    negated_pos = False
+    for m in JI_RE.finditer(s):
+        prefix = s[max(0, m.start() - 3):m.start()]
+        if NEG_PREFIX_RE.search(prefix):
+            negated_pos = True          # 「不很顺利」= 反向使用吉词 → 计入负面证据
+        else:
+            pos = True
+    neg = bool(XIONG_RE.search(s)) or negated_pos
+    if extended:
+        neg = neg or bool(EXTRA_NEG_RE.search(s))
+        for m in XIONG_RE.finditer(s):
+            prefix = s[max(0, m.start() - 3):m.start()]
+            if NEG_PREFIX_RE.search(prefix):     # 「不凶」这类反向否定
+                neg = False
+    if pos and neg:
+        return ""            # 双向混合 → 视为无极性（不判冲突）
+    return "吉" if pos else ("凶" if neg else "")
+
+
+def luck_polarity(luck: str) -> str:
+    if luck in ("大吉", "吉", "吉多于凶"):
+        return "吉"
+    if luck in ("凶", "凶多于吉"):
+        return "凶"
+    return ""
+
+
 def same_scenario_gloss(el: str, sentences: dict, classics: dict,
-                        head_sentences: dict = None) -> tuple:
+                        head_sentences: dict = None,
+                        want_luck: str = "") -> tuple:
     """取**同场景**释义依据；取不到则诚实兜底。
 
     证据档次（从强到弱，写进 gloss_evidence 字段，可复核）：
@@ -305,14 +361,39 @@ def same_scenario_gloss(el: str, sentences: dict, classics: dict,
     r2 I-2：旧实现直接取「含该元素」的最高频句，会拿别的场景顶
     （车祸 → 「梦见老人出车祸…虽有财运可得」；水 → 「梦见水泥…」），
     并把 luck 带偏。
+    r3 I-B：再加**极性一致性**——优先取与聚合 luck 同向的句子，避免
+    「传统倾向=吉多于凶」与「释义依据=…是凶兆」同时出现在一行里打对台。
     """
+    want_luck_pol = luck_polarity(want_luck)
+    def pick(pool, kind, tag):
+        """从池里挑与 want_luck **同向**的句子；无同向则退无极性，再退反向。"""
+        ranked = {"same": [], "none": [], "opp": []}
+        for sent, _ in pool.most_common(40):
+            pol = sentence_polarity(sent)
+            if not pol or not want_luck_pol:
+                ranked["none" if not pol else "same"].append((sent, kind, tag))
+            elif pol == want_luck_pol:
+                ranked["same"].append((sent, kind, tag))
+            else:
+                ranked["opp"].append((sent, kind, tag))
+        for key in ("same", "none", "opp"):
+            if ranked[key]:
+                sent, k, t = ranked[key][0]
+                return f"{sent}（{t}）", k
+        return None
+
     for q in classics.get(el, [])[:1]:
+        # 古籍引文也做极性校验：反向时不用（避免「luck=吉」配「不祥」引文）
+        if want_luck_pol and sentence_polarity(q["text"]) not in ("", want_luck_pol):
+            continue
         return f"《{q['book']}》（转录未校勘）记载：{q['text']}", "classic_quote"
-    for sent, _ in (head_sentences or {}).get(el, Counter()).most_common(5):
-        return f"{sent}（语料「梦见{el}」词条原文）", "head_entry"
-    for sent, _ in sentences.get(el, Counter()).most_common(20):
-        if same_scenario(sent, el):
-            return f"{sent}（语料同场景判词）", "corpus_same_scenario"
+    for pool, kind, tag in (((head_sentences or {}).get(el, Counter()), "head_entry",
+                             f"语料「梦见{el}」词条原文"),
+                            (sentences.get(el, Counter()), "corpus_same_scenario",
+                             "语料同场景判词")):
+        got = pick(pool, kind, tag)
+        if got:
+            return got
     return ("", "fallback_no_same_scenario")
 
 
@@ -360,8 +441,15 @@ def luck_from_counts(n_ji: int, n_xiong: int) -> str:
     return "凶"
 
 
-def tone_from(n_ji: int, n_xiong: int, symbols: list) -> str:
-    """情绪基调：由语料吉凶倾向 + 象征词合成（数据导出，非人工撰写）。"""
+def tone_from(n_ji: int, n_xiong: int, symbols: list, luck: str = "") -> str:
+    """情绪基调：由语料吉凶倾向 + 象征词合成（数据导出，非人工撰写）。
+
+    r3 I-B：luck 为无方向档时不带吉凶形容词（否则「中性」结论会配一句
+    「偏吉、期待与安抚」的基调，同一行里自相矛盾）。
+    """
+    if luck in ("中性", "提醒类", "fallback_no_same_scenario"):
+        focus = "、".join(symbols[:2])
+        return f"情境关注（语料关注点：{focus}）" if focus else "情境关注"
     tot = n_ji + n_xiong
     r = (n_ji / tot) if tot else 0.55
     if r >= 0.62:
@@ -450,24 +538,39 @@ def main() -> int:
         if not alts:
             continue
         alts = sorted(set(alts), key=len, reverse=True)[:5]
-        gloss, ev_kind = same_scenario_gloss(el, sentences, classics, head_sentences)
+        # 聚合词频给出的方向 → 用它作为「想要的方向」去挑同向句（r3 I-B）
+        luck = luck_from_counts(ji[el], xiong[el])
+        gloss, ev_kind = same_scenario_gloss(el, sentences, classics,
+                                             head_sentences, want_luck=luck)
+        luck_basis = "语料同场景判词词频"
         if ev_kind == "fallback_no_same_scenario":
-            # 没有同场景证据 → 不给方向性吉凶（宁缺勿误导），gloss 明说是泛化倾向
+            # 无同场景证据（不变式：此分支 ji+xiong 必为 0）→ 不给方向
             luck = "中性"
+            luck_basis = "无同场景判词证据（ji+xiong=0）→ 中性"
             gloss = (f"本批语料里没有匹配到与「{el}」同场景的吉凶判词句"
                      f"（含该元素的条目 {cov} 条，但判词句谈的是其他场景/复合情境）；"
                      f"此处只给泛化倾向，不构成吉凶判断")
         else:
-            luck = luck_from_counts(ji[el], xiong[el])
+            # 一致性校验：gloss 极性若与聚合 luck 反向（同向句确实不存在），
+            # **降为中性**而不是让结论与依据打对台（r3 I-B 口径：
+            # 换同向句优先，换不到才弃权——尽量保留传统判词信息，但绝不输出矛盾对）
+            gp, lp = sentence_polarity(gloss), luck_polarity(luck)
+            if gp and lp and gp != lp:
+                luck = "中性"
+                luck_basis = f"gloss 极性({gp}) 与聚合词频({lp}) 反向且无同向句 → 降为中性"
+        # type 与 luck 不许并存矛盾（刀：type=警示类 + luck=中性 那种）
+        if luck in ("中性", "提醒类") and ptype in ("吉兆类", "警示类"):
+            ptype = "中性类"
         rules.append({
             "name": el, "match": "|".join(re.escape(a) for a in alts),
             "type": ptype, "symbols": syms,
-            "tone": tone_from(ji[el], xiong[el], syms),
-            "luck": luck,
+            "tone": tone_from(ji[el], xiong[el], syms, luck),
+            "luck": luck, "luck_basis": luck_basis,
             "gloss": gloss, "coverage": cov,
-            # M-3：覆盖量口径必须写在数据里（两种口径不能混着看）
+            # M-3：覆盖量口径必须写进数据（两种口径不能混着看）
             "coverage_basis": "标题核心串含该元素的去重语料条数",
             "gloss_evidence": ev_kind,
+            "symbols_basis": "corpus_cooccurrence",
             "evidence": {"ji": ji[el], "xiong": xiong[el],
                          "sentences": len(sentences[el])},
             "source": "corpus_stats",
@@ -500,8 +603,10 @@ def main() -> int:
                     if family == "mandatory_driving_family"
                     else "时间压力类梦境没有对应的古典判词")
                 r["gloss"], r["gloss_evidence"] = g, ev
-                if ev == "fallback_no_same_scenario":
-                    r["symbols"] = drop_luck_semantic(r["symbols"]) or r["symbols"]
+                r["luck_basis"] = "brief 指定（交通/事故/时间压力族不做吉凶推断）"
+                # 该族既然不做吉凶推断，核心象征里就不该出现吉凶语义词
+                # （车祸原本带着「吉祥、财运」，与「中性」自相矛盾）
+                r["symbols"] = drop_luck_semantic(r["symbols"]) or r["symbols"]
                 continue
             cov = real_text_hits.get(name, 0)
             syms = [s for s in symbols_map.get(name, []) if s != name][:6]
@@ -517,8 +622,7 @@ def main() -> int:
                 "现实驾驶/事故类梦境是现代新增题材，古典梦书成书时无此类"
                 if family == "mandatory_driving_family"
                 else "时间压力类梦境没有对应的古典判词")
-            if ev_kind == "fallback_no_same_scenario":
-                syms = drop_luck_semantic(syms) or syms
+            syms = drop_luck_semantic(syms) or syms
             rules.append({
                 "name": name, "match": "|".join(re.escape(a) for a in spec["match"]),
                 "type": spec["type"], "symbols": syms, "tone": spec["tone"],
@@ -551,8 +655,9 @@ def main() -> int:
                     "tone", "symbols", "symbols_basis", "match", "gloss",
                     "gloss_evidence", "ji", "xiong"])
         for r in uniq_rules:
-            luck_basis = ("brief 指定（交通/事故/时间压力族不做吉凶推断）"
-                          if "mandatory" in r["source"] else "语料同场景判词词频")
+            luck_basis = r.get("luck_basis") or (
+                "brief 指定（交通/事故/时间压力族不做吉凶推断）"
+                if "mandatory" in r["source"] else "语料同场景判词词频")
             w.writerow([r["name"], r["type"], r["coverage"],
                         r.get("coverage_basis", "标题核心串含该元素的去重语料条数"),
                         r["luck"], luck_basis, r["tone"],
@@ -628,6 +733,10 @@ def main() -> int:
         lines.append(f'        "coverage_basis": {r.get("coverage_basis", "")!r},')
         lines.append(f'        "gloss_evidence": {r.get("gloss_evidence", "")!r},')
         lines.append(f'        "symbols_basis": {r.get("symbols_basis", "")!r},')
+        lines.append(f'        "luck_basis": {r.get("luck_basis", "")!r},')
+        # 计数随模块落库：不变式（fallback ⟹ ji+xiong==0）可离线断言，
+        # 不依赖 /mnt/d 的统计产物
+        lines.append(f'        "counts": {dict(r["evidence"])!r},')
         lines.append(f'        "source": {r["source"]!r},')
         lines.append("    },")
     lines += ["]", "", f"RULE_COUNT = {len(uniq_rules)}", ""]

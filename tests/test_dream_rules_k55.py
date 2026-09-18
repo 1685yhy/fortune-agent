@@ -223,6 +223,72 @@ def test_three_fields_rate_not_lowered_by_rule_rebuild():
     assert ok == len(queries), f"三项非空 {ok}/{len(queries)}"
 
 
+# ── ②d r3 不变式：兜底必须成立、结论与依据不许反向 ─────────────────────
+
+def test_fallback_implies_no_same_scenario_evidence():
+    """r3 I-A 不变式：走「没有匹配到判词句」兜底的规则，计数必须为 0。
+
+    改前实测（机械口径 bug）：句池多了一道 `[主有宜忌吉凶]` 字面过滤，而
+    ji/xiong 计数没有 → 「梦见刀，不祥之兆，会面临困难。」这类判词只进计数、
+    不进句池 → gloss 找不到 → **假兜底**（刀：xiong=22 却说「没有匹配到」），
+    luck 被强制中性，与自身 type=警示类/tone 自相矛盾。共 17 条。
+    """
+    for r in DREAM_PATTERN_RULES:
+        c = r.get("counts") or {}
+        if r["gloss_evidence"] == "fallback_no_same_scenario":
+            assert c.get("ji", 0) + c.get("xiong", 0) == 0, \
+                f"{r['name']}：兜底成立性被违反 counts={c}"
+            assert "没有匹配到" in r["gloss"], r["name"]
+        else:
+            assert r["gloss"], r["name"]
+            assert "没有匹配到" not in r["gloss"], r["name"]
+
+
+def test_luck_and_gloss_polarity_never_conflict():
+    """r3 I-B 不变式：同一行里「传统倾向」与「释义依据」不许反向。
+
+    改前实测：`妻子`（吉多于凶 / 「秋季有血光之灾」）、`女孩`（吉多于凶 /
+    「慎防发生意外」）等 22 条 —— 这行是直接喂给 LLM 且用户可见的骨架。
+    """
+    from scripts.k55_dream.build_rules import luck_polarity, sentence_polarity
+    conflict = [(r["name"], r["luck"], r["gloss"][:30])
+                for r in DREAM_PATTERN_RULES
+                if luck_polarity(r["luck"]) and sentence_polarity(r["gloss"])
+                and luck_polarity(r["luck"]) != sentence_polarity(r["gloss"])]
+    assert conflict == [], conflict[:5]
+
+
+def test_type_and_luck_never_conflict():
+    """r3 I-B 附带：无方向 luck 不得配吉兆类/警示类 type（刀那类矛盾）"""
+    bad = [(r["name"], r["type"], r["luck"]) for r in DREAM_PATTERN_RULES
+           if r["luck"] in ("中性", "提醒类") and r["type"] in ("吉兆类", "警示类")]
+    assert bad == [], bad[:5]
+
+
+def test_prompt_question_one_matches_luck_direction():
+    """r3 I-B②：无方向档的 prompt 不许再问「是吉是凶」（与「不要下吉凶结论」对冲）"""
+    neutral_dreams = ["梦见出车祸了", "梦见开车撞了"]
+    for dream in neutral_dreams:
+        res = DreamEngine().analyze(dream, _RecordingRetriever())
+        assert res.rule_luck in ("中性", "提醒类"), (dream, res.rule_luck)
+        prompt = format_dream_prompt(dream, res)
+        assert "不要替用户下吉凶结论" in prompt
+        assert "**吉凶判断**：这个梦是吉是凶？" not in prompt, dream
+        assert "**梦在提醒什么**" in prompt, dream
+    # 有方向档仍保留原第 1 问（既有口径不变）
+    res = DreamEngine().analyze("梦见被蛇追", _RecordingRetriever())
+    prompt = format_dream_prompt("梦见被蛇追", res)
+    assert "**吉凶判断**：这个梦是吉是凶？" in prompt
+
+
+def test_neutral_luck_tone_has_no_direction_words():
+    """r3 I-B 附带：无方向档的 tone 不许带吉凶形容词（自相矛盾）"""
+    for name in ("车祸", "开车", "停车", "迷路", "赶不上车", "堵车", "坐车", "找不到车"):
+        rule = next(r for r in DREAM_PATTERN_RULES if r["name"] == name)
+        assert not re.search(r"偏吉|偏凶|期待与安抚|警惕与压力|警示、焦虑", rule["tone"]), \
+            (name, rule["tone"])
+
+
 # ── ③ 打分匹配（可多命中 + 去重 + 排序） ──────────────────────────────
 
 def test_match_patterns_scored_and_sorted():
