@@ -57,7 +57,13 @@ def test_every_rule_has_required_fields():
         assert r["tone"], r
         assert r["gloss"], r
         assert isinstance(r["coverage"], int) and r["coverage"] >= 0, r
-        assert r["luck"] in ("大吉", "吉", "吉多于凶", "凶多于吉", "凶"), r
+        assert r["luck"] in ("大吉", "吉", "吉多于凶", "凶多于吉", "凶",
+                             "中性", "提醒类"), r
+        # r2：覆盖量口径与释义依据档次必须随条目标注（M-3）
+        assert r.get("coverage_basis"), r
+        assert r.get("gloss_evidence") in (
+            "classic_quote", "head_entry", "corpus_same_scenario",
+            "fallback_no_same_scenario"), r
 
 
 def test_rules_contain_no_trigger_or_meta_words():
@@ -70,11 +76,13 @@ def test_rules_contain_no_trigger_or_meta_words():
 # ── ② 交通驾驶族（控制方真实梦例所在族）必须覆盖 ─────────────────────
 
 DRIVING_FAMILY = ["开车", "车祸", "停车", "找不到车", "迷路", "赶不上车"]
+# r2 M-4：交通族**全部 8 条**（含堵车/坐车）都要覆盖，不只抽查前 6 条
+DRIVING_FAMILY_ALL = DRIVING_FAMILY + ["堵车", "坐车"]
 
 
-@pytest.mark.parametrize("name", DRIVING_FAMILY)
+@pytest.mark.parametrize("name", DRIVING_FAMILY_ALL)
 def test_driving_family_covered(name):
-    """交通/驾驶族每一类都必须有规则条目"""
+    """交通/驾驶族**8/8** 每一类都必须有规则条目（r2 M-4）"""
     assert any(r["name"] == name for r in DREAM_PATTERN_RULES), name
 
 
@@ -106,6 +114,113 @@ def test_controller_real_dream_three_fields_nonempty():
     r = _RecordingRetriever()
     DreamEngine().analyze(dream, r)
     assert any(q.startswith("梦见 ") for q in r.queries), r.queries
+
+
+# ── ②b r2 整改夹具：事故/交通族不做吉凶推断 + 同场景释义 ───────────────
+
+ACCIDENT_DREAMS = ["梦见出车祸了", "梦见车祸", "梦见开车撞了"]
+
+
+@pytest.mark.parametrize("dream", ACCIDENT_DREAMS)
+def test_accident_family_luck_never_auspicious(dream):
+    """r2 I-2 夹具：事故/交通族一律「中性」，**永远不许判成吉**。
+
+    改前实测：`analyze("梦见出车祸了")` → rule_luck='吉'（按语料词频推出来的，
+    而那些吉向判词谈的是别的场景）——「梦见车祸是吉」是信任事故。
+    """
+    res = DreamEngine().analyze(dream, _RecordingRetriever())
+    assert res.rule_hits, dream
+    assert res.rule_luck in ("中性", "提醒类"), (dream, res.rule_luck)
+    assert res.rule_luck not in ("大吉", "吉", "吉多于凶"), (dream, res.rule_luck)
+    # 提示词里必须明确「不要替用户下吉凶结论」
+    prompt = format_dream_prompt(dream, res)
+    assert "不要替用户下吉凶结论" in prompt, prompt[:400]
+
+
+def test_accident_gloss_is_same_scenario_or_honest_fallback():
+    """r2 I-2 夹具：车祸/开车的释义依据**不许拿别场景的句子顶**。
+
+    改前实测 gloss = 「梦见老人出车祸，得此梦，虽有财运可得…」（别的场景）、
+    开车 gloss = 「梦见开车撞人…」（复合场景，不是「开车」这个词条）。
+    """
+    for dream, name in (("梦见出车祸了", "车祸"), ("梦见开车", "开车")):
+        res = DreamEngine().analyze(dream, _RecordingRetriever())
+        note = next(n for n in res.rule_notes if n.startswith(name + "（"))
+        rule = next(r for r in DREAM_PATTERN_RULES if r["name"] == name)
+        assert rule["gloss_evidence"] in ("classic_quote", "head_entry",
+                                          "corpus_same_scenario",
+                                          "fallback_no_same_scenario")
+        if rule["gloss_evidence"] == "fallback_no_same_scenario":
+            # 诚实兜底：必须明说没有同场景依据、且不做吉凶判断
+            assert "没有匹配到" in note and "不做吉凶判断" in note, note
+            assert "老人出车祸" not in note, note
+        else:
+            assert "老人出车祸" not in note, note
+
+
+def test_driving_family_luck_all_neutral():
+    """交通族 8 条 luck 全部为无方向档（中性/提醒类）"""
+    for name in DRIVING_FAMILY_ALL:
+        rule = next((r for r in DREAM_PATTERN_RULES if r["name"] == name), None)
+        assert rule, name
+        assert rule["luck"] in ("中性", "提醒类"), (name, rule["luck"])
+        assert rule["tone"].startswith("提醒"), (name, rule["tone"])
+
+
+def test_late_is_separate_time_pressure_rule():
+    """r2 I-3：「迟到/来不及」不是车——独立成压力类规则，且不再进交通族。
+
+    改前实测：`analyze("梦见上学迟到了")` → rule_hits=['赶不上车']（误伤）。
+    """
+    res = DreamEngine().analyze("梦见上学迟到了", _RecordingRetriever())
+    assert res.rule_hits, res.rule_hits
+    assert "赶不上车" not in res.rule_hits, res.rule_hits
+    assert "迟到" in res.rule_hits, res.rule_hits
+    late = next(r for r in DREAM_PATTERN_RULES if r["name"] == "迟到")
+    assert late["type"] == "压力类", late
+    # 赶不上车的 match 里不许再出现时间词
+    drive = next(r for r in DREAM_PATTERN_RULES if r["name"] == "赶不上车")
+    for bad in ("迟到", "来不及", "时间不够"):
+        assert bad not in drive["match"], (bad, drive["match"])
+
+
+def test_driving_match_stays_vehicle_semantic():
+    """交通族 match 只含车辆语义（不含「迟到」这类时间词）"""
+    for name in ("开车", "车祸", "停车", "找不到车", "堵车", "坐车", "赶不上车"):
+        rule = next(r for r in DREAM_PATTERN_RULES if r["name"] == name)
+        for bad in ("迟到", "来不及", "误点", "拖延"):
+            assert bad not in rule["match"], (name, bad, rule["match"])
+
+
+# ── ②c r2 I-4：叙述性/体裁性元词不得进规则表 ─────────────────────────
+
+def test_no_meta_or_narrative_words_in_rules():
+    """r2 I-4：META_STOPWORDS（语料体裁产物）+ 叙述词必须 0 条进规则表"""
+    from scripts.k55_dream.build_rules import RULE_STOPWORDS
+    names = {r["name"] for r in DREAM_PATTERN_RULES}
+    leaked = sorted(names & set(RULE_STOPWORDS))
+    assert leaked == [], f"元词/叙述词混入规则表：{leaked}"
+    # 审查点名的具体词，逐一点名回归
+    for w in ("工作", "表示", "生活", "说明", "关系", "可能", "方面", "象征",
+              "女性", "运势", "心理", "梦者", "意味", "受到", "看见", "认识"):
+        assert w not in names, w
+
+
+def test_three_fields_rate_not_lowered_by_rule_rebuild():
+    """r2 I-4 复核②：剔除元词后三项非空率不降（真实梦例快照上实测 100%）"""
+    import json
+    from pathlib import Path as _P
+    q = _P("/mnt/d/fortune-data/books/k55_dream/reports/benchmark_queries_k55.json")
+    if not q.exists():
+        pytest.skip("梦例快照未生成")
+    queries = json.loads(q.read_text(encoding="utf-8"))["queries"]
+    engine = DreamEngine()
+    ok = 0
+    for item in queries:
+        res = engine.analyze(item["text"], _RecordingRetriever())
+        if res.dream_type and res.symbols and res.tones:
+            ok += 1
+    assert ok == len(queries), f"三项非空 {ok}/{len(queries)}"
 
 
 # ── ③ 打分匹配（可多命中 + 去重 + 排序） ──────────────────────────────

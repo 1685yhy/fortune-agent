@@ -47,6 +47,19 @@ def log(msg: str) -> None:
     print(f"{now_iso()} {msg}", flush=True)
 
 
+# 抓取记录的正文带「梦境内容：<地域>网友：」前缀（页面版式），不是梦的一部分；
+# 不清掉会污染基准（实测「内容」这个词被当成检索词并命中大量语料，
+# 把改前基线抬到了虚高的 90%，掩盖真实差距）。
+QUERY_PREFIX_RE = re.compile(r"^(梦境内容：)?(中国|[^，。]{0,10}省|[^，。]{0,10}市)?[^，。]{0,12}网友：?")
+
+
+def clean_query_text(text: str) -> str:
+    t = (text or "").strip()
+    t = re.sub(r"^梦境内容[:：]\s*", "", t)
+    t = re.sub(r"^[^：:]{0,14}网友[:：]\s*", "", t)
+    return t.strip()[:200]
+
+
 def build_queries(n: int) -> list:
     """20 条真实梦例（真实网友梦境，均匀抽样；控制方梦例必含）。"""
     if QUERIES.exists():
@@ -59,7 +72,7 @@ def build_queries(n: int) -> list:
     step = max(1, len(recs) // (n - 1))
     picked = recs[::step][:n - 1]
     queries = [{"text": CONTROLLER_DREAM, "origin": "控制方实测梦例", "url": ""}]
-    queries += [{"text": r["content"][:200], "origin": "佛滔·梦境百科 网友梦境",
+    queries += [{"text": clean_query_text(r["content"]), "origin": "佛滔·梦境百科 网友梦境",
                  "url": r.get("url", ""), "title": r.get("title", ""),
                  "date": r.get("fetched_at", "")} for r in picked]
     QUERIES.parent.mkdir(parents=True, exist_ok=True)

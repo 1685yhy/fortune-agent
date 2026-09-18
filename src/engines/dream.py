@@ -17,7 +17,8 @@ import re
 
 from src.book_categories import ref_text
 
-# k55：语料统计生成的新规则层（147 条模式 + HVDC 常模 + 现实投影口径）。
+# k55：语料统计生成的新规则层（模式条数见 dream_rules.RULE_COUNT，当前 263 条
+# + HVDC 常模 + 现实投影口径）。
 # 生成脚本 scripts/k55_dream/build_rules.py；模块缺失时退化为「无规则层」，
 # 老行为不受影响（导入失败绝不阻断解梦主流程）。
 try:  # pragma: no cover - 导入分支
@@ -55,7 +56,16 @@ class DreamResult:
 
 
 # ── 吉凶等级排序（保守合成用） ──────────────────────────────────────
-DREAM_LUCK_RANK = {"大吉": 5, "吉": 4, "吉多于凶": 3, "凶多于吉": 2, "凶": 1}
+# k55 r2：新增「中性」「提醒类」两档——事故/交通/时间压力类梦境**不做吉凶推断**
+# （brief 口径：不许按语料词频把「车祸」判成吉；语料里那些吉向判词谈的是别的场景）。
+# 两档同权（都是「无方向」），保守合成时按同一档参与取最低。
+DREAM_LUCK_RANK = {
+    "大吉": 5, "吉": 4, "吉多于凶": 3,
+    "中性": 2.5, "提醒类": 2.5,
+    "凶多于吉": 2, "凶": 1,
+}
+# 无方向档：prompt 侧要求 LLM 不替用户下吉凶结论
+DREAM_LUCK_NEUTRAL = ("中性", "提醒类")
 
 # ── 梦境触发词/时间词黑名单：绝不进入关键词列表 ────────────────────────
 # keywords[0] 恒为真实意象词；策略A 查询不再出现「梦见 梦见」垃圾
@@ -675,6 +685,9 @@ def format_dream_prompt(
     # 传统解梦吉凶基线（G4：元素规则层，硬约束注入）
     if elements and luck_level:
         parts.append("\n### 传统解梦吉凶基线（来源：周公解梦 / 敦煌梦书 / 佛滔判词体系）")
+        parts.append(
+            "（口径说明：以下为**传统说法与古籍记载**，属转录文本、**未做版本校勘**，"
+            "只作文化参考，不得当作事实断言或医学/安全建议。）")
         for note in element_notes:
             parts.append(f"- {note}")
         parts.append(f"综合吉凶骨架：{luck_level}")
@@ -692,6 +705,11 @@ def format_dream_prompt(
             parts.append(f"传统吉凶倾向（规则层合成）：{rule_luck}")
         for note in rule_notes:
             parts.append(f"- {note}")
+        if rule_luck in DREAM_LUCK_NEUTRAL:
+            parts.append(
+                f"注意：本梦命中的是**无方向**档（{rule_luck}）——"
+                "语料里没有与它同场景的吉凶判词，**不要替用户下吉凶结论**"
+                "（不说「大吉」「凶兆」这类判断），按情境提醒 + 现实建议来写。")
         parts.append(
             "使用要求：\n"
             "1. 骨架里的**梦境类型 / 核心象征 / 情绪基调**三项必须体现在回答里，"

@@ -71,25 +71,53 @@ NARRATIVE_STOP = {
 
 # brief 明令必须覆盖的交通/驾驶族（控制方真实梦例所在族）。
 # 覆盖量取自真实语料统计（含新增爬取的真实网友梦境），统计不到就如实记 0。
+#
+# r2 整改（控制方 2026-09-18 裁决）：
+# ① **luck 一律「中性」**，不许按语料词频自动判吉——「梦见车祸是吉」是信任事故。
+#    语料里这些词确实常出现在吉向句子里，但那些判词谈的是**别的场景**
+#    （如「梦见老人出车祸…虽有财运可得」），拿词频自动推吉凶是错的。
+# ② **match 收窄到车辆语义**：「迟到/来不及」不是车（实测「梦见上学迟到了」
+#    被误判成赶不上车），已移出本族，另立独立规则（见 MANDATORY_EXTRA）。
+# ③ gloss 必须取**同场景句**，取不到走诚实兜底（见 same_scenario_gloss）。
 MANDATORY_DRIVING = {
     "开车": {"match": ["开车", "驾驶", "自驾", "开夜车", "开快车"],
-             "type": "现代类", "tone": "掌控感与失控担忧"},
+             "type": "现代类", "tone": "提醒：掌控感与失控担忧", "luck": "中性"},
     "车祸": {"match": ["车祸", "出车祸", "撞车", "翻车", "撞人", "被撞", "追尾"],
-             "type": "现代类", "tone": "惊吓与安全焦虑"},
+             "type": "现代类", "tone": "提醒：惊吓与安全焦虑", "luck": "中性"},
     "停车": {"match": ["停车", "停车位", "泊车", "倒车", "车位"],
-             "type": "现代类", "tone": "秩序与掌控需求"},
+             "type": "现代类", "tone": "提醒：秩序与掌控需求", "luck": "中性"},
     "找不到车": {"match": ["找不到车", "车不见", "车没了", "车丢了", "忘了车停"],
-                 "type": "现代类", "tone": "失控与遗失焦虑"},
+                 "type": "现代类", "tone": "提醒：失控与遗失焦虑", "luck": "中性"},
     "迷路": {"match": ["迷路", "找不到路", "找不到回", "走错路", "认不得路", "绕不出去"],
-             "type": "压力类", "tone": "方向感缺失与焦虑"},
-    "赶不上车": {"match": ["赶不上", "没赶上车", "错过车", "误车", "误机", "来不及",
-                        "坐过站", "迟到", "赶车", "赶飞机"],
-                 "type": "压力类", "tone": "时间压迫与错失恐惧"},
+             "type": "压力类", "tone": "提醒：方向感缺失与焦虑", "luck": "中性"},
+    "赶不上车": {"match": ["赶不上车", "没赶上车", "错过车", "误车", "误机",
+                        "坐过站", "赶车", "赶飞机", "错过班车", "错过火车",
+                        "错过航班", "错过地铁", "没赶上"],
+                 "type": "压力类", "tone": "提醒：时间压迫与错失恐惧", "luck": "中性"},
     "堵车": {"match": ["堵车", "塞车", "堵在路上", "堵在路"],
-             "type": "现代类", "tone": "停滞与无力感"},
+             "type": "现代类", "tone": "提醒：停滞与无力感", "luck": "中性"},
     "坐车": {"match": ["坐车", "坐公交", "坐地铁", "乘公交", "坐火车", "坐飞机", "搭车"],
-             "type": "现代类", "tone": "被动与随波"},
+             "type": "现代类", "tone": "提醒：被动与随波", "luck": "中性"},
 }
+
+# 从交通族里**拆出来**的独立规则（r2 I-3）：「迟到/来不及」表达的是时间压迫，
+# 不含车辆语义，塞进「赶不上车」会误伤（实测「梦见上学迟到了」）。
+MANDATORY_EXTRA = {
+    "迟到": {"match": ["迟到", "来不及", "赶时间", "时间不够", "误点", "拖延"],
+             "type": "压力类", "tone": "提醒：时间压力与自责", "luck": "提醒类"},
+}
+
+# 规则候选的停用词 = 叙述词 ∪ 体裁性元词（r2 I-4）。
+# 元词表来自 stats_elements.META_STOPWORDS（其注释原文就是「语料体裁的产物，
+# 不是梦的象征」），初版只把它用在 symbols 上，没用在规则候选上 → 工作/表示/
+# 生活/说明/关系/可能/方面/象征/女性/运势/心理/梦者 这些词混进了规则表。
+RULE_STOPWORDS = set(META_STOPWORDS) | set(NARRATIVE_STOP) | {
+    "意味", "受到", "看见", "认识", "起来", "感到", "作为", "关于", "对于",
+    "以及", "或者", "如果", "虽然", "然后", "于是", "终于", "结果", "原因",
+    "状态", "程度", "方式", "内容", "部分", "以上", "以下", "其中", "其他",
+    "一切", "所有", "各种", "一种", "这个", "那个", "这样", "那样",
+}
+
 
 # 吉凶判定词（语料判词口径，用于从真实语料统计吉凶倾向）
 JI_RE = re.compile(r"(大吉|吉利|吉兆|吉凶指数\d+【?大吉|好运|发财|得财|进财|升官|富贵|"
@@ -199,27 +227,120 @@ def scan_corpus(elements: set) -> tuple:
             uniq.append(e)
     log(f"[scan] 去重语料 {len(uniq)} 条，目标元素 {len(elements)} 个")
 
-    sentences: dict = defaultdict(Counter)
+    sentences: dict = defaultdict(Counter)     # 含该元素的判词句
+    head_sentences: dict = defaultdict(Counter)  # **词条就是该元素**的条目里的判词句
     ji: Counter = Counter()
     xiong: Counter = Counter()
     for e in uniq:
-        core, text = e["core"] if "core" in e else normalize_core(e["title"]), e["content"]
+        core, text = normalize_core(e["title"]), e["content"]
         hits = [el for el in elements if el in core]
         if not hits:
             continue
+        is_head = core in elements          # 「梦见X」的标题正好就是这个元素
         for s in SENT_SPLIT_RE.split(text or ""):
             s = s.strip()
             if not (6 <= len(s) <= 120):
                 continue
+            if not re.search(r"[主有宜忌吉凶]", s):
+                continue
             for el in hits:
-                if el in s and re.search(r"[主有宜忌吉凶]", s):
+                if el in s:
                     sentences[el][s] += 1
+                    if is_head:
+                        head_sentences[el][s] += 1
+        # 吉凶倾向只在**同场景证据**上统计：词条即该元素的条目，或句子的主角
+        # 就是该元素。旧实现把整个条目正文（可能大半在讲别的场景）都算进去，
+        # 才会出现「车祸=吉」这种由别场景判词推出来的方向。
         for el in hits:
-            if JI_RE.search(core + (text or "")[:400]):
+            scope = ""
+            if is_head:
+                scope = text or ""
+            else:
+                scope = " ".join(s for s in SENT_SPLIT_RE.split(text or "")
+                                 if same_scenario(s.strip(), el))
+            if not scope:
+                continue
+            if JI_RE.search(scope):
                 ji[el] += 1
-            if XIONG_RE.search(core + (text or "")[:400]):
+            if XIONG_RE.search(scope):
                 xiong[el] += 1
-    return uniq, sentences, ji, xiong
+    log(f"[scan] 其中「词条即元素」的同场景条目覆盖 {len(head_sentences)} 个元素")
+    return uniq, sentences, ji, xiong, head_sentences
+
+
+# 同场景判词：句子里的元素必须是**这句梦的主角**（起式即 梦见X／梦X／见X…），
+# 而不是「梦见老人出车祸」这种元素只是配角、判词谈的是别的场景的句子。
+SAME_SCENARIO_PREFIXES = ("梦见", "梦到", "梦", "见")
+
+
+def same_scenario(sentence: str, el: str) -> bool:
+    """元素必须是这句梦的**主角且不被复合词吞掉**。
+
+    r2 加严（第一版仍不够）：只要求「句子以梦见+元素开头」会把
+    「梦见**开车撞人**…」当成「开车」的同场景判词、把「梦见**水泥**…」
+    当成「水」的（实测两例都出现了）。
+    现在要求元素后面紧跟**分隔符或常见虚词**——即元素在该句里是完整的词，
+    而不是更长复合词/别的场景的一部分（开车撞人 → 归「开车撞人」那个场景，
+    不归「开车」）。
+    """
+    s = sentence.strip()
+    tail = r"(?:了|着|过|的|者|时|后|之)?"
+    delim = r"[，,。：:；;！？!?、\s]|$"
+    for p in SAME_SCENARIO_PREFIXES:
+        if re.match(rf"^{p}{re.escape(el)}{tail}(?:{delim})", s):
+            return True
+    return False
+
+
+def same_scenario_gloss(el: str, sentences: dict, classics: dict,
+                        head_sentences: dict = None) -> tuple:
+    """取**同场景**释义依据；取不到则诚实兜底。
+
+    证据档次（从强到弱，写进 gloss_evidence 字段，可复核）：
+    1. `classic_quote`          —— 该元素的古籍引文（敦煌本梦书/梦林玄解/断梦秘书…）
+    2. `head_entry`             —— 语料里**词条就是该元素**（「梦见X」）的条目判词句
+    3. `corpus_same_scenario`   —— 句子的主角是该元素（梦见X…）的语料判词句
+    4. `fallback_no_same_scenario` —— 都没有：明说是泛化倾向，不做吉凶判断
+
+    r2 I-2：旧实现直接取「含该元素」的最高频句，会拿别的场景顶
+    （车祸 → 「梦见老人出车祸…虽有财运可得」；水 → 「梦见水泥…」），
+    并把 luck 带偏。
+    """
+    for q in classics.get(el, [])[:1]:
+        return f"《{q['book']}》（转录未校勘）记载：{q['text']}", "classic_quote"
+    for sent, _ in (head_sentences or {}).get(el, Counter()).most_common(5):
+        return f"{sent}（语料「梦见{el}」词条原文）", "head_entry"
+    for sent, _ in sentences.get(el, Counter()).most_common(20):
+        if same_scenario(sent, el):
+            return f"{sent}（语料同场景判词）", "corpus_same_scenario"
+    return ("", "fallback_no_same_scenario")
+
+
+# 吉凶语义字：fallback（无同场景依据）的规则不得带这类「象征词」——
+# 否则「车祸」的核心象征里会出现「吉祥」（来自别的场景的共现），
+# 与「不做吉凶判断」自相矛盾（r2 I-2 同类问题）。
+LUCK_SEMANTIC_RE = re.compile(r"[吉凶祥瑞福禄寿财喜祸灾煞克破败亡死病]")
+
+
+def drop_luck_semantic(symbols: list) -> list:
+    return [s for s in symbols if not LUCK_SEMANTIC_RE.search(s)]
+
+
+def mandatory_gloss(el: str, sentences: dict, classics: dict, head_sentences: dict = None,
+                    reason: str = "现实驾驶/事故类梦境是现代新增题材，"
+                                  "古典梦书成书时无此类") -> tuple:
+    """强制族（交通/事故/时间压力）的释义依据：**只认同场景**，否则诚实兜底。
+
+    r2 I-2 实测错误：旧实现给「车祸」取到的句子是「梦见老人出车祸，得此梦，
+    虽有财运可得…」——含「车祸」但讲的是别人的场景，被当成了车祸梦的判词。
+    """
+    g, ev = same_scenario_gloss(el, sentences, classics, head_sentences)
+    if g:
+        return g, ev
+    return ("本批语料里没有匹配到与「" + el + "」同场景的吉凶判词句"
+            f"（{reason}；判定口径见 build_rules.same_scenario）；"
+            "本条不做吉凶判断，只作情境提醒，释义来自该情境的普遍心理描述",
+            "fallback_no_same_scenario")
 
 
 def luck_from_counts(n_ji: int, n_xiong: int) -> str:
@@ -268,20 +389,35 @@ def main() -> int:
     log(f"[load] Top 表 {len(top)} 行；站点分类映射 {len(site_cat)} 元素；"
         f"古籍引文 {len(classics)} 元素")
 
-    # 候选：Top 表中覆盖量达标、且不在叙述性停用词里
+    # 候选：Top 表中覆盖量达标、且**不是叙述性/体裁性元词**。
+    # r2 I-4：初版只过滤 NARRATIVE_STOP，漏了 META_STOPWORDS（工作/表示/生活/
+    # 说明/关系/可能/方面/象征/女性/运势/心理/梦者…）——那些词在注释里就写明
+    # 「是语料体裁的产物，不是梦的象征」，却混进了规则表，被写进给 LLM 的 notes。
+    # 现在两张表合并生效，并把剔除清单落盘（可复核，不是静默丢弃）。
+    excluded = []
     cands = []
     for r in top:
         el = r["element"]
-        if el in NARRATIVE_STOP or len(el) < 1:
+        if not el:
+            continue
+        if el in RULE_STOPWORDS:
+            excluded.append({"element": el, "coverage": int(r["coverage"]),
+                             "reason": "narrative_or_meta_word"})
             continue
         if int(r["coverage"]) < args.min_coverage:
             continue
         cands.append(el)
     cands = cands[:args.top]
-    log(f"[pick] 语料 Top 候选 {len(cands)} 个（覆盖 ≥{args.min_coverage}）")
+    (REPORTS / "rule_exclusions.json").write_text(
+        json.dumps({"generated_at": now_iso(),
+                    "stopwords": sorted(RULE_STOPWORDS),
+                    "excluded_from_rules": excluded}, ensure_ascii=False, indent=1),
+        encoding="utf-8")
+    log(f"[pick] 语料 Top 候选 {len(cands)} 个（覆盖 ≥{args.min_coverage}）；"
+        f"按元词/叙述词剔除 {len(excluded)} 个（清单见 rule_exclusions.json）")
 
     elements = set(cands) | set(MANDATORY_DRIVING)
-    uniq, sentences, ji, xiong = scan_corpus(elements)
+    uniq, sentences, ji, xiong, head_sentences = scan_corpus(elements)
 
     # 交通驾驶族的覆盖量：在**真实语料**里现算（含新增爬取的真实网友梦境文本）
     real_text_hits: Counter = Counter()
@@ -314,19 +450,24 @@ def main() -> int:
         if not alts:
             continue
         alts = sorted(set(alts), key=len, reverse=True)[:5]
-        gloss = ""
-        for q in classics.get(el, [])[:1]:
-            gloss = f"《{q['book']}》：{q['text']}"
-        if not gloss and sentences[el]:
-            gloss = f"{sentences[el].most_common(1)[0][0]}（语料高频判词）"
-        if not gloss:
-            gloss = f"语料中含「{el}」的梦境共 {cov} 条，传统判词以吉凶两向并存"
+        gloss, ev_kind = same_scenario_gloss(el, sentences, classics, head_sentences)
+        if ev_kind == "fallback_no_same_scenario":
+            # 没有同场景证据 → 不给方向性吉凶（宁缺勿误导），gloss 明说是泛化倾向
+            luck = "中性"
+            gloss = (f"本批语料里没有匹配到与「{el}」同场景的吉凶判词句"
+                     f"（含该元素的条目 {cov} 条，但判词句谈的是其他场景/复合情境）；"
+                     f"此处只给泛化倾向，不构成吉凶判断")
+        else:
+            luck = luck_from_counts(ji[el], xiong[el])
         rules.append({
             "name": el, "match": "|".join(re.escape(a) for a in alts),
             "type": ptype, "symbols": syms,
             "tone": tone_from(ji[el], xiong[el], syms),
-            "luck": luck_from_counts(ji[el], xiong[el]),
+            "luck": luck,
             "gloss": gloss, "coverage": cov,
+            # M-3：覆盖量口径必须写在数据里（两种口径不能混着看）
+            "coverage_basis": "标题核心串含该元素的去重语料条数",
+            "gloss_evidence": ev_kind,
             "evidence": {"ji": ji[el], "xiong": xiong[el],
                          "sentences": len(sentences[el])},
             "source": "corpus_stats",
@@ -337,36 +478,59 @@ def main() -> int:
     # 「朋友开车/天开车/友开车」这类 n-gram），而这一族是控制方实测梦例所在族，
     # 匹配面必须干净、可预期。覆盖量仍取真实统计值。
     by_name = {r["name"]: r for r in rules}
-    for name, spec in MANDATORY_DRIVING.items():
-        if name in by_name:
-            r = by_name[name]
-            r["match"] = "|".join(re.escape(a) for a in spec["match"])
-            r["type"] = spec["type"]
-            r["tone"] = spec["tone"]
-            r["coverage"] = max(r["coverage"], real_text_hits.get(name, 0))
-            r["source"] = "corpus_stats+mandatory_driving_family"
-            r["evidence"]["real_dream_text_hits"] = real_text_hits.get(name, 0)
-            continue
-        cov = real_text_hits.get(name, 0)
-        syms = [s for s in symbols_map.get(name, []) if s != name][:6] or \
-               [s for s in symbols_map.get("车", []) if s != "车"][:6]
-        gloss = ""
-        for q in classics.get(name, [])[:1]:
-            gloss = f"《{q['book']}》：{q['text']}"
-        if not gloss and sentences.get(name):
-            gloss = f"{sentences[name].most_common(1)[0][0]}（语料高频判词）"
-        if not gloss:
-            gloss = ("词典式语料对该族覆盖很低（现实驾驶类梦境是现代新增题材，"
-                     "古典梦书成书时无此类），释义取自真实网友梦境语料的高频情境")
-        rules.append({
-            "name": name, "match": "|".join(re.escape(a) for a in spec["match"]),
-            "type": spec["type"], "symbols": syms, "tone": spec["tone"],
-            "luck": luck_from_counts(ji.get(name, 0), xiong.get(name, 0)),
-            "gloss": gloss, "coverage": cov,
-            "evidence": {"ji": ji.get(name, 0), "xiong": xiong.get(name, 0),
-                         "real_dream_text_hits": cov},
-            "source": "corpus_stats+mandatory_driving_family",
-        })
+    for family, table in (("mandatory_driving_family", MANDATORY_DRIVING),
+                          ("mandatory_time_pressure", MANDATORY_EXTRA)):
+        for name, spec in table.items():
+            if name in by_name:
+                r = by_name[name]
+                r["match"] = "|".join(re.escape(a) for a in spec["match"])
+                r["type"] = spec["type"]
+                r["tone"] = spec["tone"]
+                # r2 I-2：吉凶**由 brief 口径指定**（交通/事故族＝中性或提醒类），
+                # 不再由语料词频自动推——那些判词讲的是别的场景。
+                r["luck"] = spec["luck"]
+                r["coverage"] = max(r["coverage"], real_text_hits.get(name, 0))
+                r["source"] = f"corpus_stats+{family}"
+                r["coverage_basis"] = "标题核心串含该元素的去重语料条数（与真实梦境正文命中数取较大）"
+                r["symbols_basis"] = "corpus_cooccurrence" if symbols_map.get(name) else "family_tone_derived"
+                r["evidence"]["real_dream_text_hits"] = real_text_hits.get(name, 0)
+                g, ev = mandatory_gloss(
+                    name, sentences, classics, head_sentences,
+                    "现实驾驶/事故类梦境是现代新增题材，古典梦书成书时无此类"
+                    if family == "mandatory_driving_family"
+                    else "时间压力类梦境没有对应的古典判词")
+                r["gloss"], r["gloss_evidence"] = g, ev
+                if ev == "fallback_no_same_scenario":
+                    r["symbols"] = drop_luck_semantic(r["symbols"]) or r["symbols"]
+                continue
+            cov = real_text_hits.get(name, 0)
+            syms = [s for s in symbols_map.get(name, []) if s != name][:6]
+            if not syms:
+                if family == "mandatory_driving_family":
+                    syms = [s for s in symbols_map.get("车", []) if s != "车"][:6]
+                else:
+                    # 时间压力族在语料里没有共现象征可用：直接由该族 tone 派生
+                    # （tone 是 brief 口径给的），并标注 basis，避免读者误以为是统计值
+                    syms = [w for w in re.split(r"[：与、]", spec["tone"]) if w][1:]
+            gloss, ev_kind = mandatory_gloss(
+                name, sentences, classics, head_sentences,
+                "现实驾驶/事故类梦境是现代新增题材，古典梦书成书时无此类"
+                if family == "mandatory_driving_family"
+                else "时间压力类梦境没有对应的古典判词")
+            if ev_kind == "fallback_no_same_scenario":
+                syms = drop_luck_semantic(syms) or syms
+            rules.append({
+                "name": name, "match": "|".join(re.escape(a) for a in spec["match"]),
+                "type": spec["type"], "symbols": syms, "tone": spec["tone"],
+                "luck": spec["luck"],
+                "gloss": gloss, "coverage": cov,
+                "coverage_basis": "真实梦境正文命中条数（该族在词典式语料里覆盖极低）",
+                "symbols_basis": "corpus_cooccurrence" if symbols_map.get(name) else "family_tone_derived",
+                "gloss_evidence": ev_kind,
+                "evidence": {"ji": ji.get(name, 0), "xiong": xiong.get(name, 0),
+                             "real_dream_text_hits": cov},
+                "source": f"corpus_stats+{family}",
+            })
 
     # 去重（按 name）+ 排序（覆盖量降序，强制族置前）
     seen, uniq_rules = set(), []
@@ -381,11 +545,20 @@ def main() -> int:
     # 写 CSV 清单
     with open(OUT_TABLE, "w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["name", "type", "coverage", "luck", "tone", "symbols",
-                    "match", "gloss", "ji", "xiong"])
+        # M-3：coverage 有两种口径（标题核心串 / 真实梦境正文命中），
+        # 必须在表内标注，不能让两种口径混着看。
+        w.writerow(["name", "type", "coverage", "coverage_basis", "luck", "luck_basis",
+                    "tone", "symbols", "symbols_basis", "match", "gloss",
+                    "gloss_evidence", "ji", "xiong"])
         for r in uniq_rules:
-            w.writerow([r["name"], r["type"], r["coverage"], r["luck"], r["tone"],
-                        "、".join(r["symbols"]), r["match"], r["gloss"],
+            luck_basis = ("brief 指定（交通/事故/时间压力族不做吉凶推断）"
+                          if "mandatory" in r["source"] else "语料同场景判词词频")
+            w.writerow([r["name"], r["type"], r["coverage"],
+                        r.get("coverage_basis", "标题核心串含该元素的去重语料条数"),
+                        r["luck"], luck_basis, r["tone"],
+                        "、".join(r["symbols"]), r.get("symbols_basis", ""),
+                        r["match"], r["gloss"],
+                        r.get("gloss_evidence", ""),
                         r["evidence"].get("ji", 0), r["evidence"].get("xiong", 0)])
 
     # 写 Python 模块
@@ -396,12 +569,15 @@ def main() -> int:
         "- 元素清单与覆盖量：reports/element_freq_top.csv（去重语料 "
         f"{len(uniq)} 条）",
         "- 核心象征：reports/element_symbols.json（语料共现实词）",
-        "- 传统释义：clean/public_domain_quotes.jsonl（公版古籍条文）优先，",
-        "  否则取语料高频判词句",
+        "- 传统释义：clean/public_domain_quotes.jsonl（**古籍引文，转录未校勘**）",
+        "  优先，且必须**同场景**；取不到走诚实兜底（gloss_evidence 字段标注来源档次）",
         "- 类型：站点自有分类（data/competitor_data 的 category 字段）优先",
-        "- 吉凶：语料判词词频统计（JI/XIONG 正则计数）",
+        "- 吉凶：语料**同场景**判词词频统计；无同场景证据时取「中性」不做方向判断；",
+        "  交通/事故/时间压力族由 brief 口径直接指定（中性/提醒类），不由词频推断",
+        "- 覆盖量：字段 coverage 的口径见 coverage_basis（两种口径不可混看）",
         "",
-        "约束：match 每个分支均 ≥2 字（k49 教训：单字条目会前缀误伤）。",
+        "约束：match 每个分支均 ≥2 字（k49 教训：单字条目会前缀误伤）；",
+        "叙述性/体裁性元词不得成为规则条目（见 build_rules.RULE_STOPWORDS）。",
         '"""',
         "",
         "# Hall & Van de Castle 梦境内容常模（来源：dreams.ucsc.edu/Norms，",
@@ -449,6 +625,9 @@ def main() -> int:
         lines.append(f'        "luck": {r["luck"]!r},')
         lines.append(f'        "gloss": {r["gloss"]!r},')
         lines.append(f'        "coverage": {r["coverage"]!r},')
+        lines.append(f'        "coverage_basis": {r.get("coverage_basis", "")!r},')
+        lines.append(f'        "gloss_evidence": {r.get("gloss_evidence", "")!r},')
+        lines.append(f'        "symbols_basis": {r.get("symbols_basis", "")!r},')
         lines.append(f'        "source": {r["source"]!r},')
         lines.append("    },")
     lines += ["]", "", f"RULE_COUNT = {len(uniq_rules)}", ""]
