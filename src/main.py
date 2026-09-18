@@ -2687,18 +2687,42 @@ async def get_membership(user_id: str, uid: str = Depends(require_user)):
 
 
 @app.post("/api/membership/{user_id}/upgrade")
-async def upgrade_membership(user_id: str, plan: str = Query(..., description="free/basic/pro/annual"), uid: str = Depends(require_user)):
-    """升级会员计划 (模拟支付)。
+async def upgrade_membership(request: Request, user_id: str, plan: str = Query(..., description="free/basic/pro/annual"), uid: str = Depends(require_user)):
+    """升级会员计划（模拟支付 → 自动确认）——**超管改档口**（k54 安全收口）。
 
     安全修复（审计 E8）：必须登录 + owner 校验（防给别人改会员）。
 
-    k53 生产门禁：本端点**只有「模拟支付 + 自动确认」一条路径**（不存在真实支付通道，
-    也就没有「配置齐全」的合法状态）——生产放行 = 任何登录用户都能自助领取付费会员
-    （分文未收但权益已发，与 k53 堵的 mock 漏损同类，且门槛更低：仅需一个 JWT）。
-    故生产一律 503 {code: pay_unavailable}；非生产（dev/体验态）演示路径不变。
-    注意 `plan=free`（降级回免费版）不放行权益，不在门禁内，生产仍可用。
+    k54 安全收口（P0，《接口安全红线》）：旧实现**任何登录用户可自助把 plan 改成
+    basic/pro/annual 并自动确认支付**（免费拿付费权益 + 落一条 payment_method='模拟支付'
+    的假订单）。k54 起关闭自助口——普通用户一律 403 且**零副作用**（不下单、不写
+    memberships/payments）。放行条件（依次全过，任一不过即拒；fail-closed）：
+      ① JWT 已验签（`require_user`：无 token/过期/API key → 401）；
+      ② 路径 user_id == JWT sub（`ensure_owner`：给别人改档 → 403 零变化；**即使超管
+         也只能改自己**，本批不放宽归属校验）；
+      ③ 已验证 JWT 的 sub ∈ ADMIN_IDS（k36 超管白名单**单一事实源** `src/security/admin.py`；
+         与 `/api/admin/*` 共用 `admin_identity_from_authorization`；未配置/为空 → 恒不命中
+         → 403；命中写既有审计 `admin_endpoint_access`）。判据唯一：请求头/查询参数自称
+         admin、JWT role claim、API key 一律**不作判据**。
+      开发/本地自测：把本机登录 user_id 写进环境变量 `ADMIN_IDS` 后本端点照常可用。
+
+    k53 生产门禁（本端点**只有「模拟支付 + 自动确认」一条路径**，不存在"配置齐全"的
+    合法状态）：生产环境一律 503 `{code: pay_unavailable}`（放行 = 任何登录用户自助领
+    付费会员，分文未收但权益已发）。**本门在 k54 超管门之后** → 生产环境下非超管所见
+    是 403、超管所见是 503，两条都不会发出权益。非生产（dev/体验态）演示路径不变。
+    用户真实开通链路走前端实际路径 `POST /api/pay/subscribe`（src/api/pay.py）。
+
     """
     ensure_owner(user_id, uid)
+
+    # k54：超管门在任何写库动作之前（含 DAO 引用读取之后的一切副作用）
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "")
+    if not admin_identity_from_authorization(
+            request.headers.get("Authorization", ""), request.url.path, ip):
+        logger.warning("鉴权拒绝 403: path=%s user=%s 非超管调用会员改档（k54：自助模拟支付已关闭）",
+                       request.url.path, uid)
+        raise HTTPException(status_code=403, detail="会员改档仅限超管（自助模拟支付已关闭）")
+
     if member_dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
