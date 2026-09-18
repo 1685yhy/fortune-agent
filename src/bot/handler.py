@@ -1413,12 +1413,75 @@ def _tp_subject_tail_re():
     return _TP_SUBJECT_TAIL_RE
 
 
-def _is_third_party_date_candidate(msg: str, c) -> bool:
-    """该日期候选（年或月日）是否属于**第三人**（同小句主语段末尾是第三方指代）。"""
+# ── k56：**归属层**（"这段信息是谁的"）——候选选择层之前的唯一标签实现 ──────
+# 背景：k50 四轮都在同一处"消息级闸门 + 各种豁免"上加条件，每加一条就冒一个新族。
+# 根因是"归属判定"没有独立层。本层给**每个日期候选**（年 / 数字月日 / 中文月日）
+# 打标签，采纳面只在「本人 + 未知」候选里做单/多日期裁决。
+ATT_SELF = "self"
+ATT_OTHER = "other"
+ATT_UNKNOWN = "unknown"
+# 自述代词尾锚（与第三方尾锚同一机器：主语段末尾即指代）
+_SELF_SUBJECT_RE = re.compile(r'(?:^|[^他她其])?(?:我|俺|咱|咱们|本人|自己)$')
+
+
+def _subject_owner(msg: str, pos: int, end: int) -> str:
+    """候选**同小句主语段**的归属标签（k56，**单一实现**）。
+
+    与 k50-r4 的第三方判据**同一套机器**（`person_dao._clause_span` +
+    `_TP_SUBJECT_FILLER_RE` + `_tp_subject_tail_re()`）：主语段末尾是第三方指代
+    （`我老公`/`他`/`朋友`）→ `other`；是自述代词（`我`/`咱`/`本人`）→ `self`；
+    无主语线索 → `unknown`（**按本人处理**，保持"未指明即本人"的既有口径）。
+    """
     from src.storage.person_dao import _clause_span
-    a, _b = _clause_span(msg, c.start(), c.end())
-    _head = _TP_SUBJECT_FILLER_RE.sub('', msg[a:c.start()])
-    return bool(_tp_subject_tail_re().search(_head))
+    a, _b = _clause_span(msg, pos, end)
+    _head = _TP_SUBJECT_FILLER_RE.sub('', msg[a:pos])
+    if _tp_subject_tail_re().search(_head):
+        return ATT_OTHER
+    if _SELF_SUBJECT_RE.search(_head):
+        return ATT_SELF
+    return ATT_UNKNOWN
+
+
+def _cand_owner(msg: str, cand) -> str:
+    """候选（match / `_CnMdCand` / 年 match）的归属标签。"""
+    return _subject_owner(msg, cand.start(), cand.end())
+
+
+# k56：**中文数字年**也进同一套候选（k50 已披露的"中文年不进否定裁决"缺口，同一根因）
+_CN_YEAR_RE = re.compile(r'([〇零一二三四五六七八九]{4})\s*年')
+
+
+def _year_of_match(m):
+    """年份 match → int（阿拉伯 4 位 / 中文数字年，k56 统一取值）。"""
+    if m is None:
+        return None
+    for g in m.groups():
+        if g and g.isdigit():
+            return int(g)
+    _t = m.group(0)
+    _d = re.match(r'\s*(\d{4})', _t)
+    if _d:
+        return int(_d.group(1))
+    _cn = _CN_YEAR_RE.match(_t)
+    return _cn_year_to_int(_cn.group(1)) if _cn else None
+
+
+def _drop_other_candidates(msg: str, cands) -> list:
+    """剔除**他人**候选（k56 归属层唯一入口）：`我老公是腊月廿六生的` 的 12/26、
+    `我1995年生的，我老公是1999年5月20日生的` 的 5月20日 都不进本人的采纳面。
+    第三方**排盘请求**（B3-1：`帮我朋友排个盘，他1976年…`）由调用方整体豁免。"""
+    return [c for c in (cands or ()) if _cand_owner(msg, c) != ATT_OTHER]
+
+
+def _first_by_position(cands) -> "object":
+    """按**文档序**取首个候选（数字月日与中文月日**同一套**：不再"中文优先"）。"""
+    _all = [c for c in (cands or ()) if c is not None]
+    return min(_all, key=lambda c: c.start()) if _all else None
+
+
+def _is_third_party_date_candidate(msg: str, c) -> bool:
+    """该日期候选（年或月日）是否属于**第三人**（归属层 `other` 的薄封装）。"""
+    return _cand_owner(msg, c) == ATT_OTHER
 
 
 def _ym_group_year_for_md(msg: str, year_matches, md_pick):
@@ -7626,25 +7689,37 @@ class MessageHandler:
         # 见 `_affirmed_pick`）——`我不是1995年生的，是1999年生的` → 1999；
         # `我1999年5月20日生的，不是1995年3月8日生的` → 1999-05-20（年与月日
         # 不得被拆到两个小句各取一半）。applied=False → 基线首命中口径。
-        _ym_all = list(re.finditer(
-            r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})|'
-            r'(\d{4})\s*[-/]\s*\d{1,2}', msg))
+        _ym_all = sorted(
+            list(re.finditer(
+                r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})|'
+                r'(\d{4})\s*[-/]\s*\d{1,2}', msg))
+            + list(_CN_YEAR_RE.finditer(msg)),
+            key=lambda _m: _m.start())
         _md_all = [c for c in _MD_CAND_RE.finditer(msg)
                    if _valid_month_day(c)
                    and _numeric_date_looks_like_birth(msg, c)]
         # k50-1：中文数字月日候选（全部命中）与数字月日**合流**进同一套否定裁决
         _cn_all = [_CnMdCand(c) for c in _CN_MD_RE.finditer(msg)
                    if _cn_month_day_of(c)]
+        # k56 归属层（单一入口，与 `_extract_partial_birth` 同款）：他人候选不进
+        # 本人采纳面；第三方排盘请求（B3-1）整体豁免（那是**给对方**提取）
+        if not self._is_third_party_birth_request(msg):
+            _ym_all = _drop_other_candidates(msg, _ym_all)
+            _md_all = _drop_other_candidates(msg, _md_all)
+            _cn_all = _drop_other_candidates(msg, _cn_all)
         _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all, _cn_all)
-        # k50-r4：非纠正路径的年**与采纳的月日同源**（同一日期组；中文月日优先
-        # 的路径不适用——那时月日不来自数字候选）。无同组年 → 回落首命中 ✓
-        if not _applied and _md_all and not _parse_cn_month_day(msg):
-            _gy = _ym_group_year_for_md(msg, _ym_all, _md_all[0])
+        # k56：数字/中文**同一套**候选选择（文档序），不再"中文优先/数字兜底"
+        _md_pick = (_pm if _applied else _first_by_position(_md_all + _cn_all))
+        # k50-r4：非纠正路径的年**与采纳的月日同源**（同一日期组；中文月日不适用
+        # ——中文月日不来自数字候选）。无同组年 → 回落首命中 ✓
+        if (not _applied and _md_pick is not None
+                and not isinstance(_md_pick, _CnMdCand)):
+            _gy = _ym_group_year_for_md(msg, _ym_all, _md_pick)
             if _gy is not None:
                 _ym_all = [_gy]
         ym = _py if _applied else (_ym_all[0] if _ym_all else None)
         if ym:
-            year = int(ym.group(1) or ym.group(2) or ym.group(3) or ym.group(4) or ym.group(5))
+            year = _year_of_match(ym)
 
         if not year or year < 1900 or year > 2100:
             return None
@@ -7652,37 +7727,18 @@ class MessageHandler:
         # Step 2: Extract month and day — try Chinese lunar first
         month = day = None
         is_lunar = False
-        if _applied:
-            # k49-r3/k50-1：否定裁决已给出**被肯定**的月日候选（数字或中文数字，
-            # 同源成组）——直接采用；pm=None 表示无被肯定值（放弃月日，绝不回退
-            # 去写被否定的那个）。
-            if _pm is not None:
-                month, day = _md_value(_pm)
-                if isinstance(_pm, _CnMdCand):
-                    is_lunar = True
-                elif re.search(r'农历|阴历', msg):
-                    is_lunar = True
-            cn_md = None
-        else:
-            cn_md = _parse_cn_month_day(msg)
-        if cn_md:
-            month, day = cn_md
-            is_lunar = True  # 中文数字月日（三月初三/三月28）→ 农历口径
-        elif not _applied:
-            # Try numeric date: 8月15日, 10月10日（自带日期单位，强形态）,
-            # 8-15 / 11.20（**含混形态**，k48 起需候选附近有出生语境才取，
-            # 见 _numeric_date_looks_like_birth ③-d）
-            # (?<!\d) 防止 dash 年份被误拆（"1990-05-20" 不能匹配成 "90-05"）
-            # k48-r2 I-2：**遍历全部候选**逐个过闸门，取首个通过者（不是
-            # "只取首个候选，被否决即整条月日作废"——`房贷利率4.9%，我1990年
-            # 5月20日出生` 改前只剩 year）。取"首个通过"而非"最后一个"：
-            # 最后一个会把「…出生，2026年10月1日结婚」的婚期当日辰。
-            md = _md_all[0] if _md_all else None
-            if md:
-                month, day = _md_value(md)
-                # 阿拉伯数字 + 显式农历/阴历前缀（"农历1999年3月28"）→ 农历
-                if re.search(r'农历|阴历', msg):
-                    is_lunar = True
+        if _md_pick is not None:
+            # k49-r3/k50-1：否定裁决已给出**被肯定**的月日候选；非纠正路径则由
+            # k56 的统一候选选择给出（数字或中文数字，**同一套**文档序）。
+            month, day = _md_value(_md_pick)
+            if isinstance(_md_pick, _CnMdCand):
+                is_lunar = True  # 中文数字月日（三月初三/三月28）→ 农历口径
+            elif re.search(r'农历|阴历', msg):
+                is_lunar = True
+        # （原"中文优先 / 数字兜底"两段已合并为上面的 `_md_pick` 单一选择：
+        #   候选闸门 `_numeric_date_looks_like_birth` 不变——`房贷利率4.9%，
+        #   我1990年5月20日出生` 仍取 5/20（4.9% 被 ① 挡住）、
+        #   `…出生，2026年10月1日结婚` 的婚期仍被 ①b 挡住 ✓）
 
         if not month or not day or abs(month) > 12 or day < 1 or day > 31:
             return None  # month=0/None 或超界 → 放弃本提取（不误传引擎）
@@ -7915,26 +7971,38 @@ class MessageHandler:
         # "我公历1976生的"在渐进累积通道里年份永远缺失（分步补全死循环问年份）。
         # k49-r3（R2-3/R3-1）：明示纠正句式下取**被肯定**的年/月日（同源成组，
         # 与 `_extract_bazi_info` 同一助手 `_affirmed_pick`）
-        _ym_all = list(re.finditer(
-            r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})',
-            msg))
+        # k56：中文数字年并入**同一套**年候选（k50 披露的"中文年不进否定裁决"缺口）
+        _ym_all = sorted(
+            list(re.finditer(
+                r'(\d{4})\s*年|公历\s*(\d{4})|阳历\s*(\d{4})|公元\s*(\d{4})',
+                msg)) + list(_CN_YEAR_RE.finditer(msg)),
+            key=lambda _m: _m.start())
         _md_all = [c for c in _MD_CAND_RE.finditer(msg)
                    if _valid_month_day(c)
                    and _numeric_date_looks_like_birth(msg, c)]
         # k50-1：中文数字月日候选合流（与 `_extract_bazi_info` 同一助手）
         _cn_all = [_CnMdCand(c) for c in _CN_MD_RE.finditer(msg)
                    if _cn_month_day_of(c)]
+        # k56 归属层（单一入口）：他人候选不进本人采纳面——年/数字月日/中文月日
+        # **同一套**；第三方排盘请求（B3-1）整体豁免（那是**给对方**提取）
+        if not self._is_third_party_birth_request(msg):
+            _ym_all = _drop_other_candidates(msg, _ym_all)
+            _md_all = _drop_other_candidates(msg, _md_all)
+            _cn_all = _drop_other_candidates(msg, _cn_all)
         _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all, _cn_all)
-        # k50-r4：非纠正路径的年**与采纳的月日同源**（同一日期组；中文月日优先
-        # 的路径不适用——那时月日不来自数字候选）。无同组年 → 回落首命中 ✓
-        if not _applied and _md_all and not _parse_cn_month_day(msg):
-            _gy = _ym_group_year_for_md(msg, _ym_all, _md_all[0])
+        # k56：数字/中文**同一套**候选选择（文档序），不再"中文优先/数字兜底"
+        _md_pick = (_pm if _applied else _first_by_position(_md_all + _cn_all))
+        # k50-r4：非纠正路径的年**与采纳的月日同源**（同一日期组；中文月日不适用
+        # ——中文月日不来自数字候选）。无同组年 → 回落首命中 ✓
+        if (not _applied and _md_pick is not None
+                and not isinstance(_md_pick, _CnMdCand)):
+            _gy = _ym_group_year_for_md(msg, _ym_all, _md_pick)
             if _gy is not None:
                 _ym_all = [_gy]
         ym = _py if _applied else (_ym_all[0] if _ym_all else None)
         if ym:
-            y = int(next(g for g in ym.groups() if g))
-            if 1900 <= y <= 2100:
+            y = _year_of_match(ym)
+            if y is not None and 1900 <= y <= 2100:
                 year = y
         if year is None:
             ym_cn4 = re.search(r'([〇零一二三四五六七八九]{4})年', msg)
@@ -7964,26 +8032,11 @@ class MessageHandler:
         #    现有链路处理；部分信息阶段保持原文即可）──
         month = day = None
         _md_is_cn = False
-        if _applied:
-            # k49-r3/k50-1：否定裁决给出的**被肯定**月日（数字或中文数字，同源）
-            if _pm is not None:
-                month, day = _md_value(_pm)
-                _md_is_cn = isinstance(_pm, _CnMdCand)
-            cn_md = None
-        else:
-            cn_md = _parse_cn_month_day(msg)
-            _md_is_cn = bool(cn_md)
-        if cn_md:
-            month, day = cn_md
-        elif not _applied:
-            # k48-r2 I-2：遍历全部候选取首个通过闸门者（见 _extract_bazi_info
-            # 同款说明）；k48 闸门①③：百分比/小数/金额/薪资类数字与非法日期
-            # 形态不作数（用户原话「各缴纳4.5%」修前在此被当 4月5日 → 两张盘）
-            # `(?<!\d)`：与全量提取器同口径（防"1985.3.28"被 `85.3` 抢先命中
-            # 而把真的 `3.28` 整条带丢——k48-r2 I-2 家族）
-            md = _md_all[0] if _md_all else None
-            if md:
-                month, day = _md_value(md)
+        if _md_pick is not None:
+            # k49-r3/k50-1：否定裁决给出的**被肯定**月日，或（非纠正路径）文档序
+            # 首个过闸门的候选（数字或中文数字，**同一套**）
+            month, day = _md_value(_md_pick)
+            _md_is_cn = isinstance(_md_pick, _CnMdCand)
         if month and day and abs(month) <= 12 and 1 <= day <= 31:
             out["month"] = month
             out["day"] = day
