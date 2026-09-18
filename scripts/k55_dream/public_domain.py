@@ -257,8 +257,10 @@ def main() -> int:
         title = r["text"][:40]
         # 出处标注口径（控制方 r2 裁决）：这是**古籍引文（转录，未校勘）**，
         # 不是「《X》原文·某版本」，措辞上不许暗示做过版本校勘。
-        vol = (r.get("volume") or "").strip()
-        mark = f"《{r['book']}》" + (f"·{vol}" if vol else "")
+        # 出处标注必须自带「转录未校勘」限定（r2 I-1）：产品文案口径是
+        # 「传统说法/古籍记载」，不许暗示「《X》原文·某版本」。
+        vol = (r.get("volume") or "转录未校勘").strip()
+        mark = f"《{r['book']}》·{vol}"
         content = f"{r['text']}。（{mark}）"
         writer.write(title=title, content=content, url=r.get("source_url", ""),
                      book=r["book"], volume=r.get("volume", ""),
