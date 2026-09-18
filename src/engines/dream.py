@@ -12,9 +12,22 @@ G4 三项修复（2026-08-29 佛滔对比实测取证，见 /tmp/dream_compare.m
 """
 from dataclasses import dataclass, field
 from typing import List, Tuple
+import math
 import re
 
 from src.book_categories import ref_text
+
+# k55：语料统计生成的新规则层（147 条模式 + HVDC 常模 + 现实投影口径）。
+# 生成脚本 scripts/k55_dream/build_rules.py；模块缺失时退化为「无规则层」，
+# 老行为不受影响（导入失败绝不阻断解梦主流程）。
+try:  # pragma: no cover - 导入分支
+    from src.engines.dream_rules import (
+        DREAM_PATTERN_RULES,
+        HVDC_NORMS,
+        REALITY_PROJECTION,
+    )
+except Exception:  # pragma: no cover
+    DREAM_PATTERN_RULES, HVDC_NORMS, REALITY_PROJECTION = [], {}, {}
 
 
 @dataclass
@@ -31,6 +44,14 @@ class DreamResult:
     element_notes: list = field(default_factory=list)  # 每元素吉凶基线+依据（变体优先）
     luck_level: str = ""       # 综合吉凶骨架：大吉/吉/吉多于凶/凶多于吉/凶（空=未命中元素）
     luck_reason: str = ""      # 吉凶依据（古籍/佛滔判词锚点）
+
+    # k55 新增字段（同样只加不删；老消费点 getattr 安全）
+    # 规则层改造：匹配改打分（可多命中）→ 三项（类型/象征/情绪基调）非空
+    tones: list = field(default_factory=list)        # 情绪基调（规则层 tone + 情绪词）
+    rule_hits: list = field(default_factory=list)    # 命中规则名（按分降序，可多命中）
+    rule_notes: list = field(default_factory=list)   # 每条规则骨架（含覆盖量/依据）
+    rule_luck: str = ""       # 规则层吉凶倾向（**独立字段**：不改 luck_level 契约）
+    reality_projection: str = ""  # 「这是你现实的投影」口径（HVDC 常模）
 
 
 # ── 吉凶等级排序（保守合成用） ──────────────────────────────────────
@@ -224,6 +245,70 @@ class DreamEngine:
         "这个梦会不会真的发生？梦不好时该怎么办？",
     ]
 
+    # ── k55 规则层：打分匹配（可多命中） ────────────────────────────
+    def match_patterns(self, text: str, top_n: int = 5) -> List[dict]:
+        """对全部语料统计规则打分，返回按分降序的命中列表（可多命中）。
+
+        打分（三项均为可解释量，不是拍脑袋权重）：
+        - 覆盖量：2.0 * log1p(coverage) —— 该模式在真实语料里有多少条支撑；
+        - 具体性：0.5 * min(命中长度, 6) —— 命中的是「开车」还是「朋友开车」；
+        - 名称直命中：+1.0 —— 命中串恰好等于规则名（最精确的一档）。
+
+        去重：后命中若完全落在已保留命中的区间内，视为重复，丢弃
+        （如「开车」已被保留时，其子串命中不再重复计一次）。
+        """
+        hits = []
+        for r in DREAM_PATTERN_RULES:
+            # 逐条规则取「本规则最好的一次出现」：同一梦可能多次提到同一意象
+            # （「开车出去…把车留在半道」），只看第一处会漏掉后文信息；
+            # 比较口径同打分（名称直命中 > 命中更长）。
+            best = None
+            cov = r.get("coverage", 0) or 0
+            for m in list(re.finditer(r["match"], text))[:20]:
+                matched = m.group(0)
+                score = (2.0 * math.log1p(cov)
+                         + 0.5 * min(len(matched), 6)
+                         + (1.0 if matched == r["name"] else 0.0))
+                if best is None or score > best["score"]:
+                    best = {"rule": r, "span": m.span(), "matched": matched,
+                            "score": round(score, 3)}
+            if best is not None:
+                hits.append(best)
+        hits.sort(key=lambda h: h["score"], reverse=True)
+
+        # 去重（两档）：
+        # 1. 区间完全相同的重复命中 → 优先保留「命中串==规则名」的那条
+        #    （「车」规则靠 n-gram 也能命中「开车」，但与「开车」规则撞同一区间时，
+        #     应当由名称精确的「开车」规则胜出——否则交通族会被单字元素吃掉）；
+        # 2. 区间被已保留命中完全包含 → 丢弃（不重复计同一段文本）。
+        kept: List[dict] = []
+        for h in hits:
+            a, b = h["span"]
+            exact = h["matched"] == h["rule"]["name"]
+            dup = next((k for k in kept if k["span"] == (a, b)), None)
+            if dup is not None:
+                if exact and dup["matched"] != dup["rule"]["name"]:
+                    kept[kept.index(dup)] = h
+                continue
+            if any(a >= k["span"][0] and b <= k["span"][1] for k in kept):
+                continue
+            kept.append(h)
+            if len(kept) >= top_n:
+                break
+        kept.sort(key=lambda h: h["score"], reverse=True)
+        return kept
+
+    @staticmethod
+    def _combine_rule_luck(hits: List[dict]) -> str:
+        """多规则命中的吉凶倾向合成（保守：取最低档，宁勿吓人也勿空许）。"""
+        levels = [h["rule"].get("luck", "") for h in hits if h["rule"].get("luck")]
+        if not levels:
+            return ""
+        ranks = [DREAM_LUCK_RANK[l] for l in levels if l in DREAM_LUCK_RANK]
+        if not ranks:
+            return ""
+        return min(levels, key=lambda l: DREAM_LUCK_RANK.get(l, 0))
+
     def analyze(
         self,
         dream_text: str,
@@ -241,6 +326,18 @@ class DreamEngine:
 
         # 3. 梦境元素匹配（组合拆分：多元素各自独立检索；变体检索词优先）
         element_hits = self._match_elements(dream_text)
+
+        # 3b. 规则层打分匹配（k55）：命中则补齐 类型/象征/情绪基调 三项
+        pattern_hits = self.match_patterns(dream_text) if dream_text else []
+        if not dream_type and pattern_hits:
+            # 类型取「最具体的那个命中」：吉兆类/警示类/中性类是语料无站点分类时
+            # 的兜底归类（信息量低），有其他命中时优先用其他命中的类型。
+            generic = {"吉兆类", "警示类", "中性类", "其他类"}
+            dream_type = next(
+                (h["rule"]["type"] for h in pattern_hits
+                 if h["rule"].get("type") not in generic),
+                pattern_hits[0]["rule"]["type"],
+            )
 
         # 4. 策略化RAG搜索
         # 性能（2026-08-17 真机排查，P1）：FAISS 完整管线（LLM 查询扩展 +
@@ -266,9 +363,13 @@ class DreamEngine:
                     seen_texts.add(r.text)
                     all_results.append(r)
 
-        # 策略A: 元素检索（组合梦境按元素拆分）→ 无元素时回退高频类型
+        # 策略A: 元素检索（组合梦境按元素拆分）→ 无元素时回退「规则层命中的
+        # 模式名」→ 再无则回退高频类型（k55：开车梦这类无传统元素的梦，靠规则层
+        # 的「开车/停车/找不到车」拿到检索词，不再落到空查询）
         if element_hits:
             a_terms = [h["term"] for h in element_hits]
+        elif pattern_hits:
+            a_terms = [h["rule"]["name"] for h in pattern_hits]
         elif dream_type:
             a_terms = [keywords[0] if keywords else dream_type]
         else:
@@ -307,6 +408,29 @@ class DreamEngine:
         luck_level, _ = self._combine_luck(element_hits)
         luck_reason = "；".join(element_notes)
 
+        # 5b. 规则层骨架（k55）：三项非空 + 传统释义 + 覆盖量（可溯源）
+        rule_notes, tones = [], []
+        for h in pattern_hits:
+            r = h["rule"]
+            note = (f"{r['name']}（{r['type']}，语料覆盖 {r.get('coverage', 0)} 条，"
+                    f"匹配分 {h['score']}）：传统倾向={r.get('luck', '')}；"
+                    f"核心象征={'、'.join(r.get('symbols', [])[:5])}；"
+                    f"情绪基调={r.get('tone', '')}；释义依据={r.get('gloss', '')}")
+            rule_notes.append(note)
+            if r.get("tone") and r["tone"] not in tones:
+                tones.append(r["tone"])
+            for s in r.get("symbols", []):
+                if s not in symbols:
+                    symbols.append(s)
+        rule_luck = self._combine_rule_luck(pattern_hits)
+        # 情绪基调：规则层 tone 优先，情绪词做补充（情绪词本身不改吉凶）
+        for em in emotions:
+            if em not in tones:
+                tones.append(em)
+        reality_projection = ""
+        if pattern_hits or element_hits:
+            reality_projection = self._reality_projection_text()
+
         return DreamResult(
             original_text=dream_text,
             dream_type=dream_type,
@@ -325,7 +449,38 @@ class DreamEngine:
             element_notes=element_notes,
             luck_level=luck_level,
             luck_reason=luck_reason,
+            tones=tones,
+            rule_hits=[h["rule"]["name"] for h in pattern_hits],
+            rule_notes=rule_notes,
+            rule_luck=rule_luck,
+            reality_projection=reality_projection,
         )
+
+    @staticmethod
+    def _reality_projection_text() -> str:
+        """「这是你现实的投影」口径（Hall & Van de Castle 常模，2026-09-18 取源）。
+
+        常模数据来自 dreams.ucsc.edu/Norms（男人 500 梦 / 女人 491 梦 / 合计 991 梦），
+        本仓库 reports/evidence/ucsc_main.html 已存档该页。
+        """
+        n = HVDC_NORMS or {}
+        parts = [
+            "梦主要是清醒生活的延续与复现：梦境元素多来自你近期的经历、关切与情绪，"
+            "而不是对未来的预告（连续性假设）。",
+            f"常模显示梦中负面情绪占比 {n.get('negative_emotions_percent', '80%')}，"
+            "做噩梦、梦到冲突与失败是人类的常态，并不等于凶兆。",
+            f"梦中出现攻击/冲突的比例约 {n.get('dreams_with_aggression', '45%')}，"
+            f"出现不顺/损失类事件约 {n.get('dreams_with_misfortune', '35%')}，"
+            f"出现成功类事件约 {n.get('dreams_with_success', '11%')}——"
+            "梦的底色本就偏「现实压力的重演」。",
+            f"场景以室内（{n.get('indoor_setting_percent', '55%')}）与熟悉环境"
+            f"（{n.get('familiar_setting_percent', '69%')}）为主，"
+            "人物以熟人（"
+            f"{n.get('familiarity_percent', '52%')}）为主，"
+            "这正是「梦在复现你的日常」的直接证据。",
+            str(REALITY_PROJECTION.get("typical_dreams", "")),
+        ]
+        return "\n".join(p for p in parts if p)
 
     def _match_top_ten(self, text: str) -> tuple:
         """匹配TOP10高频梦境模式"""
@@ -470,8 +625,15 @@ def format_dream_prompt(
         element_notes = list(dream_result.element_notes)
         luck_level = dream_result.luck_level
         emotions = list(dream_result.emotions)
+        # k55 新增（老 DreamResult 构造路径无这些字段时用 getattr 兜底）
+        tones = list(getattr(dream_result, "tones", []) or [])
+        rule_hits = list(getattr(dream_result, "rule_hits", []) or [])
+        rule_notes = list(getattr(dream_result, "rule_notes", []) or [])
+        rule_luck = getattr(dream_result, "rule_luck", "") or ""
+        reality_projection = getattr(dream_result, "reality_projection", "") or ""
     else:
         elements, element_notes, luck_level, emotions = [], [], "", []
+        tones, rule_hits, rule_notes, rule_luck, reality_projection = [], [], [], "", ""
 
     parts = ["## 解梦请求\n"]
 
@@ -489,10 +651,16 @@ def format_dream_prompt(
         if type_hint[0]:
             parts.append(f"\n### 梦境类型\n{type_hint[0]}类高频梦境\n{type_hint[1]}")
 
-    # 情绪基调（G4：情绪词独立维度，不参与检索但参与解读）
-    if emotions:
+    # 情绪基调（G4：情绪词独立维度，不参与检索但参与解读；
+    # k55：规则层 tone 一并呈现，情绪词为空时也保证该段非空）
+    if emotions or tones:
+        emo_line = "、".join(emotions) if emotions else "（未出现明确情绪词）"
+        parts.append(f"\n### 情绪基调\n{emo_line}")
+        if tones:
+            parts.append("规则层判定的情绪基调：")
+            for t in tones:
+                parts.append(f"- {t}")
         parts.append(
-            f"\n### 情绪基调\n{'、'.join(emotions)}\n"
             "（情绪反映做梦者当下的心理状态，本身不改变吉凶判断；"
             "可用于安抚用户情绪与给出调和建议）")
 
@@ -515,6 +683,38 @@ def format_dream_prompt(
             "1. 解释必须在此骨架方向上展开与对话化，不得反转吉凶方向；\n"
             "2. 如有具体古籍依据可在骨架上补充细化，但不许与骨架矛盾；\n"
             "3. 用户直接问吉凶（如「是不是要倒霉」「好不好」）时，明确给出骨架方向，不回避、不吓唬。")
+
+    # 规则层骨架（k55）：引擎决定「说什么」，LLM 决定「怎么说」
+    if rule_hits:
+        parts.append("\n### 梦境模式骨架（引擎规则层，全部由真实语料统计生成）")
+        parts.append(f"命中模式（按匹配分降序，可多命中）：{'、'.join(rule_hits)}")
+        if rule_luck:
+            parts.append(f"传统吉凶倾向（规则层合成）：{rule_luck}")
+        for note in rule_notes:
+            parts.append(f"- {note}")
+        parts.append(
+            "使用要求：\n"
+            "1. 骨架里的**梦境类型 / 核心象征 / 情绪基调**三项必须体现在回答里，"
+            "不得留空、不得绕开；\n"
+            "2. 「引擎决定说什么，LLM 决定怎么说」：上面的骨架是内容边界，"
+            "你负责把它讲成一段有温度、口语化、因人而异的解读；\n"
+            "3. 骨架里的传统释义要标注它来自语料/古籍（可用「传统解梦认为…」"
+            "这类措辞），不要伪装成现代科学结论；\n"
+            "4. 匹配分只用于说明命中优先级，不要写给用户看。")
+
+    # 现实投影口径（k55）：传统释义与现代视角**分层呈现**
+    if reality_projection:
+        parts.append("\n### 现实投影（Hall & Van de Castle 常模视角）")
+        parts.append(reality_projection)
+        parts.append(
+            "分层呈现要求：\n"
+            "1. 先用一小节讲**传统解梦怎么说**（有依据的照实讲，语气平和）；\n"
+            "2. 再用一小节讲**从现实生活看**这个梦——把梦里的意象对应回做梦者"
+            "近期的生活处境、压力与情绪，落点是「这是你现实的投影」；\n"
+            "3. 两层之间要明确区分（例如用「传统上认为…」「而从现实看…」），"
+            "不能把传统寓意说成必然会发生的事；\n"
+            "4. 结尾给一条可执行的现实建议（调整作息、处理某个待办、和某人沟通等），"
+            "不要给「化解灾难」类的迷信操作。")
 
     # 古籍参考
     interpretations = getattr(dream_result, "interpretations", None) or []
