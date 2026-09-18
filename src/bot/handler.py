@@ -1709,6 +1709,124 @@ def _city_explicit_in(text: str, city: str) -> bool:
         return False
 
 
+# ── k51：裸城市名（无 市/省/县/区… 尾缀）的**识别面 + 采纳门** ─────────────
+# 现象（P0）：识别面原为「`XX市` 尾缀」∪「37 城 `COMMON_CITIES` 裸名」→ 31 个省会里
+# **只有"长春"落空**（`我1999年5月13日10点55分在长春生的 男` → 三源 city 全成引擎
+# 缺省"北京"），另有 80 个 `CITY_LONGLAT` 地级市裸名不识别。经度差 → 真太阳时差
+# ~36min → **时柱不同**（己卯己巳乙丑壬午 vs 辛巳）。
+# 修法：识别面**复用既有 `CITY_LONGLAT`**（不扩经纬度表——k50-2 红线：库只供经纬度），
+# 采纳面加门（`_bare_city_adoptable`）。
+_CITY_NAME_RE_CACHE: dict = {}
+
+
+def _city_name_re(known=()):
+    """裸城市名匹配正则：`COMMON_CITIES` ∪ `CITY_LONGLAT` 全部城名（k51）。
+
+    长度降序（最长优先：`乌鲁木齐` 不裂成 `鲁木`）；按 known 缓存（每进程一次）。
+    """
+    key = tuple(sorted(set(str(x) for x in (known or ()))))
+    rx = _CITY_NAME_RE_CACHE.get(key)
+    if rx is not None:
+        return rx
+    try:
+        from src.engines.bazi import CITY_LONGLAT
+        names = set(CITY_LONGLAT.keys())
+    except Exception:            # noqa: BLE001 — 引擎不可用时只用 known
+        names = set()
+    names.update(key)
+    names = sorted((n for n in names if n), key=len, reverse=True)
+    rx = re.compile(r'({})'.format('|'.join(re.escape(n) for n in names)))
+    _CITY_NAME_RE_CACHE[key] = rx
+    return rx
+
+
+# 相对未来时间词（闭类，多字）：`下个月3月8日 10点 三亚 男` 四要素齐但日期是**行程**
+# ——带年的绝对未来日期由既有 `MessageAnalyzer.birth_dates_all_future` 挡（联测），
+# 相对锚（下个月/下周/明年…）由本表挡：该地名是目的地不是出生地。
+_REL_FUTURE_RE = re.compile(
+    r'下个?月|下下个?月|下个?星期|下个?礼拜|下个?季度|下周|明年|来年|后年|'
+    r'明天|后天|大后天|过几[天年]|过些[天年]|过两[天年]|将来|未来')
+
+
+def _rel_future_governs(msg: str, pos: int, end: int) -> bool:
+    """相对未来锚是否**领属**这个日期/地名（行程形态：`下个月3月8日 10点 三亚 男`）。
+
+    只认**同小句**（与 `birth_ctx_near` 同一小句边界实现 `_clause_span`）：
+    `1990年5月20日 15:30 北京 男，帮我看看明年的流年运势` 的"明年"在**另一小句**
+    （领的是流年问句、不是出生日期）→ 不挡 ✓（改前消息级 `search` 会误挡）。
+    """
+    from src.storage.person_dao import _clause_span
+    a, b = _clause_span(msg, pos, end)
+    if _REL_FUTURE_RE.search(msg[a:b]):
+        return True
+    for rx in (_MD_CAND_RE, _CN_MD_RE):
+        for c in rx.finditer(msg):
+            ca, cb = _clause_span(msg, c.start(), c.end())
+            if _REL_FUTURE_RE.search(msg[ca:cb]):
+                return True
+    return False
+
+
+def _bare_city_adoptable(msg: str, name: str, pos: int, *,
+                         has_date: bool = False, has_time: bool = False,
+                         has_gender: bool = False,
+                         current_year=None) -> bool:
+    """裸城市名（无 市/省/县/区… 尾缀）的**采纳门**（k51）。
+
+    顺序（a → b 拦截 → c 拦截 → d → e），其余一律不采纳（`我下个月去三亚`/
+    `我想去中山`/`他来自临沂`/`我老家在保定`）：
+    a. **同小句有出生地谓语**（`_BIRTH_PLACE_WORD_RE` 经 `person_dao.birth_ctx_near`
+       小句作用域——单一实现；居住地/祖籍词"老家/户籍/籍贯/来自"**不在**该族）→
+       `我出生在长春` / `我生在沈阳` / `…在长春生的` ✓；
+    b. **行程形态一票否决**：相对未来锚领属该日期/地名（`_rel_future_governs`，
+       小句作用域）→ `下个月3月8日 10点 三亚 男` ✗；
+    c. **绝对未来一票否决**：`MessageAnalyzer.birth_dates_all_future`（既有谓词，
+       与提取器早退/`_handle_bazi` 同一事实源）→ `2027年3月8日 10点 三亚 男` ✗；
+    d. **完整出生声明形态**（日期 + 时间 + 性别，含地名本身即四要素）→
+       `1999年5月13日 10:55 长春 男` ✓；
+    e. **整条消息就是这个地名**（会话式应答：`长春` / `深圳` / `，长春`）——与日期侧
+       ⑤d 同源判据（`_strip_birth_filler` 剥完无残留，不另起一套）。缺此条时
+       "F2 追问城市 → 用户只答城市名"会丢城市、追问死循环。
+    """
+    end = pos + len(str(name or ""))
+    try:                         # a. 同小句出生地谓语（最强证据）
+        from src.storage.person_dao import _BIRTH_PLACE_WORD_RE, birth_ctx_near
+        if birth_ctx_near(msg, pos, end, allow_chart_intent=False,
+                          words_re=_BIRTH_PLACE_WORD_RE):
+            return True
+    except Exception:            # noqa: BLE001 — 判据不可用 → 走 b/c/d
+        pass
+    if _rel_future_governs(msg, pos, end):
+        return False             # b. 行程形态（相对未来锚领属该日期/地名）
+    _all_future = True
+    try:                         # c. 绝对未来日期 → 同 b（与提取器早退同一事实源）
+        from src.engines.message_analyzer import MessageAnalyzer
+        _all_future = bool(MessageAnalyzer.birth_dates_all_future(msg, current_year))
+    except Exception:            # noqa: BLE001 — 判据不可用 → 安全侧
+        pass
+    if _all_future:
+        return False
+    if has_date and has_time and has_gender:
+        return True              # d. 完整出生声明形态（日期+时间+地名+性别 四要素齐）
+    return not _strip_birth_filler(msg[:pos] + msg[end:]).strip()   # e. 整条就是这个地名
+
+
+def _pick_bare_city(msg: str, known=(), *, has_date: bool = False,
+                    has_time: bool = False, has_gender: bool = False,
+                    current_year=None):
+    """裸城市名采纳（k51，两个提取器共用）：首个"过 `_city_looks_like_birth`
+    且过 `_bare_city_adoptable`"的候选；无 → None（引擎缺省"北京"照旧）。"""
+    for m in _city_name_re(known).finditer(msg):
+        _name, _pos = m.group(1), m.start()
+        if not _city_looks_like_birth(msg, _name, _pos):
+            continue
+        if _bare_city_adoptable(msg, _name, _pos, has_date=has_date,
+                                has_time=has_time, has_gender=has_gender,
+                                current_year=current_year):
+            return _name
+    return None
+
+
 def _city_looks_like_birth(msg: str, name: str, pos: int) -> bool:
     """城市候选是否出生语境（k48 闸门② + k50-5 与日期同族的邻近/谓语收口）。
 
@@ -7674,12 +7792,13 @@ class MessageHandler:
             # k49 E：剥语境前缀（"出生在长春市"→"长春市"，三源同值）
             city = _clean_city_name(city_matches[-1][0], self.COMMON_CITIES)
         else:
-            city_match = next(
-                (m for m in re.finditer(
-                    r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
-                 if _city_looks_like_birth(msg, m.group(1), m.start())), None)
-            if city_match:
-                city = _clean_city_name(city_match.group(1), self.COMMON_CITIES)
+            # k51：裸城市名识别面扩到既有 CITY_LONGLAT（117 城）+ 采纳门
+            _bare = _pick_bare_city(msg, self.COMMON_CITIES,
+                                    has_date=bool(month and day),
+                                    has_time=hour is not None,
+                                    has_gender=(gender in ("男", "女")))
+            if _bare:
+                city = _clean_city_name(_bare, self.COMMON_CITIES)
 
         return (year, month, day, hour, minute, city, gender)
 
@@ -7920,7 +8039,19 @@ class MessageHandler:
             out["hour"] = hour
             out["minute"] = minute
 
-        # ── city/gender ──
+        # ── gender（k51：判定前移到城市之前——裸城市名的"四要素门"要性别；
+        #    语义不变：`_GENDER_THIRD_BIRTH_MSG_RE`（出生信息属第三人）时不取
+        #    性别（_gender 保持 None），城市照旧提取，出口与改前同一个）──
+        _gender = None
+        if not _GENDER_THIRD_BIRTH_MSG_RE.search(msg):
+            if (re.search(r'(?:^|[^\w])女(?:$|[^\w])|性别女', msg)
+                    or self._has_self_gender_word(msg, _ORAL_FEMALE_WORDS)):
+                _gender = "女"
+            elif (re.search(r'(?:^|[^\w])男(?:$|[^\w])|性别男', msg)
+                    or self._has_self_gender_word(msg, _ORAL_MALE_WORDS)):
+                _gender = "男"
+
+        # ── city ──
         city_matches = [(m.group(1), m.start()) for m in
                         re.finditer(r'([一-鿿]{2,5}?市)', msg)]
         # k48 闸门②：括号内业务/办公地名（用户原话「（北京，顶格五险一金…）」）
@@ -7931,12 +8062,14 @@ class MessageHandler:
             # 最内层（吉林省长春市榆树市→榆树市）；k49 E：剥语境前缀
             out["city"] = _clean_city_name(city_matches[-1][0], self.COMMON_CITIES)
         else:
-            city_match = next(
-                (m for m in re.finditer(
-                    r'({})'.format('|'.join(self.COMMON_CITIES)), msg)
-                 if _city_looks_like_birth(msg, m.group(1), m.start())), None)
-            if city_match:
-                out["city"] = _clean_city_name(city_match.group(1), self.COMMON_CITIES)
+            # k51：裸城市名识别面扩到既有 CITY_LONGLAT（117 城）+ 采纳门
+            _bare = _pick_bare_city(msg, self.COMMON_CITIES,
+                                    has_date=bool(month and day),
+                                    has_time=hour is not None,
+                                    has_gender=bool(_gender),
+                                    current_year=current_year)
+            if _bare:
+                out["city"] = _clean_city_name(_bare, self.COMMON_CITIES)
         # G1（2026-08-29 P0-C）：性别口语词扩展（保持防"渣男/美女"误伤）——
         # 女系：女孩/女生/姑娘/丫头/女的/小姑娘/闺女/性别女 + 原独立「女」规则
         # 男系：男孩/男生/男的/小伙子/性别男 + 原独立「男」规则
@@ -7950,14 +8083,9 @@ class MessageHandler:
         # 声明式同样带主语（「我妹妹1990年出生的，性别女」里的 性别女 是妹妹
         # 的），改前它绕过修饰排除 → 仍然覆写本人档案（P0 同类）。T008
         # 「我是女孩儿，不是男孩」判为本人自述 → 仍取 女（双向用例锁）。
-        if _GENDER_THIRD_BIRTH_MSG_RE.search(msg):
-            return out          # 出生信息属第三人 → 本条消息不取性别
-        if (re.search(r'(?:^|[^\w])女(?:$|[^\w])|性别女', msg)
-                or self._has_self_gender_word(msg, _ORAL_FEMALE_WORDS)):
-            out["gender"] = "女"
-        elif (re.search(r'(?:^|[^\w])男(?:$|[^\w])|性别男', msg)
-                or self._has_self_gender_word(msg, _ORAL_MALE_WORDS)):
-            out["gender"] = "男"
+        # 出生信息属第三人 → 本条消息不取性别（`_gender` 已为 None，语义与改前一致）
+        if _gender:
+            out["gender"] = _gender
         return out
 
     # k40 返工（Critical-1 + Important-1）：口语性别词是否**本人自述**。

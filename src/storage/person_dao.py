@@ -115,6 +115,14 @@ BIRTH_CTX_NEAR_WINDOW = 6
 # `handler._BIRTH_CTX_RE` → 两份口径漂移：城市判定认"来自"，日期判定不认）。
 # 多字词条（本批规则：单字不上表）；反例：不含这些词的句子不受影响
 #（`我办公地在上海` 走职场语境门 ✓；`5月20日见客户` 仍非生辰 ✓）。
+# k51：**出生地**谓词族（城市采纳闸门用）——`_BIRTH_CTX_NEAR_WORD_RE` 的**地点**子集。
+# 保留真出生措辞（含既有已支持形态"生在"：`我生在沈阳`）；**去掉**
+# "老家/户籍/户口/籍贯/祖籍/来自"——居住地/祖籍/来源 ≠ 出生地，裸城市名不得因它们
+# 被采纳（`我老家在保定`/`他来自临沂`/`我来自吉林长春`）；历法/年龄词（农历/周岁…）
+# 也不领地点，一并去掉。与 `_BIRTH_CTX_NEAR_WORD_RE` 同源、同层（person_dao 唯一实现）。
+_BIRTH_PLACE_WORD_RE = re.compile(
+    r'出生|出生于|生于|生在|生的|日生|月生|生人|出生地')
+
 _BIRTH_CTX_NEAR_WORD_RE = re.compile(
     r'出生|出生于|生于|生的|日生|月生|生日|生辰|生人|命主|出生地|'
     r'老家|户籍|户口|籍贯|祖籍|来自|'
@@ -141,7 +149,8 @@ def _clause_span(text: str, start: int, end: int) -> tuple:
 
 def birth_ctx_near(text: str, start=None, end=None,
                    window: int = BIRTH_CTX_NEAR_WINDOW,
-                   allow_chart_intent: bool = True) -> bool:
+                   allow_chart_intent: bool = True,
+                   words_re=None) -> bool:
     """出生语境是否**紧邻候选**（k49：语境相邻，单一实现）。
 
     - start=None（或 end=None）→ 整串检索（等价 `is_explicit_birth_statement`
@@ -151,17 +160,22 @@ def birth_ctx_near(text: str, start=None, end=None,
          的，视力4.5` 的"生的"在小句外）；
       ② `allow_chart_intent=True` 时，候选 ±window 内的**排盘请求词**
          （消息级出生意图，允许跨小句，如`帮我排个盘，3月8日`）。
+    - words_re（k51）：小句作用域的**词族替换**（默认 `_BIRTH_CTX_NEAR_WORD_RE`，
+      零行为变化）——城市采纳闸门传 `_BIRTH_PLACE_WORD_RE`（地点子集，居住地/
+      祖籍词不算出生地）。仍是"小句 + 词族"同一实现，不另起一套邻近代码。
     """
     t = str(text or "")
     if not t:
         return False
+    if words_re is None:
+        words_re = _BIRTH_CTX_NEAR_WORD_RE
     if start is None or end is None:
         return bool(_BIRTH_CTX_WORD_RE.search(t))
     s, e = int(start), int(end)
     if s > e:
         s, e = e, s
     a, b = _clause_span(t, s, e)
-    if _BIRTH_CTX_NEAR_WORD_RE.search(t[a:b]):
+    if words_re.search(t[a:b]):
         return True
     if not allow_chart_intent:
         return False
