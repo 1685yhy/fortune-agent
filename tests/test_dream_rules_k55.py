@@ -340,6 +340,51 @@ def test_site_lock_blocks_concurrent_same_site(tmp_path):
     assert not p.exists()
 
 
+def test_public_domain_records_are_verbatim_and_traceable():
+    """公版古籍条文必须**逐字来自源文件**且**带来源字段**（控制方 2026-09-18 质询）。
+
+    数据在 /mnt/d 时运行，否则 skip（不阻断他人环境）。
+    """
+    import json
+    from pathlib import Path as _P
+    quotes = _P("/mnt/d/fortune-data/books/k55_dream/clean/public_domain_quotes.jsonl")
+    if not quotes.exists():
+        pytest.skip("k55 语料未生成（需先跑 public_domain.py）")
+    recs = [json.loads(l) for l in quotes.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert recs, "公版条文为空"
+    src_cache = {}
+    bad_trace, bad_verbatim = [], []
+    for r in recs:
+        sf = r.get("source_file") or ""
+        if not sf or not r.get("provenance"):
+            bad_trace.append(r.get("title", "")[:30])
+            continue
+        if sf not in src_cache:
+            p = _P(sf)
+            src_cache[sf] = (re.sub(r"\s+", "", p.read_text(encoding="utf-8", errors="replace"))
+                             if p.exists() else "")
+        quote = re.sub(r"\s+", "", r["content"].split("。（《")[0])
+        if quote and quote not in src_cache[sf]:
+            bad_verbatim.append(r["content"][:40])
+    assert bad_trace == [], f"缺来源字段：{bad_trace[:5]}"
+    assert bad_verbatim == [], f"无法在源文件逐字找到（疑似自撰）：{bad_verbatim[:5]}"
+
+
+def test_third_party_records_carry_source_url():
+    """第三方抓取记录必须带页级 URL（可溯源）；公版记录必须带 source_file。"""
+    import json
+    from pathlib import Path as _P
+    corpus = _P("/mnt/d/fortune-data/books/k55_dream/clean/dream_corpus.jsonl")
+    if not corpus.exists():
+        pytest.skip("k55 语料未生成")
+    recs = [json.loads(l) for l in corpus.read_text(encoding="utf-8").splitlines() if l.strip()]
+    tp = [r for r in recs if r.get("corpus_class") == "third_party"]
+    pd = [r for r in recs if r.get("corpus_class") == "public_domain"]
+    assert tp and pd
+    assert all(r.get("url") for r in tp), "第三方记录缺页级 URL"
+    assert all(r.get("source_file") for r in pd), "公版记录缺 source_file"
+
+
 def test_polite_fetcher_respects_delay_and_robots(monkeypatch):
     """限速 ≥1s/请求 + robots 拒绝路径（不发请求）"""
     from scripts.k55_dream import crawl_lib as cl

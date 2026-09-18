@@ -115,6 +115,11 @@ def extract_from_corpus() -> list:
             out.append({
                 "book": book, "text": quote, "element": element,
                 "source": f"corpus_quote:{fname}", "volume": "",
+                # 溯源字段（控制方 2026-09-18 要求「每条数据 → 哪个源」）：
+                # 源文件全路径 + 所在语料条目首行（页级 URL 见 audit_provenance.py）
+                "source_file": str(CORPUS_DIR / fname),
+                "source_entry": entry.split("\n")[0][:80],
+                "source_url": "",
             })
     return out
 
@@ -145,7 +150,11 @@ def extract_local_zhougong() -> list:
             seen.add(key)
             out.append({
                 "book": "周公解梦", "text": line, "element": "",
-                "source": f"local_book:{p.name}", "volume": "通行本（歌诀体）",
+                "source": f"local_book:{p}", "volume": "通行本（歌诀体）",
+                # 控制方质询后修正：**必须记全路径**——初版只记 basename，
+                # 审计时按 basename 去 zonghe/ 找 → 找不到 → 240 条被误判「无法逐字校验」。
+                "source_file": str(p),
+                "source_entry": "", "source_url": "",
             })
     return out
 
@@ -177,9 +186,12 @@ def main() -> int:
         # content = 条文 + 书名卷次标注（引用可溯源，产品既有口径）。
         title = r["text"][:40]
         content = f"{r['text']}。（《{r['book']}》{r.get('volume') or ''}）".replace("》）", "》）")
-        writer.write(title=title, content=content, url="", book=r["book"],
-                     volume=r.get("volume", ""), element=r.get("element", ""),
-                     provenance=r["source"], corpus_class="public_domain")
+        writer.write(title=title, content=content, url=r.get("source_url", ""),
+                     book=r["book"], volume=r.get("volume", ""),
+                     element=r.get("element", ""), provenance=r["source"],
+                     source_file=r.get("source_file", ""),
+                     source_entry=r.get("source_entry", ""),
+                     corpus_class="public_domain")
     writer.flush()
 
     stats = {

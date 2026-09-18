@@ -88,6 +88,10 @@ def load_all() -> list:
                 "book": r.get("book", ""),
                 "volume": r.get("volume", ""),
                 "element": r.get("element", ""),
+                # 溯源字段必须透传（控制方 2026-09-18：每条数据 → 哪个源）
+                "provenance": r.get("provenance", ""),
+                "source_file": r.get("source_file", ""),
+                "source_entry": r.get("source_entry", ""),
                 "partial": bool(r.get("partial", meta["partial"])),
                 "category": r.get("category", ""),
             })
@@ -161,7 +165,10 @@ def main() -> int:
                      book=r.get("book", ""), volume=r.get("volume", ""),
                      element=r.get("element", ""), sources=r.get("sources", []),
                      urls=r.get("urls", []), partial=r.get("partial", False),
-                     category=r.get("category", ""))
+                     category=r.get("category", ""),
+                     provenance=r.get("provenance", ""),
+                     source_file=r.get("source_file", ""),
+                     source_entry=r.get("source_entry", ""))
     writer.flush()
 
     stats = {
