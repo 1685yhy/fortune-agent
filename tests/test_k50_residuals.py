@@ -307,7 +307,13 @@ class TestCityNotFromEventClause:
     def test_residence_clause_city_not_taken(self):
         h = object.__new__(MessageHandler)
         got = h._extract_partial_birth("我出生在长春，我现在住广州")
-        assert got.get("city") is None, got
+        # k51：长春裸名进识别面后，**出生小句**的 长春 照取（本用例的原意是
+        # "现居句的广州不作出生地"——同族 `test_wedding_clause_city_not_taken`
+        # 取出生小句的贵阳、不取婚期句的长春市，口径一致）。改前 长春 因识别
+        # 面缺口**恒不被识别**，`is None` 只是那个缺口的副产品（k51 的 P0 本体）。
+        assert got.get("city") == "长春", got
+        assert not h._extract_partial_birth("我现在住广州").get("city"), \
+            "现居句城市不得作出生地"
 
     @pytest.mark.parametrize("msg,expect", [
         ("我出生在长春市", "长春市"),
