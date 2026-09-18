@@ -1422,6 +1422,12 @@ ATT_OTHER = "other"
 ATT_UNKNOWN = "unknown"
 # 自述代词尾锚（与第三方尾锚同一机器：主语段末尾即指代）
 _SELF_SUBJECT_RE = re.compile(r'(?:^|[^他她其])?(?:我|俺|咱|咱们|本人|自己)$')
+# k56-r3：**并列主语**连词——`我和我老婆都是1990年生的` 的主语是"我和我老婆"
+# （并列，**含本人**），不是"我老婆"一个人。只看主语段**末尾**会把并列句误判成
+# 他人（`我和我老婆都是` 剥掉"是/都"后末尾是"我老婆"，前一字恰为"我"，满足尾锚
+# 的 `[我你他她]的?` 前缀）→ 用户自己的出生信息**整条丢掉**（审查 R3-1 Critical）。
+# 判据：连词**左侧**含自述代词 → 主语含本人 → self（采纳）。
+_COORD_RE = re.compile(r'和|跟|与|、|及')
 
 
 def _subject_owner(msg: str, pos: int, end: int) -> str:
@@ -1435,6 +1441,16 @@ def _subject_owner(msg: str, pos: int, end: int) -> str:
     from src.storage.person_dao import _clause_span
     a, _b = _clause_span(msg, pos, end)
     _head = _TP_SUBJECT_FILLER_RE.sub('', msg[a:pos])
+    # k56-r3：并列主语含本人（`我和我老婆都是…`）→ self
+    _c = _COORD_RE.search(_head)
+    if _c and _SELF_SUBJECT_RE.search(_head[:_c.start()]):
+        return ATT_SELF
+    if a > 0 and msg[a - 1] == '、':
+        # `我、我老婆都是1990年生的`：`、` 是 `_clause_span` 的断句符，但本层要按
+        # **并列连词**看待——前一节的末尾若是自述代词 → 主语是并列（我、我老婆）→ self
+        _pa, _pb = _clause_span(msg, max(0, a - 2), max(0, a - 2))
+        if _SELF_SUBJECT_RE.search(_TP_SUBJECT_FILLER_RE.sub('', msg[_pa:_pb])):
+            return ATT_SELF
     if _tp_subject_tail_re().search(_head):
         return ATT_OTHER
     if _SELF_SUBJECT_RE.search(_head):

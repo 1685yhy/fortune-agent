@@ -205,3 +205,79 @@ class TestK50RulingsRelocked:
     def test_correction_exception_kept(self):
         assert _md("不是腊月廿六生的，是5月20日生的") == (5, 20)
         assert _md("我1999年3月28日生的，1995年3月8日是错的") == (3, 28)
+
+
+# ════════════════════════════════════════════════════════════════
+# ④ R3-1（Critical）：并列主语"我和我X都是…"→ 本人也在其中（不得整条丢）
+# ════════════════════════════════════════════════════════════════
+COORD_FAMILY = [
+    ("我和我老婆都是1990年生的", 1990),
+    ("我和我老公都是1990年生的", 1990),
+    ("我、我老婆都是1990年生的", 1990),
+    ("我跟我老婆都是1990年生的", 1990),
+    ("我和我老婆都是1990年的", 1990),
+    ("我和我老婆都1990年生的", 1990),
+    ("我和我老婆都是1990年5月20日生的", 1990),
+    ("我和我老婆都是1995年3月8日生的", 1995),
+]
+# 真他人对照集（**必须仍不取**）：称谓 × 句式
+TRUE_OTHER = [
+    "我老公是1999年5月20日生的", "我妻子是1991年7月8日的", "我同事1988年5月20日生的",
+    "我朋友1990年5月20日出生的女生，帮我看看", "我妹妹1990年出生的女孩子，我们合不合",
+    "他的女儿1990年5月20日出生，我们合不合", "我是女的，我男朋友1990年生的",
+    "我丈夫是1990年生的", "我男朋友1999年5月20日出生", "我对象1991年7月8日的",
+    "我亲戚1990年生的", "我邻居1999年5月20日生的", "我老板1991年7月8日的",
+    "我客户1990年5月20日出生的女生", "我女儿是1999年5月20日生的",
+]
+# 与基线**一致**的边界（本批不动，防"顺手扩大胜利面"）
+BASELINE_SAME = [
+    "我媳妇1990年生的", "我爱人1990年生的", "我先生1990年生的", "我俩都是1990年生的",
+    "我老婆和我都是1990年生的", "我和我老婆同年，都是1990年生的",
+]
+
+
+class TestCoordinatedSubject:
+    """R3-1：`我和我老婆都是1990年生的` 的主语是**并列的"我和我老婆"**（含本人）
+    —— 只看主语段末尾会把"我老婆"当主语 → 用户自己的出生信息整条丢（改前 E2E
+    什么都不认、回固定引导）。判据：并列连词左侧含自述代词 → self。
+    修完必须：8 条并列族恢复取值 + 15 条真他人仍不取（双向重锁）。"""
+
+    @pytest.mark.parametrize("msg,year", COORD_FAMILY)
+    def test_family_takes_self(self, msg, year):
+        got = _p(msg)
+        assert got.get("year") == year, (msg, got)
+
+    def test_family_month_day(self):
+        assert _md("我和我老婆都是1990年5月20日生的") == (5, 20)
+        assert _md("我和我老婆都是1995年3月8日生的") == (3, 8)
+
+    def test_family_bazi_extractor(self):
+        assert _b("我和我老婆都是1995年3月8日生的")[:3] == (1995, 3, 8)
+
+    @pytest.mark.parametrize("msg", TRUE_OTHER)
+    def test_true_other_still_not_taken(self, msg):
+        """双向重锁：真他人（末尾即指代、无并列）一律仍不取。"""
+        assert _p(msg).get("year") is None, (msg, _p(msg))
+        assert _b(msg) is None, (msg, _b(msg))
+
+    @pytest.mark.parametrize("msg", BASELINE_SAME)
+    def test_baseline_consistent_kept(self, msg):
+        """与基线一致的边界**不动**（不因本批修 R3-1 而扩大采纳面）。"""
+        assert _p(msg).get("year") == 1990, (msg, _p(msg))
+
+    def test_owner_label_direct(self):
+        """结构直证：并列含本人 → self；末尾是他人且无并列 → other。"""
+        import re
+        for msg in ["我和我老婆都是1990年生的", "我、我老婆都是1990年生的"]:
+            m = re.search(r'\d{4}\s*年', msg)
+            assert _subject_owner(msg, m.start(), m.end()) == ATT_SELF, msg
+        for msg in ["我老公是1999年5月20日生的", "我同事1988年5月20日生的"]:
+            m = re.search(r'\d{4}\s*年', msg)
+            assert _subject_owner(msg, m.start(), m.end()) == ATT_OTHER, msg
+
+    def test_coordinator_not_self_without_self_pronoun(self):
+        """连词左侧无自述代词时**不**放行（防"和/与"泛化）：`他和我老婆都是…`。"""
+        import re
+        msg = "他和我老婆都是1990年生的"
+        m = re.search(r'\d{4}\s*年', msg)
+        assert _subject_owner(msg, m.start(), m.end()) != ATT_SELF, msg
