@@ -289,6 +289,87 @@ def test_neutral_luck_tone_has_no_direction_words():
             (name, rule["tone"])
 
 
+# ── ②e r4 输出边界净化（与 k52 合规扫描咬合） ─────────────────────────
+
+def test_neutral_map_covers_all_high_risk_words_and_replacement_is_clean():
+    """r4 ①：映射覆盖全部 19 词，且**替换值本身不含任何高风险词**（防净化自我复发）。"""
+    from src.engines.dream_sanitize import HIGH_RISK_WORDS, NEUTRAL_MAP, find_high_risk
+    from tests.test_k52_compliance_scan import HIGH_RISK_WORDS as K52_WORDS
+
+    assert set(HIGH_RISK_WORDS) == set(K52_WORDS), "词表必须与 k52 门禁一致"
+    missing = [w for w in HIGH_RISK_WORDS if w not in NEUTRAL_MAP]
+    assert missing == [], f"映射未覆盖：{missing}"
+    dirty = {k: v for k, v in NEUTRAL_MAP.items() if find_high_risk(v)}
+    assert dirty == {}, f"替换值自身含高风险词（会复发）：{dirty}"
+
+
+@pytest.mark.parametrize("word", [
+    "占卜", "算命", "卜卦", "改运", "转运", "破财", "血光", "消灾", "化解",
+    "法事", "开光", "辟邪", "驱邪", "招财", "旺财", "灵验", "大师", "改命",
+    "化灾",
+])
+def test_neutralize_each_word_takes_effect(word):
+    """r4 ②：19 词逐词生效（净化后零命中，且替换值出现在结果里 → 不是删词）"""
+    from src.engines.dream_sanitize import NEUTRAL_MAP, find_high_risk, neutralize
+    text = f"传统上认为，梦见这件事意味着要{word}，可以找人{word}。"
+    out = neutralize(text)
+    assert find_high_risk(out) == [], out
+    assert NEUTRAL_MAP[word] in out, (word, out)
+
+
+def test_neutralize_is_idempotent_and_preserves_clean_text():
+    from src.engines.dream_sanitize import neutralize
+    assert neutralize("梦见蛇主财运") == "梦见蛇主财运"
+    once = neutralize("破财消灾")
+    assert neutralize(once) == once
+
+
+def test_dream_path_deterministic_output_has_no_high_risk_words():
+    """r4 ③：解梦路径的确定性输出（prompt + 用户可见字段）对 19 词零命中。
+
+    覆盖 5 条会命中「含高风险词 gloss」的规则（光/老公/婴儿/厕所/蜘蛛），
+    确保净化点真的盖住了规则层引文这条来路。
+    """
+    from src.engines.dream_sanitize import find_high_risk
+    dreams = [
+        "梦见大水冲进了家里，很害怕",
+        "梦见月光",
+        "梦见老公",
+        "梦见婴儿",
+        "梦见厕所",
+        "梦见蜘蛛",
+        "梦见和对象开车出去玩，回来太困了把车留在半道了",
+    ]
+    for dream in dreams:
+        res = DreamEngine().analyze(dream, _RecordingRetriever())
+        blob = "\n".join([
+            format_dream_prompt(dream, res, "最近换工作", {"day_master": "甲木"}),
+            " ".join(res.interpretations or []),
+            " ".join(res.symbols or []),
+            " ".join(getattr(res, "rule_notes", []) or []),
+            " ".join(getattr(res, "tones", []) or []),
+            " ".join(res.element_notes or []),
+            getattr(res, "luck_reason", "") or "",
+            getattr(res, "reality_projection", "") or "",
+        ])
+        assert find_high_risk(blob) == [], (dream, find_high_risk(blob))
+
+
+def test_rules_table_stays_verbatim_while_output_is_sanitized():
+    """r4 ④：**两层分离同时成立**——规则表仍是逐字引文，输出层已净化。
+
+    若哪天有人「图省事」直接把规则表里的词改掉，这条会红（守卫存储层）。
+    """
+    from src.engines.dream_sanitize import find_high_risk, neutralize
+    risky = [r for r in DREAM_PATTERN_RULES if find_high_risk(r["gloss"])]
+    assert risky, "预期规则表里存在含高风险词的逐字引文（否则本测试失去意义）"
+    for r in risky:
+        # 存储层：原文保留高风险词（逐字性没被破坏）
+        assert find_high_risk(r["gloss"]), r["name"]
+        # 输出层：同一段文本经净化后零命中
+        assert find_high_risk(neutralize(r["gloss"])) == [], r["name"]
+
+
 # ── ③ 打分匹配（可多命中 + 去重 + 排序） ──────────────────────────────
 
 def test_match_patterns_scored_and_sorted():
