@@ -330,6 +330,13 @@ python3 scripts/k59/prod_fingerprint.py
 > 残留（已披露、不可由库层消除）：两步取别名（`c = retriever.collection; c.upsert(...)`）
 > 不会被**静态规则**命中 —— 但会被**只读包装在运行时**拦下；两层叠加即为本批的闭环。
 
+> **边界（诚实披露）**：r2 的库层拦截覆盖**公开读属性** `collection` 经写方法名的
+> 写入；`retriever._collection.upsert(...)` 或 `retriever.collection._wrapped.upsert(...)`
+> 这类**私有属性逃生口**仍可绕过 —— 私有访问不在契约内（k26 那类「注入 fake 集合」
+> 的既有测试用法正依赖 `_collection` 是裸句柄，故不封）。静态守卫同样只覆盖
+> `\.collection\.<写方法>` 形态；两层叠加后的闭环是「公开路径全封 + 私有路径需
+> 显式越权」，若控制方要求连私有路径也封，请指示（会与既有注入用法冲突）。
+
 ### R2-3 生产指纹口径（对齐用，一行命令）
 
 ```bash
