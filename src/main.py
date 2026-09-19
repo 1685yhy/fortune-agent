@@ -2780,15 +2780,6 @@ async def admin_active_members(authorization: str = Header("")):
     return {"members": member_dao.list_active_members()}
 
 
-@app.get("/membership")
-async def membership_page():
-    """会员价格页面"""
-    html = Path(__file__).parent / "membership.html"
-    if html.exists():
-        return HTMLResponse(html.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>会员页面未找到</h1>", status_code=404)
-
-
 @app.get("/pricing")
 async def pricing_page():
     """透明定价页面"""
