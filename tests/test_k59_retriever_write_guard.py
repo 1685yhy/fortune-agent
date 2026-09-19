@@ -14,6 +14,11 @@
    `_collection_name` 显式改名的用法照旧；
 4. **写路径不再触发自愈**：写操作不置 `_collection_checked`、不产生自愈事件。
 
+r2 追加（残留口子收口）：**绕过写 API 直写读属性**这条复发面 ——
+`retriever.collection` 返回只读包装，写方法抛 `ReadPropertyWriteRefused`，
+读方法逐字透传（见 `test_k59_r2_*`）；仓库面的静态守卫另见
+`tests/test_k59_collection_write_scan.py`。
+
 隔离：全部在 `tmp_path`（本批跑测时 `TMPDIR=/dev/shm`）里用**真实 chroma**，
 零网络、零模型（桩 embedder 产定长向量）；不读也不写生产库 —— 生产形态用
 「同目录放一个权威集合 + 一个缺失的集合名」在沙箱里等价构造（见 `prod_like`）。
@@ -39,7 +44,11 @@ from chromadb.config import Settings as ChromaSettings  # noqa: E402
 import src.rag.retriever as rt  # noqa: E402
 from src.book_categories import BOOKS_COLLECTION  # noqa: E402
 from src.rag.chunker import Chunk  # noqa: E402
-from src.rag.retriever import Retriever, SelfHealWriteRefused  # noqa: E402
+from src.rag.retriever import (  # noqa: E402
+    Retriever,
+    ReadPropertyWriteRefused,
+    SelfHealWriteRefused,
+)
 
 # 沙箱里的向量维度：小尺寸即可（机制与维度无关，1024 维只拖慢测试）
 DIM = 8
@@ -415,14 +424,96 @@ def test_k59_read_path_keeps_injected_collection_handle(prod_like):
 
     （k59 第一版曾按集合名重绑句柄缓存，直接打破 k26 的 fake 注入用法 —— 回归
     用例锁死：写路径自己取句柄、绝不改写读路径的 `_collection`。）
+
+    r2：读属性返回值现在是只读包装，故断言「读走的是注入的 fake」（而非对象
+    同一性）；r2 之前那条 `collection is fake` 断言随包装调整。
     """
     fake = _InjectedCollection()
     retriever = Retriever(str(prod_like), _StubEmbedder(), collection_name="k59_fake")
     retriever._collection_checked = True  # noqa: SLF001（既有测试注入用法）
     retriever._collection = fake  # noqa: SLF001
 
-    assert retriever.collection is fake
+    assert retriever._collection is fake, "读路径不得替换外部注入的句柄"
+    assert retriever.collection.get()["ids"] == ["c1"], "读必须透传到注入的 fake"
     assert retriever.count() == 1
     assert len(retriever.search("正文", top_k=3, min_score=0.0)) == 1
     assert fake.queries >= 1
+
+
+# ================================================================
+# 5. r2：读属性只读包装（绕过写 API 直写读属性这条复发面）
+# ================================================================
+
+def test_k59_r2_write_through_read_property_is_refused(prod_like):
+    """r2 核心：`retriever.collection.<写方法>(...)` 必须抛错，且什么都没写。
+
+    改前/r2 前：直写读属性会被自愈改写 → 数据静默落进权威集合（副本实测
+    27,115 → 27,116）。r2 后：库层拒绝（静态守卫另有仓库面兜底）。
+    """
+    before = _fingerprint(prod_like, BOOKS_COLLECTION)
+    retriever = Retriever(
+        str(prod_like), _StubEmbedder(), collection_name="k59_r2_new"
+    )
+    for method in ("upsert", "add", "update", "delete", "modify"):
+        with pytest.raises(ReadPropertyWriteRefused) as ei:
+            getattr(retriever.collection, method)
+        assert ei.value.method == method
+        assert "writable_collection" in str(ei.value)
+    # 真实调用形态（不是只取属性）
+    with pytest.raises(ReadPropertyWriteRefused):
+        retriever.collection.upsert(
+            embeddings=_StubEmbedder().encode(["x"]).tolist(), documents=["x"], ids=["x"]
+        )
+
+    assert _fingerprint(prod_like, BOOKS_COLLECTION) == before
+    assert _count(prod_like, "k59_r2_new") == 0
+    # 读属性自身仍走读语义（本例里集合缺失 → 自愈改写，这是 k24 设计）；
+    # 关键是：即便实例已被自愈，经读属性写入依然被拒、且哪都没写。
+    assert retriever.self_healed_to == BOOKS_COLLECTION
+
+
+def test_k59_r2_read_property_still_serves_reads(prod_like):
+    """r2 不得改读语义：query/get/count/name 全透传，search/count 结果不变。"""
+    retriever = Retriever(
+        str(prod_like), _StubEmbedder(), collection_name=BOOKS_COLLECTION
+    )
+    col = retriever.collection
+    assert col.name == BOOKS_COLLECTION
+    assert col.count() == 5
+    assert sorted(col.get(include=["documents"])["ids"]) == [f"books_{i:03d}" for i in range(5)]
+    assert col.query(query_embeddings=_StubEmbedder().encode(["doc-1"]).tolist(),
+                     n_results=3, include=["documents"])["ids"][0]
+    assert retriever.count() == 5
+    assert len(retriever.search("doc-1", top_k=3, min_score=0.0)) >= 1
+
+
+def test_k59_r2_writable_collection_is_not_wrapped(prod_like):
+    """写访问器不受包装影响：`writable_collection.upsert(...)` 正常写入。"""
+    before = _fingerprint(prod_like, BOOKS_COLLECTION)
+    retriever = Retriever(
+        str(prod_like), _StubEmbedder(), collection_name="k59_r2_direct"
+    )
+    stub = _StubEmbedder()
+    col = retriever.writable_collection
+    col.upsert(embeddings=stub.encode(["a", "b"]).tolist(),
+               documents=["a", "b"], ids=["k59_r2_a", "k59_r2_b"])
+
+    assert col.upsert.__self__ is not None  # 裸 chroma 句柄（非包装）
+    assert _count(prod_like, "k59_r2_direct") == 2
+    assert _fingerprint(prod_like, BOOKS_COLLECTION) == before
+
+
+def test_k59_r2_read_property_refuses_write_even_after_self_heal(prod_like):
+    """已自愈实例：读属性写入同样被拒（且是包装层的拒，不落到写路径判据）。"""
+    before = _fingerprint(prod_like, BOOKS_COLLECTION)
+    retriever = Retriever(
+        str(prod_like), _StubEmbedder(), collection_name="k59_r2_missing"
+    )
+    assert retriever.count() == 5  # 读自愈
+    assert retriever.collection_name == BOOKS_COLLECTION
+    with pytest.raises(ReadPropertyWriteRefused):
+        retriever.collection.upsert(embeddings=[[0.0] * DIM], documents=["x"], ids=["x"])
+    with pytest.raises(SelfHealWriteRefused):
+        retriever.add_chunks(_chunks(1, "r2_healed"))
+    assert _fingerprint(prod_like, BOOKS_COLLECTION) == before
 

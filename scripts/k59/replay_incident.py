@@ -9,7 +9,9 @@
 --------
 * `--code legacy`：**逐字复刻改前写路径** —— `add_chunks` 当时的写法就是
   `self.embedder.encode(...)` + `self.collection.upsert(...)`（`collection` 属性
-  会触发自愈）。用来在副本上复现污染。
+  会触发自愈）。用来在副本上复现污染。在**改后**代码上同一写法会被读属性只读
+  包装拦下（`ReadPropertyWriteRefused`，k59 r2），故本模式同时用来取证
+  「绕过写 API 直写读属性」这条复发面已收口。
 * `--code guarded`：改后代码 —— `retriever.add_chunks(...)`（写路径不再使用自愈
   结果；实例已自愈则抛 `SelfHealWriteRefused`）。
 

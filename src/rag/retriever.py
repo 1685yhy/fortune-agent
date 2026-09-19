@@ -37,7 +37,62 @@ logger = logging.getLogger(__name__)
 #      回落）——「新建一个集合再写」是明确的调用意图，必须落到该集合本身。
 # 读路径行为**不变**（集合缺失/为空 → 回落权威库），见
 # `_ensure_non_empty_collection`；写路径见 `writable_collection`。
+#
+# k59 r2（残留口子收口）：A+B 只管住写 API，**绕过写 API 直写读属性**
+# （`retriever.collection.upsert(...)`）仍会被自愈改写（副本实测 27,115 →
+# 27,116）。故 `collection` 现在返回**只读包装**：读方法原样透传（读语义逐字
+# 不变），写方法 `COLLECTION_WRITE_METHODS` 直接抛 `ReadPropertyWriteRefused`；
+# 同口径由静态守卫测试 `tests/test_k59_collection_write_scan.py` 在仓库面兜底
+# （扫描 `\.collection\.(upsert|add|update|delete|modify)`，命中即失败）。
 # ────────────────────────────────────────────────────────────────────────
+
+# k59 r2：读属性 `collection` 上禁用的写方法名 —— **单一事实源**：
+# 只读包装（运行时）与静态守卫测试（仓库面）共用此集合；chroma Collection 的
+# 写面 = add / update / upsert / delete / modify（只许加不许减）。
+COLLECTION_WRITE_METHODS = frozenset({"add", "update", "upsert", "delete", "modify"})
+
+
+class ReadPropertyWriteRefused(RuntimeError):
+    """写经由**读属性** `Retriever.collection` 被拒（k59 r2）。
+
+    读属性是读语义：空集合自愈在此生效，其句柄可能是权威库 `fortune_books_v2`。
+    写入一旦经由它，目标就会被自愈静默改写 —— 这正是 k55 险情的形态。所以读
+    属性返回**只读包装**：`query`/`get`/`count`/… 原样透传，写方法直接抛本异常。
+
+    正确写法：`retriever.add_chunks(...)` 或 `retriever.writable_collection.upsert(...)`。
+    """
+
+    def __init__(self, method: str, collection_name: str):
+        self.method = method
+        self.collection_name = collection_name
+        super().__init__(
+            f"拒绝写入：'{method}' 经由读属性 collection 调用（集合 "
+            f"'{collection_name}'）。读属性的句柄可能是空集合自愈后的权威库，"
+            f"写目标会被静默改写（k55 险情根因）。请改用 add_chunks(...) 或 "
+            f"writable_collection.upsert(...)（k59）。"
+        )
+
+
+class _ReadOnlyCollection:
+    """`Retriever.collection` 的只读包装（k59 r2）：读透传，写抛错。
+
+    为什么包装而不改 `collection` 的行为：**读路径语义必须逐字不变**（k24 自愈
+    回落、k26 那类「注入 fake 集合」的既有用法、各脚本的 `collection.get()`）。
+    包装只加一层 `__getattr__` 转发：除 `COLLECTION_WRITE_METHODS` 外全部原样可用。
+    """
+
+    __slots__ = ("_wrapped",)
+
+    def __init__(self, wrapped):
+        self._wrapped = wrapped
+
+    def __getattr__(self, name: str):
+        if name in COLLECTION_WRITE_METHODS:
+            raise ReadPropertyWriteRefused(name, getattr(self._wrapped, "name", ""))
+        return getattr(self._wrapped, name)
+
+    def __repr__(self) -> str:
+        return f"<read-only collection '{getattr(self._wrapped, 'name', '?')}' (k59)>"
 
 
 class SelfHealWriteRefused(RuntimeError):
@@ -276,13 +331,18 @@ class Retriever:
         `writable_collection`（它绝不使用自愈结果，必要时抛
         `SelfHealWriteRefused`）。k55 险情的根因正是写方法继承了这个属性。
 
+        k59 r2：返回值是**只读包装** `_ReadOnlyCollection` —— 读方法
+        （`query`/`get`/`count`/`name`/…）逐字透传，写方法
+        （`COLLECTION_WRITE_METHODS`）抛 `ReadPropertyWriteRefused`，因此
+        「绕过写 API 直写读属性」这条复发面在库层被彻底关掉。
+
         句柄缓存语义与 k59 之前**逐字一致**：只有 `_collection is None` 时才
         取句柄（外部注入 `_collection` 的既有用法/测试不受影响）。
         """
         self._ensure_non_empty_collection()
         if self._collection is None:
             self._collection = self._open_collection(self._collection_name)
-        return self._collection
+        return _ReadOnlyCollection(self._collection)
 
     @property
     def self_healed_to(self) -> Optional[str]:

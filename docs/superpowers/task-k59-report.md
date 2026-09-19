@@ -277,3 +277,98 @@ python3 scripts/k59/prod_fingerprint.py
 ```
 
 **提交**：`k59-retriever` 分支（HEAD），仅提交、未合并、未推送、未重启服务、未碰生产。
+
+---
+
+## r2（控制方追加）：残留口子收口 —— 读属性直写这条复发面
+
+### R2-1 仓库级静态守卫（已做）
+
+新增 `tests/test_k59_collection_write_scan.py`（11 条）：
+
+- **扫描面**：`src/**/*.py` + `scripts/**/*.py`（排除 `tests/`、`.git`、
+  `__pycache__`、`node_modules`、`miniprogram/`）；注释行不扫，docstring/字符串照扫。
+  实测扫描 **349 个文件**（src 207 + scripts 142），下限断言 `MIN_SCANNED_FILES=200`
+  防「改窄 glob 让测试变绿」。
+- **规则**：`\.collection\s*\.\s*(upsert|add|update|delete|modify)\b` 命中即失败；
+  规则里的写方法集合与运行时只读包装**同源**（`COLLECTION_WRITE_METHODS`，单一事实源，
+  由 `test_write_method_names_match_runtime_guard` 反向锁住）。
+- **命中情况**：**原始命中 2 条，全部在 `scripts/k59/replay_incident.py`**（本批的
+  「改前路径取证工具」：一次是可执行的 legacy 复刻调用，一次是 docstring 引述），
+  已按 k52 口径白名单登记（逐条 `reason`）+ **反向锁**：
+  ① 白名单条目必须真实在压制命中，否则判为过期条目（`test_whitelist_entries_have_reasons_and_are_used`）；
+  ② 白名单只许覆盖该取证工具（`test_whitelisted_file_is_the_evidence_tool_only`），
+  `src/` 出现任何白名单即失败。
+- **迁移清单**：r1 已把 3 个真实调用点迁到 `writable_collection`
+  （`scripts/batch_rag.py`、`scripts/ingest_github_repos.py`、
+  `scripts/ingest_extracted_texts.py`）；本 r2 扫描确认 **`src/` 与业务脚本 0 命中、
+  0 迁移遗留** → 无需再迁。
+- 另附机制自检（合成命中必须判红、读方法 `get/count` 不得误报）与参数化兜底
+  （5 个写方法名逐个在规则内）。
+
+### R2-2 库层强制（**做了**）
+
+`Retriever.collection` 现在返回**只读包装** `_ReadOnlyCollection`：
+`__getattr__` 逐字透传 `query`/`get`/`count`/`name`/…，命中
+`COLLECTION_WRITE_METHODS` 的写方法抛 `ReadPropertyWriteRefused`（`RuntimeError`
+子类，带 `method`/`collection_name` + 指引 `add_chunks(...)` / `writable_collection.upsert(...)`）。
+`writable_collection` 与 `add_chunks` 返回**裸** chroma 句柄，不受影响。
+
+**代价与代价控制**：只读包装只动了返回值类型/同一性（`retriever.collection is X`
+不再成立），**读语义未动**（自愈回落、句柄缓存、注入 fake 集合的既有用法都在）；
+共 1 处既有断言涉及同一性，即本批自己的回归用例第 13 条，已随包装调整为「读走注入
+的 fake」，并新增 4 条 r2 用例。
+
+**取证（同一 legacy 直写读属性，改前 vs 改后，均在生产库副本上）**
+
+| 代码 | 调用 | 结果 | 权威集合（副本） |
+|---|---|---|---|
+| 改前（55ea3f7 原样） | `retriever.collection.upsert(...)` | `wrote`（静默） | **27,115 → 27,116** `23be3a808bc7 → c6beb5943781` **[已变化]** |
+| 改后（r2） | 同一写法 | **`raised ReadPropertyWriteRefused`** | 27,115 → **27,115** **[零变化]** |
+| 改后（r2） | `add_chunks(...)`（正常写路径） | `wrote` | 27,115 → **27,115** **[零变化]**，落到显式集合 |
+
+> 残留（已披露、不可由库层消除）：两步取别名（`c = retriever.collection; c.upsert(...)`）
+> 不会被**静态规则**命中 —— 但会被**只读包装在运行时**拦下；两层叠加即为本批的闭环。
+
+### R2-3 生产指纹口径（对齐用，一行命令）
+
+```bash
+python3 scripts/k59/prod_fingerprint.py --json     # 只读，不构造 chroma 客户端
+```
+
+口径（逐字节确定，NULL 记空串）：
+- `count` = 集合 METADATA segment 下去重 `embedding_id` 数；
+- `meta_md5` = 全量 `(embedding_id, key, string_value, int_value, float_value, bool_value)`
+  按 `(embedding_id, key)` **排序** → 每行 **TAB** 连接、行间 `\n`、UTF-8 → MD5；
+- `ids_md5` = 排序后 `embedding_id` 以 `\n` 连接 → MD5；
+- `emb_rows` = `embeddings` 表中属于该集合的行数；
+- `vec_*` = VECTOR segment（HNSW 目录）文件大小 + `header.bin` /
+  `index_metadata.pickle` 的 MD5。
+
+当前生产基线（本批 r1/r2 前后逐字节一致）：
+`count=27115`、`meta_rows=108460`、`meta_md5=23be3a808bc7d1b3f6d1a2a1152a5cf6`、
+`ids_md5=9ea7d255044f12c1a4ee6704efdd7d8f`、`emb_rows=27115`、
+`vec_header_md5=04ffc7b77dee64839c19ca14054214af`、
+`vec_index_metadata_md5=cc1000e074ad4caf01df1a040f4c1c11`。
+试过但**都不等于** brief 的 `abc00d5b43863c2fe67e65556361ee74` 的 8 种口径：
+TSV/JSON × DB 自然序/排序 × 带 `id` 列/不带 × 仅 id / 仅文档 / repr / SQL 字面量。
+若控制方能给出该值的生成方式，后续批次可切到该口径对齐。
+
+### r2 测试数字
+
+```bash
+TMPDIR=/dev/shm K59_PROD_REPLICA=/dev/shm/k59/replica_pytest nice -n 10 \
+  python3 -m pytest tests/test_k59_retriever_write_guard.py tests/test_k59_collection_write_scan.py -q
+# → 28 passed（写路径护栏 17 条：13 条 r1 + 4 条 r2，含生产副本门控用例；静态守卫 11 条）
+
+TMPDIR=/dev/shm nice -n 10 python3 -m pytest tests/test_rag.py \
+  tests/test_k24_ref_content_crash.py tests/test_k26_sentinel_title.py \
+  tests/test_k28_minors.py tests/test_k30_solar_projection.py \
+  tests/test_k31_self_heal_counter.py tests/test_k38_e6_red_fixes.py \
+  tests/test_k59_retriever_write_guard.py tests/test_k59_collection_write_scan.py -q
+# → 230 passed, 1 skipped
+```
+
+生产指纹在 r2 实验后仍与基线**逐字节一致**（`before == r2` → True）。全量 pytest
+仍未跑（按纪律）。r2 实验同样只在 `/dev/shm` 副本上（新增 2 份副本，共 6 份，
+复核完可 `rm -rf /dev/shm/k59 /dev/shm/k59_old`）。
