@@ -70,11 +70,15 @@ def test_single_char_rules_have_statistical_match_evidence():
 
 
 def test_single_char_match_branches_never_bare_single_char():
-    """k49：单字元素的 match 分支不得是裸单字（护栏/搭配都必须 ≥2 字）"""
+    """k49：单字元素的 match 分支不得是裸单字（护栏/搭配都必须 ≥2 字）。
+
+    注意：边界护栏是 `(?=…)` 组、其字符类内部含 `|`，必须先用 split_branches
+    剥掉再判 —— 否则护栏内容（`$`/`了`/`的`…）会被误当成单字分支。
+    """
+    from scripts.k55_dream.collocation import split_branches
     for r in SINGLE_CHAR_RULES:
-        for branch in r["match"].split("|"):
-            literal = re.split(r"\(\?!", branch)[0]      # 去掉护栏 lookahead 后再看长度
-            assert len(literal) >= 2, (r["name"], branch)
+        for branch in split_branches(r["match"]):
+            assert len(branch) >= 2, (r["name"], branch)
 
 
 def test_head_form_branches_carry_boundary_guard():
@@ -82,7 +86,7 @@ def test_head_form_branches_carry_boundary_guard():
     guarded = 0
     for r in SINGLE_CHAR_RULES:
         for b in r.get("match_branches") or []:
-            if b["kind"] == "head_form" and "(?!" in b["branch"]:
+            if b["kind"] == "head_form" and "(?=" in b["branch"]:
                 guarded += 1
     assert guarded >= 30, f"带护栏的头部形态分支只有 {guarded} 个"
 
@@ -189,3 +193,92 @@ def test_rules_table_still_verbatim_for_audit():
     assert risky, "预期规则表里仍有逐字引文含风险词（否则本测试失去意义）"
     for r in risky:
         assert find_high_risk(neutralize(r["gloss"])) == [], r["name"]
+
+
+# ══════════════════ k58 r2：审查 4 条 Important 的不变式锁 ══════════════════
+
+# 上一版（k55）规则里被**明确判为不该保留**的元素（形容词/状态词/繁体导航词），
+# 它们不是「梦的意象」→ 允许覆盖回退，但必须逐条登记理由（I-1 要求）。
+RETIRED_WITH_REASON = {
+    "吉兆": "判词术语，不是意象", "凶兆": "判词术语",
+    "漂亮": "形容词", "破旧": "状态词", "干净": "形容词",
+    "健康": "形容词（状态，非意象）", "腐烂": "状态词", "成熟": "形容词",
+    "解夢": "繁体页面导航词（非意象）",
+}
+
+
+def test_rule_table_does_not_lose_covered_elements_vs_previous_version():
+    """r2 I-1 不变式：上一版规则名的裸查询覆盖率不得回退（除登记豁免项）。"""
+    import subprocess
+    from pathlib import Path as _P
+    repo = _P(__file__).resolve().parents[1]
+    try:
+        src = subprocess.run(["git", "show", "55ea3f7:src/engines/dream_rules.py"],
+                             cwd=repo, capture_output=True, text=True, check=True).stdout
+    except Exception as e:                                   # pragma: no cover
+        pytest.skip(f"取不到上一版规则模块：{e}")
+    old_names = re.findall(r'"name": \'([^\']+)\'', src)
+    assert len(old_names) >= 200, len(old_names)
+    engine = DreamEngine()
+    uncovered = []
+    for n in old_names:
+        res = engine.analyze(f"梦见{n}", _NullRetriever())
+        if not (res.dream_type and res.symbols and res.tones):
+            uncovered.append(n)
+    unexplained = [n for n in uncovered if n not in RETIRED_WITH_REASON]
+    assert unexplained == [], f"未经登记就失去覆盖的元素：{unexplained}"
+    # 覆盖率本身也要达标（改前 69.2%）
+    rate = (len(old_names) - len(uncovered)) / len(old_names)
+    assert rate >= 0.95, f"上一版元素覆盖率只有 {rate:.1%}"
+
+
+def test_head_entry_gloss_label_matches_source():
+    """r2 I-4 不变式：标了「语料「梦见X」词条原文」的，必须有该元素的裸条目证据。
+
+    改前：`is_head = core in elements` 按**条目**判定 → 兔子条目的句子被标成
+    「梦见子」词条原文（21/229 错配）。现在逐元素判定（core == el）。
+    """
+    bad = [(r["name"], r.get("head_entry_count", 0)) for r in DREAM_PATTERN_RULES
+           if r.get("gloss_evidence") == "head_entry" and r.get("head_entry_count", 0) < 1]
+    assert bad == [], f"gloss 标注与来源不一致：{bad[:5]}"
+
+
+def test_single_char_rules_have_standalone_evidence():
+    """r2 I-3 不变式：单字规则必须在语料里**独立成词**（词缀碎片不得成规则名）"""
+    for r in SINGLE_CHAR_RULES:
+        assert r.get("standalone_count", 0) >= 5, (r["name"], r.get("standalone_count"))
+
+
+# brief 指定必须覆盖的族（不受自动词性门槛约束：它们是控制方点名要的条目，
+# 例如「赶不上车」jieba 会拆成 赶不上(d)+车，但它是交通族的一员）
+MANDATED_NAMES = {"开车", "车祸", "停车", "找不到车", "迷路", "赶不上车",
+                  "堵车", "坐车", "迟到"}
+
+
+def test_no_blocked_pos_rule_names():
+    """r2 I-3 不变式：形容词/副词/功能词类不得成为规则名（brief 指定族除外）"""
+    from scripts.k55_dream.build_rules import pos_allowed
+    bad = [r["name"] for r in DREAM_PATTERN_RULES
+           if r["name"] not in MANDATED_NAMES and not pos_allowed(r["name"])]
+    assert bad == [], bad
+    # 审查点名的泄漏词逐一回归
+    names = {r["name"] for r in DREAM_PATTERN_RULES}
+    for w in ("子", "面", "公", "母", "活", "男", "身", "很大", "不到", "不见", "上长"):
+        assert w not in names, w
+
+
+def test_novel_compounds_introduce_no_new_false_positive():
+    """r2 I-2 不变式：新词/罕见复合（含「改后命中别的字」类）零命中。
+
+    基线 0 命中，k58 r1 一度净增 20 条（水立方→水、火烈鸟→火、猫头鹰→猫/鹰…）。
+    """
+    from scripts.k55_dream.adversarial_check import NOVEL_COMPOUNDS, NO_HIT_AT_ALL
+    engine = DreamEngine()
+    hits = [(t, [h["rule"]["name"] for h in engine.match_patterns(t)])
+            for t in NOVEL_COMPOUNDS]
+    hits = [h for h in hits if h[1]]
+    assert hits == [], hits
+    viol = [(t, [h["rule"]["name"] for h in engine.match_patterns(t)])
+            for t, _ in NO_HIT_AT_ALL]
+    viol = [v for v in viol if v[1]]
+    assert viol == [], viol

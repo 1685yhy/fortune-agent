@@ -39,10 +39,16 @@ def test_rule_count_at_least_80():
 
 
 def test_no_single_char_branch_in_any_pattern():
-    """k49 教训：match 的每个分支都必须 ≥2 字（单字会前缀误伤）"""
+    """k49 教训：match 的每个分支都必须 ≥2 字（单字会前缀误伤）。
+
+    k58 r2：单字元素的头部形态分支带 `(?=…)` 边界护栏，而护栏字符类内部含 `|`，
+    直接 split("|") 会把护栏内容误判成分支 → 改用 collocation.split_branches
+    （先剥 lookahead 再切）。**断言强度不变**：仍是「任何分支都不得是裸单字」。
+    """
+    from scripts.k55_dream.collocation import split_branches
     bad = []
     for r in DREAM_PATTERN_RULES:
-        for branch in r["match"].split("|"):
+        for branch in split_branches(r["match"]):
             if len(branch) < 2:
                 bad.append((r["name"], branch))
     assert bad == [], bad

@@ -42,6 +42,22 @@ DIFFERENT_OBJECT = [
     ("梦见钱币", "钱"),
     ("梦见刀法", "刀"), ("梦见刀子嘴", "刀"),
 ]
+# k58 r2（I-2）：**新词/罕见复合**（jieba 词典根本没收录的那类）——
+# 基线 0 命中，必须保持 0；期望「一个规则都不命中」（含「改后命中别的字」这一类）。
+NOVEL_COMPOUNDS = [
+    "梦见水立方", "梦见水逆", "梦见水煮鱼", "梦见水信玄饼",
+    "梦见火币", "梦见火烈鸟", "梦见狗獾", "梦见狗粮",
+    "梦见手办", "梦见手冲咖啡", "梦见猫砂", "梦见猫咖", "梦见猫山王",
+    "梦见鱼香肉丝", "梦见马卡龙", "梦见车模", "梦见山葵", "梦见山竹",
+    "梦见河粉", "梦见猫头鹰",
+]
+# 期望「完全无命中」的输入（这些字只是更长词的前缀/后缀，不是梦的意象）
+NO_HIT_AT_ALL = [
+    ("梦见猫头鹰", None),      # M-b：曾误命中 猫，改后一度误命中 鹰
+    ("梦见水立方", None), ("梦见水逆", None), ("梦见火币", None),
+    ("梦见狗粮", None), ("梦见手办", None), ("梦见猫砂", None),
+    ("梦见鱼香肉丝", None), ("梦见马卡龙", None), ("梦见车模", None),
+]
 ABSURD = [("梦见蛇精病", "蛇"), ("梦见火星人", "火")]
 LEGIT = [
     ("梦见蛇", "蛇"), ("梦见大蛇", "蛇"), ("梦见被蛇追", "蛇"),
@@ -70,6 +86,8 @@ def main() -> int:
         return [h["rule"]["name"] for h in engine.match_patterns(text)]
 
     fp, ok, absurd = [], 0, []
+    nov = [{"input": t, "hit": hit_names(t)} for t in NOVEL_COMPOUNDS]
+    no_hit = [{"input": t, "hit": hit_names(t)} for t, _ in NO_HIT_AT_ALL]
     for text, banned in DIFFERENT_OBJECT:
         names = hit_names(text)
         if banned in names:
@@ -97,6 +115,9 @@ def main() -> int:
         "different_object_total": len(DIFFERENT_OBJECT),
         "different_object_clean": ok,
         "false_positives": fp,
+        "novel_compounds": nov,
+        "novel_compounds_hit": [x for x in nov if x["hit"]],
+        "no_hit_at_all_violations": [x for x in no_hit if x["hit"]],
         "absurd_cases": absurd,
         "legit_total": len(LEGIT),
         "missed_legit": fn,
@@ -109,11 +130,18 @@ def main() -> int:
     print(f"正当口语形态：{len(LEGIT)} 条，未被覆盖 {len(fn)} 条")
     for x in fn:
         print(f"  ✗ {x['input']} → 期望覆盖 {x['expect']}，规则命中 {x['hit']}，元素 {x.get('elements')}")
+    print(f"新词/罕见复合（I-2 对抗集）：{len(NOVEL_COMPOUNDS)} 条，命中 {len(result['novel_compounds_hit'])} 条")
+    for x in result["novel_compounds_hit"]:
+        print(f"  ✗ {x['input']} → {x['hit']}")
+    print(f"期望完全无命中：{len(NO_HIT_AT_ALL)} 条，违反 {len(result['no_hit_at_all_violations'])} 条")
+    for x in result["no_hit_at_all_violations"]:
+        print(f"  ✗ {x['input']} → {x['hit']}")
     print(f"荒谬串：{len(ABSURD)} 条（允许命中）")
     for x in absurd:
         print(f"  · {x['input']} → {x['hit']}")
     print(f"结果 → {args.out}")
-    return 0 if not fp and not fn else 1
+    return 0 if (not fp and not fn and not result["novel_compounds_hit"]
+                 and not result["no_hit_at_all_violations"]) else 1
 
 
 if __name__ == "__main__":

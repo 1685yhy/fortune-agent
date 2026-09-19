@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -33,7 +34,22 @@ from scripts.k55_dream.crawl_lib import DATA_ROOT, now_iso  # noqa: E402
 from scripts.k55_dream.stats_elements import load_entries, normalize_core  # noqa: E402
 
 REPORTS = DATA_ROOT / "reports"
-LEXICON_MIN_FREQ = 10       # jieba 词典里取多少频次以上的词做护栏
+# 头部形态的**结构化边界护栏**（k58 r2，I-2）：X 后面必须紧跟
+# 分隔符/句末/常见虚词 —— 白名单式判定，**不依赖词典是否收录**
+# （实测 jieba 词典根本没收录 水立方/水逆/猫咖/猫山王/水信玄饼 这类新词与网语，
+#   靠词典护栏永远挡不住它们；而白名单只看「X 后面那个字是不是虚词/标点」，
+#   对任何新造复合词都成立）。
+TRAILING_BOUNDARY = (
+    r"[，,。！？!?、；;：:\s]|$|"
+    r"了|的|在|是|和|跟|与|把|被|让|给|向|从|对|有|我|你|他|她|它|们|"
+    r"很|太|都|也|还|就|又|再|但|而|或|及|等|吗|呢|吧|啊|呀|着|过|会|要|"
+    r"想|说|看|到|来|去|了|地|得"
+    # 注意：**方位名词不进白名单**（里/上/下/中/前/后/边/面）——
+    # 它们会和 X 组成复合词（马上=立即、水里、山上、心中），放行就会把
+    # 「梦见马上」误判成马梦（实测）。这些形态交给搭配分支（水里/山上…）。
+)
+
+LEXICON_MIN_FREQ = 10       # jieba 词典里取多少频次以上的词做护栏（保留：作为辅助证据）
 # （k58：100 会漏掉「水杯」(freq=15) 这类常用词 → 护栏失效、出现前缀误伤；
 #   10 能覆盖水杯/车门/火腿，而护栏只作用于**头部形态**分支，不影响搭配分支）
 COLLOC_MIN_COUNT = 3        # 搭配词至少覆盖 3 条语料
@@ -53,15 +69,28 @@ def corpus_stats(elements: set) -> dict:
     colloc = defaultdict(Counter)    # X -> Counter(2~3 字搭配 -> 条目数)
     starts = defaultdict(Counter)    # X -> Counter(以 X 开头的更长核心串 -> 条目数)
     forms = defaultdict(Counter)     # X -> Counter(触发形态 -> 含该形态的条目数)
+    standalone = Counter()           # X -> X 在核心串里**独立成词**（jieba 分词）的条目数
 
+    import jieba
+    jieba.initialize()
     for e in entries:
         core = normalize_core(e["title"])
         if not core:
             continue
         content = e.get("content") or ""
+        core_tokens = None
         for X in elements:
             if X not in core and X not in content:
                 continue
+            # 「独立成词」统计：X 在核心串里是**独立 token**（不是更长词的一部分）
+            # —— 这是区分「具体意象」与「词缀碎片」的数据判据：
+            # 菜/鞋/肉 在语料里独立成词（买菜/鞋/肉），而 面/身/子 几乎只作为
+            # 面条/身上/面子 的一部分出现（实测 面 独立成词 ≈0）。
+            if X in core:
+                if core_tokens is None:
+                    core_tokens = set(jieba.lcut(core))
+                if X in core_tokens:
+                    standalone[X] += 1
             # 触发形态覆盖量：在**语料正文**里数三种用户口语形态
             # （「梦见X」在标题里是规范形；「梦到X/梦见了X」只在正文里出现）
             for trig in ("梦见", "梦到", "梦见了"):
@@ -83,7 +112,7 @@ def corpus_stats(elements: set) -> dict:
                         colloc[X][g] += 1
     log(f"[colloc] 语料扫描完成：目标元素 {len(elements)} 个")
     return {"head": head, "hits": hits, "colloc": colloc, "starts": starts,
-            "forms": forms}
+            "forms": forms, "standalone": standalone}
 
 
 def head_forms(entry: dict, X: str) -> dict:
@@ -125,6 +154,12 @@ def collocations(entry: dict, X: str, top: int = 5, guard: set = None,
             continue
         if not (g.startswith(X) or is_lexicon_word(g)):
             continue
+        # 非 X 开头的搭配若**以另一个元素打头**（猫头鹰 以「猫」打头、葡萄酒不属于此类），
+        # 说明它是那个元素的物件 → 丢掉（M-b：梦见猫头鹰 不该命中 鹰）。
+        # 用「打头的字是不是已登记元素」判定，是数据判据、不是语义猜测；
+        # 「老鹰」以「老」打头而「老」不是元素 → 保留（梦见老鹰 仍然命中 鹰）。
+        if not g.startswith(X) and g[0] in exclude_names:
+            continue
         # 该搭配若本身就是**另一条规则**（车祸/开车/火车…），由那条规则负责 ——
         # 否则同一段文本会被两条规则重复命中，吉凶合成还会被跨条目词频带偏
         # （实测：梦见出车祸了 命中 ['车','车祸'] → 综合 luck 从「中性」变成「凶多于吉」）。
@@ -146,6 +181,19 @@ def jieba_guard(X: str, min_freq: int = LEXICON_MIN_FREQ) -> set:
         return set()
     return {w[1] for w, f in freq.items()
             if len(w) == 2 and w.startswith(X) and f >= min_freq}
+
+
+LOOKAHEAD_RE = re.compile(r"\(\?=[^)]*\)")
+
+
+def split_branches(match: str) -> list:
+    """把 match 正则拆成「分支」列表（**先剥掉 lookahead 护栏组**再按 | 切）。
+
+    护栏的字符类里本身含 `|`（`(?=[，,。！？…]|$|了|的|…)`），
+    直接 `match.split("|")` 会把护栏内容当成一个个分支，误报「单字分支」
+    （k55 的 k49 不变式测试就是这么被新格式打破的）。
+    """
+    return [b for b in LOOKAHEAD_RE.sub("", match or "").split("|") if b]
 
 
 def is_lexicon_word(w: str, min_freq: int = LEXICON_MIN_FREQ) -> bool:
@@ -182,11 +230,13 @@ def build_match(X: str, entry: dict, top_colloc: int = 5,
     colloc_list = collocations(entry, X, top=top_colloc,
                                guard=set(g["lexicon"]) | set(g["corpus"]),
                                exclude_names=exclude_names)
-    guard = "".join(sorted(set(g["lexicon"]) | set(g["corpus"])))
     forms = head_forms(entry, X)
     branches = []
     for form, cov in forms.items():
-        branches.append({"branch": form + (f"(?![{guard}])" if guard else ""),
+        # 头部形态：**结构化边界护栏（白名单）**——只认裸形态（X 后紧跟标点/句末/虚词）。
+        # 不依赖词典：实测 jieba 根本没收 水立方/水逆/猫咖/猫山王 这类新词网语，
+        # 词典式负向护栏永远挡不住；白名单只看「X 后面那个字是不是虚词」，对新词恒成立。
+        branches.append({"branch": f"{form}(?={TRAILING_BOUNDARY})",
                          "kind": "head_form", "coverage": cov})
     for gram, cov in colloc_list:
         branches.append({"branch": gram, "kind": "collocation", "coverage": cov})
@@ -194,7 +244,8 @@ def build_match(X: str, entry: dict, top_colloc: int = 5,
         "element": X,
         "match": "|".join(b["branch"] for b in branches),
         "branches": branches,
-        "guard": {"lexicon": g["lexicon"], "corpus": g["corpus"]},
+        "guard": {"mode": "trailing_boundary", "allowed": TRAILING_BOUNDARY,
+                  "lexicon": g["lexicon"], "corpus": g["corpus"]},
         "head_count": entry["head"].get(X, 0),
         "entry_hits": entry["hits"].get(X, 0),
     }
@@ -213,6 +264,7 @@ def main() -> int:
     if args.all_single or not elements:
         from src.engines.dream_rules import DREAM_PATTERN_RULES
         elements |= {r["name"] for r in DREAM_PATTERN_RULES if len(r["name"]) == 1}
+    # 传入 allow_multi：head_count 对所有元素都算（多字元素也用于 I-4 标签一致性）
     entry = corpus_stats(elements)
 
     out = {}

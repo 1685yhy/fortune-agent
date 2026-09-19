@@ -30,6 +30,7 @@ import argparse
 import csv
 import json
 import re
+import subprocess
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -42,6 +43,7 @@ from scripts.k55_dream.stats_elements import (  # noqa: E402
     META_STOPWORDS, load_entries, normalize_core,
 )
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
 REPORTS = DATA_ROOT / "reports"
 OUT_MODULE = Path(__file__).resolve().parents[2] / "src" / "engines" / "dream_rules.py"
 OUT_TABLE = REPORTS / "rule_table.csv"
@@ -120,7 +122,32 @@ RULE_STOPWORDS = set(META_STOPWORDS) | set(NARRATIVE_STOP) | {
     # k58：方位/趋向补语类叙述词（实测「回来」混进过规则表并被控制方梦例命中）
     "回来", "过来", "回去", "进去", "出去", "上来", "下来", "回来",
     "来到", "离开", "走过", "路过", "回去", "起来",
+    # k58 r2（I-3）：词缀/功能字/程度副词/碎片 —— 实测混进规则表并在真实梦例上开火
+    "子", "面", "公", "母", "活", "男", "身", "女", "老", "小", "大",
+    "很大", "不到", "不见", "上长", "上长", "不见到", "一", "个", "们",
+    "吉兆", "凶兆", "征兆", "解夢", "意思", "含义", "寓意", "解析", "分析",
 }
+
+# 元素词性门槛（I-3 不变式）：规则名允许的词性 —— 名词类 + 动词类（开车/迟到）。
+# 明确排除：副词(d)、形容词(a)、数词(m)、量词(q)、代词(r)、介词(p)、连词(c)、
+# 助词(u)、方位(f)、时间(t)、语气(y)、拟声(o)、字符串(x)、区别词(b)、名动词以外的前缀(ng)。
+# 只**拦明确的功能/程度/数量/代词类**，不认识的标记一律放行 ——
+# 反向白名单会误伤（jieba 把「车」标成 zg、「迷路」标成 n 之外的标记，
+# 白名单式过滤把「车/头/菜/鸟」这些正经意象挡在门外，实测踩到）。
+# 只拦**功能词/形容词/状态词/名语素**（这些不是「梦境意象」）；
+# 不拦 ns/nr/nt（jieba 把 河/太阳/大海/乌龟/玉米 都标成地名/人名类，
+# 它们是正经意象 —— 反向白名单式过滤会误伤，实测踩到）。
+BLOCKED_POS = {"u", "d", "r", "p", "c", "m", "q", "f", "t", "y", "e", "o",
+               "x", "b", "a", "z", "ad", "an", "ag", "ng"}
+
+
+def pos_allowed(name: str) -> bool:
+    try:
+        import jieba.posseg as pseg
+        flags = [f for _, f in pseg.lcut(name)]
+    except Exception:
+        return True
+    return not any(f in BLOCKED_POS for f in flags)
 
 
 # 吉凶判定词（语料判词口径，用于从真实语料统计吉凶倾向）
@@ -138,8 +165,10 @@ JUDGE_MARK_RE = re.compile(r"[主有宜忌吉凶祸福]")
 
 # 页面小标题（无解读内容）：`1. 梦见堵车的周公解梦：`、`梦见蛇的解析：`
 HEADING_RE = re.compile(
-    r"^\s*[0-9１-９]*[.、)）]?\s*梦见?.{0,24}?(的)?"
-    r"(周公解梦|解梦|解析|分析|解说|说法|含义|寓意)\s*[：:]?\s*$")
+    r"^\s*[0-9０-９１-９]*\s*[.、)）]?\s*梦见?.{0,24}?(的)?"
+    r"(周公解梦|解梦|解析|分析|解说|说法|含义|寓意)\s*[：:]?\s*$"
+    # M-e：编号开头的页面句（`1、梦见鸭子…`）也属小标题/列表项，无解读内容
+    r"|^\s*[0-9０-９１-９]+\s*[.、)）]\s*\S{0,20}$")
 
 
 DANGLING_TAIL_RE = re.compile(r"(是|的|和|与|在|为|把|被|对|向|从|给|让|或|及|而|就|都|也|还)$")
@@ -177,6 +206,21 @@ def log(msg: str) -> None:
 
 
 # ── 载入统计产物 ────────────────────────────────────────────────────
+def load_retained_names(spec: str) -> set:
+    """加载「上一版规则名」白名单（git ref:path 或本地文件）。"""
+    try:
+        if ":" in spec and not Path(spec).exists():
+            ref, path = spec.split(":", 1)
+            out = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=REPO_ROOT,
+                                 capture_output=True, text=True, check=True).stdout
+        else:
+            out = Path(spec).read_text(encoding="utf-8")
+    except Exception as e:
+        log(f"[pick] 保留白名单加载失败（{type(e).__name__}: {e}）→ 跳过保留逻辑")
+        return set()
+    return set(re.findall(r'"name": \'([^\']+)\'', out))
+
+
 def load_stats() -> tuple:
     top = list(csv.DictReader(open(REPORTS / "element_freq_top.csv", encoding="utf-8")))
     symbols = json.loads((REPORTS / "element_symbols.json").read_text(encoding="utf-8"))
@@ -291,18 +335,25 @@ def scan_corpus(elements: set) -> tuple:
         hits = [el for el in elements if el in core]
         if not hits:
             continue
-        is_head = core in elements          # 「梦见X」的标题正好就是这个元素
         all_sents = [s.strip() for s in SENT_SPLIT_RE.split(text or "")]
         all_sents = [s for s in all_sents if 6 <= len(s) <= 120]
         # 去掉「标题/疑问式」句子（页面把标题重复进正文，如「梦见了异性好不好」
         # 「梦见X是什么意思」）——它们不含解读内容，选中当 gloss 等于没给依据
         all_sents = [re.sub(r"[\(（](©|&|版权|来源)[^)）]*[)）]", "", s).strip()
                      for s in all_sents]
+        # M-e：剥掉句首的列表编号（页面把「11、梦见鸭子…」整句写进正文）
+        all_sents = [re.sub(r"^\s*[0-9０-９]+\s*[.、)）]\s*", "", s).strip()
+                     for s in all_sents]
         all_sents = [s for s in all_sents
                      if 6 <= len(s) <= 120 and not TITLE_JUNK_RE.search(s)
                      and not is_citation_only(s) and not is_heading(s)
                      and not is_fragment(s)]
         for el in hits:
+            # k58 r2（I-4）：**逐元素**判定「词条即该元素」——
+            # 原来写成 `core in elements`（按**条目**判），于是核心串是「兔子」的条目
+            # 对命中的每个元素都算「词条即元素」，把兔子条目的句子当成「梦见子」
+            # 的词条原文，正文与 luck 计数一并污染（21/229 标签错配）。
+            is_head = (core == el)
             # 同场景证据：词条即该元素（整条都算），或句子的主角是该元素
             scope_sents = all_sents if is_head else \
                 [s for s in all_sents if same_scenario(s, el)]
@@ -516,8 +567,14 @@ def tone_from(n_ji: int, n_xiong: int, symbols: list, luck: str = "") -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="生成解梦规则层（80+ 条，语料统计得出）")
-    ap.add_argument("--top", type=int, default=140)
-    ap.add_argument("--min-coverage", type=int, default=40)
+    ap.add_argument("--top", type=int, default=400)
+    ap.add_argument("--min-coverage", type=int, default=60)
+    ap.add_argument("--min-standalone", type=int, default=5,
+                    help="单字元素在语料里独立成词的最低条目数（词缀碎片判据）")
+    ap.add_argument("--min-coverage-for-retain", type=int, default=20,
+                    help="保留白名单元素的最低语料覆盖量（有证据就不许丢）")
+    ap.add_argument("--retain-from", default="55ea3f7:src/engines/dream_rules.py",
+                    help="上一版规则模块（git ref:path 或本地文件），用于覆盖非回归")
     args = ap.parse_args()
 
     top, symbols_map, full = load_stats()
@@ -527,25 +584,52 @@ def main() -> int:
     log(f"[load] Top 表 {len(top)} 行；站点分类映射 {len(site_cat)} 元素；"
         f"古籍引文 {len(classics)} 元素")
 
-    # 候选：Top 表中覆盖量达标、且**不是叙述性/体裁性元词**。
+    # 候选：覆盖量达标 ∪ **保留白名单**（上一版规则表里出现过的元素）。
+    # k58 r2（I-1）：上一版把候选池从 531 顶到 1020 后，Top-N 截断 + 阈值提高
+    # **误删了 89 条规则**（月亮/镜子/钱包/大海/钥匙/苹果…覆盖量 42–76，
+    # 语料里明明有证据）。现在：曾在规则表出现过的元素，只要覆盖量达统计下限
+    # （--min-coverage-for-retain，默认 20）就**一律保留**，不受 Top-N 截断影响。
     # r2 I-4：初版只过滤 NARRATIVE_STOP，漏了 META_STOPWORDS（工作/表示/生活/
     # 说明/关系/可能/方面/象征/女性/运势/心理/梦者…）——那些词在注释里就写明
     # 「是语料体裁的产物，不是梦的象征」，却混进了规则表，被写进给 LLM 的 notes。
     # 现在两张表合并生效，并把剔除清单落盘（可复核，不是静默丢弃）。
+    retained = load_retained_names(args.retain_from)
+    log(f"[pick] 保留白名单（上一版规则名）：{len(retained)} 个，其中语料覆盖 "
+        f"≥{args.min_coverage_for_retain} 的有 "
+        f"{sum(1 for n in retained if full.get(n, 0) >= args.min_coverage_for_retain)} 个")
     excluded = []
-    cands = []
-    for r in top:
-        el = r["element"]
-        if not el:
+    cands, cand_set = [], set()
+    # ① 覆盖量达标的候选（全量 TSV 里取，不再受 Top-N 表 300 行限制）
+    for el, cov in sorted(full.items(), key=lambda kv: -kv[1]):
+        if not el or cov < args.min_coverage:
             continue
         if el in RULE_STOPWORDS:
-            excluded.append({"element": el, "coverage": int(r["coverage"]),
+            excluded.append({"element": el, "coverage": cov,
                              "reason": "narrative_or_meta_word"})
             continue
-        if int(r["coverage"]) < args.min_coverage:
+        if not pos_allowed(el):
+            excluded.append({"element": el, "coverage": cov, "reason": "pos_not_noun_like"})
             continue
         cands.append(el)
     cands = cands[:args.top]
+    cand_set = set(cands)
+    # ② 保留白名单：不受 Top-N 截断，只要求有语料证据
+    kept_back = []
+    for el in retained:
+        if el in cand_set or el in RULE_STOPWORDS:
+            continue
+        cov = full.get(el, 0)
+        if cov < args.min_coverage_for_retain:
+            excluded.append({"element": el, "coverage": cov,
+                             "reason": "retained_but_no_corpus_evidence"})
+            continue
+        if not pos_allowed(el):
+            excluded.append({"element": el, "coverage": cov, "reason": "pos_not_noun_like"})
+            continue
+        kept_back.append(el)
+    if kept_back:
+        log(f"[pick] 保留白名单补回 {len(kept_back)} 个元素（Top-N 截断外）")
+        cands.extend(sorted(kept_back, key=lambda e: -full.get(e, 0)))
     (REPORTS / "rule_exclusions.json").write_text(
         json.dumps({"generated_at": now_iso(),
                     "stopwords": sorted(RULE_STOPWORDS),
@@ -556,7 +640,7 @@ def main() -> int:
 
     elements = set(cands) | set(MANDATORY_DRIVING)
     # k58 M-1：单字元素的搭配/护栏统计（一次扫语料，之后复用）
-    colloc_stats = colloc_mod.corpus_stats({e for e in elements if len(e) == 1})
+    colloc_stats = colloc_mod.corpus_stats(set(elements))
     # 已登记的规则名（含强制族）：单字元素的搭配词不得与它们重名，
     # 否则同一段文本被两条规则重复命中（见 collocation.collocations 注释）
     rule_names = set(elements) | set(MANDATORY_EXTRA)
@@ -588,6 +672,14 @@ def main() -> int:
         # 按覆盖条数排序）+ **边界护栏**（词典/语料推导，防「梦见水杯」这类前缀误伤）。
         match_evidence, guard_evidence, match_str = [], {}, ""
         if len(el) == 1:
+            # I-3 数据判据：单字元素必须在语料里**独立成词**（jieba 分词下 X 是
+            # 独立 token）达到门限 —— 这是「具体意象」与「词缀碎片」的分界：
+            # 菜/鞋/肉/车 独立成词（买菜/鞋/肉/车），面/身/子/公/母 只作为
+            # 面条/身上/面子/老公/母亲 的一部分出现（实测独立成词数≈0）。
+            if colloc_stats["standalone"].get(el, 0) < args.min_standalone:
+                excluded.append({"element": el, "coverage": full.get(el, 0),
+                                 "reason": "no_bare_form_entry"})
+                continue
             built = colloc_mod.build_match(el, colloc_stats, top_colloc=5,
                                            exclude_names=rule_names)
             alts = [b["branch"] for b in built["branches"] if b["coverage"] > 0]
@@ -649,6 +741,9 @@ def main() -> int:
             "gloss": gloss, "coverage": cov,
             # M-3：覆盖量口径必须写进数据（两种口径不能混着看）
             "coverage_basis": "标题核心串含该元素的去重语料条数",
+            # I-4 不变式用：该元素自己的裸条目数（「梦见X」词条）
+            "head_entry_count": colloc_stats["head"].get(el, 0),
+            "standalone_count": colloc_stats["standalone"].get(el, 0),
             "gloss_evidence": ev_kind,
             "symbols_basis": "corpus_cooccurrence",
             "match_branches": match_evidence,
@@ -711,6 +806,7 @@ def main() -> int:
                 "luck": spec["luck"],
                 "gloss": gloss, "coverage": cov,
                 "coverage_basis": "真实梦境正文命中条数（该族在词典式语料里覆盖极低）",
+                "head_entry_count": colloc_stats["head"].get(name, 0),
                 "symbols_basis": "corpus_cooccurrence" if symbols_map.get(name) else "family_tone_derived",
                 "gloss_evidence": ev_kind,
                 "evidence": {"ji": ji.get(name, 0), "xiong": xiong.get(name, 0),
@@ -735,6 +831,7 @@ def main() -> int:
         # 必须在表内标注，不能让两种口径混着看。
         w.writerow(["name", "type", "coverage", "coverage_basis", "luck", "luck_basis",
                     "tone", "symbols", "symbols_basis", "match", "match_branches",
+                    "head_entry_count",
                     "gloss", "gloss_evidence", "ji", "xiong"])
         for r in uniq_rules:
             luck_basis = r.get("luck_basis") or (
@@ -747,6 +844,7 @@ def main() -> int:
                         r["match"],
                         " ; ".join(f"{b['branch']}={b['coverage']}"
                                    for b in (r.get("match_branches") or [])),
+                        r.get("head_entry_count", 0),
                         r["gloss"],
                         r.get("gloss_evidence", ""),
                         r["evidence"].get("ji", 0), r["evidence"].get("xiong", 0)])
@@ -825,6 +923,8 @@ def main() -> int:
         # 计数随模块落库：不变式（fallback ⟹ ji+xiong==0）可离线断言，
         # 不依赖 /mnt/d 的统计产物
         lines.append(f'        "counts": {dict(r["evidence"])!r},')
+        lines.append(f'        "head_entry_count": {r.get("head_entry_count", 0)!r},')
+        lines.append(f'        "standalone_count": {r.get("standalone_count", 0)!r},')
         lines.append(f'        "source": {r["source"]!r},')
         lines.append("    },")
     lines += ["]", "", f"RULE_COUNT = {len(uniq_rules)}", ""]
