@@ -170,7 +170,8 @@ def embed_and_store(chunks: list[dict[str, Any]], batch_embed_size: int = 500):
 
         # Upsert to ChromaDB
         t1 = time.time()
-        retriever.collection.upsert(
+        # k59：写入走 writable_collection（显式集合名，绝不使用空集合自愈结果）
+        retriever.writable_collection.upsert(
             embeddings=embeddings.tolist(),
             documents=batch_texts,
             ids=batch_ids,
