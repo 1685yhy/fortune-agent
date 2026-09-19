@@ -33,6 +33,12 @@ def make_handler(**kw) -> MessageHandler:
     h = object.__new__(MessageHandler)
     h.engine = Mock()
     h.llm = Mock()
+    # k61（禁网红线）：裸 Mock 的 `.api_key` 是真值 Mock → handler 的
+    # `getattr(self.llm, 'api_key', '')` 判定「已配置」→ `_quick_flash`（经
+    # `_gen_info_collection_prompt`）真的对 api.deepseek.com 发请求（k61 全量
+    # 实测命中守卫）。显式置空 = 走无-key 短路（`_quick_flash` 返回 ""，与改前
+    # 那次必然失败被吞的返回值逐字相同）。kw 覆盖在末尾，仍可显式传入 llm。
+    h.llm.api_key = ""
     h.llm.analyze.return_value = Mock(response="分析")
     h.dao = Mock()
     h.dao.get_user_bazi.return_value = None
