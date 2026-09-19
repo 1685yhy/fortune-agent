@@ -1187,12 +1187,35 @@ def _date_groups(msg: str, year_matches, md_matches) -> list:
     return groups
 
 
-def _negated_group_ids(msg: str, groups) -> set:
-    """被否定的日期组下标集合（两侧分明：右侧优先且须无标点，否则回落左侧）。"""
+# k57：**行为性**否定标记（"前一条记错了"）——说的是**旧记录**错，不是否认当前这个
+# 值：`我其实是1999年3月28日出生，之前填错了` / `记错了是农历3月28日` 里被声明的
+# 值恰恰是**纠正后**的正确值（改前靠"全被否定→首命中"侥幸取对）。故在"全被否定 →
+# 不取"的判定里只认**价值否定**标记（`不是/不对/…`）。
+_ENTRY_ACT_MARKERS = ("记错", "填错", "写错", "说错", "弄错")
+
+
+def _negated_group_ids(msg: str, groups, strict: bool = False) -> set:
+    """被否定的日期组下标集合（两侧分明：右侧优先且须无标点，否则回落左侧）。
+
+    strict（k57，**仅用于**"全被否定 → 不取"的判定，调用方 `_affirmed_pick`）：
+      - 只认**价值否定**标记（剔除 `_ENTRY_ACT_MARKERS` 的行为性标记，见上）；
+      - 标记与候选必须**同一小句**（左侧分支也加断句符检查；非 strict 时左侧
+        不限，既有口径不动）——`我其实是1999年出生的，不是1995` 的"不是"跨了小句、
+        且指向的 1995 根本不是候选 → 不算否认 1999年。
+    """
     negated: set = set()
     if not groups:
         return negated
-    for _mk in re.finditer("|".join(_NEGATION_MARKERS), msg or ""):
+    if strict:
+        _pats = [k for k in _NEGATION_MARKERS if k not in _ENTRY_ACT_MARKERS]
+    else:
+        _pats = list(_NEGATION_MARKERS)
+    # strict：行为性短语**内部**的价值标记也不算（`记错了` 里的 `错了` 与 `记错` 重叠）
+    _act_spans = ([_a.span() for _a in re.finditer("|".join(_ENTRY_ACT_MARKERS), msg or "")]
+                  if strict else [])
+    for _mk in re.finditer("|".join(_pats), msg or ""):
+        if any(_s < _mk.end() and _mk.start() < _e for _s, _e in _act_spans):
+            continue
         _right = [(_g["span"][0] - _mk.end(), _i)
                   for _i, _g in enumerate(groups)
                   if _g["span"][0] >= _mk.end()
@@ -1204,7 +1227,9 @@ def _negated_group_ids(msg: str, groups) -> set:
         _left = [(abs(_mk.start() - _g["span"][1]), _i)
                  for _i, _g in enumerate(groups)
                  if _g["span"][1] <= _mk.start()
-                 and _mk.start() - _g["span"][1] <= _NEGATION_WINDOW]
+                 and _mk.start() - _g["span"][1] <= _NEGATION_WINDOW
+                 and (not strict
+                      or not _CLAUSE_SEP_RE.search(msg[_g["span"][1]:_mk.start()]))]
         if _left:
             negated.add(min(_left)[1])
     return negated
@@ -1213,10 +1238,18 @@ def _negated_group_ids(msg: str, groups) -> set:
 def _affirmed_pick(msg: str, year_matches, md_matches, cn_matches=None):
     """取**被肯定**的年/月日命中（同源成组）。
 
-    返回 (applied, year_match|None, md_cand|None)：
-    - applied=False → 调用方走**基线首命中**口径（非纠正消息 / 无否定 / 全被否定）；
+    返回 (applied, year_match|None, md_cand|None, blocked)：
+    - applied=False → 调用方走**基线首命中**口径（非纠正消息 / 无否定）；
     - applied=True → 用返回的命中（None = 该项无被肯定值，调用方据此放弃该项，
-      绝不回退去写被否定的值）。
+      绝不回退去写被否定的值）；
+    - **blocked=True（k57）**：纠正消息里**全部候选组都被否定** → **不取**——
+      调用方连"基线首命中"和年兜底链（中文年/年龄推算）都不得走，直接走
+      "问一句/不写档"路径。
+      改前这里是 `len(negated) == len(groups)` 也回落基线口径，于是写的是
+      **用户明确否认的值**：`我不是1990年生的` → 写 1990；`我不是5月13日生的`
+      → 写 5/13；若被否认的候选在归属层被丢（对方生辰）则回落取到**对方**的
+      （`我不是1990年生的，我老婆是1991年7月8日的` → 8d690ca 写 1991-07-08）。
+      本项目已登记"写被否认的值"属高危类（k56 审查建议 P0），故改为止损。
 
     cn_matches（k50-1）：中文数字月日候选（`_CnMdCand` 列表）——与数字月日**合流**
     进同一份候选表参与分组与否定裁决（`我不是腊月廿六生的，是正月初一生的` 取
@@ -1224,22 +1257,32 @@ def _affirmed_pick(msg: str, year_matches, md_matches, cn_matches=None):
     """
     md_all = list(md_matches or []) + list(cn_matches or [])
     if not (year_matches or md_all):
-        return False, None, None
+        return False, None, None, False
     try:
         from src.storage.person_dao import is_correction_text
     except Exception:            # noqa: BLE001 — 判据不可用 → 基线口径
-        return False, None, None
+        return False, None, None, False
     if not is_correction_text(msg):
-        return False, None, None
+        return False, None, None, False
     groups = _date_groups(msg, year_matches, md_all)
     negated = _negated_group_ids(msg, groups)
-    if not negated or len(negated) == len(groups):
-        return False, None, None
+    if not negated:
+        return False, None, None, False
+    if len(negated) == len(groups):
+        # k57：**全部候选组都被否定 → 不取**（改前回落基线首命中 = 写被否认的值）。
+        # 但"全被否定"必须是**严格口径**（价值否定 + 同小句，见 `_negated_group_ids`）；
+        # 只是宽口径全否定（行为性标记"之前填错了"/跨小句指向非候选的"不是"）时
+        # **维持既有"回落首命中"口径**——那些消息里被声明的值恰恰是纠正后的正确值
+        #（`我其实是1999年3月28日出生，之前填错了` / `记错了是农历3月28日` /
+        #  `我其实是1999年出生的，不是1995`），不能让她们变成"什么都不取"。
+        if len(_negated_group_ids(msg, groups, strict=True)) == len(groups):
+            return True, None, None, True
+        return False, None, None, False
     _y = next((g["y"] for i, g in enumerate(groups)
                if i not in negated and g["y"] is not None), None)
     _m = next((g["m"] for i, g in enumerate(groups)
                if i not in negated and g["m"] is not None), None)
-    return True, _y, _m
+    return True, _y, _m, False
 
 
 # ── k49-r3：F2 会话式应答的**一致剥离规则**（R2-1 起，r3 补全词类）──────
@@ -7753,7 +7796,7 @@ class MessageHandler:
             _ym_all = _drop_other_candidates(msg, _ym_all)
             _md_all = _drop_other_candidates(msg, _md_all)
             _cn_all = _drop_other_candidates(msg, _cn_all)
-        _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all, _cn_all)
+        _applied, _py, _pm, _blocked = _affirmed_pick(msg, _ym_all, _md_all, _cn_all)
         # k56：数字/中文**同一套**候选选择（文档序），不再"中文优先/数字兜底"
         _md_pick = (_pm if _applied else _first_by_position(_md_all + _cn_all))
         # k50-r4：非纠正路径的年**与采纳的月日同源**（同一日期组；中文月日不适用
@@ -8035,7 +8078,7 @@ class MessageHandler:
             _ym_all = _drop_other_candidates(msg, _ym_all)
             _md_all = _drop_other_candidates(msg, _md_all)
             _cn_all = _drop_other_candidates(msg, _cn_all)
-        _applied, _py, _pm = _affirmed_pick(msg, _ym_all, _md_all, _cn_all)
+        _applied, _py, _pm, _blocked = _affirmed_pick(msg, _ym_all, _md_all, _cn_all)
         # k56：数字/中文**同一套**候选选择（文档序），不再"中文优先/数字兜底"
         _md_pick = (_pm if _applied else _first_by_position(_md_all + _cn_all))
         # k50-r4：非纠正路径的年**与采纳的月日同源**（同一日期组；中文月日不适用
@@ -8050,19 +8093,21 @@ class MessageHandler:
             y = _year_of_match(ym)
             if y is not None and 1900 <= y <= 2100:
                 year = y
-        if year is None:
+        # k57：全被否定（`_blocked`）→ 年兜底链（中文年/年龄推算）也不得走，
+        # 否则会把用户**明确否认**的值从另一条路捡回来
+        if year is None and not _blocked:
             ym_cn4 = re.search(r'([〇零一二三四五六七八九]{4})年', msg)
             if ym_cn4:
                 y = _cn_year_to_int(ym_cn4.group(1))
                 if y is not None and 1900 <= y <= 2100:
                     year = y
-        if year is None:
+        if year is None and not _blocked:
             ym_cn2 = re.search(r'([〇零一二三四五六七八九]{2})年', msg)
             if ym_cn2:
                 y = _cn_year_to_int(ym_cn2.group(1))
                 if y is not None and y <= 99:
                     year = 2000 + y if y < 27 else 1900 + y
-        if year is None:
+        if year is None and not _blocked:
             age = _extract_age(msg)
             if age is not None:
                 _y = cy - age + (1 if "虚岁" in msg else 0)
