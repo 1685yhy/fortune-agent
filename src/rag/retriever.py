@@ -79,6 +79,11 @@ class _ReadOnlyCollection:
     为什么包装而不改 `collection` 的行为：**读路径语义必须逐字不变**（k24 自愈
     回落、k26 那类「注入 fake 集合」的既有用法、各脚本的 `collection.get()`）。
     包装只加一层 `__getattr__` 转发：除 `COLLECTION_WRITE_METHODS` 外全部原样可用。
+
+    契约差异（r3，M-4）：写方法名在 `__getattr__` 里**抛** `ReadPropertyWriteRefused`
+    （`RuntimeError`，非 `AttributeError`），所以 `hasattr(col, "upsert")` /
+    `getattr(col, "upsert", None)` 会抛而不是返回 `False`/默认值 —— 有意为之
+    （写入被拒必须响亮）。仓内 0 处使用此类探测。
     """
 
     __slots__ = ("_wrapped",)
@@ -103,8 +108,11 @@ class SelfHealWriteRefused(RuntimeError):
     `_collection_name` 改写成权威库 `BOOKS_COLLECTION`；此后调用 `add_chunks`
     之类的写方法，数据会落到**权威生产集合**而不是调用方指定的集合。
 
-    处置：修正集合名 / `embedding_collection` 配置后重试，或新建一个专用写入的
-    `Retriever`（构造期指定正确集合名，且不要先读）。**不要**吞掉本异常继续写。
+    处置（r3 澄清，M-2）：自愈是**实例级一次性判定**，本实例已被判为「写目标
+    不可信」—— 同实例上改 `_collection_name` / 改配置都**不会**解除（判据是
+    `self_healed_to` 属性，不是当前集合名）。唯一出路是**新建一个 Retriever
+    实例**专用于写入（构造期给定正确集合名，且不要先读）。**不要**吞掉本异常
+    继续写。
     """
 
     def __init__(self, requested: str, healed_to: str, persist_dir: str):
@@ -112,10 +120,12 @@ class SelfHealWriteRefused(RuntimeError):
         self.healed_to = healed_to
         self.persist_dir = persist_dir
         super().__init__(
-            f"拒绝写入：集合名已被空集合自愈改写（请求 '{requested}' → 实际 "
-            f"'{healed_to}'，persist_dir={persist_dir}）。继续写会把数据静默落进"
-            f"权威集合 '{healed_to}'（k55 险情根因，k59 起拒绝）。请修正集合名/"
-            f"配置后重试，或用专用实例写入（构造期给定集合名、不要先读）。"
+            f"拒绝写入：本实例的集合名已被空集合自愈改写（请求 '{requested}' → "
+            f"实际 '{healed_to}'，persist_dir={persist_dir}），写目标已不再是调用方"
+            f"指定的集合。继续写会把数据静默落进权威集合 '{healed_to}'（k55 险情"
+            f"根因，k59 起拒绝）。处置：**本实例已自愈，改集合名/改配置都无效** —— "
+            f"请**新建一个 Retriever 实例**专用于写入（构造期给定正确集合名、"
+            f"不要先读）。"
         )
 
 
@@ -335,6 +345,15 @@ class Retriever:
         （`query`/`get`/`count`/`name`/…）逐字透传，写方法
         （`COLLECTION_WRITE_METHODS`）抛 `ReadPropertyWriteRefused`，因此
         「绕过写 API 直写读属性」这条复发面在库层被彻底关掉。
+
+        ⚠️ **契约差异（r3 记录，M-4）**：包装不是 chroma `Collection` 本体，
+        故 ① 同一性判断（`retriever.collection is X`）不再成立；
+        ② 对**写方法名**做 `hasattr(col, "upsert")` 或
+        `getattr(col, "upsert", None)` 会**抛出** `ReadPropertyWriteRefused`
+        而不是返回 `False`/默认值（`__getattr__` 抛的不是 `AttributeError`）
+        —— 这是**有意**的：写入被拒必须响亮，不得被 `hasattr`/默认值静默吞掉。
+        仓内 0 处此类用法；若确需探测，请 `getattr` 写方法名以外的方式判断
+        （如 `retriever.self_healed_to` / `writable_collection`）。
 
         句柄缓存语义与 k59 之前**逐字一致**：只有 `_collection is None` 时才
         取句柄（外部注入 `_collection` 的既有用法/测试不受影响）。

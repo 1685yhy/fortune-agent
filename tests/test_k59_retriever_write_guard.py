@@ -503,6 +503,61 @@ def test_k59_r2_writable_collection_is_not_wrapped(prod_like):
     assert _fingerprint(prod_like, BOOKS_COLLECTION) == before
 
 
+def test_k59_r3_self_heal_refusal_survives_name_fix_on_same_instance(prod_like):
+    """r3（M-2）锁死语义并锁消息：已自愈实例上**改 `_collection_name` 也仍然抛**。
+
+    审查实测两次：同实例把集合名改回显式名字后 `add_chunks` 依旧抛错。这是
+    **有意**的（自愈是实例级一次性判定，判据是 `self_healed_to` 而非当前名），
+    唯一出路是新建实例 —— 异常消息必须说清这点，否则误导调用方去「改配置重试」。
+    """
+    before = _fingerprint(prod_like, BOOKS_COLLECTION)
+    retriever = Retriever(
+        str(prod_like), _StubEmbedder(), collection_name="k59_r3_wrong"
+    )
+    assert retriever.count() == 5  # 读自愈
+    assert retriever.self_healed_to == BOOKS_COLLECTION
+
+    retriever._collection_name = "k59_r3_fixed"  # noqa: SLF001（同实例「改集合名」）
+    with pytest.raises(SelfHealWriteRefused) as ei:
+        retriever.add_chunks(_chunks(1, "r3_fixed"))
+
+    assert retriever._collection_name == "k59_r3_fixed", "判据是实例状态、不是当前集合名"
+    assert "本实例已自愈" in str(ei.value) and "新建一个 Retriever 实例" in str(ei.value), (
+        f"消息必须说清「本实例已自愈、请新建实例写入」：{ei.value}"
+    )
+    assert _fingerprint(prod_like, BOOKS_COLLECTION) == before
+    assert _count(prod_like, "k59_r3_fixed") == 0
+
+    # 正确出路：新建实例专用于写入
+    fresh = Retriever(str(prod_like), _StubEmbedder(), collection_name="k59_r3_fixed")
+    fresh.add_chunks(_chunks(1, "r3_fresh"))
+    assert _count(prod_like, "k59_r3_fixed") == 1
+    assert _fingerprint(prod_like, BOOKS_COLLECTION) == before
+
+
+def test_k59_r3_hasattr_and_getattr_default_contract_difference(prod_like):
+    """r3（M-4）锁住**契约差异**：写方法名上的 `hasattr` / `getattr(默认值)` 抛错。
+
+    只读包装的 `__getattr__` 抛 `ReadPropertyWriteRefused`（非 `AttributeError`）
+    → `hasattr(col, "upsert")` 与 `getattr(col, "upsert", None)` 都会**抛**，
+    而不是返回 False/None。这是**有意**的（写入被拒必须响亮、不得被静默吞掉），
+    本用例把它固化成契约：若将来有人把它改成 `AttributeError`，这里会失败，
+    使改动成为一次**显式决定**（并在报告/docstring 同步）。仓内 0 处此类用法。
+    """
+    retriever = Retriever(
+        str(prod_like), _StubEmbedder(), collection_name=BOOKS_COLLECTION
+    )
+    col = retriever.collection
+    with pytest.raises(ReadPropertyWriteRefused):
+        hasattr(col, "upsert")
+    with pytest.raises(ReadPropertyWriteRefused):
+        getattr(col, "upsert", None)
+    # 读方法/普通缺失属性不受影响（读语义与常规 AttributeError 语义都保持）
+    assert hasattr(col, "get") and hasattr(col, "count")
+    assert getattr(col, "no_such_attr", "default") == "default"
+    assert not hasattr(col, "no_such_attr")
+
+
 def test_k59_r2_read_property_refuses_write_even_after_self_heal(prod_like):
     """已自愈实例：读属性写入同样被拒（且是包装层的拒，不落到写路径判据）。"""
     before = _fingerprint(prod_like, BOOKS_COLLECTION)

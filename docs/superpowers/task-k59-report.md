@@ -107,7 +107,7 @@ return empty results」，根因是**配置踩空**（`load_settings` 不读
 | ① | **改前**（55ea3f7 原样，`legacy`） | `k59_replay_new` | **`fortune_books_v2`** | `wrote`（**无报错**） | **27,115 → 27,116** `meta_md5 23be3a808bc7 → c6beb5943781` **[已变化]** |
 | ② | 改后（`guarded`） | `k59_replay_new2` | `k59_replay_new2` | `wrote` | 27,115 → **27,115** `23be3a808bc7 → 23be3a808bc7` **[零变化]** |
 | ③ | 改后（`guarded_after_read`，读自愈后再写） | `k59_replay_after_read` | `fortune_books_v2` | **`raised SelfHealWriteRefused`** | 27,115 → **27,115** **[零变化]** |
-| ④ | 改后 + **绕过**写 API 直写读属性（残留风险见 §6） | `k59_replay_new` | `fortune_books_v2` | `wrote` | 27,115 → 27,116 **[已变化]** |
+| ④ | **r1 期证据**：改后代码 + 绕过写 API 直写读属性（当时读属性还返回裸句柄；**最终代码 r2 起该写法已抛 `ReadPropertyWriteRefused`**，见 r2 取证表） | `k59_replay_new` | `fortune_books_v2` | `wrote` | 27,115 → 27,116 **[已变化]** |
 
 ① 是 k55 险情的**逐条复现**（写入静默落到权威集合，只有一条集合配置 warning）；
 ② 证明根因修掉：**写落到显式集合本身**，权威集合零变化，并留 warning
@@ -204,7 +204,7 @@ TMPDIR=/dev/shm nice -n 10 python3 -m pytest tests/test_rag.py \
 
 ## 6. 残留风险与控制方需要知道的事
 
-1. **写 via 读属性仍可被改写**（表 3-④ 实证）：任何调用方绕过 `add_chunks` /
+1. ~~**写 via 读属性仍可被改写**（表 3-④ 实证）~~ → **r2 已收口**（读属性改只读包装，该写法抛 `ReadPropertyWriteRefused`；表 3-④ 为 r1 期证据）：任何调用方绕过 `add_chunks` /
    `writable_collection`、直接 `retriever.collection.upsert(...)`，仍会写到自愈后
    的集合。根因是 `collection` 属性返回裸 chroma 集合对象，库层无法拦截其方法。
    本批已：①docstring 明示「读语义，不得写入」；②把仓库内 3 个既有调用点迁走
@@ -379,3 +379,82 @@ TMPDIR=/dev/shm nice -n 10 python3 -m pytest tests/test_rag.py \
 生产指纹在 r2 实验后仍与基线**逐字节一致**（`before == r2` → True）。全量 pytest
 仍未跑（按纪律）。r2 实验同样只在 `/dev/shm` 副本上（新增 2 份副本，共 6 份，
 复核完可 `rm -rf /dev/shm/k59 /dev/shm/k59_old`）。
+
+---
+
+## r3（终审 4 条 Minor 收口）
+
+### M-1 扫描面下限：改「逐 glob 各一条」+ 总数（不再只靠总数）
+
+`tests/test_k59_collection_write_scan.py`：
+- 新增 `MIN_FILES_PER_GLOB = {"src/**/*.py": 180, "scripts/**/*.py": 120}`（实测
+  src 207 / scripts 142，留余量），**每个 glob 各有一条下限**；
+- 总数下限 `MIN_SCANNED_FILES` 提到 **300**，并要求 `总数下限 > 任一单 glob 下限`
+  （否则砍掉一个 glob 仍能过线）；
+- 新增反向锁 `test_every_scan_glob_has_its_own_floor`：**逐 glob 下限集合必须与
+  扫描面集合完全一致**（新增扫描面不得「无下限」）、单 glob 下限 < 100 视为虚设；
+- `test_scan_surface_never_shrinks` 改为逐 glob 校验文件数 + 断言扫描面覆盖
+  `src/rag/retriever.py` 与 `scripts/k59/replay_incident.py`。
+
+**植入实验（改窄扫描面「只留 src」）**：把 `SCAN_GLOBS` 改成只含 `src/**/*.py`
+的探针副本跑一遍 → 被**三条独立断言**同时抓住（①②③），外加总数下限（207 < 300）：
+
+```
+E  AssertionError: 扫描面被删：{'scripts/**/*.py'}          ← REQUIRED_GLOBS
+E  AssertionError: 逐 glob 下限与扫描面不一致：缺 set()，多 {'scripts/**/*.py'}   ← 反向锁（r3 新增）
+E  AssertionError: 白名单条目已失效（…）                     ← 白名单反过期锁
+```
+
+（探针文件跑完即删，工作树无残留；`src/` 单独 207 个文件**过不了**新下限。）
+
+### M-2 `SelfHealWriteRefused` 消息不再误导
+
+`src/rag/retriever.py`：异常消息与类 docstring 都改为
+「本实例已自愈，**改集合名/改配置都无效** —— 请**新建一个 Retriever 实例**专用于
+写入（构造期给定正确集合名、不要先读）」，并说明判据是**实例状态**
+（`self_healed_to`）而非当前集合名。
+
+新增用例 `test_k59_r3_self_heal_refusal_survives_name_fix_on_same_instance` 锁住
+审查实测的语义与消息：已自愈实例上把 `_collection_name` 改回显式名字 → **仍抛**；
+消息必须含「本实例已自愈」「新建一个 Retriever 实例」；随后**新建实例**写入成功
+（正确出路可用），权威集合全程零变化。
+
+### M-3 报告 §3 表第 ④ 行标注版本
+
+§3 表 ④ 行已改为「**r1 期证据**：改后代码 + 绕过写 API 直写读属性（当时读属性还
+返回裸句柄；**最终代码 r2 起该写法已抛 `ReadPropertyWriteRefused`**，见 r2 取证表）」；
+§6 第 1 条同步划掉并指向 r2 收口 —— 避免读者误读成「绕过仍可写」。
+
+### M-4 只读包装的 `hasattr` / `getattr(默认值)` 契约差异（记录，不改行为）
+
+只读包装的 `__getattr__` 对**写方法名**抛 `ReadPropertyWriteRefused`
+（`RuntimeError`，非 `AttributeError`），故 `hasattr(col, "upsert")` 与
+`getattr(col, "upsert", None)` 会**抛**而不是返回 `False`/默认值 —— **有意为之**
+（写入被拒必须响亮，不得被静默吞掉）。已记录在三处：
+① `Retriever.collection` docstring 的「契约差异」段；
+② `_ReadOnlyCollection` docstring；
+③ 本节 + 用例 `test_k59_r3_hasattr_and_getattr_default_contract_difference`
+（把它固化成契约：将来若有人改成 `AttributeError`，用例失败 → 改动成为一次显式决定）。
+
+`hasattr`/`getattr` 探读 `.collection` 的用法在 **`src/` 与 `scripts/` 0 处**
+（唯一一处是本批自己的「拒绝必须抛出」断言用例）。普通缺失属性与读方法不受影响
+（`hasattr(col, "get")` → True，`getattr(col, "no_such_attr", "default")` → `"default"`）。
+
+### r3 测试数字
+
+```bash
+TMPDIR=/dev/shm K59_PROD_REPLICA=/dev/shm/k59/replica_pytest nice -n 10 \
+  python3 -m pytest tests/test_k59_retriever_write_guard.py tests/test_k59_collection_write_scan.py -q
+# → 31 passed（写路径护栏 19 = r1 13 + r2 4 + r3 2；静态守卫 12 = r1 11 + r3 1）
+
+TMPDIR=/dev/shm nice -n 10 python3 -m pytest tests/test_rag.py \
+  tests/test_k24_ref_content_crash.py tests/test_k26_sentinel_title.py \
+  tests/test_k28_minors.py tests/test_k30_solar_projection.py \
+  tests/test_k31_self_heal_counter.py tests/test_k38_e6_red_fixes.py \
+  tests/test_k52_compliance_scan.py tests/test_k59_retriever_write_guard.py \
+  tests/test_k59_collection_write_scan.py -q
+# → 261 passed, 1 skipped（含 k52 合规扫描，确认白名单/上限口径未被本批扰动）
+```
+
+生产指纹在本轮后仍与基线**逐字节一致**（r3 无写实验：只跑单测 + 改窄探针，
+探针不触数据）。全量仍未跑（按纪律）。

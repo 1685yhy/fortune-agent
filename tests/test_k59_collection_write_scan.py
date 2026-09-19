@@ -21,6 +21,8 @@
 ── 红线（本文件任何修改都不得违反） ──────────────────────────────────────
 1. **不得为了让扫描通过而改宽扫描范围**（排除 scripts、删写方法名、跳过含
    `collection` 的文件等），也不得把写调用点改成同样危险的等价写法；
+   扫描面有**逐 glob 的文件数下限** + 总数下限（r3 收口：单靠总数下限防不住
+   「只留 src、砍掉 scripts/**」），下限只许升不许降；
 2. 白名单只许用于**确需保留**处，每条必须写明理由，且**必须真的在压制命中**
    （无过期条目 → 见 `test_whitelist_entries_have_reasons_and_are_used`）。
 """
@@ -37,8 +39,15 @@ ROOT = Path(__file__).resolve().parents[1]
 SCAN_GLOBS = ("src/**/*.py", "scripts/**/*.py")
 REQUIRED_GLOBS = {"src/**/*.py", "scripts/**/*.py"}
 EXCLUDE_PARTS = {".git", "__pycache__", "node_modules", "tests", "miniprogram"}
-# 扫描面下限（防止有人「顺手」把 glob 改窄到扫不到东西）
-MIN_SCANNED_FILES = 200
+# 扫描面下限：**按 glob 各设一条**（r3 收口 M-1）——单一总数下限防不住「只留
+# src、砍掉 scripts/**」这类改窄（src 单独就有 200+ 文件，总数照样过线）。
+# 每个 glob 都必须有自己的下限（见 test_every_scan_glob_has_its_own_floor）。
+# 实测：src 207 / scripts 142（2026-09-20）。
+MIN_FILES_PER_GLOB = {
+    "src/**/*.py": 180,
+    "scripts/**/*.py": 120,
+}
+MIN_SCANNED_FILES = 300  # 总数兜底（与上表并列，不互相替代）
 
 # ── 命中规则：读属性上的写方法 ──
 WRITE_CALL_RE = re.compile(
@@ -75,16 +84,23 @@ def _strip_comments(source: str) -> str:
     return "\n".join(out)
 
 
-def _scanned_files() -> list[Path]:
-    files = []
+def _scanned_files_by_glob() -> dict[str, list[Path]]:
+    """按 glob 分组返回扫描面（逐 glob 下限校验用，r3）。"""
+    by_glob: dict[str, list[Path]] = {}
     for pattern in SCAN_GLOBS:
+        files = []
         for path in ROOT.glob(pattern):
             if not path.is_file():
                 continue
             if any(part in EXCLUDE_PARTS for part in path.relative_to(ROOT).parts):
                 continue
             files.append(path)
-    return sorted(set(files))
+        by_glob[pattern] = sorted(set(files))
+    return by_glob
+
+
+def _scanned_files() -> list[Path]:
+    return sorted({p for files in _scanned_files_by_glob().values() for p in files})
 
 
 class _Hit:
@@ -128,15 +144,46 @@ def _whitelisted(hit: _Hit) -> bool:
 # ================================================================
 
 def test_scan_surface_never_shrinks():
-    """扫描面只许加不许减（防「改窄 glob 让测试变绿」）。"""
+    """扫描面只许加不许减（防「改窄 glob 让测试变绿」）。
+
+    r3（M-1）：**逐 glob 下限**才是真锁 —— 总数下限防不住「只留 src、砍掉
+    scripts/**」（src 单独就 200+ 文件）。故三条一起断言：glob 集合、每个 glob
+    的文件数下限、总数下限。
+    """
     assert REQUIRED_GLOBS <= set(SCAN_GLOBS), f"扫描面被删：{REQUIRED_GLOBS - set(SCAN_GLOBS)}"
     assert "tests" in EXCLUDE_PARTS and "scripts" not in EXCLUDE_PARTS
-    _, files = _collect()
+
+    by_glob = _scanned_files_by_glob()
+    for pattern in SCAN_GLOBS:
+        floor = MIN_FILES_PER_GLOB[pattern]
+        got = len(by_glob[pattern])
+        assert got >= floor, (
+            f"扫描面被改窄：'{pattern}' 只扫到 {got} 个文件（逐 glob 下限 {floor}）"
+        )
+        assert by_glob[pattern], f"'{pattern}' 扫不到任何文件"
+
+    files = _scanned_files()
     assert len(files) >= MIN_SCANNED_FILES, (
-        f"扫描面疑似被改窄：只扫到 {len(files)} 个文件（下限 {MIN_SCANNED_FILES}）"
+        f"扫描面疑似被改窄：只扫到 {len(files)} 个文件（总数下限 {MIN_SCANNED_FILES}）"
     )
     rel = {str(p.relative_to(ROOT)) for p in files}
     assert "src/rag/retriever.py" in rel, "扫描面必须覆盖 Retriever 本体"
+    assert "scripts/k59/replay_incident.py" in rel, "扫描面必须覆盖 scripts/（k59 前 3 处命中都在这里）"
+
+
+def test_every_scan_glob_has_its_own_floor():
+    """反向锁：每个被扫 glob 都必须有自己的文件数下限（新增面不得「无下限」）。"""
+    assert set(MIN_FILES_PER_GLOB) == set(SCAN_GLOBS), (
+        f"逐 glob 下限与扫描面不一致："
+        f"缺 {set(SCAN_GLOBS) - set(MIN_FILES_PER_GLOB)}，"
+        f"多 {set(MIN_FILES_PER_GLOB) - set(SCAN_GLOBS)}"
+    )
+    for pattern, floor in MIN_FILES_PER_GLOB.items():
+        assert floor >= 100, f"{pattern} 的下限过低（{floor}），形同虚设"
+    # 总数下限必须**大于**任一单 glob 下限，否则「只留一个 glob」仍能过线
+    assert MIN_SCANNED_FILES > max(MIN_FILES_PER_GLOB.values()), (
+        "总数下限须大于单 glob 下限（否则砍掉一个 glob 也能过线）"
+    )
 
 
 def test_scanner_is_not_vacuous():
