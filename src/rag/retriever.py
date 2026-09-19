@@ -44,6 +44,15 @@ logger = logging.getLogger(__name__)
 # 不变），写方法 `COLLECTION_WRITE_METHODS` 直接抛 `ReadPropertyWriteRefused`；
 # 同口径由静态守卫测试 `tests/test_k59_collection_write_scan.py` 在仓库面兜底
 # （扫描 `\.collection\.(upsert|add|update|delete|modify)`，命中即失败）。
+#
+# k61（k59 r2 披露的残留私有逃生口）：`collection` 的**句柄缓存载体**
+# `_collection` 仍是裸 chroma 句柄 —— 实例被自愈改写后
+# `retriever._collection.upsert(...)` 直接写进权威库，绕过 r2 的只读包装。
+# 修法：`collection` 缓存进 `_collection` 的改为**只读包装**（见该属性
+# docstring）。库层自己开的句柄从此写不进去；唯一合法写入口仍是
+# `writable_collection` / `add_chunks`（新建实例 + 显式集合名，k60 的
+# `dreams_k55` 入库走这条）。外部注入的 `_collection`（k26/k59 fake 注入）
+# 保持原样，不在承诺面内。
 # ────────────────────────────────────────────────────────────────────────
 
 # k59 r2：读属性 `collection` 上禁用的写方法名 —— **单一事实源**：
@@ -357,10 +366,29 @@ class Retriever:
 
         句柄缓存语义与 k59 之前**逐字一致**：只有 `_collection is None` 时才
         取句柄（外部注入 `_collection` 的既有用法/测试不受影响）。
+
+        k61：缓存进 `_collection` 的是**只读包装**而不是裸句柄 —— `_collection`
+        既是本属性的缓存载体，也曾经是「绕过只读包装/写 API 直写」的**私有
+        逃生口**（`retriever._collection.upsert(...)`：实例一旦被自愈改写，
+        该句柄指向权威库 → 静默写进生产检索库，形态同 k55）。缓存包装后，
+        这条私有直连与「经读属性写入」同口径被 `ReadPropertyWriteRefused`
+        拒绝（写方法名见 `COLLECTION_WRITE_METHODS`），而读方法
+        （query/get/count/…）逐字透传。
+        **库层自己开的句柄从此写不进去**；唯一合法写入口仍是
+        `writable_collection` / `add_chunks`（见 k61 测试）。
+
+        边界（如实披露）：**外部注入**的 `_collection`（k26/k59 的 fake 注入
+        用法）保持原样返回 —— 它是调用方自己的对象，本属性不替换、也不包装
+        （`retriever._collection is fake` 这条既有断言依赖它）。注入真实 chroma
+        句柄再直写属于显式篡改私有属性，不在本护栏的承诺面内。
         """
         self._ensure_non_empty_collection()
         if self._collection is None:
-            self._collection = self._open_collection(self._collection_name)
+            # k61：缓存只读包装（私有直连收口，见 docstring）
+            self._collection = _ReadOnlyCollection(
+                self._open_collection(self._collection_name))
+        if isinstance(self._collection, _ReadOnlyCollection):
+            return self._collection
         return _ReadOnlyCollection(self._collection)
 
     @property
