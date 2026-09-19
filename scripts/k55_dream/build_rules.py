@@ -36,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from scripts.k55_dream import collocation as colloc_mod  # noqa: E402
 from scripts.k55_dream.crawl_lib import DATA_ROOT, now_iso  # noqa: E402
 from scripts.k55_dream.stats_elements import (  # noqa: E402
     META_STOPWORDS, load_entries, normalize_core,
@@ -116,6 +117,9 @@ RULE_STOPWORDS = set(META_STOPWORDS) | set(NARRATIVE_STOP) | {
     "以及", "或者", "如果", "虽然", "然后", "于是", "终于", "结果", "原因",
     "状态", "程度", "方式", "内容", "部分", "以上", "以下", "其中", "其他",
     "一切", "所有", "各种", "一种", "这个", "那个", "这样", "那样",
+    # k58：方位/趋向补语类叙述词（实测「回来」混进过规则表并被控制方梦例命中）
+    "回来", "过来", "回去", "进去", "出去", "上来", "下来", "回来",
+    "来到", "离开", "走过", "路过", "回去", "起来",
 }
 
 
@@ -125,12 +129,47 @@ JI_RE = re.compile(r"(大吉|吉利|吉兆|吉凶指数\d+【?大吉|好运|发�
 XIONG_RE = re.compile(r"(大凶|不祥|凶兆|灾祸|倒霉|损失|破财|疾病|病痛|死亡|丧事|口舌|"
                       r"官司|离别|不顺|小人|血光|主凶|凶事|有灾|患病)")
 SENT_SPLIT_RE = re.compile(r"[。！？!?\n]")
+# 纯出处句（k58 M-2）：整句只有书名/站点名，没有解读内容 —— 例如
+# 「《敦煌本梦书》」被当成 head_entry 选出来，gloss 就等于没有依据。
+CITATION_ONLY_RE = re.compile(r"^[《》〈〉()（）【】\[\]\s·、，。;；:：0-9A-Za-z-]*$")
+CITATION_MARK_RE = re.compile(r"[《》〈〉()（）【】\[\]\s·、，。;；:：0-9A-Za-z-]")
+JUDGE_MARK_RE = re.compile(r"[主有宜忌吉凶祸福]")
+
+
+# 页面小标题（无解读内容）：`1. 梦见堵车的周公解梦：`、`梦见蛇的解析：`
+HEADING_RE = re.compile(
+    r"^\s*[0-9１-９]*[.、)）]?\s*梦见?.{0,24}?(的)?"
+    r"(周公解梦|解梦|解析|分析|解说|说法|含义|寓意)\s*[：:]?\s*$")
+
+
+DANGLING_TAIL_RE = re.compile(r"(是|的|和|与|在|为|把|被|对|向|从|给|让|或|及|而|就|都|也|还)$")
+
+
+def is_fragment(sentence: str) -> bool:
+    """半截句：以虚词/系动词结尾且不长（页面在动词后折行被切断，如「吉祥色彩是」）。"""
+    s = (sentence or "").strip("，,、；;：:。 ")
+    return len(s) < 15 and bool(DANGLING_TAIL_RE.search(s))
+
+
+def is_heading(sentence: str) -> bool:
+    return bool(HEADING_RE.match(sentence or ""))
+
+
+def is_citation_only(sentence: str) -> bool:
+    """是否「纯出处句」：去掉书名号/标点后正文 < 6 字，且不含判词字。"""
+    core = CITATION_MARK_RE.sub("", sentence or "")
+    return len(core) < 6 and not JUDGE_MARK_RE.search(sentence or "")
+
+
 # 标题/疑问式句子 + 页面套话（都无解读内容，选中当 gloss 等于没给依据）
 TITLE_JUNK_RE = re.compile(
     r"(好不好|是什么意思|是什么预兆|代表着什么|代表什么|意味着什么|怎么回事|"
     r"怎么办|有什么预兆|什么征兆|的解析|请看下面|是什么意思呢)[？?。]?$"
     r"|(希望能为网友答疑解惑|走出迷途|转载请注明|周公解梦权威解梦|由.{0,10}整理|"
-    r"小编|权威解梦|免费查询|本文来源|点击查看|扫一扫|关注我们)")
+    r"小编|权威解梦|免费查询|本文来源|点击查看|扫一扫|关注我们)"
+    # k58 M-4：繁体页面导航串（实测「解夢」条目的 gloss 整句是站点导航）
+    r"|(周公解夢|農民曆|黃曆|看相|十二星座|十二生肖|心理測試|姓名測試|血型性格|"
+    r"風水知識|民俗預測|抽籤|占卜師|解夢大全|收起|星座運勢)")
 
 
 def log(msg: str) -> None:
@@ -200,7 +239,7 @@ def load_classic_quotes() -> dict:
         except Exception:
             continue
         el = (d.get("element") or "").strip()
-        if el:
+        if el and not is_citation_only(d.get("content", "")):
             # content = 「<条文>。（《书名》·转录未校勘）」—— 出处由 gloss 统一标注，
             # 这里剥掉，免得「《敦煌本梦书》（转录未校勘）记载：…（《敦煌本梦书》·转录未校勘）」
             text = re.sub(r"。（《[^》]+》[^）]*）\s*$", "", d["content"])
@@ -260,7 +299,9 @@ def scan_corpus(elements: set) -> tuple:
         all_sents = [re.sub(r"[\(（](©|&|版权|来源)[^)）]*[)）]", "", s).strip()
                      for s in all_sents]
         all_sents = [s for s in all_sents
-                     if 6 <= len(s) <= 120 and not TITLE_JUNK_RE.search(s)]
+                     if 6 <= len(s) <= 120 and not TITLE_JUNK_RE.search(s)
+                     and not is_citation_only(s) and not is_heading(s)
+                     and not is_fragment(s)]
         for el in hits:
             # 同场景证据：词条即该元素（整条都算），或句子的主角是该元素
             scope_sents = all_sents if is_head else \
@@ -370,15 +411,24 @@ def same_scenario_gloss(el: str, sentences: dict, classics: dict,
         ranked = {"same": [], "none": [], "opp": []}
         for sent, _ in pool.most_common(40):
             pol = sentence_polarity(sent)
-            if not pol or not want_luck_pol:
-                ranked["none" if not pol else "same"].append((sent, kind, tag))
+            if not want_luck_pol:
+                # 无方向档（中性/提醒类）：**优先无极性句**，有极性的放最后
+                ranked["none" if not pol else "opp"].append((sent, kind, tag))
+            elif not pol:
+                ranked["none"].append((sent, kind, tag))
             elif pol == want_luck_pol:
                 ranked["same"].append((sent, kind, tag))
             else:
                 ranked["opp"].append((sent, kind, tag))
         for key in ("same", "none", "opp"):
             if ranked[key]:
+                # 同档内优先「有内容的句子」：含判词字 / 长度 ≥10 的排在前面，
+                # 避免选到「梦见自己迷路」这种没有解读信息的短句
+                ranked[key].sort(key=lambda x: (0 if JUDGE_MARK_RE.search(x[0])
+                                                else (1 if len(x[0]) >= 10 else 2),
+                                                -len(x[0])))
                 sent, k, t = ranked[key][0]
+                sent = sent.strip("，,、；;：:。 ")
                 return f"{sent}（{t}）", k
         return None
 
@@ -505,6 +555,11 @@ def main() -> int:
         f"按元词/叙述词剔除 {len(excluded)} 个（清单见 rule_exclusions.json）")
 
     elements = set(cands) | set(MANDATORY_DRIVING)
+    # k58 M-1：单字元素的搭配/护栏统计（一次扫语料，之后复用）
+    colloc_stats = colloc_mod.corpus_stats({e for e in elements if len(e) == 1})
+    # 已登记的规则名（含强制族）：单字元素的搭配词不得与它们重名，
+    # 否则同一段文本被两条规则重复命中（见 collocation.collocations 注释）
+    rule_names = set(elements) | set(MANDATORY_EXTRA)
     uniq, sentences, ji, xiong, head_sentences = scan_corpus(elements)
 
     # 交通驾驶族的覆盖量：在**真实语料**里现算（含新增爬取的真实网友梦境文本）
@@ -525,19 +580,37 @@ def main() -> int:
         if not ptype:
             r = (ji[el] / (ji[el] + xiong[el])) if (ji[el] + xiong[el]) else 0.5
             ptype = "吉兆类" if r >= 0.62 else ("警示类" if r < 0.35 else "中性类")
-        # match 正则：≥2 字分支（k49）；单字元素用 n-gram 补上下文。
-        # n-gram 过滤：只取出现 ≥3 次且长度 2~3 的（4 字 n-gram 常跨越短语边界，
-        # 实测会产出「天开车」「友开车」这类分词碎片，命中率低还易误伤）。
-        alts = [el] if len(el) >= 2 else []
-        for g, c in sorted(ngrams.get(el, []), key=lambda x: -x[1]):
-            if c < 3 or not (2 <= len(g) <= 3) or g == el or g in alts:
+        # match 正则：≥2 字分支（k49）。
+        # 多字元素：沿用 n-gram 里 ≥3 次、长度 2~3 的搭配（4 字 n-gram 常跨越短语
+        # 边界，实测会产出「天开车」「友开车」这类分词碎片）。
+        # **单字元素（k58 M-1）**：改用 collocation.py 的语料统计产物 ——
+        # 触发形态（梦见X/梦到X/梦见了X，实测覆盖量）+ 含 X 的 2~3 字搭配（Top-N，
+        # 按覆盖条数排序）+ **边界护栏**（词典/语料推导，防「梦见水杯」这类前缀误伤）。
+        match_evidence, guard_evidence, match_str = [], {}, ""
+        if len(el) == 1:
+            built = colloc_mod.build_match(el, colloc_stats, top_colloc=5,
+                                           exclude_names=rule_names)
+            alts = [b["branch"] for b in built["branches"] if b["coverage"] > 0]
+            if not alts:                      # 语料零证据 → 不放裸单字分支（k49）
                 continue
-            alts.append(g)
-            if len(alts) >= 5:
-                break
+            match_evidence = built["branches"]
+            guard_evidence = built["guard"]
+            # 分支本身就是正则（head_form 带护栏 lookahead）→ **不能再 escape**，
+            # 否则 (?![…]) 会变成字面量、分支永远匹配不上（实测踩过）
+            match_str = "|".join(alts)
+        else:
+            alts = [el]
+            for g, c in sorted(ngrams.get(el, []), key=lambda x: -x[1]):
+                if c < 3 or not (2 <= len(g) <= 3) or g == el or g in alts:
+                    continue
+                alts.append(g)
+                if len(alts) >= 5:
+                    break
         if not alts:
             continue
-        alts = sorted(set(alts), key=len, reverse=True)[:5]
+        alts = sorted(set(alts), key=len, reverse=True)[:8]
+        if not match_str:
+            match_str = "|".join(re.escape(a) for a in alts)
         # 聚合词频给出的方向 → 用它作为「想要的方向」去挑同向句（r3 I-B）
         luck = luck_from_counts(ji[el], xiong[el])
         gloss, ev_kind = same_scenario_gloss(el, sentences, classics,
@@ -558,11 +631,18 @@ def main() -> int:
             if gp and lp and gp != lp:
                 luck = "中性"
                 luck_basis = f"gloss 极性({gp}) 与聚合词频({lp}) 反向且无同向句 → 降为中性"
+                gp = sentence_polarity(gloss)
+            if luck in ("中性", "提醒类") and gp:
+                # M-3：无方向档**确无**无极性句时，加一句传统说法限定（与 k55-r3
+                # prompt 口径一致），而不是把吉/凶引文当成判断端出来。
+                # 顺序很重要：必须在「反向降级」**之后**判 —— 否则降级成中性的
+                # 条目会漏掉限定语（实测漏了「红色/墙」两条）。
+                gloss = gloss.replace("（语料", "（传统说法，不代表吉凶；语料")
         # type 与 luck 不许并存矛盾（刀：type=警示类 + luck=中性 那种）
         if luck in ("中性", "提醒类") and ptype in ("吉兆类", "警示类"):
             ptype = "中性类"
         rules.append({
-            "name": el, "match": "|".join(re.escape(a) for a in alts),
+            "name": el, "match": match_str,
             "type": ptype, "symbols": syms,
             "tone": tone_from(ji[el], xiong[el], syms, luck),
             "luck": luck, "luck_basis": luck_basis,
@@ -571,6 +651,8 @@ def main() -> int:
             "coverage_basis": "标题核心串含该元素的去重语料条数",
             "gloss_evidence": ev_kind,
             "symbols_basis": "corpus_cooccurrence",
+            "match_branches": match_evidence,
+            "match_guard": guard_evidence,
             "evidence": {"ji": ji[el], "xiong": xiong[el],
                          "sentences": len(sentences[el])},
             "source": "corpus_stats",
@@ -652,8 +734,8 @@ def main() -> int:
         # M-3：coverage 有两种口径（标题核心串 / 真实梦境正文命中），
         # 必须在表内标注，不能让两种口径混着看。
         w.writerow(["name", "type", "coverage", "coverage_basis", "luck", "luck_basis",
-                    "tone", "symbols", "symbols_basis", "match", "gloss",
-                    "gloss_evidence", "ji", "xiong"])
+                    "tone", "symbols", "symbols_basis", "match", "match_branches",
+                    "gloss", "gloss_evidence", "ji", "xiong"])
         for r in uniq_rules:
             luck_basis = r.get("luck_basis") or (
                 "brief 指定（交通/事故/时间压力族不做吉凶推断）"
@@ -662,7 +744,10 @@ def main() -> int:
                         r.get("coverage_basis", "标题核心串含该元素的去重语料条数"),
                         r["luck"], luck_basis, r["tone"],
                         "、".join(r["symbols"]), r.get("symbols_basis", ""),
-                        r["match"], r["gloss"],
+                        r["match"],
+                        " ; ".join(f"{b['branch']}={b['coverage']}"
+                                   for b in (r.get("match_branches") or [])),
+                        r["gloss"],
                         r.get("gloss_evidence", ""),
                         r["evidence"].get("ji", 0), r["evidence"].get("xiong", 0)])
 
@@ -732,6 +817,9 @@ def main() -> int:
         lines.append(f'        "coverage": {r["coverage"]!r},')
         lines.append(f'        "coverage_basis": {r.get("coverage_basis", "")!r},')
         lines.append(f'        "gloss_evidence": {r.get("gloss_evidence", "")!r},')
+        if r.get("match_branches"):
+            lines.append(f'        "match_branches": {r["match_branches"]!r},')
+            lines.append(f'        "match_guard": {r.get("match_guard", {})!r},')
         lines.append(f'        "symbols_basis": {r.get("symbols_basis", "")!r},')
         lines.append(f'        "luck_basis": {r.get("luck_basis", "")!r},')
         # 计数随模块落库：不变式（fallback ⟹ ji+xiong==0）可离线断言，

@@ -298,14 +298,25 @@ class DreamEngine:
         kept: List[dict] = []
         for h in hits:
             a, b = h["span"]
-            exact = h["matched"] == h["rule"]["name"]
-            dup = next((k for k in kept if k["span"] == (a, b)), None)
-            if dup is not None:
-                if exact and dup["matched"] != dup["rule"]["name"]:
-                    kept[kept.index(dup)] = h
-                continue
-            if any(a >= k["span"][0] and b <= k["span"][1] for k in kept):
-                continue
+            overlap = [k for k in kept if _spans_overlap((a, b), k["span"])]
+            if overlap:
+                # k58：**重叠时长的赢**（原来的「包含才去重」不够用）——
+                # 「梦见出车祸了」里 车 靠搭配「出车」命中、车祸 命中「出车祸」，
+                # 两段重叠但不是包含关系，两条都留会让同一段文字重复计数，
+                # 吉凶合成还会跨条目串味（实测把 brief 指定的「中性」带成「凶多于吉」）。
+                # 规则匹配的基本语义就是「最长匹配优先」，重叠处只保留更长的那条；
+                # 不重叠的多命中不受影响（组合梦境仍然各自命中）。
+                # 重叠取舍排序：① 命中更长者优先（最长匹配）② 名称直命中优先
+                # ③ 覆盖量小者优先（规则更具体：开车 < 车）④ 分数高者优先
+                longest = max([h] + overlap,
+                              key=lambda x: (x["span"][1] - x["span"][0],
+                                             1 if x["matched"] == x["rule"]["name"] else 0,
+                                             -x["rule"].get("coverage", 0),
+                                             x["score"]))
+                if longest is not h:
+                    continue
+                kept = [k for k in kept if k is longest
+                        or not _spans_overlap((a, b), k["span"])]
             kept.append(h)
             if len(kept) >= top_n:
                 break
