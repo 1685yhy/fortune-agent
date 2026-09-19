@@ -6,6 +6,16 @@ mock LLM 响应（monkeypatch httpx.post / client 函数），验证最终输出
 strip_emoji 清理；另附 strip_emoji 单元测试（中文/全角标点不受影响）。
 
 运行：cd 项目根目录 && python3 -m pytest tests/test_emoji_cleanup.py -q
+
+k61 复核（用户红线「测试涉及 LLM 一律用免费 glm-4-flash，不许用 DeepSeek」）：
+本文件**全部用例零外呼** —— patch 目标要么是统一层模块函数
+（`src.llm.client.deepseek_anthropic_completion`），要么是
+`httpx.AsyncClient.post`；其中 `mock.patch.dict("os.environ",
+{"DEEPSEEK_API_KEY": "test-key"})` 注入的是**假 key**，只为让统一层
+`resolve_llm_api_key()` 非空从而走到被 mock 的调用点，**不产生任何请求**。
+k61 探针实测：本文件 0 次出站（对比 test_adaptive_advisor/test_mood_detector
+的 27 次）。若将来有人把某个 patch 拆掉，k61 的进程级守卫
+（`tests/conftest.py::_k61_deepseek_egress_guard`）会立刻红。
 """
 import asyncio
 import json

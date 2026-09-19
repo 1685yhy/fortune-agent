@@ -12,6 +12,13 @@ Tests cover:
 MoodDetector uses DeepSeek Flash for AI-based detection, so we mock the API
 call and verify the _parse_response logic and the detection flow.
 
+k61（用户红线「测试涉及 LLM 一律用免费 glm-4-flash，不许用 DeepSeek」）：
+`TestRealAPI` 原按 `DEEPSEEK_API_KEY` 门控，部署 `.env`（软链到生产）经
+`src/config.py` 导入时灌进 `os.environ` → 全量跑时真的打生产 DeepSeek。
+现走 `glm_route` 夹具（免费 `glm-4-flash`；无 `ZHIPU_API_KEY` 才 skip），
+并由进程级出站守卫（`tests/conftest.py`）禁止任何真实 deepseek 请求。
+其余用例本来就是 mock 统一层，零外呼，未改动。
+
 k42（用户可见静默错判修复）后的契约：
 - 走统一 LLM 层（src/llm/client.py，Anthropic 兼容端点 + thinking disabled）——
   patch 点相应地是 src.llm.client.deepseek_anthropic_completion；
@@ -472,30 +479,38 @@ class TestLabeledAccuracy:
 # ====================================================================
 
 class TestRealAPI:
-    """Real API integration tests - skipped without DEEPSEEK_API_KEY."""
+    """Real API integration tests —— k61 起一律走**免费 glm-4-flash**。
+
+    k61（用户红线：测试涉及 LLM 一律用免费智谱 glm-4-flash，不许用 DeepSeek）：
+    本类原按 `DEEPSEEK_API_KEY` 门控 —— 部署 `.env`（软链到生产）由
+    `src/config.py` 导入时灌进 `os.environ`，于是**全量跑时不再 skip，真的打生产
+    DeepSeek**（k61 探针实测：本类 2 条用例共 11 次 `api.deepseek.com` 出站）。
+    现经 `glm_route` 夹具走免费 GLM（`ZHIPU_API_KEY` 门控），断言阈值**未改**；
+    进程级守卫（`tests/conftest.py`）兜底禁止任何真实 deepseek 出站。
+    """
 
     @pytest.fixture(autouse=True)
-    def check_api_key(self):
-        import os
-        key = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        if not key:
-            pytest.skip("No API key set (DEEPSEEK_API_KEY or OPENAI_API_KEY)")
+    def check_api_key(self, glm_route):
+        """免费 GLM key 门控（无 key → skip，与原「无可用 key 不跑」同语义）。"""
+        if not glm_route:
+            pytest.skip("No API key set (ZHIPU_API_KEY)")
 
-    def test_real_detection_flow(self):
+    def test_real_detection_flow(self, glm_route):
         """Test with real API - verify end-to-end detection works."""
-        import os
-        key = (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"))
-        detector = MoodDetector(api_key=key)
+        detector = MoodDetector(api_key=glm_route)
         result = detector.detect("我好焦虑最近工作压力很大")
         assert result.mood in ("sassy", "analyst", "gentle")
         assert 0 <= result.confidence <= 1.0
         assert len(result.emotion_label) > 0
 
-    def test_real_accuracy_on_sample(self):
-        """Run a sample of test cases with the real API to verify accuracy."""
-        import os
-        key = (os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY"))
-        detector = MoodDetector(api_key=key)
+    def test_real_accuracy_on_sample(self, glm_route):
+        """Run a sample of test cases with the real API to verify accuracy.
+
+        k61 说明：阈值 0.70 **未改**；换 provider 后的实测值见报告（免费
+        glm-4-flash）。若这条在 GLM 上真红，那是模型能力差异，须由控制方裁定，
+        不得就地放宽阈值。
+        """
+        detector = MoodDetector(api_key=glm_route)
         sample_cases = LABELED_TEST_CASES[:10]  # First 10 cases
         correct = 0
         for msg, expected, _ in sample_cases:
