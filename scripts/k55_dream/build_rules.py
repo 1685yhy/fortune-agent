@@ -142,19 +142,35 @@ BLOCKED_POS = {"u", "d", "r", "p", "c", "m", "q", "f", "t", "y", "e", "o",
 
 
 def pos_allowed(name: str) -> bool:
+    """词性门槛（k58 r3 m-1 修正：看**中心词**，不是「任一 token」）。
+
+    jieba 把「大蛇」切成 大(a)+蛇(n) —— 若按「任一 token 被拦就拒」，
+    这个正经名词（覆盖 143）会被误排（实测：梦见大蛇 → [] 而梦见小蛇正常）。
+    改为：只有**中心词（最后一个 token）**属于被拦词性，或**全部 token** 都被拦时才拒。
+    """
     try:
         import jieba.posseg as pseg
         flags = [f for _, f in pseg.lcut(name)]
     except Exception:
         return True
-    return not any(f in BLOCKED_POS for f in flags)
+    if not flags:
+        return True
+    if flags[-1] not in BLOCKED_POS:
+        return True
+    return not all(f in BLOCKED_POS for f in flags)
 
 
 # 吉凶判定词（语料判词口径，用于从真实语料统计吉凶倾向）
+# k58 r3（A-1）：词表**扩到与审查口径对齐**（审查用更宽的词表扫出 9 条反向）。
+# 原词表只认判词术语，「前途光明/特别有发展/财运不佳/非常窝火/波折/量入为出/欠顺」
+# 这类表述一律返回「无极性」→ 选择器（同向>无极性>反向）合法地选了反向句。
 JI_RE = re.compile(r"(大吉|吉利|吉兆|吉凶指数\d+【?大吉|好运|发财|得财|进财|升官|富贵|"
-                   r"喜事|顺利|成功|贵子|添丁|有财|主吉|大吉昌)")
+                   r"喜事|顺利|成功|贵子|添丁|有财|主吉|大吉昌|"
+                   r"光明|发展|兴旺|顺遂|幸福|美满|高升|如意|发达|转运|喜讯|和睦|健康)")
 XIONG_RE = re.compile(r"(大凶|不祥|凶兆|灾祸|倒霉|损失|破财|疾病|病痛|死亡|丧事|口舌|"
-                      r"官司|离别|不顺|小人|血光|主凶|凶事|有灾|患病)")
+                      r"官司|离别|不顺|小人|血光|主凶|凶事|有灾|患病|"
+                      r"不佳|窝火|波折|欠顺|谨慎|小心|量入为出|吃亏|争吵|矛盾|"
+                      r"担忧|麻烦|阻碍|困难)")
 SENT_SPLIT_RE = re.compile(r"[。！？!?\n]")
 # 纯出处句（k58 M-2）：整句只有书名/站点名，没有解读内容 —— 例如
 # 「《敦煌本梦书》」被当成 head_entry 选出来，gloss 就等于没有依据。
@@ -427,7 +443,17 @@ def sentence_polarity(s: str, extended: bool = True) -> str:
             if NEG_PREFIX_RE.search(prefix):     # 「不凶」这类反向否定
                 neg = False
     if pos and neg:
-        return ""            # 双向混合 → 视为无极性（不判冲突）
+        # k58 r3（A-1）：双向混合时**看末句**——审查口径以「句末是否转向正面」定调
+        # （「…不得不低价出售，依然可能成功」判为吉向）。末句仍混合/看不出 → 无极性。
+        sents = [x for x in re.split(r"[。！？!?\n]", s or "") if x.strip()]
+        last = sents[-1] if sents else ""
+        tail_pos = bool(JI_RE.search(last))
+        tail_neg = bool(XIONG_RE.search(last))
+        if tail_pos and not tail_neg:
+            return "吉"
+        if tail_neg and not tail_pos:
+            return "凶"
+        return ""
     return "吉" if pos else ("凶" if neg else "")
 
 
@@ -691,7 +717,10 @@ def main() -> int:
             # 否则 (?![…]) 会变成字面量、分支永远匹配不上（实测踩过）
             match_str = "|".join(alts)
         else:
-            alts = [el]
+            # m-4：多字元素的名字分支也加**边界护栏**（「梦见狗尾巴草」不该命中 尾巴
+            # —— 它是更长复合词的一部分）。n-gram 搭配分支不加（它们是短语碎片，
+            # 加了会误伤正当形态）。
+            alts = [el + f"(?={colloc_mod.TRAILING_BOUNDARY})"]
             for g, c in sorted(ngrams.get(el, []), key=lambda x: -x[1]):
                 if c < 3 or not (2 <= len(g) <= 3) or g == el or g in alts:
                     continue
@@ -702,7 +731,8 @@ def main() -> int:
             continue
         alts = sorted(set(alts), key=len, reverse=True)[:8]
         if not match_str:
-            match_str = "|".join(re.escape(a) for a in alts)
+            # 含护栏的正则分支原样保留，其余（字面 n-gram）转义
+            match_str = "|".join(a if "(?=" in a else re.escape(a) for a in alts)
         # 聚合词频给出的方向 → 用它作为「想要的方向」去挑同向句（r3 I-B）
         luck = luck_from_counts(ji[el], xiong[el])
         gloss, ev_kind = same_scenario_gloss(el, sentences, classics,
@@ -780,6 +810,10 @@ def main() -> int:
                     if family == "mandatory_driving_family"
                     else "时间压力类梦境没有对应的古典判词")
                 r["gloss"], r["gloss_evidence"] = g, ev
+                # M-3（r3 补齐）：强制族同样受「无方向档不得配极性引文」约束 ——
+                # 词表扩充后「健康」等词会出极性，这里补上限定语（原先只覆盖通用路径）
+                if r["luck"] in ("中性", "提醒类") and sentence_polarity(g):
+                    r["gloss"] = g.replace("（语料", "（传统说法，不代表吉凶；语料")
                 r["luck_basis"] = "brief 指定（交通/事故/时间压力族不做吉凶推断）"
                 # 该族既然不做吉凶推断，核心象征里就不该出现吉凶语义词
                 # （车祸原本带着「吉祥、财运」，与「中性」自相矛盾）

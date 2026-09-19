@@ -282,3 +282,49 @@ def test_novel_compounds_introduce_no_new_false_positive():
             for t, _ in NO_HIT_AT_ALL]
     viol = [v for v in viol if v[1]]
     assert viol == [], viol
+
+
+# ══════════════════ k58 r3：极性反向回归（A-1）+ Minor ══════════════════
+
+def test_no_luck_gloss_polarity_conflict_by_reviewer_vocabulary():
+    """r3 A-1 不变式：用**审查口径的独立词表**扫全表，gloss 与 luck 不得反向。
+
+    独立复核模块 `scripts/k55_dream/polarity_audit.py` 不复用 build_rules 的实现
+    （词表更宽，含 光明/发展/兴旺/不佳/窝火/波折/量入为出/欠顺/谨慎/多小心）。
+    改前：基线 0 → r1 5 → r2 9 条（孔雀 luck=凶／gloss 说「前途光明」…）。
+    """
+    from scripts.k55_dream.polarity_audit import luck_polarity, polarity
+    conflicts = []
+    for r in DREAM_PATTERN_RULES:
+        lp = luck_polarity(r["luck"])
+        gp = polarity(r["gloss"])
+        if lp and gp and lp != gp:
+            conflicts.append((r["name"], r["luck"], gp, r["gloss"][:40]))
+    assert conflicts == [], conflicts[:5]
+
+
+def test_named_reversal_rules_are_self_consistent():
+    """r3 A-1 点名三条：孔雀 / 螃蟹 / 购买 —— 同行必须自洽（同向或已降为无方向）"""
+    from scripts.k55_dream.polarity_audit import luck_polarity, polarity
+    d = {r["name"]: r for r in DREAM_PATTERN_RULES}
+    for name in ("孔雀", "螃蟹", "购买"):
+        r = d[name]
+        lp, gp = luck_polarity(r["luck"]), polarity(r["gloss"])
+        assert not (lp and gp and lp != gp), (name, r["luck"], gp, r["gloss"][:40])
+
+
+def test_compound_word_symmetry_for_single_char_variants():
+    """r3 m-1：大蛇/小蛇 之类「形容词+单字意象」不得被词性门槛误排（对称性）"""
+    engine = DreamEngine()
+    big = [h["rule"]["name"] for h in engine.match_patterns("梦见大蛇")]
+    small = [h["rule"]["name"] for h in engine.match_patterns("梦见小蛇")]
+    assert small, "小蛇 应命中"
+    assert "大蛇" in big, f"大蛇 被误排（命中：{big}）"
+
+
+def test_longer_compound_does_not_leak_suffix_rule():
+    """r3 m-4：更长复合词不得命中其尾部的多字规则（狗尾巴草 ≠ 尾巴）"""
+    engine = DreamEngine()
+    assert "尾巴" not in [h["rule"]["name"] for h in engine.match_patterns("梦见狗尾巴草")]
+    # 正当形态不受影响
+    assert "尾巴" in [h["rule"]["name"] for h in engine.match_patterns("梦见尾巴")]
