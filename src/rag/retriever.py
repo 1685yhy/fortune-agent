@@ -21,6 +21,50 @@ logger = logging.getLogger(__name__)
 
 
 # ────────────────────────────────────────────────────────────────────────
+# k59（数据安全 / k55 险情根因）：空集合自愈**只属于读路径**。
+#
+# 事故形态（2026-09-14 k55 差点中招）：`Retriever(生产 persist_dir)` +
+# 「一个尚不存在的集合名」（新语料集合 dreams_k55）去写入 → 写方法经
+# `collection` 属性继承了读路径的自愈 → 集合名被改写成权威库
+# `fortune_books_v2` → **静默写进生产检索库**（副本实测 27,115 → 27,116，
+# 无任何报错）。实现者在 `add_chunks` 前发现并终止，生产未受影响。
+#
+# 根因：自愈本身是**读**的降级便利（集合配置写错时检索仍可用），却被写路径
+# 继承成「写目标的静默改写」。修法 A+B 纵深防御：
+#   A. 写路径不复用自愈结果：本实例一旦已被自愈改写，写方法抛
+#      `SelfHealWriteRefused`（绝不把数据写进权威生产集合）；
+#   B. 自愈只在读方法上生效：写路径一律用调用方**显式**集合名（不检测、不
+#      回落）——「新建一个集合再写」是明确的调用意图，必须落到该集合本身。
+# 读路径行为**不变**（集合缺失/为空 → 回落权威库），见
+# `_ensure_non_empty_collection`；写路径见 `writable_collection`。
+# ────────────────────────────────────────────────────────────────────────
+
+
+class SelfHealWriteRefused(RuntimeError):
+    """写路径拒绝：本实例的集合名已被「空集合自愈」改写（k59）。
+
+    发生条件：同一个 `Retriever` 实例先走过读路径（`search` / `count` /
+    `collection` / `collection_name`），而配置的集合不存在或为空 → 自愈把
+    `_collection_name` 改写成权威库 `BOOKS_COLLECTION`；此后调用 `add_chunks`
+    之类的写方法，数据会落到**权威生产集合**而不是调用方指定的集合。
+
+    处置：修正集合名 / `embedding_collection` 配置后重试，或新建一个专用写入的
+    `Retriever`（构造期指定正确集合名，且不要先读）。**不要**吞掉本异常继续写。
+    """
+
+    def __init__(self, requested: str, healed_to: str, persist_dir: str):
+        self.requested = requested
+        self.healed_to = healed_to
+        self.persist_dir = persist_dir
+        super().__init__(
+            f"拒绝写入：集合名已被空集合自愈改写（请求 '{requested}' → 实际 "
+            f"'{healed_to}'，persist_dir={persist_dir}）。继续写会把数据静默落进"
+            f"权威集合 '{healed_to}'（k55 险情根因，k59 起拒绝）。请修正集合名/"
+            f"配置后重试，或用专用实例写入（构造期给定集合名、不要先读）。"
+        )
+
+
+# ────────────────────────────────────────────────────────────────────────
 # k28（k23k24 审查 M-6）：空集合自愈的可观测状态。
 # 自愈是「配置写错但检索仍可用」的静默降级点：warning 只在进程内首次触发
 # （避免刷屏），低峰期首个检索若发生在低 S 日志窗口，运维就查不到了。这里
@@ -123,11 +167,17 @@ class Retriever:
         self._client = None
         self._collection = None
         self._collection_checked = False
-        self._collection_name = (
+        self._requested_collection_name = (
             collection_name
             or os.environ.get("EMBEDDING_COLLECTION")
             or BOOKS_COLLECTION
         )
+        # k59：`_collection_name` = 实际生效的集合名（读路径自愈会改写它）；
+        # `_requested_collection_name` = 调用方原始指定值（自愈**不**动它）。
+        # 写路径据此判断「集合名是否已被自愈改写」→ 被改写即拒绝写入。
+        self._collection_name = self._requested_collection_name
+        self._self_healed_to: Optional[str] = None
+        self._write_target_warned: set = set()
 
     @property
     def collection_name(self) -> str:
@@ -189,6 +239,10 @@ class Retriever:
                 "（首条 warning 已提示；状态见 rag.retriever.self_heal_events()）",
                 _n, name, reason, BOOKS_COLLECTION,
             )
+        # k59：登记「本实例的集合名已被自愈改写」。这是写路径的唯一判据 ——
+        # 写方法一旦看到它非空即抛 `SelfHealWriteRefused`，绝不把数据写进
+        # 权威生产集合（k55 险情：生产副本 27,115 → 27,116，静默无报错）。
+        self._self_healed_to = BOOKS_COLLECTION
         self._collection_name = BOOKS_COLLECTION
         self._collection = None  # 丢弃已缓存的空集合句柄
 
@@ -205,24 +259,114 @@ class Retriever:
             )
         return self._client
 
+    def _open_collection(self, name: str):
+        """按集合名取/建 chroma 集合句柄（读、写共用；不缓存）。"""
+        return self.client.get_or_create_collection(
+            name=name,
+            embedding_function=_AppEmbeddingFunction(self.embedder),
+            metadata={"hnsw:space": "cosine"},
+        )
+
     @property
     def collection(self):
+        """**读**路径的集合句柄（空集合自愈在这里生效，可能已是权威库）。
+
+        ⚠️ k59：本属性是**读语义** —— `_ensure_non_empty_collection()` 会把
+        缺失/为空的集合名改写成权威库。**不得用于写入**：写路径一律走
+        `writable_collection`（它绝不使用自愈结果，必要时抛
+        `SelfHealWriteRefused`）。k55 险情的根因正是写方法继承了这个属性。
+
+        句柄缓存语义与 k59 之前**逐字一致**：只有 `_collection is None` 时才
+        取句柄（外部注入 `_collection` 的既有用法/测试不受影响）。
+        """
         self._ensure_non_empty_collection()
         if self._collection is None:
-            self._collection = self.client.get_or_create_collection(
-                name=self._collection_name,
-                embedding_function=_AppEmbeddingFunction(self.embedder),
-                metadata={"hnsw:space": "cosine"},
-            )
+            self._collection = self._open_collection(self._collection_name)
         return self._collection
+
+    @property
+    def self_healed_to(self) -> Optional[str]:
+        """本实例的集合名是否已被空集合自愈改写（None = 未改写）。
+
+        k59：写路径的判据，同时给运维/脚本一个可读的状态位（配合
+        `self_heal_events()` 使用）。
+        """
+        return self._self_healed_to
+
+    @property
+    def writable_collection(self):
+        """**写**路径的集合句柄（k59）：显式集合名，绝不使用自愈结果。
+
+        与读路径 `collection` 的三点差异：
+        ① **不触发自愈**：目标集合为空/不存在也不改写目标 —— 「新建一个集合
+           再写」是调用方的明确意图（各 ingest / 重建脚本依赖此行为），写必须
+           落到该集合本身；
+        ② **拒绝已自愈的实例**：若本实例已被读路径自愈改写
+           （`self_healed_to` 非空）→ 抛 `SelfHealWriteRefused`。此时写下去
+           数据会静默落进权威生产集合（k55 险情：副本 27,115 → 27,116）；
+        ③ 目标为空/缺失且同目录权威集合有数据时记 warning（高危形态，绝不
+           静默），但**不改变写入目标**。
+
+        句柄**不复用**读路径的 `self._collection` 缓存（那是读语义的句柄：可能
+        绑定自愈前/改名前的集合名，或由调用方注入），也不写回该缓存 —— 读路径
+        行为保持不变。
+        """
+        if self._self_healed_to is not None:
+            raise SelfHealWriteRefused(
+                self._requested_collection_name, self._self_healed_to,
+                self.persist_dir,
+            )
+        name = self._collection_name
+        self._warn_if_write_target_would_self_heal(name)
+        return self._open_collection(name)
+
+    def _warn_if_write_target_would_self_heal(self, name: str) -> None:
+        """写目标恰是「会触发自愈」的形态时留 warning（k59，只警告不改写）。
+
+        判定条件与 `_ensure_non_empty_collection` 同源（已知空集合 /
+        `count()==0` / 不可用）；但写路径**不**改写目标，故这里只提示调用方
+        核对集合名：同一形态若是读路径就会被自愈改写，正是 k55 险情的高危形态
+        （生产目录 + 一个全新集合名）。同一实例同一集合名只提示一次。
+        """
+        if name == BOOKS_COLLECTION or name in self._write_target_warned:
+            return
+        if name in KNOWN_EMPTY_COLLECTIONS:
+            reason = "已知空集合"
+        else:
+            try:
+                if self._raw_count(name) > 0:
+                    return
+                reason = "count()==0"
+            except Exception as e:  # 集合不存在/不可用
+                reason = f"不可用: {e}"
+        try:
+            if self._raw_count(BOOKS_COLLECTION) <= 0:
+                return
+        except Exception:
+            return
+        self._write_target_warned.add(name)
+        logger.warning(
+            "写入目标集合 '%s' %s，而权威集合 '%s' 有数据：本次写入落到 '%s' "
+            "本身（写路径不使用自愈结果，k59）；若本意是追加到权威库，请核对"
+            "集合名/配置",
+            name, reason, BOOKS_COLLECTION, name,
+        )
 
     def add_chunks(self, chunks: List[Chunk], batch_size: int = 128):
         """批量添加切块到向量库 (使用 upsert 避免重复 ID 错误)
 
         使用小批量避免内存问题，每批次独立编码和写入。
+
+        k59：写目标 = 调用方**显式**集合名（`writable_collection`），不使用
+        空集合自愈的结果。若本实例已被读路径自愈改写，直接抛
+        `SelfHealWriteRefused` —— 旧行为是把数据静默写进权威生产集合
+        （k55 险情：27,115 → 27,116）。
         """
         if not chunks:
             return
+
+        # 写前一次性判定（写目标绝不静默改写；被自愈改写即在此抛错）
+        collection = self.writable_collection
 
         all_texts = [c.text for c in chunks]
         all_ids = [c.chunk_id for c in chunks]
@@ -240,7 +384,7 @@ class Retriever:
             batch_metas = all_metadatas[start:end]
 
             embeddings = self.embedder.encode(batch_texts)
-            self.collection.upsert(
+            collection.upsert(
                 embeddings=embeddings.tolist(),
                 documents=batch_texts,
                 ids=batch_ids,
@@ -444,4 +588,9 @@ class Retriever:
                 return []
 
     def count(self) -> int:
+        """集合条数（**读**语义：空集合自愈在此生效，k59 未改）。
+
+        注意：调用本方法即可能触发自愈改写 —— 若之后还要写入，请用
+        `writable_collection` 判定（已被改写则写方法抛 `SelfHealWriteRefused`）。
+        """
         return self.collection.count()
