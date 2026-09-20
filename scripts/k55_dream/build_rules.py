@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import re
 import subprocess
 import sys
@@ -44,8 +45,12 @@ from scripts.k55_dream.stats_elements import (  # noqa: E402
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-REPORTS = DATA_ROOT / "reports"
-OUT_MODULE = Path(__file__).resolve().parents[2] / "src" / "engines" / "dream_rules.py"
+# 输出位置可用环境变量重定向（**只给测试/冒烟用**：让入口能在临时目录里真跑一遍，
+# 不碰受审的冻结表与线上 reports）。r10 C-1 的教训：入口从没被跑过，崩了都没人知道。
+REPORTS = Path(os.environ["K55_REPORTS_DIR"]) if os.environ.get("K55_REPORTS_DIR") \
+    else DATA_ROOT / "reports"
+OUT_MODULE = Path(os.environ["K55_OUT_MODULE"]) if os.environ.get("K55_OUT_MODULE") \
+    else Path(__file__).resolve().parents[2] / "src" / "engines" / "dream_rules.py"
 OUT_TABLE = REPORTS / "rule_table.csv"
 
 # 站点自有分类 → 我们对外呈现的「梦境类型」（站点分类是数据，映射表是口径）
@@ -670,7 +675,9 @@ def scan_corpus(elements: set) -> tuple:
     log(f"[scan] 同场景句池覆盖 {sum(1 for p in pools.values() if p['sents'])} 个元素；"
         f"其中「词条即元素」覆盖 {sum(1 for p in pools.values() if p['head'])} 个；"
         f"唯一句定档（**折叠后**；出现次数仅附加）")
-    return uniq, sentences, ji, xiong, head_sentences
+    # ⚠️ `formula` 必须由这里**返回**（r10 C-1）：展示层要用它排除公式句，而它只是本函数的
+    # 局部变量 —— main 自己重新推导会产生**两份事实源**（本函数用的那份才是计数口径）。
+    return uniq, sentences, ji, xiong, head_sentences, formula
 
 
 # 同场景判词：句子里的元素必须是**这句梦的主角**（起式即 梦见X／梦X／见X…），
@@ -982,7 +989,7 @@ def tone_from(n_ji: int, n_xiong: int, symbols: list, luck: str = "") -> str:
 
 
 def assemble_rule_fields(el: str, cov: int, n_ji: int, n_xiong: int, luck: str,
-                         gloss: str, ev_kind: str, luck_basis: str,
+                         gloss: str, ev_kind: str,
                          ptype: str, syms: list) -> dict:
     """规则表**组装层**单点（r8 I-2）：gloss/luck 一致性补丁 + 象征/类型一致性。
 
@@ -1121,7 +1128,7 @@ def main() -> int:
     # 已登记的规则名（含强制族）：单字元素的搭配词不得与它们重名，
     # 否则同一段文本被两条规则重复命中（见 collocation.collocations 注释）
     rule_names = set(elements) | set(MANDATORY_EXTRA)
-    uniq, sentences, ji, xiong, head_sentences = scan_corpus(elements)
+    uniq, sentences, ji, xiong, head_sentences, formula = scan_corpus(elements)
 
     # 交通驾驶族的覆盖量：在**真实语料**里现算（含新增爬取的真实网友梦境文本）
     real_text_hits: Counter = Counter()
@@ -1194,7 +1201,7 @@ def main() -> int:
                                              exclude_keys=formula)
         # 组装层（**单点**：main 与冻结夹具共用，见 assemble_rule_fields 注释）
         _f = assemble_rule_fields(el, cov, ji[el], xiong[el], luck, gloss, ev_kind,
-                                  luck_basis, ptype, syms)
+                                  ptype, syms)
         luck, gloss, ev_kind = _f["luck"], _f["gloss"], _f["ev_kind"]
         luck_basis, ptype, syms = _f["luck_basis"], _f["ptype"], _f["syms"]
         rules.append({

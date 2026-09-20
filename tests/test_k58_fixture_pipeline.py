@@ -97,20 +97,20 @@ def test_assembly_layer_boundary_branches_are_covered_or_declared():
     from scripts.k55_dream.build_rules import assemble_rule_fields
     # y2：luck=吉（方向档）而 gloss 是反向（凶）→ 必须换成聚合说明 + 改证据档次
     out = assemble_rule_fields("某物", 12, 3, 1, "吉",
-                              "梦见某物，是不祥之兆（语料同场景判词）",
-                              "corpus_same_scenario", "", "中性类", ["情境变化"])
+                               "梦见某物，是不祥之兆（语料同场景判词）",
+                               "corpus_same_scenario", "中性类", ["情境变化"])
     assert out["ev_kind"] == "aggregate_only_reverse_gloss", out["ev_kind"]
     assert "未选作依据" in out["gloss"] and "不祥之兆" not in out["gloss"], out["gloss"]
     assert "聚合词频（吉 3 / 凶 1）" in out["luck_basis"], out["luck_basis"]
     assert out["luck"] == "吉", "y2 只换依据、不丢方向（裁决二：不许弃权）"
     # y3：兜底分支必须强制中性 + 用兜底文案
     out3 = assemble_rule_fields("某物", 7, 0, 0, "吉多于凶", "",
-                               "fallback_no_same_scenario", "", "吉兆类", ["情境变化"])
+                                "fallback_no_same_scenario", "吉兆类", ["情境变化"])
     assert out3["luck"] == "中性" and "没有匹配到" in out3["gloss"], out3
     assert out3["ptype"] == "中性类", out3["ptype"]
     # y1：中性档 + 极性 gloss → 必须加限定语（两种 gloss 形态都要覆盖）
     for g in ("梦见某物，主吉（语料同场景判词）", "《敦煌本梦书》记载：梦见某物，吉"):
-        o = assemble_rule_fields("某物", 9, 1, 0, "中性", g, "classic_quote", "", "中性类", [])
+        o = assemble_rule_fields("某物", 9, 1, 0, "中性", g, "classic_quote", "中性类", [])
         assert "不代表吉凶" in o["gloss"], (g, o["gloss"])
 
 
@@ -137,3 +137,52 @@ def test_pool_and_counting_share_one_folding_key():
                 f"{B.SENTENCE_KEY_FOR_POOL(raw)!r} / {B.SENTENCE_KEY_FOR_COUNT(raw)!r}")
             checked += 1
     assert checked > 20, f"夹具上只检查到 {checked} 个池键，样本太少"
+
+
+# ══════════ k58 r10：⭐ 真跑入口（C-1 的结构性修复） ══════════
+
+def test_main_entrypoint_runs_end_to_end_on_frozen_fixture(tmp_path, monkeypatch):
+    """`main()` 必须在夹具上**端到端跑通** —— 「测了函数」不等于「测了入口」。
+
+    背景（r10 C-1，真 Critical）：r8/r9 两次重构 `main()` 都**没跑过入口** ——
+    `assemble_rule_fields` 的 `luck_basis` 形参在函数体第一行即被覆盖（调用点却没绑定）、
+    `formula` 只是 `scan_corpus` 的局部变量（`main` 从未绑定）。两条都在**第一条规则**
+    上抛异常，**产物表因此停在 r6 快照**，而当时 204 条测试 + 冻结夹具 + 23 项注入
+    **全绿照放行** —— 因为 `tests/` 里**零处 `.main(`**。
+    本用例把入口纳入常规门禁：夹具当输入（快、不依赖活语料）、输出重定向到 tmp
+    （**不碰受审的冻结表**）。
+    """
+    import sys as _sys
+    entries, classics, _ = _load()
+    el_names = sorted({B.normalize_core(e["title"]) for e in entries})
+
+    full = {el: sum(1 for e in entries if el in B.normalize_core(e["title"]))
+            for el in el_names}
+    monkeypatch.setattr(B, "load_stats", lambda: ([], {el: [] for el in el_names}, full))
+    monkeypatch.setattr(B, "load_site_categories", lambda: {})
+    monkeypatch.setattr(B, "load_classic_quotes", lambda: classics)
+    monkeypatch.setattr(B, "load_ngram_map", lambda: {})
+    monkeypatch.setattr(B, "load_retained_names", lambda spec: set(el_names))
+    monkeypatch.setattr(B.colloc_mod, "corpus_stats",
+                        lambda els: {"standalone": {}, "head": {}})
+    out_mod = tmp_path / "dream_rules_e2e.py"
+    monkeypatch.setattr(B, "REPORTS", tmp_path)
+    monkeypatch.setattr(B, "OUT_MODULE", out_mod)
+    monkeypatch.setattr(_sys, "argv", ["build_rules.py", "--top", "400",
+                                       "--min-coverage", "1", "--min-standalone", "1",
+                                       "--min-coverage-for-retain", "1",
+                                       "--retain-from", str(CORPUS)])
+
+    rc = B.main()
+    assert rc == 0, f"入口返回 {rc}"
+    # 产物必须**完整**（r10 C-1 的另一半：崩之前会先写 rule_exclusions.json，留半写状态）
+    assert out_mod.exists() and out_mod.stat().st_size > 500, "规则模块未生成/过小"
+    assert (tmp_path / "rule_exclusions.json").exists(), "排除清单未写"
+    ns: dict = {}
+    exec(compile(out_mod.read_text(encoding="utf-8"), str(out_mod), "exec"), ns)
+    rules = ns["DREAM_PATTERN_RULES"]
+    assert len(rules) >= 5, f"入口只产出 {len(rules)} 条规则"
+    for r in rules:
+        for field in ("name", "match", "type", "luck", "gloss", "counts", "tone"):
+            assert r.get(field), f"规则 {r.get('name')} 缺字段 {field}"
+        assert r["match"] and "|" in r["match"] or len(r["match"]) >= 2

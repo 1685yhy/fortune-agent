@@ -222,7 +222,7 @@ def run_pipeline(entries: list, classics: dict) -> dict:
         # 夹具内的「覆盖量」= 标题核心串含该元素的夹具条目数（与产物口径同义、可复现）
         cov = sum(1 for e in entries if el in B.normalize_core(e["title"]))
         asm = B.assemble_rule_fields(el, cov, len(ji_keys), len(xiong_keys), luck,
-                                     gloss_raw, ev_raw, "", "中性类", syms)
+                                     gloss_raw, ev_raw, "中性类", syms)
         out["elements"][el] = {
             "counts": {"ji": len(ji_keys), "xiong": len(xiong_keys),
                        "sentences": len(p["sents"])},
