@@ -1224,6 +1224,9 @@ class TestDlayerShapeGaps:
 ATTACK_PEER = "127.0.0.2"
 PROXY_PEER = "127.0.0.3"
 WHITELIST_PEER = "127.0.0.4"
+#: 「参数配代理」的过拦取证用（**专用地址**：不许被别的用例学进任何学习集，
+#: 否则该取证会因"会话内学习状态"而假绿 —— r9 实测踩到）
+PARAM_PROXY_PEER = "127.0.0.5"
 
 
 @pytest.fixture(scope="session")
@@ -1368,6 +1371,12 @@ def make_sink(_tls_cert):
 @pytest.fixture
 def tls_cert_path(_tls_cert):
     return _tls_cert[0]
+
+
+def monkeypatch_delenv(var):
+    """删一个环境变量（本文件在**不接 monkeypatch 夹具**的取证用例里也要清代理）。"""
+    import os as _os
+    _os.environ.pop(var, None)
 
 
 def _assert_peer_not_learned(ip):
@@ -1961,6 +1970,34 @@ class TestDeclaredLimitations:
              "import os;print(repr(os.environ.get('DEEPSEEK_API_KEY')))"],
             env=dict(os.environ), capture_output=True, text=True, timeout=120)
         assert child.stdout.strip() == "''", f"pin 未被继承：{child.stdout!r}"
+
+    def test_declared_socket_c_type_is_immutable(self):
+        """**取证（声明项 4）**：`_socket.socket` 是 C 不可变类型 → 纯 Python 挂不上钩。
+
+        ⚠️ 若这条红了（不再抛 TypeError）→ 说明能挂钩了，请把 `_socket.socket.send*`
+        从 `DECLARED_UNCOVERABLE` 移到 `HOOKED` 并补行为锁。
+        """
+        import _socket
+        with pytest.raises(TypeError):
+            _socket.socket.send = lambda *a, **k: None      # 赋值失败即证据（不改动任何东西）
+
+    def test_declared_param_proxy_over_block(self, make_sink, tls_cert_path):
+        """**取证（过拦面）**：用 **`proxies=` 参数**配明文代理时，白名单主机的 TLS 会被拒。
+
+        这是 r7 形态的**过拦**（对端判据只认"白名单学到的 IP ∪ **环境变量**里的明文代理 IP"，
+        参数配的代理 IP 不在集合里）—— 是**声明的缺陷**，不是期望行为。
+        ⚠️ 若这条红了 → 说明参数配的代理也被认了，请同步更新 `DECLARED_LIMITATIONS` 与报告。
+        """
+        _assert_peer_not_learned(PARAM_PROXY_PEER)     # 专用地址：没被学过才有判别力
+        sink = make_sink(PARAM_PROXY_PEER, "proxy")
+        for var in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
+                    "https_proxy", "http_proxy", "all_proxy"):
+            monkeypatch_delenv(var)
+        import requests
+        with pytest.raises(EgressBlocked):
+            requests.get("https://open.bigmodel.cn/api/paas/v4/models", timeout=3,
+                         verify=tls_cert_path,
+                         proxies={"https": "http://%s:%d" % (PARAM_PROXY_PEER, sink.port)})
 
     def test_declared_ctypes_raw_syscall_can_slip(self, make_sink):
         """**取证（ctypes）**：直调 libc `write(2)` 不经过任何 Python 属性查找 → 守卫 0 反应。
