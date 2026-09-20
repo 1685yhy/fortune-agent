@@ -280,6 +280,16 @@ AST 复核 `import` / `from … import` / `importlib.import_module(<字面量>)`
 → **2 collected / 0 ERROR**；悬空引用检查（`seed_corpus` / `test_k61_e2e_seed`）
 在 `tests/`、`docs/` 下** 0 命中**。
 
+**最终 tip（`ff033ef`）真跑复测（免费 glm-4-flash，定向单文件）**：
+
+```
+[k61 e2e] unified-client ping route=glm-4-flash elapsed=0.61s product_slo(5s)=HIT reply='收到'
+[k61 e2e] advisor.generate end-to-end route=glm-4-flash elapsed=28.40s product_slo(5s)=MISS actions=5 serendipity=True
+2 passed, 1 warning in 104.03s
+```
+（同轮 `test_k62_deadcode_removal_guard.py::test_no_import_of_removed_modules_anywhere`
+→ **1 passed**，8.43s —— 撞车点仍为零。）
+
 ---
 
 ## 8. 诚实披露
