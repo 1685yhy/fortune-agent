@@ -334,12 +334,30 @@ class Retriever:
         return self._client
 
     def _open_collection(self, name: str):
-        """按集合名取/建 chroma 集合句柄（读、写共用；不缓存）。"""
-        return self.client.get_or_create_collection(
+        """按集合名取/建 chroma 集合句柄（读、写共用；不缓存）。
+
+        k61 r3（审查者实测的残留逃生口）：`retriever._open_collection(权威集合名)`
+        在**正常实例**上就能拿到**可写**句柄 → 直接写进权威集合（副本实测
+        5 → 6），**不需要任何"注入私有属性"**（r2 披露的边界比实际窄）。
+        修法：**不是为本集合创建的实例，不得直写权威集合** —— 当
+        `name == BOOKS_COLLECTION` 且 `_requested_collection_name != BOOKS_COLLECTION`
+        时返回只读包装（读方法照常透传）。
+
+        零回归论证：仓内所有脚本式用法（`scripts/ingest_*.py` /
+        `rebuild_chroma_v2.py` / `test_retrieval_v2.py` / `audit_rag_quality.py`）
+        都写成 `Retriever(dir, embedder)`（不传集合名 → 请求集合 = 权威库）再
+        显式改 `_collection_name`，因此**从不命中**本条件；为权威库写入的合法
+        入库路径（k60 之外的既有 ingest）与 k60 的"新建实例 + 显式集合名
+        （`dreams_k55`）"路径都不受影响。
+        """
+        handle = self.client.get_or_create_collection(
             name=name,
             embedding_function=_AppEmbeddingFunction(self.embedder),
             metadata={"hnsw:space": "cosine"},
         )
+        if name == BOOKS_COLLECTION and self._requested_collection_name != BOOKS_COLLECTION:
+            return _ReadOnlyCollection(handle)
+        return handle
 
     @property
     def collection(self):

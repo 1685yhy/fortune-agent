@@ -320,3 +320,70 @@ def test_k61_documented_boundary_injected_real_handle(prod_like):
     assert _fingerprint(prod_like, BOOKS_COLLECTION) != before, \
         "边界用例前提：注入的真实句柄确实能写（本用例证明边界存在，不是期望行为）"
     assert _count(prod_like, "k61_inject") == 0
+
+
+# ================================================================
+# 4. r3：`_open_collection(权威集合名)` 这条逃生口（审查者实测）
+# ================================================================
+#
+# 改前：`r._open_collection(BOOKS_COLLECTION)` 在**正常实例**上就返回**可写**句柄
+#       → 直接写进权威集合（副本实测 5 → 6），**不需要任何"注入私有属性"** ——
+#       r2 报告里披露的"外部注入边界"比实际窄。
+# 改后：**不是为本集合创建的实例，不得直写权威集合**（返回只读包装）。
+
+def test_k61_r3_open_collection_authoritative_is_read_only(prod_like):
+    """正常实例（为别的集合而建）→ `_open_collection(权威库)` 必须只读。"""
+    before = _fingerprint(prod_like, BOOKS_COLLECTION)
+    r = Retriever(str(prod_like), _StubEmbedder(), collection_name="k61_r3_new")
+    handle = r._open_collection(BOOKS_COLLECTION)  # noqa: SLF001 - 被测逃生口形态
+    stub = _StubEmbedder()
+    with pytest.raises(ReadPropertyWriteRefused):
+        handle.upsert(embeddings=stub.encode(["越权写入"]).tolist(),
+                      documents=["越权写入"], ids=["k61_r3_escape_001"])
+    for method in ("add", "update", "upsert", "delete", "modify"):
+        with pytest.raises(ReadPropertyWriteRefused):
+            getattr(handle, method)
+    assert _fingerprint(prod_like, BOOKS_COLLECTION) == before, "权威集合被写脏了"
+    assert _count(prod_like, "k61_r3_new") == 0
+
+
+def test_k61_r3_open_collection_reads_still_work(prod_like):
+    """读语义不变：只读包装上的读方法照常透传。"""
+    r = Retriever(str(prod_like), _StubEmbedder(), collection_name="k61_r3_read")
+    handle = r._open_collection(BOOKS_COLLECTION)  # noqa: SLF001
+    assert handle.count() == 5
+    assert len(handle.get()["ids"]) == 5
+
+
+def test_k61_r3_instance_for_authoritative_can_still_write(prod_like):
+    """**合法入库路径零回归**：为权威库而建的实例仍可写权威库。
+
+    仓内脚本式用法 = `Retriever(dir, embedder)`（不传集合名 → 请求集合即权威库）
+    + 显式改 `_collection_name`；这类实例写权威库是**明确意图**，必须照旧。
+    """
+    r = Retriever(str(prod_like), _StubEmbedder())      # 不传集合名 = 请求权威库
+    assert r._requested_collection_name == BOOKS_COLLECTION  # noqa: SLF001
+    r._collection_name = BOOKS_COLLECTION                # noqa: SLF001（脚本既有用法）
+    stub = _StubEmbedder()
+    r.writable_collection.upsert(
+        embeddings=stub.encode(["合法入库"]).tolist(),
+        documents=["合法入库"], ids=["k61_r3_legit_001"])
+    assert _count(prod_like, BOOKS_COLLECTION) == 6, "合法入库路径被堵死了"
+
+
+def test_k61_r3_script_style_rename_to_other_collection_still_works(prod_like):
+    """脚本式「改名到别的集合」照旧（`--collection X`）。"""
+    r = Retriever(str(prod_like), _StubEmbedder())       # 默认请求权威库
+    r._collection_name = "k61_r3_renamed"                # noqa: SLF001
+    r.add_chunks(_chunks(2, prefix="k61r3"))
+    assert _count(prod_like, "k61_r3_renamed") == 2
+    assert _count(prod_like, BOOKS_COLLECTION) == 5      # 权威库未被顺带写入
+
+
+def test_k61_r3_k60_path_unaffected(prod_like):
+    """k60 路径（新建实例 + 显式集合名 `dreams_k60_*`）仍可用。"""
+    before = _fingerprint(prod_like, BOOKS_COLLECTION)
+    r = Retriever(str(prod_like), _StubEmbedder(), collection_name="dreams_k60_x")
+    r.add_chunks(_chunks(3, prefix="k60x"))
+    assert _count(prod_like, "dreams_k60_x") == 3
+    assert _fingerprint(prod_like, BOOKS_COLLECTION) == before
