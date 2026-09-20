@@ -306,6 +306,11 @@ conftest 已还原: (干净)
 ### 5.1 测试数字（最终态）
 
 ```
+$ # 控制方给的原始命令（含把 conftest.py 当参数，pytest 接受）
+$ TMPDIR=/dev/shm nice -n 10 /home/a/fortune-agent/.venv/bin/python -m pytest \
+      tests/test_k61_*.py tests/conftest.py -q
+195 passed, 2 skipped in 22.62s
+
 $ TMPDIR=/dev/shm nice -n 10 /home/a/fortune-agent/.venv/bin/python -m pytest tests/test_k61_llm_egress_guard.py -q
 136 passed in 17.70s                      （r9 改前：91 passed）
 
