@@ -503,31 +503,63 @@ class TestRealAPI:
         assert 0 <= result.confidence <= 1.0
         assert len(result.emotion_label) > 0
 
-    def test_real_accuracy_on_sample(self, glm_route):
-        """Run a sample of test cases with the real API to verify accuracy.
+    # ────────────────────────────────────────────────────────────────
+    # k61 r3/r4 ②：真实 provider 的**准确率**断言已**移出本文件**（控制方裁决 = 方案 B）
+    # ────────────────────────────────────────────────────────────────
+    # 原 `test_real_accuracy_on_sample` 取样 `LABELED_TEST_CASES[:10]`，那 10 条期望值
+    # **全是 `gentle`**，而兜底常量也**恒为 `gentle`** → 端点完全死掉时它照样得
+    # **1.00（10/10）**：**零判别力**。r1/r2 报告曾引用它为"真实端到端准确率"证据
+    # —— **该引用作废**（见报告 §1.2 / §r3-② / §r4-②）。
+    #
+    # 为什么不能"就地修样本 + 保留 0.70 阈值"：0.70 是当年**在 DeepSeek 上校准**的，
+    # 而门禁跑的是免费 glm-4-flash —— 实测够不到：
+    #     改前样本（前 10 条全 gentle）  1.000
+    #     分层 12 条（每类 4 条）        0.667
+    #     全 54 条                       0.556（gentle 16/17、analyst 13/17、sassy 1/20）
+    # 于是 (a) 样本有代表性 (b) 阈值 0.70 不动 (c) 门禁绿 —— 三者不可兼得。
+    # 控制方裁决：**方案 B** —— 真 provider 的准确率移到 **opt-in e2e**
+    # （`tests/test_k61_e2e_smoke.py`，`K61_E2E=1`，**只报数不设阈值**）；
+    # 门禁里保留：① 判别力锁（死端点必须 < 0.70，见本文件末）
+    #             ② 打分/聚合管线的确定性验证（桩 LLM，见下）
+    # 明确不采纳：C「按 provider 分档」= 实质放宽判据（控制方不批）；
+    #             A「保持 0.70 让它红」= 制造噪音（控制方不批）。
 
-        ⚠️ **k61 r3 诚实更正（审查者实测指出，本用例曾被误当作"真实端到端"证据）**：
-        本用例取样 `LABELED_TEST_CASES[:10]`，而那 10 条的期望值**全是 `gentle`**，
-        兜底常量也**恒为 `gentle`** → **端点完全死掉时本用例照样得 1.00（10/10）**
-        —— 它**没有判别力**，不能作为"真实端到端准确率"的验收证据。
 
-        实测（免费 glm-4-flash，k61 r3 探针）：
-          - 全 54 条：30/54 = **0.556**（gentle 16/17、analyst 13/17、**sassy 1/20**）
-          - 分层 12 条（每类 4 条）：8/12 = **0.667** —— **低于本用例的 0.70 阈值**
-        即：**样本换成有代表性的，这条在免费 GLM 上必然红**；而 0.70 是当年按
-        DeepSeek 校准的。**改样本或改阈值都属于改宽/改判据，须由控制方裁定**
-        （见报告 §r3-② 的方案 A/B/C）。在裁定前本用例保持原样、且不再被引用为
-        准确率证据；判别力由下面那条确定性用例守住。
+class TestAccuracyScoringPipeline:
+    """门禁内的**确定性**验证：打分/聚合逻辑本身正确（用桩 LLM，零网络）。
+
+    真 provider 的准确率不在这里测（见上：Provider 校准差异，已移到 opt-in e2e）；
+    这里只保证"算分这件事"没写错 —— 桩返回全对 → 1.0；桩返回全错 → 0.0。
+    """
+
+    def _score_with(self, stub_mood_fn):
+        from unittest.mock import patch
+        sample = representative_sample()
+        detector = MoodDetector(api_key="test_key")
+
+        def _fake(api_key, messages, model="deepseek-flash", **kw):
+            content = messages[-1]["content"]
+            return json.dumps({"mood": stub_mood_fn(content),
+                               "confidence": 0.8, "emotion": "桩"})
+
+        with patch(LLM_TARGET, side_effect=_fake):
+            got = [detector.detect(msg).mood for msg, _, _ in sample]
+        correct = sum(1 for (_, exp, _), g in zip(sample, got) if exp == g)
+        return correct / len(sample), got
+
+    def test_all_correct_stub_scores_one(self):
+        """桩按每条样本的期望值回答 → 必须得 1.0（算分/对齐没写错）。"""
+        mapping = {msg: exp for msg, exp, _ in representative_sample()}
+        score, got = self._score_with(lambda content: mapping.get(content, "gentle"))
+        assert score == 1.0, got
+
+    def test_constant_stub_scores_only_the_matching_class(self):
+        """桩恒答同一个类别 → 得分只等于该类占比（不会把错判算成对）。
+
+        分层样本每类 4 条 → 恒答 `analyst` 应得 4/12 = 0.333。
         """
-        detector = MoodDetector(api_key=glm_route)
-        sample_cases = LABELED_TEST_CASES[:10]  # First 10 cases
-        correct = 0
-        for msg, expected, _ in sample_cases:
-            result = detector.detect(msg)
-            if result.mood == expected:
-                correct += 1
-        accuracy = correct / len(sample_cases)
-        assert accuracy >= 0.70, f"Real API accuracy {accuracy:.1%} below 70% threshold"
+        score, got = self._score_with(lambda content: "analyst")
+        assert score == pytest.approx(4 / 12), (score, got)
 
 
 # ====================================================================

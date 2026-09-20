@@ -111,3 +111,75 @@ def test_e2e_advisor_generate_reports_latency(glm_route):
             f"serendipity={bool(result.get('serendipity'))}")
     assert len(result.get("actions", [])) == 5, "端到端应产出 5 个生活领域建议"
     assert elapsed < HANG_GUARD_SECONDS
+
+
+# ══════════════════════════════════════════════════════════════════
+# r4 ②（控制方裁决 = 方案 B）：真 provider 的**准确率**测量 —— 只报数，不设阈值
+# ══════════════════════════════════════════════════════════════════
+#
+# 为什么在这里而不是门禁里：0.70 那个阈值是**在 DeepSeek 上校准**的，而本批按红线
+# 只能跑免费 glm-4-flash —— 实测免费档够不到该阈值（见下面的报数）。把"按 provider
+# 分档"当修法 = 实质放宽判据（控制方不批）；"保持 0.70 让它红" = 制造噪音（也不批）。
+# 于是：**判别力**留在门禁（`tests/test_mood_detector.py` 的
+# `TestAccuracySampleHasDiscriminativePower`：死端点必须 < 0.70 + 分层样本必须
+# 覆盖三类），**真实准确率**在这里**测量并报数**，供人工判读降级档质量。
+#
+# 报数必须同时给出 **provider** 与 **样本量**（控制方硬要求），并保留分层样本。
+
+#: 分层样本每类取几条（与门禁内 `representative_sample()` 同一口径：每类前 N 条）
+E2E_PER_CLASS = 4
+
+
+def _stratified_sample():
+    """分层样本：gentle/analyst/sassy 各取前 4 条（确定性、可复现）。"""
+    import collections
+
+    from test_mood_detector import LABELED_TEST_CASES
+    by = collections.defaultdict(list)
+    for case in LABELED_TEST_CASES:
+        by[case[1]].append(case)
+    sample = []
+    for cls in ("gentle", "analyst", "sassy"):
+        sample.extend(by[cls][:E2E_PER_CLASS])
+    return sample
+
+
+@pytest.mark.e2e
+def test_e2e_mood_accuracy_reports_only(glm_route):
+    """真 provider 的情绪/人设判定准确率 —— **只报数**（provider + 样本量 + 分层明细）。
+
+    不设通过阈值：阈值是 provider 相关的，而本批只能跑免费档（见模块顶部说明）。
+    """
+    from src.engines.mood_detector import MoodDetector
+
+    sample = _stratified_sample()
+    detector = MoodDetector(api_key=glm_route)
+    import collections
+    per = collections.defaultdict(lambda: [0, 0])
+    rows = []
+    for msg, expected, _ in sample:
+        got = detector.detect(msg).mood
+        per[expected][1] += 1
+        if got == expected:
+            per[expected][0] += 1
+        rows.append(f"{expected}->{got}")
+
+    total = len(sample)
+    correct = sum(v[0] for v in per.values())
+    provider = f"zhipu/{GLM_DEFAULT_MODEL}"
+    print(f"\n[k61 e2e] mood accuracy provider={provider} n={total} "
+          f"score={correct}/{total}={correct / total:.3f}")
+    for cls in ("gentle", "analyst", "sassy"):
+        c, n = per[cls]
+        print(f"[k61 e2e]   {cls:8s} {c}/{n}")
+    print(f"[k61 e2e]   detail: {' '.join(rows)}")
+
+    # 只断言"测完了"（每条都真的被判过一次），不断言分数 —— 分数是报告项。
+    assert len(rows) == total
+    assert all(m in ("sassy", "analyst", "gentle") for m in rows_to_moods(rows))
+    assert 0.0 <= correct / total <= 1.0
+
+
+def rows_to_moods(rows):
+    """从 `exp->got` 明细里取出 got 列（自检用）。"""
+    return [r.split("->", 1)[1] for r in rows]
