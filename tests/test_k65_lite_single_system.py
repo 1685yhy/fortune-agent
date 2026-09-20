@@ -33,12 +33,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.environ["JWT_SECRET_KEY"] = "test-secret-key-32-bytes-long!!"
 
 import httpx  # noqa: E402
+from unittest.mock import Mock  # noqa: E402
 
 from src.llm import client as llm_client  # noqa: E402
 from src.llm.client import (  # noqa: E402
     FortuneLLM, GLM_COMPLETIONS_URL, GLM_DEFAULT_MODEL, ANTHROPIC_MESSAGES_URL,
 )
 from src.llm.prompts import CHAT_PROMPT, CHAT_PROMPT_LITE  # noqa: E402
+from src.bot.handler import MessageHandler  # noqa: E402
+from src.bot.capability_registry import build_tool_description  # noqa: E402
 
 HISTORY = [
     {"role": "user", "content": "你好"},
@@ -269,3 +272,124 @@ class TestMainChainPayloadLock:
         llm.chat("你好", lite=False, system_prompt="自定义主链 system")
         msgs = calls[0][1]["json"]["messages"]
         assert _systems(msgs) == ["自定义主链 system"]
+
+
+# ══════════ ④ k65 r2：降级档按能力裁剪——不注入 [可用工具清单] ══════════
+
+TOOL_LIST_MARK = "[可用工具清单]"
+
+
+def _free_chat_harness(**kw) -> MessageHandler:
+    """object.__new__ 装配 _free_chat 全链路所需 Mock 属性（跑真实方法体）。
+
+    与 tests/test_toolguide_mainchain.py::_free_chat_harness 同构（本地副本，
+    避免跨测试模块导入）。
+    """
+    h = object.__new__(MessageHandler)
+    h.engine = Mock()
+    h.llm = Mock()
+    h.llm.chat_conversation.return_value = Mock(response="回复")
+    h.dao = Mock()
+    h.dao.get_user_bazi.return_value = None
+    h.retriever = Mock()
+    h.memory = None
+    h.memory_system = None
+    h._downgraded = {}
+    h._deep_night = {}
+    h._analysis_facts = {}
+    h.tool_logs = {}
+    h.compactor = None
+    h._emit_stream_event = Mock()
+    h._consume_pregen_instant = Mock(return_value=None)
+    h._gen_instant_reply = Mock(return_value="")
+    h._get_personalized_context = Mock(return_value="")
+    h._maybe_compact = Mock(return_value="")
+    h._collect_key_facts = Mock(return_value=[])
+    h.session_dao = Mock()
+    h.session_dao.get_context_for_llm.return_value = [
+        {"role": "user", "content": "你好"}]
+    for k, v in kw.items():
+        setattr(h, k, v)
+    return h
+
+
+def _free_chat_messages(h, msg, **kw):
+    """跑 _free_chat，返回真正传给 chat_conversation 的 messages 与 lite 标志。"""
+    h._free_chat(msg, "u1", session_id="s1", **kw)
+    h.llm.chat_conversation.assert_called_once()
+    args, kwargs = h.llm.chat_conversation.call_args
+    return args[0], kwargs.get("lite")
+
+
+class TestHandlerDowngradeToolListGate:
+    """降级档无工具能力 → 不注入工具清单（按能力裁剪，非全剥）。
+
+    判据来源：`_free_chat` 的 `downgraded` 入参——与同一行
+    `chat_conversation(..., lite=downgraded)` 的 `lite` **同源**，
+    源头是 `src/services/chat_quota.py::chat_quota_status`
+    的 `used >= CHAT_DAILY_LIMIT`，经 `src/main.py` / `src/api/chat_stream.py`
+    → `process(downgraded=...)` 一路显式传参。**不是内容猜测。**
+    """
+
+    def test_downgraded_payload_excludes_tool_list(self):
+        """① 降级档 payload 不含工具清单标记/全文。"""
+        h = _free_chat_harness()
+        msgs, lite = _free_chat_messages(h, "帮我看看我的时柱", downgraded=True)
+        joined = "\n".join(m.get("content") or "" for m in msgs)
+        assert TOOL_LIST_MARK not in joined
+        assert build_tool_description() not in joined
+        assert "bazi_chart" not in joined
+        assert lite is True  # 降级标志照旧传给 LLM
+
+    def test_main_chain_payload_still_includes_tool_list(self):
+        """② 主链 payload 仍含工具清单（防一刀切把主链也砍了）。"""
+        h = _free_chat_harness()
+        msgs, lite = _free_chat_messages(h, "今天心情怎么样", downgraded=False)
+        assert msgs[0]["role"] == "system"
+        assert msgs[0]["content"] == TOOL_LIST_MARK + "\n" + build_tool_description()
+        assert "bazi_chart" in msgs[0]["content"]
+        assert lite is False
+
+    def test_gate_is_flag_based_not_content_based(self):
+        """判据是降级标志而非消息内容：**同一句诱工具话术**在主链注入、
+        在降级档不注入。"""
+        q = "帮我排盘看看我的命格"
+        h_main = _free_chat_harness()
+        m_main, lite_main = _free_chat_messages(h_main, q, downgraded=False)
+        h_lite = _free_chat_harness()
+        m_lite, lite_lite = _free_chat_messages(h_lite, q, downgraded=True)
+
+        assert any(TOOL_LIST_MARK in (m.get("content") or "") for m in m_main)
+        assert not any(TOOL_LIST_MARK in (m.get("content") or "") for m in m_lite)
+        # 同一句话，唯一变量是降级标志
+        assert lite_main is False and lite_lite is True
+        # 降级档少一条 system（工具清单那条）
+        assert (len(_systems(m_main)) - len(_systems(m_lite))) == 1
+
+    def test_downgraded_keeps_history_intact(self):
+        """裁剪只针对工具清单这一条 system：其余消息逐条一律不变。
+
+        强断言：降级档 messages == 主链 messages 去掉那条工具清单 system
+        （证明"裁剪量 = 恰好 1 条"，不是把别的指令一起削掉）。
+        """
+        q = "帮我看看我的时柱"
+        h_main = _free_chat_harness()
+        m_main, _ = _free_chat_messages(h_main, q, downgraded=False)
+        h_lite = _free_chat_harness()
+        m_lite, _ = _free_chat_messages(h_lite, q, downgraded=True)
+
+        assert m_lite == [m for m in m_main
+                          if TOOL_LIST_MARK not in (m.get("content") or "")]
+        assert len(m_main) - len(m_lite) == 1
+        assert any(m.get("content") == "你好" for m in m_lite)  # 历史仍在
+
+    def test_single_message_branch_payload_unaffected(self):
+        """无 session_dao 单消息分支：降级档 payload 同样不含工具清单
+        （该分支 system_prompt 被 llm.chat(lite=True) 忽略，历史行为即满足）。"""
+        h = _free_chat_harness(session_dao=None)
+        h.llm.chat.return_value = Mock(response="精简")
+        h._free_chat("帮我看看我的时柱", "u1", downgraded=True)
+        _, kwargs = h.llm.chat.call_args
+        assert kwargs.get("lite") is True
+        # 传参侧仍按 B2-11 构造，但 lite 分支在 client 层丢弃 →
+        # 真实 payload 无工具清单（由 test_single_message_lite_ignores_system_prompt 锁）
