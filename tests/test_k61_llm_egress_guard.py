@@ -1153,12 +1153,24 @@ class TestSendFamilyApiSurface:
             "posix.sendfile": lambda s: _posix.sendfile(s.fileno(), os.open("/etc/hostname", os.O_RDONLY), 0, 10),
             "socket.socket.sendfile": lambda s: s.sendfile(open("/etc/hostname", "rb")),
         }
+        # 归因（r9）：本用例声称覆盖哪条路径，就必须**是那条路径**在拦。
+        # `socket.socket.sendfile` 尤其需要：CPython 的快路径直接调 `os.sendfile`，
+        # 只看 `pytest.raises` 的话"本层坏了"会被同族层兜住而**看不出来**（r9 实测）。
+        # （D 层的 send/write 族共用同一个扫描器 → 拦截标签是 D 层的，不在此列。）
+        layer = {
+            "posix.write": None, "posix.writev": None,
+            "os.sendfile": "os.sendfile（socket ← file）",
+            "posix.sendfile": "os.sendfile（socket ← file）",
+            "socket.socket.sendfile": "socket.socket.sendfile（socket ← file）",
+        }[name]
         s = socket.socket()
         s.settimeout(3)
         s.connect(("127.0.0.1", port))
         try:
-            with pytest.raises(EgressBlocked):
+            with pytest.raises(EgressBlocked) as ei:
                 cases[name](s)
+            if layer:
+                _assert_blocked_by(ei.value, layer)
         finally:
             s.close()
         blob = b"".join(x for x in seen if x)
@@ -1599,8 +1611,9 @@ class TestFileObjectOverSocketFd:
         sink = make_sink(ATTACK_PEER, "plain")
         s = socket.create_connection((ATTACK_PEER, sink.port), timeout=3)
         try:
-            with pytest.raises(PublicEgressBlocked):
+            with pytest.raises(PublicEgressBlocked) as ei:
                 io.FileIO(s.fileno(), "wb")
+            _assert_blocked_by(ei.value, "io.FileIO（socket fd ← 文件对象）")
         finally:
             s.close()
         assert sink.payloads() == b""
@@ -1609,8 +1622,9 @@ class TestFileObjectOverSocketFd:
         sink = make_sink(ATTACK_PEER, "plain")
         s = socket.create_connection((ATTACK_PEER, sink.port), timeout=3)
         try:
-            with pytest.raises(PublicEgressBlocked):
+            with pytest.raises(PublicEgressBlocked) as ei:
                 os.fdopen(s.fileno(), "wb")
+            _assert_blocked_by(ei.value, "os.fdopen（socket fd ← 文件对象）")
         finally:
             s.close()
         assert sink.payloads() == b""
@@ -1646,10 +1660,13 @@ class TestFileObjectOverSocketFd:
         src = tmp_path / "payload.bin"
         src.write_bytes(TLS_LINE)
         try:
-            with pytest.raises(EgressBlocked):
+            with pytest.raises(EgressBlocked) as ei:
                 with open(str(src), "rb") as fsrc:
                     # closefd=False：别让 FileIO 把 socket 的 fd 关掉（否则 finally 里的 s.close() 会 EBADF）
                     shutil.copyfileobj(fsrc, _io.FileIO(s.fileno(), "wb", closefd=False))
+            # 归因：copyfileobj 的代理把**内容**交给 D 层扫描器 → 标签是 D 层的。
+            # 本层的牙由"单摘 copyfileobj 就完全没有拦截"证明（见 r9 报告）。
+            _assert_blocked_by(ei.value, "socket 明文请求头")
         finally:
             s.close()
         assert sink.payloads() == b""
@@ -1726,9 +1743,10 @@ class TestSameFamilyWritePaths:
         r, w = os.pipe()
         f = os.open(str(src), os.O_RDONLY)
         try:
-            with pytest.raises(EgressBlocked):
+            with pytest.raises(EgressBlocked) as ei:
                 n = os.splice(f, w, 4096)               # file → pipe（合法，不拦）
                 os.splice(r, s.fileno(), n)             # pipe → socket（**拦**）
+            _assert_blocked_by(ei.value, "os.splice（socket ← file/pipe）")
         finally:
             for fd in (f, r, w):
                 try:
@@ -1761,8 +1779,9 @@ class TestSameFamilyWritePaths:
         sink = make_sink(ATTACK_PEER, "plain")
         s = socket.create_connection((ATTACK_PEER, sink.port), timeout=3)
         try:
-            with pytest.raises(PublicEgressBlocked):
+            with pytest.raises(PublicEgressBlocked) as ei:
                 os.eventfd_write(s.fileno(), int.from_bytes(b"CONNECT ", "little"))
+            _assert_blocked_by(ei.value, "os.eventfd_write（socket ← 计数器值）")
         finally:
             s.close()
         assert sink.payloads() == b""
