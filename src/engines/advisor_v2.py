@@ -129,8 +129,13 @@ class AdaptiveAdvisor:
             # 纯规则零 LLM。消费点（handler 5675/5771、7364 为真实链路；api/advisor
             # REST 为既有死路径——narrative NameError 已于 k11-r1 修复，是否接入
             # 待 k11b 评估）：凡到达 generate() 的调用即被此单点覆盖。
+            # k63-r2/D：同一层再叠一道 **schema 回显** 兜底（降级档 GLM 会把 prompt
+            # 里给模型看的 JSON schema 示例回显进字段 → 用户可见即露馅）。两个
+            # scrub 各自独立：scrub_turn 管**词表**（称谓/神煞），scrub_schema_echo
+            # 管**形态**（JSON 键/占位符/元指令），互不改语义、可分别排障。
+            # 边界：只动**呈现字段**，不碰 _call_llm/_parse_llm_output 的解析逻辑。
             try:
-                from src.utils.fact_guard import scrub_turn
+                from src.utils.fact_guard import scrub_turn, scrub_schema_echo
                 _g = getattr(bazi_result, "gender", "") or ""
                 _allow = list(getattr(bazi_result, "shensha", None) or [])
                 for _a in result.get("actions") or []:
@@ -138,10 +143,23 @@ class AdaptiveAdvisor:
                         for _k in ("advice", "timing", "concrete_steps",
                                    "success_metric"):
                             if isinstance(_a.get(_k), str):
-                                _a[_k] = scrub_turn(_a[_k], _g, _allow)
+                                _a[_k] = scrub_schema_echo(
+                                    scrub_turn(_a[_k], _g, _allow))
                 for _k in ("serendipity", "daily_tip", "style_notes"):
                     if isinstance(result.get(_k), str):
-                        result[_k] = scrub_turn(result[_k], _g, _allow)
+                        result[_k] = scrub_schema_echo(
+                            scrub_turn(result[_k], _g, _allow))
+                # advice 被整段置空 → 该条行动建议整体摘除（否则渲染端会输出
+                # "📌 💼 事业： 【…】" 的空壳行，比缺一条更糟）；若 5 条全被摘除，
+                # 退回与"LLM 不可用"同款兜底文案，宁可通用也不把模板说明给用户。
+                if result.get("actions"):
+                    _kept = [_a for _a in result["actions"]
+                             if isinstance(_a, dict)
+                             and str(_a.get("advice") or "").strip()]
+                    result["actions"] = _kept or [
+                        {"category": d, "advice": FALLBACK_ADVICE[d][0],
+                         "timing": "近期", "confidence": "medium"}
+                        for d in LIFE_DOMAINS]
             except Exception:
                 pass  # scrub 是增强：异常静默，不阻塞建议返回
 
