@@ -1,10 +1,13 @@
 """Configuration for Fortune Agent."""
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 import yaml
 
 from .book_categories import BOOKS_COLLECTION
+
+logger = logging.getLogger(__name__)
 
 
 def load_env_file(path: str = ".env"):
@@ -116,8 +119,51 @@ def public_base_url() -> str:
     默认 https://yilichat.com（生产域名）——TTS 相对路径改写若落到 127.0.0.1，
     真机上指向手机自身、语音全部不可达（上线即坏功能，H-10 根因）。
     开发环境在本地 .env 设 PUBLIC_BASE_URL=http://127.0.0.1:8768 覆盖。
+
+    ⚠️ k61 r3：**面向客户端的 URL 请改用 `public_client_base()`**。本函数照旧
+    返回配置值（含回环值），因为 `bot/image_url_guard.py` 用它判「本服务自有域名」
+    —— 那里回环值是**有意义**的（本地请求 127.0.0.1 应视为自托管）。行为零变化。
     """
     return os.getenv("PUBLIC_BASE_URL", "https://yilichat.com").rstrip("/")
+
+
+#: k61 r3：客户端**绝不可达**的对外 URL 形态（回环）——这类值不能下发给客户端。
+_LOOPBACK_HOSTS = ("127.0.0.1", "localhost", "::1", "0.0.0.0")
+
+
+def public_client_base() -> str:
+    """**下发给客户端的**服务根地址（与 `tts_upstream_base()` 的服务内部调用严格分开）。
+
+    背景（k61 r3，审查者查实 + 实测复现）：生产 `.env` 的
+    `PUBLIC_BASE_URL=http://127.0.0.1:8768`（`public_base_url()` 的 docstring
+    自己写明那是**开发**值），而 `POST /api/tts` 与
+    `night_soliloquy.synth_lamp_audio()` 都拿它拼客户端音频 URL →
+    小程序端只校验 `indexOf('http')===0` 就播放 → **真机语音全部不可达**
+    （正是 H-10 的根因形态）。
+
+    语义：配置值**不是回环**时照用；是回环（或空）时回落到文档化的生产域名，
+    并打 warning（不静默）。这样：
+      - 生产不改 `.env` 也能立刻下发可达 URL（部署侧把 `PUBLIC_BASE_URL`
+        改成真实域名后，本函数自动用它，无需再改代码）；
+      - **服务内部调用不受影响**：转发仍走 `tts_upstream_base()`（8768 上的
+        TTS 服务与 tunnel 映射都不动）。
+    """
+    raw = (os.getenv("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    if raw:
+        from urllib.parse import urlparse
+        host = (urlparse(raw).hostname or "").lower()
+        if host and host not in _LOOPBACK_HOSTS:
+            return raw
+        logger.warning(
+            "PUBLIC_BASE_URL=%s 是回环地址：客户端（真机/小程序）不可达 —— "
+            "已改用默认生产域名 %s 下发。请把 PUBLIC_BASE_URL 改成对外域名"
+            "（服务内部调用走 TTS_UPSTREAM_BASE，不受影响）",
+            raw, DEFAULT_PUBLIC_CLIENT_BASE)
+    return DEFAULT_PUBLIC_CLIENT_BASE
+
+
+#: 客户端 URL 的兜底域名（与 `public_base_url()` 的历史默认同值，单一事实源）
+DEFAULT_PUBLIC_CLIENT_BASE = "https://yilichat.com"
 
 
 def load_settings(config_path: str = "config/settings.yaml") -> Settings:

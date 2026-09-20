@@ -21,6 +21,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from src.bot.handler import MessageHandler
@@ -32,6 +34,29 @@ from src.storage.person_dao import PersonDAO
 from src.storage.session_dao import SessionDAO
 
 _TMP_DIRS = []
+
+
+@pytest.fixture(autouse=True)
+def _k61_no_network(monkeypatch):
+    """k61：本文件**全用例禁网** —— 统一 LLM 层打桩（本仓既有约定「打桩禁网」）。
+
+    背景：本文件的 handler 用 `Mock()` 当 llm，其 `.api_key` 是自动生成的真值
+    Mock，而 `handler._quick_flash` / `MessageAnalyzer` 以
+    `getattr(self.llm, 'api_key', '')` 判定「是否有 key」→ 判定为「已配置」→
+    真的对 `api.deepseek.com` 发请求（k61 全量实测：`test_t008` 命中进程级守卫）。
+
+    桩的语义 = 改前那次外呼的**必然结果**（无有效 key → 上游失败 → 调用方
+    `except Exception` 吞掉后降级）：抛 `RuntimeError`。因此本文件所有断言与链路
+    逐字不变，只是不再出网。用例自己 `monkeypatch.setattr` 的桩在其后设置，
+    优先级更高，不受影响。
+    """
+    import src.llm.client as llm_client
+
+    def _refuse(*a, **kw):
+        raise RuntimeError("k61 禁网桩：测试进程不得外呼 DeepSeek（付费/生产）")
+
+    monkeypatch.setattr(llm_client, "deepseek_anthropic_completion", _refuse)
+    yield
 
 
 def _make_db_path():
@@ -65,7 +90,15 @@ def _mock_result(bazi=None, gender="男"):
 def _make_handler(db_path, engine=None, hehun_engine=None, llm=None,
                   session=None):
     dao = UserDAO(db_path)
-    llm = llm or Mock()
+    if llm is None:
+        llm = Mock()
+        # k61（禁网红线）：裸 Mock 的 `.api_key` 是自动生成的真值 Mock —— 与
+        # `api_key="test-key-no-network"` **同为真值**，所以这里只把「真值」显式
+        # 化以保留原语义（`_handle_calendar` 等处 `if not api_key:` 的判定不受
+        # 影响），外呼由本文件的 autouse 禁网桩 `_k61_no_network` 拦下。
+        # （注：置成 "" 会改语义 —— `_handle_calendar` 会直接返回「日历服务
+        #  暂时不可用」，k61 实测把 test_t089 打红，故不得置空。）
+        llm.api_key = "test-key-no-network"
     # Mock 的 .chat/.return_value 访问即自动创建（恒非 None）→ 无条件覆写
     llm.chat.return_value = Mock(response="🔮 命理助手 返回的结果")
     llm.chat_conversation.return_value = "🔮 命理助手 返回的结果"

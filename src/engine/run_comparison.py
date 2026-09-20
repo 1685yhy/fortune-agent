@@ -6,6 +6,13 @@ import json
 from pathlib import Path
 
 
+#: 对比跑批的默认存档路径（CLI 与生产跑批的既有行为，**不得改**）。
+#: r2：此前该路径**硬编码在函数体内**，测试调 `run_comparison(...)` 会直接覆盖
+#: 仓库里**被 git 跟踪**的 `src/engine/out/comparison_runs.jsonl`（实测全量跑必脏）。
+#: 现在提为默认参数值 —— 生产/CLI 行为逐字不变，测试可传 `out_path` 落到 tmp。
+DEFAULT_OUT_PATH = "src/engine/out/comparison_runs.jsonl"
+
+
 class _FakeLLM:
     def analyze(self, chart_data, references, user_question,
                 use_pro=False, extra_system_prompt=None, stream_cb=None):
@@ -53,7 +60,9 @@ def _run_engine(case: dict, llm) -> dict:
     return out
 
 
-def run_comparison(cases: list[dict], use_real_llm: bool = True) -> list[dict]:
+def run_comparison(cases: list[dict], use_real_llm: bool = True,
+                   out_path: str = DEFAULT_OUT_PATH) -> list[dict]:
+    """跑双管线并存档（`out_path` 默认 = 生产归档路径，r2 起可注入）。"""
     from src.engine.baseline import BaselinePipeline
     llm = _get_llm(use_real_llm)
     baseline = BaselinePipeline(llm=llm) if llm else None
@@ -79,8 +88,8 @@ def run_comparison(cases: list[dict], use_real_llm: bool = True) -> list[dict]:
         run["engine"] = _run_engine(case, llm)
         run["note"] = run.get("baseline_note", "") + " / " + run["engine"].get("note", "")
         runs.append(run)
-    Path("src/engine/out").mkdir(parents=True, exist_ok=True)
-    with open("src/engine/out/comparison_runs.jsonl", "w", encoding="utf-8") as f:
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
         for r in runs:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
     return runs

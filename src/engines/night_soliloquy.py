@@ -170,10 +170,10 @@ def synth_lamp_audio(text: str) -> str:
     """TTS:柔缓女声、语速 -10%。失败返回空串(文字版仍可用)。
 
     G3 H-10：转发目标读 tts_upstream_base()（内部地址，默认 127.0.0.1:8768）；
-    相对路径改写为对外完整 URL 读 public_base_url()（生产 https://yilichat.com，
+    相对路径改写为对外完整 URL 读 public_client_base()（k61 r3：回环值不下发，回落生产域名），
     默认即生产域名，开发本地 .env 覆盖）——禁止硬编码 127.0.0.1 对外拼 URL。
     """
-    from src.config import public_base_url, tts_upstream_base
+    from src.config import public_client_base, tts_upstream_base
     try:
         r = httpx.post(f"{tts_upstream_base()}/tts",
                        json={"text": (text or "")[:450],
@@ -184,7 +184,8 @@ def synth_lamp_audio(text: str) -> str:
             return ""
         url = r.json().get("audio_url", "")
         if url.startswith("/"):
-            url = f"{public_base_url()}{url}"
+            # k61 r3：下发给客户端的 URL 走 public_client_base()（回环不下发）
+            url = f"{public_client_base()}{url}"
         return url
     except Exception as e:
         logger.warning("灯语 TTS 异常: %s", e)

@@ -18,6 +18,15 @@
 
 运行：OMP_NUM_THREADS=1 /home/a/fortune-run/.venv/bin/python3 -m pytest \
       tests/test_k33_llm_unified_route.py -q
+
+k61 复核（用户红线「测试涉及 LLM 一律用免费 glm-4-flash，不许用 DeepSeek」）：
+本文件**全部用例零外呼**，且**按设计保持 DeepSeek 命名** —— 它测的是生产
+契约本身（`resolve_llm_api_key` 的 DEEPSEEK > ANTHROPIC 优先级、各引擎的
+`api_key`/`model` 参数形状），不是「用哪个 provider 跑测试」。所有 LLM 调用点
+都被 `_Capture` 替身接管；autouse fixture `_clean_env` 还会先删掉
+`DEEPSEEK_API_KEY`/`ANTHROPIC_API_KEY`，防宿主 `.env` 干扰断言。
+k61 探针实测：本文件 0 次出站。任何真实 deepseek 出站由进程级守卫
+（`tests/conftest.py`）拦下。
 """
 import os
 import sys
