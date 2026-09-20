@@ -51,10 +51,12 @@ k57 门禁里 `test_response_under_5_seconds` 真跑到 >5s 墙钟失败即其�
    见 §0b。
 """
 import atexit
+import logging
 import os
 import re
 import shutil
 import socket
+import ssl
 import subprocess
 import tempfile
 import threading
@@ -261,6 +263,19 @@ SESSION_START_DIRTY = _scoped_dirty()
 #: 目的：结构性地证明"跑测试不打开生产向量库/生产库"（审查者实测
 #: `test_engine_run_comparison` → evidence.py 曾打开 `/mnt/d/fortune-data/vectordb_v2`
 #: 并 bump chroma.sqlite3 的 mtime）。
+def _guard_sqlite_connect(orig):
+    """r7：`sqlite3.connect(path)` 的路径钩子 —— 直接看**连的哪个库**（兜住极短打开）。"""
+    def inner(database, *a, **kw):
+        try:
+            text = str(database)
+            if any(text.startswith(root) for root in PROD_DATA_ROOTS):
+                _PROD_WATCHDOG.hits.append((os.getpid(), "sqlite3.connect", text))
+        except Exception:
+            pass
+        return orig(database, *a, **kw)
+    return inner
+
+
 PROD_DATA_FILES = (
     "/mnt/d/fortune-data/vectordb_v2/chroma.sqlite3",
     "/mnt/d/fortune-data/userdata/fortune.db",
@@ -279,25 +294,217 @@ def _prod_data_mtimes() -> dict:
 
 
 class ProdDataTouched(BaseException):
-    """测试会话碰了生产数据文件（r5 / I4）。同样 `BaseException`，吞不掉。"""
+    """**本会话的进程树**打开过生产数据路径（r7 改判据）。
+
+    同样 `BaseException`：不得被被测代码的 `except Exception` 吞掉。
+    """
+
+
+# ── k61 r7：判据从「文件 mtime 变没变」改成「**本会话**有没有打开过生产路径」──
+#
+# 为什么必须改（审查者本机实测）：本机有 30+ 个并行 worktree，**另一个会话**
+# 在跑它自己的 pytest（`lsof` 抓到它持有生产路径下的文件；空闲 60s 内 mtime
+# 自行变了 3 次）→ mtime 判据把**别人写的**记在**我头上** → 定向集**两次都在收尾假红**。
+# 而审查者自己的 fd 看门狗（0.05s 采样进程树）**零命中** —— 真凶是并发会话。
+# 今晚的全量门禁**必然**撞上这个（并发是常态），所以判据必须能区分"谁写的"。
+#
+# 新判据（两层，都只看**本会话**）：
+#   ① fd 看门狗：0.05s 采样**本会话进程树**（自身 + 后代）的 `/proc/<pid>/fd`，
+#      任何 fd 指向生产数据路径即命中；
+#   ② `sqlite3.connect(path)` 路径钩子：直接看连接的路径（兜住"打开极短、采样漏拍"）。
+# mtime 变化**仍会记录**（作为证据写进报告），但**不再作为失败判据**。
+
+class _ProdFdWatchdog:
+    """采样本会话进程树的 fd，判断"生产数据路径有没有被**本会话**打开"。"""
+
+    def __init__(self, roots, interval: float = 0.05):
+        self.roots = tuple(str(r) for r in roots)
+        self.interval = interval
+        self.hits: list = []          # [(pid, fd, path)]
+        self._stop = threading.Event()
+        self._thread = None
+        self._pid_cache = []
+        self._pid_cache_ts = 0.0
+
+    # ── 进程树 ──
+    def _process_tree(self) -> list:
+        """自身 + 后代 pid（后代清单每秒刷新一次，采样本身很轻）。"""
+        import time as _time
+        now = _time.monotonic()
+        if now - self._pid_cache_ts < 1.0 and self._pid_cache:
+            return self._pid_cache
+        mine = {os.getpid()}
+        pids = {os.getpid()}
+        try:
+            entries = []
+            for name in os.listdir("/proc"):
+                if not name.isdigit():
+                    continue
+                try:
+                    with open(f"/proc/{name}/stat", "rb") as fh:
+                        fields = fh.read().split(b") ", 1)[1].split()
+                    entries.append((int(name), int(fields[1])))   # (pid, ppid)
+                except Exception:
+                    continue
+            changed = True
+            while changed:                     # 逐层展开后代
+                changed = False
+                for pid, ppid in entries:
+                    if ppid in pids and pid not in pids:
+                        pids.add(pid)
+                        changed = True
+        except Exception:
+            pass
+        self._pid_cache = sorted(pids)
+        self._pid_cache_ts = now
+        return self._pid_cache
+
+    def _sample_once(self):
+        for pid in self._process_tree():
+            fd_dir = f"/proc/{pid}/fd"
+            try:
+                names = os.listdir(fd_dir)
+            except OSError:
+                continue
+            for name in names:
+                try:
+                    target = os.readlink(os.path.join(fd_dir, name))
+                except OSError:
+                    continue
+                target = target.split(" (deleted)", 1)[0]
+                if any(target.startswith(root) for root in self.roots):
+                    self.hits.append((pid, name, target))
+
+    def _run(self):
+        while not self._stop.is_set():
+            try:
+                self._sample_once()
+            except Exception:
+                pass
+            self._stop.wait(self.interval)
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True,
+                                        name="k61-prod-fd-watchdog")
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+
+
+_PROD_WATCHDOG = _ProdFdWatchdog(PROD_DATA_ROOTS)
+
+
+_PROD_MTIME_AT_START = _prod_data_mtimes()
+
+
+# ── k61 r7-5：给沙箱补**最小本地语料**（把 I4 隔离的副作用补回来）──
+# I4 把 `VECTORDB_DIR` pin 到空沙箱后，3 条**真语料**用例静默变 skip
+# （`test_k24_ref_content_crash` ×2「本地古籍库为空」、`test_dream_engine_g4` ×1
+# 「本地向量库为空」），且 `test_engine_run_comparison` 的
+# 「真实本地检索前置」不再成立（refs_n=0 / note=检索无命中）。修法：在沙箱里种一个
+# **最小**语料集合（集合名 = 权威库名，与生产同名同结构），让这些用例在沙箱下
+# 仍能证明原意，而**不碰生产**。成本实测 < 2s（bge-m3 已缓存）。
+
+_SANDBOX_CORPUS_DOCS = [
+    "五行相生相克：木生火、火生土、土生金、金生水、水生木；金克木、木克土、土克水、水克火、火克金。",
+    "十神者：比肩、劫财、食神、伤官、偏财、正财、七杀、正官、偏印、正印，皆以日主为我而言。",
+    "大运十年一换，起运自出生之日起算，顺逆由年干阴阳与性别定。",
+    "流年太岁主一年之祸福，与命局冲合害刑，吉凶互见。",
+    "用神者，命局之所喜也；扶抑、调候、通关、病药，四法取用。",
+    "日主强弱，视月令得气与否；得令者强，失令者弱，再看生扶克泄。",
+    "财运看偏正财与食伤，官运看正官七杀，学业看印星，婚姻看夫妻宫。",
+    "天乙贵人、文昌、驿马、桃花、羊刃、禄神、将星，皆神煞之要者。",
+    "地支六合：子丑合、寅亥合、卯戌合、辰酉合、巳申合、午未合。",
+    "地支三合：申子辰合水、亥卯未合木、寅午戌合火、巳酉丑合金。",
+    "命局喜用神在木者，宜东方、青色、草木之属；在火者宜南方、赤色。",
+    "风水之家，看宅之坐向、门之纳气、山水之形势，以定吉凶。",
+    "面相以五官三停十二宫为纲，额主少年，鼻主中年，颏主晚年。",
+    "六爻纳甲，以世应定主客，以动爻定事之变迁，六亲配五行而断吉凶。",
+    "奇门遁甲，以九宫八门九星八神，配天地人三盘，测事之成败。",
+    "紫微斗数以命宫为枢，十二宫分主人生诸事，十四主星各具性情。",
+    "择日之法，看建除十二神、二十八宿、黄黑道，避冲煞而取吉时。",
+    "合婚以年命生肖、日柱干支、用神互补三者参看，取其相生相合。",
+    "姓名之学，五格剖象以笔画数定吉凶，三才配置以五行相生为佳。",
+    "梦者，魂之交也；梦见水主财，梦见火主口舌，梦见坠主失位。",
+    "解梦之法，先辨梦之类，再察梦之情，后参梦者之境遇。",
+    "运势低者宜静守，运势高者宜进取；岁运并临，多有大事。",
+    "流月吉凶，以月建与命局之合冲为断，兼看月令之旺衰。",
+    "印星为母、为学业、为庇荫；财星为父、为妻财、为实利。",
+]
+
+
+def _seed_sandbox_books_corpus() -> bool:
+    """在沙箱向量库里种一个最小语料集合（幂等；只在缺失/为空时种）。"""
+    try:
+        import chromadb
+        from chromadb.config import Settings as _CS
+        from src.book_categories import BOOKS_COLLECTION
+        from src.rag.embedder import Embedder
+        from src.rag.retriever import Retriever
+
+        client = chromadb.PersistentClient(path=str(TEST_VECTORDB_DIR),
+                                           settings=_CS(anonymized_telemetry=False))
+        try:
+            col = client.get_collection(BOOKS_COLLECTION, embedding_function=None)
+            if col.count() > 0:
+                return True                      # 已种过
+        except Exception:
+            pass
+
+        embedder = Embedder(model_name="BAAI/bge-m3")
+        embedder.load()
+        # 走**合法写入口**（新建实例 + 显式集合名 → writable_collection）——
+        # 顺带 dogfood k59/k61 的写路径护栏。
+        r = Retriever(str(TEST_VECTORDB_DIR), embedder,
+                      collection_name=BOOKS_COLLECTION)
+        r.writable_collection.upsert(
+            ids=[f"k61_seed_{i:03d}" for i in range(len(_SANDBOX_CORPUS_DOCS))],
+            documents=list(_SANDBOX_CORPUS_DOCS),
+            metadatas=[{"source": "k61 沙箱种子语料", "author": "k61",
+                        "category": "bazi_case"} for _ in _SANDBOX_CORPUS_DOCS],
+        )
+        return True
+    except Exception as exc:                     # 种不上不算错：用例会照旧 skip 并写明
+        logging.getLogger(__name__).warning(
+            "[k61] 沙箱最小语料种植失败（相关用例会 skip）：%s", exc)
+        return False
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _k61_sandbox_books_corpus():
+    """会话级：确保沙箱里有最小本地语料（真语料用例不再静默 skip）。"""
+    _seed_sandbox_books_corpus()
+    yield
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _k61_prod_data_guard():
-    """会话级：生产数据文件（代码默认路径）的 mtime 在会话期间**不得变化**。"""
-    before = _prod_data_mtimes()
+    """会话级：**本会话**打开过生产数据路径 → 报红（r7：不看别人写的 mtime）。"""
+    _PROD_WATCHDOG.start()
     try:
         yield
     finally:
-        after = _prod_data_mtimes()
-        touched = [p for p in before if before[p] != after[p]]
-        if touched:
+        _PROD_WATCHDOG.stop()
+        # 证据：mtime 是否变化（**不作为判据** —— 并发会话会写它）
+        mtime_changed = [p for p, v in _PROD_MTIME_AT_START.items()
+                         if v != _prod_data_mtimes().get(p)]
+        if _PROD_WATCHDOG.hits:
+            sample = "\n".join(f"  pid={pid} fd={fd} → {path}"
+                               for pid, fd, path in _PROD_WATCHDOG.hits[:5])
             raise ProdDataTouched(
-                "[k61 生产数据守卫] 测试会话碰了生产数据文件（mtime 变化）：\n"
-                + "\n".join(f"  {p}" for p in touched)
+                "[k61 生产数据守卫] **本会话进程树**打开过生产数据路径：\n"
+                + sample
                 + "\n处置：让被测代码走沙箱目录（conftest 已 pin VECTORDB_DIR / "
                   "FORTUNE_DB_PATH / FAISS_INDEX_DIR 到测试目录），不要打开生产库。"
             )
+        if mtime_changed:
+            # 只记录：并发会话（本机 30+ worktree）随时可能写这些文件 —— 不是本会话的错。
+            logging.getLogger(__name__).warning(
+                "[k61 生产数据守卫] 生产数据 mtime 有变化，但**本会话未打开**过它们"
+                "（判据已按 r7 改为 fd 看门狗）：%s", mtime_changed)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -529,6 +736,8 @@ class _EgressGuard:
         self._allowed_ips = set()
         #: 不透明代理主机解析出的 IP（C1：这些 IP:port 的连接一律 fail-closed）。
         self._opaque_proxy_ips = set()
+        #: **代理主机**解析出的 IP（明文代理是通道 → C 层放行；**但不作为 TLS 目标放行**）。
+        self._proxy_ips = set()
         #: C2：按 fd 键控的写入前缀缓冲（socket 对象无 __dict__，故用 fd）
         self._write_bufs = {}
         #: 已知 socket fd（`os.write` 钩子据此判断"这是不是网络写"）
@@ -577,6 +786,16 @@ class _EgressGuard:
             self._write_bufs.pop(key, None)
 
     # ── C1：不透明代理判定 ──
+    def _ip_learned(self, ip) -> bool:
+        """该 IP 是否来自**白名单主机**的解析（TLS 判据用，**不豁免回环/私网，也不认代理**）。
+
+        为什么不认代理：代理是**通道**，允许它建 TCP（明文代理才有可判的 CONNECT 行），
+        但对它发客户端 TLS 会把真实目标藏住 —— 那正是 C1 要拒的形态。
+        r7 实测踩到：把代理 IP 也算"learned"后，显式 loopback 代理重新变成放行。
+        """
+        with self._lock:
+            return str(ip) in self._allowed_ips
+
     def _is_opaque_proxy_target(self, host, port=None) -> bool:
         """目标是否为**不透明代理**端点（TLS/SOCKS：目标看不见 → fail-closed）。"""
         ends = _opaque_proxy_endpoints()
@@ -631,15 +850,19 @@ class _EgressGuard:
             return
         if ip is None:
             return
-        if _is_allowed_host(host) or str(host or "").lower() in _proxy_hosts():
+        if _is_allowed_host(host):
             with self._lock:
                 self._allowed_ips.add(str(ip))
+        if str(host or "").lower() in _proxy_hosts():
+            with self._lock:
+                self._proxy_ips.add(str(ip))
 
     def _ip_allowed(self, ip) -> bool:
+        """C 层放行判据：非公网 / 白名单主机学到的 IP / **代理主机**学到的 IP。"""
         if _is_non_public_ip(ip):
             return True
         with self._lock:
-            return str(ip) in self._allowed_ips
+            return str(ip) in self._allowed_ips or str(ip) in self._proxy_ips
 
     # ── 安装 ──
     def install(self):
@@ -652,7 +875,11 @@ class _EgressGuard:
         self._orig_send = socket.socket.send
         self._orig_sendall = socket.socket.sendall
         self._orig_sendmsg = socket.socket.sendmsg
+        self._orig_sendto = socket.socket.sendto
         self._orig_os_write = os.write
+        self._orig_os_writev = os.writev
+        self._orig_wrap_socket = ssl.SSLContext.wrap_socket
+        ssl.SSLContext.wrap_socket = _guard_wrap_socket
         socket.getaddrinfo = _guard_getaddrinfo
         socket.create_connection = _guard_create_connection
         socket.socket.connect = _guard_connect
@@ -660,7 +887,9 @@ class _EgressGuard:
         socket.socket.send = _guard_send
         socket.socket.sendall = _guard_sendall
         socket.socket.sendmsg = _guard_sendmsg
+        socket.socket.sendto = _guard_sendto
         os.write = _guard_os_write
+        os.writev = _guard_os_writev
         try:
             import httpx
         except Exception:  # pragma: no cover - httpx 是硬依赖，走不到
@@ -682,7 +911,10 @@ class _EgressGuard:
         socket.socket.send = self._orig_send
         socket.socket.sendall = self._orig_sendall
         socket.socket.sendmsg = self._orig_sendmsg
+        socket.socket.sendto = self._orig_sendto
         os.write = self._orig_os_write
+        os.writev = self._orig_os_writev
+        ssl.SSLContext.wrap_socket = self._orig_wrap_socket
         if getattr(self, "_httpx", None) is not None:
             self._httpx.HTTPTransport.handle_request = self._orig_httpx_sync
             self._httpx.AsyncHTTPTransport.handle_async_request = self._orig_httpx_async
@@ -721,11 +953,14 @@ class _EgressGuard:
                 self._write_bufs[key] = buf
             if len(buf) < self._WRITE_BUF_CAP:
                 buf.extend(payload[: self._WRITE_BUF_CAP - len(buf)])
-            head = bytes(buf[:64]).lstrip()
-            if not _REQUEST_HEAD_RE.match(head.decode("latin-1", "replace")):
+            head = bytes(buf[:256]).decode("latin-1", "replace")
+            if not _looks_like_request_head(head):
                 return
             text = bytes(buf).decode("latin-1", "replace")
-        for line in text.split("\r\n")[:8]:
+        # r7：扫描**整个请求头区**（到首个空行为止）而不是固定前 8 行 ——
+        # 实测漏过 `Host:` 排在第 9 行的形态（92 字节出线）。
+        head_region = re.split(r"\r?\n\r?\n", text, maxsplit=1)[0]
+        for line in head_region.split("\r\n")[:48]:
             target = _target_host_in_line(line)
             if not target:
                 continue
@@ -744,11 +979,20 @@ class _EgressGuard:
                                     "ALLOWED_EGRESS_HOSTS / NON_LLM_EGRESS_HOSTS）。")
 
 
-#: 「这次写是请求头起始」的判据（只按这个扫明文，避免扫 body 假红）。
+#: 「这段明文像不像 HTTP 请求头」的判据（只按这个扫明文，避免扫 body 假红）。
+#: r7 放宽了两处（实测漏过）：**方法名不限字符集/长度**（`M-SEARCH` / 自定义动词）、
+#: **`Host:` 不要求在第 1 行**（此前只看前 64 字节 → 第 9 行的 Host 漏判）。
 _REQUEST_HEAD_RE = re.compile(
-    r"^(CONNECT|GET|POST|PUT|DELETE|HEAD|PATCH|OPTIONS|TRACE)\s|^Host:",
-    re.IGNORECASE,
+    r"^(?:\S{1,32}\s+\S+)\s+HTTP/1\.[01]|^Host\s*:",
+    re.IGNORECASE | re.MULTILINE,
 )
+_TLS_HANDSHAKE_PREFIXES = (b"\x16\x03",)      # TLS record（客户端问候）——不是请求头
+
+
+def _looks_like_request_head(text: str) -> bool:
+    """明文前缀是否像 HTTP 请求头（r7：方法名不限、Host 不限行号、但**不扫 body**）。"""
+    head_region = re.split(r"\r?\n\r?\n", text, maxsplit=1)[0]
+    return bool(_REQUEST_HEAD_RE.search(head_region))
 
 
 def _target_host_in_line(line: str):
@@ -762,12 +1006,13 @@ def _target_host_in_line(line: str):
     if not s:
         return None
     low = s.lower()
-    if low.startswith("connect "):
+    if re.match(r"^connect\s", low):                      # r7：tab 分隔同样算
         target = s.split(None, 1)[1].split()[0]
         return _strip_port(target)
-    if low.startswith("host:"):
+    if re.match(r"^host\s*:", low):
         return _strip_port(s.split(":", 1)[1].strip())
-    m = re.match(r"^[A-Za-z]{3,10}\s+https?://([^/\s]+)", s)
+    # r7：方法名不再限 3~10 个字母（`M-SEARCH` / `X_CUSTOM_VERB` 这类同样要认）
+    m = re.match(r"^\S{1,32}\s+https?://([^/\s]+)", s)   # r7：方法名不限字符集（`M-SEARCH*`）
     if m:
         return _strip_port(m.group(1))
     return None
@@ -904,6 +1149,64 @@ def _guard_os_write(fd, data):
     return _GUARD._orig_os_write(fd, data)
 
 
+def _guard_wrap_socket(self, sock, *a, **kw):
+    """r7（C1 残余）：**客户端 TLS** → fail-closed，除非目标是白名单主机学到的 IP。
+
+    为什么这是对的判据（控制方要求"基于'这次连接去了哪'，不是'配置从哪来'"）：
+    客户端一旦对某个端点发起 TLS，之后的一切（含 `CONNECT 目标`）都在 TLS 之内 ——
+    **不管代理是环境变量配的、还是 `proxies=`/`mounts=`/`proxy=` 参数传的**。
+    所以判据放在"这次 TLS 握手的对端是谁"上：只有**白名单主机解析出的 IP**
+    才允许（那是我们本来就信任的目标），其余一律拒（loopback 也不例外）。
+    """
+    server_side = kw.get("server_side", a[0] if a else False)
+    if not server_side:
+        try:
+            peer = sock.getpeername()
+            ip = peer[0] if isinstance(peer, (tuple, list)) else None
+        except Exception:
+            ip = None
+        if ip is not None and not _GUARD._ip_learned(ip):
+            _GUARD._trip(
+                "ssl.SSLContext.wrap_socket（客户端 TLS）", str(ip),
+                extra=f"  对端: {ip}:{peer[1] if isinstance(peer, (tuple, list)) and len(peer) > 1 else '?'}\n"
+                      "  判据: 客户端一旦对非白名单端点发起 TLS，真实目标就被 TLS 藏住 —— "
+                      "**与代理是怎么配置的无关**（环境变量 / proxies= / mounts= / proxy= 都一样），故 fail-closed。\n",
+                exc=PublicEgressBlocked,
+                rule="测试进程只允许对**白名单主机**（其解析出的 IP）发起客户端 TLS；"
+                     "其它端点上的 TLS 会藏住真实目标 → 拒绝。"
+                     "确需明文可判的代理请用 `http://` 代理（CONNECT 行可见）。")
+    # ⚠️ 挂成 **类属性** → 描述符协议生效，调用时第一个参数是 `self`（SSLContext）。
+    # r7 实测踩到：写成 `(sock, *a, **kw)` 会把 SSLContext 当成 socket →
+    # `getpeername()` 抛异常 → 被 except 吞掉 → **钩子形同虚设**（违规计数恒 0）。
+    return _GUARD._orig_wrap_socket(self, sock, *a, **kw)
+
+
+def _guard_sendto(sock, data, *a, **kw):
+    """r7（C2 残余）：`sendto(data, addr)` —— r6 未挂钩，可把 CONNECT 整行送出。"""
+    try:
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            _GUARD.scan_payload(sock, data)
+    except EgressBlocked:
+        raise
+    except Exception:
+        pass
+    return _GUARD._orig_sendto(sock, data, *a, **kw)
+
+
+def _guard_os_writev(fd, buffers, *a, **kw):
+    """r7（C2 残余）：`os.writev(fd, buffers)` —— r6 未挂钩。"""
+    try:
+        if _GUARD._is_socket_fd(fd):
+            data = b"".join(bytes(b) for b in (buffers or []))
+            if data:
+                _GUARD.scan_payload(None, data, fd=fd)
+    except EgressBlocked:
+        raise
+    except Exception:
+        pass
+    return _GUARD._orig_os_writev(fd, buffers, *a, **kw)
+
+
 def _guard_httpx_sync(transport, request):
     host = request.url.host
     if _is_blocked(host):
@@ -925,6 +1228,19 @@ async def _guard_httpx_async(transport, request):
 #: 模块级安装让守卫从 conftest 被加载的那一刻起就生效；session 夹具只负责
 #: 卸载与违规汇报。
 _GUARD.install()
+
+# r7：sqlite3.connect 路径钩子（与 fd 看门狗同一个判据族：只看**本会话**）
+try:
+    import sqlite3 as _sqlite3
+    if not getattr(_sqlite3.connect, "_k61_wrapped", False):
+        _sqlite3_orig_connect = _sqlite3.connect
+        _sqlite3.connect = _guard_sqlite_connect(_sqlite3_orig_connect)
+        try:
+            _sqlite3.connect._k61_wrapped = True
+        except Exception:
+            pass
+except Exception:      # pragma: no cover
+    pass
 
 
 @pytest.fixture(scope="session", autouse=True)

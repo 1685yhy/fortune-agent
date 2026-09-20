@@ -747,3 +747,265 @@ class TestWwwReverseMatchIsGone:
                 s.connect((poison_ip, 443))
         finally:
             s.close()
+
+
+# ══════════════════════════════════════════════════════════════════
+# 7) r7（复审整改）：显式代理参数 / sendto+writev / 发送族 API 面 / D 层形状面
+# ══════════════════════════════════════════════════════════════════
+
+class TestExplicitProxyParamsFailClosed:
+    """C1 残余：**显式参数**配的代理同样必须 fail-closed。
+
+    审查者实测 r6：`requests(proxies={"https": "https://127.0.0.1:P"})` 时
+    loopback 代理被放行，`CONNECT api.deepseek.com:443` 在 TLS 之内送出（69 字节），
+    守卫零反应；同文件的环境变量那条路 r6 确实修好了（69 → 0）。
+    根因：r6 的判定**只读环境变量**（配置从哪来），而漏了参数路径。
+    修法：判据下沉到 **"这次客户端 TLS 握手的对端是谁"**
+    （`ssl.SSLContext.wrap_socket`）—— 与代理怎么配的无关。
+    """
+
+    def _tls_proxy_no_env(self, monkeypatch, port, scheme="https"):
+        for var in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
+                    "https_proxy", "http_proxy", "all_proxy"):
+            monkeypatch.delenv(var, raising=False)
+        return f"{scheme}://127.0.0.1:{port}"
+
+    def test_requests_explicit_proxies_param_blocked(self, proxy_listener, monkeypatch):
+        port, _ = proxy_listener
+        proxy = self._tls_proxy_no_env(monkeypatch, port)
+        import requests
+        with pytest.raises(EgressBlocked):
+            requests.post("https://api.deepseek.com/x", json={"a": 1}, timeout=3,
+                          verify=False, proxies={"https": proxy, "http": proxy})
+
+    def test_httpx_explicit_proxy_param_blocked(self, proxy_listener, monkeypatch):
+        port, _ = proxy_listener
+        proxy = self._tls_proxy_no_env(monkeypatch, port)
+        import httpx
+        with pytest.raises(EgressBlocked):
+            httpx.post("https://api.deepseek.com/x", json={"a": 1}, timeout=3,
+                       verify=False, proxy=proxy)
+
+    def test_httpx_explicit_mounts_param_blocked(self, proxy_listener, monkeypatch):
+        port, _ = proxy_listener
+        proxy = self._tls_proxy_no_env(monkeypatch, port)
+        import httpx
+        with httpx.Client(verify=False, timeout=3,
+                          mounts={"https://": httpx.HTTPTransport(proxy=proxy)}) as cl:
+            with pytest.raises(EgressBlocked):
+                cl.post("https://api.deepseek.com/x", json={"a": 1})
+
+    def test_direct_tls_to_non_whitelisted_endpoint_blocked(self, proxy_listener, monkeypatch):
+        """更本质的一条：客户端 TLS 只要打到**非白名单端点**就拒（与代理无关）。"""
+        port, _ = proxy_listener
+        s = socket.socket()
+        s.settimeout(3)
+        try:
+            s.connect(("127.0.0.1", port))
+            import ssl as _ssl
+            with pytest.raises(PublicEgressBlocked):
+                _ssl._create_unverified_context().wrap_socket(s, server_hostname="x")
+        finally:
+            s.close()
+
+    def test_whitelisted_hostname_tls_still_allowed(self, monkeypatch):
+        """**对照**：白名单主机（其解析出的 IP）上的客户端 TLS 不受影响。"""
+        s = socket.socket()
+        s.settimeout(3)
+        try:
+            infos = socket.getaddrinfo("open.bigmodel.cn", 443)     # 学习该主机的 IP
+            ip = infos[0][4][0]
+            assert k61conftest._GUARD._ip_learned(ip), "白名单主机的 IP 未被学习"
+        finally:
+            s.close()
+
+
+class TestSendtoAndWritevBlocked:
+    """C2 残余：`sendto` / `os.writev` 在 r6 未挂钩（同类里修了 4 条、漏了 2 条）。"""
+
+    LINE = b"CONNECT api.deepseek.com:443 HTTP/1.1\r\n\r\n"
+
+    @pytest.fixture
+    def local_sink(self):
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(8)
+        port = srv.getsockname()[1]
+        seen: list = []
+        stop = threading.Event()
+
+        def serve():
+            srv.settimeout(0.2)
+            while not stop.is_set():
+                try:
+                    conn, _ = srv.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                conn.settimeout(1)
+                try:
+                    seen.append(conn.recv(4096))
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        try:
+            yield port, seen
+        finally:
+            stop.set()
+            try:
+                srv.close()
+            except Exception:
+                pass
+            t.join(timeout=2)
+
+    def _sock(self, port):
+        s = socket.socket()
+        s.settimeout(3)
+        s.connect(("127.0.0.1", port))
+        return s
+
+    def test_sendto_blocked(self, local_sink):
+        port, _ = local_sink
+        s = self._sock(port)
+        try:
+            with pytest.raises(DeepSeekEgressBlocked):
+                s.sendto(self.LINE, ("127.0.0.1", port))
+        finally:
+            s.close()
+
+    def test_os_writev_blocked(self, local_sink):
+        port, _ = local_sink
+        s = self._sock(port)
+        try:
+            with pytest.raises(DeepSeekEgressBlocked):
+                os.writev(s.fileno(), [self.LINE])
+        finally:
+            s.close()
+
+    def test_control_sendall_still_blocked(self, local_sink):
+        port, _ = local_sink
+        s = self._sock(port)
+        try:
+            with pytest.raises(DeepSeekEgressBlocked):
+                s.sendall(self.LINE)
+        finally:
+            s.close()
+
+    def test_hostname_never_reaches_the_wire_on_new_paths(self, local_sink):
+        port, seen = local_sink
+        for kind in ("sendto", "writev"):
+            s = self._sock(port)
+            try:
+                if kind == "sendto":
+                    s.sendto(self.LINE, ("127.0.0.1", port))
+                else:
+                    os.writev(s.fileno(), [self.LINE])
+            except EgressBlocked:
+                pass
+            finally:
+                s.close()
+        blob = b"".join(x for x in seen if x)
+        assert b"api.deepseek.com" not in blob, f"目标域名漏到线上：{blob[:120]!r}"
+
+
+class TestSendFamilyApiSurface:
+    """**发送族 API 面清单守卫**（r7 新增，防的正是本轮的形态）。
+
+    教训（控制方点名）：r6 **同类里修了 4 条、漏了 2 条**（sendto / writev），
+    而报告已经宣布"目标主机名不会漏"的**普适结论**。
+    这类"窄验证 + 普适结论"与"窄断言制造修好了的假象"是同一个错误。
+    本守卫把**整个发送族 API 面**列出来：每一个要么被挂钩，要么**带理由豁免**；
+    将来 Python 新增一个 `send*`/`write*` 名字，这里会红，逼人做决定。
+    """
+
+    #: 已挂钩（必须是我们自己的包装）
+    HOOKED = {
+        ("socket.socket", "send", "_guard_send"),
+        ("socket.socket", "sendall", "_guard_sendall"),
+        ("socket.socket", "sendmsg", "_guard_sendmsg"),
+        ("socket.socket", "sendto", "_guard_sendto"),
+        ("os", "write", "_guard_os_write"),
+        ("os", "writev", "_guard_os_writev"),
+    }
+
+    #: 带理由豁免（每条必须写清为什么不是"构造请求头明文外发"的通道）
+    EXEMPT = {
+        ("socket.socket", "sendfile"): "发的是**本地文件内容**，不是调用方构造的请求头；"
+                                       "要漏也得先有含目标域名的文件（另有文件写守卫）",
+        ("os", "sendfile"): "同上（文件→socket）",
+        ("socket.socket", "sendmsg_afalg"): "**AF_ALG**（内核加密套接字）专用；"
+                                            "需要显式建 `socket(AF_ALG,…)` 句柄，"
+                                            "本仓与四路 HTTP 客户端都不用；且它发的是"
+                                            "内核算法参数，不是 HTTP 请求头明文",
+        ("os", "pwrite"): "面向文件 fd（非 socket），不构成网络外发通道",
+    }
+
+    def test_socket_send_family_fully_covered(self):
+        import conftest as c
+        names = sorted(n for n in dir(socket.socket) if n.startswith("send"))
+        covered = {name for mod, name, _fn in self.HOOKED if mod == "socket.socket"}
+        missing = [n for n in names if n not in covered
+                   and ("socket.socket", n) not in self.EXEMPT]
+        assert not missing, (
+            f"发送族新增了未处理的名字：{missing} —— 请挂钩或写清豁免理由。"
+            f"（本轮教训：r6 漏了 sendto/writev 却已宣布普适结论）")
+
+    def test_hooked_names_are_really_our_wrappers(self):
+        import conftest as c
+        for mod, name, wrapper in self.HOOKED:
+            got = getattr(socket.socket, name) if mod == "socket.socket" else getattr(os, name)
+            assert got is getattr(c, wrapper), f"{name} 不是我们的包装（被谁换回去了？）"
+
+    def test_os_write_family_covered(self):
+        names = sorted(n for n in dir(os) if n.startswith("write"))
+        covered = {name for mod, name, _fn in self.HOOKED if mod == "os"}
+        missing = [n for n in names if n not in covered and ("os", n) not in self.EXEMPT]
+        assert not missing, f"os 写族新增未处理名字：{missing}"
+
+    def test_exemptions_have_reasons(self):
+        for key, reason in self.EXEMPT.items():
+            assert reason and len(reason) >= 10, key
+
+
+class TestDlayerShapeGaps:
+    """D 层形状面缺口（r3 同类未清）：三条形态此前能把域名写到线上。"""
+
+    def _scan(self, payload: bytes):
+        """每条用**独立 fd**（共用 fd 会让缓冲串味 —— 我自己的探针踩过）。"""
+        import conftest as c
+        fd = int.from_bytes(os.urandom(4), "big") + 700000
+        c._GUARD.scan_payload(None, payload, fd=fd)
+
+    @pytest.mark.parametrize("name,payload", [
+        ("Host 在第 9 行",
+         b"GET / HTTP/1.1\r\nA: 1\r\nB: 2\r\nC: 3\r\nD: 4\r\nE: 5\r\nF: 6\r\nG: 7\r\n"
+         b"Host: api.deepseek.com\r\n\r\n"),
+        ("CONNECT\\t 且无 Host 行",
+         b"CONNECT\tapi.deepseek.com:443\tHTTP/1.1\r\n\r\n"),
+        ("非标准方法名 + 绝对 URI",
+         b"M-SEARCH* http://api.deepseek.com/v1 HTTP/1.1\r\n\r\n"),
+        ("小写 connect",
+         b"connect api.deepseek.com:443 http/1.1\r\n\r\n"),
+    ])
+    def test_shape_is_blocked(self, name, payload):
+        with pytest.raises(DeepSeekEgressBlocked):
+            self._scan(payload)
+
+    @pytest.mark.parametrize("name,payload", [
+        ("合法 Host", b"GET / HTTP/1.1\r\nHost: open.bigmodel.cn\r\n\r\n"),
+        ("合法 CONNECT", b"CONNECT open.bigmodel.cn:443 HTTP/1.1\r\n\r\n"),
+        ("合法绝对 URI", b"GET http://www.baidu.com/s HTTP/1.1\r\n\r\n"),
+        ("body 里的 deepseek URL", b'{"url": "http://api.deepseek.com/v1"}'),
+    ])
+    def test_control_is_not_blocked(self, name, payload):
+        """**对照**：合法目标 / body 内容不得误伤（否则载荷类用例会假红）。"""
+        self._scan(payload)      # 不抛异常即通过

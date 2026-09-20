@@ -337,3 +337,87 @@ class TestI4DataPathIsolation:
                 f"{mod.__name__} 里出现了硬编码生产路径"
             assert "/home/a/data" not in src, \
                 f"{mod.__name__} 里出现了硬编码生产路径"
+
+
+# ══════════════════════════════════════════════════════════════════
+# 7) r7：生产数据守卫的**判据**必须是"本会话打开过"（不是"mtime 变了"）
+# ══════════════════════════════════════════════════════════════════
+#
+# 为什么改判据（审查者本机实测）：本机 30+ 并行 worktree，**另一个会话**在跑它自己的
+# pytest（lsof 抓到它持有生产路径下的文件；空闲 60s 内 mtime 自行变了 3 次）→
+# mtime 判据把**别人写的**记在**我头上** → 定向集两次都在收尾假红；
+# 而审查者自己的 fd 看门狗零命中。今晚全量门禁**必然**撞上（并发是常态）。
+
+class TestProdDataGuardCriterion:
+    def test_watchdog_running_and_scoped(self, _k61_prod_data_guard):
+        """看门狗在跑，且监视的是生产数据根。"""
+        wd = k61conftest._PROD_WATCHDOG
+        assert wd.roots == tuple(k61conftest.PROD_DATA_ROOTS), wd.roots
+        assert "hits" in vars(wd)
+
+    def test_failure_criterion_is_fd_hits_not_mtime(self):
+        """**判据锁**：报红只由 `hits`（本会话打开过）触发；mtime 变化只记录。"""
+        import inspect
+        src = inspect.getsource(k61conftest._k61_prod_data_guard)
+        assert "_PROD_WATCHDOG.hits" in src, "判据不是 fd 看门狗"
+        assert "raise ProdDataTouched" in src
+        # mtime 分支不得 raise（只 warning）
+        mtime_branch = src.split("if mtime_changed:")[1] if "if mtime_changed:" in src else ""
+        assert "raise" not in mtime_branch, \
+            "mtime 分支仍然 raise → 并发会话会把假红记在我们头上"
+
+    def test_own_session_open_is_recorded_then_drained(self, _k61_prod_data_guard):
+        """**植入实验**：本会话真的打开生产路径 → 看门狗必须记到（随后弹掉自证用）。"""
+        wd = k61conftest._PROD_WATCHDOG
+        prod_file = k61conftest.PROD_DATA_FILES[1]        # userdata/fortune.db
+        before = len(wd.hits)
+        try:
+            with open(prod_file, "rb") as fh:             # 只读；由本用例自证用
+                fh.read(8)
+                wd._sample_once()
+        except OSError:
+            pytest.skip("生产数据文件不存在（本机无该文件时无从取证）")
+        assert len(wd.hits) > before, "本会话打开了生产路径却没被看门狗记到"
+        hit = wd.hits[before]
+        assert str(hit[2]).startswith(tuple(k61conftest.PROD_DATA_ROOTS))
+        assert hit[0] == os.getpid()
+        del wd.hits[before:]                              # 自证用，弹掉避免 session 收尾报红
+
+    def test_concurrent_writer_is_not_our_fault(self):
+        """**判据的方向性**：判据看的是**本会话**的 fd，而不是文件的 mtime。
+
+        （这条是静态锁：真正的并发实验在报告里 —— 跑测期间由**另一个进程**写生产文件，
+        本会话照旧全绿；而 mtime 确实变了。）
+        """
+        import inspect
+        src = inspect.getsource(k61conftest._k61_prod_data_guard)
+        assert "_prod_data_mtimes()" in src              # mtime 仍被读取（留证据）
+        assert "logging" in src or "warning" in src       # 但只 warning
+
+
+class TestI4SandboxCorpusRestoresRealCorpusTests:
+    """r7-5：I4 隔离把 3 条**真语料**用例静默变 skip（审查者指出，此前未登记）。
+
+    `test_k24_ref_content_crash` ×2「本地古籍库为空」、`test_dream_engine_g4` ×1
+    「本地向量库为空」；并且 `test_engine_run_comparison` 的「真实本地检索前置」
+    不再成立（refs_n=0 / note=检索无命中）。修法：沙箱里种**最小本地语料**
+    （同名集合 `fortune_books_v2`），让它们仍能证明原意而**不碰生产**。
+    """
+
+    def test_sandbox_has_a_minimal_books_corpus(self):
+        import chromadb
+        from chromadb.config import Settings as _CS
+        from src.book_categories import BOOKS_COLLECTION
+        from conftest import TEST_VECTORDB_DIR
+        client = chromadb.PersistentClient(path=str(TEST_VECTORDB_DIR),
+                                           settings=_CS(anonymized_telemetry=False))
+        col = client.get_collection(BOOKS_COLLECTION, embedding_function=None)
+        assert col.count() >= 20, f"沙箱语料太小/为空：{col.count()}"
+
+    def test_sandbox_corpus_is_used_by_settings_not_prod(self):
+        """沙箱语料在**沙箱目录**里，生产目录不含它（结构性证明不碰生产）。"""
+        from src.config import load_settings
+        s = load_settings()
+        assert str(s.vectordb_dir).startswith(str(k61conftest.TEST_DATA_DIR))
+        for root in k61conftest.PROD_DATA_ROOTS:
+            assert not str(s.vectordb_dir).startswith(root)
