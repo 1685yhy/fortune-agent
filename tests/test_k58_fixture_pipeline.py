@@ -154,8 +154,16 @@ def test_main_entrypoint_runs_end_to_end_on_frozen_fixture(tmp_path, monkeypatch
     `formula` 只是 `scan_corpus` 的局部变量（`main` 从未绑定）。两条都在**第一条规则**
     上抛异常，**产物表因此停在 r6 快照**，而当时 204 条测试 + 冻结夹具 + 23 项注入
     **全绿照放行** —— 因为 `tests/` 里**零处 `.main(`**。
-    本用例把入口纳入常规门禁：夹具当输入（快、不依赖活语料）、输出重定向到 tmp
-    （**不碰受审的冻结表**）。
+    本用例把入口纳入常规门禁：夹具当输入、输出重定向到 tmp（**不碰受审的冻结表**）。
+
+    ⚠️ **本用例并非密闭（r12 M3 如实登记）**：`load_stats`/`load_site_categories`/
+    `load_classic_quotes`/`load_ngram_map`/`load_retained_names`/`colloc_mod.corpus_stats`
+    都被换成了夹具来源，**但 `scan_corpus → element_scope_pool → load_entries()` 没有 patch**
+    ⇒ `main()` **仍会扫活语料**（取证：夹具跑里强制族带活语料数字如 `开车 554`，
+    而普通元素是夹具计数如 `牙齿 3`）。**只读、无写入风险**，但
+    **「不依赖活语料」这个说法对本条不成立**：它的结论（规则条数/字段完整性）不受漂移影响，
+    而强制族的 coverage 等**活语料数字会漂移**。**刻意不去 patch**：patch 它会改变用例的
+    覆盖面（那是另一件事，需要另行设计），这里只把边界写清楚。
     """
     import sys as _sys
     entries, classics, _ = _load()
@@ -163,6 +171,15 @@ def test_main_entrypoint_runs_end_to_end_on_frozen_fixture(tmp_path, monkeypatch
 
     full = {el: sum(1 for e in entries if el in B.normalize_core(e["title"]))
             for el in el_names}
+    # **结构锁**（r11 Important ①，M1 修正）：先记下三个**真实写盘点**的 mtime，
+    # ⚠️ M1（r12）：必须在 monkeypatch **之前**从模块属性取值 —— 硬编码路径在
+    # `K55_REPORTS_DIR`/`K55_OUT_MODULE` 环境下会**失明**（锁盯着另一条路径，
+    # 而 main 写的是环境变量指向的那条 → 假绿）。今天的教训：**声明了但无效的守卫**。
+    _real_paths = [Path(B.OUT_MODULE), Path(B.OUT_TABLE),
+                   Path(B.REPORTS) / "rule_exclusions.json"]
+    _real_before = {str(p): (p.stat().st_mtime_ns if p.exists() else None)
+                    for p in _real_paths}
+
     monkeypatch.setattr(B, "load_stats", lambda: ([], {el: [] for el in el_names}, full))
     monkeypatch.setattr(B, "load_site_categories", lambda: {})
     monkeypatch.setattr(B, "load_classic_quotes", lambda: classics)
@@ -182,11 +199,6 @@ def test_main_entrypoint_runs_end_to_end_on_frozen_fixture(tmp_path, monkeypatch
                                        "--min-coverage-for-retain", "1",
                                        "--retain-from", str(CORPUS)])
 
-    # **结构锁**（r11 Important ①）：跑之前先记下三个**生产产物**的 mtime，
-    # 跑完断言一个都没动 —— 结构锁 > 行为锁（它不依赖我「记得 patch 哪些路径」）。
-    prod_paths = [Path(_PROD_OUT_MODULE), Path(_PROD_OUT_TABLE), Path(_PROD_REPORTS) / "rule_exclusions.json"]
-    before = {str(p): (p.stat().st_mtime_ns if p.exists() else None) for p in prod_paths}
-
     rc = B.main()
     assert rc == 0, f"入口返回 {rc}"            # ← 真正拦住"半写"的是这条（见下注）
     # 产物必须**完整**：模块生成、三件齐
@@ -196,8 +208,9 @@ def test_main_entrypoint_runs_end_to_end_on_frozen_fixture(tmp_path, monkeypatch
     # （验证者注入「第 3 条规则失败」时：该 json 恰好存在，CSV/模块未写 → 由 rc/模块断言拦下）。
     assert (tmp_path / "rule_exclusions.json").exists(), "排除清单未写"
     assert (tmp_path / "rule_table.csv").exists(), "CSV 未写（说明 OUT_TABLE 未重定向成功）"
-    after = {str(p): (p.stat().st_mtime_ns if p.exists() else None) for p in prod_paths}
-    changed = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
+    after = {str(p): (p.stat().st_mtime_ns if p.exists() else None) for p in _real_paths}
+    changed = {k: (_real_before[k], after[k]) for k in _real_before
+               if _real_before[k] != after[k]}
     assert not changed, f"本用例**写了生产路径**（结构锁）：{changed}"
     ns: dict = {}
     exec(compile(out_mod.read_text(encoding="utf-8"), str(out_mod), "exec"), ns)
