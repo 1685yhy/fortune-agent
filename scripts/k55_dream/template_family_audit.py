@@ -55,41 +55,31 @@ def norm_skeleton(tpl: str) -> str:
 
 
 def norm_template(sent: str, el: str) -> str:
-    """把句子里的元素词掩成 X（标点归一、去空白）→ 归一模板。"""
-    s = sent.translate(PUNCT_NORM)
-    s = re.sub(r"\s+", "", s)
-    s = s.replace(el, "X")
-    return s
+    """把句子里的元素词掩成 X（**折叠键口径**：标点/空白归一）→ 归一模板。
+
+    r6 I-1：折叠口径与计数同源（`build_rules.sentence_key()`）。
+    """
+    return B.sentence_key(sent).replace(el, "X")
 
 
 def collect(members: set) -> tuple:
-    """扫语料 → 同场景句池（含来源条目 id）与判词句（= 计数总体）。"""
-    entries = B.load_entries()
-    seen, uniq = set(), []
-    for e in entries:
-        core = B.normalize_core(e["title"])
-        if core and core not in seen:
-            seen.add(core)
-            uniq.append(e)
-    pool = defaultdict(set)                       # el -> {sentence}
-    judge = []                                    # (el, sentence, doc_id)
-    for doc_id, e in enumerate(uniq):
-        core, text = B.normalize_core(e["title"]), e["content"]
-        hits = [el for el in members if el in core]
-        if not hits:
-            continue
-        raw = B.split_sentences(text)
-        raw = [re.sub(r"[\(（](©|&|版权|来源)[^)）]*[)）]", "", s).strip() for s in raw]
-        raw = [re.sub(r"^\s*[0-9０-９]+\s*[.、)）]\s*", "", s).strip() for s in raw]
-        for el in hits:
-            for s in raw:
-                if not (B.same_scenario(s, el) and B.sentence_is_usable(s, el)):
-                    continue
-                pool[el].add(s)
-                j, x = bool(B.JI_STRONG.search(s)), bool(B.XIONG_STRONG.search(s))
-                if (j and not x) or (x and not j):        # 判词句 = 计数总体
-                    judge.append((el, s, doc_id))
-    return pool, judge
+    """**同源句池**（r6 I-3）：直接走 `build_rules.element_scope_pool()`。
+
+    旧实现自行扫语料且对**所有**条目施加 `same_scenario`，而生成器对 **head 条目
+    不施加** → 池偏小（审查实测 `死亡` 池为空、13/15 强档池偏小、连 drift 对照
+    也走同一缺陷管线）。现在与生成器同源。
+    返回 (pools, judge)：judge = [(el, 原句, doc_id)]，供模板族统计。
+    """
+    uniq, pools = B.element_scope_pool(members)
+    judge = []
+    for el, p in pools.items():
+        for k in p["raw"]:
+            s0 = p["raw"][k]
+            j, x = bool(B.JI_STRONG.search(s0)), bool(B.XIONG_STRONG.search(s0))
+            if (j and not x) or (x and not j):
+                for doc in p["df"][k]:
+                    judge.append((el, s0, doc))
+    return uniq, pools, judge
 
 
 def main() -> int:
@@ -103,7 +93,7 @@ def main() -> int:
     args = ap.parse_args()
 
     members = {r["name"] for r in DREAM_PATTERN_RULES}
-    pool, judge = collect(members)
+    uniq, pools, judge = collect(members)
 
     tpl_elems = defaultdict(set)      # 模板 -> {元素}
     tpl_docs = defaultdict(set)       # 模板 -> {条目 id}
@@ -130,12 +120,13 @@ def main() -> int:
     family = [x for x in templates
               if x["elements"] >= args.min_elements and x["docs"] >= args.min_docs]
 
-    # 影响量化：把模板族句从唯一句计数里排除后，档位会怎么变
-    fam_sents = {s for x in family for s in tpl_sents[x["template"]]}
+    # 影响量化：把公式句（= 生成器口径：模板族 ∪ 大批量转载）从计数里排除后会怎么变
+    formula = B.formula_sentence_keys(pools)
     fam_by_el = defaultdict(set)
-    for x in family:
-        for el in tpl_elems[x["template"]]:
-            fam_by_el[el] |= (tpl_sents[x["template"]] & pool[el])
+    for el, p in pools.items():
+        for k in p["raw"]:
+            if k in formula:
+                fam_by_el[el].add(p["raw"][k])
 
     skeletons = [
         {"skeleton": k, "elements": len(sk_elems[k]), "docs": len(sk_docs[k]),
@@ -144,10 +135,12 @@ def main() -> int:
     ]
     skeletons.sort(key=lambda x: (-x["elements"], -x["docs"], x["skeleton"]))
 
-    def narrow_of(sents) -> tuple:
-        a = sum(1 for s in sents if (B.JI_STRONG.search(s) and not B.XIONG_STRONG.search(s)))
-        b = sum(1 for s in sents if (B.XIONG_STRONG.search(s) and not B.JI_STRONG.search(s)))
-        return a, b
+    def raw_sents_of(el) -> set:
+        return set(pools[el]["raw"].values())          # 同源池（折叠键去重后）
+
+    def narrow_of(sents, exclude=frozenset()) -> tuple:
+        a, b = B.count_direction_sentences(sents, exclude_keys=exclude)
+        return len(a), len(b)
 
     band_changes, strong_lost, drift_only = [], [], []
     for r in DREAM_PATTERN_RULES:
@@ -155,7 +148,7 @@ def main() -> int:
         # 只对**靠判词计数话事**的档位算影响（强制族由 brief 指定，不算）
         if "mandatory" in r["source"] or r["luck"] in ("提醒类",):
             continue
-        sents = pool[el]
+        sents = raw_sents_of(el)
         n_ji, n_xg = narrow_of(sents)                       # 不做排除（= 现状复算）
         e_ji, e_xg = narrow_of(sents - fam_by_el[el])       # 排除模板族句
         # ⚠️ 对照：raw/ 是活文件（k60 在抓），**不排除任何句**时复算也可能与表内不同
@@ -187,12 +180,13 @@ def main() -> int:
         el = r["name"]
         if "mandatory" in r["source"] or r["luck"] in ("提醒类",):
             continue
-        a = B.luck_from_counts(*narrow_of(pool[el]))
-        b = B.luck_from_counts(*narrow_of(pool[el] - fam_by_el[el]))
+        a = B.luck_from_counts(*narrow_of(sents))
+        b = B.luck_from_counts(*narrow_of(sents, exclude={B.sentence_key(x) for x in fam_by_el[el]}))
         if a != b:
             isolated.append({"name": el, "luck_recount": a, "luck_without_templates": b,
-                             "narrow_recount": ":".join(map(str, narrow_of(pool[el]))),
-                             "narrow_without": ":".join(map(str, narrow_of(pool[el] - fam_by_el[el]))),
+                             "narrow_recount": ":".join(map(str, narrow_of(sents))),
+                             "narrow_without": ":".join(map(str, narrow_of(
+                                 sents, exclude={B.sentence_key(x) for x in fam_by_el[el]}))),
                              "template_sents_removed": len(fam_by_el[el])})
     isolated.sort(key=lambda x: x["name"])
 
@@ -216,10 +210,10 @@ def main() -> int:
                  "template_elements": len(tpl_elems[norm_template(s, el)]),
                  "template_docs": len(tpl_docs[norm_template(s, el)]),
                  "elements": sorted(tpl_elems[norm_template(s, el)])[:8]}
-                for s in sorted(pool[el])
+                for s in sorted(raw_sents_of(el))
                 if (B.JI_STRONG.search(s) and not B.XIONG_STRONG.search(s))
                 or (B.XIONG_STRONG.search(s) and not B.JI_STRONG.search(s))
-            ] for el in args.probe.split(",") if el in pool},
+            ] for el in args.probe.split(",") if el in pools},
             "templates": templates[:200],
             "skeletons": skeletons[:200],
         }, f, ensure_ascii=False, indent=2)
@@ -254,18 +248,18 @@ def main() -> int:
     print(f"{'骨架':<40}{'元素数':<7}{'条目数':<7}示例")
     for x in skeletons[:12]:
         print(f"{x['skeleton'][:38]:<40}{x['elements']:<7}{x['docs']:<7}{x['examples'][0][:34]}")
-    print(f"\n【对照·语料漂移】不做任何排除、用当前活语料复算：档位与表内不同 "
-          f"{len(drift_only)} 条（这部分**不是**模板句造成的）"
+    print(f"\n【对照·**不排除公式句**】与表内档位不同 {len(drift_only)} 条 "
+          f"（= **公式句排除效应**，非语料漂移 —— 语料漂移实测 0 条，见报告 r6 段）"
           f"{[x['name'] for x in drift_only[:12]]}")
-    print(f"【排除模板族句·未隔离漂移】档位变化 {len(band_changes)} 条；"
-          f"其中从强档掉下来 {len(strong_lost)} 条：{strong_lost[:20]}")
-    print(f"【隔离后的**纯模板效应**（同一快照上排除 vs 不排除）】{len(isolated)} 条："
+    print(f"【排除公式句后】与表内档位一致：变化 {len(band_changes)} 条"
+          f"（0 = 与生成器同口径）；从强档掉下来 {len(strong_lost)} 条：{strong_lost[:20]}")
+    print(f"【隔离后的**纯模板族效应**（细模板族，不含大批量转载判据）】{len(isolated)} 条："
           f"{[(x['name'], x['luck_recount'], '→', x['luck_without_templates']) for x in isolated]}")
     print("\n【点名探针】这些元素的判词句**是不是套话**（模板被几个元素/条目用过）：")
     for el in args.probe.split(","):
-        if el not in pool:
+        if el not in pools:
             continue
-        for s in sorted(pool[el]):
+        for s in sorted(raw_sents_of(el)):
             j, x = bool(B.JI_STRONG.search(s)), bool(B.XIONG_STRONG.search(s))
             if (j and not x) or (x and not j):
                 t = norm_template(s, el)

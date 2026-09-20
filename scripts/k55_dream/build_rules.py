@@ -204,20 +204,51 @@ def split_sentences(text: str) -> list:
     return [x.strip() for x in SENT_SPLIT_RE.split(text or "") if x.strip()]
 
 
-def count_direction_sentences(scope_sents) -> tuple:
-    """方向计数（**唯一句**，k58 r5 Important-1）—— 档位判定的唯一输入。
+# ── 折叠键（r6 I-1）：标点/空白归一 ───────────────────────────────────
+# 只折叠「逐字相同」的串是不够的：站点转码会把 `，；` 写成 `,;`，
+# 「梦见马，吉；乘行，大富」与「梦见马，吉;乘行，大富」是**同一句**，
+# 却被算成两条独立证据 —— r5 报告里我把这两个变体写成了「唯一句 2:1」，
+# 即把**未折叠**的证据当成已折叠的（自相矛盾，控制方裁决一已认下）。
+# 归一化口径由本函数**单点**提供：句池去重与方向计数共用（同源）。
+PUNCT_FOLD_TABLE = str.maketrans({
+    "，": ",", "、": ",", "。": ".", "；": ";", "：": ":", "！": "!", "？": "?",
+    "（": "(", "）": ")", "【": "[", "】": "]", "“": '"', "”": '"', "‘": "'", "’": "'",
+    "．": ".", "～": "~", "—": "-", "－": "-", "·": ".",
+})
 
-    返回 (吉向唯一句集合, 凶向唯一句集合)。**出现次数不参与**：
+
+def sentence_key(s: str) -> str:
+    """句子的**折叠键**：标点/空白归一后的串（唯一句折叠 + 句池去重共用）。
+
+    **显示文本不变**（逐字引文约束：语料原文与规则表引文照原样保留），
+    本键只回答「这两句是不是同一句」。
+    """
+    return re.sub(r"\s+", "", (s or "").translate(PUNCT_FOLD_TABLE))
+
+
+def count_direction_sentences(scope_sents, exclude_keys=None) -> tuple:
+    """方向计数（**唯一句·折叠后**，r5 Important-1 + r6 I-1）—— 档位判定的唯一输入。
+
+    返回 (吉向唯一句**键**集合, 凶向唯一句**键**集合)。**出现次数不参与**：
     实测 `马` 的 27 个"吉"来自同一句古籍的两个标点变体、`酒` 的 23 个"吉"
     来自同一句（唯一句 1 条）却被判 `大吉` —— 按出现次数定档就是被模板/重复句绑架。
+
+    r6：先按 `sentence_key()` 折叠（标点/空白归一）再计数（裁决一：归一化必须在计数前，
+    且与句池口径同源）；`exclude_keys` 排除**公式句**（站点模板/大批量转载，见
+    `formula_sentence_keys()`，裁决四）。
     """
     ji_s, xiong_s = set(), set()
     for s in scope_sents:
+        k = sentence_key(s)
+        if exclude_keys and k in exclude_keys:
+            continue
+        if k in ji_s or k in xiong_s:
+            continue
         j, x = bool(JI_STRONG.search(s)), bool(XIONG_STRONG.search(s))
         if j and not x:
-            ji_s.add(s)
+            ji_s.add(k)
         elif x and not j:
-            xiong_s.add(s)
+            xiong_s.add(k)
     return ji_s, xiong_s
 
 
@@ -435,84 +466,180 @@ def load_ngram_map() -> dict:
 
 
 # ── 语料扫描：每元素的判词句 / 吉凶倾向 ──────────────────────────────
-def scan_corpus(elements: set) -> tuple:
-    entries = load_entries()
+# ══════════ 同源句池（r6 I-3：**唯一实现**，生成器与审计脚本共用） ══════════
+# 审查指出的缺陷：审计脚本（敏感性/模板族）自行实现句池，对**所有**条目都施加
+# `same_scenario`，而生成器对 **head 条目（词条即该元素）不施加** → 审计池偏小，
+# 于是「死亡」表内 0:10 而脚本池为空却判「稳健」，13/15 强档池偏小，
+# 连 drift 对照也走同一缺陷管线 → 那 39 条「漂移」里 ≥20 条实为该缺陷。
+# 现在句池、句子清理、折叠键、DF 全部收敛到下面这一处。
+def dedup_corpus(entries) -> list:
+    """按标题核心串去重的语料条目（唯一来源）。"""
     seen, uniq = set(), []
     for e in entries:
         core = normalize_core(e["title"])
         if core and core not in seen:
             seen.add(core)
             uniq.append(e)
-    log(f"[scan] 去重语料 {len(uniq)} 条，目标元素 {len(elements)} 个")
+    return uniq
 
-    # r3 I-A 修法：**句池与计数共用同一 scope**。
-    # 旧实现的句池多了一道 `[主有宜忌吉凶]` 字面过滤，而 ji/xiong 计数走
-    # same_scenario() 拼出的 scope **没有这道过滤** → 「梦见刀，不祥之兆，会面临
-    # 困难。」这类判词（不含「主/有/宜/忌/吉/凶」字面）只进计数、不进句池 →
-    # gloss 找不到 → 假兜底（「语料里没有匹配到…」）+ luck 被强制中性，
-    # 与自身 type/tone 自相矛盾。现在两者共用 scope，不变式：
-    # **fallback_no_same_scenario ⟹ ji+xiong == 0**（已加测试）。
-    sent_ji: dict = defaultdict(set)             # 方向计数（唯一句）
-    sent_xiong: dict = defaultdict(set)
-    ji_occ: Counter = Counter()                  # 出现次数（附加信息，不定档）
-    xiong_occ: Counter = Counter()
-    sentences: dict = defaultdict(Counter)       # 同场景句池（与计数同源）
-    head_sentences: dict = defaultdict(Counter)  # **词条就是该元素**的同场景句
-    ji: Counter = Counter()
-    xiong: Counter = Counter()
-    for e in uniq:
+
+def prepare_raw_sentences(text: str) -> list:
+    """切分 + 版权尾巴/列表编号清理（唯一来源）。"""
+    raw = split_sentences(text)
+    raw = [re.sub(r"[\(（](©|&|版权|来源)[^)）]*[)）]", "", s).strip() for s in raw]
+    raw = [re.sub(r"^\s*[0-9０-９]+\s*[.、)）]\s*", "", s).strip() for s in raw]
+    return raw
+
+
+def element_sentences(raw_sents, el: str, is_head: bool) -> list:
+    """元素的**同源句池**单点：head 条目不施加 same_scenario，其余条目施加。"""
+    out = [s for s in raw_sents if sentence_is_usable(s, el)]
+    if not is_head:
+        out = [s for s in out if same_scenario(s, el)]
+    return out
+
+
+def element_scope_pool(elements: set, entries=None) -> tuple:
+    """扫全语料 → 每个元素的同源句池 + 句子文档频率（DF）。**唯一实现**。
+
+    返回 (uniq_entries, pools)；`pools[el]`:
+      · `sents` : Counter{代表原句: 合并后的出现次数}（**按折叠键去重后合并**，
+                  标点变体不再各算一条 —— r6 I-1）
+      · `variants` : list[原句]（**未折叠**、含重复；仅供口径对照/审计还原旧口径）
+      · `head`  : Counter{代表原句: 次数}（来自「词条即该元素」的条目）
+      · `df`    : {折叠键: 出现在多少个不同条目}
+      · `raw`   : {折叠键: 代表原句（原样文本，逐字引文用）}
+      · `occ`   : {折叠键: 出现次数}
+    """
+    entries = load_entries() if entries is None else entries
+    uniq = dedup_corpus(entries)
+    pools = {el: {"sents": Counter(), "head": Counter(), "df": defaultdict(set),
+                  "raw": {}, "occ": Counter(), "head_occ": Counter(),
+                  # **未折叠**的原始句序列（含标点变体、含重复）：仅供口径对照/审计
+                  # 使用（r6 归因纪律：任何「改口径前后」的对比都必须在同一快照上做，
+                  # 且能还原旧口径，否则会把语料漂移误报成口径效应）。
+                  "variants": []} for el in elements}
+    for doc_id, e in enumerate(uniq):
         core, text = normalize_core(e["title"]), e["content"]
         hits = [el for el in elements if el in core]
         if not hits:
             continue
-        # 句子切分走**唯一来源** split_sentences()（k60 收敛的同一语义单点）
-        raw_sents = split_sentences(text)
-        # 去掉页面版权/站点署名尾巴（"(©周公算命网)" 之类）
-        raw_sents = [re.sub(r"[\(（](©|&|版权|来源)[^)）]*[)）]", "", s).strip()
-                     for s in raw_sents]
-        # M-e：剥掉句首的列表编号（页面把「11、梦见鸭子…」整句写进正文）
-        raw_sents = [re.sub(r"^\s*[0-9０-９]+\s*[.、)）]\s*", "", s).strip()
-                     for s in raw_sents]
+        raw_sents = prepare_raw_sentences(text)
         for el in hits:
-            # k58 r2（I-4）：**逐元素**判定「词条即该元素」——
-            # 原来写成 `core in elements`（按**条目**判），于是核心串是「兔子」的条目
-            # 对命中的每个元素都算「词条即元素」，把兔子条目的句子当成「梦见子」
-            # 的词条原文，正文与 luck 计数一并污染（21/229 标签错配）。
             is_head = (core == el)
-            # k60 回放修正：head 分支**不再「整条都算」** —— 候选句一律要
-            # 「提及该元素 + 不是空壳」（sentence_is_usable），两条路径同源；
-            # 同场景路径另加「句子的主角是该元素」。
-            scope_sents = [s for s in raw_sents if sentence_is_usable(s, el)]
-            if not is_head:
-                scope_sents = [s for s in scope_sents if same_scenario(s, el)]
-            if not scope_sents:
-                continue
-            for s in scope_sents:
-                sentences[el][s] += 1
+            for s in element_sentences(raw_sents, el, is_head):
+                k = sentence_key(s)
+                p = pools[el]
+                if k not in p["raw"]:
+                    p["raw"][k] = s              # 代表原句（首次出现的原样文本）
+                p["variants"].append(s)          # 未折叠原始句（口径对照用）
+                p["df"][k].add(doc_id)
+                p["occ"][k] += 1
                 if is_head:
-                    head_sentences[el][s] += 1
-                # 方向计数（r5，Important-1）：**一律按「唯一句」计**。
-                # 旧实现按出现次数计，会被**同一句的重复**绑架 —— 实测 `马` 的 27 个
-                # "吉" 全来自同一句古籍的两个标点变体（17+10），`酒` 的 23 个"吉"
-                # 来自同一句（唯一句 1 条），却被判成 `大吉`（假自信）。
-                # 现在：唯一句集合决定档位；出现次数只作**附加信息**（ji_occ/xiong_occ），
-                # 不参与档位。
-                sj, sx = bool(JI_STRONG.search(s)), bool(XIONG_STRONG.search(s))
-                if sj and not sx:
-                    sent_ji[el].add(s)
-                    ji_occ[el] += 1
-                elif sx and not sj:
-                    sent_xiong[el].add(s)
-                    xiong_occ[el] += 1
-    # 唯一句数定档；出现次数仅作附加信息（ji_occ/xiong_occ）
-    for el in set(sent_ji) | set(sent_xiong) | set(ji) | set(xiong):
-        ji[el] = len(sent_ji.get(el, ()))
-        xiong[el] = len(sent_xiong.get(el, ()))
-        ji_occ[el] = int(ji_occ.get(el, 0))
-        xiong_occ[el] = int(xiong_occ.get(el, 0))
-    log(f"[scan] 同场景句池覆盖 {len(sentences)} 个元素；"
-        f"其中「词条即元素」覆盖 {len(head_sentences)} 个；"
-        f"唯一句定档（出现次数仅附加）")
+                    p["head_occ"][k] += 1
+    for p in pools.values():
+        for k, n in p["occ"].items():
+            p["sents"][p["raw"][k]] += n          # 标点变体计数合并到代表原句
+        for k, n in p["head_occ"].items():
+            p["head"][p["raw"][k]] += n
+    return uniq, pools
+
+
+# 公式句（**不得充当判词证据**，r6 裁决四）：
+#   (a) 跨元素套话 —— 把元素掩成 X 后，同一模板被 ≥3 个元素使用且 DF ≥3
+#       （措辞逐字相同的句子套在多个元素下 = 不是关于某个元素的判词）
+#   (b) 高频转载 —— 同一句（折叠键）出现在 ≥ MIN_DF_FORMULA 个不同条目里
+#       （站点批量复制的固定判词 = 单一来源被抄 N 次，不是 N 份证据）
+# ⚠️ 纪律代价（控制方已裁决接受）：这也会打掉**真实但被广泛转载**的传统判词
+# （实测 `猫`「见猫者，皆主不祥」×284、`狼`「见狼者，主有凶事」×37 都会被排除，
+# 两条新条款强档随之消失）。该减就减，不许为了保住强档数量放宽纪律。
+MIN_DF_FORMULA = 10
+MIN_FORMULA_ELEMENTS = 3
+MIN_FORMULA_DF = 3
+
+
+# **古籍引文豁免**（r6 自查修正）：高频转载 ≠ 站点套话 —— 权威判词正因为权威才被
+# 到处转载。实测被 (b) 判据打掉的高 DF 句里，排在前面的恰恰是**可溯源的古籍判词**
+# （敦煌本梦书：「梦见蛇，主移徙事」DF 180、「梦见马，吉；乘行，大富」DF 27、
+# 「梦见车，必谋谈军事」DF 74）。这些是控制方反复要求保护的最高档证据，
+# 不能因为「被转载得多」而降级。故：(b) 判据**豁免引文库中的句子**（可按书名溯源）。
+# ⚠️ 已知残留误伤：**不在引文库里的经典行**（如「见鸡，闻鸡鸣，主吉」DF 187 ——
+# 语料里的周公解梦文本）仍会被 (b) 排除 → 已登记为报告中的待裁决项（建议 k60 按
+# 「来源站点」去重或按「可否溯源到古籍」分级，而不是按条目 DF）。
+def formula_sentence_keys(pools: dict, min_df: int = MIN_DF_FORMULA,
+                          min_elements: int = MIN_FORMULA_ELEMENTS,
+                          min_df_family: int = MIN_FORMULA_DF,
+                          classic_keys: set = None) -> set:
+    """公式句（站点模板/大批量转载）的**折叠键**集合 —— 计数前必须排除。
+
+    `classic_keys` = 可溯源古籍引文的折叠键集合（**豁免**，见上）。
+    """
+    classic_keys = classic_keys or set()
+    tmpl_elems: dict = defaultdict(set)
+    for el, p in pools.items():
+        for k in p["raw"]:
+            tmpl = k.replace(el, "X")
+            tmpl_elems[tmpl].add(el)
+    formula = set()
+    for el, p in pools.items():
+        for k, docs in p["df"].items():
+            if k in classic_keys:
+                continue                                      # 古籍引文豁免
+            if len(docs) >= min_df:
+                formula.add(k)                                # (b) 高频转载
+                continue
+            tmpl = k.replace(el, "X")
+            if (len(tmpl_elems[tmpl]) >= min_elements
+                    and len(docs) >= min_df_family):
+                formula.add(k)                                # (a) 跨元素套话
+    return formula
+
+
+def classic_quote_keys(classics: dict = None) -> set:
+    """可溯源古籍引文的**折叠键**集合（用于公式句判据豁免）。"""
+    classics = load_classic_quotes() if classics is None else classics
+    keys = set()
+    for quotes in classics.values():
+        for q in quotes:
+            t = (q.get("text") or "").strip()
+            if t:
+                keys.add(sentence_key(t))
+    return keys
+
+
+def scan_corpus(elements: set) -> tuple:
+    """扫语料 → (去重条目, 句池, 吉计数, 凶计数, head 句池)。
+
+    r6 起全部走 `element_scope_pool()`（**唯一实现**，生成器与审计脚本同源）：
+      · 句池与计数均按**折叠键**去重（标点变体不再各算一条 —— I-1）；
+      · 方向计数先排除**公式句**（站点模板/大批量转载 —— 裁决四）再折叠计数；
+      · 出现次数（ji_occ/xiong_occ）只作附加信息，不参与定档（r5 Important-1）。
+    不变式（沿用 r3 I-A）：句池与计数**同源** → `fallback_no_same_scenario ⟹ ji+xiong == 0`。
+    """
+    uniq, pools = element_scope_pool(elements)
+    formula = formula_sentence_keys(pools, classic_keys=classic_quote_keys())
+    log(f"[scan] 去重语料 {len(uniq)} 条，目标元素 {len(elements)} 个；"
+        f"公式句（跨元素套话/大批量转载）{len(formula)} 条（计数前排除）")
+
+    sentences: dict = defaultdict(Counter)       # 同场景句池（与计数同源，按折叠键去重）
+    head_sentences: dict = defaultdict(Counter)  # **词条就是该元素**的同场景句
+    ji: Counter = Counter()
+    xiong: Counter = Counter()
+    ji_occ: Counter = Counter()                  # 出现次数（附加信息，不定档）
+    xiong_occ: Counter = Counter()
+    for el, p in pools.items():
+        sentences[el] = p["sents"]
+        head_sentences[el] = p["head"]
+        ji_keys, xiong_keys = count_direction_sentences(
+            [p["raw"][k] for k in p["raw"]], exclude_keys=formula)
+        ji[el], xiong[el] = len(ji_keys), len(xiong_keys)
+        ji_occ[el] = sum(n for k, n in p["occ"].items()
+                         if k in ji_keys and k not in formula)
+        xiong_occ[el] = sum(n for k, n in p["occ"].items()
+                            if k in xiong_keys and k not in formula)
+    log(f"[scan] 同场景句池覆盖 {sum(1 for p in pools.values() if p['sents'])} 个元素；"
+        f"其中「词条即元素」覆盖 {sum(1 for p in pools.values() if p['head'])} 个；"
+        f"唯一句定档（**折叠后**；出现次数仅附加）")
     return uniq, sentences, ji, xiong, head_sentences
 
 

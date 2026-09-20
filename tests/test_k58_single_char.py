@@ -580,13 +580,19 @@ def test_counting_unit_is_pinned_and_signals_caliber_change():
     )
     one = "梦见某物，主大吉"
     fingerprint = {
-        "unit": "unique_sentence",                      # 计数单位（口径本体）
+        "unit": "unique_sentence_folded",               # 计数单位（口径本体，r6 起含折叠）
+        "formula_exclusion": True,                      # r6 裁决四：公式句计数前排除
+        "classic_exempt": True,                         # r6 自查：古籍引文豁免公式句判据
+        "pool_single_source": True,                     # r6 I-3：句池与生成器同源
         "MIN_SAMPLE_FOR_STRONG": MIN_SAMPLE_FOR_STRONG,          # 5
         "MAX_MINORITY_FOR_STRONG": MAX_MINORITY_FOR_STRONG,      # 2
         "MIN_UNANIMOUS_FOR_STRONG": MIN_UNANIMOUS_FOR_STRONG,    # 3
         # 标定值：改口径/改阈值会同时打歪这几个（r5 报告 r5 段与 k55 表同源）
         "repeat26_unique": len(count_direction_sentences([one] * 26)[0]),
         "repeat26_band": luck_from_counts(1, 0),
+        # r6 折叠标定：两个标点变体必须折成 1 条（r5 会算 2 条）
+        "punct_variants_unique": len(count_direction_sentences(
+            ["梦见马，吉；乘行，大富", "梦见马，吉;乘行，大富"])[0]),
         "many26_band": luck_from_counts(26, 0),
         "unanimous4_band": luck_from_counts(0, 4),
         "tie_band": luck_from_counts(3, 3),
@@ -595,12 +601,17 @@ def test_counting_unit_is_pinned_and_signals_caliber_change():
         "big4_band": luck_from_counts(4, 0),
     }
     expected = {
-        "unit": "unique_sentence",
+        "unit": "unique_sentence_folded",
+        "formula_exclusion": True,
+        "classic_exempt": True,
+        "pool_single_source": True,
         "MIN_SAMPLE_FOR_STRONG": 5,
         "MAX_MINORITY_FOR_STRONG": 2,
         "MIN_UNANIMOUS_FOR_STRONG": 3,
         "repeat26_unique": 1,
         "repeat26_band": "中性",
+        # r6：折叠后的标定（原 r5 为 (1,0)；两个标点变体现在折成 1 条）
+        "punct_variants_unique": 1,
         "many26_band": "大吉",
         "unanimous4_band": "凶",
         "tie_band": "中性",
@@ -611,8 +622,87 @@ def test_counting_unit_is_pinned_and_signals_caliber_change():
     changed = {k: {"现在": fingerprint[k], "r5 标定": expected[k]}
                for k in expected if fingerprint[k] != expected[k]}
     assert not changed, (
-        "【口径变了】解梦方向档的计数单位或判据常量已与 k58-r5 标定不一致："
+        "【口径变了】解梦方向档的计数单位或判据常量已与 k58-r6 标定不一致："
         f"{changed}。这会让**全部 389 条的档位**静默漂移 —— 必须：①重跑全表回测"
         "（出方向档数、降档名单）②重跑 scripts/k55_dream/strong_band_sensitivity.py"
-        "③更新 task-k58-report.md 的 r5 段（含诚实披露 8：split_sentences 与 k60 合一时"
-        "必须重跑本测试）。禁止直接改本测试的 expected 让指针变绿。")
+        "③更新 task-k58-report.md 的 r6 段（含「split_sentences 与 k60 合一时必须重跑"
+        "本测试」）。禁止直接改本测试的 expected 让指针变绿 —— 口径变更必须走"
+        "「重跑回测 + 重跑审计 + 报告记录」三件套。")
+
+
+# ══════════ k58 r6：口径锁扩展（裁决六：L4/L5/L6 必须让锁变红） ══════════
+
+def test_pipeline_caliber_lock_covers_splitter_usable_and_folding():
+    """口径锁（r6 裁决六）：**改分句器 / 改 `sentence_is_usable` / 改标点折叠 → 锁必须红**。
+
+    审查实测：r5 的锁只钉了判据常量与 band 标定值，因此
+      L4 改 `split_sentences`、L5 改 `sentence_is_usable`、L6 改标点变体折叠
+    三类改动**改动后锁仍是绿的** —— 而这三者实测能让 3.6% 规则、20% 强档
+    （狼/医生/棺材）漂移。锁的 docstring 声称覆盖「k60 换切分器」，实际不覆盖（已认）。
+    这里把**管线每一步的指纹**都钉死：分句器、可用性判定、折叠键、head 路径不对称、
+    公式句判据。任何一步被改 → 指纹对不上 → 断言消息要求重跑全表回测与全部审计。
+    """
+    from scripts.k55_dream.build_rules import (
+        JI_STRONG, XIONG_STRONG, count_direction_sentences, element_sentences,
+        formula_sentence_keys, sentence_is_usable, sentence_key, split_sentences,
+    )
+
+    # L4：分句器指纹（改切分规则 → 这里立刻变）
+    # 注：分号**不**切句（语料判词常写成「梦见X，吉；乘行，大富」一句），
+    # 这条行为本身也钉进指纹 —— 它决定了折叠键里还会留下 `;`。
+    split_fp = split_sentences("梦见A，主吉。梦见B，主凶！梦见C？梦见D；梦见E")
+    assert split_fp == ["梦见A，主吉", "梦见B，主凶", "梦见C", "梦见D；梦见E"], (
+        "【口径变了·L4 分句器】`split_sentences()` 的切分结果与 r6 标定不一致："
+        f"{split_fp}。分句器是句池与计数的共同源头，改动后必须重跑全表回测 + "
+        "重跑 strong_band_sensitivity / template_family_audit，并更新报告 r6 段。")
+
+    # L5：可用性判定指纹（改长度/空壳/模板判据 → 这里立刻变）
+    usable_fp = {
+        "正常判词": sentence_is_usable("梦见蛇，主移徙事", "蛇"),
+        "模板碎片": sentence_is_usable("梦见了奶奶，按周易五行分析，吉祥色彩是", "奶奶"),
+        "不含元素": sentence_is_usable("梦见蛇，主移徙事", "猫"),
+        "太短": sentence_is_usable("梦见蛇", "蛇"),
+        "纯出处": sentence_is_usable("《敦煌本梦书》", "蛇"),
+    }
+    assert usable_fp == {"正常判词": True, "模板碎片": False, "不含元素": False,
+                         "太短": False, "纯出处": False}, (
+        "【口径变了·L5 可用性判定】`sentence_is_usable()` 的行为与 r6 标定不一致："
+        f"{usable_fp}。该判定决定了哪些句子能进句池/计数，改动后必须重跑全表回测 + 审计。")
+
+    # L6：折叠键（改标点/空白归一 → 这里立刻变）
+    fold_fp = {
+        "全角半角折叠": sentence_key("梦见马，吉；乘行，大富") == sentence_key("梦见马，吉;乘行，大富"),
+        "空白折叠": sentence_key("梦见马, 吉") == sentence_key("梦见马,吉"),
+        "不同句不折叠": sentence_key("梦见马，吉") == sentence_key("梦见马，凶"),
+        "键值": sentence_key("梦见马，吉；乘行，大富"),
+    }
+    assert fold_fp == {"全角半角折叠": True, "空白折叠": True, "不同句不折叠": False,
+                       "键值": "梦见马,吉;乘行,大富"}, (
+        "【口径变了·L6 折叠键】`sentence_key()` 的归一行为与 r6 标定不一致："
+        f"{fold_fp}。折叠粒度直接改变唯一句计数（r6 裁决一），改动后必须重跑全表回测。")
+    assert count_direction_sentences(["梦见马，吉；乘行，大富",
+                                      "梦见马，吉;乘行，大富"])[0].__len__() == 1, \
+        "【口径变了·L6】标点变体未被折叠为同一句（计数前必须按 sentence_key 折叠）"
+
+    # head 路径不对称（r6 I-3 的同源缺陷点）：head 条目不施加 same_scenario，其余施加
+    raw = ["梦见猫，是不祥之兆", "老人梦见猫，主口舌"]
+    head_kept = element_sentences(raw, "猫", True)
+    non_head_kept = element_sentences(raw, "猫", False)
+    assert head_kept == ["梦见猫，是不祥之兆", "老人梦见猫，主口舌"] and \
+        non_head_kept == ["梦见猫，是不祥之兆"], (
+            "【口径变了·句池单点】`element_sentences()` 的 head 路径语义与 r6 标定不一致"
+            f"（head={head_kept} 非 head={non_head_kept}）。这正是 r6 I-3 的同源缺陷点："
+            "审计脚本若自行实现句池、对所有条目都施加 same_scenario，池会偏小、结论会假。")
+
+    # 公式句判据（改 DF 阈值/豁免 → 这里立刻变）
+    fake = {
+        "猫": {"raw": {"见猫者,皆主不祥": "见猫者，皆主不祥"}, "df": {"见猫者,皆主不祥": set(range(12))}},
+        "马": {"raw": {"梦见马,吉;乘行,大富": "梦见马，吉；乘行，大富"},
+               "df": {"梦见马,吉;乘行,大富": set(range(30))}},
+        "兔子": {"raw": {"梦见兔子,得财": "梦见兔子，得财"}, "df": {"梦见兔子,得财": {1, 2}}},
+    }
+    f_noex = formula_sentence_keys(fake)
+    f_ex = formula_sentence_keys(fake, classic_keys={"梦见马,吉;乘行,大富"})
+    assert "见猫者,皆主不祥" in f_noex and "梦见兔子,得财" not in f_noex, (f_noex,)
+    assert "梦见马,吉;乘行,大富" in f_noex and "梦见马,吉;乘行,大富" not in f_ex, (f_ex,)
+    assert JI_STRONG.search("梦见兔子，得财") and not XIONG_STRONG.search("梦见兔子，得财")

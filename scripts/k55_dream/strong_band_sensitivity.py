@@ -41,71 +41,57 @@ REPORT_DIR = os.environ.get("K55_REPORT_DIR",
 STRONG = ("大吉", "吉", "凶")
 
 
-def element_scope_pool(elements: set) -> dict:
-    """与 build_rules 同口径的**句池**：元素是句子主角（same_scenario）且句子可用。"""
-    entries = B.load_entries()
-    seen, uniq = set(), []
-    for e in entries:
-        core = B.normalize_core(e["title"])
-        if core and core not in seen:
-            seen.add(core)
-            uniq.append(e)
-    pool = defaultdict(set)
-    for e in uniq:
-        core, text = B.normalize_core(e["title"]), e["content"]
-        hits = [el for el in elements if el in core]
-        if not hits:
-            continue
-        raw = B.split_sentences(text)
-        raw = [re.sub(r"[\(（](©|&|版权|来源)[^)）]*[)）]", "", s).strip() for s in raw]
-        raw = [re.sub(r"^\s*[0-9０-９]+\s*[.、)）]\s*", "", s).strip() for s in raw]
-        for el in hits:
-            for s in raw:
-                if B.same_scenario(s, el) and B.sentence_is_usable(s, el):
-                    pool[el].add(s)
-    return pool
+def scope_pool(elements: set) -> dict:
+    """**同源句池**：直接调用 `build_rules.element_scope_pool()`（r6 I-3 修正）。
+
+    旧实现自行扫语料、对**所有**条目施加 `same_scenario`，而生成器对 **head 条目
+    （词条即该元素）不施加** → 池偏小。后果（审查实测）：`死亡` 表内 0:10 而脚本池
+    为空却判「稳健」；13/15 强档池偏小；连 drift 对照也走同一缺陷管线。
+    """
+    _uniq, pools = B.element_scope_pool(elements)
+    return pools
 
 
-def narrow_counts(sents) -> tuple:
-    """窄词表读数（= 表内 counts 的口径）：判词术语，单向优先。"""
-    ji = xiong = 0
-    for s in sents:
-        j, x = bool(B.JI_STRONG.search(s)), bool(B.XIONG_STRONG.search(s))
-        if j and not x:
-            ji += 1
-        elif x and not j:
-            xiong += 1
-    return ji, xiong
+def narrow_counts(pools: dict, el: str, formula: set) -> tuple:
+    """窄词表读数（= 表内 counts 的口径）：**折叠后**唯一句 + 排除公式句。"""
+    p = pools[el]
+    ji, xiong = B.count_direction_sentences(
+        [p["raw"][k] for k in p["raw"]], exclude_keys=formula)
+    return len(ji), len(xiong)
 
 
 def wide_counts(sents) -> tuple:
-    """宽词表读数（审查口径 / 一致性校验仪）：含否定式与泛化负面词。"""
-    ji = xiong = 0
+    """宽词表读数（审查口径 / 一致性校验仪）：含否定式与泛化负面词（按折叠键去重）。"""
+    ji, xiong = set(), set()
     for s in sents:
         p = B.sentence_polarity(s)
         if p == "吉":
-            ji += 1
+            ji.add(B.sentence_key(s))
         elif p == "凶":
-            xiong += 1
-    return ji, xiong
+            xiong.add(B.sentence_key(s))
+    return len(ji), len(xiong)
 
 
 def main() -> int:
     names = {r["name"] for r in DREAM_PATTERN_RULES}
-    pool = element_scope_pool(names)
+    pools = scope_pool(names)
+    # **与生成器同口径**：公式句判据要带**古籍引文豁免**（否则窄词表读数会与表内不符）
+    formula = B.formula_sentence_keys(pools, classic_keys=B.classic_quote_keys())
+    log_line = (f"公式句（跨元素套话/大批量转载，计数前排除，含古籍引文豁免）"
+                f"{len(formula)} 条")
 
     rows = []
     for r in DREAM_PATTERN_RULES:
         if r["luck"] not in STRONG:
             continue
-        n_ji, n_xiong = r["counts"]["ji"], r["counts"]["xiong"]
+        sents = set(pools[r["name"]]["raw"].values())      # 同源池（按折叠键去重后）
+        w_ji, w_xiong = wide_counts(sents)
+        n_ji, n_xiong = narrow_counts(pools, r["name"], formula)
         tot = n_ji + n_xiong
         minority = min(n_ji, n_xiong)
         # 「靠零反例条款进强档」= 达不到 5 句门槛、靠 minority==0 且 tot>=3 扶正
         by_unanimous_clause = (minority == 0 and tot >= B.MIN_UNANIMOUS_FOR_STRONG
                                and tot < B.MIN_SAMPLE_FOR_STRONG)
-        sents = pool.get(r["name"], set())
-        w_ji, w_xiong = wide_counts(sents)
         pol = B.luck_polarity(r["luck"])
         wide_pol = ("吉" if w_ji > w_xiong else "凶" if w_xiong > w_ji else "")
         # 成色判定（控制方裁决二：宽词表当**反例嗅探器**，不当计数仪表）
@@ -143,6 +129,7 @@ def main() -> int:
 
     clause = [x for x in rows if x["by_unanimous_clause"]]
     print(f"强档规则 {len(rows)} 条；其中靠「零反例」条款进强档 {len(clause)} 条")
+    print(f"（窄词表读数已按 r6 口径：**折叠后**唯一句 + **排除公式句**；{log_line}）")
     print(f"{'规则':<8}{'档位':<6}{'窄词表':<12}{'宽词表':<12}{'条款':<6}判定")
     for x in clause:
         print(f"{x['name']:<8}{x['luck']:<6}"
