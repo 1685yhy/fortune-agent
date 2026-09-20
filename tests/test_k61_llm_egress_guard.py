@@ -13,6 +13,7 @@
       -m pytest tests/test_k61_llm_egress_guard.py -q
 """
 import os
+import posix
 import socket
 import sys
 import threading
@@ -562,6 +563,50 @@ class TestOpaqueProxyFailClosed:
             requests.post("https://api.deepseek.com/x", json={"a": 1}, timeout=3)
 
 
+@pytest.fixture
+def local_sink():
+    """本地明文接收端（从不转发）——用来证明"字节到底出没出去"。"""
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(8)
+    port = srv.getsockname()[1]
+    seen: list = []
+    stop = threading.Event()
+
+    def serve():
+        srv.settimeout(0.2)
+        while not stop.is_set():
+            try:
+                conn, _ = srv.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            conn.settimeout(1)
+            try:
+                seen.append(conn.recv(4096))
+            except Exception:
+                pass
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    t = threading.Thread(target=serve, daemon=True)
+    t.start()
+    try:
+        yield port, seen
+    finally:
+        stop.set()
+        try:
+            srv.close()
+        except Exception:
+            pass
+        t.join(timeout=2)
+
+
 class TestFragmentWriteBypass:
     """C2：分片 / memoryview / sendmsg / os.write 四种写路径都必须判得出。
 
@@ -571,48 +616,6 @@ class TestFragmentWriteBypass:
 
     LINE = b"CONNECT api.deepseek.com:443 HTTP/1.1\r\n\r\n"
 
-    @pytest.fixture
-    def local_sink(self):
-        """本地明文接收端（从不转发）——用来证明"字节到底出没出去"。"""
-        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.bind(("127.0.0.1", 0))
-        srv.listen(8)
-        port = srv.getsockname()[1]
-        seen: list = []
-        stop = threading.Event()
-
-        def serve():
-            srv.settimeout(0.2)
-            while not stop.is_set():
-                try:
-                    conn, _ = srv.accept()
-                except socket.timeout:
-                    continue
-                except OSError:
-                    break
-                conn.settimeout(1)
-                try:
-                    seen.append(conn.recv(4096))
-                except Exception:
-                    pass
-                finally:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        try:
-            yield port, seen
-        finally:
-            stop.set()
-            try:
-                srv.close()
-            except Exception:
-                pass
-            t.join(timeout=2)
 
     def _raw_sock(self, port):
         s = socket.socket()
@@ -825,48 +828,6 @@ class TestSendtoAndWritevBlocked:
 
     LINE = b"CONNECT api.deepseek.com:443 HTTP/1.1\r\n\r\n"
 
-    @pytest.fixture
-    def local_sink(self):
-        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.bind(("127.0.0.1", 0))
-        srv.listen(8)
-        port = srv.getsockname()[1]
-        seen: list = []
-        stop = threading.Event()
-
-        def serve():
-            srv.settimeout(0.2)
-            while not stop.is_set():
-                try:
-                    conn, _ = srv.accept()
-                except socket.timeout:
-                    continue
-                except OSError:
-                    break
-                conn.settimeout(1)
-                try:
-                    seen.append(conn.recv(4096))
-                except Exception:
-                    pass
-                finally:
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        try:
-            yield port, seen
-        finally:
-            stop.set()
-            try:
-                srv.close()
-            except Exception:
-                pass
-            t.join(timeout=2)
-
     def _sock(self, port):
         s = socket.socket()
         s.settimeout(3)
@@ -918,62 +879,124 @@ class TestSendtoAndWritevBlocked:
 
 
 class TestSendFamilyApiSurface:
-    """**发送族 API 面清单守卫**（r7 新增，防的正是本轮的形态）。
+    """**发送族 API 面守卫**（r7 新增、r8 加固）。
 
-    教训（控制方点名）：r6 **同类里修了 4 条、漏了 2 条**（sendto / writev），
-    而报告已经宣布"目标主机名不会漏"的**普适结论**。
-    这类"窄验证 + 普适结论"与"窄断言制造修好了的假象"是同一个错误。
-    本守卫把**整个发送族 API 面**列出来：每一个要么被挂钩，要么**带理由豁免**；
-    将来 Python 新增一个 `send*`/`write*` 名字，这里会红，逼人做决定。
+    教训（控制方点名两次）：r6 **修了 4 条写路径就宣布"目标域名不会漏"**；
+    r7 的 `dir()` 派生**只覆盖"友好模块的属性名"** —— 实测 `posix.write/writev/sendfile`、
+    `os.sendfile`、`socket.socket.sendfile`、`_socket.socket.send*` **9 条别名全漏**。
+    根因：`os.write is posix.write` 为 True 但**是两个模块属性**；
+    `_socket.socket` 与 `socket.socket` 是**两套绑定**。
+    本守卫现在从**四个模块**派生，并把"纯 Python 层修不了"的显式列为**已声明不可覆盖**
+    （见 `DECLARED_UNCOVERABLE`，附结构性兜底理由）。
     """
 
     #: 已挂钩（必须是我们自己的包装）
     HOOKED = {
-        ("socket.socket", "send", "_guard_send"),
-        ("socket.socket", "sendall", "_guard_sendall"),
-        ("socket.socket", "sendmsg", "_guard_sendmsg"),
-        ("socket.socket", "sendto", "_guard_sendto"),
-        ("os", "write", "_guard_os_write"),
-        ("os", "writev", "_guard_os_writev"),
+        ("socket.socket", "send"): "_guard_send",
+        ("socket.socket", "sendall"): "_guard_sendall",
+        ("socket.socket", "sendmsg"): "_guard_sendmsg",
+        ("socket.socket", "sendto"): "_guard_sendto",
+        ("socket.socket", "sendfile"): "_guard_sock_sendfile",
+        ("os", "write"): "_guard_os_write",
+        ("os", "writev"): "_guard_os_writev",
+        ("os", "sendfile"): "_guard_os_sendfile",
+        ("posix", "write"): "_guard_os_write",
+        ("posix", "writev"): "_guard_os_writev",
+        ("posix", "sendfile"): "_guard_os_sendfile",
     }
 
-    #: 带理由豁免（每条必须写清为什么不是"构造请求头明文外发"的通道）
-    EXEMPT = {
-        ("socket.socket", "sendfile"): "发的是**本地文件内容**，不是调用方构造的请求头；"
-                                       "要漏也得先有含目标域名的文件（另有文件写守卫）",
-        ("os", "sendfile"): "同上（文件→socket）",
-        ("socket.socket", "sendmsg_afalg"): "**AF_ALG**（内核加密套接字）专用；"
-                                            "需要显式建 `socket(AF_ALG,…)` 句柄，"
-                                            "本仓与四路 HTTP 客户端都不用；且它发的是"
-                                            "内核算法参数，不是 HTTP 请求头明文",
-        ("os", "pwrite"): "面向文件 fd（非 socket），不构成网络外发通道",
+    #: **已声明不可覆盖**（纯 Python 层做不到；必须写清理由 + 兜底）
+    DECLARED_UNCOVERABLE = {
+        ("_socket.socket", n): (
+            "C 扩展的**不可变类型**：实测 `TypeError: cannot set '<n>' attribute of "
+            "immutable type '_socket.socket'` → 纯 Python 层**挂不上钩**。"
+            "常规代码用的是 Python 子类 `socket.socket`（已挂钩）；"
+            "要走到这里必须显式 `_socket.socket.send(sock, …)` 这类刻意绕过。"
+            "**结构性兜底 = pin**：`DEEPSEEK_API_KEY` 被设成空串（成员判定挡住 .env 回填、"
+            "且被**子进程继承**）→ 即便绕过钩子，进程里也没有可用的生产 key。"
+        )
+        for n in ("send", "sendall", "sendmsg", "sendto", "sendfile", "sendmsg_afalg")
+    }
+    #: 另一条**带实测依据**的不可覆盖项（不是豁免，是"不是通道"）
+    DECLARED_NOT_A_CHANNEL = {
+        ("socket.socket", "sendmsg_afalg"): (
+            "**实测**：在 TCP socket 上调 `sendmsg_afalg` → "
+            "`OSError: algset is only supported for AF_ALG` —— 它只对 `AF_ALG` "
+            "（内核加密套接字）生效，发的是**内核算法参数**（key/iv/assoclen），"
+            "不是请求头明文；本仓与四路 HTTP 客户端都不用 AF_ALG。"
+            "（对照：r7 那两条 `sendfile` 豁免理由是**造假**的——引用了不存在的"
+            "「文件写守卫」——已收回并改为 fail-closed。）"
+        ),
     }
 
-    def test_socket_send_family_fully_covered(self):
+    #: 进程边界类（同样修不了，一并声明；报告里有专节）
+    DECLARED_PROCESS_BOUNDARY = {
+        "子进程（子解释器 / curl / fork+exec）": "socket 在别的进程里，本进程钩子看不到",
+        "ctypes 裸系统调用（直调 libc）": "不经过任何 Python 属性查找",
+    }
+
+    def _surface(self):
+        import _socket
+        import posix
+        out = {}
+        for mod_name, mod in (("socket.socket", socket.socket),
+                              ("_socket.socket", _socket.socket),
+                              ("os", os), ("posix", posix)):
+            for name in dir(mod):
+                if name.startswith(("send", "write")) and callable(getattr(mod, name, None)):
+                    out.setdefault((mod_name, name), None)
+        return out
+
+    def test_every_send_family_name_is_hooked_or_declared(self):
+        """四套绑定派生：每个名字要么**已挂钩**、要么**已声明不可覆盖**。"""
         import conftest as c
-        names = sorted(n for n in dir(socket.socket) if n.startswith("send"))
-        covered = {name for mod, name, _fn in self.HOOKED if mod == "socket.socket"}
-        missing = [n for n in names if n not in covered
-                   and ("socket.socket", n) not in self.EXEMPT]
+        surface = self._surface()
+        missing = [k for k in surface
+                   if k not in self.HOOKED and k not in self.DECLARED_UNCOVERABLE
+                   and k not in self.DECLARED_NOT_A_CHANNEL]
         assert not missing, (
-            f"发送族新增了未处理的名字：{missing} —— 请挂钩或写清豁免理由。"
-            f"（本轮教训：r6 漏了 sendto/writev 却已宣布普适结论）")
+            f"发送族出现既未挂钩、也未声明的名字：{missing}\n"
+            f"（教训：r6 修 4 条漏 2 条、r7 别名漏 9 条 —— 都必须先做决定）")
 
     def test_hooked_names_are_really_our_wrappers(self):
         import conftest as c
-        for mod, name, wrapper in self.HOOKED:
-            got = getattr(socket.socket, name) if mod == "socket.socket" else getattr(os, name)
-            assert got is getattr(c, wrapper), f"{name} 不是我们的包装（被谁换回去了？）"
+        for (mod_name, name), wrapper in self.HOOKED.items():
+            mod = {"socket.socket": socket.socket, "os": os, "posix": posix}[mod_name]
+            assert getattr(mod, name) is getattr(c, wrapper), \
+                f"{mod_name}.{name} 不是我们的包装（被谁换回去了？）"
 
-    def test_os_write_family_covered(self):
-        names = sorted(n for n in dir(os) if n.startswith("write"))
-        covered = {name for mod, name, _fn in self.HOOKED if mod == "os"}
-        missing = [n for n in names if n not in covered and ("os", n) not in self.EXEMPT]
-        assert not missing, f"os 写族新增未处理名字：{missing}"
+    def test_not_a_channel_entries_have_measured_reasons(self):
+        for key, reason in self.DECLARED_NOT_A_CHANNEL.items():
+            assert "实测" in reason, f"{key} 的理由必须给实测依据（不许看起来像）"
 
-    def test_exemptions_have_reasons(self):
-        for key, reason in self.EXEMPT.items():
-            assert reason and len(reason) >= 10, key
+    def test_uncoverable_entries_have_reasons(self):
+        for key, reason in self.DECLARED_UNCOVERABLE.items():
+            assert len(reason) >= 40, key
+            assert "pin" in reason or "兜底" in reason, f"{key} 未写结构性兜底"
+        assert self.DECLARED_PROCESS_BOUNDARY, "进程边界声明缺失"
+
+    def test_aliases_are_actually_blocked(self, local_sink):
+        """**行为锁**：别名路径（posix.write / os.writev / sendfile）真的被拦。"""
+        port, seen = local_sink
+        line = b"CONNECT api.deepseek.com:443 HTTP/1.1\r\n\r\n"
+        import posix as _posix
+        cases = {
+            "posix.write": lambda s: _posix.write(s.fileno(), line),
+            "posix.writev": lambda s: _posix.writev(s.fileno(), [line]),
+            "os.sendfile": lambda s: os.sendfile(s.fileno(), os.open("/etc/hostname", os.O_RDONLY), 0, 10),
+            "socket.sendfile": lambda s: s.sendfile(open("/etc/hostname", "rb")),
+        }
+        for name, fn in cases.items():
+            s = socket.socket()
+            s.settimeout(3)
+            s.connect(("127.0.0.1", port))
+            try:
+                with pytest.raises(EgressBlocked):
+                    fn(s)
+            finally:
+                s.close()
+        blob = b"".join(x for x in seen if x)
+        assert b"api.deepseek.com" not in blob
 
 
 class TestDlayerShapeGaps:

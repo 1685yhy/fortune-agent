@@ -217,11 +217,18 @@ def test_pin_defeats_a_real_dotenv(tmp_path):
 
 class TestDotenvLoadingIsDeterministic:
     def test_conftest_loads_src_config(self):
-        """conftest 必须显式导入 src.config（它是必然被加载的那个文件）。"""
+        """conftest 必须显式导入 src.config（r8：源码文本锁 → **AST 锁**，抗格式变化）。"""
+        import ast
         import inspect
-        src = inspect.getsource(k61conftest)
-        assert "import src.config" in src, \
-            "conftest 没有显式导入 src.config → .env 加载会退回「取决于还导入了谁」"
+        tree = ast.parse(inspect.getsource(k61conftest))
+        found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                found = found or any(a.name == "src.config" for a in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                found = found or (node.module == "src" and
+                                  any(a.name == "config" for a in node.names))
+        assert found, "conftest 没有在模块级导入 src.config（AST 检查）"
         assert "src.config" in sys.modules, "src.config 未在会话开始前被导入"
 
     def test_env_loaded_before_test_modules(self):
@@ -373,15 +380,16 @@ class TestProdDataGuardCriterion:
         assert "hits" in vars(wd)
 
     def test_failure_criterion_is_fd_hits_not_mtime(self):
-        """**判据锁**：报红只由 `hits`（本会话打开过）触发；mtime 变化只记录。"""
-        import inspect
-        src = inspect.getsource(k61conftest._k61_prod_data_guard)
-        assert "_PROD_WATCHDOG.hits" in src, "判据不是 fd 看门狗"
-        assert "raise ProdDataTouched" in src
-        # mtime 分支不得 raise（只 warning）
-        mtime_branch = src.split("if mtime_changed:")[1] if "if mtime_changed:" in src else ""
-        assert "raise" not in mtime_branch, \
-            "mtime 分支仍然 raise → 并发会话会把假红记在我们头上"
+        """**判据锁（行为锁，r8 从源码文本锁换过来）**：只有 hits 会失败。"""
+        verdict = k61conftest._prod_guard_verdict
+        # ① mtime 变了但本会话没打开 → **不失败**
+        assert verdict([], ["/mnt/d/fortune-data/userdata/fortune.db"]) == ""
+        # ② 本会话打开了 → 失败，且报文含 pid/fd/path
+        msg = verdict([(12345, "7", "/mnt/d/fortune-data/vectordb_v2/chroma.sqlite3")], [])
+        assert msg and "本会话进程树" in msg
+        assert "pid=12345" in msg and "fd=7" in msg and "chroma.sqlite3" in msg
+        # ③ 两者同时 → 仍以 hits 为准
+        assert "本会话进程树" in verdict([(1, "3", "/mnt/d/fortune-data/x")], ["y"])
 
     def test_own_session_open_is_recorded_then_drained(self, _k61_prod_data_guard):
         """**植入实验**：本会话真的打开生产路径 → 看门狗必须记到（随后弹掉自证用）。"""
@@ -392,8 +400,13 @@ class TestProdDataGuardCriterion:
             with open(prod_file, "rb") as fh:             # 只读；由本用例自证用
                 fh.read(8)
                 wd._sample_once()
-        except OSError:
-            pytest.skip("生产数据文件不存在（本机无该文件时无从取证）")
+        except OSError as exc:
+            # r8（Important 3）：**不许 skip** —— skip 是静默面（本守卫的前提直接失效却看不见）。
+            pytest.fail(
+                f"生产数据文件不存在（{prod_file}）：{exc}\n"
+                "本守卫的**前提**是本机有生产数据；没有它，这条自检等于没跑。"
+                "若本机确实没有生产数据（如纯开发机），请**显式登记**该环境前提，"
+                "不要用 skip 把它藏起来。")
         assert len(wd.hits) > before, "本会话打开了生产路径却没被看门狗记到"
         hit = wd.hits[before]
         assert str(hit[2]).startswith(tuple(k61conftest.PROD_DATA_ROOTS))
@@ -401,15 +414,15 @@ class TestProdDataGuardCriterion:
         del wd.hits[before:]                              # 自证用，弹掉避免 session 收尾报红
 
     def test_concurrent_writer_is_not_our_fault(self):
-        """**判据的方向性**：判据看的是**本会话**的 fd，而不是文件的 mtime。
+        """**方向性（行为锁）**：别人写（mtime 变）+ 本会话没打开 → **必须不失败**。
 
-        （这条是静态锁：真正的并发实验在报告里 —— 跑测期间由**另一个进程**写生产文件，
-        本会话照旧全绿；而 mtime 确实变了。）
+        真正的并发实验在报告里（跑测期间由另一个进程写生产文件、本会话全绿）；
+        这里把判据本身钉住：只看本会话的 fd。
         """
-        import inspect
-        src = inspect.getsource(k61conftest._k61_prod_data_guard)
-        assert "_prod_data_mtimes()" in src              # mtime 仍被读取（留证据）
-        assert "logging" in src or "warning" in src       # 但只 warning
+        mtime_changed = ["/mnt/d/fortune-data/userdata/fortune.db"]
+        assert k61conftest._prod_guard_verdict([], mtime_changed) == ""
+        # 反向：本会话真打开过 → 必失败
+        assert k61conftest._prod_guard_verdict([(1, "2", "/p")], mtime_changed) != ""
 
 
 class TestI4SandboxCorpusRestoresRealCorpusTests:
@@ -422,6 +435,10 @@ class TestI4SandboxCorpusRestoresRealCorpusTests:
     """
 
     def test_sandbox_has_a_minimal_books_corpus(self):
+        # 本会话若没收集到依赖语料的文件，种植是**故意不跑**的（省 bge-m3 加载）——
+        # 这条锁**自带种植**（幂等），保证它在任何会话里都能给出结论，不靠 skip。
+        assert k61conftest._seed_sandbox_books_corpus() is True, \
+            "沙箱最小语料种不上（依赖 bge-m3 可用）；相关用例会 skip —— 需登记环境前提"
         import chromadb
         from chromadb.config import Settings as _CS
         from src.book_categories import BOOKS_COLLECTION
