@@ -74,8 +74,11 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     -- 但反馈符号序列能把它推走（全差评时确定性 3-循环 sassy→analyst→gentle：
     -- 10 次 → 'sassy'、12 次 → 'gentle'）⇒ 是「把自身输出当输入」的自强化回路，
     -- 会经 to_prompt_hint() 以中文名给用户注入从未表达过的风格偏好。
-    -- 代码侧已整体移除（PreferenceDAO 不再读写，见 preference_dao.py 类
-    -- docstring）。**列保留**：生产库有真实数据，破坏性迁移需先报批。
+    -- 代码侧已整体移除（PreferenceDAO 不再读写）。删除依据不靠上面这些数字，
+    -- 而在于：**它不编码用户特异的风格偏好，只是反馈符号序列的确定性函数**
+    -- ——准确机制与旧措辞更正见 preference_dao.py 类 docstring（2026-09-20
+    -- 已按一手实测更正，原先它指向的那几句是被证伪的旧说法）。
+    -- **列保留**：生产库有真实数据，破坏性迁移需先报批。
     -- 新写入行取本处默认值。
     style_sassy REAL DEFAULT 0.33,       -- 【已废弃·k62】毒舌权重 (EMA)
     style_analyst REAL DEFAULT 0.33,     -- 【已废弃·k62】分析权重 (EMA)
