@@ -1,0 +1,104 @@
+"""k58 r7：**冻结语料夹具**——让口径改动能被测试抓到（控制方裁决二）。
+
+审查实测的缺口：随包规则表是「提交进库的产物」，**没有任何用例从语料重算** →
+改分句器（L4）、改 `sentence_is_usable` 门槛（L5）、加一条标点归一映射（L6）、
+**把同源拆成两个键**、把古籍豁免改成**模糊匹配** —— 锁全绿、定向子集也全绿，
+口径会**静默漂移**。本文件用一小段**冻结入库**的语料（`tests/data/k58_fixture_*`）
+跑一遍管线核心，与冻结期望值逐项比对：**任何口径改动 → 立刻变红，且很快**
+（不跑全量、不依赖活语料 `raw/`）。
+
+夹具由 `scripts/k55_dream/freeze_fixture.py` 生成，内含 4 类**定制条目**，
+专为让上述植入必红而存在（自检见该脚本 `self_check()`）：
+① 5 字判词句（长度门槛）② 仅差 `…`/`...` 的一对句（折叠映射）
+③ 与古籍引文近似但**不等**的句子（豁免模糊匹配）④ DF=12 的重复句（公式句判据）。
+
+⚠️ 重新冻结 = 改口径：必须重跑 `freeze_fixture.py` 并重新过审，不许直接改期望值。
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from scripts.k55_dream import build_rules as B
+from scripts.k55_dream import freeze_fixture as FF
+
+FIX_DIR = Path(__file__).resolve().parent / "data"
+CORPUS = FIX_DIR / "k58_fixture_corpus.jsonl"
+EXPECT = FIX_DIR / "k58_fixture_expected.json"
+CLASSICS = FIX_DIR / "k58_fixture_classics.json"
+
+
+def _load() -> tuple:
+    entries = [json.loads(x) for x in CORPUS.read_text(encoding="utf-8").splitlines() if x.strip()]
+    classics = json.loads(CLASSICS.read_text(encoding="utf-8"))
+    expected = json.loads(EXPECT.read_text(encoding="utf-8"))
+    return entries, classics, expected
+
+
+def test_fixture_files_are_frozen_and_present():
+    """夹具三件套必须入库且在（缺了这条，下面的比对会静默跳过）"""
+    for p in (CORPUS, EXPECT, CLASSICS):
+        assert p.exists() and p.stat().st_size > 0, p
+    entries, _, expected = _load()
+    crafted = [e for e in entries if e["source"] == "fixture_crafted"]
+    assert len(entries) >= 40 and len(crafted) >= 4, (len(entries), len(crafted))
+    assert expected["element_count"] == len(expected["elements"]) >= 10
+
+
+def test_pipeline_output_on_frozen_corpus_fixture_is_unchanged():
+    """**核心断言**：管线在冻结夹具上的输出 == 冻结期望值。
+
+    口径一改（分句器 / 可用性门槛 / 折叠映射 / 同源拆分 / 豁免模糊化 / 公式句判据），
+    这里就会指出**哪个元素、哪个字段**变了 —— 而不是等到 k60 换语料时才发现档位漂了。
+    """
+    entries, classics, expected = _load()
+    got = FF.run_pipeline(entries, classics)
+
+    assert got["formula_keys"] == expected["formula_keys"], (
+        "【口径变了·公式句判据】冻结夹具上判出的公式句与期望值不同：\n"
+        f"  现在={got['formula_keys']}\n  期望={expected['formula_keys']}\n"
+        "公式句/豁免判据的任何改动都必须重跑 freeze_fixture.py 并重新过审。")
+
+    diffs = []
+    for el, exp in expected["elements"].items():
+        cur = got["elements"].get(el)
+        if cur is None:
+            diffs.append((el, "元素缺失", None, exp))
+            continue
+        for field in ("counts", "luck", "gloss_evidence", "gloss",
+                      "pool_keys", "df", "usable_sentences", "head_sentences"):
+            if cur[field] != exp[field]:
+                diffs.append((el, field, cur[field], exp[field]))
+    assert not diffs, (
+        "【口径变了】管线在冻结夹具上的输出与 r7 冻结期望值不同（"
+        f"{len(diffs)} 处）。前 3 处：\n" +
+        "\n".join(f"  {el}.{f}: 现在={c!r} 期望={e!r}" for el, f, c, e in diffs[:3]) +
+        "\n\n口径改动必须走「重跑 freeze_fixture.py + 重跑全部审计 + 更新报告 r7 段」三件套；"
+        "禁止直接改期望值让测试变绿。")
+
+
+def test_pool_and_counting_share_one_folding_key():
+    """**同源必须是可失败断言**（r7 裁决一）：只改一侧的折叠键 → 必须红。
+
+    审查植入「只改句池的键、不改计数的键」时锁全绿 —— 说明当时「同源」只是
+    「恰好一致」。这里断言：句池去重键与计数折叠键是**同一个函数对象**，
+    且在夹具上二者行为一致（池键集合 == 对每个池内代表句施加同一函数的结果）。
+    """
+    assert B.SENTENCE_KEY_FOR_POOL is B.SENTENCE_KEY_FOR_COUNT is B.sentence_key, (
+        "【同源被拆开】句池去重键与计数折叠键不再是同一个函数："
+        f"pool={B.SENTENCE_KEY_FOR_POOL} count={B.SENTENCE_KEY_FOR_COUNT}。"
+        "两者必须同源（否则同一句会在池里算 1 条、在计数里算 N 条）。")
+
+    entries, classics, _ = _load()
+    elements = set(FF.ELEMENTS) | {e["title"] for e in entries}
+    _uniq, pools = B.element_scope_pool(elements, entries=entries)
+    checked = 0
+    for el, p in pools.items():
+        for k, raw in p["raw"].items():
+            assert k == B.SENTENCE_KEY_FOR_POOL(raw) == B.SENTENCE_KEY_FOR_COUNT(raw), (
+                f"【同源被拆开】元素 {el} 的池键 {k!r} 与其代表句的归一结果不一致："
+                f"{B.SENTENCE_KEY_FOR_POOL(raw)!r} / {B.SENTENCE_KEY_FOR_COUNT(raw)!r}")
+            checked += 1
+    assert checked > 20, f"夹具上只检查到 {checked} 个池键，样本太少"

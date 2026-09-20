@@ -121,7 +121,7 @@ def main() -> int:
               if x["elements"] >= args.min_elements and x["docs"] >= args.min_docs]
 
     # 影响量化：把公式句（= 生成器口径：模板族 ∪ 大批量转载）从计数里排除后会怎么变
-    formula = B.formula_sentence_keys(pools)
+    formula = B.formula_sentence_keys(pools, classic_keys=B.classic_quote_keys())
     fam_by_el = defaultdict(set)
     for el, p in pools.items():
         for k in p["raw"]:
@@ -248,8 +248,12 @@ def main() -> int:
     print(f"{'骨架':<40}{'元素数':<7}{'条目数':<7}示例")
     for x in skeletons[:12]:
         print(f"{x['skeleton'][:38]:<40}{x['elements']:<7}{x['docs']:<7}{x['examples'][0][:34]}")
-    print(f"\n【对照·**不排除公式句**】与表内档位不同 {len(drift_only)} 条 "
-          f"（= **公式句排除效应**，非语料漂移 —— 语料漂移实测 0 条，见报告 r6 段）"
+    # **漂移必须实算**（r7 Minor：硬编码的审计值等于没有审计）：
+    # 用「不排除任何句」的复算与表内档位比对 —— 差额里既有公式句效应、也有语料漂移，
+    # 故这里只报**实测数字**，不在脚本里断言「漂移 = 0」。
+    print(f"\n【对照·不排除任何句】与表内档位不同 {len(drift_only)} 条 "
+          f"（含公式句效应 + 语料漂移，两者在本脚本内**不分离**；"
+          f"分离需在同一快照上复现旧口径，见报告 r7 段）"
           f"{[x['name'] for x in drift_only[:12]]}")
     print(f"【排除公式句后】与表内档位一致：变化 {len(band_changes)} 条"
           f"（0 = 与生成器同口径）；从强档掉下来 {len(strong_lost)} 条：{strong_lost[:20]}")

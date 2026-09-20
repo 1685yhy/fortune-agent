@@ -226,6 +226,15 @@ def sentence_key(s: str) -> str:
     return re.sub(r"\s+", "", (s or "").translate(PUNCT_FOLD_TABLE))
 
 
+# **同源锁（r7 裁决一）**：句池去重键与计数折叠键**必须是同一个函数对象**。
+# 审查植入「只改句池的键、不改计数的键」时锁全绿 —— 说明「同源」当时只是
+# 「恰好一致」，不是「改了就会红」。现在两条路径各自引用下面这两个**常量**，
+# 并由 `test_pool_and_counting_share_one_folding_key` 断言二者 `is` 同一个函数
+# （任何一侧被换成别的归一化 → 断言直接失败，而不是静默分裂）。
+SENTENCE_KEY_FOR_POOL = sentence_key      # 句池去重键
+SENTENCE_KEY_FOR_COUNT = sentence_key     # 计数折叠键（必须与上者同源）
+
+
 def count_direction_sentences(scope_sents, exclude_keys=None) -> tuple:
     """方向计数（**唯一句·折叠后**，r5 Important-1 + r6 I-1）—— 档位判定的唯一输入。
 
@@ -239,7 +248,7 @@ def count_direction_sentences(scope_sents, exclude_keys=None) -> tuple:
     """
     ji_s, xiong_s = set(), set()
     for s in scope_sents:
-        k = sentence_key(s)
+        k = SENTENCE_KEY_FOR_COUNT(s)
         if exclude_keys and k in exclude_keys:
             continue
         if k in ji_s or k in xiong_s:
@@ -528,7 +537,7 @@ def element_scope_pool(elements: set, entries=None) -> tuple:
         for el in hits:
             is_head = (core == el)
             for s in element_sentences(raw_sents, el, is_head):
-                k = sentence_key(s)
+                k = SENTENCE_KEY_FOR_POOL(s)
                 p = pools[el]
                 if k not in p["raw"]:
                     p["raw"][k] = s              # 代表原句（首次出现的原样文本）
@@ -1214,7 +1223,10 @@ def main() -> int:
                 "head_entry_count": colloc_stats["head"].get(name, 0),
                 "symbols_basis": "corpus_cooccurrence" if symbols_map.get(name) else "family_tone_derived",
                 "gloss_evidence": ev_kind,
+                # r7 Minor：family-only 规则的 `counts` 曾缺 `sentences` 键（schema 不一致）。
+                # 在**生成器**补齐 —— 受审的规则表已冻结，不在产物上改；下次重生成自动带上。
                 "evidence": {"ji": ji.get(name, 0), "xiong": xiong.get(name, 0),
+                             "sentences": len(sentences.get(name, ())),
                              "real_dream_text_hits": cov},
                 "source": f"corpus_stats+{family}",
             })
