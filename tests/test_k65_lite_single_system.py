@@ -53,6 +53,14 @@ HISTORY = [
 # 形态，缩小版）：边界策略要求它必须原样保留。
 CALLER_SYSTEM = {"role": "system", "content": "[可用工具清单]\n自定义清单内容"}
 
+# k65 r3：精简档「能力边界」声明——本档没有工具能力，只禁"调用工具"不足以
+# 拦住"没有结果时凭空给结论"（实测修前仍 4/9 编出四柱）。三条都必须出现在
+# **真正发出去的 payload** 里（不是只出现在常量里）。
+BOUNDARY_CHART = "不得给出四柱、干支、喜用神、神煞"   # 命盘类
+BOUNDARY_DATE = "不得给出任何具体日期或时辰"           # 日期类
+BOUNDARY_EXIT = "精简模式暂不提供该功能"               # 出口（说明或反问）
+BOUNDARY_MARKS = (BOUNDARY_CHART, BOUNDARY_DATE, BOUNDARY_EXIT)
+
 
 class _FakeResp:
     """httpx 响应替身（GLM OpenAI 兼容格式）。"""
@@ -393,3 +401,103 @@ class TestHandlerDowngradeToolListGate:
         assert kwargs.get("lite") is True
         # 传参侧仍按 B2-11 构造，但 lite 分支在 client 层丢弃 →
         # 真实 payload 无工具清单（由 test_single_message_lite_ignores_system_prompt 锁）
+
+
+# ══════════ k65 r3：精简档「能力边界」声明（编造受控） ══════════
+
+class TestLiteCapabilityBoundary:
+    """断言**真正发出去的 payload 携带能力边界声明**，不断言具体回复文本。
+
+    背景（r2 实测未达成项）：工具清单裁剪把「假装调用工具」断了（7/9→0/9），
+    但模型被要求排盘又无工具时**仍凭空编四柱**（4/9）。根因是 prompt 只禁
+    "调用工具"、没禁"没有结果时凭空给结论"。r3 在 CHAT_PROMPT_LITE 的
+    硬性要求里补了命盘类 + 日期类两条边界与出口。
+    """
+
+    def test_prompt_constant_declares_both_boundaries(self):
+        """常量层：命盘类 / 日期类 / 出口三类措辞齐备。"""
+        for mark in BOUNDARY_MARKS:
+            assert mark in CHAT_PROMPT_LITE, f"能力边界缺失: {mark}"
+        # 原有精简档纪律不得被顺手改掉
+        assert "回复精简：80-150 字" in CHAT_PROMPT_LITE
+        assert "禁止使用任何 emoji" in CHAT_PROMPT_LITE
+        assert "不调用任何工具" in CHAT_PROMPT_LITE
+
+    def test_glm_payload_carries_boundary(self, monkeypatch):
+        """发往 GLM 的 system 必须携带边界声明（不是只写在常量里）。"""
+        llm = FortuneLLM(api_key="sk-deepseek", glm_api_key="zk-glm")
+        calls = []
+        monkeypatch.setattr(httpx.Client, "post", _capture_post(calls))
+        llm.chat_conversation(HISTORY, lite=True)
+        sys_text = _systems(calls[0][1]["json"]["messages"])[0]
+        for mark in BOUNDARY_MARKS:
+            assert mark in sys_text
+
+    def test_deepseek_fallback_payload_carries_boundary(self, monkeypatch):
+        """GLM 挂 → 回退 DeepSeek 走的是同一个精简 prompt，边界声明同样生效。"""
+        llm = FortuneLLM(api_key="sk-deepseek", glm_api_key="zk-glm")
+        calls = []
+        monkeypatch.setattr(
+            httpx.Client, "post", _capture_post(calls, glm_raises=True))
+        llm.chat_conversation(HISTORY, lite=True)
+        assert calls[1][0] == ANTHROPIC_MESSAGES_URL
+        sys_text = _systems(calls[1][1]["json"]["messages"])[0]
+        for mark in BOUNDARY_MARKS:
+            assert mark in sys_text
+
+    def test_single_message_lite_payload_carries_boundary(self, monkeypatch):
+        """:488 无历史单条 lite 路径同样携带边界声明。"""
+        llm = FortuneLLM(api_key="sk-deepseek", glm_api_key="zk-glm")
+        calls = []
+        monkeypatch.setattr(httpx.Client, "post", _capture_post(calls))
+        llm.chat("帮我排盘", lite=True)
+        sys_text = _systems(calls[0][1]["json"]["messages"])[0]
+        for mark in BOUNDARY_MARKS:
+            assert mark in sys_text
+
+    def test_stream_lite_payload_carries_boundary(self, monkeypatch):
+        """流式 lite 路径同样携带边界声明。"""
+        seen = {}
+
+        async def fake_stream(api_key, messages, **kw):
+            seen["messages"] = messages
+            yield "精简"
+
+        monkeypatch.setattr(
+            llm_client, "glm_openai_completion_stream", fake_stream)
+        llm = FortuneLLM(api_key="sk-deepseek", glm_api_key="zk-glm")
+        llm.chat_conversation(HISTORY, stream_cb=lambda t, p: None, lite=True)
+        sys_text = _systems(seen["messages"])[0]
+        for mark in BOUNDARY_MARKS:
+            assert mark in sys_text
+
+    def test_main_chain_carries_no_lite_boundary(self, monkeypatch):
+        """主链不得被精简档边界句污染（边界只属于无工具能力的降级档）。"""
+        llm = FortuneLLM(api_key="sk-deepseek", glm_api_key="zk-glm")
+        calls = []
+        monkeypatch.setattr(httpx.Client, "post", _capture_post(calls))
+        llm.chat_conversation(HISTORY, lite=False)
+        joined = "\n".join(m.get("content") or ""
+                           for m in calls[0][1]["json"]["messages"])
+        assert CHAT_PROMPT_LITE not in joined
+        for mark in BOUNDARY_MARKS:
+            assert mark not in joined
+
+    def test_handler_downgraded_end_to_end_carries_boundary(self, monkeypatch):
+        """handler 降级档端到端：真实 MessageHandler + 真实 FortuneLLM →
+        最终发给 GLM 的 payload 带边界声明，且不含工具清单。"""
+        calls = []
+        monkeypatch.setattr(httpx.Client, "post", _capture_post(calls))
+        h = _free_chat_harness()
+        h.llm = FortuneLLM(api_key="sk-deepseek", glm_api_key="zk-glm")
+        h._free_chat("帮我看看我的时柱", "u1", session_id="s1", downgraded=True)
+
+        assert calls, "必须真的发出 LLM 调用"
+        url, kw = calls[0]
+        assert url == GLM_COMPLETIONS_URL
+        msgs = kw["json"]["messages"]
+        joined = "\n".join(m.get("content") or "" for m in msgs)
+        for mark in BOUNDARY_MARKS:
+            assert mark in joined          # 边界声明随精简 prompt 下发
+        assert TOOL_LIST_MARK not in joined  # 且工具清单已被裁掉（r2）
+        assert len(_systems(msgs)) == 1
