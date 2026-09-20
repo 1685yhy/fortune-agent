@@ -502,12 +502,17 @@ class FortuneLLM:
 
         lite=True（降级链路）：切 GLM-4-Flash（OpenAI 兼容端点）+ 精简
         prompt，短回复、不调工具；GLM 失败自动回退 DeepSeek 同精简 prompt。
+        lite 分支必须传**原始 history**——_chat_lite 自己负责注入唯一的
+        CHAT_PROMPT_LITE；若把已拼好 CHAT_PROMPT 的整包当 history 传下去，
+        最终会同时出现两条互相矛盾的 system（精简 prompt 禁工具 vs 主
+        prompt 的 10 组 <tool_calls> 教学），且多付 ~2.4k 字符开销（k65）。
         """
+        if lite:
+            # k65：只传调用方原始 history；主 prompt 由 _chat_lite 独占注入。
+            return self._chat_lite(history=history, max_tokens=400,
+                                   stream_cb=stream_cb)
         messages = [{"role": "system", "content": CHAT_PROMPT}]
         messages.extend(history)
-        if lite:
-            return self._chat_lite(history=messages, max_tokens=400,
-                                   stream_cb=stream_cb)
         try:
             return deepseek_anthropic_completion(
                 self.api_key, messages, model=self.model,

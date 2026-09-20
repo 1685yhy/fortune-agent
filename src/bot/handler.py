@@ -11194,9 +11194,15 @@ class MessageHandler:
                     # 清单，否则模型第一轮不知道有工具可调 → 工具链触发率 0%
                     # （CHAT_PROMPT 只有教学示例，清单在 _run_tool_loop 第二轮
                     # 才注入，形成"先有鸡还是先有蛋"死锁）
-                    messages.insert(0, {"role": "system",
-                                        "content": "[可用工具清单]\n"
-                                        + build_tool_description()})
+                    # k65 r2：降级档（额度耗尽 → lite，无工具能力）**不注入**
+                    # 工具清单——清单会诱发「假装调用 → 编排盘/编吉日」的信任级
+                    # 故障，且 2153 字符纯浪费。按能力裁剪，不是全剥：主链照旧。
+                    # 判据 = 本函数的 downgraded 入参（与下方 lite=downgraded
+                    # 同源，来自 chat_quota.used>=CHAT_DAILY_LIMIT，非内容猜测）。
+                    if not downgraded:
+                        messages.insert(0, {"role": "system",
+                                            "content": "[可用工具清单]\n"
+                                            + build_tool_description()})
                     if combined_hint:
                         messages[-1] = {
                             "role": messages[-1]["role"],
