@@ -354,7 +354,17 @@ def test_ma_has_no_self_contradiction():
     # 引擎输出层面也不许矛盾
     res = DreamEngine().analyze("梦见马", _NullRetriever())
     note = " ".join(res.rule_notes)
-    assert lp == "吉" and "吉；乘行，大富" in note, note[:200]
+    assert "吉；乘行，大富" in note, note[:200]
+    assert lp != "凶" and gp != "凶", (r["luck"], r["gloss"][:50])
+    # ⚠️ 口径变更（r5 Important-1，**已报控制方裁决**）：
+    # r4 这里锁的是 `lp == "吉"`。控制方 r5 明令「档位必须由**唯一句**决定」，
+    # 并**点名「马」的 27 个吉计数来自同一句古籍的两个标点变体** —— 折叠后
+    # 马的唯一句是 2 吉 : 1 凶（另一句是「梦见马者，主大凶」），小样本近似平票
+    # → 中性（+「传统说法，不代表吉凶」限定语）。这是控制方口径的**直接推论**，
+    # 非放松断言：矛盾不变式（上两行）仍全绿，且新增「不得判凶向」。
+    # 若控制方裁定 r4 的 `吉` 优先于 r5 唯一句口径，本条应改回 `lp == "吉"`
+    # 并在 r5 报告「待裁决项」中销账。
+    assert r["luck"] in ("吉", "中性") and lp != "凶", (r["luck"], r["counts"])
 
 
 def test_mao_keeps_direction_with_same_direction_gloss():
@@ -439,3 +449,115 @@ def test_match_branch_order_is_content_keyed():
            "starts": {k: type(v)(dict(reversed(list(v.items())))) for k, v in st["starts"].items()}}
     b = build_match("蛇", st2)["match"]
     assert a == b
+
+
+# ══════════════ k58 r5：档位口径（唯一句）+ 模板碎片 + 引文极性 + 否定式 ══════════════
+
+def test_band_is_decided_by_unique_sentences_not_occurrences():
+    """r5 Important-1 植入实验：**同一句重复 26 次**不得被当成 26 条证据。
+
+    改前：出现次数定档 → `酒`（唯一句 1）× 23 → 大吉、`马`（同一句两个标点变体
+    17+10）→ 大吉；改后：唯一句定档 → 1 条唯一句 → 不给强档（小样本）。
+    """
+    from scripts.k55_dream.build_rules import (
+        count_direction_sentences, luck_from_counts,
+    )
+    one = "梦见某物，主大吉"
+    ji_s, xiong_s = count_direction_sentences([one] * 26)
+    assert len(ji_s) == 1 and len(xiong_s) == 0, (ji_s, xiong_s)
+    # 单句 → 不得强档
+    assert luck_from_counts(len(ji_s), len(xiong_s)) not in ("大吉", "吉", "凶")
+    # 反向对照：26 条**不同**的吉向句 → 可以给强档
+    many = [f"梦见某物{i}，主得财大吉" for i in range(26)]
+    ji_s2, _ = count_direction_sentences(many)
+    assert len(ji_s2) == 26
+    assert luck_from_counts(len(ji_s2), 0) == "大吉"
+
+
+def test_no_rule_band_is_inflated_by_a_single_repeated_sentence():
+    """r5 全表锁：强档（大吉/吉/凶）必须有**足量唯一句**，重复句一律不算数。
+
+    强档判据（与 luck_from_counts 同源，两条路径**只有**这两种）：
+      (a) 唯一句 ≥5 且 反例 ≤2；或 (b) **零反例** 且 唯一句 ≥3（一致无死角条款）。
+    `大吉` 是极端断言，零反例条款也不放宽：必须 唯一句 ≥5 且零反例。
+    """
+    from scripts.k55_dream.build_rules import (
+        MAX_MINORITY_FOR_STRONG, MIN_SAMPLE_FOR_STRONG,
+        MIN_UNANIMOUS_FOR_STRONG, luck_from_counts,
+    )
+    for r in DREAM_PATTERN_RULES:
+        n = r["counts"]["ji"] + r["counts"]["xiong"]
+        minority = min(r["counts"]["ji"], r["counts"]["xiong"])
+        if r["luck"] in ("大吉", "吉", "凶"):
+            assert ((n >= MIN_SAMPLE_FOR_STRONG and minority <= MAX_MINORITY_FOR_STRONG)
+                    or (minority == 0 and n >= MIN_UNANIMOUS_FOR_STRONG)), (r["name"], r["luck"], r["counts"])
+        if r["luck"] == "大吉":
+            assert minority == 0 and n >= MIN_SAMPLE_FOR_STRONG, (r["name"], r["counts"])
+        # 单句（唯一句 ≤2）绝不能是强档 —— 这正是「单句重复 26 次」被挡住的那道门
+        if n <= 2:
+            assert r["luck"] not in ("大吉", "吉", "凶"), (r["name"], r["luck"], r["counts"])
+        # 档位必须与唯一句计数自洽（用同一函数复算）
+        if r["luck"] not in ("中性", "提醒类"):
+            assert luck_from_counts(r["counts"]["ji"], r["counts"]["xiong"]) == r["luck"], r["name"]
+
+
+def test_no_template_fragment_glosses():
+    """r5 Important-2：释义依据不得是**截断的站点模板片段**（r4 一度 11-12 条）
+
+    反例（逐字存在于语料）：`梦见了奶奶，按周易五行分析，吉祥色彩是`
+    """
+    from scripts.k55_dream.build_rules import TEMPLATE_MARK_RE, is_fragment, sentence_is_usable
+    bad = [(r["name"], r["gloss"][:30]) for r in DREAM_PATTERN_RULES
+           if TEMPLATE_MARK_RE.search(r["gloss"])]
+    assert bad == [], bad[:5]
+    # 判据自检（植入实验）：模板串与「长句悬挂结尾」都必须被判为不可用
+    assert is_fragment("梦见了奶奶，按周易五行分析，吉祥色彩是")
+    assert not sentence_is_usable("梦见了奶奶，按周易五行分析，吉祥色彩是", "奶奶")
+    assert not sentence_is_usable("梦见奶奶，五行属木，幸运数字是 3", "奶奶")
+
+
+def test_classic_quote_without_polarity_is_kept():
+    """r5 Important-3：判不出极性的古籍引文**不得丢**（无极性 ≠ 反向）。
+
+    改前：引文被要求「必须同向」→ 无极性引文（「蛇主移徙事」「所求皆得」）被丢，
+    classic_quote 7→5、`蛇` 的依据降级成现代惊悚句。改后：只在**判出反向**时跳过。
+    """
+    from scripts.k55_dream.build_rules import same_scenario_gloss, sentence_polarity
+    classics = {"某物": [{"text": "梦见某物，主移徙事", "book": "敦煌本梦书"}]}
+    gloss, kind = same_scenario_gloss("某物", {}, classics, {}, want_luck="凶")
+    assert kind == "classic_quote" and "移徙事" in gloss, (kind, gloss)
+    # 真反向仍然要跳过（C-1 保证）
+    classics2 = {"某物": [{"text": "梦见某物，吉；乘行，大富", "book": "敦煌本梦书"}]}
+    g2, k2 = same_scenario_gloss("某物", {}, classics2, {}, want_luck="凶")
+    assert k2 != "classic_quote", (k2, g2)
+    # 表内实据：恢复后的 classic_quote 规则数与点名元素
+    cq = {r["name"] for r in DREAM_PATTERN_RULES if r["gloss_evidence"] == "classic_quote"}
+    assert {"蛇", "牛"} <= cq, cq
+
+
+def test_negated_positive_is_not_positive():
+    """r5 Important-4a：否定式盲区（「无法顺利发展」不得算吉）"""
+    from scripts.k55_dream.build_rules import sentence_polarity
+    s = "梦见小男孩，或许会有一见钟情发生，但可惜的是和他似乎无法顺利发展"
+    assert sentence_polarity(s) != "吉", sentence_polarity(s)
+    assert sentence_polarity("梦见蛇，不一定是凶兆，别自己吓自己") != "凶"
+    r = next(x for x in DREAM_PATTERN_RULES if x["name"] == "小男孩")
+    from scripts.k55_dream.build_rules import luck_polarity
+    assert not (luck_polarity(r["luck"]) == "吉"
+                and sentence_polarity(r["gloss"]) == "凶"), (r["luck"], r["gloss"][:40])
+
+
+def test_symbols_do_not_contradict_luck_polarity():
+    """r5 Important-4b：核心象征不得与 luck 极性相反（蛇=凶却列「吉利/吉兆」）"""
+    from scripts.k55_dream.build_rules import (
+        NEG_SEMANTIC_RE, POS_SEMANTIC_RE, luck_polarity,
+    )
+    bad = []
+    for r in DREAM_PATTERN_RULES:
+        lp = luck_polarity(r["luck"])
+        if lp == "凶":
+            bad += [(r["name"], s) for s in r["symbols"] if POS_SEMANTIC_RE.search(s)]
+        elif lp == "吉":
+            bad += [(r["name"], s) for r in [r] for s in r["symbols"]
+                    if NEG_SEMANTIC_RE.search(s)]
+    assert bad == [], bad[:5]

@@ -196,6 +196,23 @@ def split_sentences(text: str) -> list:
     return [x.strip() for x in SENT_SPLIT_RE.split(text or "") if x.strip()]
 
 
+def count_direction_sentences(scope_sents) -> tuple:
+    """方向计数（**唯一句**，k58 r5 Important-1）—— 档位判定的唯一输入。
+
+    返回 (吉向唯一句集合, 凶向唯一句集合)。**出现次数不参与**：
+    实测 `马` 的 27 个"吉"来自同一句古籍的两个标点变体、`酒` 的 23 个"吉"
+    来自同一句（唯一句 1 条）却被判 `大吉` —— 按出现次数定档就是被模板/重复句绑架。
+    """
+    ji_s, xiong_s = set(), set()
+    for s in scope_sents:
+        j, x = bool(JI_STRONG.search(s)), bool(XIONG_STRONG.search(s))
+        if j and not x:
+            ji_s.add(s)
+        elif x and not j:
+            xiong_s.add(s)
+    return ji_s, xiong_s
+
+
 def sentence_is_usable(s: str, el: str) -> bool:
     """句子能否作为**释义依据**：必须**提及该元素**、且不是空壳。
 
@@ -248,9 +265,26 @@ HEADING_RE = re.compile(
 DANGLING_TAIL_RE = re.compile(r"(是|的|和|与|在|为|把|被|对|向|从|给|让|或|及|而|就|都|也|还)$")
 
 
+# 站点模板句标记（k58 r5，Important-2）：这类句子是页面模板的**固定成分**，
+# 且会被网页折行截断（「…按周易五行分析，吉祥色彩是」），选中当释义依据等于没给依据。
+TEMPLATE_MARK_RE = re.compile(
+    r"(周易五行|吉祥色彩|五行分析|五行属|幸运数字|吉凶指数|今日运势|开运|"
+    r"请登录|版权所有|点击查看|扫码|官方微信)")
+
+
 def is_fragment(sentence: str) -> bool:
-    """半截句：以虚词/系动词结尾且不长（页面在动词后折行被切断，如「吉祥色彩是」）。"""
+    """半截句：① 站点模板句（含模板标记）；② 以虚词/系动词结尾的悬挂句。
+
+    r5 修正（Important-2，本批新引入的回归）：原判据只覆盖「<15 字」的短悬挂句，
+    挡不住被折行的**模板片段**（「梦见了奶奶，按周易五行分析，吉祥色彩是」20 字）
+    → 实测 12 条 gloss 变成模板碎片（r3 是 0 条）。现在两条一起判。
+    """
     s = (sentence or "").strip("，,、；;：:。 ")
+    if TEMPLATE_MARK_RE.search(s):
+        return True
+    # 悬挂结尾：长句也认（模板片段常以「是/的/和」这类词收尾），但要求不含判词
+    if DANGLING_TAIL_RE.search(s) and not JUDGE_MARK_RE.search(s):
+        return len(s) < 30
     return len(s) < 15 and bool(DANGLING_TAIL_RE.search(s))
 
 
@@ -410,6 +444,10 @@ def scan_corpus(elements: set) -> tuple:
     # gloss 找不到 → 假兜底（「语料里没有匹配到…」）+ luck 被强制中性，
     # 与自身 type/tone 自相矛盾。现在两者共用 scope，不变式：
     # **fallback_no_same_scenario ⟹ ji+xiong == 0**（已加测试）。
+    sent_ji: dict = defaultdict(set)             # 方向计数（唯一句）
+    sent_xiong: dict = defaultdict(set)
+    ji_occ: Counter = Counter()                  # 出现次数（附加信息，不定档）
+    xiong_occ: Counter = Counter()
     sentences: dict = defaultdict(Counter)       # 同场景句池（与计数同源）
     head_sentences: dict = defaultdict(Counter)  # **词条就是该元素**的同场景句
     ji: Counter = Counter()
@@ -445,14 +483,28 @@ def scan_corpus(elements: set) -> tuple:
                 sentences[el][s] += 1
                 if is_head:
                     head_sentences[el][s] += 1
-                # 方向计数：**句级、单向、只用判词术语**（r4 口径）
+                # 方向计数（r5，Important-1）：**一律按「唯一句」计**。
+                # 旧实现按出现次数计，会被**同一句的重复**绑架 —— 实测 `马` 的 27 个
+                # "吉" 全来自同一句古籍的两个标点变体（17+10），`酒` 的 23 个"吉"
+                # 来自同一句（唯一句 1 条），却被判成 `大吉`（假自信）。
+                # 现在：唯一句集合决定档位；出现次数只作**附加信息**（ji_occ/xiong_occ），
+                # 不参与档位。
                 sj, sx = bool(JI_STRONG.search(s)), bool(XIONG_STRONG.search(s))
                 if sj and not sx:
-                    ji[el] += 1
+                    sent_ji[el].add(s)
+                    ji_occ[el] += 1
                 elif sx and not sj:
-                    xiong[el] += 1
+                    sent_xiong[el].add(s)
+                    xiong_occ[el] += 1
+    # 唯一句数定档；出现次数仅作附加信息（ji_occ/xiong_occ）
+    for el in set(sent_ji) | set(sent_xiong) | set(ji) | set(xiong):
+        ji[el] = len(sent_ji.get(el, ()))
+        xiong[el] = len(sent_xiong.get(el, ()))
+        ji_occ[el] = int(ji_occ.get(el, 0))
+        xiong_occ[el] = int(xiong_occ.get(el, 0))
     log(f"[scan] 同场景句池覆盖 {len(sentences)} 个元素；"
-        f"其中「词条即元素」覆盖 {len(head_sentences)} 个")
+        f"其中「词条即元素」覆盖 {len(head_sentences)} 个；"
+        f"唯一句定档（出现次数仅附加）")
     return uniq, sentences, ji, xiong, head_sentences
 
 
@@ -485,6 +537,17 @@ def same_scenario(sentence: str, el: str) -> bool:
 # 表述 —— 实测「异性」luck=大吉 却配「代表**不很顺利**」（否定式，JI_RE 里的
 # 「顺利」被反向使用）。否定前缀 + 明确负面词一并纳入，只用于**一致性判定**。
 NEG_PREFIX_RE = re.compile(r"(不|没|未|难以|无法|避免|别|勿)\s*(很|太|会|能|要|可)?\s*$")
+# r5 Important-4 追加：上面的词表只挡得住「不凶 / 不很顺利」这类**紧贴**否定。
+# 实测漏判：「梦见蛇，**不一定是**凶兆，别自己吓自己」——「不」与「凶兆」之间
+# 隔着「一定是」三个字，窗口（原为 3）不够 → 判成凶。改为 6 字窗口 + 允许
+# 中间夹 1~4 个非标点汉字（「不一定是/不见得/不至于/不能说」都覆盖）。
+NEG_GAP_RE = re.compile(r"(不|没|未|难以|无法|避免|别|勿)[^，,。；;！？!?、\s]{0,4}\s*$")
+
+
+def negated_before(s: str, pos: int, window: int = 6) -> bool:
+    """pos 处的吉/凶词是否被**前置否定**（「不一定是凶兆」「无法顺利」）。"""
+    prefix = s[max(0, pos - window):pos]
+    return bool(NEG_PREFIX_RE.search(prefix) or NEG_GAP_RE.search(prefix))
 EXTRA_NEG_RE = re.compile(r"(损失|不利|不顺|慎防|小心|谨慎|警惕|防范|挫折|失败|"
                           r"纠纷|忧伤|烦恼|灾|病痛|愁|破坏|障碍|阻碍|是非|口舌)")
 
@@ -497,18 +560,21 @@ def sentence_polarity(s: str, extended: bool = True) -> str:
     pos = False
     negated_pos = False
     for m in JI_RE.finditer(s):
-        prefix = s[max(0, m.start() - 3):m.start()]
-        if NEG_PREFIX_RE.search(prefix):
+        if negated_before(s, m.start()):
             negated_pos = True          # 「不很顺利」= 反向使用吉词 → 计入负面证据
         else:
             pos = True
-    neg = bool(XIONG_RE.search(s)) or negated_pos
+    # 反向否定：被否定的凶词**不**计为凶（「不一定是凶兆」「不凶」）。
+    # r5：原来是「任意一处被否定就整句清空 neg」，会把同句另一处真实负面一起抹掉；
+    # 现在逐条判定（有真实负面仍计凶）。
+    neg = negated_pos
+    for m in XIONG_RE.finditer(s):
+        if negated_before(s, m.start()):
+            continue
+        neg = True
+        break
     if extended:
         neg = neg or bool(EXTRA_NEG_RE.search(s))
-        for m in XIONG_RE.finditer(s):
-            prefix = s[max(0, m.start() - 3):m.start()]
-            if NEG_PREFIX_RE.search(prefix):     # 「不凶」这类反向否定
-                neg = False
     if pos and neg:
         # k58 r3（A-1）：双向混合时**看末句**——审查口径以「句末是否转向正面」定调
         # （「…不得不低价出售，依然可能成功」判为吉向）。末句仍混合/看不出 → 无极性。
@@ -516,6 +582,13 @@ def sentence_polarity(s: str, extended: bool = True) -> str:
         last = sents[-1] if sents else ""
         tail_pos = bool(JI_RE.search(last))
         tail_neg = bool(XIONG_RE.search(last))
+        # Important-4a：末句里的**否定式吉词**（「无法顺利发展」）要算负面，
+        # 否则「大吉」会配上一句「可惜…无法顺利发展」（否定式盲区，实测 小男孩）
+        for m in JI_RE.finditer(last):
+            if negated_before(last, m.start()):
+                tail_pos = False
+                tail_neg = True
+                break
         if tail_pos and not tail_neg:
             return "吉"
         if tail_neg and not tail_pos:
@@ -577,10 +650,13 @@ def same_scenario_gloss(el: str, sentences: dict, classics: dict,
         return None
 
     for q in classics.get(el, [])[:1]:
-        # C-1 修法：古籍引文**必须同向**（原来只挡「反向」，判成「无极性」的直接放行
-        # →「梦见马，吉」在 luck=凶 下被采用，用户看到同一行自相矛盾）。
-        # 无方向档（want_luck_pol 为空）不受此限。
-        if want_luck_pol and sentence_polarity(q["text"]) != want_luck_pol:
+        # C-1 修法（r5 收窄）：古籍引文只在**判出反向**时跳过；
+        # 判不出极性（""）**不该丢**（Important-3：无极性 ≠ 反向）——
+        # `蛇`「蛇主移徙事」、`牛`「所求皆得」这类权威引文此前被误丢，
+        # 导致 classic_quote 7→5、`蛇` 的依据降级成现代惊悚句。
+        # 安全性由 C-1 的词表修复保证（裸「吉」已能识别 → 真反向会被判出来）。
+        qpol = sentence_polarity(q["text"])
+        if want_luck_pol and qpol and qpol != want_luck_pol:
             continue
         return f"《{q['book']}》（转录未校勘）记载：{q['text']}", "classic_quote"
     # 两个池**合并后统一定向挑选**（r4 修）：先 head 池再同场景池，逐个过 pick；
@@ -608,6 +684,9 @@ def same_scenario_gloss(el: str, sentences: dict, classics: dict,
 # 否则「车祸」的核心象征里会出现「吉祥」（来自别的场景的共现），
 # 与「不做吉凶判断」自相矛盾（r2 I-2 同类问题）。
 LUCK_SEMANTIC_RE = re.compile(r"[吉凶祥瑞福禄寿财喜祸灾煞克破败亡死病]")
+# 极性语义字（用于「象征 vs 倾向」一致性，Important-4b）
+POS_SEMANTIC_RE = re.compile(r"(吉|祥|瑞|福|禄|寿|喜|财|富|贵|顺|旺)")
+NEG_SEMANTIC_RE = re.compile(r"(凶|祸|灾|煞|克|破|败|亡|死|病|厄|难)")
 
 
 def drop_luck_semantic(symbols: list) -> list:
@@ -635,6 +714,12 @@ def mandatory_gloss(el: str, sentences: dict, classics: dict, head_sentences: di
 MIN_SAMPLE_FOR_STRONG = 5
 # 强档允许的**反向句上限**（近似一致才给「大吉/吉/凶」；否则只给温和档）
 MAX_MINORITY_FOR_STRONG = 2
+# r5 追加：**一致无死角**条款 —— 反向唯一句为 0 时，唯一句 ≥3 即可给强档。
+# 依据：控制方在 r4 认可「大蛇 6:1（有 1 条反例）→ 大吉」，而「0 条反例」在证据上
+# 严格强于「1 条反例」；r5 的「单句重复 26 次不得强档」由唯一句计数本身挡住
+# （重复句折叠成 1 条 → 达不到 3）。此条款只对**零反例**生效，是加严而非放松：
+# 有任何一条同向反例，仍须走 MIN_SAMPLE_FOR_STRONG=5 + MAX_MINORITY=2 的老路。
+MIN_UNANIMOUS_FOR_STRONG = 3
 
 
 def luck_from_counts(n_ji: int, n_xiong: int) -> str:
@@ -654,14 +739,21 @@ def luck_from_counts(n_ji: int, n_xiong: int) -> str:
         # 平票（含 1:1 这类小样本平票）：方向信息为零，不得表述成有方向的档位
         # （审查指出「购买 1:1 被判吉多于凶」是 luck_from_counts 的既有语义偏差）
         return "中性"
+    # r5：小样本**近似平票**（差 ≤1 且唯一句 <10）同样不判方向 ——
+    # 控制方裁决：「蛇 唯一句 吉4:凶4 平票 → 中性」；推广到 3:4/2:3 这类
+    # 差一票的小样本，避免把一个 0.43 的比例说成「吉多于凶」。
+    if abs(n_ji - n_xiong) <= 1 and tot < 10:
+        return "中性"
     r = n_ji / tot
     # 强档条件（r4）：样本足够 **且** 反向句 ≤2（近似一致）。
     # 依据：控制方裁决一（孔雀 12:4 只给温和档——4 条反例不能被忽略）与
     # 已认可的 大蛇 6:1→大吉（仅 1 条反例）——两者比例相近，差别在**反例条数**。
     minority = min(n_ji, n_xiong)
-    strong = tot >= MIN_SAMPLE_FOR_STRONG and minority <= MAX_MINORITY_FOR_STRONG
+    strong = (tot >= MIN_SAMPLE_FOR_STRONG and minority <= MAX_MINORITY_FOR_STRONG) or \
+             (minority == 0 and tot >= MIN_UNANIMOUS_FOR_STRONG)
     if r >= 0.8:
-        return "大吉" if strong else "吉多于凶"
+        # 「大吉」是**极端**断言：零反例条款不放宽它 —— 仍需唯一句 ≥5 且零反例
+        return "大吉" if (tot >= MIN_SAMPLE_FOR_STRONG and minority == 0) else "吉多于凶"
     if r >= 0.62:
         return "吉" if strong else "吉多于凶"
     if r >= 0.42:
@@ -873,7 +965,20 @@ def main() -> int:
                 # prompt 口径一致），而不是把吉/凶引文当成判断端出来。
                 # 顺序很重要：必须在「反向降级」**之后**判 —— 否则降级成中性的
                 # 条目会漏掉限定语（实测漏了「红色/墙」两条）。
-                gloss = gloss.replace("（语料", "（传统说法，不代表吉凶；语料")
+                if "（语料" in gloss:
+                    gloss = gloss.replace("（语料", "（传统说法，不代表吉凶；语料")
+                elif "不代表吉凶" not in gloss:
+                    # r5：**古籍引文**结尾是「记载：…」没有「（语料」标记 →
+                    # 原来的 replace 是空操作，限定语根本没加上（实测 `马`
+                    # 中性 却端出「梦见马，吉；乘行，大富」、`女儿` 中性 却端出
+                    # 「抱小女儿，主口舌」——同行自相矛盾）。此处补上。
+                    gloss = gloss + "（传统说法，不代表吉凶）"
+        # Important-4b（r5）：核心象征不得与 luck 极性相反
+        # （`蛇`=凶多于吉 却列着「吉利/吉兆」、`龟`=凶 却列「财富」——同行自相矛盾）
+        if luck_polarity(luck) == "凶":
+            syms = [x for x in syms if not POS_SEMANTIC_RE.search(x)] or syms
+        elif luck_polarity(luck) == "吉":
+            syms = [x for x in syms if not NEG_SEMANTIC_RE.search(x)] or syms
         # type 与 luck 不许并存矛盾（刀：type=警示类 + luck=中性 那种）
         if luck in ("中性", "提醒类") and ptype in ("吉兆类", "警示类"):
             ptype = "中性类"
