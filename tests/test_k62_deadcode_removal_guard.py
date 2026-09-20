@@ -246,7 +246,10 @@ def test_preferences_dataclass_has_no_dead_style_attrs():
     from src.storage.preference_dao import UserPreferences
     names = {f.name for f in dataclass_fields(UserPreferences)}
     for attr in DEAD_STYLE_ATTRS:
-        assert attr not in names, f"UserPreferences.{attr} 复活（退化权重，无信息量）"
+        assert attr not in names, (
+            f"UserPreferences.{attr} 复活（退化权重：只被当时 argmax 的那一列自我强化，"
+            f"不编码用户特异的风格偏好，只是反馈符号序列的确定性函数）"
+        )
     assert not hasattr(UserPreferences, "preferred_style"), \
         "UserPreferences.preferred_style 复活（自强化回路：与反馈符号序列确定性" \
         "相关、不携带内容偏好信息，还会注入用户从未表达过的风格偏好）"

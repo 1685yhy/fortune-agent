@@ -16,10 +16,34 @@ class UserPreferences:
 
     k62：三个风格权重（style_sassy/style_analyst/style_gentle）与
     ``preferred_style`` / ``last_style`` 已整体移除——那是早期「3 模式人设」
-    残留：三者由同一公式、同一输入更新，其中恒为当前 argmax 的那一个被自
-    强化，故 ``preferred_style`` 对所有用户恒为建表默认值决定的
-    'gentle'（实测 30 次全👍/全👎/交替 三条轨迹终值均 'gentle'），
-    不携带任何用户信息，却经 ``to_prompt_hint()`` 进了活提示词。
+    残留。**删除依据（措辞已于 2026-09-20 按一手实测更正，旧措辞见段末）**：
+
+    这三列不是三条独立学习的权重。``learn()`` 用 ``if/elif`` **只更新 ``style``
+    形参点名的那一列**，另两列原地不动，随后才归一化；而唯一调用方
+    （``handler._handle_feedback``）传的是 ``style=prefs.preferred_style``，
+    即**当时的 argmax** ⇒ 它是「把自身输出当输入」的自强化回路。
+
+    ``preferred_style`` 因此**不代表用户偏好**：起步落在 'gentle'
+    （建表默认 ``style_gentle DEFAULT 0.34``，新用户取 dataclass 默认值同值），
+    此后每一跳只取决于「上一跳的 argmax + 本次反馈正负」。反馈符号序列确实
+    能把它推走——一手实测（真实代码路径 + 真实 ``learn(style=preferred_style)``
+    口径）：全👍 30 次终值 ``0.0476/0.0476/0.9049`` 停在 'gentle'；全差评呈
+    **确定性 3-循环** ``sassy→analyst→gentle``（t=10 → 'sassy'、t=12 →
+    'gentle'）；``5👍+7👎`` → 'sassy'。
+
+    ⇒ 准确的表述是：**它不编码任何用户特异的风格偏好，只是反馈符号序列的
+    确定性函数**（等价于一个计数器落在哪个相位），却经 ``to_prompt_hint()``
+    （``_get_preference_hint`` → ``/api/calendar/daily|week`` 的 ``preferences=``）
+    以**中文名**当"用户偏好"注入活提示词——全差评用户也会被写上
+    「用户偏好风格：毒舌直接」，即**注入用户从未表达过的偏好**。**这才是删除依据。**
+
+    （旧措辞更正：曾写①「三者由**同一公式、同一输入**更新」②「``preferred_style``
+    **对所有用户恒为**…'gentle'」③「**不携带任何用户信息**」，并引「30 次全👍/
+    全👎/交替 三条轨迹终值均 'gentle'」为证。①的"同一输入"与②**已实测证伪**
+    （②的反例见上）；③措辞不准（准确说法见上一段）；所引那条轨迹证据**数字为真
+    但不构成"恒为"的证据**——30 是 3 的整数倍，三条轨迹恰好都取样在 3-循环的
+    gentle 相位，在 t=10 取样就会看到 'sassy'。）
+
     对应 DB 列**保留未 DROP**（生产库有数据），见 models.py 建表注释。
     """
     user_id: str
