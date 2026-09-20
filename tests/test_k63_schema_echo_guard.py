@@ -18,6 +18,7 @@ D 切分：`scrub_turn`（词表：称谓/神煞）语义未被改动，与 sche
 """
 import dataclasses
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -81,6 +82,119 @@ def test_positive_forms_are_cleaned(case, text):
     cleaned, hits = guard_schema_echo(text)
     assert cleaned == "", case          # 整段置空
     assert hits, case                   # 命中明细非空（可排障）
+
+
+# ============================================================
+# A2：schema 块里 spec 原文（**逐字取自渲染后的 prompt**）
+# ============================================================
+# k62k63 集成修复（审查 I-1）：这 18 条此前 **8 条漏判** —— 4 条
+# `最佳时间窗口，包含具体日期范围`（在 prompt 里出现 **4 次**）+ 4 条
+# `具体的行动建议，结合…的个性化分析`。它们各只带 1 条弱信号 → 被阈值放行，
+# 于是"真·原文回显"照样到用户眼前。已由三条"规格从句"弱信号补齐（见
+# src/utils/fact_guard.py 的 SCHEMA_ECHO_WEAK 注释，含逐条形态论证）。
+#
+# ⚠️ 本清单**不含** `"category": "事业"` 一类**合法取值**：那是 schema 要求模型
+# **照抄**的输出值（不是"对模型说的话"），把它判成回显等于把每条正常建议的领域名
+# 清掉 —— 判据必须放行它们（见 `test_category_values_are_legitimate_not_echo`）。
+POSITIVE_SCHEMA_SPECS = [
+    ("spec_full_advice", "具体的行动建议，1-2句话，精炼有力，必须结合用户的八字数据给出个性化理由"),
+    ("spec_full_timing", "最佳行动时间窗口，必须包含具体日期范围（如'2027年9月15日-10月15日'、"
+                         "'农历八月十五至九月初九'、'2027年立春到大暑'）"),
+    ("spec_advice_wealth", "具体的行动建议，结合八字五行的个性化分析"),
+    ("spec_timing_wealth", "最佳时间窗口，包含具体日期范围"),
+    ("spec_advice_love", "具体的行动建议，结合八字五行和神煞的个性化分析"),
+    ("spec_advice_health", "具体的行动建议，结合五行失衡的个性化健康分析"),
+    ("spec_advice_growth", "具体的行动建议，结合命局的长远发展建议"),
+    ("spec_serendipity", "你问的是[领域]，但你的命盘同时提示了其他重要信息。格式："
+                         "'顺便说一句（你可能没问但很重要）：' + 简要说明其他领域的好时机与"
+                         "需注意的风险（80字以内）。如果实在没有特别信息，输出空字符串。"),
+    ("spec_daily_tip", "一句今日小建议（30字以内）"),
+    ("spec_style_notes", "一句话总结用户命格特点和建议（30字以内）"),
+    ("spec_confidence", "high/medium/low"),
+]
+
+
+@pytest.mark.parametrize("case,text", POSITIVE_SCHEMA_SPECS,
+                         ids=[c for c, _ in POSITIVE_SCHEMA_SPECS])
+def test_schema_spec_originals_are_cleaned(case, text):
+    """**spec 原文**逐字回显 → 必须被清洗（这是 D 段存在的理由）。"""
+    assert is_schema_echo(text) is True, (case, schema_echo_hits(text))
+    assert scrub_schema_echo(text) == "", case
+
+
+def _prompt_schema_leaves(golden):
+    """从**渲染后的 prompt** 里抽出 schema 块的全部叶子字符串（不手抄）。"""
+    import json as _json
+    prompt = AdaptiveAdvisor()._build_prompt(golden, user_context="建议")
+    blk = re.search(r"```json\n(.*?)\n```", prompt, re.S).group(1)
+    obj = _json.loads(blk.replace("{{", "{").replace("}}", "}"))
+    leaves = []
+
+    def walk(o, path):
+        if isinstance(o, dict):
+            for k, v in o.items():
+                walk(v, path + [k])
+        elif isinstance(o, list):
+            for i, v in enumerate(o):
+                walk(v, path + [str(i)])
+        else:
+            leaves.append((".".join(path), o))
+    walk(obj, [])
+    return leaves
+
+
+def test_every_prompt_spec_value_is_detected(golden):
+    """**召回不变式（与 prompt 同步）**：schema 块里每个非 `category` 叶子值，
+    逐字回显时必须被判泄漏。
+
+    为什么要有这条：短规格漏判的根因是"正例只取了长变体"（实现者当时挑了恰好能
+    命中的那两条），**判据的真实覆盖面被高估**。本用例把覆盖面钉在**当前 prompt**
+    上 —— 以后谁往 schema 里加字段说明而判据跟不上，这里立刻打红，必须补信号或
+    补论证（而不是等到用户看见模板说明）。
+    """
+    leaves = _prompt_schema_leaves(golden)
+    assert len(leaves) >= 18, f"schema 叶子数异常（{len(leaves)}）—— prompt 结构变了？"
+    missed = [(p, v) for p, v in leaves
+              if not p.endswith("category") and not is_schema_echo(v)]
+    assert not missed, "以下 spec 原文回显**不会被判泄漏**（召回缺口）：\n" + \
+        "\n".join(f"  {p} :: {v}" for p, v in missed)
+
+
+def test_category_values_are_legitimate_not_echo(golden):
+    """**边界（显式钉住）**：`category` 的取值（事业/财运/感情/健康/个人成长）是
+    schema 要求模型**照抄**的合法输出值 —— 判据必须放行，否则每条正常建议的领域名
+    都会被清掉。审查列出的"19 条里 9 条不命中"中，**有 1 条属于这一类**（不是缺口）。
+    """
+    for cat in [v for p, v in _prompt_schema_leaves(golden) if p.endswith("category")]:
+        assert is_schema_echo(cat) is False, f"合法领域取值被误判为回显：{cat!r}"
+    for cat in LIFE_DOMAINS:
+        assert scrub_schema_echo(cat) == cat
+
+
+RESIDUAL_GAPS = [
+    # 缺逗号的**半句**（规格是 `最佳时间窗口，包含具体日期范围`，只回显后半句）
+    ("half_clause", "包含具体日期范围"),
+    # 同义改写（"包含"→"含"，非逐字）
+    ("paraphrase_han", "最佳时间窗口，含具体日期范围"),
+    # 只回显 advice 规格的**后半句**（丢了"具体的行动建议，"这个 spec 头）
+    ("half_advice", "结合八字五行的个性化分析"),
+]
+
+
+@pytest.mark.parametrize("case,text", RESIDUAL_GAPS, ids=[c for c, _ in RESIDUAL_GAPS])
+def test_residual_gaps_are_documented(case, text):
+    """**残留缺口（如实登记，不隐藏）**：非逐字回显（截断半句 / 同义改写）仍**不命中**。
+
+    为什么不补：这三条都**不是 spec 原文**，而是"像规格的自造文案"——
+    按形态设计的判据刻意不追同义改写（追下去就得把 `时间窗口`/`具体的行动建议`
+    升成强信号或堆词表，而 D 的误杀代价是**用户少一条真建议**，精度优先于召回；
+    控制方裁决见集成修复报告 §③）。本用例的作用是**防止后人误以为召回 100%**：
+    哪天真要覆盖它们，必须同时给出"误杀未上升"的实测，否则不许动。
+
+    注：`结合八字五行的个性化分析` 只带 1 条弱信号 → 被阈值（≥2）放行，是**故意的**。
+    """
+    assert is_schema_echo(text) is False, (case, schema_echo_hits(text))
+    assert scrub_schema_echo(text) == text, case
 
 
 # ============================================================
