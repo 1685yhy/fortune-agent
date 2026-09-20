@@ -232,9 +232,17 @@ class TestDotenvLoadingIsDeterministic:
     def test_single_file_run_does_not_silently_skip_glm_tests(self, tmp_path):
         """**决定性锁**：单文件跑 + `.env` 有 ZHIPU key → GLM 门控用例**不得 skip**。
 
-        用 canary key（无效）：用例会**真跑**（打到 GLM 拿 401 → 走兜底人设
-        gentle，仍在允许集合内 → 通过）。本用例只断言「门开了」：
+        用 canary key（无效）：用例会**真跑**（打到 GLM 拿 401 → 引擎走兜底
+        路径，断言字段仍在 → 通过）。本用例只断言「门开了」：
         既不是 skipped，且确实执行到了（passed 或 failed 都算执行过）。
+
+        ⚠️ 集成分支（batch2-k61）更正：原来点名的是
+        `tests/test_mood_detector.py::TestRealAPI::test_real_detection_flow`，
+        该文件已被 k62（`2a67833`）作为死模块删除 → 合并后子进程必然 ERROR。
+        替身为 `tests/test_adaptive_advisor.py::TestIntegration::
+        test_insight_field_in_integration`（k61 r8 实测同款两向），它**同形**：
+        真实 LLM 用例、`glm_route` 夹具、`ZHIPU_API_KEY` 门控（无 key 即 skip）。
+        本锁**不关心跑哪条用例**，只关心门控形态 —— 故断言逐字未动。
         """
         import subprocess
         import sys as _sys
@@ -247,8 +255,8 @@ class TestDotenvLoadingIsDeterministic:
         env["PYTHONPATH"] = os.pathsep.join([REPO, TESTS_DIR])
         proc = subprocess.run(
             [_sys.executable, "-m", "pytest",
-             os.path.join(REPO, "tests",
-                          "test_mood_detector.py::TestRealAPI::test_real_detection_flow"),
+             os.path.join(REPO, "tests", "test_adaptive_advisor.py")
+             + "::TestIntegration::test_insight_field_in_integration",
              "-q", "-p", "no:cacheprovider"],
             cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=300,
         )
