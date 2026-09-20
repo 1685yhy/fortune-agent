@@ -1,7 +1,7 @@
 {
  "note": "k58 r7 冻结期望值：由 scripts/k55_dream/freeze_fixture.py 生成；重新冻结 = 改口径，必须重新过审",
  "corpus": "k58_fixture_corpus.jsonl",
- "element_count": 26,
+ "element_count": 34,
  "formula_keys": [
   "梦见刀光,主破财",
   "梦见白石,主大凶",
@@ -528,9 +528,9 @@
    },
    "luck_raw": "中性",
    "luck": "中性",
-   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_evidence_raw": "corpus_same_scenario_formula_only",
    "gloss_raw": "梦见刀光，主破财（语料同场景判词）",
-   "gloss_evidence": "corpus_same_scenario",
+   "gloss_evidence": "corpus_same_scenario_formula_only",
    "gloss": "梦见刀光，主破财（传统说法，不代表吉凶；语料同场景判词）",
    "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
    "type": "中性类",
@@ -590,9 +590,9 @@
    },
    "luck_raw": "中性",
    "luck": "中性",
-   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_evidence_raw": "corpus_same_scenario_formula_only",
    "gloss_raw": "梦见青石，主大凶（语料同场景判词）",
-   "gloss_evidence": "corpus_same_scenario",
+   "gloss_evidence": "corpus_same_scenario_formula_only",
    "gloss": "梦见青石，主大凶（传统说法，不代表吉凶；语料同场景判词）",
    "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
    "type": "中性类",
@@ -621,9 +621,9 @@
    },
    "luck_raw": "中性",
    "luck": "中性",
-   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_evidence_raw": "corpus_same_scenario_formula_only",
    "gloss_raw": "梦见白石，主大凶（语料同场景判词）",
-   "gloss_evidence": "corpus_same_scenario",
+   "gloss_evidence": "corpus_same_scenario_formula_only",
    "gloss": "梦见白石，主大凶（传统说法，不代表吉凶；语料同场景判词）",
    "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
    "type": "中性类",
@@ -652,9 +652,9 @@
    },
    "luck_raw": "中性",
    "luck": "中性",
-   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_evidence_raw": "corpus_same_scenario_formula_only",
    "gloss_raw": "梦见黑石，主大凶（语料同场景判词）",
-   "gloss_evidence": "corpus_same_scenario",
+   "gloss_evidence": "corpus_same_scenario_formula_only",
    "gloss": "梦见黑石，主大凶（传统说法，不代表吉凶；语料同场景判词）",
    "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
    "type": "中性类",
@@ -797,6 +797,413 @@
    "head_sentences": 0,
    "sentences_sample": [
     "梦见黑玉，是不祥之兆"
+   ]
+  },
+  "乌檀": {
+   "counts": {
+    "ji": 5,
+    "xiong": 1,
+    "sentences": 6
+   },
+   "luck_raw": "吉多于凶",
+   "luck": "吉多于凶",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见乌檀，主吉（语料「梦见乌檀」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见乌檀，主吉（语料「梦见乌檀」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏吉、期待与安抚（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见乌檀,主吉",
+    "梦见乌檀,大吉",
+    "梦见乌檀,富贵",
+    "梦见乌檀,得财",
+    "梦见乌檀,恐有血光",
+    "梦见乌檀,有财"
+   ],
+   "df": {
+    "梦见乌檀,主吉": 1,
+    "梦见乌檀,大吉": 1,
+    "梦见乌檀,富贵": 1,
+    "梦见乌檀,得财": 1,
+    "梦见乌檀,恐有血光": 1,
+    "梦见乌檀,有财": 1
+   },
+   "usable_sentences": 6,
+   "head_sentences": 6,
+   "sentences_sample": [
+    "梦见乌檀，主吉",
+    "梦见乌檀，大吉",
+    "梦见乌檀，富贵",
+    "梦见乌檀，得财",
+    "梦见乌檀，恐有血光",
+    "梦见乌檀，有财"
+   ]
+  },
+  "白檀": {
+   "counts": {
+    "ji": 7,
+    "xiong": 2,
+    "sentences": 9
+   },
+   "luck_raw": "吉",
+   "luck": "吉",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见白檀，主吉（语料「梦见白檀」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见白檀，主吉（语料「梦见白檀」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏吉、期待与安抚（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见白檀,主吉",
+    "梦见白檀,吉利",
+    "梦见白檀,喜事",
+    "梦见白檀,大吉",
+    "梦见白檀,富贵",
+    "梦见白檀,得财",
+    "梦见白檀,恐有血光",
+    "梦见白檀,有财",
+    "梦见白檀,逢疾病"
+   ],
+   "df": {
+    "梦见白檀,主吉": 1,
+    "梦见白檀,吉利": 1,
+    "梦见白檀,喜事": 1,
+    "梦见白檀,大吉": 1,
+    "梦见白檀,富贵": 1,
+    "梦见白檀,得财": 1,
+    "梦见白檀,恐有血光": 1,
+    "梦见白檀,有财": 1,
+    "梦见白檀,逢疾病": 1
+   },
+   "usable_sentences": 9,
+   "head_sentences": 9,
+   "sentences_sample": [
+    "梦见白檀，主吉",
+    "梦见白檀，吉利",
+    "梦见白檀，喜事",
+    "梦见白檀，大吉",
+    "梦见白檀，富贵",
+    "梦见白檀，得财"
+   ]
+  },
+  "青檀": {
+   "counts": {
+    "ji": 4,
+    "xiong": 2,
+    "sentences": 6
+   },
+   "luck_raw": "吉",
+   "luck": "吉",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见青檀，主吉（语料「梦见青檀」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见青檀，主吉（语料「梦见青檀」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏吉、期待与安抚（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见青檀,主吉",
+    "梦见青檀,大吉",
+    "梦见青檀,得财",
+    "梦见青檀,恐有血光",
+    "梦见青檀,有财",
+    "梦见青檀,逢疾病"
+   ],
+   "df": {
+    "梦见青檀,主吉": 1,
+    "梦见青檀,大吉": 1,
+    "梦见青檀,得财": 1,
+    "梦见青檀,恐有血光": 1,
+    "梦见青檀,有财": 1,
+    "梦见青檀,逢疾病": 1
+   },
+   "usable_sentences": 6,
+   "head_sentences": 6,
+   "sentences_sample": [
+    "梦见青檀，主吉",
+    "梦见青檀，大吉",
+    "梦见青檀，得财",
+    "梦见青檀，恐有血光",
+    "梦见青檀，有财",
+    "梦见青檀，逢疾病"
+   ]
+  },
+  "乌锭": {
+   "counts": {
+    "ji": 5,
+    "xiong": 7,
+    "sentences": 12
+   },
+   "luck_raw": "凶多于吉",
+   "luck": "凶多于吉",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见乌锭，恐有血光（语料「梦见乌锭」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见乌锭，恐有血光（语料「梦见乌锭」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏凶、警惕与压力（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见乌锭,主丧事",
+    "梦见乌锭,主吉",
+    "梦见乌锭,主离别",
+    "梦见乌锭,多有损失",
+    "梦见乌锭,大吉",
+    "梦见乌锭,富贵",
+    "梦见乌锭,得财",
+    "梦见乌锭,恐有血光",
+    "梦见乌锭,有财",
+    "梦见乌锭,犯小人",
+    "梦见乌锭,逢疾病",
+    "梦见乌锭,遇官司"
+   ],
+   "df": {
+    "梦见乌锭,主丧事": 1,
+    "梦见乌锭,主吉": 1,
+    "梦见乌锭,主离别": 1,
+    "梦见乌锭,多有损失": 1,
+    "梦见乌锭,大吉": 1,
+    "梦见乌锭,富贵": 1,
+    "梦见乌锭,得财": 1,
+    "梦见乌锭,恐有血光": 1,
+    "梦见乌锭,有财": 1,
+    "梦见乌锭,犯小人": 1,
+    "梦见乌锭,逢疾病": 1,
+    "梦见乌锭,遇官司": 1
+   },
+   "usable_sentences": 12,
+   "head_sentences": 12,
+   "sentences_sample": [
+    "梦见乌锭，主丧事",
+    "梦见乌锭，主吉",
+    "梦见乌锭，主离别",
+    "梦见乌锭，多有损失",
+    "梦见乌锭，大吉",
+    "梦见乌锭，富贵"
+   ]
+  },
+  "白锭": {
+   "counts": {
+    "ji": 6,
+    "xiong": 8,
+    "sentences": 14
+   },
+   "luck_raw": "吉多于凶",
+   "luck": "吉多于凶",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见白锭，主吉（语料「梦见白锭」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见白锭，主吉（语料「梦见白锭」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "吉凶掺半、观望（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见白锭,主丧事",
+    "梦见白锭,主吉",
+    "梦见白锭,主离别",
+    "梦见白锭,吉利",
+    "梦见白锭,多有损失",
+    "梦见白锭,大吉",
+    "梦见白锭,富贵",
+    "梦见白锭,得财",
+    "梦见白锭,恐有血光",
+    "梦见白锭,有财",
+    "梦见白锭,犯小人",
+    "梦见白锭,逢疾病",
+    "梦见白锭,遇官司",
+    "梦见白锭,遭灾祸"
+   ],
+   "df": {
+    "梦见白锭,主丧事": 1,
+    "梦见白锭,主吉": 1,
+    "梦见白锭,主离别": 1,
+    "梦见白锭,吉利": 1,
+    "梦见白锭,多有损失": 1,
+    "梦见白锭,大吉": 1,
+    "梦见白锭,富贵": 1,
+    "梦见白锭,得财": 1,
+    "梦见白锭,恐有血光": 1,
+    "梦见白锭,有财": 1,
+    "梦见白锭,犯小人": 1,
+    "梦见白锭,逢疾病": 1,
+    "梦见白锭,遇官司": 1,
+    "梦见白锭,遭灾祸": 1
+   },
+   "usable_sentences": 14,
+   "head_sentences": 14,
+   "sentences_sample": [
+    "梦见白锭，主丧事",
+    "梦见白锭，主吉",
+    "梦见白锭，主离别",
+    "梦见白锭，吉利",
+    "梦见白锭，多有损失",
+    "梦见白锭，大吉"
+   ]
+  },
+  "青砖": {
+   "counts": {
+    "ji": 1,
+    "xiong": 4,
+    "sentences": 5
+   },
+   "luck_raw": "凶",
+   "luck": "凶",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见青砖，恐有血光（语料「梦见青砖」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见青砖，恐有血光（语料「梦见青砖」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "警示、焦虑与不安（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见青砖,主丧事",
+    "梦见青砖,得财",
+    "梦见青砖,恐有血光",
+    "梦见青砖,逢疾病",
+    "梦见青砖,遇官司"
+   ],
+   "df": {
+    "梦见青砖,主丧事": 1,
+    "梦见青砖,得财": 1,
+    "梦见青砖,恐有血光": 1,
+    "梦见青砖,逢疾病": 1,
+    "梦见青砖,遇官司": 1
+   },
+   "usable_sentences": 5,
+   "head_sentences": 5,
+   "sentences_sample": [
+    "梦见青砖，主丧事",
+    "梦见青砖，得财",
+    "梦见青砖，恐有血光",
+    "梦见青砖，逢疾病",
+    "梦见青砖，遇官司"
+   ]
+  },
+  "白砖": {
+   "counts": {
+    "ji": 2,
+    "xiong": 5,
+    "sentences": 7
+   },
+   "luck_raw": "凶多于吉",
+   "luck": "凶多于吉",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见白砖，恐有血光（语料「梦见白砖」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见白砖，恐有血光（语料「梦见白砖」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏凶、警惕与压力（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见白砖,主丧事",
+    "梦见白砖,主吉",
+    "梦见白砖,主离别",
+    "梦见白砖,得财",
+    "梦见白砖,恐有血光",
+    "梦见白砖,逢疾病",
+    "梦见白砖,遇官司"
+   ],
+   "df": {
+    "梦见白砖,主丧事": 1,
+    "梦见白砖,主吉": 1,
+    "梦见白砖,主离别": 1,
+    "梦见白砖,得财": 1,
+    "梦见白砖,恐有血光": 1,
+    "梦见白砖,逢疾病": 1,
+    "梦见白砖,遇官司": 1
+   },
+   "usable_sentences": 7,
+   "head_sentences": 7,
+   "sentences_sample": [
+    "梦见白砖，主丧事",
+    "梦见白砖，主吉",
+    "梦见白砖，主离别",
+    "梦见白砖，得财",
+    "梦见白砖，恐有血光",
+    "梦见白砖，逢疾病"
+   ]
+  },
+  "青锭": {
+   "counts": {
+    "ji": 2,
+    "xiong": 7,
+    "sentences": 9
+   },
+   "luck_raw": "凶",
+   "luck": "凶",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见青锭，恐有血光（语料「梦见青锭」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见青锭，恐有血光（语料「梦见青锭」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "警示、焦虑与不安（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见青锭,主丧事",
+    "梦见青锭,主吉",
+    "梦见青锭,主离别",
+    "梦见青锭,多有损失",
+    "梦见青锭,得财",
+    "梦见青锭,恐有血光",
+    "梦见青锭,犯小人",
+    "梦见青锭,逢疾病",
+    "梦见青锭,遇官司"
+   ],
+   "df": {
+    "梦见青锭,主丧事": 1,
+    "梦见青锭,主吉": 1,
+    "梦见青锭,主离别": 1,
+    "梦见青锭,多有损失": 1,
+    "梦见青锭,得财": 1,
+    "梦见青锭,恐有血光": 1,
+    "梦见青锭,犯小人": 1,
+    "梦见青锭,逢疾病": 1,
+    "梦见青锭,遇官司": 1
+   },
+   "usable_sentences": 9,
+   "head_sentences": 9,
+   "sentences_sample": [
+    "梦见青锭，主丧事",
+    "梦见青锭，主吉",
+    "梦见青锭，主离别",
+    "梦见青锭，多有损失",
+    "梦见青锭，得财",
+    "梦见青锭，恐有血光"
    ]
   },
   "石砧": {

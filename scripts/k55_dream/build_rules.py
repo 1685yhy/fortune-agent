@@ -772,7 +772,8 @@ def luck_polarity(luck: str) -> str:
 
 def same_scenario_gloss(el: str, sentences: dict, classics: dict,
                         head_sentences: dict = None,
-                        want_luck: str = "") -> tuple:
+                        want_luck: str = "",
+                        exclude_keys: set = None) -> tuple:
     """取**同场景**释义依据；取不到则诚实兜底。
 
     证据档次（从强到弱，写进 gloss_evidence 字段，可复核）：
@@ -786,6 +787,12 @@ def same_scenario_gloss(el: str, sentences: dict, classics: dict,
     并把 luck 带偏。
     r3 I-B：再加**极性一致性**——优先取与聚合 luck 同向的句子，避免
     「传统倾向=吉多于凶」与「释义依据=…是凶兆」同时出现在一行里打对台。
+
+    r9（控制方裁决④）：`exclude_keys` = **公式句**（站点模板/大批量转载）的折叠键集合。
+    我们已裁定「模板句不构成关于该元素的**证据**」，那就不该把它当**释义依据**再展示一次
+    （换个出口把同一个错误印象再给一次）。**优先取非公式句**；只有在池里**确实没有**
+    非公式句时才退化，并在 `gloss_evidence` 上标注 `…_formula_only` 档次，
+    免得用户以为它是元素专属依据。**计数口径不受影响**（展示与计数继续分离）。
     """
     want_luck_pol = luck_polarity(want_luck)
     def pick(pool, kind, tag):
@@ -828,11 +835,24 @@ def same_scenario_gloss(el: str, sentences: dict, classics: dict,
     # pick 内部按「同向 > 无极性 > 反向」排。这样当 head 池只有反向句、而同场景池
     # 有同向句时，能取到同向句（`猫`：head 是吉向句、同场景池有「见猫者，皆主不祥」
     # 这类凶向句 —— 分别挑池会先返回吉向的 head 句，用户看到的就是反向）。
+    def _no_formula(counter: Counter) -> Counter:
+        if not exclude_keys:
+            return counter
+        return Counter({k: v for k, v in counter.items()
+                        if SENTENCE_KEY_FOR_POOL(k) not in exclude_keys})
+
+    head_pool = _no_formula((head_sentences or {}).get(el, Counter()))
+    same_pool = _no_formula(sentences.get(el, Counter()))
+    # 退化判定：过滤后**两池都空**，但未过滤时有候选 → 只能用公式句，标注档次
+    degraded = (exclude_keys
+                and not head_pool and not same_pool
+                and (bool((head_sentences or {}).get(el)) or bool(sentences.get(el))))
+    if degraded:
+        head_pool = (head_sentences or {}).get(el, Counter())
+        same_pool = sentences.get(el, Counter())
     candidates = []
-    for pool, kind, tag in (((head_sentences or {}).get(el, Counter()), "head_entry",
-                             f"语料「梦见{el}」词条原文"),
-                            (sentences.get(el, Counter()), "corpus_same_scenario",
-                             "语料同场景判词")):
+    for pool, kind, tag in ((head_pool, "head_entry", f"语料「梦见{el}」词条原文"),
+                            (same_pool, "corpus_same_scenario", "语料同场景判词")):
         got = pick(pool, kind, tag)
         if got:
             candidates.append(got)
@@ -841,8 +861,9 @@ def same_scenario_gloss(el: str, sentences: dict, classics: dict,
     if want_luck_pol:
         for gloss, kind in candidates:
             if sentence_polarity(gloss) == want_luck_pol:
-                return gloss, kind
-    return candidates[0]
+                return gloss, (kind + "_formula_only" if degraded else kind)
+    gloss, kind = candidates[0]
+    return gloss, (kind + "_formula_only" if degraded else kind)
 
 
 # 吉凶语义字：fallback（无同场景依据）的规则不得带这类「象征词」——
@@ -886,6 +907,12 @@ MAX_MINORITY_FOR_STRONG = 2
 # 有任何一条同向反例，仍须走 MIN_SAMPLE_FOR_STRONG=5 + MAX_MINORITY=2 的老路。
 MIN_UNANIMOUS_FOR_STRONG = 3
 
+# 比值档阈（r9 从字面量提为常量，**调用时读取**）：吉向占比 r = n_ji / tot
+RATIO_BIG = 0.8        # r ≥ 0.8 → 「大吉」（仍需 tot≥5 且零反例），否则「吉多于凶」
+RATIO_JI = 0.62        # r ≥ 0.62 → 「吉」（强档）否则「吉多于凶」
+RATIO_JI_MILD = 0.42   # r ≥ 0.42 → 「吉多于凶」
+RATIO_XIONG = 0.25     # r ≥ 0.25 → 「凶多于吉」；r < 0.25 → 「凶」（强档）否则「凶多于吉」
+
 
 def luck_from_counts(n_ji: int, n_xiong: int) -> str:
     """真实语料吉/凶判词计数 → 吉凶基线（与既有 DREAM_LUCK_RANK 词表一致）。
@@ -910,20 +937,23 @@ def luck_from_counts(n_ji: int, n_xiong: int) -> str:
     if abs(n_ji - n_xiong) <= 1 and tot < 10:
         return "中性"
     r = n_ji / tot
+    # 比值档阈（r9）：**模块常量、调用时读取** —— 与 r8 的教训一致：写成字面量或
+    # 参数默认值时，「调阈值」是假旋钮（改不动、也测不出）。夹具对这四个阈值
+    # 各有两侧语料级探针（见 tests/test_k58_fixture_pipeline.py）。
     # 强档条件（r4）：样本足够 **且** 反向句 ≤2（近似一致）。
     # 依据：控制方裁决一（孔雀 12:4 只给温和档——4 条反例不能被忽略）与
     # 已认可的 大蛇 6:1→大吉（仅 1 条反例）——两者比例相近，差别在**反例条数**。
     minority = min(n_ji, n_xiong)
     strong = (tot >= MIN_SAMPLE_FOR_STRONG and minority <= MAX_MINORITY_FOR_STRONG) or \
              (minority == 0 and tot >= MIN_UNANIMOUS_FOR_STRONG)
-    if r >= 0.8:
+    if r >= RATIO_BIG:
         # 「大吉」是**极端**断言：零反例条款不放宽它 —— 仍需唯一句 ≥5 且零反例
         return "大吉" if (tot >= MIN_SAMPLE_FOR_STRONG and minority == 0) else "吉多于凶"
-    if r >= 0.62:
+    if r >= RATIO_JI:
         return "吉" if strong else "吉多于凶"
-    if r >= 0.42:
+    if r >= RATIO_JI_MILD:
         return "吉多于凶"
-    if r >= 0.25:
+    if r >= RATIO_XIONG:
         return "凶多于吉"
     return "凶" if strong else "凶多于吉"
 
@@ -1160,7 +1190,8 @@ def main() -> int:
         # 聚合词频给出的方向 → 用它作为「想要的方向」去挑同向句（r3 I-B）
         luck = luck_from_counts(ji[el], xiong[el])
         gloss, ev_kind = same_scenario_gloss(el, sentences, classics,
-                                             head_sentences, want_luck=luck)
+                                             head_sentences, want_luck=luck,
+                                             exclude_keys=formula)
         # 组装层（**单点**：main 与冻结夹具共用，见 assemble_rule_fields 注释）
         _f = assemble_rule_fields(el, cov, ji[el], xiong[el], luck, gloss, ev_kind,
                                   luck_basis, ptype, syms)
