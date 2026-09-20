@@ -258,3 +258,82 @@ class TestDotenvLoadingIsDeterministic:
         )
         assert ("1 passed" in out) or ("1 failed" in out), \
             "用例既没通过也没失败 —— 没真的执行：\n" + out[-800:]
+
+
+# ══════════════════════════════════════════════════════════════════
+# 6) r5（审查整改）：I3 回退面入 pin / I4 数据路径隔离
+# ══════════════════════════════════════════════════════════════════
+
+class TestI3LlmKeyFallbackSurface:
+    """I3：`resolve_llm_api_key()` 的**回退面**（`ANTHROPIC_API_KEY`）必须一起 pin。
+
+    不 pin 的话，"测试进程不持有生产 LLM key"只是**名义上**成立：DEEPSEEK 为空时
+    会回退到 ANTHROPIC，而守卫的 pin 层绕过了；并且那条锁在**带该变量的机器上假红**
+    （审查者实测 1 failed / 14 passed；`env -u ANTHROPIC_API_KEY` 后 15 passed）。
+    本机宿主环境**确实带** `ANTHROPIC_API_KEY`（Claude Code 自带）→ 这些用例能跑通
+    本身就是"带该变量的机器不再假红"的验收。
+    """
+
+    def test_anthropic_key_is_pinned(self):
+        assert "ANTHROPIC_API_KEY" in TEST_ENV_PINS
+        assert ENV_PINS_AT_IMPORT["ANTHROPIC_API_KEY"] == ""
+
+    def test_resolver_cannot_fall_back(self):
+        """两个 key 都取不到 → 解析结果必为空（回退面已封）。"""
+        from src.llm.client import resolve_llm_api_key
+        assert resolve_llm_api_key() == ""
+        assert resolve_llm_api_key(allow_anthropic_fallback=True) == ""
+        assert resolve_llm_api_key(allow_anthropic_fallback=False) == ""
+
+    def test_deepseek_absence_lock_holds_with_anthropic_in_host_env(self):
+        """**验收**：宿主带 `ANTHROPIC_API_KEY` 时，那条 DeepSeek 锁不得假红。"""
+        import os as _os
+        assert _os.environ.get("ANTHROPIC_API_KEY") == "", \
+            "宿主变量漏进来了（pin 未生效）→ 会在带该变量的机器上假红"
+        from src.llm.client import resolve_llm_api_key
+        assert resolve_llm_api_key() == ""
+
+
+class TestI4DataPathIsolation:
+    """I4：`VECTORDB_DIR` / `FORTUNE_DB_PATH` / `FAISS_INDEX_DIR` 必须 pin 到**沙箱**。
+
+    这三个键的**代码默认值就是生产路径** → pin 成空值等于没 pin（r3 的
+    `FAISS_INDEX_DIR` pin 就是这种空操作）。实测后果：`test_engine_run_comparison`
+    → `evidence.py:41` / `baseline.py:47` 会真的打开生产向量库并 bump
+    `chroma.sqlite3` 的 mtime（审查者实测 11:12:37）。
+    """
+
+    def test_path_keys_are_sandboxed(self):
+        import os as _os
+        from conftest import TEST_FAISS_DIR, TEST_VECTORDB_DIR
+        assert _os.environ["VECTORDB_DIR"] == TEST_VECTORDB_DIR
+        assert _os.environ["FAISS_INDEX_DIR"] == TEST_FAISS_DIR
+        assert _os.environ["FORTUNE_DB_PATH"].startswith(str(Path(TEST_FAISS_DIR).parent))
+
+    def test_settings_do_not_point_at_production(self):
+        """**结构断言**：settings 的三个路径都不得落在生产数据根下。"""
+        from src.config import load_settings
+        s = load_settings()
+        prod_roots = k61conftest.PROD_DATA_ROOTS
+        for name, value in (("vectordb_dir", s.vectordb_dir),
+                            ("faiss_index_dir", s.faiss_index_dir),
+                            ("db_path", s.db_path)):
+            text = str(value)
+            for root in prod_roots:
+                assert not text.startswith(root), f"{name} 仍指向生产：{text}"
+
+    def test_prod_data_guard_installed(self, _k61_prod_data_guard):
+        """生产数据守卫是 autouse（本用例不做安装动作却拿到它）。"""
+        assert k61conftest.PROD_DATA_FILES, "被监视的生产数据文件清单为空"
+
+    def test_evidence_uses_settings_not_hardcoded_prod_path(self):
+        """`evidence.py` / `baseline.py` 的改造点读 **settings**（故 pin 即隔离）。"""
+        import inspect
+        from src.engine import baseline, evidence
+        for mod in (evidence, baseline):
+            src = inspect.getsource(mod)
+            assert "vectordb_dir" in src, mod.__name__
+            assert "/mnt/d/fortune-data" not in src, \
+                f"{mod.__name__} 里出现了硬编码生产路径"
+            assert "/home/a/data" not in src, \
+                f"{mod.__name__} 里出现了硬编码生产路径"

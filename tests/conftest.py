@@ -58,6 +58,7 @@ import socket
 import subprocess
 import tempfile
 import threading
+import weakref
 
 import pytest
 
@@ -91,7 +92,6 @@ TEST_ENV_PINS = {
                        "使配额/付费墙断言静默走错分支（仓内已有 3 处散落补丁在绕它）",
     "DEV_OPENID": "把开发态 openid 钉死成部署值（src/api/user.py 的 dev 身份）",
     "DEV_TOKEN_ENDPOINT": "dev 造令牌端点的开关；生产若被误改成 1，测试进程会带上该后门",
-    "FAISS_INDEX_DIR": "生产索引目录；pin 空 = 用代码默认（实测与部署值同值，零行为差异）",
     "LOG_LEVEL": "生产日志级别；pin 空 = 代码默认 INFO（src/logging_config.py 的兜底语义）",
     "JWT_SECRET_KEY": "生产签名密钥：测试必须自备，不得继承（否则用生产密钥签发/验签）",
     "ENCRYPTION_KEY": "生产加密密钥：测试必须自备，不得继承（否则用生产密钥加解密用户数据）",
@@ -102,6 +102,9 @@ TEST_ENV_PINS = {
     "WECHAT_SUBSCRIBE_TEMPLATE_ID": "生产订阅消息模板：测试不得继承（会真发订阅消息）",
     "MIDAS_APP_KEY": "生产米大师密钥：测试不得继承（涉及真实支付通道）",
     "MIDAS_OFFER_ID": "生产米大师商品号：测试不得继承（涉及真实支付商品）",
+    "ANTHROPIC_API_KEY": "k61 r5（I3）：`resolve_llm_api_key()` 的**回退面** —— DEEPSEEK 为空时"
+                         "会回退到它。不 pin 掉的话「测试进程不持有生产 LLM key」只是**名义上**成立"
+                         "（带该变量的机器上，守卫的 pin 层被绕过），而且那条锁会**假红**",
     "DEEPSEEK_API_KEY": "付费生产模型密钥：测试一律不得持有（k61 红线）。"
                         "pin 掉后「测试进程拿到生产 DeepSeek key」在**结构上不可能**，"
                         "守卫（DeepSeekEgressBlocked）退为兜底；"
@@ -115,6 +118,30 @@ TEST_ENV_NOT_PINNED = {
     "PUBLIC_BASE_URL": "协调方指示：仅登记、由独立审查者核查其真实影响后裁决，"
                        "本批**不动**（pin 它会掩盖生产值，妨碍那次核查）",
 }
+
+#: k61 r5（I4）：**路径类**配置必须 pin 到**沙箱目录**，而不是 pin 成空值 ——
+#: 因为这三个键的**代码默认值就是生产路径**（`/mnt/d/fortune-data/...`），
+#: pin 成空值等于没 pin（r3 的 `FAISS_INDEX_DIR` pin 就是这种"空操作"）。
+#: 实测后果：`test_engine_run_comparison` → `evidence.py:41` / `baseline.py:47`
+#: 会**真的打开生产向量库**并 bump 其 SQLite 的 mtime（审查者 11:12:37 实测）。
+TEST_DATA_DIR = tempfile.mkdtemp(prefix="k61_test_data_")
+TEST_VECTORDB_DIR = os.path.join(TEST_DATA_DIR, "vectordb_v2")
+TEST_FAISS_DIR = os.path.join(TEST_DATA_DIR, "faiss")
+TEST_DB_DIR = os.path.join(TEST_DATA_DIR, "userdata")
+for _d in (TEST_VECTORDB_DIR, TEST_FAISS_DIR, TEST_DB_DIR):
+    os.makedirs(_d, exist_ok=True)
+atexit.register(shutil.rmtree, TEST_DATA_DIR, ignore_errors=True)
+
+#: 路径类键 → 沙箱目录（**不是**空串；见上注）。
+TEST_ENV_SANDBOX_PATHS = {
+    "VECTORDB_DIR": ("向量库目录。代码默认 = 生产目录 → 原样跑会让 evidence/baseline "
+                     "真的打开生产向量库（只读，但会 bump chroma.sqlite3 的 mtime）"),
+    "FAISS_INDEX_DIR": "FAISS 索引目录。代码默认 = 生产目录（原 pin 成空值是**空操作**）",
+    "FORTUNE_DB_PATH": "用户数据库路径。代码默认 = 生产目录",
+}
+
+#: 生产数据根（I4 守卫据此断言"跑测试不打开生产向量库"）。
+PROD_DATA_ROOTS = ("/mnt/d/fortune-data", "/home/a/data")
 
 #: 会话级临时目录：把 `UserMemory()` 的默认目录（repo 内 `data/memory/`）重定向出去。
 #: 这是 `UserMemory` 自己文档化的隔离口（`USER_MEMORY_DIR`，「测试隔离用」）。
@@ -134,6 +161,10 @@ def _pin_test_env() -> None:
     for key in TEST_ENV_PINS:
         os.environ[key] = ""
     os.environ["USER_MEMORY_DIR"] = TEST_MEMORY_DIR
+    # I4：路径类 pin 到沙箱（不能 pin 空值 —— 空值会落到代码默认 = 生产路径）
+    os.environ["VECTORDB_DIR"] = TEST_VECTORDB_DIR
+    os.environ["FAISS_INDEX_DIR"] = TEST_FAISS_DIR
+    os.environ["FORTUNE_DB_PATH"] = os.path.join(TEST_DB_DIR, "fortune.db")
 
 
 _pin_test_env()
@@ -222,6 +253,51 @@ class RepoDirtDetected(BaseException):
 #: 「测试模块在 import 时写脏文件」也能覆盖）。守卫据此做增量比对；
 #: 锁用例 `tests/test_k61_repo_hygiene.py` 也读它。
 SESSION_START_DIRTY = _scoped_dirty()
+
+
+#: k61 r5（I4）：**生产数据文件**（代码默认路径）—— 会话期间 mtime 不得变化。
+#: 只看代码默认的那套生产路径（`/mnt/d/fortune-data`）；**不看** `/home/a/data`
+#: （那是**正在运行的生产服务**自己的库，生产流量随时会写它 → 看了会假红）。
+#: 目的：结构性地证明"跑测试不打开生产向量库/生产库"（审查者实测
+#: `test_engine_run_comparison` → evidence.py 曾打开 `/mnt/d/fortune-data/vectordb_v2`
+#: 并 bump chroma.sqlite3 的 mtime）。
+PROD_DATA_FILES = (
+    "/mnt/d/fortune-data/vectordb_v2/chroma.sqlite3",
+    "/mnt/d/fortune-data/userdata/fortune.db",
+    "/mnt/d/fortune-data/faiss/docs.db",
+)
+
+
+def _prod_data_mtimes() -> dict:
+    out = {}
+    for path in PROD_DATA_FILES:
+        try:
+            out[path] = os.stat(path).st_mtime_ns
+        except OSError:
+            out[path] = None
+    return out
+
+
+class ProdDataTouched(BaseException):
+    """测试会话碰了生产数据文件（r5 / I4）。同样 `BaseException`，吞不掉。"""
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _k61_prod_data_guard():
+    """会话级：生产数据文件（代码默认路径）的 mtime 在会话期间**不得变化**。"""
+    before = _prod_data_mtimes()
+    try:
+        yield
+    finally:
+        after = _prod_data_mtimes()
+        touched = [p for p in before if before[p] != after[p]]
+        if touched:
+            raise ProdDataTouched(
+                "[k61 生产数据守卫] 测试会话碰了生产数据文件（mtime 变化）：\n"
+                + "\n".join(f"  {p}" for p in touched)
+                + "\n处置：让被测代码走沙箱目录（conftest 已 pin VECTORDB_DIR / "
+                  "FORTUNE_DB_PATH / FAISS_INDEX_DIR 到测试目录），不要打开生产库。"
+            )
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -318,6 +394,15 @@ def _derived_search_hosts() -> dict:
 PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
                   "https_proxy", "http_proxy", "all_proxy")
 
+#: **不透明代理** scheme（k61 r5 的 C1）：`https://` 代理把 CONNECT 目标藏在 **TLS
+#: 之内**（`socks*` 同理藏在握手之后）→ 我们**唯一的判据被藏起来了**。
+#: 处置（控制方定的方向）：**fail-closed** —— 走这类代理的连接一律拒绝，
+#: 因为"看不见目标"就没有"看得见再判"的余地。
+#: （r3 的 D 层明文扫描对这类代理**天然无效**：审查者实测
+#:   `HTTPS_PROXY=https://…` 时 `requests` 把 `CONNECT api.deepseek.com:443`
+#:   送出而守卫零反应 —— 报告里"隧道目标同样受判"对加密代理不成立。）
+OPAQUE_PROXY_SCHEMES = ("https", "socks", "socks5", "socks5h", "socks4", "socks4a")
+
 #: `glm_route` 夹具强制使用的免费模型。
 FREE_LLM_MODEL = "glm-4-flash"
 
@@ -355,22 +440,26 @@ def _is_allowed_host(host) -> bool:
     """主机名是否放行（后缀匹配，允许子域）：静态白名单 + 代码声明的搜索通道。
 
     匹配规则：`h == 条目` 或 `h` 是条目的子域（`h.endswith("." + 条目)`）。
-    条目本身也可能带 `www.`；派生表会额外登记「去掉 www.」的形式，
-    这样 `www.so.com` 的条目同时覆盖 `so.com` / `m.so.com`（302 兄弟主机）。
+
+    ⚠️ k61 r5（I1）：**绝不允许"由待判主机名反向自匹配"**。r3 曾在这里写过
+    `if h.startswith("www."): names.append(h[4:])` —— 那是一条**过宽的默认放行**：
+    任意 `www.*` 主机都被判在白名单（`www.evil.com` / `www.baidu.com.evil.tld` /
+    `WWW.Evil.COM` 全 True），并**污染 IP 学习集**（学到 `www.x → 1.2.3.4` 之后，
+    `connect(("1.2.3.4", 443))` 直接放行）。"去掉 www." 的等价形式**只能**在
+    **白名单条目**那一侧派生（见 `_derived_search_hosts()`：条目是 `www.so.com`
+    时额外登记 `so.com`），待判主机名不得反过来扩大白名单。
     """
     h = str(host or "").lower().rstrip(".")
     if not h:
         return False
     names = list(ALLOWED_EGRESS_HOSTS) + list(_derived_search_hosts())
-    if h.startswith("www."):
-        names.append(h[4:])          # 反向：条目是 www.x 时，x 也要能匹配到
     return any(h == a or h.endswith("." + a) for a in names)
 
 
-def _proxy_hosts() -> set:
-    """当前环境变量里配置的代理主机名（代理是**通道**，放行；目标由 CONNECT 行判）。"""
+def _parse_proxy_env() -> list:
+    """解析代理环境变量 → [(scheme, host, port), …]（scheme 已小写）。"""
     import urllib.parse
-    hosts = set()
+    out = []
     for var in PROXY_ENV_VARS:
         raw = os.environ.get(var, "").strip()
         if not raw:
@@ -378,12 +467,24 @@ def _proxy_hosts() -> set:
         if "://" not in raw:
             raw = "http://" + raw
         try:
-            h = urllib.parse.urlparse(raw).hostname
+            u = urllib.parse.urlparse(raw)
         except Exception:
-            h = None
-        if h:
-            hosts.add(h.lower())
-    return hosts
+            continue
+        if u.hostname:
+            out.append(((u.scheme or "http").lower(), u.hostname.lower(), u.port))
+    return out
+
+
+def _proxy_hosts() -> set:
+    """当前环境变量里配置的代理主机名（明文代理是**通道**，放行；目标由 CONNECT 行判）。"""
+    return {h for scheme, h, _ in _parse_proxy_env()
+            if scheme not in OPAQUE_PROXY_SCHEMES}
+
+
+def _opaque_proxy_endpoints() -> set:
+    """**不透明代理**的 {主机名, 端口}（TLS/SOCKS：目标看不见 → fail-closed）。"""
+    return {(h, p) for scheme, h, p in _parse_proxy_env()
+            if scheme in OPAQUE_PROXY_SCHEMES}
 
 
 def _is_non_public_ip(ip: str) -> bool:
@@ -426,6 +527,85 @@ class _EgressGuard:
         self._lock = threading.Lock()
         #: 白名单主机解析出的 IP（会话内学习）——C 层据此放行合法目标。
         self._allowed_ips = set()
+        #: 不透明代理主机解析出的 IP（C1：这些 IP:port 的连接一律 fail-closed）。
+        self._opaque_proxy_ips = set()
+        #: C2：按 fd 键控的写入前缀缓冲（socket 对象无 __dict__，故用 fd）
+        self._write_bufs = {}
+        #: 已知 socket fd（`os.write` 钩子据此判断"这是不是网络写"）
+        self._socket_fds = set()
+        self._sock_fd = weakref.WeakKeyDictionary()   # socket → fd
+        self._fd_owner = {}                            # fd → socket（weakref，查复用）
+
+    # ── C2：fd 键 ──
+    def _sock_key(self, sock):
+        """取 socket 的 fd 作为缓冲键（并登记为网络 fd）。
+
+        ⚠️ **fd 会被复用**：同一个 fd 可能先后属于不同 socket（对象销毁后 fd 归还）。
+        若不复位，前一个连接的累积缓冲会串到新连接上 —— 实测表现为**顺序相关**的
+        假红/漏判（k61 r5 自测踩到：同一测试单独跑绿、与同类的上一个用例一起跑就红）。
+        故：fd 的属主变了就**清空**该 fd 的缓冲。
+        """
+        try:
+            fd = self._sock_fd.get(sock)
+            if fd is None:
+                fd = sock.fileno()
+                self._sock_fd[sock] = fd
+                self._socket_fds.add(fd)
+            owner = self._fd_owner.get(fd)
+            if owner is not sock:
+                self._fd_owner[fd] = sock
+                with self._lock:
+                    self._write_bufs.pop(fd, None)
+            return fd
+        except Exception:
+            return None
+
+    def _is_socket_fd(self, fd) -> bool:
+        """该 fd 是不是**真的** socket（权威判定；避免把文件写当网络写扫）。"""
+        try:
+            import stat as _stat
+            return _stat.S_ISSOCK(os.fstat(fd).st_mode)
+        except Exception:
+            return False
+
+    def _reset_write_buf(self, sock):
+        """新连接建立时重置该 fd 的写缓冲（fd 会被复用，避免串味）。"""
+        key = self._sock_key(sock)
+        if key is None:
+            return
+        with self._lock:
+            self._write_bufs.pop(key, None)
+
+    # ── C1：不透明代理判定 ──
+    def _is_opaque_proxy_target(self, host, port=None) -> bool:
+        """目标是否为**不透明代理**端点（TLS/SOCKS：目标看不见 → fail-closed）。"""
+        ends = _opaque_proxy_endpoints()
+        if not ends:
+            return False
+        h = str(host or "").lower()
+        for p_host, p_port in ends:
+            if port is not None and p_port is not None and int(port) != int(p_port):
+                continue
+            if h == p_host:
+                return True
+            with self._lock:
+                if h in self._opaque_proxy_ips:      # 该 IP 是从代理主机解析出来的
+                    return True
+        return False
+
+    def _note_opaque_proxy_ip(self, host, sockaddr):
+        try:
+            ends = _opaque_proxy_endpoints()
+            if not ends:
+                return
+            ip = sockaddr[0] if isinstance(sockaddr, (tuple, list)) else sockaddr
+            if ip is None:
+                return
+            if any(str(host or "").lower() == p_host for p_host, _ in ends):
+                with self._lock:
+                    self._opaque_proxy_ips.add(str(ip))
+        except Exception:
+            pass
 
     # ── 记录 ──
     def _trip(self, where: str, host: str, extra: str = "",
@@ -471,12 +651,16 @@ class _EgressGuard:
         self._orig_connect_ex = socket.socket.connect_ex
         self._orig_send = socket.socket.send
         self._orig_sendall = socket.socket.sendall
+        self._orig_sendmsg = socket.socket.sendmsg
+        self._orig_os_write = os.write
         socket.getaddrinfo = _guard_getaddrinfo
         socket.create_connection = _guard_create_connection
         socket.socket.connect = _guard_connect
         socket.socket.connect_ex = _guard_connect_ex
         socket.socket.send = _guard_send
         socket.socket.sendall = _guard_sendall
+        socket.socket.sendmsg = _guard_sendmsg
+        os.write = _guard_os_write
         try:
             import httpx
         except Exception:  # pragma: no cover - httpx 是硬依赖，走不到
@@ -497,30 +681,50 @@ class _EgressGuard:
         socket.socket.connect_ex = self._orig_connect_ex
         socket.socket.send = self._orig_send
         socket.socket.sendall = self._orig_sendall
+        socket.socket.sendmsg = self._orig_sendmsg
+        os.write = self._orig_os_write
         if getattr(self, "_httpx", None) is not None:
             self._httpx.HTTPTransport.handle_request = self._orig_httpx_sync
             self._httpx.AsyncHTTPTransport.handle_async_request = self._orig_httpx_async
         self._orig_getaddrinfo = None
 
     # ── D 层：明文请求头扫描（代理 CONNECT / Host / 绝对 URI）──
-    def scan_payload(self, sock, data: bytes):
-        """扫**以请求头开头**的写（TLS 之前的明文部分），找真实目标主机。
+    #: 每个 socket（按 fd 键控）已累积的写入前缀（k61 r5 的 C2）。
+    #: r3 只看"单块写的前 64 字节像不像请求头" → **分片写可绕过**
+    #: （审查者实测：分片 / memoryview / sendmsg / os.write 四种全部把
+    #:  `CONNECT api.deepseek.com:443` 送出而守卫静默）。改为**跨块累积判定**：
+    #: 只要累积前缀"看起来以请求头开头"，就对累积内容做目标判定。
+    _WRITE_BUF_CAP = 4096
 
-        只扫"看起来是请求头起始"的写（`CONNECT `/`GET `/…/`Host:`），**不扫 body**：
-        body 里出现 `http://…` 是常见内容（如提示词/JSON 载荷），扫 body 会假红。
-        每次这样的写都扫（不只首包）—— 明文代理的 keep-alive 连接上，
-        第二个请求头同样是新的目标，必须一起判。
+    def scan_payload(self, sock, data, fd=None):
+        """跨块累积判定：把写入追加进该连接的缓冲，再判**累积前缀**。
+
+        - 只判"累积前缀以请求头开头"的连接（`CONNECT `/`GET `/…/`Host:`）：
+          不判 body，避免载荷类用例假红（有专门用例）。
+        - **跨块**：分片写（`send(b"CON")` + `send(b"NECT …")`）累积后照样命中。
+        - `memoryview`/`bytearray` 一并归一化为 bytes（r3 只认 bytes/bytearray → 漏）。
+        - 缓冲按 **fd** 键控，`connect` 时重置（fd 会被复用时避免串味）。
         """
         try:
-            head = bytes(data[:64]).lstrip()
+            payload = bytes(data)
         except Exception:
             return
-        if not _REQUEST_HEAD_RE.match(head.decode("latin-1", "replace")):
+        if not payload:
             return
-        try:
-            text = bytes(data[:2048]).decode("latin-1", "replace")
-        except Exception:
+        key = fd if fd is not None else self._sock_key(sock)
+        if key is None:
             return
+        with self._lock:
+            buf = self._write_bufs.get(key)
+            if buf is None:
+                buf = bytearray()
+                self._write_bufs[key] = buf
+            if len(buf) < self._WRITE_BUF_CAP:
+                buf.extend(payload[: self._WRITE_BUF_CAP - len(buf)])
+            head = bytes(buf[:64]).lstrip()
+            if not _REQUEST_HEAD_RE.match(head.decode("latin-1", "replace")):
+                return
+            text = bytes(buf).decode("latin-1", "replace")
         for line in text.split("\r\n")[:8]:
             target = _target_host_in_line(line)
             if not target:
@@ -596,6 +800,7 @@ def _guard_getaddrinfo(host, *a, **kw):
     for info in infos or []:
         try:
             _GUARD._learn_allowed_ip(host, info[0], info[4])
+            _GUARD._note_opaque_proxy_ip(host, info[4])
         except Exception:
             continue
     return infos
@@ -610,11 +815,13 @@ def _guard_create_connection(address, *a, **kw):
 
 def _guard_connect(sock, address, *a, **kw):
     _guard_check_address("socket.socket.connect", address)
+    _GUARD._reset_write_buf(sock)          # C2：新连接 → 重置写缓冲
     return _GUARD._orig_connect(sock, address, *a, **kw)
 
 
 def _guard_connect_ex(sock, address, *a, **kw):
     _guard_check_address("socket.socket.connect_ex", address)
+    _GUARD._reset_write_buf(sock)
     return _GUARD._orig_connect_ex(sock, address, *a, **kw)
 
 
@@ -624,8 +831,19 @@ def _guard_check_address(where, address):
     if ip is None:
         return
     ip = str(ip)
+    port = address[1] if isinstance(address, (tuple, list)) and len(address) > 1 else None
     if _is_blocked(ip):
         _GUARD._trip(where, ip)
+    if _GUARD._is_opaque_proxy_target(ip, port):
+        _GUARD._trip(
+            where, f"{ip}:{port}",
+            extra="  判据: 目标是**不透明代理**（scheme ∈ "
+                  f"{', '.join(OPAQUE_PROXY_SCHEMES)}）—— 代理之下的真实目标被 TLS/SOCKS "
+                  "握手藏住，测试进程**无从判别**，故 fail-closed。\n",
+            exc=PublicEgressBlocked,
+            rule="测试进程对**不透明代理**一律 fail-closed：加密/SOCKS 代理把唯一判据"
+                 "（CONNECT 目标）藏起来了，看不见就无法判 → 拒绝。"
+                 "若确需走代理，请改用**明文** `http://` 代理（CONNECT 行可判）。")
     if not _GUARD._ip_allowed(ip):
         _GUARD._trip(where, ip, exc=PublicEgressBlocked,
                      rule="测试不得连接白名单外的**公网地址**（这条按解析后的 IP 判定，"
@@ -635,7 +853,7 @@ def _guard_check_address(where, address):
 
 def _guard_send(sock, data, *a, **kw):
     try:
-        if isinstance(data, (bytes, bytearray)):
+        if isinstance(data, (bytes, bytearray, memoryview)):
             _GUARD.scan_payload(sock, data)
     except EgressBlocked:
         raise
@@ -646,13 +864,44 @@ def _guard_send(sock, data, *a, **kw):
 
 def _guard_sendall(sock, data, *a, **kw):
     try:
-        if isinstance(data, (bytes, bytearray)):
+        if isinstance(data, (bytes, bytearray, memoryview)):
             _GUARD.scan_payload(sock, data)
     except EgressBlocked:
         raise
     except Exception:
         pass
     return _GUARD._orig_sendall(sock, data, *a, **kw)
+
+
+def _guard_sendmsg(sock, buffers, *a, **kw):
+    """C2：`sendmsg` 走的是 `buffers` 列表（r3 完全没钩 → 绕过）。"""
+    try:
+        data = b"".join(bytes(b) for b in (buffers or []))
+        if data:
+            _GUARD.scan_payload(sock, data)
+    except EgressBlocked:
+        raise
+    except Exception:
+        pass
+    return _GUARD._orig_sendmsg(sock, buffers, *a, **kw)
+
+
+def _guard_os_write(fd, data):
+    """C2：`os.write(fd, …)` 直写 socket（r3 完全没钩 → 绕过）。
+
+    **只**判"这个 fd 真的是 socket"的写 —— 用 `fstat` 的 `S_ISSOCK` 做**权威**判定，
+    不靠"曾经登记过这个 fd"（fd 会被文件复用：实测踩到 —— 收集期 pytest 写
+    `.pyc` 时恰好复用了一个已关闭 socket 的 fd，而那个 .pyc 里就有
+    `CONNECT api.deepseek.com:443` 字面量 → 误判成网络写 → 直接打断收集）。
+    """
+    try:
+        if isinstance(data, (bytes, bytearray, memoryview)) and _GUARD._is_socket_fd(fd):
+            _GUARD.scan_payload(None, data, fd=fd)
+    except EgressBlocked:
+        raise
+    except Exception:
+        pass
+    return _GUARD._orig_os_write(fd, data)
 
 
 def _guard_httpx_sync(transport, request):

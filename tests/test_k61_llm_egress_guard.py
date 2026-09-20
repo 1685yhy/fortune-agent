@@ -33,6 +33,7 @@ from conftest import (  # noqa: E402
     FREE_LLM_MODEL,
     NON_LLM_EGRESS_HOSTS,
     DeepSeekEgressBlocked,
+    EgressBlocked,
     PublicEgressBlocked,
 )
 
@@ -472,3 +473,277 @@ class TestPayloadScanParsing:
         finally:
             s.close()
         assert len(guard.violations) == before + 1
+
+
+# ══════════════════════════════════════════════════════════════════
+# 6) r5（审查整改）：C1 不透明代理 fail-closed / C2 分片写 / I1 www 反向自匹配
+# ══════════════════════════════════════════════════════════════════
+
+class TestOpaqueProxyFailClosed:
+    """C1：`HTTPS_PROXY=https://…`（TLS 包裹）与 `socks*` → **fail-closed**。
+
+    审查者实测（本批也用真 TLS 监听器复现）：真 `requests` 会把
+    `CONNECT api.deepseek.com:443` 发在 **TLS 之内** → r3 的明文扫描**天然看不见**，
+    守卫零反应。处置：**目标被加密层藏起来 = 没有可判之处 → 一律拒绝**。
+    """
+
+    @pytest.fixture
+    def fake_proxy_port(self):
+        """一个**不监听**的本地端口即可：fail-closed 发生在 connect 之前。"""
+        return 18871
+
+    def _set_opaque_proxy(self, monkeypatch, port, scheme="https"):
+        for var in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
+                    "https_proxy", "http_proxy", "all_proxy"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("HTTPS_PROXY", f"{scheme}://127.0.0.1:{port}")
+        monkeypatch.setenv("https_proxy", f"{scheme}://127.0.0.1:{port}")
+
+    @pytest.mark.parametrize("scheme", ["https", "socks5", "socks5h", "socks4"])
+    def test_connect_to_opaque_proxy_endpoint_is_refused(self, fake_proxy_port,
+                                                         monkeypatch, scheme):
+        """不透明代理端点上的连接必须被拒（含 loopback —— loopback 不是豁免理由）。"""
+        self._set_opaque_proxy(monkeypatch, fake_proxy_port, scheme)
+        s = socket.socket()
+        s.settimeout(2)
+        try:
+            with pytest.raises(PublicEgressBlocked) as ei:
+                s.connect(("127.0.0.1", fake_proxy_port))
+            assert "不透明代理" in str(ei.value)
+        finally:
+            s.close()
+
+    def test_requests_via_tls_proxy_never_reaches_target(self, monkeypatch):
+        """真 `requests` 走 TLS 代理：必须 GUARD-BLOCK（r3 时它会把 CONNECT 送出）。"""
+        self._set_opaque_proxy(monkeypatch, 18871, "https")
+        import requests
+        with pytest.raises(PublicEgressBlocked):
+            requests.post("https://api.deepseek.com/x", json={"a": 1}, timeout=3)
+
+    @staticmethod
+    def test_anthropic_sdk_via_tls_proxy_blocked(monkeypatch):
+        """anthropic SDK 同款（审查者要求四路 + SDK 全部不得漏）。"""
+        for var in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
+                    "https_proxy", "http_proxy", "all_proxy"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("HTTPS_PROXY", "https://127.0.0.1:18871")
+        monkeypatch.setenv("https_proxy", "https://127.0.0.1:18871")
+        import anthropic
+        import httpx
+        client = anthropic.Anthropic(
+            api_key="sk-not-real",
+            base_url="https://api.deepseek.com/anthropic",
+            http_client=httpx.Client(timeout=3))
+        # 具体"哪一层"先命中取决于 SDK 内部的 httpx 解析顺序（实测命中 E 层
+        # httpx 真实传输层）—— 断言父类即可：**必须被守卫拦下**，一条都不得出去。
+        with pytest.raises(EgressBlocked):
+            client.messages.create(model="deepseek-flash", max_tokens=4,
+                                   messages=[{"role": "user", "content": "ping"}])
+
+    def test_plaintext_proxy_is_still_allowed_through(self, proxy_listener, monkeypatch):
+        """**对照**：明文 `http://` 代理不受 fail-closed 影响（CONNECT 行可判，
+        只有目标不合规才拒）—— 防止"一刀切禁代理"把合法链路打死。"""
+        port, _ = proxy_listener
+        for var in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
+                    "https_proxy", "http_proxy", "all_proxy"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{port}")
+        monkeypatch.setenv("https_proxy", f"http://127.0.0.1:{port}")
+        # 代理端点本身可连（它是通道）
+        s = socket.socket()
+        s.settimeout(2)
+        try:
+            s.connect(("127.0.0.1", port))
+        finally:
+            s.close()
+        # 但目标是 deepseek → 仍被拦
+        with pytest.raises(DeepSeekEgressBlocked):
+            import requests
+            requests.post("https://api.deepseek.com/x", json={"a": 1}, timeout=3)
+
+
+class TestFragmentWriteBypass:
+    """C2：分片 / memoryview / sendmsg / os.write 四种写路径都必须判得出。
+
+    审查者实测 r3：这四种**全部**把 `CONNECT api.deepseek.com:443` 送出而守卫静默
+    （同文件内"单块整写被拦"的对照证明是**判定漏**、不是观测漏）。
+    """
+
+    LINE = b"CONNECT api.deepseek.com:443 HTTP/1.1\r\n\r\n"
+
+    @pytest.fixture
+    def local_sink(self):
+        """本地明文接收端（从不转发）——用来证明"字节到底出没出去"。"""
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(8)
+        port = srv.getsockname()[1]
+        seen: list = []
+        stop = threading.Event()
+
+        def serve():
+            srv.settimeout(0.2)
+            while not stop.is_set():
+                try:
+                    conn, _ = srv.accept()
+                except socket.timeout:
+                    continue
+                except OSError:
+                    break
+                conn.settimeout(1)
+                try:
+                    seen.append(conn.recv(4096))
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        try:
+            yield port, seen
+        finally:
+            stop.set()
+            try:
+                srv.close()
+            except Exception:
+                pass
+            t.join(timeout=2)
+
+    def _raw_sock(self, port):
+        s = socket.socket()
+        s.settimeout(3)
+        s.connect(("127.0.0.1", port))
+        return s
+
+    def test_fragmented_send_blocked(self, local_sink):
+        port, seen = local_sink
+        s = self._raw_sock(port)
+        try:
+            with pytest.raises(DeepSeekEgressBlocked):
+                s.send(self.LINE[:4])
+                s.send(self.LINE[4:])       # 第二片到达时累积前缀已可识别 → 拦
+        finally:
+            s.close()
+
+    def test_memoryview_send_blocked(self, local_sink):
+        port, _ = local_sink
+        s = self._raw_sock(port)
+        try:
+            with pytest.raises(DeepSeekEgressBlocked):
+                s.send(memoryview(self.LINE))
+        finally:
+            s.close()
+
+    def test_sendmsg_blocked(self, local_sink):
+        port, _ = local_sink
+        s = self._raw_sock(port)
+        try:
+            with pytest.raises(DeepSeekEgressBlocked):
+                s.sendmsg([self.LINE])
+        finally:
+            s.close()
+
+    def test_os_write_blocked(self, local_sink):
+        port, _ = local_sink
+        s = self._raw_sock(port)
+        try:
+            with pytest.raises(DeepSeekEgressBlocked):
+                os.write(s.fileno(), self.LINE)
+        finally:
+            s.close()
+
+    def test_single_block_still_blocked(self, local_sink):
+        """**对照**（r3 就拦得住的那条）：继续绿 —— 证明改动没有把判定改松。"""
+        port, _ = local_sink
+        s = self._raw_sock(port)
+        try:
+            with pytest.raises(DeepSeekEgressBlocked):
+                s.sendall(self.LINE)
+        finally:
+            s.close()
+
+    def test_os_write_to_a_file_is_not_scanned(self, tmp_path, _k61_deepseek_egress_guard):
+        """**对照（r5 自测踩到的坑）**：写**文件**不得被当成网络写扫描。
+
+        `os.write` 的 fd 会被文件复用：收集期 pytest 写 `.pyc` 时若恰好复用一个
+        已关闭 socket 的 fd，而那个 .pyc 里含 `CONNECT api.deepseek.com:443` 字面量，
+        就会误判成网络写并**打断收集**（实测 7 errors）。故判定用 `fstat` 的
+        `S_ISSOCK` 做**权威**类型判定，而不是"这个 fd 曾经登记过"。
+        """
+        guard = _k61_deepseek_egress_guard
+        before = len(guard.violations)
+        path = tmp_path / "not_a_socket.bin"
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT, 0o600)
+        try:
+            os.write(fd, self.LINE)          # 文件写：不得触发
+        finally:
+            os.close(fd)
+        assert len(guard.violations) == before, "文件写被误判成网络写"
+        assert guard._is_socket_fd(fd) is False
+
+    def test_target_hostname_never_reaches_the_wire(self, local_sink):
+        """四种绕过都拦下后，接收端**不得**看到完整目标域名。"""
+        port, seen = local_sink
+        for path in ("frag", "mv", "sendmsg", "oswrite"):
+            s = self._raw_sock(port)
+            try:
+                if path == "frag":
+                    s.send(self.LINE[:4])
+                    s.send(self.LINE[4:])
+                elif path == "mv":
+                    s.send(memoryview(self.LINE))
+                elif path == "sendmsg":
+                    s.sendmsg([self.LINE])
+                else:
+                    os.write(s.fileno(), self.LINE)
+            except EgressBlocked:
+                pass
+            finally:
+                s.close()
+        blob = b"".join(x for x in seen if x)
+        assert b"api.deepseek.com" not in blob, f"目标域名漏到线上了：{blob[:120]!r}"
+
+
+class TestWwwReverseMatchIsGone:
+    """I1：`www.` **反向自匹配**已删除 —— 任意 `www.*` 不得被判在白名单。
+
+    r3 曾在 `_is_allowed_host` 里写「待判主机名以 www. 开头 → 追加其裸域」，
+    那是一条**过宽的默认放行**：`www.evil.com` / `www.baidu.com.evil.tld` /
+    `WWW.Evil.COM` 全 True，并**污染 IP 学习集**（学到 `www.x → 1.2.3.4` 后，
+    `connect(("1.2.3.4", 443))` 直接放行）。
+    """
+
+    @pytest.mark.parametrize("host", [
+        "www.evil.com", "www.baidu.com.evil.tld", "WWW.Evil.COM",
+        "evil-360.cn", "360.cn.attacker.com", "so.com.attacker.com",
+        "www.deepseek.com",
+    ])
+    def test_malicious_forms_are_not_allowed(self, host):
+        assert k61conftest._is_allowed_host(host) is False, host
+
+    @pytest.mark.parametrize("host", [
+        "www.baidu.com", "baidu.com", "m.so.com", "so.com", "www.so.com",
+        "cn.bing.com", "open.bigmodel.cn", "api.open.bigmodel.cn",
+    ])
+    def test_legitimate_forms_still_allowed(self, host):
+        """合法项照旧（"去掉 www." 只在**条目**侧派生，合法面不变）。"""
+        assert k61conftest._is_allowed_host(host) is True, host
+
+    def test_ip_learning_is_not_polluted_by_www_hosts(self, _k61_deepseek_egress_guard):
+        """**植入实验（反向）**：先"学"一个非白名单 www 主机的 IP → 再连它必须仍被拒。"""
+        guard = _k61_deepseek_egress_guard
+        poison_ip = "8.8.8.8"   # 真公网 IP（且没有被别的用例学进白名单）
+        guard._learn_allowed_ip("www.evil.com", socket.AF_INET, (poison_ip, 443))
+        assert guard._ip_allowed(poison_ip) is False, "IP 学习集被 www.* 污染了"
+        s = socket.socket()
+        s.settimeout(2)
+        try:
+            with pytest.raises(PublicEgressBlocked):
+                s.connect((poison_ip, 443))
+        finally:
+            s.close()
