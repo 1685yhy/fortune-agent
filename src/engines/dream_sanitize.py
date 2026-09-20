@@ -21,6 +21,18 @@ HIGH_RISK_WORDS = (
     "化灾",
 )
 
+# 繁体/异体形态（k58 M-4）：语料里真实存在繁体写法（`破財`/`轉運`），
+# 只扫简体 19 词会漏。词表只增不减 —— 这里单独列，不并入 HIGH_RISK_WORDS
+# （后者与 k52 门禁的词表**逐一对应**，是门禁契约的一部分）。
+TRADITIONAL_VARIANTS = (
+    "改運", "轉運", "破財", "消災", "化災", "開光", "闢邪", "驅邪",
+    "招財", "旺財", "靈驗", "大師", "避邪", "改命運",
+)
+
+# 全部风险形态（简体 + 繁体/异体）
+ALL_RISK_FORMS = HIGH_RISK_WORDS + TRADITIONAL_VARIANTS
+
+
 # 中性化映射：语义等价或更委婉的自然说法。
 # 硬约束（测试断言）：**替换值不得包含任何高风险词**（否则净化会自我复发，
 # 例如「消灾 → 化解困厄」会重新引入「化解」，故取「消除困厄」）。
@@ -49,15 +61,35 @@ NEUTRAL_MAP = {
     "旺财": "财运向好",
     "灵验": "应验",
     "大师": "先生",
+    # 繁体/异体（M-4；替换值同样不得含任何风险形态）
+    "改運": "调整",
+    "轉運": "运势转变",
+    "破財": "财务损失",
+    "消災": "消除困厄",
+    "化災": "消除困厄",
+    "開光": "祈福",
+    "闢邪": "避除不祥",
+    "避邪": "避除不祥",
+    "驅邪": "避除不祥",
+    "招財": "聚财",
+    "旺財": "财运向好",
+    "靈驗": "应验",
+    "大師": "先生",
+    "改命運": "调整",
 }
 
 # 长词优先（避免「改运」被「改命」之类的短词先吃掉；同长度按字典序稳定）
 _MAP_ORDERED = sorted(NEUTRAL_MAP.items(), key=lambda kv: (-len(kv[0]), kv[0]))
 
 
-def find_high_risk(text: str) -> list:
-    """返回文本中命中的高风险词（与 k52 扫描同口径，便于测试复用）。"""
-    return [w for w in HIGH_RISK_WORDS if w in (text or "")]
+def find_high_risk(text: str, include_traditional: bool = True) -> list:
+    """返回文本中命中的高风险词。
+
+    默认**含繁体/异体**（k58 M-4 扩表）；`include_traditional=False` 时
+    与 k52 扫描口径完全一致（简体 19 词），便于与门禁对齐做对比。
+    """
+    words = ALL_RISK_FORMS if include_traditional else HIGH_RISK_WORDS
+    return [w for w in words if w in (text or "")]
 
 
 def neutralize(text: str) -> str:
