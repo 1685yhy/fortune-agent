@@ -122,7 +122,11 @@ def test_e2e_advisor_generate_reports_latency(glm_route):
 # 分档"当修法 = 实质放宽判据（控制方不批）；"保持 0.70 让它红" = 制造噪音（也不批）。
 # 于是：**判别力**留在门禁（`tests/test_mood_detector.py` 的
 # `TestAccuracySampleHasDiscriminativePower`：死端点必须 < 0.70 + 分层样本必须
-# 覆盖三类），**真实准确率**在这里**测量并报数**，供人工判读降级档质量。
+# 覆盖三类），**真实准确率**在这里**测量并报数**，供人工参考。
+#
+# ⚠️ **定级（k61 r5 更正）**：被测模块 `MoodDetector` 在 `src/` 下**被引用 0 次
+# （无生产调用点）**，因此这里的分数**只是该模块自身的测试读数**，
+# **不得**作为产品准确率/用户体验结论引用。
 #
 # 报数必须同时给出 **provider** 与 **样本量**（控制方硬要求），并保留分层样本。
 
@@ -146,9 +150,13 @@ def _stratified_sample():
 
 @pytest.mark.e2e
 def test_e2e_mood_accuracy_reports_only(glm_route):
-    """真 provider 的情绪/人设判定准确率 —— **只报数**（provider + 样本量 + 分层明细）。
+    """被测模块在真 provider 上的判定准确率 —— **只报数**（provider + 样本量 + 分层明细）。
 
     不设通过阈值：阈值是 provider 相关的，而本批只能跑免费档（见模块顶部说明）。
+
+    ⚠️ **定级（k61 r5 更正）**：被测模块 `src/engines/mood_detector.py` 在 `src/` 下
+    **被引用 0 次 —— 没有生产调用点**。所以本用例的分数**只是该模块自身的测试读数**，
+    度量不到任何产品行为，**不得**被引用为"产品准确率下降"或"用户体验变差"的证据。
     """
     from src.engines.mood_detector import MoodDetector
 
