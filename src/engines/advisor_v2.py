@@ -29,6 +29,22 @@ FALLBACK_ADVICE = {
 
 FALLBACK_DAILY_TIP = "今天宜保持平静，不宜冲动决策。花点时间关注自己的内心需求。"
 FALLBACK_STYLE_NOTES = "每个人的命格都是独特的，建议根据自身情况灵活调整。"
+
+# k63（人设统一·用户拍板）：建议卡风格改为单一豆包式口吻，与主链 system prompt
+# （src/bot/handler.py "你是易理明灯，一位懂命理的温暖朋友。说话像豆包…"）同口径。
+# 前身：k11-B 按性别分支的 persona（女→毒舌闺蜜 / 男·未知→理性分析师），
+# 主链早已统一豆包口吻而本链未跟上 → 同一用户在主回复与建议卡上听到两种人格。
+# 本常量取代原 style_instructions 映射（含无人引用的"温柔陪伴者"死分支）。
+# 注意：本条只约束**口吻**；**称谓**另由下方「称谓硬规则」段 + fact_guard.scrub_turn
+# 输出后校验器负责（两者互相独立，勿合并）。
+STYLE_INSTRUCTION = (
+    "你是易理明灯，一位懂命理的温暖朋友。说话像豆包：口语化、有温度、"
+    "自然不端着，把专业术语（五行、十神、神煞、大运等）讲成大白话。"
+    "直接专业作答，禁止油滑/套近乎开场白（如「哈哈」「挺有意思」）；"
+    "严格紧扣用户问题，用户没问的（名人相似、旁支话题）不主动展开。"
+    "语气始终温暖平等、就事论事：不挖苦、不嘲讽、不贬低用户，"
+    "实话也要好好说。"
+)
 FALLBACK_SERENDIPITY = ""
 FALLBACK_INSIGHT = ""
 
@@ -81,19 +97,12 @@ class AdaptiveAdvisor:
                 "style_notes": "..."
             }
         """
-        # k11-B（性别称谓修复）：persona 按用户性别分支——毒舌闺蜜（女性口吻）只
-        # 限女性用户；男/未知一律中性"理性分析师"（2026-09-06 实锤：男命收到
-        # 「醒醒吧姐妹…」）。产品可调：女性档可改"温柔陪伴者"、男性档如需
-        # 男性向口吻（如"靠谱兄弟"式）在此扩展分支，勿改硬规则段。
-        _g_raw = str(getattr(bazi_result, "gender", "") or "").strip().lower()
-        if _g_raw in ("女", "female", "f"):
-            personality_label = "毒舌闺蜜"
-        else:
-            personality_label = "理性分析师"
-
+        # k63（人设统一）：口吻不再按性别分支——统一豆包式（STYLE_INSTRUCTION），
+        # 与主链 system prompt 同口径。性别只影响**称谓**（见 _build_prompt 的
+        # 「称谓硬规则」段 + fact_guard.scrub_turn 输出后校验器），不影响口吻。
         try:
             # 1. 构建 LLM Prompt（无名人匹配段）
-            prompt = self._build_prompt(bazi_result, user_context, personality_label)
+            prompt = self._build_prompt(bazi_result, user_context)
 
             # 2. 调用 DeepSeek Flash
             llm_output = self._call_llm(prompt, api_key)
@@ -120,8 +129,13 @@ class AdaptiveAdvisor:
             # 纯规则零 LLM。消费点（handler 5675/5771、7364 为真实链路；api/advisor
             # REST 为既有死路径——narrative NameError 已于 k11-r1 修复，是否接入
             # 待 k11b 评估）：凡到达 generate() 的调用即被此单点覆盖。
+            # k63-r2/D：同一层再叠一道 **schema 回显** 兜底（降级档 GLM 会把 prompt
+            # 里给模型看的 JSON schema 示例回显进字段 → 用户可见即露馅）。两个
+            # scrub 各自独立：scrub_turn 管**词表**（称谓/神煞），scrub_schema_echo
+            # 管**形态**（JSON 键/占位符/元指令），互不改语义、可分别排障。
+            # 边界：只动**呈现字段**，不碰 _call_llm/_parse_llm_output 的解析逻辑。
             try:
-                from src.utils.fact_guard import scrub_turn
+                from src.utils.fact_guard import scrub_turn, scrub_schema_echo
                 _g = getattr(bazi_result, "gender", "") or ""
                 _allow = list(getattr(bazi_result, "shensha", None) or [])
                 for _a in result.get("actions") or []:
@@ -129,10 +143,23 @@ class AdaptiveAdvisor:
                         for _k in ("advice", "timing", "concrete_steps",
                                    "success_metric"):
                             if isinstance(_a.get(_k), str):
-                                _a[_k] = scrub_turn(_a[_k], _g, _allow)
+                                _a[_k] = scrub_schema_echo(
+                                    scrub_turn(_a[_k], _g, _allow))
                 for _k in ("serendipity", "daily_tip", "style_notes"):
                     if isinstance(result.get(_k), str):
-                        result[_k] = scrub_turn(result[_k], _g, _allow)
+                        result[_k] = scrub_schema_echo(
+                            scrub_turn(result[_k], _g, _allow))
+                # advice 被整段置空 → 该条行动建议整体摘除（否则渲染端会输出
+                # "📌 💼 事业： 【…】" 的空壳行，比缺一条更糟）；若 5 条全被摘除，
+                # 退回与"LLM 不可用"同款兜底文案，宁可通用也不把模板说明给用户。
+                if result.get("actions"):
+                    _kept = [_a for _a in result["actions"]
+                             if isinstance(_a, dict)
+                             and str(_a.get("advice") or "").strip()]
+                    result["actions"] = _kept or [
+                        {"category": d, "advice": FALLBACK_ADVICE[d][0],
+                         "timing": "近期", "confidence": "medium"}
+                        for d in LIFE_DOMAINS]
             except Exception:
                 pass  # scrub 是增强：异常静默，不阻塞建议返回
 
@@ -150,9 +177,13 @@ class AdaptiveAdvisor:
         self,
         result: BaziResult,
         user_context: str,
-        personality_label: str,
     ) -> str:
-        """构建 LLM Prompt（名人匹配段已移除，2026-08-09）。"""
+        """构建 LLM Prompt（名人匹配段已移除，2026-08-09）。
+
+        k63：persona 参数（原"毒舌闺蜜"/"理性分析师"按性别分支）已删除，
+        口吻恒为 STYLE_INSTRUCTION（豆包式，与主链一致）；性别仅经 _gender_cn
+        影响称谓段。
+        """
         from datetime import datetime
         current_year = datetime.now().year
         # 格式化命盘数据
@@ -164,25 +195,6 @@ class AdaptiveAdvisor:
         liunian_items = sorted(result.liunian.items())
         liunian_str = "、".join(f"{y}年: {gz}" for y, gz in liunian_items[:5])
         wuxing_breakdown = "、".join(f"{wx}:{count}" for wx, count in result.wuxing.items())
-
-        # 性格风格说明
-        style_instructions = {
-            "毒舌闺蜜": (
-                "风格：说话犀利、直接、带点小毒舌，像闺蜜一样说实话。"
-                "可以用网络用语，让用户先笑再思考。"
-                "该怼就怼，但真心为用户好。"
-            ),
-            "理性分析师": (
-                "风格：数据化、结构化、理性客观。"
-                "用概率和百分比说话，严谨专业。"
-                "像麦肯锡顾问一样给建议。"
-            ),
-            "温柔陪伴者": (
-                "风格：温暖、共情、接纳。"
-                "先理解感受再给建议，给予安全感和赋能感。"
-                "像心理咨询师一样温柔而坚定。"
-            ),
-        }.get(personality_label, "")
 
         # k11-B：性别（引擎归一：男/女/unknown；主链 client.py:648 同构先例）
         _g = str(getattr(result, "gender", "") or "").strip().lower()
@@ -250,11 +262,12 @@ class AdaptiveAdvisor:
 
 ## 说话风格要求
 
-当前模式：{personality_label}
-{style_instructions}
+{STYLE_INSTRUCTION}
 """
-        # k11-B：称谓硬规则（男/未知 → 中性；女 → 才可闺蜜式）——独立追加段，
-        # 确保在风格要求之后仍显式覆盖 persona 的性别倾向
+        # k11-B：称谓硬规则（男/未知 → 中性）——独立追加段。k63 起口吻已全局统一
+        # 豆包式（不再随性别分支），本段只负责**称谓**：禁止把用户当异性/闺蜜称呼、
+        # 禁止以女性身份自称；与口吻解耦，勿因"口吻统一了"而删除（k11-B 事故：
+        # 男命收到「醒醒吧姐妹」，本段是 prompt 侧第一道，scrub_turn 是第二道）。
         if _gender_cn not in ("男", "女") or _gender_cn == "男":
             prompt += """
 ## 称谓硬规则（必须遵守）
@@ -332,7 +345,7 @@ class AdaptiveAdvisor:
 2. 5个领域必须全部覆盖：事业、财运、感情、健康、个人成长
 3. 建议必须基于用户的实际命盘数据，不能是通用模板。要引用具体的五行、十神、神煞、大运流年来支撑分析
 4. 时间窗口要具体到日期范围（如"2027年9月15日至10月15日"），不能只说季节或月份
-5. 风格要符合当前模式的要求
+5. 风格必须符合上方「说话风格要求」（温暖、口语化、把术语讲成大白话）
 6. 如果用户问了特定领域（如"事业"），也要通过serendipity提示其他领域的重要信息
 7. **只输出JSON，不要其他任何文字**
 8. 回复中不使用任何 emoji 表情符号（所有字段均不得包含 emoji）"""

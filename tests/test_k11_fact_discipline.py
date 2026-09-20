@@ -2,7 +2,8 @@
 
 覆盖（对应 plan docs/superpowers/plans/2026-09-07-k11-fact-discipline.md）：
 A 事实包：引擎 current_stage 派生（固定 now 注入）/fact pack 文本/主链与 advisor 双注入
-B 性别称谓：advisor persona 分支（男/unknown=理性分析师中性、女=毒舌闺蜜）+ 称谓去词
+B 性别称谓：advisor 口吻统一豆包式（k63，不再随性别分支）+ 称谓仍按性别分流
+  （男/unknown=中性称谓硬规则、女=不注入）+ fact_guard 称谓去词
 C 神煞一致性：排盘卡显示全量 == 引擎全集；白名单去词校验器；词典单一事实源
 D 建议卡基线：prompt 含引擎方向要点 + 防反转硬约束条款
 E JSON 泄漏：ToolJsonChunkFilter 任意切块无残留；流式 wrap 协议保持
@@ -11,7 +12,9 @@ F 评测派生断言：l2_eval derived 五类型纯函数 + validate_tasks schem
 运行：cd /mnt/e/fortune-agent-deploy && OMP_NUM_THREADS=4 \
   /home/a/fortune-agent/.venv/bin/python -m pytest tests/test_k11_fact_discipline.py -q -p no:cacheprovider
 """
+import dataclasses
 import json
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -30,7 +33,7 @@ from src.engines.bazi import BaziEngine, current_stage_facts  # noqa: E402
 from src.engines.bazi_formatter import (format_compact_card,  # noqa: E402
                                         format_detailed_chart,
                                         format_fact_pack_block)
-from src.engines.advisor_v2 import AdaptiveAdvisor  # noqa: E402
+from src.engines.advisor_v2 import AdaptiveAdvisor, STYLE_INSTRUCTION  # noqa: E402
 from src.engines.shensha import SHENSHA_LUCK  # noqa: E402
 from src.utils.fact_guard import (FEMALE_ADDRESS_TERMS,  # noqa: E402
                                   gender_label, guard_gender_terms,
@@ -52,6 +55,43 @@ def engine():
 def golden(engine):
     """2026-09-06 行 48 事故同款命盘：1999-05-13 9:00 长春 男。"""
     return engine.calculate(1999, 5, 13, 9, 0, "长春", "男")
+
+
+# ---- k63 辅助：口吻 / 称谓分离断言（按 prompt 结构锚点定位，不依赖具体文案）----
+
+_ADDR_HEAD = "\n## 称谓硬规则（必须遵守）"
+# prompt 拼接顺序中「称谓段」之后的各结构锚点（见 advisor_v2._build_prompt）
+_SECTION_ANCHORS = (_ADDR_HEAD, "\n【确定性事实包", "\n## 引擎方向要点",
+                    "\n## 输出格式要求")
+
+
+def _next_anchor(prompt: str, start: int) -> int:
+    """start 之后最近的结构锚点位置（无则串尾）。"""
+    idxs = [prompt.index(a, start) for a in _SECTION_ANCHORS
+            if a in prompt[start:]]
+    return min(idxs) if idxs else len(prompt)
+
+
+_STYLE_HEAD = "## 说话风格要求"
+
+
+def _style_section(prompt: str) -> str:
+    """「说话风格要求」段的正文（不含标题行）。"""
+    i = prompt.index(_STYLE_HEAD) + len(_STYLE_HEAD)
+    return prompt[i:_next_anchor(prompt, i)].strip()
+
+
+def _strip_addr_block(prompt: str) -> str:
+    """移除「称谓硬规则」段（用于证明"除称谓外 prompt 不随性别变化"）。"""
+    i = prompt.find(_ADDR_HEAD)
+    if i == -1:
+        return prompt
+    return prompt[:i] + "\n" + prompt[_next_anchor(prompt, i + len(_ADDR_HEAD)):]
+
+
+def _strip_gender_line(prompt: str) -> str:
+    """性别行归一（男/女/未知 → 占位符），其余逐字保留。"""
+    return re.sub(r"^性别：.*$", "性别：<G>", prompt, flags=re.M)
 
 
 # ============================================================
@@ -170,7 +210,9 @@ class TestFactPack:
         assert "禁止自造或引用名单外的任何神煞名" in chart
 
     def test_advisor_prompt_injects_fact_pack_and_baseline(self, golden):
-        p = AdaptiveAdvisor()._build_prompt(golden, "国企还是金融", "理性分析师")
+        # k63：_build_prompt 的 persona 参数已删（口吻统一为 STYLE_INSTRUCTION，
+        # 不再按性别分支）→ 调用签名 3 参改 2 参；本用例其余断言逐条未动。
+        p = AdaptiveAdvisor()._build_prompt(golden, "国企还是金融")
         assert "性别：男" in p
         assert "确定性事实包" in p
         assert "周岁 27 岁（虚岁 28）" in p
@@ -188,20 +230,99 @@ class TestFactPack:
 # ============================================================
 
 class TestGenderPersona:
-    def test_advisor_persona_by_gender(self, golden, engine):
-        """男 → 理性分析师（无毒舌闺蜜 persona）；女 → 毒舌闺蜜保留。"""
-        p_male = AdaptiveAdvisor()._build_prompt(golden, "建议", "理性分析师")
-        assert "当前模式：理性分析师" in p_male
-        assert "毒舌闺蜜" not in p_male
-        assert "像闺蜜一样说实话" not in p_male
+    """k63：口吻统一（不再按性别分支）；称谓（≠口吻）仍分流。"""
+
+    def test_style_instruction_uniform_across_genders(self, golden):
+        """风格段与性别无关（k63 核心不变式）。
+
+        原断言（k11-B）：男 →「当前模式：理性分析师」、女 →「当前模式：毒舌闺蜜」
+        —— 证明的是"按性别分叉"这一旧行为本身。新断言证明相反面且更强：
+        三性别 prompt 的「说话风格要求」段**逐字相同**、恒等于单一常量
+        STYLE_INSTRUCTION，且不含任何 persona 词与旧口癖。等价性：旧断言只覆盖
+        分叉的两端各自的内容，新断言同时覆盖"内容正确"与"与性别无关"。
+        """
+        adv = AdaptiveAdvisor()
+        prompts = {g: adv._build_prompt(dataclasses.replace(golden, gender=g), "建议")
+                   for g in ("男", "女", "unknown")}
+        styles = {g: _style_section(p) for g, p in prompts.items()}
+        assert len(set(styles.values())) == 1, styles   # 不随性别变化
+        s = styles["男"]
+        assert s == STYLE_INSTRUCTION                   # 单一来源，无分支
+        # 主链豆包口径的关键短语（与 handler.py system prompt 同源词句）
+        assert "说话像豆包" in s
+        assert "把专业术语（五行、十神、神煞、大运等）讲成大白话" in s
+        assert "禁止油滑/套近乎开场白" in s
+        assert "不挖苦、不嘲讽、不贬低用户" in s
+        for w in ("毒舌", "闺蜜", "理性分析师", "温柔陪伴者", "该怼就怼",
+                  "麦肯锡", "心理咨询师", "当前模式"):
+            assert w not in s, w
+        # 全 prompt 面：旧断言（`"毒舌闺蜜" not in p_male` /
+        # `"像闺蜜一样说实话" not in p_male`）原样保留并推广到三性别
+        # （男/未知 prompt 的「称谓硬规则」段合法含"闺蜜"二字，故此处只锁
+        # 人设词与旧口癖，不含裸"闺蜜"）
+        for g, p in prompts.items():
+            for w in ("毒舌闺蜜", "像闺蜜一样说实话", "理性分析师",
+                      "温柔陪伴者", "当前模式", "麦肯锡顾问", "该怼就怼"):
+                assert w not in p, f"{g}: {w}"
+
+    def test_prompt_differs_by_gender_only_in_address(self, golden):
+        """除「性别行」与「称谓硬规则」段外，三性别 prompt 逐字相同。
+
+        命盘固定（dataclasses.replace 只改 gender）→ 性别是唯一自变量，
+        证明口吻不再随性别变化（不只是风格段，而是整段 prompt）。
+        """
+        adv = AdaptiveAdvisor()
+        raw, norm = {}, {}
+        for g in ("男", "女", "unknown"):
+            p = adv._build_prompt(dataclasses.replace(golden, gender=g), "建议")
+            raw[g] = p
+            norm[g] = _strip_gender_line(_strip_addr_block(p))
+        assert norm["男"] == norm["女"] == norm["unknown"]
+        assert raw["男"] != raw["女"]      # 差异确实存在（性别行/称谓段），非空比
+
+    def test_address_guard_kept_by_gender(self, golden):
+        """称谓校验仍在（= k11-B 原断言逐条保留，只剥离与 persona 耦合的部分）。
+
+        原用例断言：男 → 有称谓硬规则段 + 严禁女性向称谓；女 → 无该段。
+        本用例原样保留上述四条，另补 unknown（同一 _gender_cn 归一档）。
+        """
+        adv = AdaptiveAdvisor()
+        p_male = adv._build_prompt(dataclasses.replace(golden, gender="男"), "建议")
+        p_unk = adv._build_prompt(dataclasses.replace(golden, gender="unknown"), "建议")
+        p_female = adv._build_prompt(dataclasses.replace(golden, gender="女"), "建议")
         assert "称谓硬规则（必须遵守）" in p_male
         assert "严禁任何女性向称谓或闺蜜口吻" in p_male
-        female = engine.calculate(1999, 5, 13, 9, 0, "长春", "女")
-        p_female = AdaptiveAdvisor()._build_prompt(female, "建议", "毒舌闺蜜")
-        assert "当前模式：毒舌闺蜜" in p_female
+        assert "性别：男" in p_male
+        assert "称谓硬规则（必须遵守）" in p_unk
+        assert "性别：未知（请用中性表述，勿假设性别）" in p_unk
         assert "性别：女" in p_female
-        # 称谓硬规则段只在非女命时注入（女命保留闺蜜式称呼）
+        # 称谓硬规则段只在非女命时注入（k11-B 行为原样保留）
         assert "称谓硬规则（必须遵守）" not in p_female
+
+    def test_generate_prompt_uniform_across_genders(self, golden, monkeypatch):
+        """生产路径（generate → _build_prompt，handler.py:8692 消费）同样不分支。
+
+        _build_prompt 直调面之外，锁 generate 全链路：捕获真实发给 LLM 的
+        prompt，断言跨性别规范后逐字相同 —— 防未来在 generate 内重新引入
+        persona 分支（那正是 k11-B 分叉的所在地）。
+        """
+        adv = AdaptiveAdvisor()
+        holder = {}
+
+        def _fake_call(prompt, api_key):
+            holder["prompt"] = prompt
+            return json.dumps({"actions": [], "serendipity": "", "daily_tip": "",
+                               "style_notes": ""}, ensure_ascii=False)
+
+        monkeypatch.setattr(adv, "_call_llm", _fake_call)
+        captured = {}
+        for g in ("男", "女", "unknown"):
+            adv.generate(dataclasses.replace(golden, gender=g), "建议", api_key="k")
+            captured[g] = holder["prompt"]
+        assert captured["男"] != captured["女"]      # 性别行/称谓段差异仍在
+        assert len({_style_section(p) for p in captured.values()}) == 1
+        assert len({_strip_gender_line(_strip_addr_block(p))
+                    for p in captured.values()}) == 1
 
     def test_gender_label_normalize(self):
         assert gender_label("男") == "男" and gender_label("male") == "男"
@@ -239,7 +360,14 @@ class TestGenderPersona:
         assert out["actions"][0]["category"] == "事业"
         assert "健康" in out["serendipity"]
 
-    def test_generate_keeps_girlfriend_persona_for_female(self, engine, monkeypatch):
+    def test_generate_scrub_keeps_female_terms_for_female_user(self, engine,
+                                                               monkeypatch):
+        """fact_guard 女命放行（k11-B 行为原样保留；仅改名去 persona 误导）。
+
+        k63 前用例名 test_generate_keeps_girlfriend_persona_for_female 易读成
+        "引擎仍在维持闺蜜人设"——k63 后 prompt 已无该人设，本用例真实锁的是
+        **输出后校验器**对女命文本不去词（B 校验器语义），断言逐条未动。
+        """
         advisor = AdaptiveAdvisor()
         female = engine.calculate(1999, 5, 13, 9, 0, "长春", "女")
         fake = json.dumps({"actions": [{"category": "事业", "advice": "姐妹别怕",
