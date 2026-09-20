@@ -49,6 +49,12 @@
 1. `tests/test_bot.py::test_handle_voice_with_text_routes_through_process` 走**真实
    `process()` 主链**；`_handle_voice` 以 **`process(text, "", ...)`（空 uid）** 调用
    （该用例内注释就写着这条契约）；
+   > **【同机制用例 · 2026-09-20 合批审查 M-1 补齐】脏化 `data/memory/.json` 的是
+   > `tests/test_bot.py` 里的**两条**用例**，不止上面点名的那一条：另一条是
+   > **`tests/test_bot.py::test_voice_message_type_routing`** —— 它同样走
+   > `_handle_voice(voice_text=...)` → `process(text, "", ...)`（空 uid），
+   > 落点与机制逐环相同。二者同属模块级 autouse fixture 的覆盖面，**修复不受影响**
+   > （fixture 对模块内所有用例生效），此处补齐只为消除"只有一条"的误读。
 2. `src/bot/handler.py::process` 内
    `self.memory_system.add_mood_record(user_id, analysis.emotion_label)`（空 uid）；
 3. `UserMemory._path("")` → `<memory_dir>` + `".json"` = **`data/memory/.json`**；
@@ -65,6 +71,21 @@
 `fastpath` / `k41_search_seam` / `adaptive_advisor` / `k52_compliance` /
 `k64_quality_predictor` / `k39_image_persistence` / `eval_l1` / `k41_trusted_multi_user` /
 `g1_person_api_gender`）→ **只有 `tests/test_bot.py` 会脏化它**。
+
+> **【同类机制的更外面一层 · 2026-09-20 合批审查 M-2 如实登记（勿当成"已全隔离"）】**
+> 上句"只有 `tests/test_bot.py`"限定的宾语是**受版本控制的那一个文件**
+> （`data/memory/.json`，空 uid 落点）。**同一机制在更外面一层还有 6 个测试文件**：
+> 它们同样把运行期状态写进**仓库内 `data/memory/` 目录**，只是写的是
+> `user123.json` / `eval_user_*.json` 等**未被跟踪且被 `.gitignore:35 data/memory/*.json`
+> 忽略**的文件 —— 因为它们的 uid 非空，落不到 `.json`。
+> 实测清单（逐文件 sha 二分 + `UserMemory._save` 探针，写入次数）：
+> **`test_eval_r1_2`(40) / `test_k11b_search_trigger`(29) / `test_k15_eval_tails`(17) /
+> `test_eval_r1_1`(12) / `test_member_pay`(9) / `test_fastpath`(2)**（另 `test_bot`(17)
+> 即上面已隔离的那一个）。
+> **当前无 git 影响**（不入版本控制），但**不等于"测试副作用已全仓隔离"**；
+> 一旦登记项 **R-1**（`data/memory/` 移出跟踪 / 加 ignore / 改默认目录）落地，
+> **这一层必须一起看**，否则会重演"改了跟踪方式才发现在写目录"。
+> 本条的边界口径与守卫 docstring「边界（如实登记）」节一致。
 
 ### 1.3 怎么防（已落地，非建议）
 
@@ -166,11 +187,23 @@
 
 **与审查者"9/19"的差 1（如实说明，控制方已采纳本口径）**：审查者的 19 条 = 15 条
 action 字段值 + serendipity + daily_tip + style_notes + **1 条 `category` 取值**；其
-9 条不命中里有 **1 条是 `category` 的合法取值**。而 `"category": "事业"` 是 schema
-要求模型**照抄**的**合法输出值**（不是"对模型说的话"）—— 把它判成回显 = 把**每条正常
-建议的领域名清掉**。⇒ 真实召回目标是 **18 条**，缺口是 **8 条**（我按 18 条口径统计，
-并新增用例 `test_category_values_are_legitimate_not_echo` 显式钉住"合法取值必须放行"）。
-（控制方裁决 2026-09-20：**采纳本口径**——"第 9 条是取值域，拦它会把所有合法分类洗掉"。）
+9 条不命中里有 **1 条是 `category` 的合法取值**。⇒ 真实召回目标是 **18 条**，缺口是 **8 条**
+（我按 18 条口径统计，并新增用例 `test_category_values_are_legitimate_not_echo` 显式钉住
+"合法取值必须放行"）。
+（控制方裁决 2026-09-20：**采纳本口径**。）
+
+> **【理由订正 · 2026-09-20 合批审查 M-3：原写的理由不精确，结论不变】**
+> 原写「把 `"category": "事业"` 判成回显 = 把**每条正常建议的领域名清掉**」/「拦它会把
+> 所有合法分类洗掉」—— **在真实调用链上不成立**。实测核对（两处都读过源码）：
+> ① `src/engines/advisor_v2.py:143-152` 的 `scrub_schema_echo` **只作用于 7 个呈现字段**：
+> action 内 `advice` / `timing` / `concrete_steps` / `success_metric`，以及
+> `serendipity` / `daily_tip` / `style_notes`；**`category` 根本不在 scrub 名单里**
+> （它只被用作渲染键与兜底文案的索引），**即使判据误判它也洗不掉任何分类**；
+> ② 生产侧根本没有把 `is_schema_echo` 接到 `category` 上的调用点。
+> ⇒ **正确的理由是**：`"category"` 是 schema 要求模型**照抄**的**合法输出值域**，
+> 属于「模型该输出的内容」而**不是「对模型说的话」**，因此**不该计入"规格泄漏"的
+> 召回缺口**（计入＝污染分母 18→19），而不是"拦了会洗掉分类"。
+> 结论（18 条口径、8 条真缺口）**不变**；本次只订正理由表述。
 
 ### 3.2 补法（三条"规格从句"弱信号，阈值不变）
 
@@ -261,7 +294,7 @@ R1 我抽到 72 条而非审查者的 69：我把 3 档的 `category` 值也算�
 
 | 项 | 命令/方式 | 结果 |
 |---|---|---|
-| 定向子集（20 文件） | `pytest <20 files> -q` | **502 passed / 14 skipped / 0 failed**（24.0s） |
+| 定向子集（20 文件） | `pytest <20 files> -q` | **502 passed / 14 skipped / 0 failed**（24.0s）⚠️ 见下方**计数订正 M-4** |
 | 守卫三连 | `test_k62`(26) + `test_k63`(63) + `test_k62k63_fixup`(3) + `k64`(10) | 全绿 |
 | 仓库洁净 | 跑完子集后 `git status --short` | **空**（改造前必然留下 ` M data/memory/.json`） |
 | 守卫 A 改前/改后 | 提交前红（`39b28f18…` ≠ `32b535d9…`）→ 提交后绿（同哈希） | 两段都在 |
@@ -271,9 +304,38 @@ R1 我抽到 72 条而非审查者的 69：我把 3 档的 `category` 值也算�
 | 守卫"有牙" | 沙箱去掉重定向 → 复现脏化 | 必红，常驻用例 |
 | 生产零写入 | `git -C /home/a/fortune-run log -1`；生产库 mtime | 仍 `ea110c3`；`2026-09-05 09:19` |
 
+### 计数订正 M-4（2026-09-20 b2fix 复核；**注明读数所在的树**）
+
+> **为什么会有这一节**：本报告的 `502 / 14` 与 k65 报告的 `741 / 1` 都被合批审查
+> 复现为**不同的数**，差 1~30。根因不是"谁跑错了"，而是**两个读数取自不同的树、
+> 且原命令未留完整文件清单** —— 本节的目的是把每次读数钉到"哪棵树、哪次读数、
+> 哪个文件清单"上，避免以后再出现"不同树比数"。
+
+| 读数 | 树 / 时点 | 命令与文件清单 | 结果 |
+|---|---|---|---|
+| 本报告原记 | 集成修复工作树（`502`。**原命令未留文件清单**） | `pytest <20 files> -q` | **502 / 14 / 0**（24.0s）—— ⚠️ **无法逐字复现**：20 文件清单未入库/未留档 |
+| 合批审查者重建 | `1dae341`（`b2-wt`） | 按本报告文字描述重建的 20 文件切片 | **472 / 14 / 0** |
+| **本次（b2fix）重建** | `1dae341` 起点（`b2fix-wt` @ `batch2-reviewfix`） | **19 文件**（下文清单，含 k64 守卫） | **471 passed / 14 skipped / 0 failed**（167.95s） |
+
+- **可复现的锚点是 `14 skipped`**：三个读数（502/472/471）**跳过数完全一致**，
+  且**都是 0 failed** ⇒ 差异**全部来自"选了哪些文件"**，不是失败/回归，也不影响任何结论。
+- 本次重建用的 19 文件清单（可逐字复跑）：
+  `test_k62_deadcode_removal_guard` `test_k63_schema_echo_guard`
+  `test_k62k63_fixup_side_effect_guard` `test_k64_quality_predictor_removed`
+  `test_k11_fact_discipline` `test_emoji_cleanup` `test_adaptive_advisor` `test_bot`
+  `test_eval_l1` `test_eval_l2` `test_eval_l3` `test_eval_l4` `test_eval_e6`
+  `test_calendar_llm_route` `test_calendar_persons_read` `test_calendar_today_cache`
+  `test_k17_advisor_persons_first` `test_k41_gender_residual` `test_k52_compliance_scan`
+  （注意：仓库里 `tests/test_calendar_*` **只有 3 个**，原描述的"calendar×4"无法成立，
+  这本身就是"原清单没留档、只能重建"的旁证。）
+- **结论不变**：三棵树、三次读数**均为 0 failed**；"最宽证据 = 定向子集、**未跑全量**、
+  不能声明全仓无回归"的表述**不变**（`502` 这个具体数字请改引用本节的重建读数）。
+
 ## 未做 / 未验（如实列出）
 
-1. **未跑全量**（按纪律）—— 最宽证据 = 20 文件 502 passed；不能声明"全仓无回归"。
+1. **未跑全量**（按纪律）—— 最宽证据 = 定向子集（见上方**计数订正 M-4**：
+   本报告记 502/14/0、审查者重建 472/14/0、b2fix 重建 471/14/0，**均为 0 failed**）；
+   不能声明"全仓无回归"。
 2. **未跑真实 DeepSeek**（按纪律）—— D 段的精度证据是 glm-4-flash + 归档/自造文本，
    生产档（deepseek）输出分布下的误杀率**仍未知**。
 3. **未跑 E6 完整 108 条评测**（控制方另有安排）。
@@ -291,6 +353,7 @@ R1 我抽到 72 条而非审查者的 69：我把 3 档的 `category` 值也算�
 | R-2 | 审查 **M-4**：k63 报告"邻接 5 文件 121 passed / 5 skipped"，审查者复现为 **122**（k63 tip 122/5、合并态 122/4），差 1 未找到可复现的文件组合 | 记账误差，不影响结论 | 不属控制方点名的 4 项 | **登记，未做** |
 | R-3 | 审查 **M-5**：k63 §3.2 散文称"9 条断言…其余 7 条"，实际该用例是 **8 条**（删 2、留 6 = 4 逐字未动 + 2 更强；报告自己的表格是 8 行） | 计数口径差 1，方向与结论正确 | 同上 | **登记，未做** |
 | R-4 | 审查 **M-6**：k62 守卫扫描器 `except SyntaxError: continue` 跳过不可解析文件，动态面只锁 `import_module(<字面量>)` / `__import__(<字面量>)` ⇒ **不覆盖"计算式模块名 / 字符串 exec"**；建议在红线区显式写一句 | 守卫的**能力边界声明**（与 k59 同款口径） | 同上；一句话级补充，随下批做 | **登记，未做** |
+| R-5 | **宽 `except Exception` 吞掉编程错误**（`TypeError`/`AttributeError`/`NameError` 等"必然是 bug"的异常）的**面**（源自 k64 报告 §6 的审计项；合批审查 M-5 复核仍在） | 它正是本批 **P1** 能被藏住的机制（`quality_predictor.update()` 缺必填参数 → 每次都抛 `TypeError` → 被 `except Exception` 静默吞掉 → 「感谢认可！」整段从不显示）；`_free_chat` / `scrub` 等多处 `except Exception: pass` 仍在 | **本批不做，理由有三**：① **属行为/控制流改动**（要么收窄异常类型、要么让异常冒泡），会触及活路径，**超出本批"只改注释/docstring + 补报告"的授权**；② 需要一个**扫描面 + 分类清单**（区分"运行故障该降级"与"编程错误不该吞"），属单批工程量，按控制方口径应**单开一批**；③ k61 那批的守卫**不得不继承 `BaseException`** 正是因为这个兜底面 —— 收窄前必须先有守卫钉住"降级档仍可用"，否则会把降级能力一起打掉 | **登记，未做**（本批**保持可见**：`k64` 报告 §6 + 本行）|
 
 ## 部署工作树同源遗留（**已按控制方裁决还原**）
 

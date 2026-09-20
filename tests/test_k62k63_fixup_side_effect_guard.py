@@ -13,6 +13,11 @@
 1. `tests/test_bot.py::test_handle_voice_with_text_routes_through_process` 走
    **真实 `process()` 主链**；`_handle_voice` 以 `process(text, "", ...)` 调用
    （**空 uid**，见该用例内的 tracking 注释）。
+   ⚠️ **同模块内还有第二条同机制用例**（2026-09-20 合批审查 M-1 补齐）：
+   `tests/test_bot.py::test_voice_message_type_routing` —— 同样
+   `_handle_voice(voice_text=...)` → `process(text, "", ...)`（空 uid），落点与机制
+   逐环相同。两者**都在**模块级 autouse fixture 的覆盖面内，故修复不受影响；
+   本节点名其一只是取"最小可复现面"（原写"只有一条"是描述不全，非机制判断错误）。
 2. `src/bot/handler.py` 的 `process()` 内 `self.memory_system.add_mood_record(
    user_id, analysis.emotion_label)` → 空 uid 落到
    `UserMemory._path("")` = `<memory_dir>/.json`。
@@ -43,6 +48,14 @@
 - 本守卫覆盖的是**这一条已定位的真实副作用面**（`add_mood_record` 空 uid →
   `data/memory/.json`），不是「全仓所有测试副作用」的通用证明；
 - B 跑的是**一条**用例（最小的可复现面），不是整份 `tests/test_bot.py` 或全量；
+- ⚠️ **同类机制的更外面一层（2026-09-20 合批审查 M-2 登记，勿当成"已全隔离"）**：
+  除 `test_bot.py` 外，实测**另有 6 个测试文件**同样把运行期状态写进**仓库内
+  `data/memory/` 目录** —— `test_eval_r1_2` / `test_k11b_search_trigger` /
+  `test_k15_eval_tails` / `test_eval_r1_1` / `test_member_pay` / `test_fastpath`。
+  它们写的是 `user123.json` / `eval_user_*.json` 等**未被跟踪且被
+  `.gitignore:35 data/memory/*.json` 忽略**的文件（uid 非空 ⇒ 落不到 `.json`），
+  因此**当前无 git 影响**，**但本守卫（以及"副作用已隔离"这句话）都不覆盖它们**。
+  登记项 R-1（`data/memory/` 移出跟踪 / 改默认目录）一旦落地，**这 6 个必须一起看**；
 - 若将来有批次**故意**改动/取消跟踪 `data/memory/.json`，A 需要同步更新
   （改动必须显式写进提交说明，不能悄悄绕过）。
 
