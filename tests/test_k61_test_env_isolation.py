@@ -351,6 +351,54 @@ class TestI4DataPathIsolation:
         assert _os.environ["FAISS_INDEX_DIR"] == TEST_FAISS_DIR
         assert _os.environ["FORTUNE_DB_PATH"].startswith(str(Path(TEST_FAISS_DIR).parent))
 
+    def test_sandbox_db_is_a_real_snapshot(self):
+        """**r11 ①**：沙箱用户库必须是**真实的库快照**（不是空目录、不是空文件）。
+
+        为什么必须有这条：r10 把它 pin 到**不存在的空路径**，于是 eval 冒烟族
+        `seed_db_copy(settings.db_path)` 全部 `FileNotFoundError` → 每任务 skip；
+        L1/L4 断言 `executed>0`/`skipped is False` 才把这件事喊出来（L2/L3/e6 是**绿着空转**）。
+        本锁把"它是真库"钉死：非空 + 可打开 + 有业务表 + **不在生产路径下**。
+        """
+        import os as _os
+        import sqlite3
+        dst = _os.environ["FORTUNE_DB_PATH"]
+        assert _os.path.exists(dst), (
+            f"沙箱用户库不存在（{dst}）→ 依赖真实库的 eval 冒烟会**静默空转**（r10 的形态）")
+        assert _os.path.getsize(dst) > 0, f"沙箱用户库是空文件：{dst}"
+        con = sqlite3.connect(dst)
+        try:
+            tables = {r[0] for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            con.close()
+        assert tables, f"沙箱用户库里没有任何表：{dst}"
+        for root in (k61conftest.PROD_DATA_ROOTS + k61conftest.PROD_DATA_WRITE_ROOTS):
+            assert not dst.startswith(root), f"沙箱用户库落在生产路径下：{dst} ⊂ {root}"
+
+    def test_snapshot_refuses_to_read_prod_while_watched(self, monkeypatch, tmp_path):
+        """**r11 ①（竞态锁）**：有看门狗在采样时，快照**不得**去读生产库。
+
+        实测过的假红形态（确定性探针 `HITS: 3`）：`test_k62k63_fixup_side_effect_guard`
+        会用**子进程**跑 pytest（沙箱副本）→ 子进程的 conftest 读生产库建快照 →
+        被**父会话**的 fd 看门狗采到 → 会话收尾 `ProdDataTouched` → 整轮 ERROR（竞态，0.05s 采样）。
+        判据是纯函数 `_snapshot_source()`：① 缓存可用 → 用缓存（不碰生产）；
+        ② 缓存不可用 + 有标记 → 返回 None（宁可不建快照）；③ 无标记时才允许读生产。
+        ⚠️ 路径 ③ **故意不在会话内验证**：那会在本会话自己的看门狗眼皮底下读生产库，
+        等于让本锁把守卫自己打红（要验证请在"没有会话"的进程里跑探针，见报告附件）。
+        """
+        monkeypatch.setattr(k61conftest, "DB_SNAPSHOT_CACHE",
+                            str(tmp_path / "nope" / "fortune.db"))
+        monkeypatch.setenv(k61conftest.PROD_WATCHDOG_ACTIVE_ENV, "1")
+        assert k61conftest._snapshot_source() is None, \
+            "有看门狗采样时仍去读生产库 → 会给别人的会话制造 ProdDataTouched 假红"
+        # 缓存可用时：优先缓存（即便有标记也不读生产）
+        cache = tmp_path / "cache.db"
+        cache.write_bytes(b"not-a-real-db-just-a-marker")
+        monkeypatch.setattr(k61conftest, "DB_SNAPSHOT_CACHE", str(cache))
+        assert str(k61conftest._snapshot_source()) == str(cache)
+        # 标记由会话夹具置上（子进程会继承它）
+        assert os.environ.get(k61conftest.PROD_WATCHDOG_ACTIVE_ENV) == "1"
+
     def test_settings_do_not_point_at_production(self):
         """**结构断言**：settings 的三个路径都不得落在生产数据根下。"""
         from src.config import load_settings

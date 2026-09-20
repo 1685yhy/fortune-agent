@@ -290,20 +290,68 @@ ENV_PINS_AT_IMPORT = {key: os.environ.get(key) for key in TEST_ENV_PINS}
 # 快照源 = `src/config.py` 的**代码默认值**（`Settings().db_path`，不经 env）——
 # 也就是「不 pin 时那个键会取到的值」，语义逐字对齐。生产库不存在的机器上保持
 # 「不存在」→ 相关用例照旧 skip（不制造假数据）。
+#
+# ⚠️ **r11 收尾补的一个竞态（实测到的假红，必须记下来）**：快照不能在**任何**会话里
+# 都去读生产库 —— `tests/test_k62k63_fixup_side_effect_guard.py` 会用**子进程**跑
+# pytest（沙箱副本），那些子进程里 conftest 也要建快照，而**子进程是本会话的后代** →
+# 「子进程读生产库」被**父会话**的 fd 看门狗采到 → 会话收尾 `ProdDataTouched` → 整轮
+# ERROR 挂在某个用例上。这是**竞态**（看门狗 0.05s 采样）：全量门禁那次侥幸没撞上，
+# 37s 的定向集撞上了。确定性复现探针（`HITS: 3`，fd=3 → `/mnt/d/fortune-data/userdata/fortune.db`）：
+#     $ TMPDIR=/dev/shm python -B .superpowers/sdd/k61-r11-logs/watchdog_probe.py /home/a/k61-r11-wt
+# 修法两条（合起来既不留假红、也不让快照消失）：
+#   ① **跨会话缓存**（与 §0 的沙箱语料缓存同款思路）：生产库只在"**没有任何看门狗
+#      在采样本进程**"时被读一次 → 种进 `/dev/shm` 缓存（原子落盘，防并发读到半个文件）；
+#      之后所有会话（含子进程）都从缓存复制 —— 缓存不是生产路径，看门狗看不见。
+#   ② **继承标记** `PROD_WATCHDOG_ACTIVE_ENV`：会话级看门狗启动时置上（子进程继承）
+#      → 子进程的 conftest 一旦发现"有人正在采样我"，就**不读生产库**（拿不到快照就
+#      不建，相关用例照旧 skip 并写明原因）—— 宁可少一层快照，也不给别人制造假红。
+DB_SNAPSHOT_CACHE = "/dev/shm/k61_seed_userdb/fortune.db"
+
+#: "已有看门狗在采样本进程（或其祖先）"的**可继承标记**（见上注 ②）。
+PROD_WATCHDOG_ACTIVE_ENV = "K61_PROD_WATCHDOG_ACTIVE"
+
+
+def _snapshot_source():
+    """快照的**源文件**：缓存优先；返回 `None` = 本轮不建快照（相关用例照旧 skip）。"""
+    cache = DB_SNAPSHOT_CACHE
+    if os.path.exists(cache):
+        return cache
+    try:
+        prod = str(src.config.Settings().db_path)      # 纯代码默认（不经 env）
+    except Exception as exc:                           # pragma: no cover
+        logging.getLogger(__name__).warning("[k61] 取用户库代码默认值失败：%s", exc)
+        return None
+    if not os.path.exists(prod):
+        return None                    # 没数据的机器：保持"不存在"（用例照旧 skip）
+    if os.environ.get(PROD_WATCHDOG_ACTIVE_ENV):
+        logging.getLogger(__name__).warning(
+            "[k61] 快照缓存不可用，且**已有看门狗在采样本进程**（%s）→ 本轮不建用户库"
+            "快照（读生产库会被记成「本会话打开过生产数据」）：依赖真实库的用例会 skip",
+            PROD_WATCHDOG_ACTIVE_ENV)
+        return None
+    # 没人看我 → 读一次生产库、种缓存（**原子落盘**：并发会话永远只看到完整文件）
+    try:
+        os.makedirs(os.path.dirname(cache), exist_ok=True)
+        tmp = f"{cache}.{os.getpid()}.part"
+        shutil.copy2(prod, tmp)
+        os.replace(tmp, cache)
+        return cache
+    except Exception as exc:                           # pragma: no cover
+        logging.getLogger(__name__).warning(
+            "[k61] 用户库快照缓存种植失败（%s）；本进程未被看门狗采样，直接读生产库", exc)
+        return prod
+
+
 def _materialize_user_db_snapshot() -> None:
-    """把代码默认用户库的**只读快照**放进 `FORTUNE_DB_PATH` 沙箱（r11 ①；幂等）。"""
+    """把用户库的**只读快照**放进 `FORTUNE_DB_PATH` 沙箱（r11 ①；幂等）。"""
     dst = os.environ["FORTUNE_DB_PATH"]
     if os.path.exists(dst):
         return
+    source = _snapshot_source()
+    if source is None:
+        return                         # 拿不到源也不越线：相关用例照旧 skip
     try:
-        default_db = str(src.config.Settings().db_path)    # 纯代码默认（不经 env）
-    except Exception as exc:                               # pragma: no cover
-        logging.getLogger(__name__).warning("[k61] 取用户库代码默认值失败：%s", exc)
-        return
-    if not os.path.exists(default_db):
-        return                      # 没数据的机器：保持"不存在"（用例照旧 skip）
-    try:
-        shutil.copy2(default_db, dst)       # 只读复制：生产库内容/mtime 零改动
+        shutil.copy2(source, dst)      # 只读复制：生产库内容/mtime 零改动
     except Exception as exc:                            # pragma: no cover
         # 复制失败不算会话失败：相关用例会照旧 skip 并写明原因（同 r7-5 语料种植的处置）
         logging.getLogger(__name__).warning(
@@ -752,12 +800,19 @@ def _k61_sandbox_books_corpus(request):
 
 @pytest.fixture(scope="session", autouse=True)
 def _k61_prod_data_guard():
-    """会话级：**本会话**打开过生产数据路径 → 报红（r7：不看别人写的 mtime）。"""
+    """会话级：**本会话**打开过生产数据路径 → 报红（r7：不看别人写的 mtime）。
+
+    r11 起还会置上 `PROD_WATCHDOG_ACTIVE_ENV`（**子进程继承**）：让后代会话的 conftest
+    知道"有人正在采样我"，从而**不去读生产库建快照**（否则会被本会话的看门狗记成
+    "本会话打开过生产数据" → 整轮假红，实测竞态见 §0c ① 的长注）。
+    """
     _PROD_WATCHDOG.start()
+    os.environ[PROD_WATCHDOG_ACTIVE_ENV] = "1"
     try:
         yield
     finally:
         _PROD_WATCHDOG.stop()
+        os.environ.pop(PROD_WATCHDOG_ACTIVE_ENV, None)
         # 证据：mtime 是否变化（**不作为判据** —— 并发会话会写它）
         mtime_changed = [p for p, v in _PROD_MTIME_AT_START.items()
                          if v != _prod_data_mtimes().get(p)]

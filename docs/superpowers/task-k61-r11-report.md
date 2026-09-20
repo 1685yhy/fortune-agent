@@ -174,8 +174,45 @@ tests/conftest.py:589: ProdDataTouched
 # 改前（r10 代码）——只读打开生产语料会命中
 $ /home/a/fortune-agent/.venv/bin/python -B /dev/shm/k61r11-logs/i1_probe_base.py   # 探针里含只读 corpus 读法
 $ sed -n '81,106p' /dev/shm/k61r11-logs/01-baseline-full.txt   # 上面的 ERROR 块
-# 改后：见 §6.2 的锁 + 全量门禁 0 error
+# 改后：见 tests/test_k61_test_env_isolation.py 的两条锁
+#       （TestProdDataGuardCriterion::test_two_tier_verdict_read_vs_write /
+#         ::test_read_only_corpus_open_is_not_flagged）+ 全量门禁 0 error
 ```
+
+---
+
+### 2.5 ⚠️ 收尾自曝并修掉的一个**我自己引入的竞态**（假红，必须写下来）
+
+**怎么发现的**：把 4 条目标用例 + k61 守卫文件**合起来**再跑一遍时，出现了一次
+`ERROR tests/test_k62k63_fixup_side_effect_guard.py::test_guard_has_teeth_pre_fix_copy_dirties_memory`
+（`ProdDataTouched`）；**同一命令再跑就绿** → 竞态。（第一次全量门禁没撞上纯属运气：看门狗 0.05s 采样 vs 复制窗口只有几毫秒。）
+
+**根因（确定性探针，不是猜）**
+`test_k62k63_fixup_side_effect_guard` 用**子进程**跑 pytest（沙箱副本，`_run_repro`）。子进程是**本会话的后代** → 子进程里的 conftest 也要建用户库快照 → **读生产库** → 被**父会话**的 fd 看门狗采到 → 会话收尾 `ProdDataTouched` → 整轮 1 error 挂在某个用例上。
+探针（`.superpowers/sdd/k61-r11-logs/watchdog_probe.py`：父进程起看门狗 + 子进程 `import conftest`；采样率调到 0.01 让它稳定复现）：
+```
+改前（r11 初版）：  HITS: 3   (2208275, '3', '/mnt/d/fortune-data/userdata/fortune.db') ×3
+改后（本修复）：    HITS: 0   （缓存可用 / 缓存不可用 两条路径都是 0）
+```
+
+**修法（两条，合起来既不留假红、也不让快照消失）**
+1. **跨会话缓存** `DB_SNAPSHOT_CACHE = /dev/shm/k61_seed_userdb/fortune.db`（与 conftest 既有的 `SANDBOX_CORPUS_SEED_DIR` 同款思路）：生产库只在「**没有任何看门狗在采样本进程**」时被读一次 → 种进缓存（`copy2` 到 `.part` 再 `os.replace`，**并发会话永远只看到完整文件**）；之后所有会话（含子进程）都从**缓存**复制 —— 缓存不是生产路径，看门狗看不见。
+2. **可继承标记** `K61_PROD_WATCHDOG_ACTIVE`：会话级看门狗启动时置上（子进程继承）→ 子进程的 conftest 一旦发现"有人正在采样我"，就**不读生产库**（拿不到快照就不建，相关用例照旧 skip 并在日志里写明原因）。宁可少一层快照，也不给别人的会话制造假红。
+
+**留锁 + 复跑**：`tests/test_k61_test_env_isolation.py` 新增两条 ——
+`test_sandbox_db_is_a_real_snapshot`（真库结构 / 非空 / **不在生产路径下**）与
+`test_snapshot_refuses_to_read_prod_while_watched`（有标记 → 拒读；缓存可用 → 用缓存）。
+复跑记录（改前/改后用"含 k62k63 的那组文件"反复跑，把竞态逼出来/压回去）：
+```
+改前：pytest {guard, isolation, hygiene, k62k63} -q  →  199 passed, **1 error**   （ProdDataTouched）
+      同一条命令再跑                              →  199 passed                （**同一个命令、不同结果 = 竞态**）
+      确定性探针 watchdog_probe.py                 →  HITS: 3
+改后：同一条命令 ×5                                →  201 passed ×5（+2 = 本轮新增的两条锁）
+      {isolation, hygiene, k62k63} ×3              →  41 passed ×3
+      watchdog_probe.py（缓存可用 / 不可用两路径）    →  HITS: 0 / HITS: 0
+```
+
+> 这是我**本轮自己引入**的问题（我让 conftest 去读生产库建快照）——处置：发现即修 + 留锁 + 留探针，并如实写在这里。
 
 ---
 
@@ -238,28 +275,36 @@ $ sed -n '81,106p' /dev/shm/k61r11-logs/01-baseline-full.txt   # 上面的 ERROR
 $ cd /home/a/k61-r11-wt && TMPDIR=/dev/shm nice -n 10 \
     /home/a/fortune-agent/.venv/bin/python -m pytest tests/ -q
 ```
-（实跑时另加 `DEEPSEEK_API_KEY= ANTHROPIC_API_KEY=`，与 conftest 的 pin 等价，仅作红线保险；原始输出 `/dev/shm/k61r11-logs/10-r11-full.txt`）
+（实跑时另加 `DEEPSEEK_API_KEY= ANTHROPIC_API_KEY=`，与 conftest 的 pin 等价，仅作红线保险；原始输出 `/dev/shm/k61r11-logs/10-r11-full.txt`（首轮）、`30-r11-full-final.txt`（**最终**））
 
+**最终（含 §2.5 的竞态修复）**
+```
+5552 passed, 11 skipped, 100 warnings in 1358.34s (0:22:38)
+EXIT=0
+```
+**首轮（竞态修复前，同样 0 红）**
 ```
 5550 passed, 11 skipped, 101 warnings in 1430.88s (0:23:50)
 EXIT=0
 ```
-**0 failed / 0 error。四条目标用例全在通过之列**（它们不在任何失败清单里；同命令定向复现见 §2 的 44 passed）。
+**两轮都是 0 failed / 0 error。四条目标用例全在通过之列**（它们不在任何失败清单里；同命令定向复现见 §2 的 44 passed）。
+最终轮跑完的工作区：只有本轮自己在改的两个文件（`tests/conftest.py`、`tests/test_k61_test_env_isolation.py`）—— `data/memory/` 与 `src/engine/out/` **零脏**。
 
 ### 4.2 与基线的数字对账（证明"没有靠删/跳变绿"）
 
 | | 条目数（collect-only 实测） | passed | failed | error | skipped |
 |---|---|---|---|---|---|
 | 改前（`411f37d`，独立复现工作树 `/home/a/k61-r11-base`，`-p no:cacheprovider`） | 5543 | 5529 | 3 | 1 | 11 |
-| 改后（本轮 `/home/a/k61-r11-wt`） | 5561 | 5550 | 0 | 0 | 11 |
+| 改后·首轮（本轮 `/home/a/k61-r11-wt`） | 5561 | 5550 | 0 | 0 | 11 |
+| 改后·**最终**（+ §2.5 的两条锁） | 5563 | 5552 | 0 | 0 | 11 |
 
-- 条目数用 `pytest tests/ --collect-only -q` 在两个工作树各测一次：`5543` → `5561`，差 **+18**，与新增用例**逐个吻合**：`test_k61_llm_egress_guard.py` 144→160（+16 = 4 条新锁 + I-1 的 4×3 参数化 12 条）、`test_k61_test_env_isolation.py` 28→30（+2）。
-- passed：5529 + 3（原 3 条失败转绿）+ 18（新增）= **5550** ✔
-- skipped：**11 → 11 不变**（既没有新增 skip，也没有"把跑着的改成 skip"）。
+- 条目数用 `pytest tests/ --collect-only -q` 在两个工作树各测一次：`5543` → `5561`（首轮），最终 `5563` = 5561 + 2（§2.5 新增的两条锁）。
+- passed：5529 + 3（原 3 条失败转绿）+ 18（首轮新增）+ 2（最终新增）= **5552** ✔
+- skipped：**11 → 11 → 11 不变**（既没有新增 skip，也没有"把跑着的改成 skip"）。
 - 表里改前的 `failed=3 / error=1` 不额外占条目：`5529+3+11 = 5543` 已经把 5543 个条目分完 —— 那个 error 是**同一个条目**（`test_ziwei_result_contract_shape`）的 **teardown 报告**（call 阶段通过、会话收尾的守卫夹具抛异常），所以它只出现在报告里、不改变条目数。
 - `git diff` 里 **0 处新增 `skip`/`xfail`**；删除的断言只有 2 处，且都是被我**替换掉的两个机制的旧判据**（§5.2 逐条列出），无一处是"削弱判据"。
 
-### 4.3 时长从 9:05 → 23:50 的原因（不是回归）
+### 4.3 时长从 9:05 → ~23:00 的原因（不是回归）
 
 - 直接测得：那两条冒烟在改前 **3.56s 就失败退出**，改后**真跑**（7 条任务真实主链 + 免费 GLM）＝ **5:56**（§2 A/B）。
 - 更广一层：L2 / L3 / e6 的冒烟同样走 `seed_db_copy`，改前**每任务 skip 但断言容忍 skip** → **绿着空转**（`tests/test_eval_l3.py:415`、`tests/test_eval_e6.py:750`）；改后它们也恢复真实执行 → 构成剩余增量。
@@ -311,6 +356,10 @@ $ git diff --stat
 - **没有**定位到触发 I-1 的现有用例（本轮全量 `hook_errors` 为 0）；I-1 是"可达的误报向量"，本轮用外部探针做了 A/B，**没有**在套件内找到真实触发点。
 - **没有**做 M-1 的"全模块无孤儿锁"门禁（理由与计数见 §3.1）。
 - **没有**为 `PROD_DATA_ROOTS` 收窄补"读语料的**写**打开"以外的取证（例如磁盘级只读挂载断言）—— 判据只到 fdinfo 的 flags。
+- 快照缓存的两条**已知降级**（确定性、非假红，如实登记）：
+  ① 缓存是**开机内**有效（`/dev/shm`，重启即清）→ 内容可能比"此刻的生产库"旧；语义上等价于"会话开始时的快照"，而 eval 族每条任务本来就会再复制一次，不影响断言；
+  ② 若 `/dev/shm` 不可写**且**已有看门狗在采样本进程 → 本轮**不建快照**（相关用例 skip + 打 warning）—— 这是**确定性**的降级（宁可不建，也不给别人的会话制造假红）。
+  这两条都没有在"没有 /dev/shm 的机器"上实测（本机 /dev/shm 可用），只做了代码路径推理 + `watchdog_probe.py` 的两路径探针。
 - **没有**跑 `RUN_EVAL_L*_FULL_SMOKE=1` 的完整冒烟范围（本轮只跑默认切片，与门禁一致）。
 - **未验证** `r11` 在**没有 `.env`、没有生产库**的机器上的行为（预期：相关用例照旧 skip；`_materialize_user_db_snapshot` 源不存在时保持"不存在"）。本机两个条件都具备，只能走代码路径推理。
 
@@ -330,10 +379,14 @@ $ git diff --stat
 | `/dev/shm/k61r11-logs/00-before-4cases.txt` | 改前：4 条定向复现（`3 failed, 41 passed in 3.56s`） |
 | `/dev/shm/k61r11-logs/01-baseline-full.txt` | 改前：全量门禁（`3 failed, 5529 passed, 11 skipped, 1 error in 545.54s`），含 §2 ④ 的 ERROR 块 |
 | `/dev/shm/k61r11-logs/02-after-4cases.txt` | 中间态：3 条红转绿（`31 passed in 413.74s`，含 k61 隔离文件） |
-| `/dev/shm/k61r11-logs/10-r11-full.txt` | **改后：全量门禁**（`5550 passed, 11 skipped in 1430.88s`，EXIT=0）+ 工作区脏表 |
+| `/dev/shm/k61r11-logs/10-r11-full.txt` | 改后：全量门禁**首轮**（`5550 passed, 11 skipped in 1430.88s`，EXIT=0）+ 工作区脏表 |
+| `/dev/shm/k61r11-logs/30-r11-full-final.txt` | 改后：全量门禁**最终**（`5552 passed, 11 skipped in 1358.34s`，EXIT=0）+ 工作区脏表 |
 | `/dev/shm/k61r11-logs/20-after-4cases.txt` | 改后：同命令定向复现（`44 passed in 356.97s`，EXIT=0） |
 | `/dev/shm/k61r11-logs/i1-before.txt` / `i1-after.txt` | I-1 的 A/B 探针（8/8 `hook_errors+1` → 8/8 `+0`，异常逐字相同） |
 | `/dev/shm/k61r11-logs/i1_probe.py` / `i1_probe_base.py` | 上面两份的探针源码（可在任一 worktree 复跑） |
+| `/dev/shm/k61r11-logs/watchdog_probe.py` | §2.5 竞态探针（父会话在看门狗下跑子会话）：改前 `HITS: 3` → 改后 `HITS: 0` |
+
+以上日志**另有一份副本随报告留档**：`.superpowers/sdd/k61-r11-logs/`（`/dev/shm` 重启即失）。
 
 复现环境（"改前"那两次跑用的**独立复现工作树**，已在本轮收尾时清理，重建只要两行）：
 ```bash
