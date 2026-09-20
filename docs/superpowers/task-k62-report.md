@@ -2,7 +2,10 @@
 
 - **批次**：k62 · 分支 `k62-deadcode` · worktree `/home/a/k62-wt` · 起点 main `ea110c3`
 - **纪律**：只提交、不合并、不推送、不碰生产
-- **状态**：全部拆除项完成 + 防复发守卫（改前红 → 改后绿）+ 定向子集 350 通过 / 0 失败
+- **状态**：r1 拆除 + r2 收口，全部完成；防复发守卫（改前红 → 改后绿）；定向子集 **351 通过 / 0 失败**
+- **r2 变更**：① **移除与 k63 冲突的 advisor_v2 守卫**（整条移除，不改写成指向 k63 状态）；
+  ② 删 0 调用的重复实现 `build_scenario_system_prompt`（删前复核 0 调用 + 确认 handler 内联为唯一实现）；
+  ③ 删名不符实的活测试 `test_different_personality_different_output`；④ 报告补 §10 跨批边界说明
 
 ---
 
@@ -12,6 +15,9 @@
 三个**对每个用户恒等于同一个值**的风格权重，它们既没接进产品，又靠一堆绿测试
 （`tests/test_mood_detector.py` 34 例）伪装成产品能力 —— 正是上次骗过审查的那种。
 本批已整体拆除，并加守卫锁死，同时**未动任何活路径、未 DROP 任何 DB 列**。
+
+（「未动任何活路径」的**唯一例外是 k63 的边界**：`advisor_v2` 的按性别人设仍是一字未动，
+但它已由用户拍板改掉、归 k63 —— k62 与之的守卫冲突已在 r2 移除，见 §10。）
 
 ---
 
@@ -91,15 +97,59 @@ system from 3 modes to 1 unified tone」** 被摘除，diff 里能看到
 | 是否公开接口 | 模块被谁 import：仅 `src/bot/handler.py:8621`，且**只 import 两个常量**（`STRUCTURED_REPORT_PROMPT` / `SCENARIO_FOCUS_PROMPTS`），**不 import 本函数** | **非接口**（非 HTTP 端点、非包导出、无任何调用方） |
 | 约束面 | `tests/test_k52_compliance_scan.py:66 PROMPT_PY_REQUIRED` 只要求**文件存在** | 改函数不违约束 |
 
-**处置**：按追加指令**删掉 `personality_prompt` 形参**（签名
-`(personality_prompt: str, category: str = None)` → `(category: str = None)`），
-`combined = personality_prompt + "\n\n" + STRUCTURED_REPORT_PROMPT` → `= STRUCTURED_REPORT_PROMPT`。
-这样「sassy/analyst/gentle 三档人设」在仓库里的**最后一处痕迹**消失，不留死分支。
+**r1 处置**：按追加指令**删掉 `personality_prompt` 形参**（签名
+`(personality_prompt: str, category: str = None)` → `(category: str = None)`）。
 
-**⚠️ 额外发现（请控制方拍板，我未擅自扩大）**：该函数**本身全仓 0 调用**，
-其功能与活路径 `src/bot/handler.py:8621-8627`（内联组合同两个常量）**重复**。
-我按指令只删了形参、保留函数，并在其 docstring 里写明「⚠️ 本函数当前全仓 0 调用，
-活路径是 handler 内联组合，勿重复接线」。**是否整体删除该函数，请拍板。**
+**r2 处置（控制方批准整体删除）**：**该函数已整体删除**。删除前按控制方要求**再核一次**：
+
+| 复核面 | 命令 | 结果 |
+|---|---|---|
+| 全仓调用点（所有文件类型） | `grep -rn "build_scenario_system_prompt" /home/a/k62-wt/`（排除 `.git`）+ 同搜 `/mnt/e/fortune-agent-deploy/` | **唯一命中 = 定义行本身**（两份都是）→ **0 调用** |
+| 动态面 | `grep -rn "getattr(.*report_prompt\|import_module.*report_prompt\|__import__.*report"` | **0 命中** |
+| 测试 / 脚本面 | 同上全仓 grep 已覆盖 `tests/` `scripts/` | 0（r1 时唯一命中是我自己的守卫，已随之改写） |
+| 文档示例面 | `grep -rn "scenario_system_prompt" docs/ *.md` | **0 命中**（只有本报告在讨论它） |
+
+**删后行为变化 = 无**：`src/bot/handler.py` **本 r2 一字未改**（`git diff -- src/bot/handler.py` 为空），
+其 `8621-8627` 内联组合 `STRUCTURED_REPORT_PROMPT` + `SCENARIO_FOCUS_PROMPTS[cat]`
+仍是**唯一实现**；被删函数从未被调用，故无任何执行路径受影响。
+原地留注释说明删除依据 + 「要改报告提示词改 handler 那处内联，不要再恢复本函数」。
+
+### 1.5 追加项 `tests/test_adaptive_advisor.py::test_different_personality_different_output` — ✅ 名不符实（r2 已删）
+
+**声称验证**：「不同人格模式生成不同风格的建议」（docstring 原文）/ 名字亦如此。
+
+**我独立复核（4 条，全部成立）**：
+
+| 复核 | 命令 / 读法 | 结果 |
+|---|---|---|
+| ① 从没传过人设参数 | 读 `tests/test_adaptive_advisor.py:451-475` | 三次调用**逐字节相同**：`advisor.generate(sample_bazi_a, user_context="想了解最近运势", api_key=api_key)`，**只有局部变量名** `r_sassy`/`r_analyst`/`r_gentle` **在假装不同** |
+| ② **更根本：它测的 API 没有该参数** | `grep -n "def generate" -A 12 src/engines/advisor_v2.py` | `AdaptiveAdvisor.generate(self, bazi_result, user_context="", api_key="")` —— **没有 personality/style 形参**，故「传不同人设」**在结构上不可能** |
+| ③ 默认 skip | `pytest tests/test_adaptive_advisor.py::TestIntegration::test_different_personality_different_output -v` | **`SKIPPED`**（`api_key` fixture 在未设 `DEEPSEEK_API_KEY` 时 `pytest.skip`） |
+| ④ 无跨批冲突 | `git diff --name-only ea110c3 k63-persona-unify` + 遍历 28 个 worktree 的 `git status` | k63 只改 `src/engines/advisor_v2.py` + `tests/test_k11_fact_discipline.py`；**无任何 worktree 在改本文件** → 可安全删 |
+
+**实际验证了什么**：**什么都没验证**。默认 skip → 零覆盖；即便真跑（设了 key），它**未 mock**、
+会打 3 次真实 DeepSeek，然后断言「三次**相同**请求中至少两次结果不同」——
+命中的只是 **LLM 采样随机性（temperature）**，与人设毫无关系。
+⇒ 典型**虚假保证面**：名字让人以为覆盖了「人设 → 输出」这条链，实际该链上**一个字节都没被测**。
+
+**该职责现在由谁承担**：**k63 的不变式**（单一豆包口吻 —— advisor_v2 的风格指令不再随
+性别/人设分叉）。**k62 不替 k63 断言**（见 §10）。
+
+**顺带复核（防漏网）**：`grep -n "personality\|sassy\|analyst\|gentle\|人格\|风格"` 该文件 →
+**仅命中这一处**（即被删用例自身），**无其他同类「名不符实」兄弟用例**。
+
+**删除处置**：删除该用例，原地留注释写明「为什么删 / 原本声称什么 / 实际验证了什么 /
+职责归 k63 / 不要恢复（除非先给 `generate()` 真正加上人设参数）」——与该文件既有的
+「名人匹配已移除」注释同一体例。`api_key` / `advisor` fixture **保留**（同文件其他用例仍在用）。
+**计数**：`test_adaptive_advisor.py` 17 passed / 5 skipped → **17 passed / 4 skipped**（恰少 1 个 skip，其余零变化）。
+
+**⚠️ 守卫的跨批边界设计（重要）**：新增守卫 `test_misnamed_personality_test_does_not_come_back`
+**只断言 `tests/test_adaptive_advisor.py` 自己**（被删用例名不得复活 / 该文件不得再出现
+声称测人设的用例名 / 其余用例仍在），**不 import、不断言 `src/engines/advisor_v2.py`**
+（那是 k63 正在改造的文件）。上面第 ② 条（`generate()` 没有人设形参）作为**理由写在注释里**，
+**不作断言** —— 断言它会让 k62 在 k63 改动该文件时变红，正是 §10 要避免的越界。
+（已核实 k63 的 diff 只删 `personality_label` 机制、**未动 `generate()` 签名**，
+故即便断言也不会红；但仍按边界原则移除该耦合。）
 
 ---
 
@@ -120,17 +170,19 @@ system from 3 modes to 1 unified tone」** 被摘除，diff 里能看到
 | 7 | `src/bot/handler.py`：`_handle_feedback` 里的 `prefs` / `current_style` 与 `learn(style=...)` 传参 | +1 / −6 |
 | 8 | `src/llm/report_prompts.py`：`personality_prompt` 形参 | +11 / −5 |
 | 9 | `tests/test_emoji_cleanup.py`：**仅** `TestEmotionSoother` + `TestMoodDetector` 两例 | +4 / −28 |
+| 10 | **r2**：`src/llm/report_prompts.py` 的 0 调用重复实现 `build_scenario_system_prompt` 整体删除 | 见 r2 提交 |
+| 11 | **r2**：`tests/test_adaptive_advisor.py` 的名不符实用例 `test_different_personality_different_output` | 见 r2 提交 |
 
-合计（不含守卫与本报告）：**+52 / −909**；
-守卫 `tests/test_k62_deadcode_removal_guard.py` **+592**；报告 **+293**。
-提交总计 **979 insertions / 925 deletions / 15 files**（`git show --numstat`）。
+r1 合计（不含守卫与本报告）：**+52 / −909**；守卫 **+592**；报告 **+293**。
+r1 提交：979 insertions / 925 deletions / 15 files（`git show --numstat`）。
+r2 提交行数见 `git show --numstat`（本文件在 r2 提交内，故不自我引用）。
 
 ### 2.2 特意**保留**的（及理由）
 
 | 保留项 | 理由 |
 |---|---|
 | **`user_preferences` 的 4 个 DB 列**（`style_*` ×3 + `last_style`） | **硬约束：生产库有数据，禁 DROP**。只删代码引用，列入注解「已废弃（k62 移除代码路径，未 DROP COLUMN）」。实测旧行非默认值逐字节保持（见 §3） |
-| `src/engines/advisor_v2.py` **整体**（含 `personality_label` 性别分支「毒舌闺蜜/理性分析师」） | **控制方明示不归 k62**（k11-B 成果，生产在用；k63 改口吻）。**一行未动** |
+| `src/engines/advisor_v2.py` **整体**（含 `personality_label` 性别分支「毒舌闺蜜/理性分析师」） | **本批一行未动**（k62 只拆没人调用的死代码；它是**活代码**，改口吻归 **k63**）。⚠️ **跨批边界**：该分叉已由用户拍板统一成单一豆包口吻、由 k63 承担 —— 详见 §10 |
 | `src/bot/night_persona.py`（及 handler 的引用） | 活代码（深夜语气），**一行未动** |
 | `src/ml/quality_predictor.py`（含 `PERSONALITY_MAP = {"sassy":0,"analyst":1,"gentle":2}`） | 活代码（E4 ML）。**注意**：它里面的 `sassy/analyst/gentle` 字样**不在本批范围**，故我的守卫**不用全仓 grep 这些词**（那会误伤它），只按**具体文件 + AST 标识符**判定 |
 | 话题权重 / 长度偏好 / 好评率 整条链（`topic_*`、`prefer_short`、`accuracy_pct`） | **真实学习到的信号**（实测按用户区分）。守卫显式断言它们**仍在**，防「一刀切删干净」误伤 |
@@ -200,39 +252,47 @@ system from 3 modes to 1 unified tone」** 被摘除，diff 里能看到
 
 ## 5. 防复发守卫（硬约束 3）：改前红 → 改后绿
 
-**文件**：`tests/test_k62_deadcode_removal_guard.py`（24 例）
-**改前副本**：`git archive ea110c3 | tar -x -C /tmp/k62-baseline`（**删除前的 pristine 副本**，
-零 repo 状态改动），把**最终版**守卫拷进去跑。
+**文件**：`tests/test_k62_deadcode_removal_guard.py`（r1 = 24 例 → **r2 = 26 例**）
+**改前副本**：`git archive <该轮起点> | tar -x`（**删除前的 pristine 副本**，零 repo 状态改动），
+把**该轮最终版**守卫拷进去跑。
 
-| | 命令 | 结果 |
-|---|---|---|
-| **改前（红）** | `env -C /tmp/k62-baseline python3 -m pytest tests/test_k62_deadcode_removal_guard.py -q` | **17 failed / 7 passed** |
-| **改后（绿）** | `python3 -m pytest tests/test_k62_deadcode_removal_guard.py -q`（k62 worktree） | **24 passed / 0 failed** |
+| 轮次 | 改前副本 | 改前（红） | 改后（绿） |
+|---|---|---|---|
+| **r1**（拆死模块 + 退化权重） | `git archive ea110c3` → `/tmp/k62-baseline` | **17 failed / 7 passed** | **24 passed / 0 failed** |
+| **r2**（删 0 调用重复实现 + 删名不符实用例 + 移除冲突守卫） | `git archive HEAD`（= r1 tip `2a67833`）→ `/tmp/k62-baseline-r2` | **3 failed / 23 passed** | **26 passed / 0 failed** |
 
-逐例证据：`.superpowers/sdd/k62-evidence/guard-{PRE,POST}-final-unique.txt`
+命令均为 `env -C <副本> TMPDIR=/dev/shm nice -n 10 ionice -c2 -n7 python3 -m pytest tests/test_k62_deadcode_removal_guard.py -q`
+逐例证据：`.superpowers/sdd/k62-evidence/guard-{PRE,POST}-final-unique.txt`（r1）、
+`guard-r2-{PRE,POST}.txt`（r2）。
 
-**改前 17 例红**（锁「新状态」的守卫）：死模块文件仍存在 ×2、无 import 面、dataclass 无退化属性、
+**r1 改前 17 例红**（锁「新状态」的守卫）：死模块文件仍存在 ×2、无 import 面、dataclass 无退化属性、
 DAO 源码无标识符、`to_prompt_hint` 无风格字样、`learn()` 无 style 形参、
 `_get_preference_hint` 无风格字样、handler 不读 `preferred_style`、`/api/user/preferences` 无字段、
 dashboard 无字段、accuracy 无字段、两个 API 源文件无标识符、
 `report_prompts` 无 personality 通道、emoji 用例（死模块两例仍在）、
 **存量旧行被改写**（§3 那条 —— 改前 `learn()` 归一化会漂移存量值 → 红）。
 
-**改前 7 例绿 / 改后仍绿**（**故意的「不许碰」守卫**，锁的是「活代码与红线仍在」）：
+**r2 改前 3 例红**（本轮新增/改写的三条删除守卫）：
+`test_report_prompts_builder_deleted_and_constants_kept`（函数仍在）、
+`test_no_reference_to_deleted_report_prompt_builder`（标识符仍存在）、
+`test_misnamed_personality_test_does_not_come_back`（名不符实用例仍在）。
+
+**改前绿 / 改后仍绿**（**故意的「不许碰」守卫**，锁的是「活代码与红线仍在」）：
 `test_learn_writes_no_dead_style_weights`（列冻结 + 新库默认值）、
 `test_personalized_context_has_no_style_words`（该函数本就不含风格）、
 `test_schema_still_declares_style_columns`（**禁 DROP**）、
 `test_no_drop_column_on_user_preferences`、`test_comment_scan_cannot_hide_a_real_drop`（机制自检）、
-`test_live_personality_paths_untouched`（advisor_v2 性别人设 / night_persona / quality_predictor）、
+`test_legacy_production_row_untouched`（存量数据逐字节不变）、
+`test_live_paths_untouched_no_over_deletion`（**night_persona / quality_predictor** —— 见 §10 跨批边界）、
 `test_scan_face_floors_hold`（扫描面下限）。
-**这 7 例改前绿是设计使然** —— 它们的作用是拦住「把活代码当残留删掉」这**反向事故**，
+**这些改前绿是设计使然** —— 它们的作用是拦住「把活代码当残留删掉」这**反向事故**，
 若它们改前就红，说明守卫写反了。
 
 **守卫的防改宽设计**（沿用 k59 口径）：
 - 扫描面 `src/**/*.py` + `scripts/**/*.py`，**逐 glob 文件数下限**（src ≥200 / scripts ≥130，实测 205/142）+ 总数下限 330（实测 347），只许升不许降；
 - **只认「可执行引用」**：AST 取 `Name/Attribute/keyword/AnnAssign 目标`，注释/docstring 里解释性提到**不算**（k59 同款「注释不是可执行写用法」）。这既防误报（本批在列旁写了大量废弃说明），也**防不住复活**——复活一个权重必然产生代码标识符；
 - 动态接线只锁 `importlib.import_module(<字面量>)` / `__import__(<字面量>)`；
-- **反向事故守卫**：显式断言 advisor_v2 的 `personality_label` + 「毒舌闺蜜/理性分析师」、`night_persona.py` 存在且被 handler 引用、`quality_predictor.PERSONALITY_MAP` 仍在、emoji 用例 8 个类 + ≥10 处 `assert_no_emoji` 仍在；
+- **反向事故守卫**：显式断言 `night_persona.py` 存在且被 handler 引用、`quality_predictor.PERSONALITY_MAP` 仍在、emoji 用例 8 个类 + ≥10 处 `assert_no_emoji` 仍在、`report_prompts` 两个活常量仍在且 handler 内联是唯一实现；
 - 无白名单。
 
 ---
@@ -245,7 +305,12 @@ dashboard 无字段、accuracy 无字段、两个 API 源文件无标识符、
 
 | 运行 | 结果 |
 |---|---|
-| 定向子集（18 文件：守卫 + emoji_cleanup + k52 合规 + k62 相关 handler/api/calendar/偏好链） | **350 passed, 0 failed**（16.5s） |
+| 定向子集（18 文件：守卫 + emoji_cleanup + k52 合规 + k62 相关 handler/api/calendar/偏好链） | **350 passed, 0 failed**（r1，16.5s） |
+| 定向子集（同 18 文件，r2 复跑） | **351 passed, 0 failed**（17.9s） |
+| 定向子集（**19 文件**，r2 终态：+ `test_adaptive_advisor.py` + `test_k11_fact_discipline.py`） | **407 passed, 4 skipped, 0 failed**（25.6s） |
+
+`test_adaptive_advisor.py` 单文件：**17 passed / 5 skipped → 17 passed / 4 skipped**
+（恰少被删的 1 个 skip，其余零变化）。
 | 其中 `tests/test_bot.py`（最大相关件） | 65 passed |
 | 其中 `tests/test_k62_deadcode_removal_guard.py` | 24 passed |
 
@@ -272,37 +337,80 @@ dashboard 无字段、accuracy 无字段、两个 API 源文件无标识符、
    ① 它是「上一次用的人设」，唯一下游就是这三个权重；② `learn(style=)` 形参被删后它只能恒为 `''`；
    ③ 唯一调用方 `handler.py:2400` 用的是 `prefs.preferred_style`，属性被删后**该行必然要改**。
    留着 = 一个永远写 `''` 的形参与列引用，正是本批要清的残留。**如认为超出授权，请指示，我可只回退这一项。**
-3. **`build_scenario_system_prompt` 我按指令只删形参、保留函数**，尽管实测它**全仓 0 调用**
-   且与 `handler.py:8621` 内联逻辑重复。整体删除**超出**追加指令给的两个选项（删参数/给默认值），
-   故**未做，报你拍板**（已在 docstring 写明「0 调用、勿重复接线」防误判）。
+3. **`build_scenario_system_prompt`**：r1 时我按指令只删形参、保留函数（实测 0 调用
+   且与 `handler.py:8621` 内联重复，整体删除超出当时给的两个选项，故报请拍板）。
+   **r2 已获批准并整体删除**，删除前按控制方要求再核一遍 0 调用（见 §1.4）——
+   删后 `handler.py` 一字未改，内联逻辑仍是唯一实现，**零行为变化**。
 4. **文档同步（留痕）**：`docs/API.md`（删 2 处示例字段）、`docs/DATABASE.md`（列标废弃 +
    拆除依据 + 接口字段变更）、`docs/ACCEPTANCE_CRITERIA_AI_NATIVE.md`
    （P0.1「用 MoodDetector 替换关键词匹配」**划掉并标注撤销** —— 该验收项本身就是
    基于死模块写的，不标注会让下一个人按它去恢复 dead code）。
 5. **未跑全量**（按指令，高峰时段）。**未跑 LLM 类测试**（按指令）。
-6. **未做的两件「更大的事」**（仅在报告提出，未擅动）：① `report_prompts.build_scenario_system_prompt`
-   整体删除；② 其他 0 调用函数的系统性清查（不在本批范围）。
+6. **未做的「更大的事」**（不在本批范围）：其他 0 调用函数的系统性清查。
 7. **`data/memory/.json`**：跑测试时被运行期写入（`_updated_at` 时间戳），
-   属**测试副作用**，我已 `git checkout` 还原，**未纳入提交**。
-8. **提交范围**：本分支仅 1 个提交，**未合并 / 未推送 / 未碰生产**。
+   属**测试副作用**，我两轮都 `git restore` 还原，**未纳入任何提交**。
+8. **提交范围**：本分支 **2 个提交**（r1 拆除 + r2 收口），**未合并 / 未推送 / 未碰生产**。
+
+---
+
+## 10. 跨批边界说明（k62 r2 新增）
+
+### 10.1 为什么移除「advisor_v2 性别人设必须保留」这条守卫
+
+**r1 时**我按当时的口头指令，在守卫里写了「**不许碰** `advisor_v2` 的按性别人设
+（`personality_label`：女→毒舌闺蜜 / 男或未知→理性分析师）」，并把
+`src/engines/advisor_v2.py` 列为「绝对不许碰的活代码」，**一个字没动**。
+
+**之后用户拍板把那条链改掉**：该分叉口吻（女=毒舌闺蜜 / 男=理性分析师）与主链的
+**单一豆包口吻**打架，要**统一成单一豆包口吻** → 由 **k63** 承担。
+
+⇒ **冲突**：k62 的守卫断言「advisor_v2 必须保留这个分叉」，k63 要「删掉这个分叉」。
+**两条合并后 k62 的守卫必然变红** —— 这不是 k63 做错，是 k62 的守卫按**过时指令**写的。
+
+**r2 处置**：**移除该条断言**（连同 r1 里对 advisor_v2 的全部断言）。
+理由：① 它是按当时**错误/过时**的指令写的；② 该位置的正确目标状态属于
+**k63 的验收面**，k62 **不应替 k63 断言**（否则 k63 未合并时 k62 红、k63 合并后
+k62 又要改两次）。
+
+**具体做法（既不越界也不留坑）**：
+- `test_live_paths_untouched_no_over_deletion` 里**删掉 advisor_v2 整段**，
+  保留 `night_persona` / `quality_predictor`（**这两条仍然正确**）；
+- 在守卫文件的**红线区**加了一节「跨批边界（k62 r2 更正，勿恢复）」，写明
+  advisor_v2 归 k63、**k62 对它不作任何断言**、**不要把它加回来**；
+- **没有**改成「advisor_v2 的风格指令不得再随性别变化」这类指向 k63 目标状态的断言
+  —— 那会让 k62 在 k63 未合并时变红（控制方明确建议直接移除，采纳）。
+
+### 10.2 边界原则（本批与后续批次的分界）
+
+| 批次 | 边界 | 本批动作 |
+|---|---|---|
+| **k62** | 拆**死代码**（没人调用的） | 两个 0 引用模块、三个退化权重、0 调用的重复实现 |
+| **k63** | 改**活代码的口吻**（有人在用的） | **不碰**：`advisor_v2` 的按性别人设由 k63 统一成单一豆包口吻 |
+
+**唯一残留的交叉点**：`src/ml/quality_predictor.py` 里仍有
+`PERSONALITY_MAP = {"sassy":0,"analyst":1,"gentle":2}` —— 它是**活代码**（E4 ML），
+**不在 k62 范围**，故 k62 的守卫**显式断言它仍在**（防误删），并且
+k62 的所有扫描**都避开全仓 grep `sassy/analyst/gentle`**，只按**具体文件 + AST 标识符**判定
+（否则会误伤它）。**若 k63 也要动它，请 k63 自行改这条守卫。**
 
 ---
 
 ## 8. 交付物
 
-- 分支 `k62-deadcode`（起点 `ea110c3`），**唯一 1 个提交** = 该分支 tip（`git log -1` 取哈希；
-  本文件在该提交内，故不自我引用哈希）。**未合并 / 未推送 / 未碰生产**
-- 守卫：`tests/test_k62_deadcode_removal_guard.py`（24 例，+592 行）
-- 证据：`.superpowers/sdd/k62-evidence/`（PRE/POST 逐例结果、退化实测、旧库仿真）
+- 分支 `k62-deadcode`（起点 `ea110c3`），**2 个提交**：
+  - **r1** = 拆除死模块（2 个）+ 三个退化风格权重 + emoji 文件两例（+ 守卫首版）
+  - **r2** = **移除与 k63 冲突的守卫** + 删 0 调用的重复实现 `build_scenario_system_prompt`
+    + 删名不符实的活测试 `test_different_personality_different_output`（+ 报告补 §10）
+  - 两个提交的哈希见 `git log --oneline k62-deadcode`（本文件在提交内，故不自我引用哈希）。
+    **未合并 / 未推送 / 未碰生产**
+- 守卫：`tests/test_k62_deadcode_removal_guard.py`（**26 例**）
+- 证据：`.superpowers/sdd/k62-evidence/`（r1/r2 的 PRE/POST 逐例结果、退化实测、旧库仿真）
 - 本报告：`docs/superpowers/task-k62-report.md`（worktree 内）+
   `/mnt/e/fortune-agent-deploy/.superpowers/sdd/task-k62-report.md`
 
-## 9. 需要控制方拍板的 2 件事
+## 9. 拍板事项（均已在 r2 收口）
 
-1. **`last_style` 是否允许一并删除**（我删了形参+属性+序列化，**列保留未 DROP**）。
-   它不在原 brief 清单里，但它是 `learn(style=)` 的唯一下游、且该形参因
-   `preferred_style` 被删而必然要改。§7.2 有完整理由，回退只需一处。
-2. **`report_prompts.build_scenario_system_prompt` 是否整体删除**：
-   实测**全仓 0 调用**，与 `handler.py:8621-8627` 内联逻辑重复；我按追加指令
-   只删了 `personality_prompt` 形参、保留了函数（并在 docstring 标注「0 调用、
-   勿重复接线」）。是否整体删，请拍板（§7.3）。
+1. **`last_style` 允许一并删除 → 批准**（列保留未 DROP）—— 已按批准执行，理由见 §7.2。
+2. **`build_scenario_system_prompt` 整体删除 → 批准** —— 已在 r2 删除，
+   删前按要求复核 0 调用 + 确认 handler 内联为唯一实现、零行为变化（§1.4）。
+3. **跨批冲突（advisor_v2 守卫）→ 已按指示移除**（§10）。

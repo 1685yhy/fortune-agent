@@ -30,10 +30,17 @@
 ── 红线（本文件任何修改都不得违反） ─────────────────────────────────────
 1. 不得为了让断言通过而**改宽**扫描面（排除目录、放宽正则、删文件数下限）；
    扫描面有**逐 glob 文件数下限**，只许升不许降；
-2. 不得删除本文件里锁定「活代码仍在」的用例（advisor_v2 性别分支 /
-   night_persona / quality_predictor / emoji 清理用例）—— 那些是**绝对不许碰**
-   的活路径；它们改前改后都是绿的，存在的意义正是拦住「把活代码当残留删掉」；
+2. 不得删除本文件里锁定「活代码仍在」的用例（night_persona /
+   quality_predictor / emoji 清理用例 / 列不许 DROP）—— 那些是**不许碰**的活
+   路径；它们改前改后都是绿的，存在的意义正是拦住「把活代码当残留删掉」；
 3. 不设白名单。
+
+── 跨批边界（k62 r2 更正，勿恢复） ──────────────────────────────────────
+`src/engines/advisor_v2.py` 的**按性别人设**已由用户拍板改为「统一成单一豆包
+口吻」，**归 k63 承担**。本文件**对它不作任何断言** —— 既不要求保留（那会在
+k63 合并后变红，两条一起绿不了），也不替 k63 断言其目标状态（那会在 k63 未
+合并时变红）。r1 曾按当时的口头指令写过「advisor_v2 性别人设必须保留」，r2 已
+移除。**不要把它加回来。**
 """
 from __future__ import annotations
 
@@ -429,29 +436,88 @@ def test_api_sources_free_of_style_fields(rel):
         assert tok not in names, f"{rel} 仍在代码里引用 {tok}"
 
 
-def test_report_prompts_has_no_personality_channel():
-    """「3 档人设」最后一处痕迹：`build_scenario_system_prompt` 的 personality 形参。
+def test_report_prompts_builder_deleted_and_constants_kept():
+    """`build_scenario_system_prompt` 整体删除（k62 r2，控制方批准）。
 
-    k62 实测：`personality_prompt` 全仓 0 处传入（只有定义/docstring/函数体），
-    且该函数本身 0 调用。此处锁「形参已拆 + 风格名不再作为代码标识符」。
+    删除依据：① 全仓 **0 调用**（含 getattr / importlib.import_module / 测试 /
+    脚本 / 文档示例面，实测唯一命中 = 定义行本身）；② 与 `src/bot/handler.py`
+    内联组合同源常量**重复** —— 后者才是唯一实现；③ 其首形参
+    `personality_prompt` 是「3 档人设」在仓库里的最后一处痕迹。
+
+    本用例同时锁「不许把活路径的常量一起删掉」（反向事故）。
     """
-    import inspect
     from src.llm import report_prompts
+
+    assert not hasattr(report_prompts, "build_scenario_system_prompt"), (
+        "0 调用的重复实现复活（活路径是 handler.py 内联组合，不要接第二实现）")
 
     names = _code_identifiers("src/llm/report_prompts.py")
     assert "personality_prompt" not in names, "personality_prompt 形参复活"
+    assert "build_scenario_system_prompt" not in names, "被删函数名复活"
     for tok in ("sassy", "analyst", "gentle") + DEAD_STYLE_ATTRS:
         assert tok not in names, f"report_prompts 出现风格代码标识符 {tok}"
 
-    params = set(inspect.signature(
-        report_prompts.build_scenario_system_prompt).parameters)
-    assert "personality_prompt" not in params, "签名里仍有 personality_prompt"
-    assert "category" in params, "category 形参被误删（活参数）"
-
-    # 活路径必须仍在：handler 内联组合同源常量（防「顺手删提示词」误伤）
+    # 活路径的两个常量必须仍在（handler.py:8621 在用）——防「顺手删提示词」误伤
+    assert report_prompts.STRUCTURED_REPORT_PROMPT, "STRUCTURED_REPORT_PROMPT 被误删"
+    assert report_prompts.SCENARIO_FOCUS_PROMPTS, "SCENARIO_FOCUS_PROMPTS 被误删"
     h = _code_identifiers("src/bot/handler.py")
     for keep in ("STRUCTURED_REPORT_PROMPT", "SCENARIO_FOCUS_PROMPTS"):
         assert keep in h, f"handler 活路径的 {keep} 被误删"
+    # handler 内联是唯一实现：不得反手 import 回被删函数
+    assert "build_scenario_system_prompt" not in h, \
+        "handler 又接回了被删的重复实现"
+
+
+def test_misnamed_personality_test_does_not_come_back():
+    """名不符实的活测试不得复活：`test_different_personality_different_output`。
+
+    k62 r2 删除（控制方指派）。它声称「不同人格模式生成不同风格建议」，实际：
+    ① 三次调用逐字节相同（只有局部变量名 r_sassy/r_analyst/r_gentle 假装不同）；
+    ② 它测的 `AdaptiveAdvisor.generate(bazi_result, user_context, api_key)`
+       **根本没有 personality 形参** → 「传不同人设」结构上不可能；
+    ③ 被 `api_key` fixture 默认 skip（实测 SKIPPED）；
+    ④ 未 mock，真跑时断言命中的只是 temperature 随机性。职责现由 **k63** 的
+       单一豆包口吻不变式承担。
+
+    ⚠️ 跨批边界：本用例**只断言本文件**（`tests/test_adaptive_advisor.py`），
+    **不 import / 不断言 `src/engines/advisor_v2.py`**（那是 k63 的文件，k63 正在
+    改造它）。故上述 ② 作为**理由写在注释里**，不作为断言 —— 断言它会让 k62 在
+    k63 改动时变红。
+
+    本用例锁：① 该名字的用例不得复活；② 该文件里任何**声称测人设**的用例名都
+    不许出现（`generate()` 没有人设参数，此类名字按构造即误导）；③ 其余用例仍在。
+    """
+    rel = "tests/test_adaptive_advisor.py"
+    tree = ast.parse(_read(rel), filename=rel)
+    test_names = {n.name for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")}
+    assert "test_different_personality_different_output" not in test_names, \
+        "名不符实的人设用例复活（它不可能验证人设 —— generate() 没有该参数）"
+    # ② 名字里声称测「人设」的用例：本文件全部用例都调 generate()，而它没有人设
+    #    形参 → 凡名字声称测人设者按构造即误导。若将来真给人设参数并写了真用例，
+    #    请连同本守卫与文件内移除说明一并更新。
+    liars = sorted(n for n in test_names
+                   if "personality" in n.lower() or "人格" in n)
+    assert not liars, f"{rel} 出现声称测人设的用例（generate() 无人设参数）：{liars}"
+    # ③ 该文件其余用例必须还在（防「顺手清空」误伤）
+    assert len(test_names) >= 20, f"该文件用例数骤降到 {len(test_names)}，疑似误删"
+
+
+def test_no_reference_to_deleted_report_prompt_builder():
+    """仓库面（AST 标识符）：被删函数名不得在 src/ scripts/ tests/ 任何代码里出现。
+
+    只认可执行标识符（Name/Attribute/keyword/AnnAssign 目标）—— 注释/docstring
+    里解释性提到不算（k59 同款口径），本文件自身与其说明文字因此不误报。
+    """
+    hits = []
+    for p in _py_files_under("src", "scripts", "tests"):
+        try:
+            names = _code_identifiers(p.relative_to(ROOT))
+        except SyntaxError:
+            continue
+        if "build_scenario_system_prompt" in names:
+            hits.append(str(p.relative_to(ROOT)))
+    assert not hits, "被删函数被重新接线：\n" + "\n".join(hits)
 
 
 # ====================================================================
@@ -540,18 +606,20 @@ def test_comment_scan_cannot_hide_a_real_drop():
         "# 已废弃（k62 移除代码路径，未 DROP COLUMN）").lower()
 
 
-def test_live_personality_paths_untouched():
-    """**绝对不许碰**的活路径：本批禁删，改前改后都必须是绿的。"""
-    # 1) advisor_v2 按性别的人设分支（k11-B 成果，生产在用）
-    adv = _read("src/engines/advisor_v2.py")
-    assert "personality_label" in adv, "advisor_v2 性别人设分支被误删（k11-B 活代码）"
-    for label in ("毒舌闺蜜", "理性分析师"):
-        assert label in adv, f"advisor_v2 人设标签 {label} 被误删（k11-B 活代码）"
-    # 2) 深夜陪伴夜间语气（handler.py 在用）
+def test_live_paths_untouched_no_over_deletion():
+    """**不许碰**的活路径：本批禁删，改前改后都必须是绿的。
+
+    ⚠️ 跨批边界：**`src/engines/advisor_v2.py` 的按性别人设不在此断言内** ——
+    用户已拍板把它从「按性别分叉口吻」统一成单一豆包口吻，**由 k63 承担**
+    （k63 未合并时若在此断言「必须保留」，两条合并后必然变红）。故本文件
+    对 advisor_v2 **不作任何断言**（既不要求保留、也不替 k63 断言其目标状态）。
+    详见报告「跨批边界说明」。
+    """
+    # 1) 深夜陪伴夜间语气（handler.py 在用）
     assert (ROOT / "src/bot/night_persona.py").exists(), "night_persona.py 被误删（活代码）"
     assert "night_persona" in _read("src/bot/handler.py"), \
         "handler 不再引用 night_persona（活路径被摘）"
-    # 3) ML 质量预测器（E4 活代码）
+    # 2) ML 质量预测器（E4 活代码）
     qp = _read("src/ml/quality_predictor.py")
     assert "PERSONALITY_MAP" in qp, "quality_predictor.PERSONALITY_MAP 被误删（活代码）"
 
