@@ -882,7 +882,8 @@ async def user_preferences(uid: str = Depends(require_user), user_id: str = ""):
     安全修复：user_id 一律取 JWT sub。
 
     k62：`preferred_style` / `preferred_style_key` 两键已移除（早期「3 模式
-    人设」残留，对所有用户恒为 'gentle'，不携带信息）。消费方核实：全仓
+    人设」残留；它是「把自身输出当输入」的自强化回路，会注入用户从未表达过的
+    风格偏好 —— 见 storage/models.py 列注释）。消费方核实：全仓
     （含 miniprogram/）无该字段引用，见 docs/API.md。
     """
     global _preference_dao

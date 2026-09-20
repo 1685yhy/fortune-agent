@@ -184,11 +184,20 @@
 
 - 索引：PK `user_id`。
 - 数据为数值画像（非原始敏感文本），明文存储。
-- k62 拆除说明：三个风格权重由同一公式、同一输入更新，恒为当前 argmax 的
-  那一个被自强化 → `preferred_style` 对所有用户恒为建表默认值决定的
-  `'gentle'`（实测 30 次全👍/全👎/交替三条轨迹终值均 `'gentle'`），不携带
-  用户信息，却经 `to_prompt_hint()` 进了活提示词。故代码侧整体移除；
-  **列不许 DROP**（破坏性迁移需先报批）。
+- k62 拆除说明：三个风格权重只更新**当时被选中的那一个**（handler 传
+  `style=preferred_style`，即当时 argmax），随后归一化 → **权重会分化**
+  （实测 30×全👍终值 `0.0476/0.0476/0.9049`，**不是**恒等 ≈1/3）。
+  `preferred_style` 就是当时的 argmax：默认起步落在 `'gentle'`（建表默认
+  0.34，全👍轨迹一直停在 gentle），但**反馈符号序列能把它推走** —— 全差评时
+  呈确定性 3-循环 `sassy→analyst→gentle`（10 次 → `'sassy'`、12 次 →
+  `'gentle'`；`5👍+7👎` → `'sassy'`；一手实测于 `ea110c3` 副本）。它经
+  `to_prompt_hint()` 以**中文名**进活提示词（如「用户偏好风格：毒辣直接」）
+  ⇒ 是「把自身输出当输入」的自强化回路，会给用户注入**从未表达过**的风格偏好。
+  故代码侧整体移除；**列不许 DROP**（破坏性迁移需先报批）。
+  （历史口径更正 · 2026-09-20 集成修复：k62 r1 commit message 与报告曾写
+  "归一化后恒等（≈1/3）"与"`preferred_style` 对所有用户恒为 `'gentle'`"
+  —— 两句均已被实测证伪；以本段与 `tests/test_k62_deadcode_removal_guard.py`
+  docstring 为准。）
 - 前端关系：`/api/user/preferences`、`/api/user/{id}/accuracy`（仪表盘）。
   k62 起两接口不再返回 `preferred_style` / `preferred_style_key` /
   `style_breakdown`（全仓含 miniprogram/ 无消费方）。

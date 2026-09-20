@@ -77,8 +77,9 @@ def build_dashboard(user_id: str, handler) -> dict:
     if handler.preference_dao:
         prefs = handler.preference_dao.get(user_id)
         # k62：preferred_style / style_breakdown 两键随三权重一并移除（早期
-        # 「3 模式人设」残留，对所有用户恒为 'gentle'）。消费方核实：全仓
-        # （含 miniprogram/）无该字段引用，见 docs/API.md。
+        # 「3 模式人设」残留；它是「把自身输出当输入」的自强化回路，会给用户
+        # 注入从未表达过的风格偏好 —— 见 storage/models.py 列注释）。消费方
+        # 核实：全仓（含 miniprogram/）无该字段引用，见 docs/API.md。
         dashboard["preferences"] = {
             "mature": prefs.is_mature,
             "preferred_topic": prefs.preferred_topic if prefs.is_mature else None,

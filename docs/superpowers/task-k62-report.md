@@ -83,9 +83,22 @@ system from 3 modes to 1 unified tone」** 被摘除，diff 里能看到
 它只反映「哪一列被建表默认值设成了 0.34」。证据原文：
 `.superpowers/sdd/k62-evidence/degeneracy-proof.txt`（worktree 内 `/tmp/k62-evidence/`）。
 
-→ **该字段不携带任何用户信息**（比「恒等 1/3」更彻底的退化），
-且它经 `to_prompt_hint()` 进了**活提示词**（`_get_preference_hint` → `/api/calendar/daily|week`
-的 `preferences=`）。**同意拆除。**
+> **【更正 · 2026-09-20 集成修复】本段后半句（粗体结论）已被实测证伪。**
+> ① **不是「与用户反馈无关」**：全差评（👎）序列会把 argmax 推走 —— 该序列下
+> `sassy→analyst→gentle` 是**确定性 3-循环**，t=10 时 `preferred_style='sassy'`
+> （hint 实际渲染「用户偏好风格：**毒舌直接**」），t=12 才回到 `'gentle'`；
+> `5👍+7👎` 终值 `'sassy'`。⇒ 取值是**反馈符号序列的确定性函数**。
+> ② **「从未离开过 'gentle'」是取样口径造成的错觉**：上面四条轨迹都在 t=30
+> （3 的整数倍）取样，正好落在循环的 gentle 相位上；t=10 取样就会看到 `'sassy'`。
+> ③ 结论方向不变且**更强**：真正的缺陷是「把自身输出当输入的自强化回路」+
+> 「给用户注入从未表达过的风格偏好（含已废止的「毒舌」口径）」，而不是"它是常数"。
+> 一手复现（`ea110c3` 副本、handler 真实口径 `learn(style=prefs.preferred_style)`）
+> 与修正后的长期口径见 `tests/test_k62_deadcode_removal_guard.py` docstring 与
+> `task-integration-fixup-report.md`。**本报告仅 §1.3 本段与 §7.7 两处被更正，其余未动。**
+>
+> （原结论）该字段不携带任何用户信息（比「恒等 1/3」更彻底的退化），
+> 且它经 `to_prompt_hint()` 进了**活提示词**（`_get_preference_hint` → `/api/calendar/daily|week`
+> 的 `preferences=`）。**同意拆除。**
 
 ### 1.4 追加项 `src/llm/report_prompts.py: personality_prompt` — ✅ 确认死参数（已删）
 
@@ -333,6 +346,10 @@ dashboard 无字段、accuracy 无字段、两个 API 源文件无标识符、
    —— 实测权重**会**分化（全👍 收敛到 `0.05/0.05/0.90`），**不是**恒等 1/3。
    但**结论方向正确且更强**：`preferred_style` 对所有用户恒为 `'gentle'`（建表默认值决定），
    **完全不含用户信息**。我按实测修正了报告与代码注释措辞，未照抄原话。
+   > **【更正 · 2026-09-20 集成修复】本条的第二句同样被证伪**：`preferred_style`
+   > **不是**"对所有用户恒为 `'gentle'`"，它是**当前 argmax**、是反馈符号序列的
+   > 确定性函数（全差评时 3-循环，t=10 → `'sassy'` → hint 渲染「毒舌直接」）。
+   > 详见 §1.3 的更正块，以及 `tests/test_k62_deadcode_removal_guard.py` docstring。
 2. **我把 `last_style` 一并删了**（列保留未 DROP）。它不在原 brief 的清单里，理由：
    ① 它是「上一次用的人设」，唯一下游就是这三个权重；② `learn(style=)` 形参被删后它只能恒为 `''`；
    ③ 唯一调用方 `handler.py:2400` 用的是 `prefs.preferred_style`，属性被删后**该行必然要改**。
@@ -349,6 +366,19 @@ dashboard 无字段、accuracy 无字段、两个 API 源文件无标识符、
 6. **未做的「更大的事」**（不在本批范围）：其他 0 调用函数的系统性清查。
 7. **`data/memory/.json`**：跑测试时被运行期写入（`_updated_at` 时间戳），
    属**测试副作用**，我两轮都 `git restore` 还原，**未纳入任何提交**。
+   > **【更正 · 2026-09-20 集成修复】上面这句与事实不符。** 合批独立审查
+   > （`task-k6263-review.md` M-1）实测：`git show --stat 2a67833` 里**有**
+   > `data/memory/.json | 2 +-`，`_updated_at` 由 `2026-07-22T18:48:21.613527`
+   > 漂到 `2026-09-20T11:14:12.172074` —— 该副作用**确实被提交进了 k62 r1**，
+   > "还原"漏了一次。已在集成修复批把该文件**还原为合并基点 `ea110c3` 的版本**
+   > （k63/k64 的提交未带它：`git log ea110c3..90230d9 -- data/memory/` 只有
+   > `2a67833` 一条），并补上防复发守卫
+   > （`tests/test_k62k63_fixup_side_effect_guard.py`，含沙箱复现 + "改前失败"证明）。
+   > 根因是**测试隔离缺陷**：`tests/test_bot.py` 的用例走真实 `process()` 主链、
+   > `_handle_voice` 以空 uid 调用 → `add_mood_record("")` 写 `data/memory/.json`，
+   > 而该文件当时未重定向 `USER_MEMORY_DIR`；口径与处置见
+   > `task-integration-fixup-report.md`。
+   > **本段是本报告唯一被更正之处，其余内容未改动。**
 8. **提交范围**：本分支 **2 个提交**（r1 拆除 + r2 收口），**未合并 / 未推送 / 未碰生产**。
 
 ---

@@ -19,10 +19,23 @@
      IntentClassifier)」）。生下来就是死的。
 
 2. **三个退化风格权重复活**：`style_sassy` / `style_analyst` / `style_gentle`
-   在 `PreferenceDAO.learn()` 里**同一公式、同一输入**更新（只有被选中的那一个
-   用 `alpha*(1.0 if is_positive else 0.0)`，另两个不动），归一化后**恒等**
-   （≈1/3）—— 不携带任何信息，却经 `to_prompt_hint()` 进了活提示词
+   在 `PreferenceDAO.learn()` 里只更新**当时被选中的那一个**（handler 传
+   `style=prefs.preferred_style`，即当时的 argmax；用
+   `alpha*(1.0 if is_positive else 0.0)`），随后归一化 —— 权重**会分化**，
+   实测 30×全👍终值 `0.0476/0.0476/0.9049`，**不是**恒等 ≈1/3
+   （一手实测，`ea110c3` 副本）。
+   `preferred_style` 就是**当时的 argmax**：默认起步落在 `'gentle'`（建表默认
+   0.34，故全👍轨迹一直停在 gentle），但**反馈符号序列能把它推走** —— 全差评时
+   呈确定性 3-循环 `sassy→analyst→gentle`（10 次 → `'sassy'`、12 次 →
+   `'gentle'`），`5👍+7👎` → `'sassy'`。它经 `to_prompt_hint()` 以**中文名**
+   （如「用户偏好风格：毒辣直接」）进了活提示词
    （`_get_preference_hint` → `/api/calendar/daily|week`）。
+   ⇒ 真实缺陷是「**把自身输出当输入的自强化回路**」+「给用户注入**从未表达过**的
+   风格偏好」（含已废止的「毒舌」口径）—— **删除决策因此更强**，而不是因为
+   "它是常数"。
+   （历史口径更正 · 2026-09-20 集成修复：k62 r1 的 commit message 与报告曾写
+   "归一化后恒等（≈1/3）"与"`preferred_style` 对所有用户恒为 'gentle'"，
+   **两句均被实测证伪**。本文件是长期留存物，以本段为准。）
 
 3. **反向事故（比复发更危险）**：这三个权重对应的 DB 列**不许 DROP**（生产库
    有真实数据）。本文件**同时**锁两件事：代码路径已移除 **且** 列仍在 SCHEMA 里。
@@ -235,7 +248,8 @@ def test_preferences_dataclass_has_no_dead_style_attrs():
     for attr in DEAD_STYLE_ATTRS:
         assert attr not in names, f"UserPreferences.{attr} 复活（退化权重，无信息量）"
     assert not hasattr(UserPreferences, "preferred_style"), \
-        "UserPreferences.preferred_style 复活（恒等 1/3 三选一，无信息量）"
+        "UserPreferences.preferred_style 复活（自强化回路：与反馈符号序列确定性" \
+        "相关、不携带内容偏好信息，还会注入用户从未表达过的风格偏好）"
     # 话题权重是**活的**，必须还在（防误删）
     for attr in ("topic_wealth", "topic_love", "topic_career",
                  "topic_health", "topic_growth"):

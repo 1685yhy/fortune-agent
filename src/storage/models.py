@@ -67,11 +67,16 @@ CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, created_at);
 CREATE TABLE IF NOT EXISTS user_preferences (
     user_id TEXT PRIMARY KEY,
     -- ⚠️ 已废弃（k62 移除代码路径，未 DROP COLUMN）：下面 3 列是早期「3 模式
-    -- 人设」残留的三个风格权重。三者由同一公式、同一输入更新，恒为当前
-    -- argmax 的那一个被自强化 → preferred_style 对所有用户恒为建表默认值决定
-    -- 的 'gentle'，不携带用户信息。代码侧已整体移除（PreferenceDAO 不再读写，
-    -- 见 preference_dao.py 类 docstring）。**列保留**：生产库有真实数据，
-    -- 破坏性迁移需先报批。新写入行取本处默认值。
+    -- 人设」残留的三个风格权重。三者只更新**当时被选中的那一个**（handler 传
+    -- style=preferred_style，即当时 argmax），随后归一化 → 权重会分化（实测
+    -- 30×全👍终值 0.0476/0.0476/0.9049，**不是**恒等 ≈1/3）。
+    -- preferred_style 就是当时的 argmax：默认起步落在 'gentle'（建表默认 0.34），
+    -- 但反馈符号序列能把它推走（全差评时确定性 3-循环 sassy→analyst→gentle：
+    -- 10 次 → 'sassy'、12 次 → 'gentle'）⇒ 是「把自身输出当输入」的自强化回路，
+    -- 会经 to_prompt_hint() 以中文名给用户注入从未表达过的风格偏好。
+    -- 代码侧已整体移除（PreferenceDAO 不再读写，见 preference_dao.py 类
+    -- docstring）。**列保留**：生产库有真实数据，破坏性迁移需先报批。
+    -- 新写入行取本处默认值。
     style_sassy REAL DEFAULT 0.33,       -- 【已废弃·k62】毒舌权重 (EMA)
     style_analyst REAL DEFAULT 0.33,     -- 【已废弃·k62】分析权重 (EMA)
     style_gentle REAL DEFAULT 0.34,      -- 【已废弃·k62】温柔权重 (EMA)
