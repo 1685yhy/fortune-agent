@@ -1,6 +1,6 @@
 # k61 r9（复审整改：2 Critical + I1 + 零回归锁 + 过度声明更正）
 
-**提交**：`1a766af`（主修）→ `50280f4` / `4c0b83d` / `3fbcce9`（归因锁加固）。
+**提交**：`1a766af`（主修）→ `50280f4` / `4c0b83d` / `3fbcce9`（归因锁）→ `8216af3`（取证锁）→ `08e4740`（报告最终态）。
 **分支**：`k61-egress-r9`（基点 `d926a95`）。**未合并、未推送、`src/` 零改动、未写任何生产库。**
 
 **本轮的头号问题不是"代码没写"，是"声称覆盖了实际没覆盖的东西"** —— r8 报告写
@@ -426,3 +426,63 @@ TMPDIR=/dev/shm nice -n 10 $PY -m pytest tests/test_k61_*.py -q                 
 （`src/` **零改动**）；全程**没有**任何字节发往 `api.deepseek.com`（所有"目标"都是本机
 `127.0.0.2/3/4` 的自建监听器，且监听器**从不转发**）；未触碰 `/home/a/data/userdata/fortune.db`
 与 `/home/a/fortune-run`；未合并、未推送 main。
+
+---
+
+## 附录 A：§5 那 41 条的**精确注入语句**（复现用）
+
+做法：在 `tests/conftest.py` 的 `_GUARD.install()` **之后**插入下面第二列的语句
+（等价于"把该路径的守卫还回原函数"），跑第三列的 `-k` 选择器，看对应锁是否变红，然后还原。
+
+| 用例（标签） | 注入语句（摘掉的守卫） | `-k` 选择器 |
+|---|---|---|
+| A socket.getaddrinfo | `socket.getaddrinfo = _GUARD._orig_getaddrinfo` | `test_socket_getaddrinfo_blocked` |
+| B socket.create_connection | `socket.create_connection = _GUARD._orig_create_connection` | `test_socket_create_connection_blocked` |
+| C socket.socket.connect | `socket.socket.connect = _GUARD._orig_connect` | `test_public_ip_literal_direct_socket_blocked` |
+| C socket.socket.connect_ex | `socket.socket.connect_ex = _GUARD._orig_connect_ex` | `test_public_ip_literal_connect_ex_blocked` |
+| D socket.send | `socket.socket.send = _GUARD._orig_send` | `test_memoryview_send_blocked` |
+| D socket.sendall | `socket.socket.sendall = _GUARD._orig_sendall` | `test_single_block_still_blocked` |
+| D socket.sendmsg | `socket.socket.sendmsg = _GUARD._orig_sendmsg` | `test_sendmsg_blocked` |
+| D socket.sendto | `socket.socket.sendto = _GUARD._orig_sendto` | `test_sendto_blocked` |
+| D os.write | `os.write = _GUARD._orig_os_write` | `test_os_write_blocked` |
+| D os.writev | `os.writev = _GUARD._orig_os_writev` | `test_os_writev_blocked` |
+| E httpx 同步传输层 | `import httpx as _hx` + `_hx.HTTPTransport.handle_request = _GUARD._orig_httpx_sync` | `test_httpx_sync_real_transport_blocked` |
+| E httpx 异步传输层 | `import httpx as _hx` + `_hx.AsyncHTTPTransport.handle_async_request = _GUARD._orig_httpx_async` | `test_httpx_async_real_transport_blocked` |
+| os.sendfile | `os.sendfile = _GUARD._orig_os_sendfile` | `test_aliases_are_actually_blocked and os.sendfile` |
+| posix.write | `posix.write = _GUARD._orig_posix_write` | `test_aliases_are_actually_blocked and posix.write` |
+| posix.writev | `posix.writev = _GUARD._orig_posix_writev` | `test_aliases_are_actually_blocked and posix.writev` |
+| posix.sendfile | `posix.sendfile = _GUARD._orig_posix_sendfile` | `test_aliases_are_actually_blocked and posix.sendfile` |
+| socket.socket.sendfile | `socket.socket.sendfile = _GUARD._orig_sock_sendfile` | `test_aliases_are_actually_blocked and socket.socket.sendfile` |
+| os.splice | `os.splice = _GUARD._orig_os_splice` | `test_os_splice_into_socket_blocked` |
+| posix.splice | `posix.splice = _GUARD._orig_posix_splice` | `test_posix_write_aliases_are_blocked and posix.splice` |
+| os.eventfd_write | `os.eventfd_write = _GUARD._orig_eventfd_write` | `test_os_eventfd_write_to_socket_blocked` |
+| posix.eventfd_write | `posix.eventfd_write = _GUARD._orig_posix_eventfd_write` | `test_posix_write_aliases_are_blocked and posix.eventfd_write` |
+| os.fdopen | `os.fdopen = _GUARD._orig_fdopen` | `test_os_fdopen_socket_fd_blocked` |
+| io.open | `io.open = _GUARD._orig_io_open` | `test_io_open_socket_fd_blocked` |
+| builtins.open | `builtins.open = _GUARD._orig_builtins_open` | `test_builtins_open_socket_fd_blocked` |
+| io.FileIO | `io.FileIO = _GUARD._orig_fileio` | `test_io_fileio_socket_fd_blocked` |
+| shutil.copyfileobj | `shutil.copyfileobj = _GUARD._orig_copyfileobj` | `test_copyfileobj_into_socket_file_blocked` |
+| SSLContext.wrap_socket | `ssl.SSLContext.wrap_socket = _GUARD._orig_wrap_socket` | `test_lying_sni_to_local_endpoint_blocked` |
+| SSLContext.wrap_bio（单独摘） | `ssl.SSLContext.wrap_bio = _GUARD._orig_wrap_bio` | `test_wrap_bio_non_whitelisted_sni_blocked` |
+| SSLSocket._create（单独摘，锁=归因版） | `ssl.SSLSocket._create = _GUARD._orig_sslsocket_create` | `test_sslsocket_create_lying_sni_blocked` |
+| SSLSocket._create（单独摘，锁=无归因版→被同族兜住） | `ssl.SSLSocket._create = _GUARD._orig_sslsocket_create` | `test_sslsocket_create_non_whitelisted_sni_blocked` |
+| SSLObject._create（单独摘） | `ssl.SSLObject._create = _GUARD._orig_sslobject_create` | `test_sslobject_create_non_whitelisted_sni_blocked` |
+| SSLContext._wrap_socket 遮蔽（单独摘） | `del ssl.SSLContext._wrap_socket` | `test_sslcontext_wrap_socket_shadow_lying_sni_blocked` |
+| SSLContext._wrap_bio 遮蔽（单独摘） | `del ssl.SSLContext._wrap_bio` | `test_sslcontext_wrap_bio_shadow_non_whitelisted_sni_blocked` |
+| B 整族（create_connection + getaddrinfo） | `socket.create_connection = _GUARD._orig_create_connection` + `socket.getaddrinfo = _GUARD._orig_getaddrinfo` | `test_socket_create_connection_blocked` |
+| sendfile 整族（socket.sendfile + os/posix.sendfile + send） | `socket.socket.sendfile = _GUARD._orig_sock_sendfile` + `os.sendfile = _GUARD._orig_os_sendfile` + `posix.sendfile = _GUARD._orig_posix_sendfile` + `socket.socket.send = _GUARD._orig_send` + `socket.socket.sendall = _GUARD._orig_sendall` | `test_aliases_are_actually_blocked and socket.socket.sendfile` |
+| 文件对象整族（os.fdopen + io.open + builtins.open） | `os.fdopen = _GUARD._orig_fdopen` + `io.open = _GUARD._orig_io_open` + `builtins.open = _GUARD._orig_builtins_open` | `test_os_fdopen_socket_fd_blocked` |
+| wrap_socket 三层整族（wrap_socket + SSLSocket._create + _wrap_socket 遮蔽） | `ssl.SSLContext.wrap_socket = _GUARD._orig_wrap_socket` + `ssl.SSLSocket._create = _GUARD._orig_sslsocket_create` + `del ssl.SSLContext._wrap_socket` | `test_lying_sni_to_local_endpoint_blocked` |
+| wrap_bio 整族（wrap_bio + SSLObject._create + _wrap_bio 遮蔽） | `ssl.SSLContext.wrap_bio = _GUARD._orig_wrap_bio` + `ssl.SSLObject._create = _GUARD._orig_sslobject_create` + `del ssl.SSLContext._wrap_bio` | `test_wrap_bio_non_whitelisted_sni_blocked` |
+| SSLSocket._create 整族（_create + _wrap_socket 遮蔽） | `ssl.SSLSocket._create = _GUARD._orig_sslsocket_create` + `del ssl.SSLContext._wrap_socket` | `test_sslsocket_create_lying_sni_blocked` |
+| wrap_socket 整族（wrap_socket + _wrap_socket 遮蔽） | `ssl.SSLContext.wrap_socket = _GUARD._orig_wrap_socket` + `del ssl.SSLContext._wrap_socket` | `test_lying_sni_to_local_endpoint_blocked` |
+| SSLObject._create 整族（_create + _wrap_bio 遮蔽） | `ssl.SSLObject._create = _GUARD._orig_sslobject_create` + `del ssl.SSLContext._wrap_bio` | `test_sslobject_create_non_whitelisted_sni_blocked` |
+
+还原：`git checkout -- tests/conftest.py`（`teeth.py` 每条跑完自动还原；结束时 `git status --porcelain` 为空）。
+
+**探针脚本**（本报告所有原始输出的产生者，均在 `/dev/shm/k61r9/`，**易失** —— 内容与命令见 §1/§2/§9）：
+`probe_before.py`（改前逐条复现，加载 `conftest_r8.py`）、`probe2.py`（改后攻击面+正向对照）、
+`probe3.py`（隔离复测：`ok2_env_proxy` / `ok2b_param_proxy` / `c1a_fresh` / `res2`）、
+`probe_aiohttp.py`（r7/r8/r9 三方对比）、`teeth.py`（上表的执行器）。
+监听器共同点：绑定 `127.0.0.2/.3/.4/.5`，**只记录、从不转发**；TLS 模式用自签证书
+（CN/SAN=`open.bigmodel.cn`）**解密后**记录首行 —— 以此证明"明文进了 TLS 之内"而不是猜。
