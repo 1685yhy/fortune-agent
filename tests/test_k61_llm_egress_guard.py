@@ -56,6 +56,20 @@ def _drain_self_inflicted_violations(_k61_deepseek_egress_guard):
     del guard.violations[before:]
 
 
+def _assert_blocked_by(exc_value, layer: str):
+    """**归因断言**：这次拦截必须来自**这一层**（报文里带 `拦截层: <layer>`）。
+
+    为什么必须钉归因（r9 起因）：同族多层会互相兜住 —— 把 `wrap_socket` 摘掉，
+    `SSLSocket._create` 仍会拦，于是"锁"看着是绿的，但**它声称覆盖的那一层坏了也没人知道**。
+    r8 的教训正是"把'守卫整体还在'当成'每条路径都锁住了'"。加上归因之后，
+    "摘掉该层 → 本锁变红"才成立（逐条实测见 `.superpowers/sdd/task-k61-r9-report.md`）；
+    多层冗余仍然在（摘单层时全链路照旧拦得住）。
+    """
+    assert layer in str(exc_value), (
+        f"拦截不是来自本用例声称的层（{layer}）—— 该层没有被锁住。\n"
+        f"实际报文：{str(exc_value)[:400]}")
+
+
 # ══════════════════════════════════════════════════════════════════
 # 1) 常量契约
 # ══════════════════════════════════════════════════════════════════
@@ -112,14 +126,16 @@ class TestGuardLayers:
         assert "api.deepseek.com" in str(ei.value)
 
     def test_socket_create_connection_blocked(self):
-        with pytest.raises(DeepSeekEgressBlocked):
+        with pytest.raises(DeepSeekEgressBlocked) as ei:
             socket.create_connection(("api.deepseek.com", 443), timeout=0.1)
+        _assert_blocked_by(ei.value, "socket.create_connection")
 
     def test_httpx_sync_real_transport_blocked(self):
         """真实传输层（HTTPTransport）必须被拦——这是"会真开 socket"的那层。"""
-        with pytest.raises(DeepSeekEgressBlocked):
+        with pytest.raises(DeepSeekEgressBlocked) as ei:
             httpx.post("https://api.deepseek.com/anthropic/v1/messages",
                        json={"x": 1}, timeout=0.1)
+        _assert_blocked_by(ei.value, "httpx.HTTPTransport.handle_request")
 
     def test_httpx_async_real_transport_blocked(self):
         import asyncio
@@ -129,8 +145,9 @@ class TestGuardLayers:
                 await c.post("https://api.deepseek.com/anthropic/v1/messages",
                              json={"x": 1})
 
-        with pytest.raises(DeepSeekEgressBlocked):
+        with pytest.raises(DeepSeekEgressBlocked) as ei:
             asyncio.run(_go())
+        _assert_blocked_by(ei.value, "httpx.AsyncHTTPTransport.handle_async_request")
 
     def test_library_level_call_blocked(self):
         """端到端形态：走生产同款函数（不受任何 mock）→ 必须被拦。"""
@@ -1372,6 +1389,7 @@ class TestTlsSniCannotLie:
                 ssl._create_unverified_context().wrap_socket(
                     s, server_hostname="open.bigmodel.cn")
             assert "合取" in str(ei.value), "报文应说明合取判据（可读性）"
+            _assert_blocked_by(ei.value, "ssl.SSLContext.wrap_socket（客户端 TLS）")
         finally:
             s.close()
         assert sink.payloads() == b"", "明文出线了"
@@ -1470,9 +1488,10 @@ class TestTlsEntryPointsHooked:
         sink = make_sink(ATTACK_PEER)
         s = socket.create_connection((ATTACK_PEER, sink.port), timeout=3)
         try:
-            with pytest.raises(PublicEgressBlocked):
+            with pytest.raises(PublicEgressBlocked) as ei:
                 ssl.SSLSocket._create(sock=s, server_hostname="open.bigmodel.cn",
                                       context=ssl._create_unverified_context())
+            _assert_blocked_by(ei.value, "ssl.SSLSocket._create（客户端 TLS）")
         finally:
             s.close()
         assert sink.payloads() == b""
@@ -1491,10 +1510,11 @@ class TestTlsEntryPointsHooked:
     def test_sslobject_create_non_whitelisted_sni_blocked(self):
         """`SSLObject._create`（BIO 家族，无对端可判 → 只判 SNI）。"""
         inc, out = ssl.MemoryBIO(), ssl.MemoryBIO()
-        with pytest.raises(PublicEgressBlocked):
+        with pytest.raises(PublicEgressBlocked) as ei:
             ssl.SSLObject._create(inc, out, server_side=False,
                                   server_hostname="api.deepseek.com",
                                   context=ssl._create_unverified_context())
+        _assert_blocked_by(ei.value, "ssl.SSLObject._create（客户端 TLS / BIO）")
 
     def test_sslobject_create_whitelisted_sni_allowed(self):
         """**正向对照**：白名单 SNI 不得被误杀（BIO 家族的正常用法）。"""
@@ -1510,9 +1530,10 @@ class TestTlsEntryPointsHooked:
         sink = make_sink(ATTACK_PEER)
         s = socket.create_connection((ATTACK_PEER, sink.port), timeout=3)
         try:
-            with pytest.raises(PublicEgressBlocked):
+            with pytest.raises(PublicEgressBlocked) as ei:
                 ssl._create_unverified_context()._wrap_socket(
                     s, False, "open.bigmodel.cn", owner=None, session=None)
+            _assert_blocked_by(ei.value, "ssl.SSLContext._wrap_socket（C 层入口的遮蔽层）")
         finally:
             s.close()
         assert sink.payloads() == b""
@@ -1520,19 +1541,21 @@ class TestTlsEntryPointsHooked:
     def test_sslcontext_wrap_bio_shadow_non_whitelisted_sni_blocked(self):
         """同上（`ctx._wrap_bio(…)`，BIO 家族）。"""
         inc, out = ssl.MemoryBIO(), ssl.MemoryBIO()
-        with pytest.raises(PublicEgressBlocked):
+        with pytest.raises(PublicEgressBlocked) as ei:
             ssl._create_unverified_context()._wrap_bio(
                 inc, out, server_side=False, server_hostname="api.deepseek.com",
                 owner=None, session=None)
+        _assert_blocked_by(ei.value, "ssl.SSLContext._wrap_bio（C 层入口的遮蔽层 / 降级）")
 
     # ── r8 那条路径：**r8 声称"每条路径都有行为锁"，但 `grep wrap_bio tests/` = 0 命中 ──
 
     def test_wrap_bio_non_whitelisted_sni_blocked(self):
         """`SSLContext.wrap_bio`：非白名单 SNI → 拦（**r8 时期完全没有锁**，这是补的）。"""
         inc, out = ssl.MemoryBIO(), ssl.MemoryBIO()
-        with pytest.raises(PublicEgressBlocked):
+        with pytest.raises(PublicEgressBlocked) as ei:
             ssl._create_unverified_context().wrap_bio(
                 inc, out, server_hostname="api.deepseek.com")
+        _assert_blocked_by(ei.value, "ssl.SSLContext.wrap_bio（客户端 TLS / 异步家族）")
 
     def test_wrap_bio_missing_sni_fail_closed(self):
         """`server_hostname=None` → fail-closed（判不了就拒）。"""
