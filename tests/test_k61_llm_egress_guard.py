@@ -694,6 +694,141 @@ class TestFragmentWriteBypass:
         finally:
             s.close()
 
+    # ── r10 C1：**缓冲协议对象**（不是 bytes/bytearray/memoryview）也必须被扫 ──
+    #:
+    #: r9 的**五处**守卫（send/sendall/os.write/sendto/copyfileobj 的写代理）把载荷判据
+    #: 写成 `isinstance(data, (bytes, bytearray, memoryview))` —— 那是**类型白名单**：
+    #: 白名单**外面**的缓冲协议对象一律跳过扫描直送网线。
+    #: 缓冲协议是**开放集合**（任何 C 扩展都能注册 `bf_getbuffer`），白名单天然
+    #: 只能枚举已知的 → 判据必须改成"**能不能转成 bytes**"（见 conftest
+    #: 的 `_as_scannable_payload`）。
+    #:
+    #: 为什么以前全绿也发现不了（这就是**锁**的意义）：
+    #: ① `HOOKED[("socket.socket", "send")]` 登记的锁是 `test_memoryview_send_blocked`，
+    #:    它只证明"**memoryview** 会被扫"，**不证明"这条发送路径会被扫"** —— 名不副实；
+    #: ② 同族的 `_guard_sendmsg`/`_guard_os_writev` 早就写了 `bytes(b)` 归一化，
+    #:    所以 A6/A7 拦得住、A1–A5 拦不住 —— **同族里一半做了一半没做**，
+    #:    全绿（136 passed）恰恰掩盖了这种自相矛盾。
+    _BUF_CASES = {
+        # 用例 id                    (走哪条发送路径, 什么类型的缓冲对象)
+        "send-mmap": ("send", "mmap"),
+        "sendall-mmap": ("sendall", "mmap"),
+        "os.write-mmap": ("oswrite", "mmap"),
+        "sendto-mmap": ("sendto", "mmap"),
+        "sendall-array": ("sendall", "array"),
+        "sendall-ctypes": ("sendall", "ctypes"),
+    }
+
+    @staticmethod
+    def _buffer_payload(kind, tmp_path):
+        """造一个**不是** bytes/bytearray/memoryview 的缓冲协议对象（内容 = CONNECT 行）。"""
+        if kind == "mmap":
+            import mmap as _mmap
+            path = tmp_path / "buf_mmap.bin"
+            path.write_bytes(TestFragmentWriteBypass.LINE)
+            fh = open(str(path), "r+b")          # mmap 自己持有引用，fh 可以随后关
+            mm = _mmap.mmap(fh.fileno(), 0)
+            fh.close()
+            return mm
+        if kind == "array":
+            import array as _array
+            return _array.array("B", TestFragmentWriteBypass.LINE)
+        if kind == "ctypes":
+            import ctypes as _ctypes
+            return _ctypes.create_string_buffer(TestFragmentWriteBypass.LINE)
+        raise AssertionError(kind)
+
+    @pytest.mark.parametrize("case", sorted(_BUF_CASES))
+    def test_buffer_protocol_objects_are_scanned(self, case, local_sink, tmp_path):
+        """**r10 C1 行为锁**：每条发送路径 × 每种"白名单外"的缓冲对象 → 必须拦。
+
+        归因（`_assert_blocked_by`）：拦它的必须是 **D 层明文扫描器**
+        （`socket 明文请求头`），不是同族别的层 —— 否则"本层坏了"会被兜住而看不出来
+        （r9 的归因教训）。
+        """
+        how, kind = self._BUF_CASES[case]
+        port, seen = local_sink
+        payload = self._buffer_payload(kind, tmp_path)
+        s = self._raw_sock(port)
+        try:
+            with pytest.raises(DeepSeekEgressBlocked) as ei:
+                if how == "send":
+                    s.send(payload)
+                elif how == "sendall":
+                    s.sendall(payload)
+                elif how == "sendto":
+                    s.sendto(payload, ("127.0.0.1", port))
+                elif how == "oswrite":
+                    os.write(s.fileno(), payload)
+                else:
+                    raise AssertionError(how)
+            _assert_blocked_by(ei.value, "socket 明文请求头")
+        finally:
+            s.close()
+        blob = b"".join(x for x in seen if x)
+        assert b"api.deepseek.com" not in blob, \
+            f"{case}：目标域名漏到线上（守卫只在异常里出现、字节仍出去了）：{blob[:120]!r}"
+
+    def test_buffer_protocol_normalization_is_not_a_type_whitelist(self):
+        """**结构锁**：`_as_scannable_payload` 不得退回**类型白名单**写法（C1 的根因）。
+
+        "新类型"这类洞**绊线发现不了**（`_TRIPWIRE_RE` 只扫模块级可调用**名字**，
+        结构上对"新类型"无感）—— 所以这里直接钉**实现**：判据必须建立在 `bytes(...)`
+        的**可转换性**上，而不是 `isinstance(..., (bytes, bytearray, memoryview))`
+        的**枚举**上。谁把 isinstance 白名单写回来，这条立刻红。
+        """
+        import inspect as _inspect
+        src = _inspect.getsource(k61conftest._as_scannable_payload)
+        body = src.split('"""')[-1] if '"""' in src else src   # 去掉 docstring（里面引用了旧写法当反例）
+        assert "bytes(data)" in body, \
+            "判据不再是 bytes() 归一化 → 又退回「只认已知类型」的枚举了"
+        assert "except TypeError" in body, \
+            "归一化必须只吞 TypeError（真不可转换才放行），不得吞掉别的异常导致误判"
+        # 另外四条同族发送路径也必须用同一个归一化函数（防"只修一处"）。
+        for fn in ("_guard_send", "_guard_sendall", "_guard_os_write", "_guard_sendto"):
+            fsrc = _inspect.getsource(getattr(k61conftest, fn))
+            assert "_as_scannable_payload(" in fsrc, \
+                f"{fn} 没有用统一的归一化函数（r9 的教训：同族里一半做了一半没做）"
+
+    def test_no_payload_gate_enumerates_types(self):
+        """**参数类型面绊线**（r10 新增，替代审查者建议的"类型白名单登记表"）。
+
+        为什么不用"登记表"那种形式：`_TRIPWIRE_RE` 防的是**新名字**，
+        `HOOKED`/`DECLARED_*` 也都是**名字**粒度 —— 两者对"新**类型**"（`mmap`、
+        第三方 C 扩展的 buffer…）**结构上无感**。审查者建议"列出当前允许进 send 的
+        缓冲协议类型集合，出现新类型要显式登记"。r10 的处置**比登记更彻底**：
+        判据从"是不是我认识的那几种类型"改成"**能不能 `bytes()`**"（开放集合，
+        无需枚举）→ 根本不需要维护类型清单，**新类型自动被覆盖**。
+        因此这条绊线的形态也随之改变：不是"检查新类型有没有登记"，
+        而是**"禁止任何载荷闸门再做类型枚举"** —— 只要 conftest 里出现
+        `isinstance(x, (…, memoryview, …))` 这类**按类型放行/跳过**的写法就红。
+
+        用 `ast` 而不是字符串匹配：**docstring/注释里引用旧写法不算违规**
+        （`_as_scannable_payload` 的说明里就引用了旧代码当反例）。
+        """
+        import ast
+        import inspect as _inspect
+        src = _inspect.getsource(k61conftest)
+        tree = ast.parse(src)
+        offenders = []
+        for node in ast.walk(tree):
+            if not (isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "isinstance"
+                    and len(node.args) >= 2):
+                continue
+            types = node.args[1]
+            if not isinstance(types, (ast.Tuple, ast.List)):
+                continue
+            names = {e.id for e in types.elts if isinstance(e, ast.Name)}
+            if "memoryview" in names:        # 白名单的招牌成员 → 就是那类写法
+                offenders.append((node.lineno, sorted(names)))
+        assert not offenders, (
+            "载荷闸门退回**类型白名单**（r10 C1 的根因）：白名单外的缓冲协议对象"
+            "（mmap/array.array/ctypes/第三方 C 扩展）会整个跳过扫描、直送网线。\n"
+            f"命中位置（行号, 类型集）：{offenders}\n"
+            "改法：用 `_as_scannable_payload(data)`（bytes() 归一化，转不了才放行）。")
+
     def test_os_write_to_a_file_is_not_scanned(self, tmp_path, _k61_deepseek_egress_guard):
         """**对照（r5 自测踩到的坑）**：写**文件**不得被当成网络写扫描。
 
@@ -932,13 +1067,19 @@ class TestSendFamilyApiSurface:
     #: 已挂钩（必须是我们自己的包装）→ **锁它的用例**（"摘掉该路径守卫 → 该用例必须变红"）
     HOOKED = {
         # ① socket 发送族（Python 子类层）
-        ("socket.socket", "send"): ("_guard_send", "test_memoryview_send_blocked"),
-        ("socket.socket", "sendall"): ("_guard_sendall", "test_single_block_still_blocked"),
+        #    r10 C1：这三条原先把锁登记成"memoryview/整块字节"用例 —— 那只证明
+        #    "**那一种载荷**会被扫"，**不证明"这条发送路径会被扫"**（名不副实，
+        #    正是 C1 能在全绿下存活的成因）。现改指向**按路径 × 按载荷类型**拆开的
+        #    `test_buffer_protocol_objects_are_scanned[<id>]`（带归因断言 + 断言域名不出线）。
+        #    原锁（`test_memoryview_send_blocked` / `test_single_block_still_blocked` /
+        #    `test_os_write_blocked` / `test_sendto_blocked`）**继续保留并跑**。
+        ("socket.socket", "send"): ("_guard_send", "test_buffer_protocol_objects_are_scanned[send-mmap]"),
+        ("socket.socket", "sendall"): ("_guard_sendall", "test_buffer_protocol_objects_are_scanned[sendall-mmap]"),
         ("socket.socket", "sendmsg"): ("_guard_sendmsg", "test_sendmsg_blocked"),
-        ("socket.socket", "sendto"): ("_guard_sendto", "test_sendto_blocked"),
+        ("socket.socket", "sendto"): ("_guard_sendto", "test_buffer_protocol_objects_are_scanned[sendto-mmap]"),
         ("socket.socket", "sendfile"): ("_guard_sock_sendfile", "test_aliases_are_actually_blocked[socket.socket.sendfile]"),
         # ② os 低级写族
-        ("os", "write"): ("_guard_os_write", "test_os_write_blocked"),
+        ("os", "write"): ("_guard_os_write", "test_buffer_protocol_objects_are_scanned[os.write-mmap]"),
         ("os", "writev"): ("_guard_os_writev", "test_os_writev_blocked"),
         ("os", "sendfile"): ("_guard_os_sendfile", "test_aliases_are_actually_blocked[os.sendfile]"),
         ("os", "splice"): ("_guard_os_splice", "test_os_splice_into_socket_blocked"),
@@ -959,15 +1100,43 @@ class TestSendFamilyApiSurface:
 
     #: **已声明不可覆盖**（纯 Python 层做不到；必须写清理由 + 兜底）
     DECLARED_UNCOVERABLE = {
-        ("_socket.socket", n): (
-            "C 扩展的**不可变类型**：实测 `TypeError: cannot set '<n>' attribute of "
-            "immutable type '_socket.socket'` → 纯 Python 层**挂不上钩**。"
-            "常规代码用的是 Python 子类 `socket.socket`（已挂钩）；"
-            "要走到这里必须显式 `_socket.socket.send(sock, …)` 这类刻意绕过。"
-            "**结构性兜底 = pin**：`DEEPSEEK_API_KEY` 被设成空串（成员判定挡住 .env 回填、"
-            "且被**子进程继承**）→ 即便绕过钩子，进程里也没有可用的生产 key。"
-        )
-        for n in ("send", "sendall", "sendmsg", "sendto", "sendfile", "sendmsg_afalg")
+        **{
+            ("_socket.socket", n): (
+                f"C 扩展的**不可变类型**：实测 `TypeError: cannot set '{n}' attribute of "
+                f"immutable type '_socket.socket'` → 纯 Python 层**挂不上钩**。"
+                f"常规代码用的是 Python 子类 `socket.socket`（已挂钩）；"
+                f"要走到这里必须显式 `_socket.socket.{n}(sock, …)` 这类刻意绕过。"
+                f"**结构性兜底 = pin**：`DEEPSEEK_API_KEY` 被设成空串（成员判定挡住 .env 回填、"
+                f"且被**子进程继承**）→ 即便绕过钩子，进程里也没有可用的生产 key。"
+            )
+            for n in ("send", "sendall", "sendmsg", "sendto", "sendfile", "sendmsg_afalg",
+                      # r10 I-1：**原清单漏了这两条**（r9 对抗审查实测）。
+                      # `_socket.socket.connect` 逐个连接公网 IP 时 **0 trip** —— 因为
+                      # `_TRIPWIRE_RE`（`send|write|splice|copy|file|open|truncate`）里
+                      # 没有 `connect` 这个词，它连"需要做决定的名单"都没进；
+                      # 配上同表的 `sendall` 就是一条**完全绕过守卫的真实出线**
+                      # （实测：打本地 sink → `reached=True`、0 trip、无异常）。
+                      # `connect_ex` 同族同罪（返回 errno 而非抛异常，更隐蔽）。
+                      "connect", "connect_ex")
+        },
+        # r10 I-1（第二条）：**模块级**绑定，不是 `_socket.socket` 的方法。
+        # 审查者实测 `_socket.getaddrinfo("api.deepseek.com", 443)` → 真解析成功
+        # （119.188.220.215）、**0 trip**（A 层钩的只是 `socket.getaddrinfo`；
+        # `socket.py` 是 `from _socket import getaddrinfo` → 改 `socket` 的模块属性
+        # 改不到 `_socket` 里那份绑定）。
+        # ⚠️ **用词必须准确**：这条**不是**"挂不上钩"（`_socket` 是普通模块，属性可改）；
+        # 登记在这里是因为 r10 **不扩大未经审查的补丁面**（任务红线），属"当前不覆盖"。
+        # 危害面比上面小：解析本身**不发字节**；真发字节那一步是 `_socket.socket.send*`，
+        # 同表已声明、同一条 pin 兜底。
+        ("_socket", "getaddrinfo"): (
+            "`socket.getaddrinfo`（A 层，已挂钩）的**同一 C 实现的第二条绑定** —— "
+            "**实测**：`_socket.getaddrinfo('api.deepseek.com', 443)` 解析成功且 **0 trip**，"
+            "绕过 A 层。**兜底 = pin**：解析出来也没有可用的生产 key；"
+            "真正把字节送出去的那一步（`_socket.socket.send*`）已在 "
+            "`DECLARED_UNCOVERABLE` 里声明、兜底同为 pin。"
+            "（**不是**「挂不上钩」——`_socket` 是普通模块，属性可改；r10 按红线"
+            "不做未经审查的补丁面扩张，故登记为「当前不覆盖」。）"
+        ),
     }
 
     #: **已实测"不是通道 / 不是入口"**（每条必须带实测依据）
@@ -1974,12 +2143,39 @@ class TestDeclaredLimitations:
     def test_declared_socket_c_type_is_immutable(self):
         """**取证（声明项 4）**：`_socket.socket` 是 C 不可变类型 → 纯 Python 挂不上钩。
 
-        ⚠️ 若这条红了（不再抛 TypeError）→ 说明能挂钩了，请把 `_socket.socket.send*`
-        从 `DECLARED_UNCOVERABLE` 移到 `HOOKED` 并补行为锁。
+        r10 I-1：**从登记表派生**（不再手写 `send` 一个名字）—— 登记里每条
+        `("_socket.socket", n)` 都逐一实测不可赋值，所以新补的 `connect` / `connect_ex`
+        的"挂不上钩"论证**同一条锁自动覆盖**（防"只补了登记、没验依据"）。
+
+        ⚠️ 若这条红了（某名字不再抛 TypeError）→ 说明那个方法能挂钩了，
+        请把它从 `DECLARED_UNCOVERABLE` 移到 `HOOKED` 并补行为锁。
         """
         import _socket
-        with pytest.raises(TypeError):
-            _socket.socket.send = lambda *a, **k: None      # 赋值失败即证据（不改动任何东西）
+        # r10 顺带实测到的一处**登记不准**：`sendfile` **不在** C 类型上 ——
+        # `socket.socket.sendfile.__module__ == "socket"`，它定义在 Python 子类
+        # `socket.socket`（MRO：socket.socket → _socket.socket → object），
+        # 所以 `_socket.socket.sendfile` **根本不存在**（getattr → AttributeError）。
+        # 该条登记比实际更强（不是"挂不上"而是"这个绑定不存在"→ 不可能是通道），
+        # 故此处把它记为已知缺席项；**出现别的缺席名字要红**（逼迫核对登记）。
+        KNOWN_ABSENT = {"sendfile"}
+        absent = set()
+        for n in sorted(n for (mod, n) in TestSendFamilyApiSurface.DECLARED_UNCOVERABLE
+                        if mod == "_socket.socket"):
+            try:
+                orig = getattr(_socket.socket, n)
+            except AttributeError:
+                absent.add(n)
+                continue
+            try:
+                setattr(_socket.socket, n, lambda *a, **k: None)
+            except TypeError:
+                continue                    # 赋值失败即证据（不改动任何东西）
+            setattr(_socket.socket, n, orig)   # 万一真挂上了：立刻还原，避免污染别的用例
+            pytest.fail(f"`_socket.socket.{n}` 竟然可赋值 → 声明过期："
+                        f"请移到 HOOKED 并补一条行为锁")
+        assert absent == KNOWN_ABSENT, (
+            f"`_socket.socket` 族里在 C 类型上不存在的名字集合变了：{sorted(absent)}"
+            f"（已知应为 {sorted(KNOWN_ABSENT)}）→ 请核对登记项是否正确")
 
     def test_declared_param_proxy_over_block(self, make_sink, tls_cert_path):
         """**取证（过拦面）**：用 **`proxies=` 参数**配明文代理时，白名单主机的 TLS 会被拒。

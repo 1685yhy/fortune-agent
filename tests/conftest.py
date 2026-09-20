@@ -1292,10 +1292,40 @@ def _guard_check_address(where, address):
                           "加进 ALLOWED_EGRESS_HOSTS / NON_LLM_EGRESS_HOSTS。")
 
 
+def _as_scannable_payload(data):
+    """把任意**缓冲协议对象**归一化成 `bytes` 交给扫描器；真不是缓冲协议才返回 `None`。
+
+    ⚠️ **r10 C1 的根因，别再退回类型白名单**：r9 之前这里写的是
+    `isinstance(data, (bytes, bytearray, memoryview))` —— 那是**类型白名单**，
+    凡是白名单**外面**的缓冲协议对象（`mmap`、`array.array`、`ctypes` buffer、
+    第三方 C 扩展暴露的 buffer…）**整个跳过扫描、直送网线**。
+    实测（r9 对抗审查 A1–A5）：`sendall(mmap)` / `send(mmap)` / `os.write(fd, mmap)` /
+    `sendall(array.array('B'))` / `sendall(ctypes buffer)` 五条**全部** NO-BLOCK、
+    `reached=True`，而**同族**的 `_guard_sendmsg`（`bytes(b)` 归一化）与
+    `_guard_os_writev` 却拦得住 —— 同一个守卫里"一半做了一半没做"，
+    且 `scan_payload` 自己开头就写了 `bytes(data)` 防御，却被这层 isinstance 门
+    **挡在门外**，纯属自相矛盾。
+
+    为什么"类型白名单"这个写法本身就是错的：缓冲协议是**开放集合**（任何 C 扩展都能
+    注册 `bf_getbuffer`），白名单天然**只能枚举已知的**。绊线（`_TRIPWIRE_RE`）防的是
+    "新名字"，结构上防不了"新类型"—— 所以判据必须从"是不是我认识的那几种类型"
+    改成"**能不能转成 bytes**"：能转就扫，转不了（`str` / `int` 之外的普通对象）才是
+    真的不是载荷、放行。
+
+    `bytes(data)` 对 `int` **不抛异常**（返回 `bytes(n)` 个零字节），这是无害的：
+    零字节不像请求头，扫描器不会误判（`scan_payload` 只看"像不像请求头明文"）。
+    """
+    try:
+        return bytes(data)
+    except TypeError:
+        return None          # 真不可转换（str / 普通对象…）→ 放行
+
+
 def _guard_send(sock, data, *a, **kw):
     try:
-        if isinstance(data, (bytes, bytearray, memoryview)):
-            _GUARD.scan_payload(sock, data)
+        payload = _as_scannable_payload(data)
+        if payload is not None:
+            _GUARD.scan_payload(sock, payload)
     except EgressBlocked:
         raise
     except Exception as exc:
@@ -1305,8 +1335,9 @@ def _guard_send(sock, data, *a, **kw):
 
 def _guard_sendall(sock, data, *a, **kw):
     try:
-        if isinstance(data, (bytes, bytearray, memoryview)):
-            _GUARD.scan_payload(sock, data)
+        payload = _as_scannable_payload(data)     # r10 C1：不得退回类型白名单
+        if payload is not None:
+            _GUARD.scan_payload(sock, payload)
     except EgressBlocked:
         raise
     except Exception as exc:
@@ -1336,8 +1367,9 @@ def _guard_os_write(fd, data):
     `CONNECT api.deepseek.com:443` 字面量 → 误判成网络写 → 直接打断收集）。
     """
     try:
-        if isinstance(data, (bytes, bytearray, memoryview)) and _GUARD._is_socket_fd(fd):
-            _GUARD.scan_payload(None, data, fd=fd)
+        payload = _as_scannable_payload(data)     # r10 C1：不得退回类型白名单
+        if payload is not None and _GUARD._is_socket_fd(fd):
+            _GUARD.scan_payload(None, payload, fd=fd)
     except EgressBlocked:
         raise
     except Exception as exc:
@@ -1575,8 +1607,9 @@ def _guard_ctx_wrap_bio(self, incoming, outgoing, *a, **kw):
 def _guard_sendto(sock, data, *a, **kw):
     """r7（C2 残余）：`sendto(data, addr)` —— r6 未挂钩，可把 CONNECT 整行送出。"""
     try:
-        if isinstance(data, (bytes, bytearray, memoryview)):
-            _GUARD.scan_payload(sock, data)
+        payload = _as_scannable_payload(data)     # r10 C1：不得退回类型白名单
+        if payload is not None:
+            _GUARD.scan_payload(sock, payload)
     except EgressBlocked:
         raise
     except Exception as exc:
@@ -1756,8 +1789,9 @@ class _ScanningWriteProxy:
         self._fd = fd
 
     def write(self, data):
-        if isinstance(data, (bytes, bytearray, memoryview)):
-            _GUARD.scan_payload(None, data, fd=self._fd)
+        payload = _as_scannable_payload(data)     # r10 C1：不得退回类型白名单
+        if payload is not None:
+            _GUARD.scan_payload(None, payload, fd=self._fd)
         return self._fdst.write(data)
 
     def __getattr__(self, name):        # 只在正常查找失败时触发（slots 下无 __dict__）
