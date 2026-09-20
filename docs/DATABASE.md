@@ -174,16 +174,24 @@
 | 字段 | 类型 | 加密 | 说明 |
 |------|------|------|------|
 | user_id | TEXT (PK) | 否 | 归属用户 |
-| style_sassy / style_analyst / style_gentle | REAL | 否 | 三种人格风格权重（EMA，和≈1） |
+| style_sassy / style_analyst / style_gentle | REAL | 否 | **已废弃（k62）** 早期「3 模式人设」风格权重。列**保留未 DROP**（生产库有数据），代码路径已整体移除，新行取建表默认值；**无任何读写方** |
 | topic_wealth / topic_love / topic_career / topic_health / topic_growth | REAL | 否 | 五类话题偏好权重（EMA，和≈1） |
 | prefer_short | INTEGER | 否 | 偏好简短回复（0/1） |
 | feedback_count / positive_count | INTEGER | 否 | 反馈总数 / 好评数 |
-| last_style / last_topic | TEXT | 否 | 最近一次使用的人格模式 / 话题 |
+| last_style | TEXT | 否 | **已废弃（k62）** 最后使用的人格模式（随三权重移除；列保留未 DROP） |
+| last_topic | TEXT | 否 | 最近一次关注的话题 |
 | created_at / updated_at | TEXT | 否 | 时间 |
 
 - 索引：PK `user_id`。
 - 数据为数值画像（非原始敏感文本），明文存储。
+- k62 拆除说明：三个风格权重由同一公式、同一输入更新，恒为当前 argmax 的
+  那一个被自强化 → `preferred_style` 对所有用户恒为建表默认值决定的
+  `'gentle'`（实测 30 次全👍/全👎/交替三条轨迹终值均 `'gentle'`），不携带
+  用户信息，却经 `to_prompt_hint()` 进了活提示词。故代码侧整体移除；
+  **列不许 DROP**（破坏性迁移需先报批）。
 - 前端关系：`/api/user/preferences`、`/api/user/{id}/accuracy`（仪表盘）。
+  k62 起两接口不再返回 `preferred_style` / `preferred_style_key` /
+  `style_breakdown`（全仓含 miniprogram/ 无消费方）。
 
 ### 2.9 user_tone_feedback — 语气反馈统计（遗留/预留）
 

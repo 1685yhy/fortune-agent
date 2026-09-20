@@ -878,8 +878,12 @@ async def user_feedback(req: FeedbackRequest, uid: str = Depends(require_user), 
 async def user_preferences(uid: str = Depends(require_user), user_id: str = ""):
     """获取用户偏好画像。
 
-    返回学习到的风格、话题偏好、准确率等信息。
+    返回学习到的话题偏好、长度偏好、准确率等信息。
     安全修复：user_id 一律取 JWT sub。
+
+    k62：`preferred_style` / `preferred_style_key` 两键已移除（早期「3 模式
+    人设」残留，对所有用户恒为 'gentle'，不携带信息）。消费方核实：全仓
+    （含 miniprogram/）无该字段引用，见 docs/API.md。
     """
     global _preference_dao
 
@@ -888,7 +892,6 @@ async def user_preferences(uid: str = Depends(require_user), user_id: str = ""):
     if not _preference_dao:
         return {
             "has_data": False,
-            "preferred_style": None,
             "top_topics": [],
             "accuracy_pct": None,
             "feedback_count": 0,
@@ -896,7 +899,6 @@ async def user_preferences(uid: str = Depends(require_user), user_id: str = ""):
         }
 
     prefs = _preference_dao.get(user_id)
-    style_names = {"sassy": "毒舌直接", "analyst": "理性分析", "gentle": "温柔陪伴"}
     topic_names = {"wealth": "财运", "love": "感情", "career": "事业",
                    "health": "健康", "growth": "个人成长"}
 
@@ -909,8 +911,6 @@ async def user_preferences(uid: str = Depends(require_user), user_id: str = ""):
 
     return {
         "has_data": prefs.is_mature,
-        "preferred_style": style_names.get(prefs.preferred_style, prefs.preferred_style) if prefs.is_mature else None,
-        "preferred_style_key": prefs.preferred_style if prefs.is_mature else None,
         "top_topics": top_topics,
         "length_preference": "short" if prefs.prefer_short else "normal",
         "accuracy_pct": prefs.accuracy_pct,

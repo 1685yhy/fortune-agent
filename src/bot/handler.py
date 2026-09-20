@@ -2395,10 +2395,6 @@ class MessageHandler:
             return "感谢反馈！" if is_positive else "收到，我会继续改进的～"
 
         try:
-            # Get current context for learning
-            prefs = self.preference_dao.get(user_id)
-            current_style = prefs.preferred_style or ""
-
             # Detect topic from last conversation
             last_topic = ""
             last_msg = ""
@@ -2411,10 +2407,9 @@ class MessageHandler:
                 if user_msgs:
                     last_msg = user_msgs[-1]
 
-            # Learn preference (EMA)
+            # Learn preference (EMA) — k62：style 入参随三个退化风格权重移除
             updated = self.preference_dao.learn(
                 user_id, is_positive,
-                style=current_style,
                 topic=last_topic,
             )
 

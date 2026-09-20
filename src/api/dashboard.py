@@ -76,15 +76,12 @@ def build_dashboard(user_id: str, handler) -> dict:
     # 4. Learned preferences
     if handler.preference_dao:
         prefs = handler.preference_dao.get(user_id)
+        # k62：preferred_style / style_breakdown 两键随三权重一并移除（早期
+        # 「3 模式人设」残留，对所有用户恒为 'gentle'）。消费方核实：全仓
+        # （含 miniprogram/）无该字段引用，见 docs/API.md。
         dashboard["preferences"] = {
             "mature": prefs.is_mature,
-            "preferred_style": prefs.preferred_style if prefs.is_mature else None,
             "preferred_topic": prefs.preferred_topic if prefs.is_mature else None,
-            "style_breakdown": {
-                "sassy": round(prefs.style_sassy * 100),
-                "analyst": round(prefs.style_analyst * 100),
-                "gentle": round(prefs.style_gentle * 100),
-            },
             "topics": {
                 "wealth": round(prefs.topic_wealth * 100),
                 "love": round(prefs.topic_love * 100),

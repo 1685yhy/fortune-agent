@@ -5,6 +5,10 @@
 mock LLM 响应（monkeypatch httpx.post / client 函数），验证最终输出已被
 strip_emoji 清理；另附 strip_emoji 单元测试（中文/全角标点不受影响）。
 
+k62：`TestEmotionSoother` / `TestMoodDetector` 两例随死模块（emotion_soother.py
+/ mood_detector.py，src/ 下 0 引用）删除 —— 其余 emoji 收敛用例（活功能）
+一行未动。
+
 运行：cd 项目根目录 && python3 -m pytest tests/test_emoji_cleanup.py -q
 """
 import asyncio
@@ -136,34 +140,6 @@ class TestAdvisorV2:
         for a in result["actions"]:
             assert_no_emoji(a["advice"])
             assert_no_emoji(a["timing"])
-
-
-class TestEmotionSoother:
-    def test_soothe_text_stripped(self):
-        from src.engines.emotion_soother import EmotionSoother
-        content = '{"needs_soothe": true, "emotion": "伤心💔", "soothe_text": "不要太难过，一切都会好起来的🌈❤️"}'
-        with mock.patch("src.engines.emotion_soother.httpx.post",
-                        return_value=_httpx_mock(content)) as m:
-            soother = EmotionSoother(api_key="test-key")
-            soothe, emotion = soother.detect_and_soothe("我好难过啊")
-            m.assert_called_once()
-        assert_no_emoji(soothe)
-        assert_no_emoji(emotion)
-        assert soothe
-
-
-class TestMoodDetector:
-    def test_emotion_label_stripped(self):
-        # k42：mood_detector 改走统一 LLM 层（Anthropic 兼容端点 + thinking
-        # disabled），模块不再直连 httpx —— mock 点随迁移改为 src.llm.client。
-        from src.engines.mood_detector import MoodDetector
-        content = '{"mood": "gentle", "confidence": 0.9, "emotion": "焦虑😟"}'
-        with mock.patch("src.llm.client.deepseek_anthropic_completion",
-                        return_value=content) as m:
-            result = MoodDetector(api_key="test-key").detect("最近压力好大")
-            m.assert_called_once()
-        assert result.mood == "gentle"
-        assert_no_emoji(result.emotion_label)
 
 
 class TestIntentClassifier:

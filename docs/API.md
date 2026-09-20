@@ -109,7 +109,7 @@ curl -X POST https://yilichat.com/api/palm-reading \
   "profile": {"has_bazi": true, "bazi": "庚午 辛巳 乙酉 甲申"},
   "recent_activity": [{"intent": "bazi", "question": "...", "date": "2026-07-18"}],
   "accuracy": {"total_feedback": 6, "accuracy_pct": 100.0},
-  "preferences": {"preferred_style": "gentle", "preferred_topic": "wealth"},
+  "preferences": {"preferred_topic": "wealth", "topics": {"wealth": 41, "love": 15}},
   "calendar_today": {"mood": "水润木生", "yi_count": 3, "ji_count": 3}
 }
 ```
@@ -120,7 +120,7 @@ curl -X POST https://yilichat.com/api/palm-reading \
 
 ### GET /api/user/{user_id}/accuracy
 ```json
-{"total_feedback": 6, "accuracy_pct": 100.0, "preferred_style": "gentle"}
+{"total_feedback": 6, "accuracy_pct": 100.0, "preferred_topic": "wealth"}
 ```
 
 ### POST /api/feedback/{consultation_id}?feedback=positive

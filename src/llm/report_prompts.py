@@ -90,19 +90,25 @@ SCENARIO_FOCUS_PROMPTS = {
 }
 
 
-def build_scenario_system_prompt(
-    personality_prompt: str, category: str = None
-) -> str:
+def build_scenario_system_prompt(category: str = None) -> str:
     """Build a combined system prompt including structured report format.
 
     Args:
-        personality_prompt: The base personality prompt (sassy/analyst/gentle).
         category: Optional scenario category key for adding focus prompt.
 
     Returns:
         Combined system prompt string ready for use in LLM calls.
+
+    k62：原首形参 ``personality_prompt``（docstring 原文「The base personality
+    prompt (sassy/analyst/gentle)」）已移除 —— 它是「3 档人设」在仓库里的最后
+    一处痕迹，全仓 0 处传入（k62 实测：`personality_prompt` 仅出现在本函数
+    定义/docstring/函数体内）。用户已拍板统一单一口吻，不留死分支。
+
+    ⚠️ 接线现状（勿误判为活路径）：本函数当前全仓 **0 调用**。活路径是
+    ``src/bot/handler.py`` 内联组合 ``STRUCTURED_REPORT_PROMPT`` +
+    ``SCENARIO_FOCUS_PROMPTS[cat]``（同源常量，不要再接一条第二实现）。
     """
-    combined = personality_prompt + "\n\n" + STRUCTURED_REPORT_PROMPT
+    combined = STRUCTURED_REPORT_PROMPT
     if category and category in SCENARIO_FOCUS_PROMPTS:
         combined += "\n\n" + SCENARIO_FOCUS_PROMPTS[category]
     return combined

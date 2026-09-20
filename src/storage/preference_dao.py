@@ -12,11 +12,17 @@ from .models import connect as db_connect
 
 @dataclass
 class UserPreferences:
-    """Learned user preferences from feedback history."""
+    """Learned user preferences from feedback history.
+
+    k62：三个风格权重（style_sassy/style_analyst/style_gentle）与
+    ``preferred_style`` / ``last_style`` 已整体移除——那是早期「3 模式人设」
+    残留：三者由同一公式、同一输入更新，其中恒为当前 argmax 的那一个被自
+    强化，故 ``preferred_style`` 对所有用户恒为建表默认值决定的
+    'gentle'（实测 30 次全👍/全👎/交替 三条轨迹终值均 'gentle'），
+    不携带任何用户信息，却经 ``to_prompt_hint()`` 进了活提示词。
+    对应 DB 列**保留未 DROP**（生产库有数据），见 models.py 建表注释。
+    """
     user_id: str
-    style_sassy: float = 0.33
-    style_analyst: float = 0.33
-    style_gentle: float = 0.34
     topic_wealth: float = 0.2
     topic_love: float = 0.2
     topic_career: float = 0.2
@@ -25,14 +31,7 @@ class UserPreferences:
     prefer_short: bool = False
     feedback_count: int = 0
     positive_count: int = 0
-    last_style: str = ""
     last_topic: str = ""
-
-    @property
-    def preferred_style(self) -> str:
-        """Return the highest-weighted style mode."""
-        styles = {"sassy": self.style_sassy, "analyst": self.style_analyst, "gentle": self.style_gentle}
-        return max(styles, key=styles.get)
 
     @property
     def preferred_topic(self) -> str:
@@ -59,16 +58,14 @@ class UserPreferences:
 
         Only generates hints when preferences are mature (>= 3 feedbacks).
         Keeps it short to not bloat the prompt.
+
+        k62：风格提示已移除（见类 docstring）。话题/长度/准确率是真实学习到
+        的信号，保留（``/api/calendar/daily|week`` 的 preferences= 即此文本）。
         """
         if not self.is_mature:
             return ""
 
         parts = []
-
-        # Style hint
-        style = self.preferred_style
-        style_names = {"sassy": "毒舌直接", "analyst": "理性分析", "gentle": "温柔陪伴"}
-        parts.append(f"用户偏好风格：{style_names.get(style, style)}")
 
         # Topic hint
         topic = self.preferred_topic
@@ -123,9 +120,6 @@ class PreferenceDAO:
 
         return UserPreferences(
             user_id=row["user_id"],
-            style_sassy=row["style_sassy"],
-            style_analyst=row["style_analyst"],
-            style_gentle=row["style_gentle"],
             topic_wealth=row["topic_wealth"],
             topic_love=row["topic_love"],
             topic_career=row["topic_career"],
@@ -134,39 +128,24 @@ class PreferenceDAO:
             prefer_short=bool(row["prefer_short"]),
             feedback_count=row["feedback_count"],
             positive_count=row["positive_count"],
-            last_style=row["last_style"] or "",
             last_topic=row["last_topic"] or "",
         )
 
     def learn(self, user_id: str, is_positive: bool,
-              style: str = "", topic: str = "", response_len: int = 0) -> UserPreferences:
+              topic: str = "", response_len: int = 0) -> UserPreferences:
         """Learn from a single feedback event using EMA.
 
         Args:
             user_id: User ID
             is_positive: True for 👍, False for 👎
-            style: Current personality mode (sassy/analyst/gentle)
             topic: Detected topic (wealth/love/career/health/growth)
             response_len: Length of response in characters
+
+        k62：原 ``style`` 入参与风格权重更新/归一化已移除（见类 docstring）。
         """
         prefs = self.get(user_id)
         alpha = self.ALPHA
         beta = 1.0 - alpha  # 0.7 — weight of old value
-
-        # Update style weights
-        if style == "sassy":
-            prefs.style_sassy = beta * prefs.style_sassy + alpha * (1.0 if is_positive else 0.0)
-        elif style == "analyst":
-            prefs.style_analyst = beta * prefs.style_analyst + alpha * (1.0 if is_positive else 0.0)
-        elif style == "gentle":
-            prefs.style_gentle = beta * prefs.style_gentle + alpha * (1.0 if is_positive else 0.0)
-
-        # Normalize style weights to sum to 1.0
-        total_style = prefs.style_sassy + prefs.style_analyst + prefs.style_gentle
-        if total_style > 0:
-            prefs.style_sassy /= total_style
-            prefs.style_analyst /= total_style
-            prefs.style_gentle /= total_style
 
         # Update topic weights
         topic_map = {
@@ -198,7 +177,6 @@ class PreferenceDAO:
         prefs.feedback_count += 1
         if is_positive:
             prefs.positive_count += 1
-        prefs.last_style = style
         prefs.last_topic = topic
 
         # Persist
@@ -217,19 +195,21 @@ class PreferenceDAO:
         return max(scores, key=scores.get)
 
     def _upsert(self, prefs: UserPreferences):
-        """Insert or update preferences."""
+        """Insert or update preferences.
+
+        k62：不再读写 style_sassy/style_analyst/style_gentle 与 last_style
+        四列（代码路径已移除；列本身保留在表上，生产库存量数据不动——
+        INSERT 不带这些列 → 新行走建表默认值）。
+        """
         conn = self._connect()
         conn.execute("""
             INSERT INTO user_preferences
-                (user_id, style_sassy, style_analyst, style_gentle,
+                (user_id,
                  topic_wealth, topic_love, topic_career, topic_health, topic_growth,
                  prefer_short, feedback_count, positive_count,
-                 last_style, last_topic, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+                 last_topic, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
             ON CONFLICT(user_id) DO UPDATE SET
-                style_sassy=excluded.style_sassy,
-                style_analyst=excluded.style_analyst,
-                style_gentle=excluded.style_gentle,
                 topic_wealth=excluded.topic_wealth,
                 topic_love=excluded.topic_love,
                 topic_career=excluded.topic_career,
@@ -238,16 +218,14 @@ class PreferenceDAO:
                 prefer_short=excluded.prefer_short,
                 feedback_count=excluded.feedback_count,
                 positive_count=excluded.positive_count,
-                last_style=excluded.last_style,
                 last_topic=excluded.last_topic,
                 updated_at=datetime('now')
         """, (
             prefs.user_id,
-            prefs.style_sassy, prefs.style_analyst, prefs.style_gentle,
             prefs.topic_wealth, prefs.topic_love, prefs.topic_career,
             prefs.topic_health, prefs.topic_growth,
             int(prefs.prefer_short), prefs.feedback_count, prefs.positive_count,
-            prefs.last_style, prefs.last_topic,
+            prefs.last_topic,
         ))
         conn.commit()
         conn.close()
@@ -310,7 +288,8 @@ class PreferenceDAO:
             "user_id": user_id,
             "total_feedback": prefs.feedback_count,
             "accuracy_pct": prefs.accuracy_pct,
-            "preferred_style": prefs.preferred_style if prefs.is_mature else None,
+            # k62：preferred_style 键随三权重一并移除（消费方核实：无 —— 见
+            # docs/API.md 与 miniprogram/ 全仓无该字段引用）。preferred_topic 保留。
             "preferred_topic": prefs.preferred_topic if prefs.is_mature else None,
             "preferences_mature": prefs.is_mature,
             "topic_accuracy": topic_stats,

@@ -66,9 +66,15 @@ CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, created_at);
 
 CREATE TABLE IF NOT EXISTS user_preferences (
     user_id TEXT PRIMARY KEY,
-    style_sassy REAL DEFAULT 0.33,       -- 毒舌权重 (EMA)
-    style_analyst REAL DEFAULT 0.33,     -- 分析权重 (EMA)
-    style_gentle REAL DEFAULT 0.34,      -- 温柔权重 (EMA)
+    -- ⚠️ 已废弃（k62 移除代码路径，未 DROP COLUMN）：下面 3 列是早期「3 模式
+    -- 人设」残留的三个风格权重。三者由同一公式、同一输入更新，恒为当前
+    -- argmax 的那一个被自强化 → preferred_style 对所有用户恒为建表默认值决定
+    -- 的 'gentle'，不携带用户信息。代码侧已整体移除（PreferenceDAO 不再读写，
+    -- 见 preference_dao.py 类 docstring）。**列保留**：生产库有真实数据，
+    -- 破坏性迁移需先报批。新写入行取本处默认值。
+    style_sassy REAL DEFAULT 0.33,       -- 【已废弃·k62】毒舌权重 (EMA)
+    style_analyst REAL DEFAULT 0.33,     -- 【已废弃·k62】分析权重 (EMA)
+    style_gentle REAL DEFAULT 0.34,      -- 【已废弃·k62】温柔权重 (EMA)
     topic_wealth REAL DEFAULT 0.2,       -- 财运话题偏好
     topic_love REAL DEFAULT 0.2,         -- 感情话题偏好
     topic_career REAL DEFAULT 0.2,       -- 事业话题偏好
@@ -77,7 +83,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     prefer_short INTEGER DEFAULT 0,      -- 偏好简短回复
     feedback_count INTEGER DEFAULT 0,    -- 收到的反馈总数
     positive_count INTEGER DEFAULT 0,    -- 好评数
-    last_style TEXT DEFAULT '',          -- 最后使用的人格模式
+    last_style TEXT DEFAULT '',          -- 【已废弃·k62】最后使用的人格模式（随三权重移除）
     last_topic TEXT DEFAULT '',          -- 最后关注的话题
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
