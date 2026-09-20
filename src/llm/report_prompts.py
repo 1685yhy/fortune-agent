@@ -90,19 +90,13 @@ SCENARIO_FOCUS_PROMPTS = {
 }
 
 
-def build_scenario_system_prompt(
-    personality_prompt: str, category: str = None
-) -> str:
-    """Build a combined system prompt including structured report format.
-
-    Args:
-        personality_prompt: The base personality prompt (sassy/analyst/gentle).
-        category: Optional scenario category key for adding focus prompt.
-
-    Returns:
-        Combined system prompt string ready for use in LLM calls.
-    """
-    combined = personality_prompt + "\n\n" + STRUCTURED_REPORT_PROMPT
-    if category and category in SCENARIO_FOCUS_PROMPTS:
-        combined += "\n\n" + SCENARIO_FOCUS_PROMPTS[category]
-    return combined
+# k62 r2：原 `build_scenario_system_prompt(personality_prompt, category)` 已整体
+# 删除（控制方批准）。删除依据：
+#   1. **全仓 0 调用** —— 包括 `getattr` / `importlib.import_module` / 测试 / 脚本 /
+#      文档示例面（k62 r2 实测：唯一命中 = 定义行本身）；
+#   2. **与活路径重复** —— `src/bot/handler.py` 内联组合同两个常量
+#      （`STRUCTURED_REPORT_PROMPT` + `SCENARIO_FOCUS_PROMPTS[cat]`），那才是唯一实现；
+#   3. 它的首形参 `personality_prompt` 是「sassy/analyst/gentle 三档人设」在仓库里的
+#      **最后一处痕迹**（用户已拍板统一单一口吻）。
+# 保留它只会诱使后人接错线（本批开局正是被「看起来能用、实际没人用」的面骗过）。
+# **要改报告提示词，改 `handler.py` 那处内联**，不要再恢复本函数。

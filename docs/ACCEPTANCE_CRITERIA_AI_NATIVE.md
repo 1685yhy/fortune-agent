@@ -13,7 +13,12 @@
 漏掉大量真实情绪表达（如「好丧」「心态崩了」「emo了」「整个人都不好了」）。
 
 ### 验收标准
-- [ ] P0.1 用现有的 `MoodDetector`（DeepSeek Flash）替换关键词匹配
+- [x] ~~P0.1 用现有的 `MoodDetector`（DeepSeek Flash）替换关键词匹配~~
+      —— **已撤销（k62）**：`MoodDetector` 是**从未接线**的早期残留
+      （`src/engines/mood_detector.py` 在 `src/` 下 0 引用：接线在 96586b0
+      「3 模式 → 1 统一语气」时被摘除，文件留成孤儿 + 一簇绿测试）。
+      情绪安抚的活路径是 `MessageAnalyzer`（`src/bot/handler.py` 在用），
+      不是 `MoodDetector`；本模块已随 k62 删除，勿按此条恢复。
 - [ ] P0.2 情绪安抚文本由 AI 动态生成（不硬编码 5 种回复模板）
 - [ ] P0.3 AI 生成的安抚必须：匹配用户原话 + 1-2 句 + 有温度
 - [ ] P0.4 安抚生成速度 < 2 秒

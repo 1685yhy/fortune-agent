@@ -5,6 +5,8 @@ import shutil
 import tempfile
 from unittest.mock import Mock, MagicMock, call
 
+import pytest
+
 from src.bot.handler import MessageHandler, ZERI_SCENE_QUESTION
 from src.bot.tool_calls import parse_tool_calls, strip_tool_calls, MAX_TOOL_ITERATIONS
 from src.bot.formatter import split_long_message, format_greeting, format_error, format_loading
@@ -47,6 +49,32 @@ def _patch_intent(handler, intent):
     """把 _analyze_message 替换为固定意图（测试不发起真实 LLM 调用）。"""
     handler._analyze_message = (
         lambda msg, user_id="", session_id=None: _analysis(intent))
+
+
+# ── 隔离：真实 handler 的用户记忆目录必须重定向（防测试副作用入库）────────
+# 事故形态（2026-09-20 实测）：本文件的用例走**真实 `process()` 主链**，其中
+# `_handle_voice` 以 `process(text, "", ...)` 调用（空 uid）→ handler 的
+# `add_mood_record(user_id, ...)` 于是写 `data/memory/.json`
+# （`UserMemory._path("")` → 目录 + `".json"`）。本文件此前**未设**
+# `USER_MEMORY_DIR`（k61 引入的重定向只覆盖了 scripts/eval_agent 与 tests/test_eval_*），
+# 而 `handler.MemorySystem = UserMemory()` 取默认目录 = 仓库内 `data/memory/`
+# → **跑一次本文件就把测试副作用写进受版本控制的仓库文件**（`_updated_at` 漂移），
+# 并已在 `2a67833`（k62 r1）被误提交。这里按仓库既有机制（k61 的
+# `USER_MEMORY_DIR`）把本模块的记忆目录整体重定向到临时目录。
+# **只换目录，不改任何断言、不改任何被测行为**：`UserMemory` 在 handler
+# 构造时读该环境变量，故与本文件所有用例的构造时机兼容。
+# 守卫见 `tests/test_k62k63_fixup_side_effect_guard.py`（含"跑定向子集后
+# `data/memory/.json` 不得变化"的沙箱复现）。
+@pytest.fixture(scope="module")
+def _user_memory_dir(tmp_path_factory):
+    """本模块专用的临时用户记忆目录（避免每个用例新建一个）。"""
+    return tmp_path_factory.mktemp("user_memory")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_user_memory_dir(_user_memory_dir, monkeypatch):
+    monkeypatch.setenv("USER_MEMORY_DIR", str(_user_memory_dir))
+    return _user_memory_dir
 
 
 # ── AI 原生对话系统（Phase 1）— <tool_call> 标签解析 ─────────────────

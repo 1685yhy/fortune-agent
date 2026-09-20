@@ -448,31 +448,19 @@ class TestIntegration:
             f"独特建议率 {uniqueness_rate:.0%} 未达到 80% 要求"
         )
 
-    def test_different_personality_different_output(self, advisor, sample_bazi_a, api_key):
-        """不同人格模式生成不同风格的建议。"""
-        r_sassy = advisor.generate(
-            sample_bazi_a,
-            user_context="想了解最近运势",
-            api_key=api_key,
-        )
-        r_analyst = advisor.generate(
-            sample_bazi_a,
-            user_context="想了解最近运势",
-            api_key=api_key,
-        )
-        r_gentle = advisor.generate(
-            sample_bazi_a,
-            user_context="想了解最近运势",
-            api_key=api_key,
-        )
-
-        # 验证输出不同（风格不同，建议措辞应不同）
-        texts = [
-            json.dumps(r_sassy.get("actions", []), ensure_ascii=False),
-            json.dumps(r_analyst.get("actions", []), ensure_ascii=False),
-            json.dumps(r_gentle.get("actions", []), ensure_ascii=False),
-        ]
-        assert texts[0] != texts[1] or texts[1] != texts[2], "不同人格模式应生成不同建议"
+    # 「不同人格模式生成不同风格建议」用例已移除（k62 r2，2026-09-20）。
+    # 原因：**名不符实** —— 它声称验证「不同人设 → 不同输出」，实际什么都没验证：
+    #   1. 它的三次调用**逐字节相同**（同一夹具 + 同一 user_context + 同一 api_key），
+    #      只有局部变量名 r_sassy/r_analyst/r_gentle 在假装不同；
+    #   2. 更根本的是，它测的 API **根本没有该参数** ——
+    #      `AdaptiveAdvisor.generate(bazi_result, user_context="", api_key="")`
+    #      没有 personality/style 形参，故「传不同人设」在结构上不可能；
+    #   3. 它还被 `api_key` fixture **默认 skip**（未设 DEEPSEEK_API_KEY 时），
+    #      且**未 mock** —— 一旦被 skip 掉，等于零覆盖；
+    #   4. 即便真跑，它断言的是「三次**相同**请求中至少两次结果不同」，
+    #      命中的是 LLM 采样随机性（temperature），与人设无关。
+    # 该职责现由 **k63 的不变式**承担（单一豆包口吻：advisor_v2 的风格指令不再随
+    # 性别/人设分叉）。**不要恢复本用例** —— 除非先给 generate() 真正加上人设参数。
 
     def test_serendipity_in_integration(self, advisor, sample_bazi_a, api_key):
         """集成测试中 serendipity 字段存在。"""

@@ -66,9 +66,23 @@ CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, created_at);
 
 CREATE TABLE IF NOT EXISTS user_preferences (
     user_id TEXT PRIMARY KEY,
-    style_sassy REAL DEFAULT 0.33,       -- 毒舌权重 (EMA)
-    style_analyst REAL DEFAULT 0.33,     -- 分析权重 (EMA)
-    style_gentle REAL DEFAULT 0.34,      -- 温柔权重 (EMA)
+    -- ⚠️ 已废弃（k62 移除代码路径，未 DROP COLUMN）：下面 3 列是早期「3 模式
+    -- 人设」残留的三个风格权重。三者只更新**当时被选中的那一个**（handler 传
+    -- style=preferred_style，即当时 argmax），随后归一化 → 权重会分化（实测
+    -- 30×全👍终值 0.0476/0.0476/0.9049，**不是**恒等 ≈1/3）。
+    -- preferred_style 就是当时的 argmax：默认起步落在 'gentle'（建表默认 0.34），
+    -- 但反馈符号序列能把它推走（全差评时确定性 3-循环 sassy→analyst→gentle：
+    -- 10 次 → 'sassy'、12 次 → 'gentle'）⇒ 是「把自身输出当输入」的自强化回路，
+    -- 会经 to_prompt_hint() 以中文名给用户注入从未表达过的风格偏好。
+    -- 代码侧已整体移除（PreferenceDAO 不再读写）。删除依据不靠上面这些数字，
+    -- 而在于：**它不编码用户特异的风格偏好，只是反馈符号序列的确定性函数**
+    -- ——准确机制与旧措辞更正见 preference_dao.py 类 docstring（2026-09-20
+    -- 已按一手实测更正，原先它指向的那几句是被证伪的旧说法）。
+    -- **列保留**：生产库有真实数据，破坏性迁移需先报批。
+    -- 新写入行取本处默认值。
+    style_sassy REAL DEFAULT 0.33,       -- 【已废弃·k62】毒舌权重 (EMA)
+    style_analyst REAL DEFAULT 0.33,     -- 【已废弃·k62】分析权重 (EMA)
+    style_gentle REAL DEFAULT 0.34,      -- 【已废弃·k62】温柔权重 (EMA)
     topic_wealth REAL DEFAULT 0.2,       -- 财运话题偏好
     topic_love REAL DEFAULT 0.2,         -- 感情话题偏好
     topic_career REAL DEFAULT 0.2,       -- 事业话题偏好
@@ -77,7 +91,7 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     prefer_short INTEGER DEFAULT 0,      -- 偏好简短回复
     feedback_count INTEGER DEFAULT 0,    -- 收到的反馈总数
     positive_count INTEGER DEFAULT 0,    -- 好评数
-    last_style TEXT DEFAULT '',          -- 最后使用的人格模式
+    last_style TEXT DEFAULT '',          -- 【已废弃·k62】最后使用的人格模式（随三权重移除）
     last_topic TEXT DEFAULT '',          -- 最后关注的话题
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))

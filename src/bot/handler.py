@@ -73,7 +73,6 @@ from src.storage.chart_dao import ChartDAO
 from src.storage.birth_profile import (
     get_user_birth_profile, profile_fingerprint, to_solar_date)
 from src.utils.cache import ResponseCache, is_cacheable
-from src.ml.quality_predictor import QualityPredictor
 from src.memory.user_memory import UserMemory, format_birth_line
 # 命例相似度引擎已停用（2026-08-09 方案 v5 选 A 彻底移除，见 src/engines/similarity.py 注释）
 from .formatter import split_long_message, format_error, format_loading
@@ -2297,8 +2296,6 @@ class MessageHandler:
         self._citations: dict = {}
         # D2: Response cache for high-frequency queries
         self.cache = ResponseCache(max_size=500)
-        # E4: ML quality predictor (online learning)
-        self.quality_predictor = QualityPredictor()
         # Phase 3: User Memory System — persistent cross-session memory
         self.memory_system = UserMemory()
         # 阶段 5（方案 v5）：本轮理解出的关键事实（user_id → facts），
@@ -2382,6 +2379,14 @@ class MessageHandler:
     # ============================================================
     # Feedback Learning (F1-F3)
     # ============================================================
+    # ⚠️ 未实现的能力（k64 登记）：「ML 回答质量预测 / 低质量自动重试」**当前未实现**。
+    #    曾有此模块（src/ml/quality_predictor.py，E4），但主链只在反馈时调它的
+    #    update()（**只写**），两个读方法 predict()/should_retry() 全仓 0 调用
+    #    （**不读**）→ 预测结果从没有任何消费方，「决定要不要重试」这条链路从未接通；
+    #    且其唯一调用点缺必填参数 personality，每次反馈都抛 TypeError 并被本函数的
+    #    `except Exception` 吞掉（P1，k64 修复）。该模块已于 k64 按控制方裁决整模块移除。
+    #    → 若日后要做这个能力，请**重新立项**，不要从残骸复活；
+    #      守卫见 tests/test_k64_quality_predictor_removed.py。
 
     def _handle_feedback(self, msg: str, user_id: str,
                          session_id: Optional[str] = None) -> str:
@@ -2395,43 +2400,20 @@ class MessageHandler:
             return "感谢反馈！" if is_positive else "收到，我会继续改进的～"
 
         try:
-            # Get current context for learning
-            prefs = self.preference_dao.get(user_id)
-            current_style = prefs.preferred_style or ""
-
             # Detect topic from last conversation
             last_topic = ""
-            last_msg = ""
             if self.session_dao:
                 history = self.session_dao.get_context_for_llm(
                     user_id, history_limit=5, session_id=session_id)
                 user_msgs = [m.get("content", "") for m in history if m.get("role") == "user"]
                 last_msgs = " ".join(user_msgs)
                 last_topic = self.preference_dao.detect_topic(last_msgs)
-                if user_msgs:
-                    last_msg = user_msgs[-1]
 
-            # Learn preference (EMA)
+            # Learn preference (EMA) — k62：style 入参随三个退化风格权重移除
             updated = self.preference_dao.learn(
                 user_id, is_positive,
-                style=current_style,
                 topic=last_topic,
             )
-
-            # E4: Train ML quality predictor
-            if last_msg:
-                import datetime
-                emotion_label = "neutral"
-                if hasattr(self, '_last_emotion_labels'):
-                    emotion_label = self._last_emotion_labels.get(user_id, "neutral")
-                self.quality_predictor.update(
-                    message=last_msg,
-                    hour=datetime.datetime.now().hour,
-                    emotion=emotion_label,
-                    topic=last_topic or "general",
-                    response_len=0,  # We don't know the exact response that got this feedback
-                    was_positive=is_positive,
-                )
 
             if is_positive:
                 reply = "感谢认可！"
@@ -11212,9 +11194,15 @@ class MessageHandler:
                     # 清单，否则模型第一轮不知道有工具可调 → 工具链触发率 0%
                     # （CHAT_PROMPT 只有教学示例，清单在 _run_tool_loop 第二轮
                     # 才注入，形成"先有鸡还是先有蛋"死锁）
-                    messages.insert(0, {"role": "system",
-                                        "content": "[可用工具清单]\n"
-                                        + build_tool_description()})
+                    # k65 r2：降级档（额度耗尽 → lite，无工具能力）**不注入**
+                    # 工具清单——清单会诱发「假装调用 → 编排盘/编吉日」的信任级
+                    # 故障，且 2153 字符纯浪费。按能力裁剪，不是全剥：主链照旧。
+                    # 判据 = 本函数的 downgraded 入参（与下方 lite=downgraded
+                    # 同源，来自 chat_quota.used>=CHAT_DAILY_LIMIT，非内容猜测）。
+                    if not downgraded:
+                        messages.insert(0, {"role": "system",
+                                            "content": "[可用工具清单]\n"
+                                            + build_tool_description()})
                     if combined_hint:
                         messages[-1] = {
                             "role": messages[-1]["role"],
