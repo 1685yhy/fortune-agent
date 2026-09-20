@@ -15,6 +15,7 @@
 import os
 import socket
 import sys
+import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -30,7 +31,9 @@ from conftest import (  # noqa: E402
     BLOCKED_HOST_MARKERS,
     FREE_LLM_HOSTS,
     FREE_LLM_MODEL,
+    NON_LLM_EGRESS_HOSTS,
     DeepSeekEgressBlocked,
+    PublicEgressBlocked,
 )
 
 
@@ -55,11 +58,34 @@ class TestGuardContract:
             assert k61conftest._is_blocked(host), host
 
     def test_free_whitelist_is_free_only(self):
-        """白名单只放免费源：不得含 deepseek，且当前只有智谱。"""
-        assert FREE_LLM_HOSTS == ("open.bigmodel.cn",)
+        """白名单只放免费源：不得含 deepseek，且必须含智谱（免费测试 LLM）。"""
+        assert "open.bigmodel.cn" in FREE_LLM_HOSTS
         for h in FREE_LLM_HOSTS:
             assert not any(m in h for m in BLOCKED_HOST_MARKERS), h
         assert FREE_LLM_MODEL == "glm-4-flash"
+
+    def test_every_whitelist_entry_has_a_reason(self):
+        """r3：白名单条目必须带理由（防「悄悄放行一个域名」）。"""
+        for name, table in (("FREE_LLM_HOSTS", FREE_LLM_HOSTS),
+                            ("NON_LLM_EGRESS_HOSTS", NON_LLM_EGRESS_HOSTS)):
+            assert table, f"{name} 为空"
+            for host, reason in table.items():
+                assert reason and len(reason) >= 10, f"{name} 缺理由：{host}"
+
+    def test_whitelist_is_actually_read_at_runtime(self):
+        """**r3 核心**：白名单必须真的被判定逻辑读取 —— 不许是死常量。
+
+        审查者实测 r2 的 `FREE_LLM_HOSTS` 运行期从不被读取（加进 markers 也救不了）：
+        「看起来有防护」的假象比没有更坏。本用例锁住「它真的在生效」：
+        把白名单换成 `open.bigmodel.cn`，判定逻辑必须放行它、拒绝不在名单里的域名。
+        """
+        assert k61conftest._is_allowed_host("open.bigmodel.cn") is True
+        assert k61conftest._is_allowed_host("api.open.bigmodel.cn") is True   # 子域
+        assert k61conftest._is_allowed_host("evil.example.com") is False
+        assert k61conftest._is_allowed_host("api.deepseek.com") is False
+        # 白名单被替换时会立刻改变判定 → 证明它是活的那一份
+        assert set(k61conftest.ALLOWED_EGRESS_HOSTS) == \
+            set(FREE_LLM_HOSTS) | set(NON_LLM_EGRESS_HOSTS)
 
     def test_is_blocked_passthrough(self):
         for host in ("open.bigmodel.cn", "cn.bing.com", "127.0.0.1", None, ""):
@@ -205,4 +231,244 @@ class TestGuardIsNotSwallowable:
             pass
         except DeepSeekEgressBlocked:
             pass
+        assert len(guard.violations) == before + 1
+
+
+# ══════════════════════════════════════════════════════════════════
+# 5) r3：代理穿网 + IP 字面量绕过（审查者实测的两条逃逸）
+# ══════════════════════════════════════════════════════════════════
+#
+# 改前（r2）：设了 `HTTPS_PROXY` 时 socket 层看到的是**代理地址**（socket 层失明），
+# requests/urllib/httpx/aiohttp 四路静默穿网（监听器实收 `CONNECT api.deepseek.com:443`）；
+# 直接用 **IP 字面量**（无主机名可判）也能连出去。
+# 改后：C 层按**解析后的地址**判（公网默认拒绝），D 层扫**明文请求头**
+# （`CONNECT host:port` / `Host:` / 绝对 URI）—— 代理只是通道，目标同样受判。
+
+@pytest.fixture
+def proxy_listener():
+    """进程内 TCP 监听器：扮演「代理/终点」——只记录首行，**从不转发**。
+
+    所以即使守卫失明，也不会有任何真实外呼；本夹具只用来**证明**穿没穿。
+    """
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(16)
+    port = srv.getsockname()[1]
+    hits: list = []
+    stop = threading.Event()
+
+    def serve():
+        srv.settimeout(0.3)
+        while not stop.is_set():
+            try:
+                conn, _ = srv.accept()
+            except socket.timeout:
+                continue
+            except OSError:
+                break
+            try:
+                conn.settimeout(2)
+                data = b""
+                while b"\r\n" not in data and len(data) < 4096:
+                    chunk = conn.recv(1024)
+                    if not chunk:
+                        break
+                    data += chunk
+                hits.append(data.split(b"\r\n", 1)[0].decode("latin-1", "replace"))
+                conn.sendall(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+            except Exception:
+                pass
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+    t = threading.Thread(target=serve, daemon=True)
+    t.start()
+    try:
+        yield port, hits
+    finally:
+        stop.set()
+        try:
+            srv.close()
+        except Exception:
+            pass
+        t.join(timeout=2)
+
+
+def _proxy_env(monkeypatch, port):
+    for var in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy"):
+        monkeypatch.setenv(var, f"http://127.0.0.1:{port}")
+    for var in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(var, raising=False)
+
+
+class TestProxyTunnelCannotSlipThrough:
+    """四路各打一次 `api.deepseek.com`：必须 GUARD-BLOCK，且监听器**零** deepseek 行。"""
+
+    URL = "https://api.deepseek.com/anthropic/v1/messages"
+
+    def _assert_no_tunnel(self, port, hits):
+        assert not [h for h in hits if "deepseek" in h.lower()], \
+            f"代理隧道穿网了（监听器实收）：{hits}"
+
+    def test_requests_through_proxy_blocked(self, proxy_listener, monkeypatch):
+        port, hits = proxy_listener
+        _proxy_env(monkeypatch, port)
+        import requests
+        with pytest.raises(DeepSeekEgressBlocked):
+            requests.post(self.URL, json={"x": 1}, timeout=5)
+        self._assert_no_tunnel(port, hits)
+
+    def test_urllib_through_proxy_blocked(self, proxy_listener, monkeypatch):
+        port, hits = proxy_listener
+        _proxy_env(monkeypatch, port)
+        import urllib.request
+        with pytest.raises(DeepSeekEgressBlocked):
+            urllib.request.urlopen(self.URL, timeout=5)
+        self._assert_no_tunnel(port, hits)
+
+    def test_httpx_through_proxy_blocked(self, proxy_listener, monkeypatch):
+        port, hits = proxy_listener
+        _proxy_env(monkeypatch, port)
+        import httpx
+        with pytest.raises(DeepSeekEgressBlocked):
+            httpx.post(self.URL, json={"x": 1}, timeout=5)
+        self._assert_no_tunnel(port, hits)
+
+    def test_aiohttp_through_proxy_blocked(self, proxy_listener, monkeypatch):
+        port, hits = proxy_listener
+        _proxy_env(monkeypatch, port)
+        import asyncio
+
+        import aiohttp
+
+        async def _go():
+            async with aiohttp.ClientSession() as s:
+                async with s.post(self.URL, json={"x": 1},
+                                  timeout=aiohttp.ClientTimeout(total=5)):
+                    pass
+
+        with pytest.raises(DeepSeekEgressBlocked):
+            asyncio.run(_go())
+        self._assert_no_tunnel(port, hits)
+
+    def test_direct_production_style_call_blocked_via_proxy(self, proxy_listener, monkeypatch):
+        """端到端形态：生产同款函数（不 mock）→ 代理在场也必须拦。"""
+        port, hits = proxy_listener
+        _proxy_env(monkeypatch, port)
+        import src.llm.client as llm_client
+        with pytest.raises(DeepSeekEgressBlocked):
+            llm_client.deepseek_anthropic_completion(
+                "sk-not-a-real-key", [{"role": "user", "content": "ping"}], timeout=3)
+        self._assert_no_tunnel(port, hits)
+
+
+class TestAddressJudgment:
+    """C 层：按**解析后的地址**判定 —— IP 字面量同样拦得住。"""
+
+    PUBLIC_IP = "123.125.246.121"   # 审查者实测用的公网字面量（is_global=True）
+
+    def test_public_ip_literal_direct_socket_blocked(self):
+        s = socket.socket()
+        s.settimeout(3)
+        try:
+            with pytest.raises(PublicEgressBlocked):
+                s.connect((self.PUBLIC_IP, 443))
+        finally:
+            s.close()
+
+    def test_public_ip_literal_connect_ex_blocked(self):
+        s = socket.socket()
+        s.settimeout(3)
+        try:
+            with pytest.raises(PublicEgressBlocked):
+                s.connect_ex((self.PUBLIC_IP, 443))
+        finally:
+            s.close()
+
+    def test_public_ip_literal_requests_blocked(self):
+        import requests
+        with pytest.raises(PublicEgressBlocked):
+            requests.get(f"http://{self.PUBLIC_IP}/", timeout=3)
+
+    def test_public_ip_literal_urllib_blocked(self):
+        import urllib.request
+        with pytest.raises(PublicEgressBlocked):
+            urllib.request.urlopen(f"http://{self.PUBLIC_IP}/", timeout=3)
+
+    def test_public_ip_literal_httpx_blocked(self):
+        import httpx
+        with pytest.raises(PublicEgressBlocked):
+            httpx.get(f"http://{self.PUBLIC_IP}/", timeout=3)
+
+    def test_non_public_addresses_allowed(self, proxy_listener):
+        """回环/私网放行（不涉公网暴露）——守卫不得误伤本地服务。"""
+        port, hits = proxy_listener
+        s = socket.socket()
+        s.settimeout(3)
+        try:
+            s.connect(("127.0.0.1", port))   # 必须成功
+        finally:
+            s.close()
+        assert k61conftest._is_non_public_ip("127.0.0.1")
+        assert k61conftest._is_non_public_ip("10.1.2.3")
+        assert k61conftest._is_non_public_ip("192.168.0.9")
+        assert not k61conftest._is_non_public_ip(self.PUBLIC_IP)
+
+    def test_whitelisted_host_ips_are_learned_and_allowed(self, _k61_deepseek_egress_guard):
+        """白名单主机的解析结果被学习 → C 层放行（否则 GLM 端到端会被自己的守卫打死）。"""
+        guard = _k61_deepseek_egress_guard
+        probe_ip = "123.125.246.121"      # 真公网 IP（仅做判定，不真连）
+        assert not guard._ip_allowed(probe_ip)
+        guard._learn_allowed_ip("open.bigmodel.cn", socket.AF_INET, (probe_ip, 443))
+        assert guard._ip_allowed(probe_ip)
+
+    def test_proxy_host_ips_are_allowed(self, proxy_listener, monkeypatch):
+        """代理主机本身要放行（它是**通道**）：目标由 D 层的 CONNECT 行判。"""
+        port, _ = proxy_listener
+        monkeypatch.setenv("HTTPS_PROXY", f"http://127.0.0.1:{port}")
+        assert "127.0.0.1" in k61conftest._proxy_hosts()
+
+
+class TestPayloadScanParsing:
+    """D 层的行解析与"只扫请求头"口径（防 body 假红）。"""
+
+    def test_connect_line(self):
+        assert k61conftest._target_host_in_line(
+            "CONNECT api.deepseek.com:443 HTTP/1.1") == "api.deepseek.com"
+
+    def test_host_header(self):
+        assert k61conftest._target_host_in_line("Host: api.deepseek.com") == "api.deepseek.com"
+
+    def test_absolute_uri(self):
+        assert k61conftest._target_host_in_line(
+            "GET http://api.deepseek.com/v1 HTTP/1.1") == "api.deepseek.com"
+
+    def test_irrelevant_line(self):
+        assert k61conftest._target_host_in_line("Content-Type: application/json") is None
+        assert k61conftest._target_host_in_line("") is None
+
+    def test_only_request_heads_are_scanned(self, _k61_deepseek_egress_guard):
+        """body 里出现 `http://api.deepseek.com` **不得**触发（否则载荷类用例会假红）。"""
+        guard = _k61_deepseek_egress_guard
+        before = len(guard.violations)
+        s = socket.socket()
+        try:
+            guard.scan_payload(s, b'{"url": "http://api.deepseek.com/v1"}')   # body 形态
+        finally:
+            s.close()
+        assert len(guard.violations) == before, "body 被误扫 → 会假红"
+
+    def test_request_head_scan_trips(self, _k61_deepseek_egress_guard):
+        guard = _k61_deepseek_egress_guard
+        before = len(guard.violations)
+        s = socket.socket()
+        try:
+            with pytest.raises(DeepSeekEgressBlocked):
+                guard.scan_payload(s, b"CONNECT api.deepseek.com:443 HTTP/1.1\r\n")
+        finally:
+            s.close()
         assert len(guard.violations) == before + 1

@@ -52,10 +52,12 @@ k57 门禁里 `test_response_under_5_seconds` 真跑到 >5s 墙钟失败即其�
 """
 import atexit
 import os
+import re
 import shutil
 import socket
 import subprocess
 import tempfile
+import threading
 
 import pytest
 
@@ -136,6 +138,17 @@ def _pin_test_env() -> None:
 
 _pin_test_env()
 
+# ── r3 ⑤：把 `.env` 的加载**定死**（消灭"取决于还导入了谁"的顺序依赖）──
+# 此前 `.env` 是否进进程，取决于**这一次收集了哪些文件**（哪个模块恰好先
+# `import src.config`）。后果：审查者实测单独跑 `pytest tests/test_adaptive_advisor.py`
+# 时，即使部署 `.env` 里 ZHIPU key 在场，4 条 GLM 门控用例也**静默 skip**；
+# 两个文件一起跑才真跑 —— 「真跑还是 skip」竟取决于命令行给了哪些文件，不可接受。
+# 修法：conftest（必然被加载）显式走**生产入口的加载路径**（`uvicorn src.main:app`
+# 也必然 import src.config），于是任何测试会话都确定性地加载 `.env`；
+# 泄漏值由上面的 pin 压住，ZHIPU（免费测试 LLM）保持可用 —— 门控只取决于
+# 「key 在不在」，不再取决于「还导入了谁」。
+import src.config  # noqa: E402,F401  （导入即 load_env_file(".env")；必须在 pin 之后）
+
 #: **导入期快照**：在任何测试模块被 import 之前拍下的 pin 生效状态。
 #: 锁用例据此断言「pin 确实生效」—— 这是**顺序无关**的判据：
 #: 收集期就有约 20 个测试模块会直接 `os.environ["JWT_SECRET_KEY"] = "test-..."`（仓内
@@ -164,6 +177,16 @@ ENV_PINS_AT_IMPORT = {key: os.environ.get(key) for key in TEST_ENV_PINS}
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+#: r3 ⑦：本守卫**只负责这些产物范围**的脏（审查者 03:35 实测到假红 ——
+#: 多个会话在同一个 worktree 里并发开发时，**任何**源文件都可能被合法改动，
+#: 而那不是「测试写脏了仓库」。把范围收到"运行时产物"上，守卫才只对
+#: 「测试往仓库里写」这件事报警，不会对别人的正常编辑假红）。
+DIRT_GUARD_SCOPES = {
+    "data/": "运行时产物（用户记忆 data/memory/*.json 等）—— 默认落到仓库内的写点",
+    "src/engine/out/": "对比跑批归档（run_comparison 的默认输出目录）",
+}
+
+
 def _tracked_dirty() -> set:
     """当前处于「已修改/已删除/已暂存」状态的**被跟踪**文件集合（忽略未跟踪）。"""
     try:
@@ -182,6 +205,12 @@ def _tracked_dirty() -> set:
     return dirty
 
 
+def _scoped_dirty() -> set:
+    """只保留 `DIRT_GUARD_SCOPES` 范围内的脏 —— 并发会话改源码不算（见上注）。"""
+    return {p for p in _tracked_dirty()
+            if any(p == s.rstrip("/") or p.startswith(s) for s in DIRT_GUARD_SCOPES)}
+
+
 class RepoDirtDetected(BaseException):
     """测试会话把**被 git 跟踪**的文件写脏了（r2 ④）。
 
@@ -192,7 +221,7 @@ class RepoDirtDetected(BaseException):
 #: 会话起点的工作区状态（conftest **导入期**快照 —— 比收集期更早，连
 #: 「测试模块在 import 时写脏文件」也能覆盖）。守卫据此做增量比对；
 #: 锁用例 `tests/test_k61_repo_hygiene.py` 也读它。
-SESSION_START_DIRTY = _tracked_dirty()
+SESSION_START_DIRTY = _scoped_dirty()
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -202,10 +231,10 @@ def _k61_repo_dirt_guard():
     try:
         yield
     finally:
-        newly = _tracked_dirty() - before
+        newly = _scoped_dirty() - before
         if newly:
             raise RepoDirtDetected(
-                "[k61 仓库卫生守卫] 测试会话写脏了被 git 跟踪的文件：\n"
+                "[k61 仓库卫生守卫] 测试会话写脏了被 git 跟踪的**运行时产物**：\n"
                 + "\n".join(f"  M {p}" for p in sorted(newly))
                 + "\n处置：让写方落到 tmp 目录（UserMemory 用 USER_MEMORY_DIR / "
                   "base_dir；run_comparison 用 out_path 参数），不要往仓库内写。"
@@ -219,19 +248,101 @@ def _k61_repo_dirt_guard():
 #: 禁止出站的域（子串匹配，大小写不敏感）——深寻是**付费生产**模型。
 BLOCKED_HOST_MARKERS = ("deepseek",)
 
-#: 免费 LLM 源白名单（守卫放行 + 正向对照基准）。只放免费源。
-FREE_LLM_HOSTS = ("open.bigmodel.cn",)
+#: **免费源白名单（运行期真的被读取** —— r3 修正：r2 之前它只是个死常量，
+#: 「看起来有防护」的假象比没有更坏）。语义见 `_EgressGuard._is_allowed_host`：
+#: 公网出站**默认拒绝**，只有在白名单里的主机名（及其解析出的 IP）才放行；
+#: 回环/私网/链路本地地址一律放行（不涉公网暴露）。
+#: 每条必须带理由（锁用例强制：`tests/test_k61_llm_egress_guard.py`）。
+FREE_LLM_HOSTS = {
+    "open.bigmodel.cn": "智谱开放平台 —— 用户指定的**免费**测试 LLM（glm-4-flash），"
+                        "真实端到端用例的唯一合法 LLM 出口",
+}
+
+#: 非 LLM 的合法测试出站（只读可达性探测，与 LLM 无关）。同样必须带理由。
+NON_LLM_EGRESS_HOSTS = {
+    "cn.bing.com": "web_search_available() 的可达性探测（免费搜索通道，无 key）；"
+                   "仓内 k15 冒烟用它判断搜索工具可用性。只发一次 HEAD/GET 探测。",
+}
+
+#: 运行期白名单（= 免费 LLM 源 + 非 LLM 探测源）。**这是 `_is_allowed_host` 读的那份。**
+#: 另有**自动派生**的一份：`src/rag/web_search.py` 里声明的免费搜索通道
+#: （`cn.bing.com` / `www.so.com` / `www.baidu.com` / `www.sogou.com` /
+#: `open.bigmodel.cn`）。派生而非手抄，是为了「代码加了搜索源、守卫自动跟上」，
+#: 也避免手抄漏一个就把合规的搜索用例打死（r3 实测：test_bot.py 的搜索链路
+#: 真打 360 搜索 → 被默认拒绝层拦下，属误伤）。
+ALLOWED_EGRESS_HOSTS = {**FREE_LLM_HOSTS, **NON_LLM_EGRESS_HOSTS}
+
+_SEARCH_HOSTS_CACHE = None
+
+
+def _derived_search_hosts() -> dict:
+    """从 `src/rag/web_search.py` 的 `*_URL(S)` 常量派生「代码声明的搜索通道」。
+
+    ⚠️ 只能**缓存非空结果**：若在某次 `src.rag.web_search` 尚未初始化完（模块在
+    sys.modules 里但 `*_URL` 常量还没绑定）时算过一次并缓存空表，之后所有搜索通道
+    都会被判成"不在白名单" → 合规的搜索用例被默认拒绝层打死（r3 实测踩到：
+    `www.so.com` 的解析结果被拒，链路是 `_guard_getaddrinfo` 在收集期被触发）。
+    因此：算不到就**不缓存**，等模块就绪后重算。
+    """
+    global _SEARCH_HOSTS_CACHE
+    if _SEARCH_HOSTS_CACHE:
+        return _SEARCH_HOSTS_CACHE
+    hosts = {}
+    try:
+        from urllib.parse import urlparse
+        from src.rag import web_search as ws
+        if not any(n.endswith("_URL") for n in vars(ws)):
+            return _SEARCH_HOSTS_CACHE or {}      # 模块还没初始化完：不缓存、直接返回
+        for name in dir(ws):
+            if not (name.endswith("_URL") or name.endswith("_URLS")):
+                continue
+            val = getattr(ws, name)
+            urls = [val] if isinstance(val, str) else list(val or [])
+            for u in urls:
+                h = urlparse(str(u)).hostname
+                if h:
+                    why = f"src/rag/web_search.py::{name}（代码声明的免费搜索通道）"
+                    hosts[h.lower()] = why
+                    # 同时放行「去掉 www. 的注册域」：搜索站会 302 到 m./www. 等兄弟主机
+                    # （`follow_redirects=True`），只放行字面 `www.so.com` 会漏掉
+                    # `so.com` / `m.so.com` → 合规搜索被默认拒绝层打死（r3 实测踩到）。
+                    if h.lower().startswith("www."):
+                        hosts[h.lower()[4:]] = why + "（含去 www. 的兄弟主机）"
+    except Exception:          # 导入失败/离线包 → 派生为空，不影响守卫其余部分
+        hosts = {}
+    if hosts:
+        _SEARCH_HOSTS_CACHE = hosts
+    return hosts
+
+#: 代理环境变量名（有代理时"谁在被连"要看 CONNECT 目标，不是 socket 地址）。
+PROXY_ENV_VARS = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY",
+                  "https_proxy", "http_proxy", "all_proxy")
 
 #: `glm_route` 夹具强制使用的免费模型。
 FREE_LLM_MODEL = "glm-4-flash"
 
 
-class DeepSeekEgressBlocked(BaseException):
-    """测试进程内对 deepseek 域发起真实出站连接。
+class EgressBlocked(BaseException):
+    """测试进程发起了**不被允许**的真实出站（r3 起含"公网默认拒绝"）。
 
     故意继承 `BaseException`：被测代码的 `except Exception` 兜底降级
     （advisor_v2 / mood_detector / jian_quote / night_soliloquy 均有）
     不得把这条守卫失败吞掉，否则守卫形同虚设。
+    """
+
+
+class DeepSeekEgressBlocked(EgressBlocked):
+    """对 deepseek 域的真实出站（k61 红线，r1 起的专用类型）。"""
+
+
+class PublicEgressBlocked(EgressBlocked):
+    """对**非白名单公网地址**的真实出站（r3：IP 字面量绕过 + 代理穿网）。
+
+    为什么要有这一类：r2 之前守卫只按**主机名**判定，审查者实测两条绕过 ——
+    ① `HTTPS_PROXY` 在场时 socket 层看到的是**代理地址**（socket 层失明），
+       四路（requests/urllib/httpx/aiohttp）全部静默穿网；
+    ② 直接用 **IP 字面量** 连接（无主机名可判）。
+    修法：判定下沉到"真正建立连接/写出目标"的地方，并对**解析后的地址**判定。
     """
 
 
@@ -240,31 +351,132 @@ def _is_blocked(host) -> bool:
     return any(m in h for m in BLOCKED_HOST_MARKERS)
 
 
+def _is_allowed_host(host) -> bool:
+    """主机名是否放行（后缀匹配，允许子域）：静态白名单 + 代码声明的搜索通道。
+
+    匹配规则：`h == 条目` 或 `h` 是条目的子域（`h.endswith("." + 条目)`）。
+    条目本身也可能带 `www.`；派生表会额外登记「去掉 www.」的形式，
+    这样 `www.so.com` 的条目同时覆盖 `so.com` / `m.so.com`（302 兄弟主机）。
+    """
+    h = str(host or "").lower().rstrip(".")
+    if not h:
+        return False
+    names = list(ALLOWED_EGRESS_HOSTS) + list(_derived_search_hosts())
+    if h.startswith("www."):
+        names.append(h[4:])          # 反向：条目是 www.x 时，x 也要能匹配到
+    return any(h == a or h.endswith("." + a) for a in names)
+
+
+def _proxy_hosts() -> set:
+    """当前环境变量里配置的代理主机名（代理是**通道**，放行；目标由 CONNECT 行判）。"""
+    import urllib.parse
+    hosts = set()
+    for var in PROXY_ENV_VARS:
+        raw = os.environ.get(var, "").strip()
+        if not raw:
+            continue
+        if "://" not in raw:
+            raw = "http://" + raw
+        try:
+            h = urllib.parse.urlparse(raw).hostname
+        except Exception:
+            h = None
+        if h:
+            hosts.add(h.lower())
+    return hosts
+
+
+def _is_non_public_ip(ip: str) -> bool:
+    """回环/私网/链路本地/保留地址 —— 不涉公网暴露，一律放行。"""
+    import ipaddress
+    raw = str(ip).strip().strip("[]").split("%")[0]
+    if raw.count(":") == 1:                   # host:port（防御性：调用方可能没剥端口）
+        raw = raw.rsplit(":", 1)[0]
+    try:
+        a = ipaddress.ip_address(raw)
+    except ValueError:
+        return False
+    return not a.is_global
+
+
 class _EgressGuard:
-    """安装/卸载出站守卫，并记录违规（即使异常被吞也能在 session 收尾报红）。"""
+    """安装/卸载出站守卫，并记录违规（即使异常被吞也能在 session 收尾报红）。
+
+    ## r3 拦截面（五层，自下而上）
+
+    | 层 | 钩子 | 覆盖 |
+    |---|---|---|
+    | A | `socket.getaddrinfo` | 全部按域名连接的库（直连） |
+    | B | `socket.create_connection` | 标准库同步路径 |
+    | C | `socket.socket.connect` / `connect_ex` | **按解析后的 IP 判定**：非白名单公网一律拒（IP 字面量绕不过去） |
+    | D | `socket.socket.send` / `sendall`（只扫**首包**） | **代理 CONNECT 目标**（`CONNECT host:port` / `Host:` / 绝对 URI）—— 代理在场时 socket 地址是代理，只有首包能看见真实目标 |
+    | E | httpx 真实传输层 | httpx 精确 URL + 明确报错 |
+
+    为什么需要 C：r2 只按主机名判，审查者实测**用 IP 字面量直接连**（无主机名）可绕过。
+    为什么需要 D：r2 只按 socket 地址判，**设了 `HTTPS_PROXY` 时地址是代理** →
+    requests/urllib/httpx/aiohttp 四路可静默穿网（k61 r3 实测：监听器收到
+    `CONNECT api.deepseek.com:443` ×3）。`CONNECT`/`Host`/绝对 URI 都是**明文**，
+    在 TLS 之前写出，所以扫首包就能看见真实目标，与用哪个 HTTP 库无关。
+    """
 
     def __init__(self):
         self.violations = []
         self._orig_getaddrinfo = None
         self._httpx = None
+        self._lock = threading.Lock()
+        #: 白名单主机解析出的 IP（会话内学习）——C 层据此放行合法目标。
+        self._allowed_ips = set()
 
     # ── 记录 ──
-    def _trip(self, where: str, host: str, extra: str = ""):
-        detail = (f"[k61 守卫] 测试进程尝试对深寻主机发起真实出站请求 → 已拦截。\n"
-                  f"  拦截层: {where}\n  主机: {host}\n{extra}"
-                  f"  规则: 测试一律不得打 DeepSeek（付费/生产）；"
-                  f"需要真实 LLM 请用 `glm_route` 夹具走免费 {FREE_LLM_MODEL}，"
-                  f"只需验证形状请用 httpx.MockTransport。\n"
-                  f"  免费源白名单: {', '.join(FREE_LLM_HOSTS)}")
-        self.violations.append(detail)
-        raise DeepSeekEgressBlocked(detail)
+    def _trip(self, where: str, host: str, extra: str = "",
+              exc: type = DeepSeekEgressBlocked, rule: str = ""):
+        rule = rule or (f"测试一律不得打 DeepSeek（付费/生产）；"
+                        f"需要真实 LLM 请用 `glm_route` 夹具走免费 {FREE_LLM_MODEL}，"
+                        f"只需验证形状请用 httpx.MockTransport。")
+        detail = (f"[k61 守卫] 测试进程发起不被允许的真实出站 → 已拦截。\n"
+                  f"  拦截层: {where}\n  目标: {host}\n{extra}"
+                  f"  规则: {rule}\n"
+                  f"  公网白名单: {', '.join(sorted(ALLOWED_EGRESS_HOSTS))}"
+                  f"（回环/私网地址不受限）")
+        with self._lock:
+            self.violations.append(detail)
+        raise exc(detail)
+
+    # ── 判定 ──
+    def _learn_allowed_ip(self, host, family, sockaddr):
+        """白名单/代理主机的解析结果 → 记进放行集（C 层用）。"""
+        try:
+            ip = sockaddr[0] if isinstance(sockaddr, (tuple, list)) else sockaddr
+        except Exception:
+            return
+        if ip is None:
+            return
+        if _is_allowed_host(host) or str(host or "").lower() in _proxy_hosts():
+            with self._lock:
+                self._allowed_ips.add(str(ip))
+
+    def _ip_allowed(self, ip) -> bool:
+        if _is_non_public_ip(ip):
+            return True
+        with self._lock:
+            return str(ip) in self._allowed_ips
 
     # ── 安装 ──
     def install(self):
+        if getattr(self, "_orig_getaddrinfo", None) is not None:
+            return                      # 幂等：模块级已装则跳过
         self._orig_getaddrinfo = socket.getaddrinfo
         self._orig_create_connection = socket.create_connection
+        self._orig_connect = socket.socket.connect
+        self._orig_connect_ex = socket.socket.connect_ex
+        self._orig_send = socket.socket.send
+        self._orig_sendall = socket.socket.sendall
         socket.getaddrinfo = _guard_getaddrinfo
         socket.create_connection = _guard_create_connection
+        socket.socket.connect = _guard_connect
+        socket.socket.connect_ex = _guard_connect_ex
+        socket.socket.send = _guard_send
+        socket.socket.sendall = _guard_sendall
         try:
             import httpx
         except Exception:  # pragma: no cover - httpx 是硬依赖，走不到
@@ -281,10 +493,90 @@ class _EgressGuard:
             return
         socket.getaddrinfo = self._orig_getaddrinfo
         socket.create_connection = self._orig_create_connection
+        socket.socket.connect = self._orig_connect
+        socket.socket.connect_ex = self._orig_connect_ex
+        socket.socket.send = self._orig_send
+        socket.socket.sendall = self._orig_sendall
         if getattr(self, "_httpx", None) is not None:
             self._httpx.HTTPTransport.handle_request = self._orig_httpx_sync
             self._httpx.AsyncHTTPTransport.handle_async_request = self._orig_httpx_async
         self._orig_getaddrinfo = None
+
+    # ── D 层：明文请求头扫描（代理 CONNECT / Host / 绝对 URI）──
+    def scan_payload(self, sock, data: bytes):
+        """扫**以请求头开头**的写（TLS 之前的明文部分），找真实目标主机。
+
+        只扫"看起来是请求头起始"的写（`CONNECT `/`GET `/…/`Host:`），**不扫 body**：
+        body 里出现 `http://…` 是常见内容（如提示词/JSON 载荷），扫 body 会假红。
+        每次这样的写都扫（不只首包）—— 明文代理的 keep-alive 连接上，
+        第二个请求头同样是新的目标，必须一起判。
+        """
+        try:
+            head = bytes(data[:64]).lstrip()
+        except Exception:
+            return
+        if not _REQUEST_HEAD_RE.match(head.decode("latin-1", "replace")):
+            return
+        try:
+            text = bytes(data[:2048]).decode("latin-1", "replace")
+        except Exception:
+            return
+        for line in text.split("\r\n")[:8]:
+            target = _target_host_in_line(line)
+            if not target:
+                continue
+            if _is_blocked(target):
+                self._trip("socket 明文请求头（代理 CONNECT / Host 行）", target,
+                           f"  明文首行: {line[:160]!r}\n",
+                           rule="测试一律不得打 DeepSeek（付费/生产）—— "
+                                "代理（HTTPS_PROXY）只是通道，CONNECT 目标同样受本守卫约束。")
+            if not _is_allowed_host(target) and not _is_non_public_ip(target):
+                if not any(target.lower() == h for h in _proxy_hosts()):
+                    self._trip("socket 明文请求头（代理 CONNECT / Host 行）", target,
+                               f"  明文首行: {line[:160]!r}\n",
+                               exc=PublicEgressBlocked,
+                               rule="测试不得对白名单外的公网主机发起真实出站"
+                                    "（白名单见下方；如需新增请连同理由加进 "
+                                    "ALLOWED_EGRESS_HOSTS / NON_LLM_EGRESS_HOSTS）。")
+
+
+#: 「这次写是请求头起始」的判据（只按这个扫明文，避免扫 body 假红）。
+_REQUEST_HEAD_RE = re.compile(
+    r"^(CONNECT|GET|POST|PUT|DELETE|HEAD|PATCH|OPTIONS|TRACE)\s|^Host:",
+    re.IGNORECASE,
+)
+
+
+def _target_host_in_line(line: str):
+    """从一行明文里提取目标主机名：`CONNECT h:p` / `Host: h` / `METHOD http://h/...`。
+
+    **必须去掉端口再返回**：`Host: 127.0.0.1:18877` 这种带端口的写法极常见，
+    若把 `:18877` 一起交给 IP 判定，`ipaddress.ip_address("127.0.0.1:18877")`
+    会抛 ValueError → 被当成"非私网" → 误伤本地服务（r3 实测踩到：本地 TTS 桩被拦）。
+    """
+    s = (line or "").strip()
+    if not s:
+        return None
+    low = s.lower()
+    if low.startswith("connect "):
+        target = s.split(None, 1)[1].split()[0]
+        return _strip_port(target)
+    if low.startswith("host:"):
+        return _strip_port(s.split(":", 1)[1].strip())
+    m = re.match(r"^[A-Za-z]{3,10}\s+https?://([^/\s]+)", s)
+    if m:
+        return _strip_port(m.group(1))
+    return None
+
+
+def _strip_port(target: str) -> str:
+    """去掉 `host:port` 的端口；IPv6 字面量（`[::1]:443`）保留方括号内内容。"""
+    t = (target or "").strip()
+    if t.startswith("["):                     # [::1]:443
+        return t.split("]", 1)[0].lstrip("[")
+    if t.count(":") == 1:                     # host:port（IPv4/域名）
+        return t.rsplit(":", 1)[0]
+    return t                                  # 裸 IPv6 或纯主机名
 
 
 _GUARD = _EgressGuard()
@@ -296,7 +588,17 @@ _GUARD = _EgressGuard()
 def _guard_getaddrinfo(host, *a, **kw):
     if _is_blocked(host):
         _GUARD._trip("socket.getaddrinfo", host)
-    return _GUARD._orig_getaddrinfo(host, *a, **kw)
+    if host and not _is_allowed_host(host) and not _is_non_public_ip(host) \
+            and str(host).lower() not in _proxy_hosts():
+        # 域名不在白名单 → 先让解析发生（可能解析失败/离线），拿到 IP 后由 C 层拒。
+        pass
+    infos = _GUARD._orig_getaddrinfo(host, *a, **kw)
+    for info in infos or []:
+        try:
+            _GUARD._learn_allowed_ip(host, info[0], info[4])
+        except Exception:
+            continue
+    return infos
 
 
 def _guard_create_connection(address, *a, **kw):
@@ -306,24 +608,79 @@ def _guard_create_connection(address, *a, **kw):
     return _GUARD._orig_create_connection(address, *a, **kw)
 
 
+def _guard_connect(sock, address, *a, **kw):
+    _guard_check_address("socket.socket.connect", address)
+    return _GUARD._orig_connect(sock, address, *a, **kw)
+
+
+def _guard_connect_ex(sock, address, *a, **kw):
+    _guard_check_address("socket.socket.connect_ex", address)
+    return _GUARD._orig_connect_ex(sock, address, *a, **kw)
+
+
+def _guard_check_address(where, address):
+    """C 层：按**解析后的目标地址**判定（IP 字面量也走这里）。"""
+    ip = address[0] if isinstance(address, (tuple, list)) and address else address
+    if ip is None:
+        return
+    ip = str(ip)
+    if _is_blocked(ip):
+        _GUARD._trip(where, ip)
+    if not _GUARD._ip_allowed(ip):
+        _GUARD._trip(where, ip, exc=PublicEgressBlocked,
+                     rule="测试不得连接白名单外的**公网地址**（这条按解析后的 IP 判定，"
+                          "所以 IP 字面量同样拦得住）。若确需公网出站，请把它连同理由"
+                          "加进 ALLOWED_EGRESS_HOSTS / NON_LLM_EGRESS_HOSTS。")
+
+
+def _guard_send(sock, data, *a, **kw):
+    try:
+        if isinstance(data, (bytes, bytearray)):
+            _GUARD.scan_payload(sock, data)
+    except EgressBlocked:
+        raise
+    except Exception:
+        pass
+    return _GUARD._orig_send(sock, data, *a, **kw)
+
+
+def _guard_sendall(sock, data, *a, **kw):
+    try:
+        if isinstance(data, (bytes, bytearray)):
+            _GUARD.scan_payload(sock, data)
+    except EgressBlocked:
+        raise
+    except Exception:
+        pass
+    return _GUARD._orig_sendall(sock, data, *a, **kw)
+
+
 def _guard_httpx_sync(transport, request):
-    if _is_blocked(request.url.host):
-        _GUARD._trip("httpx.HTTPTransport.handle_request", request.url.host,
+    host = request.url.host
+    if _is_blocked(host):
+        _GUARD._trip("httpx.HTTPTransport.handle_request", host,
                      f"  请求: {request.method} {request.url}\n")
     return _GUARD._orig_httpx_sync(transport, request)
 
 
 async def _guard_httpx_async(transport, request):
-    if _is_blocked(request.url.host):
-        _GUARD._trip("httpx.AsyncHTTPTransport.handle_async_request", request.url.host,
+    host = request.url.host
+    if _is_blocked(host):
+        _GUARD._trip("httpx.AsyncHTTPTransport.handle_async_request", host,
                      f"  请求: {request.method} {request.url}\n")
     return await _GUARD._orig_httpx_async(transport, request)
+
+
+#: r3：**模块级安装**（不只靠 session 夹具）—— 夹具在**收集/导入之后**才跑，
+#: 而收集期就有出站（实测 `web_search_available()` 会在 import 时探一次搜索通道）。
+#: 模块级安装让守卫从 conftest 被加载的那一刻起就生效；session 夹具只负责
+#: 卸载与违规汇报。
+_GUARD.install()
 
 
 @pytest.fixture(scope="session", autouse=True)
 def _k61_deepseek_egress_guard():
     """进程级守卫：测试期间对 deepseek 域的真实出站一律失败（全量套件自然触发）。"""
-    _GUARD.install()
     try:
         yield _GUARD
     finally:

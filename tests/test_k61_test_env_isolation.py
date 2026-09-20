@@ -35,6 +35,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest  # noqa: E402
 
+import conftest as k61conftest  # noqa: E402
+
 from conftest import (  # noqa: E402
     ENV_PINS_AT_IMPORT,
     TEST_ENV_NOT_PINNED,
@@ -202,3 +204,57 @@ def test_pin_defeats_a_real_dotenv(tmp_path):
     assert got["jwt_set"] is False, got
     assert got["deepseek_set"] is False, got
     assert got["is_exp"] is False and got["settings_exp"] is False, got
+
+
+# ══════════════════════════════════════════════════════════════════
+# 5) r3 ⑤：`.env` 加载必须与「收集了哪些文件」无关（GLM 门控顺序依赖）
+# ══════════════════════════════════════════════════════════════════
+#
+# 审查者实测：单独跑 `pytest tests/test_adaptive_advisor.py`（`ZHIPU_API_KEY` 在
+# 部署 `.env` 里）时 4 条 GLM 门控用例**静默 skip**；两个文件一起跑才真跑。
+# 根因：`.env` 是否加载取决于哪个模块先 `import src.config`。
+# 修法：conftest 显式导入 `src.config`（生产入口同款路径）→ 确定性加载。
+
+class TestDotenvLoadingIsDeterministic:
+    def test_conftest_loads_src_config(self):
+        """conftest 必须显式导入 src.config（它是必然被加载的那个文件）。"""
+        import inspect
+        src = inspect.getsource(k61conftest)
+        assert "import src.config" in src, \
+            "conftest 没有显式导入 src.config → .env 加载会退回「取决于还导入了谁」"
+        assert "src.config" in sys.modules, "src.config 未在会话开始前被导入"
+
+    def test_env_loaded_before_test_modules(self):
+        """`.env` 必须在**任何测试模块**被 import 之前就加载完（顺序无关）。"""
+        import src.config
+        assert hasattr(src.config, "load_env_file")
+
+    def test_single_file_run_does_not_silently_skip_glm_tests(self, tmp_path):
+        """**决定性锁**：单文件跑 + `.env` 有 ZHIPU key → GLM 门控用例**不得 skip**。
+
+        用 canary key（无效）：用例会**真跑**（打到 GLM 拿 401 → 走兜底人设
+        gentle，仍在允许集合内 → 通过）。本用例只断言「门开了」：
+        既不是 skipped，且确实执行到了（passed 或 failed 都算执行过）。
+        """
+        import subprocess
+        import sys as _sys
+
+        (tmp_path / ".env").write_text("ZHIPU_API_KEY=k61-canary-not-a-real-key\n",
+                                       encoding="utf-8")
+        env = os.environ.copy()
+        for key in list(TEST_ENV_PINS) + ["USER_MEMORY_DIR", "ZHIPU_API_KEY"]:
+            env.pop(key, None)
+        env["PYTHONPATH"] = os.pathsep.join([REPO, TESTS_DIR])
+        proc = subprocess.run(
+            [_sys.executable, "-m", "pytest",
+             os.path.join(REPO, "tests",
+                          "test_mood_detector.py::TestRealAPI::test_real_detection_flow"),
+             "-q", "-p", "no:cacheprovider"],
+            cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=300,
+        )
+        out = proc.stdout + proc.stderr
+        assert "skipped" not in out, (
+            "单文件跑时 GLM 门控用例被静默 skip（顺序依赖回来了）：\n" + out[-800:]
+        )
+        assert ("1 passed" in out) or ("1 failed" in out), \
+            "用例既没通过也没失败 —— 没真的执行：\n" + out[-800:]

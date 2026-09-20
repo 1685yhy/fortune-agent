@@ -67,9 +67,9 @@ class TestRepoDirtGuardMechanism:
             calls["n"] += 1
             return set(state)
 
-        monkeypatch.setattr(k61conftest, "_tracked_dirty", fake_dirty)
-        before = k61conftest._tracked_dirty()
-        after = k61conftest._tracked_dirty()
+        monkeypatch.setattr(k61conftest, "_scoped_dirty", fake_dirty)
+        before = k61conftest._scoped_dirty()
+        after = k61conftest._scoped_dirty()
         assert after - before == {"data/memory/.json"}
 
     def test_dirty_scan_ignores_untracked(self):
@@ -77,6 +77,24 @@ class TestRepoDirtGuardMechanism:
         import inspect
         src = inspect.getsource(k61conftest._tracked_dirty)
         assert "--untracked-files=no" in src
+
+    def test_scope_limits_to_runtime_artifacts(self):
+        """r3 ⑦：范围只含运行时产物 —— 并发会话改源码**不得**假红。
+
+        审查者实测（03:35）：守卫曾在"多个会话同时改同一个 worktree"时假红
+        （别人的源码编辑被当成"测试写脏仓库"）。锁住范围：
+        `data/`（运行时产物）与 `src/engine/out/`（跑批归档）在范围内；
+        源码/测试文件不在。
+        """
+        scopes = k61conftest.DIRT_GUARD_SCOPES
+        assert set(scopes) == {"data/", "src/engine/out/"}
+        for host, in_scope in (("data/memory/.json", True),
+                               ("src/engine/out/comparison_runs.jsonl", True),
+                               ("tests/conftest.py", False),
+                               ("src/rag/retriever.py", False),
+                               ("README.md", False)):
+            got = any(host == s.rstrip("/") or host.startswith(s) for s in scopes)
+            assert got is in_scope, f"{host} 的范围判定应为 {in_scope}，实际 {got}"
 
     def test_two_known_artifacts_stay_tracked_and_clean(self):
         """本批点名的两个产物：**仍被跟踪**（是别人的夹具）但**不得被测试写脏**。
@@ -97,6 +115,6 @@ class TestRepoDirtGuardMechanism:
             "点名产物不再被跟踪了 —— 若这是有意为之，请同步改 test_engine_build_report.py "
             f"的夹具来源。git 输出：{out.stdout}{out.stderr}"
         )
-        newly = k61conftest._tracked_dirty() - k61conftest.SESSION_START_DIRTY
+        newly = k61conftest._scoped_dirty() - k61conftest.SESSION_START_DIRTY
         for path in ("src/engine/out/comparison_runs.jsonl", "data/memory/.json"):
             assert path not in newly, f"{path} 被本会话写脏了：{sorted(newly)}"
