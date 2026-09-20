@@ -561,3 +561,58 @@ def test_symbols_do_not_contradict_luck_polarity():
             bad += [(r["name"], s) for r in [r] for s in r["symbols"]
                     if NEG_SEMANTIC_RE.search(s)]
     assert bad == [], bad[:5]
+
+
+# ══════════════ k58 r5 追加：计数口径锁（控制方裁决一③） ══════════════
+
+def test_counting_unit_is_pinned_and_signals_caliber_change():
+    """口径锁：计数单位/判据常量**一旦再变，本测试必须报出「口径变了」**。
+
+    背景（控制方裁决一③）：r5 把方向档的计数单位从「出现次数」改成「唯一句」，
+    并因此改了 `马` 的档位与一条 r4 断言。口径漂移是**静默**的 —— 若将来有人
+    （或 k60 换切分器/换语料时）改了单位或阈值，档位会大面积漂移而没人发现。
+    这里把口径的**指纹**写死：判据常量 + 标定输入的输出。指纹对不上 = 口径变了，
+    断言消息直接要求「重跑全表回测并更新 r5 报告」，而不是让测试悄悄变绿。
+    """
+    from scripts.k55_dream.build_rules import (
+        MAX_MINORITY_FOR_STRONG, MIN_SAMPLE_FOR_STRONG, MIN_UNANIMOUS_FOR_STRONG,
+        count_direction_sentences, luck_from_counts,
+    )
+    one = "梦见某物，主大吉"
+    fingerprint = {
+        "unit": "unique_sentence",                      # 计数单位（口径本体）
+        "MIN_SAMPLE_FOR_STRONG": MIN_SAMPLE_FOR_STRONG,          # 5
+        "MAX_MINORITY_FOR_STRONG": MAX_MINORITY_FOR_STRONG,      # 2
+        "MIN_UNANIMOUS_FOR_STRONG": MIN_UNANIMOUS_FOR_STRONG,    # 3
+        # 标定值：改口径/改阈值会同时打歪这几个（r5 报告 r5 段与 k55 表同源）
+        "repeat26_unique": len(count_direction_sentences([one] * 26)[0]),
+        "repeat26_band": luck_from_counts(1, 0),
+        "many26_band": luck_from_counts(26, 0),
+        "unanimous4_band": luck_from_counts(0, 4),
+        "tie_band": luck_from_counts(3, 3),
+        "near_tie_band": luck_from_counts(2, 1),
+        "big5_band": luck_from_counts(5, 0),
+        "big4_band": luck_from_counts(4, 0),
+    }
+    expected = {
+        "unit": "unique_sentence",
+        "MIN_SAMPLE_FOR_STRONG": 5,
+        "MAX_MINORITY_FOR_STRONG": 2,
+        "MIN_UNANIMOUS_FOR_STRONG": 3,
+        "repeat26_unique": 1,
+        "repeat26_band": "中性",
+        "many26_band": "大吉",
+        "unanimous4_band": "凶",
+        "tie_band": "中性",
+        "near_tie_band": "中性",
+        "big5_band": "大吉",
+        "big4_band": "吉多于凶",
+    }
+    changed = {k: {"现在": fingerprint[k], "r5 标定": expected[k]}
+               for k in expected if fingerprint[k] != expected[k]}
+    assert not changed, (
+        "【口径变了】解梦方向档的计数单位或判据常量已与 k58-r5 标定不一致："
+        f"{changed}。这会让**全部 389 条的档位**静默漂移 —— 必须：①重跑全表回测"
+        "（出方向档数、降档名单）②重跑 scripts/k55_dream/strong_band_sensitivity.py"
+        "③更新 task-k58-report.md 的 r5 段（含诚实披露 8：split_sentences 与 k60 合一时"
+        "必须重跑本测试）。禁止直接改本测试的 expected 让指针变绿。")
