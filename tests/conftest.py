@@ -53,6 +53,7 @@ k57 门禁里 `test_response_under_5_seconds` 真跑到 >5s 墙钟失败即其�
 import atexit
 import logging
 import os
+import posix
 import re
 import shutil
 import socket
@@ -400,6 +401,20 @@ _PROD_WATCHDOG = _ProdFdWatchdog(PROD_DATA_ROOTS)
 _PROD_MTIME_AT_START = _prod_data_mtimes()
 
 
+def _prod_guard_verdict(hits, mtime_changed) -> str:
+    """生产数据守卫的**纯判定**（r8：抽出来供行为锁直接调，别再靠源码文本锁）。
+
+    返回 "" = 通过；否则返回要报的错文。**判据只有 hits**（本会话打开过）；
+    mtime 变化单独作为 warning 文案返回给调用方记录（不导致失败）。
+    """
+    if hits:
+        sample = "\n".join(f"  pid={pid} fd={fd} → {path}" for pid, fd, path in hits[:5])
+        return ("[k61 生产数据守卫] **本会话进程树**打开过生产数据路径：\n" + sample
+                + "\n处置：让被测代码走沙箱目录（conftest 已 pin VECTORDB_DIR / "
+                  "FORTUNE_DB_PATH / FAISS_INDEX_DIR 到测试目录），不要打开生产库。")
+    return ""
+
+
 # ── k61 r7-5：给沙箱补**最小本地语料**（把 I4 隔离的副作用补回来）──
 # I4 把 `VECTORDB_DIR` pin 到空沙箱后，3 条**真语料**用例静默变 skip
 # （`test_k24_ref_content_crash` ×2「本地古籍库为空」、`test_dream_engine_g4` ×1
@@ -436,8 +451,45 @@ _SANDBOX_CORPUS_DOCS = [
 ]
 
 
+#: 种子语料的**跨会话缓存**：种植要加载 bge-m3（本机高负载时实测 >120s！），
+#: 所以**一次种好、之后各会话直接 copytree**（沙箱目录很小）—— 否则每次会话都付这笔钱。
+SANDBOX_CORPUS_SEED_DIR = "/dev/shm/k61_seed_corpus"
+
+
+def _sandbox_collection_count() -> int:
+    try:
+        import chromadb
+        from chromadb.config import Settings as _CS
+        from src.book_categories import BOOKS_COLLECTION
+        client = chromadb.PersistentClient(path=str(TEST_VECTORDB_DIR),
+                                           settings=_CS(anonymized_telemetry=False))
+        return client.get_collection(BOOKS_COLLECTION, embedding_function=None).count()
+    except Exception:
+        return 0
+
+
 def _seed_sandbox_books_corpus() -> bool:
-    """在沙箱向量库里种一个最小语料集合（幂等；只在缺失/为空时种）。"""
+    """在沙箱向量库里准备最小语料集合（幂等）。
+
+    顺序：沙箱已有 → 直接返回；**种子缓存**有 → copytree 过去（快）；都没有 → 种到缓存
+    （慢，每台机器/每次重启只付一次），再 copytree 过去。
+    """
+    try:
+        if _sandbox_collection_count() > 0:
+            return True
+        os.makedirs(SANDBOX_CORPUS_SEED_DIR, exist_ok=True)
+        if _seed_corpus_into(SANDBOX_CORPUS_SEED_DIR):
+            shutil.copytree(SANDBOX_CORPUS_SEED_DIR, str(TEST_VECTORDB_DIR),
+                            dirs_exist_ok=True)
+            return True
+        return False
+    except Exception as exc:
+        logging.getLogger(__name__).warning("[k61] 沙箱最小语料准备失败：%s", exc)
+        return False
+
+
+def _seed_corpus_into(target_dir: str) -> bool:
+    """把最小语料种进指定目录（幂等；只在缺失/为空时种）。"""
     try:
         import chromadb
         from chromadb.config import Settings as _CS
@@ -445,7 +497,7 @@ def _seed_sandbox_books_corpus() -> bool:
         from src.rag.embedder import Embedder
         from src.rag.retriever import Retriever
 
-        client = chromadb.PersistentClient(path=str(TEST_VECTORDB_DIR),
+        client = chromadb.PersistentClient(path=str(target_dir),
                                            settings=_CS(anonymized_telemetry=False))
         try:
             col = client.get_collection(BOOKS_COLLECTION, embedding_function=None)
@@ -458,7 +510,7 @@ def _seed_sandbox_books_corpus() -> bool:
         embedder.load()
         # 走**合法写入口**（新建实例 + 显式集合名 → writable_collection）——
         # 顺带 dogfood k59/k61 的写路径护栏。
-        r = Retriever(str(TEST_VECTORDB_DIR), embedder,
+        r = Retriever(str(target_dir), embedder,
                       collection_name=BOOKS_COLLECTION)
         r.writable_collection.upsert(
             ids=[f"k61_seed_{i:03d}" for i in range(len(_SANDBOX_CORPUS_DOCS))],
@@ -473,10 +525,28 @@ def _seed_sandbox_books_corpus() -> bool:
         return False
 
 
+#: 依赖本地语料的测试文件（只有**本次会话确实收集了它们**时才种语料）。
+#: 为什么加这个门：种植要**加载 bge-m3**（实测 1~2s，负载高时可到数十秒）——
+#: 无差别地对每次会话都种，会让"只跑守卫文件"这类小会话白白付这笔钱。
+_CORPUS_DEPENDENT_FILES = {
+    "test_k24_ref_content_crash.py",
+    "test_dream_engine_g4.py",
+    "test_engine_run_comparison.py",
+    "test_engine_build_report.py",
+}
+
+
 @pytest.fixture(scope="session", autouse=True)
-def _k61_sandbox_books_corpus():
-    """会话级：确保沙箱里有最小本地语料（真语料用例不再静默 skip）。"""
-    _seed_sandbox_books_corpus()
+def _k61_sandbox_books_corpus(request):
+    """会话级：**本次收集到依赖语料的文件时**才确保沙箱里有最小本地语料。"""
+    names = set()
+    for item in getattr(request.session, "items", []) or []:
+        try:
+            names.add(os.path.basename(str(getattr(item, "fspath", "")) or ""))
+        except Exception:
+            continue
+    if names & _CORPUS_DEPENDENT_FILES:
+        _seed_sandbox_books_corpus()
     yield
 
 
@@ -491,15 +561,9 @@ def _k61_prod_data_guard():
         # 证据：mtime 是否变化（**不作为判据** —— 并发会话会写它）
         mtime_changed = [p for p, v in _PROD_MTIME_AT_START.items()
                          if v != _prod_data_mtimes().get(p)]
-        if _PROD_WATCHDOG.hits:
-            sample = "\n".join(f"  pid={pid} fd={fd} → {path}"
-                               for pid, fd, path in _PROD_WATCHDOG.hits[:5])
-            raise ProdDataTouched(
-                "[k61 生产数据守卫] **本会话进程树**打开过生产数据路径：\n"
-                + sample
-                + "\n处置：让被测代码走沙箱目录（conftest 已 pin VECTORDB_DIR / "
-                  "FORTUNE_DB_PATH / FAISS_INDEX_DIR 到测试目录），不要打开生产库。"
-            )
+        verdict = _prod_guard_verdict(list(_PROD_WATCHDOG.hits), mtime_changed)
+        if verdict:
+            raise ProdDataTouched(verdict)
         if mtime_changed:
             # 只记录：并发会话（本机 30+ worktree）随时可能写这些文件 —— 不是本会话的错。
             logging.getLogger(__name__).warning(
@@ -527,6 +591,23 @@ def _k61_repo_dirt_guard():
 # ══════════════════════════════════════════════════════════════════
 # 1) 常量与异常
 # ══════════════════════════════════════════════════════════════════
+
+# ────────────────────────────────────────────────────────────────────────
+# ⚠️ **本守卫的固有边界（r8 显式声明，控制方要求；不当作已修）**
+#
+# 有两类路径**进程内钩子天然覆盖不到**，本守卫**修不了**：
+#   ① **起子进程**（子解释器 / curl / 任何 fork+exec 的外部程序）—— 它的 socket
+#      在**另一个进程**里，本进程的钩子看不到；
+#   ② **ctypes 裸系统调用**（绕过 Python 层直接 `syscall(SYS_sendto, …)` / 直接
+#      调 libc 的 `send`)—— 不经过任何 Python 属性查找。
+#
+# **结构性兜底（这才是敢上线的真凭据）**：`src/config.py:29` 的 `load_env_file`
+# 用「**成员判定**」决定是否写入（`if key not in os.environ`），而 k61 r2 的 pin 把
+# `DEEPSEEK_API_KEY` 显式设成**空串** → 键**已存在** → `.env` 里的生产 key
+# **回填不进来**；且空串**会被子进程继承**（`os.environ` 是进程环境的一部分）。
+# ⇒ 即便走子进程/ctypes，**测试进程及其子进程都不持有生产 DeepSeek key**，
+#   红线在**结构层**成立；钩子层是"尽早报错"的纵深防御，不是唯一凭据。
+# ────────────────────────────────────────────────────────────────────────
 
 #: 禁止出站的域（子串匹配，大小写不敏感）——深寻是**付费生产**模型。
 BLOCKED_HOST_MARKERS = ("deepseek",)
@@ -729,6 +810,7 @@ class _EgressGuard:
 
     def __init__(self):
         self.violations = []
+        self.hook_errors = []          # r8：钩子自身异常（必须响亮）
         self._orig_getaddrinfo = None
         self._httpx = None
         self._lock = threading.Lock()
@@ -827,6 +909,15 @@ class _EgressGuard:
             pass
 
     # ── 记录 ──
+    def _note_hook_error(self, where: str, exc: Exception):
+        """钩子**自己**抛异常 → 记账（会话收尾报红）。
+
+        r7 自曝过：钩子里的 `except Exception: pass` 把"self 绑定错"这类**钩子失效**
+        吞成静默，违规计数恒 0 → **拦不住与没挂钩分不清**。钩子出错必须响亮。
+        """
+        with self._lock:
+            self.hook_errors.append(f"{where}: {type(exc).__name__}: {str(exc)[:120]}")
+
     def _trip(self, where: str, host: str, extra: str = "",
               exc: type = DeepSeekEgressBlocked, rule: str = ""):
         rule = rule or (f"测试一律不得打 DeepSeek（付费/生产）；"
@@ -879,7 +970,21 @@ class _EgressGuard:
         self._orig_os_write = os.write
         self._orig_os_writev = os.writev
         self._orig_wrap_socket = ssl.SSLContext.wrap_socket
+        self._orig_wrap_bio = ssl.SSLContext.wrap_bio
         ssl.SSLContext.wrap_socket = _guard_wrap_socket
+        ssl.SSLContext.wrap_bio = _guard_wrap_bio
+        # r8（C2）：**同族别名** —— `os.write is posix.write` 为 True，但它们是
+        # **两个模块属性**：只补 os.* 时 `posix.write(fd, …)` 仍能把 CONNECT 送出。
+        self._orig_posix_write = posix.write
+        self._orig_posix_writev = posix.writev
+        self._orig_posix_sendfile = posix.sendfile
+        self._orig_os_sendfile = os.sendfile
+        self._orig_sock_sendfile = socket.socket.sendfile
+        posix.write = _guard_os_write
+        posix.writev = _guard_os_writev
+        posix.sendfile = _guard_os_sendfile
+        os.sendfile = _guard_os_sendfile
+        socket.socket.sendfile = _guard_sock_sendfile
         socket.getaddrinfo = _guard_getaddrinfo
         socket.create_connection = _guard_create_connection
         socket.socket.connect = _guard_connect
@@ -915,6 +1020,12 @@ class _EgressGuard:
         os.write = self._orig_os_write
         os.writev = self._orig_os_writev
         ssl.SSLContext.wrap_socket = self._orig_wrap_socket
+        ssl.SSLContext.wrap_bio = self._orig_wrap_bio
+        posix.write = self._orig_posix_write
+        posix.writev = self._orig_posix_writev
+        posix.sendfile = self._orig_posix_sendfile
+        os.sendfile = self._orig_os_sendfile
+        socket.socket.sendfile = self._orig_sock_sendfile
         if getattr(self, "_httpx", None) is not None:
             self._httpx.HTTPTransport.handle_request = self._orig_httpx_sync
             self._httpx.AsyncHTTPTransport.handle_async_request = self._orig_httpx_async
@@ -1102,8 +1213,8 @@ def _guard_send(sock, data, *a, **kw):
             _GUARD.scan_payload(sock, data)
     except EgressBlocked:
         raise
-    except Exception:
-        pass
+    except Exception as exc:
+        _GUARD._note_hook_error("send/sendall/sendmsg/sendto 钩子", exc)
     return _GUARD._orig_send(sock, data, *a, **kw)
 
 
@@ -1113,8 +1224,8 @@ def _guard_sendall(sock, data, *a, **kw):
             _GUARD.scan_payload(sock, data)
     except EgressBlocked:
         raise
-    except Exception:
-        pass
+    except Exception as exc:
+        _GUARD._note_hook_error("send/sendall/sendmsg/sendto 钩子", exc)
     return _GUARD._orig_sendall(sock, data, *a, **kw)
 
 
@@ -1126,8 +1237,8 @@ def _guard_sendmsg(sock, buffers, *a, **kw):
             _GUARD.scan_payload(sock, data)
     except EgressBlocked:
         raise
-    except Exception:
-        pass
+    except Exception as exc:
+        _GUARD._note_hook_error("send/sendall/sendmsg/sendto 钩子", exc)
     return _GUARD._orig_sendmsg(sock, buffers, *a, **kw)
 
 
@@ -1144,41 +1255,80 @@ def _guard_os_write(fd, data):
             _GUARD.scan_payload(None, data, fd=fd)
     except EgressBlocked:
         raise
-    except Exception:
-        pass
+    except Exception as exc:
+        _GUARD._note_hook_error("send/sendall/sendmsg/sendto 钩子", exc)
     return _GUARD._orig_os_write(fd, data)
 
 
-def _guard_wrap_socket(self, sock, *a, **kw):
-    """r7（C1 残余）：**客户端 TLS** → fail-closed，除非目标是白名单主机学到的 IP。
+def _tls_target_refused(server_hostname, peer_ip):
+    """客户端 TLS 的目标是否必须拒绝（r8：判据改成 **server_hostname 优先**）。
 
-    为什么这是对的判据（控制方要求"基于'这次连接去了哪'，不是'配置从哪来'"）：
-    客户端一旦对某个端点发起 TLS，之后的一切（含 `CONNECT 目标`）都在 TLS 之内 ——
-    **不管代理是环境变量配的、还是 `proxies=`/`mounts=`/`proxy=` 参数传的**。
-    所以判据放在"这次 TLS 握手的对端是谁"上：只有**白名单主机解析出的 IP**
-    才允许（那是我们本来就信任的目标），其余一律拒（loopback 也不例外）。
+    为什么改（两条实测）：
+    1. **r7 的 peer-IP 判据过宽**：在配了 `http://` 代理的机器上，客户端虽然连的是
+       代理，但 TLS 是**端到端**到目标（`server_hostname` = 目标）→ 用 peer-IP 判会把
+       **白名单主机误杀**（e2e 会红而不是 skip）。
+    2. **r7 只钩 `wrap_socket`**：异步家族（asyncio `sslproto`）走 **`wrap_bio`** ——
+       实测 `aiohttp` 显式 `proxy="https://…"` 时 `wrap_bio(server_hostname='127.0.0.1')`
+       （**代理主机**）→ 守卫 0 反应，监听器**解密后**收到 `CONNECT api.deepseek.com:443`。
+
+    判据：`server_hostname` 在（说明这次 TLS 是冲着那个主机去的）→ 只放行**白名单主机**；
+    `server_hostname` 为空 → 退回 peer-IP（只放行白名单主机解析出的 IP）。
+    加密不是豁免理由：**非白名单目标的 TLS 一律拒**。
     """
+    if server_hostname:
+        return not _is_allowed_host(server_hostname)
+    if peer_ip is None:
+        return True                     # 两头都判不了 → fail-closed
+    return not _GUARD._ip_learned(peer_ip)
+
+
+def _guard_wrap_socket(self, sock, *a, **kw):
+    """r7/r8（C1）：**客户端 TLS** → fail-closed（判据见 `_tls_target_refused`）。"""
     server_side = kw.get("server_side", a[0] if a else False)
     if not server_side:
+        host = kw.get("server_hostname")
+        peer_ip = None
         try:
             peer = sock.getpeername()
-            ip = peer[0] if isinstance(peer, (tuple, list)) else None
+            peer_ip = peer[0] if isinstance(peer, (tuple, list)) else None
         except Exception:
-            ip = None
-        if ip is not None and not _GUARD._ip_learned(ip):
+            peer_ip = None
+        if _tls_target_refused(host, peer_ip):
             _GUARD._trip(
-                "ssl.SSLContext.wrap_socket（客户端 TLS）", str(ip),
-                extra=f"  对端: {ip}:{peer[1] if isinstance(peer, (tuple, list)) and len(peer) > 1 else '?'}\n"
-                      "  判据: 客户端一旦对非白名单端点发起 TLS，真实目标就被 TLS 藏住 —— "
-                      "**与代理是怎么配置的无关**（环境变量 / proxies= / mounts= / proxy= 都一样），故 fail-closed。\n",
+                "ssl.SSLContext.wrap_socket（客户端 TLS）",
+                str(host or peer_ip),
+                extra=f"  server_hostname={host!r} 对端={peer_ip}\n"
+                      "  判据: 客户端一旦对非白名单目标发起 TLS，真实目标就被 TLS 藏住 —— "
+                      "**与代理是怎么配置的无关**（环境变量 / proxies= / mounts= / proxy= 都一样）。\n",
                 exc=PublicEgressBlocked,
-                rule="测试进程只允许对**白名单主机**（其解析出的 IP）发起客户端 TLS；"
-                     "其它端点上的 TLS 会藏住真实目标 → 拒绝。"
+                rule="测试进程只允许对**白名单主机**发起客户端 TLS；其它目标上的 TLS 会藏住真实目标 → 拒绝。"
                      "确需明文可判的代理请用 `http://` 代理（CONNECT 行可见）。")
     # ⚠️ 挂成 **类属性** → 描述符协议生效，调用时第一个参数是 `self`（SSLContext）。
     # r7 实测踩到：写成 `(sock, *a, **kw)` 会把 SSLContext 当成 socket →
     # `getpeername()` 抛异常 → 被 except 吞掉 → **钩子形同虚设**（违规计数恒 0）。
     return _GUARD._orig_wrap_socket(self, sock, *a, **kw)
+
+
+def _guard_wrap_bio(self, incoming, outgoing, *a, **kw):
+    """r8（C1 主修）：**异步家族**的客户端 TLS 入口（asyncio `sslproto` / aiohttp 走这里）。
+
+    与 `wrap_socket` 同一判据（见 `_tls_target_refused`），但拿不到 socket 对端
+    （参数是 `MemoryBIO`）→ 只靠 `server_hostname`；为空时 fail-closed。
+    """
+    server_side = kw.get("server_side", a[0] if a else False)
+    if not server_side:
+        host = kw.get("server_hostname")
+        if _tls_target_refused(host, None):
+            _GUARD._trip(
+                "ssl.SSLContext.wrap_bio（客户端 TLS / 异步家族）",
+                str(host or "<无 server_hostname>"),
+                extra=f"  server_hostname={host!r}\n"
+                      "  判据: 异步家族（asyncio sslproto / aiohttp）用 wrap_bio —— "
+                      "r7 只钩了 wrap_socket，实测 `aiohttp` 显式 proxy= 时经此路漏出 CONNECT。\n",
+                exc=PublicEgressBlocked,
+                rule="异步家族的客户端 TLS 同样只允许白名单主机；"
+                     "`server_hostname` 为空时 fail-closed（判不了就拒）。")
+    return _GUARD._orig_wrap_bio(self, incoming, outgoing, *a, **kw)
 
 
 def _guard_sendto(sock, data, *a, **kw):
@@ -1188,8 +1338,8 @@ def _guard_sendto(sock, data, *a, **kw):
             _GUARD.scan_payload(sock, data)
     except EgressBlocked:
         raise
-    except Exception:
-        pass
+    except Exception as exc:
+        _GUARD._note_hook_error("send/sendall/sendmsg/sendto 钩子", exc)
     return _GUARD._orig_sendto(sock, data, *a, **kw)
 
 
@@ -1202,9 +1352,36 @@ def _guard_os_writev(fd, buffers, *a, **kw):
                 _GUARD.scan_payload(None, data, fd=fd)
     except EgressBlocked:
         raise
-    except Exception:
-        pass
+    except Exception as exc:
+        _GUARD._note_hook_error("send/sendall/sendmsg/sendto 钩子", exc)
     return _GUARD._orig_os_writev(fd, buffers, *a, **kw)
+
+
+def _guard_os_sendfile(*a, **kw):
+    """r8（C2）：`os.sendfile(out_fd, in_fd, …)` 把**文件内容**灌进 socket。
+
+    内容判不了（要读文件、还可能边读边发）→ **fail-closed**。
+    r7 曾把 `sendfile` 列为"豁免"，理由是"另有文件写守卫" —— **那个守卫不存在**：
+    **理由造假比漏钩更坏**（后人会以为已论证过）。现收回豁免，改为拒。
+    豁免理由若站不住就必须收回，这是本条的处置。
+    """
+    out_fd = a[0] if a else None
+    if out_fd is not None and _GUARD._is_socket_fd(out_fd):
+        _GUARD._trip("os.sendfile（socket ← file）", f"fd={out_fd}",
+                     extra="  判据: 发的是文件内容，守卫无法判定其中是否含请求头明文 → fail-closed。\n",
+                     exc=PublicEgressBlocked,
+                     rule="测试进程不得用 sendfile 往 socket 灌文件内容（内容不可判）。"
+                          "确需发送可判明文请用 send/sendall/os.write。")
+    return _GUARD._orig_os_sendfile(*a, **kw)
+
+
+def _guard_sock_sendfile(self, file, *a, **kw):
+    """r8（C2）：`socket.socket.sendfile(file, …)` 同上 → fail-closed。"""
+    _GUARD._trip("socket.socket.sendfile（socket ← file）", "sendfile",
+                 extra="  判据: 发的是文件内容，守卫无法判定其中是否含请求头明文 → fail-closed。\n",
+                 exc=PublicEgressBlocked,
+                 rule="测试进程不得用 sendfile 往 socket 灌文件内容（内容不可判）。")
+    return _GUARD._orig_sock_sendfile(self, file, *a, **kw)
 
 
 def _guard_httpx_sync(transport, request):
@@ -1250,8 +1427,15 @@ def _k61_deepseek_egress_guard():
         yield _GUARD
     finally:
         _GUARD.uninstall()
+        hook_errors = list(_GUARD.hook_errors)
+        _GUARD.hook_errors.clear()
         violations = list(_GUARD.violations)
         _GUARD.violations.clear()
+        if hook_errors:
+            # r8：钩子自己出错 = **守卫可能已静默失效** → 必须响亮（r7 教训）
+            raise AssertionError(
+                f"[k61 守卫] {len(hook_errors)} 个钩子自身抛异常（守卫可能已静默失效）：\n  "
+                + "\n  ".join(hook_errors))
         if violations:
             # 双保险：即使被测代码把 DeepSeekEgressBlocked 也吞了，这里仍然报红。
             raise AssertionError(
