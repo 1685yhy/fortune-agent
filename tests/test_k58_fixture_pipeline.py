@@ -67,8 +67,12 @@ def test_pipeline_output_on_frozen_corpus_fixture_is_unchanged():
         if cur is None:
             diffs.append((el, "元素缺失", None, exp))
             continue
-        for field in ("counts", "luck", "gloss_evidence", "gloss",
-                      "pool_keys", "df", "usable_sentences", "head_sentences"):
+        # 组装**前**（选句层）+ 组装**后**（产物形态：gloss 的最终形态产自组装层，
+        # r8 I-2 —— 不覆盖它，y1 限定语 / y2 反向降级 / y3 兜底文案的改动夹具全绿）
+        for field in ("counts", "pool_keys", "df", "usable_sentences", "head_sentences",
+                      "luck_raw", "gloss_raw", "gloss_evidence_raw",
+                      "luck", "gloss", "gloss_evidence", "luck_basis",
+                      "type", "tone", "symbols"):
             if cur[field] != exp[field]:
                 diffs.append((el, field, cur[field], exp[field]))
     assert not diffs, (
@@ -77,6 +81,37 @@ def test_pipeline_output_on_frozen_corpus_fixture_is_unchanged():
         "\n".join(f"  {el}.{f}: 现在={c!r} 期望={e!r}" for el, f, c, e in diffs[:3]) +
         "\n\n口径改动必须走「重跑 freeze_fixture.py + 重跑全部审计 + 更新报告 r7 段」三件套；"
         "禁止直接改期望值让测试变绿。")
+
+
+def test_assembly_layer_boundary_branches_are_covered_or_declared():
+    """组装层三类补丁的覆盖边界（r8 I-2「不许两头都要」）。
+
+    - **y1 限定语 / y3 兜底文案**：由上面的夹具用例在**管线级**覆盖（夹具里
+      `马` 的 gloss 带「不代表吉凶」、`刀` 走 `fallback_no_same_scenario`）；
+    - **y2 反向降级**（`aggregate_only_reverse_gloss`）：**管线里不可达** ——
+      选句层 `pick()` 按**宽词表极性**优先同向句、古籍分支跳过反向引文、
+      兜底分支强制中性 ⇒ 「方向档 + 只有反向 gloss」这条路径当前无法由语料构造
+      （产物表里该证据档次真实命中也是 0）。故这里用**单元级**用例直接覆盖该分支，
+      并把它登记为「管线不可达、仅单元覆盖」，而不是假装夹具覆盖了它。
+    """
+    from scripts.k55_dream.build_rules import assemble_rule_fields
+    # y2：luck=吉（方向档）而 gloss 是反向（凶）→ 必须换成聚合说明 + 改证据档次
+    out = assemble_rule_fields("某物", 12, 3, 1, "吉",
+                              "梦见某物，是不祥之兆（语料同场景判词）",
+                              "corpus_same_scenario", "", "中性类", ["情境变化"])
+    assert out["ev_kind"] == "aggregate_only_reverse_gloss", out["ev_kind"]
+    assert "未选作依据" in out["gloss"] and "不祥之兆" not in out["gloss"], out["gloss"]
+    assert "聚合词频（吉 3 / 凶 1）" in out["luck_basis"], out["luck_basis"]
+    assert out["luck"] == "吉", "y2 只换依据、不丢方向（裁决二：不许弃权）"
+    # y3：兜底分支必须强制中性 + 用兜底文案
+    out3 = assemble_rule_fields("某物", 7, 0, 0, "吉多于凶", "",
+                               "fallback_no_same_scenario", "", "吉兆类", ["情境变化"])
+    assert out3["luck"] == "中性" and "没有匹配到" in out3["gloss"], out3
+    assert out3["ptype"] == "中性类", out3["ptype"]
+    # y1：中性档 + 极性 gloss → 必须加限定语（两种 gloss 形态都要覆盖）
+    for g in ("梦见某物，主吉（语料同场景判词）", "《敦煌本梦书》记载：梦见某物，吉"):
+        o = assemble_rule_fields("某物", 9, 1, 0, "中性", g, "classic_quote", "", "中性类", [])
+        assert "不代表吉凶" in o["gloss"], (g, o["gloss"])
 
 
 def test_pool_and_counting_share_one_folding_key():

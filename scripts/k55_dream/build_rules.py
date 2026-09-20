@@ -591,14 +591,19 @@ MIN_FORMULA_DF = 3
 # 「误杀权威」的更大代价。当前结果是**只打掉 `狼`**（其唯一凶句「见狼者，主有凶事」DF37
 # 被排除），而 `猫` 靠 3 条 **DF=1 的元素专属**凶句保住 `凶` —— 这比骨架级更准确。
 # 该边界由测试 `test_mao_strong_band_rests_on_element_specific_sentences_not_exemption` 钉住。
-def formula_sentence_keys(pools: dict, min_df: int = MIN_DF_FORMULA,
-                          min_elements: int = MIN_FORMULA_ELEMENTS,
-                          min_df_family: int = MIN_FORMULA_DF,
+def formula_sentence_keys(pools: dict, min_df: int = None,
+                          min_elements: int = None,
+                          min_df_family: int = None,
                           classic_keys: set = None) -> set:
     """公式句（站点模板/大批量转载）的**折叠键**集合 —— 计数前必须排除。
 
     `classic_keys` = 可溯源古籍引文的折叠键集合（**豁免**，见上）。
     """
+    # r8 I-1：阈值**在调用时**从模块常量取（原来写成参数默认值 → 默认值在 def 时绑定，
+    # 改常量**不改行为**、也不被测试捕获：一个改不动的旋钮 = 假旋钮）。
+    min_df = MIN_DF_FORMULA if min_df is None else min_df
+    min_elements = MIN_FORMULA_ELEMENTS if min_elements is None else min_elements
+    min_df_family = MIN_FORMULA_DF if min_df_family is None else min_df_family
     classic_keys = classic_keys or set()
     tmpl_elems: dict = defaultdict(set)
     for el, p in pools.items():
@@ -946,6 +951,67 @@ def tone_from(n_ji: int, n_xiong: int, symbols: list, luck: str = "") -> str:
     return f"{base}（语料关注点：{focus}）" if focus else base
 
 
+def assemble_rule_fields(el: str, cov: int, n_ji: int, n_xiong: int, luck: str,
+                         gloss: str, ev_kind: str, luck_basis: str,
+                         ptype: str, syms: list) -> dict:
+    """规则表**组装层**单点（r8 I-2）：gloss/luck 一致性补丁 + 象征/类型一致性。
+
+    生成器 `main()` 与冻结夹具 `freeze_fixture.run_pipeline()` **共用这一处** ——
+    否则夹具只锁到「组装前」的 gloss，而**产物 gloss 的最终形态产自这里**：
+    实测夹具里 `马` 的 gloss 不带「不代表吉凶」、产物表却带 ⇒ 夹具的 gloss 列比产物
+    低一层，三类补丁（y1 限定语 / y2 反向降级 / y3 兜底文案）的改动夹具**全绿**。
+    返回 `{luck, gloss, ev_kind, luck_basis, ptype, syms, tone}`（tone 用**最终**
+    luck/syms 计算）。
+    """
+    luck_basis = ("语料同场景判词词频" if (n_ji + n_xiong) > 0
+                  else "无同场景判词证据（ji+xiong=0）→ 中性")
+    if ev_kind == "fallback_no_same_scenario":
+        # 无同场景证据（不变式：此分支 ji+xiong 必为 0）→ 不给方向
+        luck = "中性"
+        luck_basis = "无同场景判词证据（ji+xiong=0）→ 中性"
+        gloss = (f"本批语料里没有匹配到与「{el}」同场景的吉凶判词句"
+                 f"（含该元素的条目 {cov} 条，但判词句谈的是其他场景/复合情境）；"
+                 f"此处只给泛化倾向，不构成吉凶判断")
+    else:
+        # 一致性校验（r4 改口径）：**不再因为「没有同向句」就把方向丢掉**
+        # （控制方裁决二：有强向证据弃权＝把已知结论扔掉，比如 `猫` 270:35）。
+        # 新口径：同向句 > 无极性句 > 「只有反向句」——最后一种情况下
+        # **保留方向**，但**不引那句反向句当依据**，换成如实说明（引用聚合词频）。
+        gp, lp = sentence_polarity(gloss), luck_polarity(luck)
+        if gp and lp and gp != lp:
+            gloss = (f"语料中与「{el}」相关的判词句多为反向语气，未选作依据；"
+                     f"本条方向按聚合判词词频给出（吉向 {n_ji} 句 / 凶向 "
+                     f"{n_xiong} 句），不引单句")
+            ev_kind = "aggregate_only_reverse_gloss"
+            luck_basis = (f"聚合词频（吉 {n_ji} / 凶 {n_xiong}）；"
+                          f"无同向单句可引，故不引依据句")
+            gp = ""
+        if luck in ("中性", "提醒类") and gp:
+            # M-3：无方向档**确无**无极性句时，加一句传统说法限定（与 k55-r3
+            # prompt 口径一致），而不是把吉/凶引文当成判断端出来。
+            # 顺序很重要：必须在「反向降级」**之后**判 —— 否则降级成中性的
+            # 条目会漏掉限定语（实测漏了「红色/墙」两条）。
+            if "（语料" in gloss:
+                gloss = gloss.replace("（语料", "（传统说法，不代表吉凶；语料")
+            elif "不代表吉凶" not in gloss:
+                # r5：**古籍引文**结尾是「记载：…」没有「（语料」标记 →
+                # 原来的 replace 是空操作（实测 `马` 中性 却端出
+                # 「梦见马，吉；乘行，大富」——同行自相矛盾）。此处补上。
+                gloss = gloss + "（传统说法，不代表吉凶）"
+    # Important-4b（r5）：核心象征不得与 luck 极性相反
+    # （`蛇`=凶多于吉 却列着「吉利/吉兆」、`龟`=凶 却列「财富」——同行自相矛盾）
+    if luck_polarity(luck) == "凶":
+        syms = [x for x in syms if not POS_SEMANTIC_RE.search(x)] or syms
+    elif luck_polarity(luck) == "吉":
+        syms = [x for x in syms if not NEG_SEMANTIC_RE.search(x)] or syms
+    # type 与 luck 不许并存矛盾（刀：type=警示类 + luck=中性 那种）
+    if luck in ("中性", "提醒类") and ptype in ("吉兆类", "警示类"):
+        ptype = "中性类"
+    return {"luck": luck, "gloss": gloss, "ev_kind": ev_kind, "luck_basis": luck_basis,
+            "ptype": ptype, "syms": syms,
+            "tone": tone_from(n_ji, n_xiong, syms, luck)}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="生成解梦规则层（80+ 条，语料统计得出）")
     ap.add_argument("--top", type=int, default=400)
@@ -1095,57 +1161,15 @@ def main() -> int:
         luck = luck_from_counts(ji[el], xiong[el])
         gloss, ev_kind = same_scenario_gloss(el, sentences, classics,
                                              head_sentences, want_luck=luck)
-        # I-2①：luck_basis 不得在零证据时声称有词频依据（规则模块是审计/后台/
-        # prompt 的数据源，依据字段不实 = 可追溯性失效）
-        luck_basis = ("语料同场景判词词频" if (ji[el] + xiong[el]) > 0
-                      else "无同场景判词证据（ji+xiong=0）→ 中性")
-        if ev_kind == "fallback_no_same_scenario":
-            # 无同场景证据（不变式：此分支 ji+xiong 必为 0）→ 不给方向
-            luck = "中性"
-            luck_basis = "无同场景判词证据（ji+xiong=0）→ 中性"
-            gloss = (f"本批语料里没有匹配到与「{el}」同场景的吉凶判词句"
-                     f"（含该元素的条目 {cov} 条，但判词句谈的是其他场景/复合情境）；"
-                     f"此处只给泛化倾向，不构成吉凶判断")
-        else:
-            # 一致性校验（r4 改口径）：**不再因为「没有同向句」就把方向丢掉**
-            # （控制方裁决二：有强向证据弃权＝把已知结论扔掉，比如 `猫` 270:35）。
-            # 新口径：同向句 > 无极性句 > 「只有反向句」——最后一种情况下
-            # **保留方向**，但**不引那句反向句当依据**，换成如实说明（引用聚合词频）。
-            gp, lp = sentence_polarity(gloss), luck_polarity(luck)
-            if gp and lp and gp != lp:
-                gloss = (f"语料中与「{el}」相关的判词句多为反向语气，未选作依据；"
-                         f"本条方向按聚合判词词频给出（吉向 {ji[el]} 句 / 凶向 "
-                         f"{xiong[el]} 句），不引单句")
-                ev_kind = "aggregate_only_reverse_gloss"
-                luck_basis = (f"聚合词频（吉 {ji[el]} / 凶 {xiong[el]}）；"
-                              f"无同向单句可引，故不引依据句")
-                gp = ""
-            if luck in ("中性", "提醒类") and gp:
-                # M-3：无方向档**确无**无极性句时，加一句传统说法限定（与 k55-r3
-                # prompt 口径一致），而不是把吉/凶引文当成判断端出来。
-                # 顺序很重要：必须在「反向降级」**之后**判 —— 否则降级成中性的
-                # 条目会漏掉限定语（实测漏了「红色/墙」两条）。
-                if "（语料" in gloss:
-                    gloss = gloss.replace("（语料", "（传统说法，不代表吉凶；语料")
-                elif "不代表吉凶" not in gloss:
-                    # r5：**古籍引文**结尾是「记载：…」没有「（语料」标记 →
-                    # 原来的 replace 是空操作，限定语根本没加上（实测 `马`
-                    # 中性 却端出「梦见马，吉；乘行，大富」、`女儿` 中性 却端出
-                    # 「抱小女儿，主口舌」——同行自相矛盾）。此处补上。
-                    gloss = gloss + "（传统说法，不代表吉凶）"
-        # Important-4b（r5）：核心象征不得与 luck 极性相反
-        # （`蛇`=凶多于吉 却列着「吉利/吉兆」、`龟`=凶 却列「财富」——同行自相矛盾）
-        if luck_polarity(luck) == "凶":
-            syms = [x for x in syms if not POS_SEMANTIC_RE.search(x)] or syms
-        elif luck_polarity(luck) == "吉":
-            syms = [x for x in syms if not NEG_SEMANTIC_RE.search(x)] or syms
-        # type 与 luck 不许并存矛盾（刀：type=警示类 + luck=中性 那种）
-        if luck in ("中性", "提醒类") and ptype in ("吉兆类", "警示类"):
-            ptype = "中性类"
+        # 组装层（**单点**：main 与冻结夹具共用，见 assemble_rule_fields 注释）
+        _f = assemble_rule_fields(el, cov, ji[el], xiong[el], luck, gloss, ev_kind,
+                                  luck_basis, ptype, syms)
+        luck, gloss, ev_kind = _f["luck"], _f["gloss"], _f["ev_kind"]
+        luck_basis, ptype, syms = _f["luck_basis"], _f["ptype"], _f["syms"]
         rules.append({
             "name": el, "match": match_str,
             "type": ptype, "symbols": syms,
-            "tone": tone_from(ji[el], xiong[el], syms, luck),
+            "tone": _f["tone"],
             "luck": luck, "luck_basis": luck_basis,
             "gloss": gloss, "coverage": cov,
             # M-3：覆盖量口径必须写进数据（两种口径不能混着看）

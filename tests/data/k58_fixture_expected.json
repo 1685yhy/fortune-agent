@@ -1,9 +1,13 @@
 {
  "note": "k58 r7 冻结期望值：由 scripts/k55_dream/freeze_fixture.py 生成；重新冻结 = 改口径，必须重新过审",
  "corpus": "k58_fixture_corpus.jsonl",
- "element_count": 12,
+ "element_count": 26,
  "formula_keys": [
+  "梦见刀光,主破财",
+  "梦见白石,主大凶",
   "梦见蛇,主移徙事也,主口舌",
+  "梦见青石,主大凶",
+  "梦见黑石,主大凶",
   "见兔子者,皆主不祥"
  ],
  "elements": {
@@ -13,9 +17,19 @@
     "xiong": 1,
     "sentences": 2
    },
+   "luck_raw": "中性",
    "luck": "中性",
+   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_raw": "梦见猫，如果你没有成功地杀死它或者把它起跑，表示不幸（语料同场景判词）",
    "gloss_evidence": "corpus_same_scenario",
-   "gloss": "梦见猫，如果你没有成功地杀死它或者把它起跑，表示不幸（语料同场景判词）",
+   "gloss": "梦见猫，如果你没有成功地杀死它或者把它起跑，表示不幸（传统说法，不代表吉凶；语料同场景判词）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [
     "梦见猫,如果你没有成功地杀死它或者把它起跑,表示不幸",
     "见猫者,皆主不祥"
@@ -37,9 +51,19 @@
     "xiong": 1,
     "sentences": 3
    },
+   "luck_raw": "中性",
    "luck": "中性",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "意味着会生病;男人梦见狼扑向自己，妻子会怀孕（语料「梦见狼」词条原文）",
    "gloss_evidence": "head_entry",
    "gloss": "意味着会生病;男人梦见狼扑向自己，妻子会怀孕（语料「梦见狼」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [
     "意味着会生病;男人梦见狼扑向自己,妻子会怀孕",
     "梦见狼,预示着你最近诸事不利,交友也会很差,甚至会和朋友发生口角,为了利益,还会各种算计,利用你,而你和情人间的争吵不断,关系甚至会恶化",
@@ -64,9 +88,19 @@
     "xiong": 0,
     "sentences": 3
    },
+   "luck_raw": "中性",
    "luck": "中性",
+   "gloss_evidence_raw": "classic_quote",
+   "gloss_raw": "《敦煌本梦书》（转录未校勘）记载：梦见蛇，主移徙事",
    "gloss_evidence": "classic_quote",
    "gloss": "《敦煌本梦书》（转录未校勘）记载：梦见蛇，主移徙事",
+   "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [
     "梦见蛇,主移徙事",
     "梦见蛇,主移徙事也,主口舌",
@@ -91,9 +125,19 @@
     "xiong": 0,
     "sentences": 11
    },
+   "luck_raw": "中性",
    "luck": "中性",
+   "gloss_evidence_raw": "classic_quote",
+   "gloss_raw": "《敦煌本梦书》（转录未校勘）记载：梦见马，吉；乘行，大富",
    "gloss_evidence": "classic_quote",
-   "gloss": "《敦煌本梦书》（转录未校勘）记载：梦见马，吉；乘行，大富",
+   "gloss": "《敦煌本梦书》（转录未校勘）记载：梦见马，吉；乘行，大富（传统说法，不代表吉凶）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [
     "上学的人梦见横穿马路,一次的失败不要灰心,再努力有成功",
     "做生意的人梦见横穿马路,平顺得财,慎防小人陷害,稍有变动",
@@ -137,9 +181,19 @@
     "xiong": 0,
     "sentences": 9
    },
+   "luck_raw": "吉多于凶",
    "luck": "吉多于凶",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "另外在民间有梦见棺材意味要升官发财之说，按照（语料「梦见棺材」词条原文）",
    "gloss_evidence": "head_entry",
    "gloss": "另外在民间有梦见棺材意味要升官发财之说，按照（语料「梦见棺材」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏吉、期待与安抚（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [
     "(周公解梦www.zGjm.org)棺材的梦,是一个典型的反梦,也是一个吉祥的好梦",
     "一个梦的意义关键要取决于人们不看重的小细节.比如背景,颜色,以及物体周围的摆设等等.况且我们作的梦90%以上全是没什么意义的.所以大可不比去理会\"棺材\"的意思.",
@@ -179,9 +233,19 @@
     "xiong": 0,
     "sentences": 0
    },
+   "luck_raw": "中性",
    "luck": "中性",
+   "gloss_evidence_raw": "fallback_no_same_scenario",
+   "gloss_raw": "",
    "gloss_evidence": "fallback_no_same_scenario",
-   "gloss": "",
+   "gloss": "本批语料里没有匹配到与「酒」同场景的吉凶判词句（含该元素的条目 3 条，但判词句谈的是其他场景/复合情境）；此处只给泛化倾向，不构成吉凶判断",
+   "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [],
    "df": {},
    "usable_sentences": 0,
@@ -194,9 +258,19 @@
     "xiong": 0,
     "sentences": 1
    },
+   "luck_raw": "中性",
    "luck": "中性",
+   "gloss_evidence_raw": "classic_quote",
+   "gloss_raw": "《断梦秘书》（转录未校勘）记载：梦见老人，主年寿永工，财帛丰盈",
    "gloss_evidence": "classic_quote",
-   "gloss": "《断梦秘书》（转录未校勘）记载：梦见老人，主年寿永工，财帛丰盈",
+   "gloss": "《断梦秘书》（转录未校勘）记载：梦见老人，主年寿永工，财帛丰盈（传统说法，不代表吉凶）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [
     "梦见老人,大吉,主寿年绵永,财帛丰盈"
    ],
@@ -215,9 +289,19 @@
     "xiong": 0,
     "sentences": 0
    },
+   "luck_raw": "中性",
    "luck": "中性",
+   "gloss_evidence_raw": "fallback_no_same_scenario",
+   "gloss_raw": "",
    "gloss_evidence": "fallback_no_same_scenario",
-   "gloss": "",
+   "gloss": "本批语料里没有匹配到与「刀」同场景的吉凶判词句（含该元素的条目 13 条，但判词句谈的是其他场景/复合情境）；此处只给泛化倾向，不构成吉凶判断",
+   "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [],
    "df": {},
    "usable_sentences": 0,
@@ -230,9 +314,19 @@
     "xiong": 10,
     "sentences": 11
    },
+   "luck_raw": "凶",
    "luck": "凶",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "还有接收来自过逝者留下遗产或礼物等的机缘，死亡亲属的财务整理、分配，皆宜（语料「梦见死亡」词条原文）",
    "gloss_evidence": "head_entry",
    "gloss": "还有接收来自过逝者留下遗产或礼物等的机缘，死亡亲属的财务整理、分配，皆宜（语料「梦见死亡」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "警示、焦虑与不安（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [
     "以上是梦见了死亡的相关梦境分析",
     "做生意的人梦见了死亡,代表平顺如意,慎防意外损失",
@@ -276,9 +370,19 @@
     "xiong": 0,
     "sentences": 11
    },
+   "luck_raw": "吉多于凶",
    "luck": "吉多于凶",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "做生意的人梦见兔子，代表宜守不可大投资，可得财利，南方为佳（语料「梦见兔子」词条原文）",
    "gloss_evidence": "head_entry",
    "gloss": "做生意的人梦见兔子，代表宜守不可大投资，可得财利，南方为佳（语料「梦见兔子」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏吉、期待与安抚（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [
     "以上是梦见兔子的相关梦境分析",
     "做生意的人梦见兔子,代表宜守不可大投资,可得财利,南方为佳",
@@ -322,9 +426,19 @@
     "xiong": 0,
     "sentences": 8
    },
+   "luck_raw": "中性",
    "luck": "中性",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见鸡，财运滚滚而来，你会有正、横财，未婚的会找到伴已婚的会有子女（语料「梦见鸡」词条原文）",
    "gloss_evidence": "head_entry",
    "gloss": "梦见鸡，财运滚滚而来，你会有正、横财，未婚的会找到伴已婚的会有子女（语料「梦见鸡」词条原文）",
+   "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [
     "做生意的人梦见了母鸡,代表虽有阻碍,不会影响营利,以不变动为佳",
     "出行的人梦见了母鸡,建议交通工具故障,延期出行为佳",
@@ -362,9 +476,19 @@
     "xiong": 3,
     "sentences": 8
    },
+   "luck_raw": "凶",
    "luck": "凶",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "做生意的人梦见牙齿，代表财物损失，宜守，或重新整理（语料「梦见牙齿」词条原文）",
    "gloss_evidence": "head_entry",
    "gloss": "做生意的人梦见牙齿，代表财物损失，宜守，或重新整理（语料「梦见牙齿」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "警示、焦虑与不安（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
    "pool_keys": [
     "以上是梦见牙齿的相关梦境分析",
     "做生意的人梦见牙齿,代表财物损失,宜守,或重新整理",
@@ -394,6 +518,500 @@
     "恋爱中的人梦见牙齿，说明如果口舌是非能化解，相互信任婚姻可成",
     "本命年的人梦见牙齿，意味着不可大投资、慎防小人设计陷害，运势不顺",
     "梦见牙齿的图释："
+   ]
+  },
+  "刀光": {
+   "counts": {
+    "ji": 0,
+    "xiong": 0,
+    "sentences": 1
+   },
+   "luck_raw": "中性",
+   "luck": "中性",
+   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_raw": "梦见刀光，主破财（语料同场景判词）",
+   "gloss_evidence": "corpus_same_scenario",
+   "gloss": "梦见刀光，主破财（传统说法，不代表吉凶；语料同场景判词）",
+   "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见刀光,主破财"
+   ],
+   "df": {
+    "梦见刀光,主破财": 10
+   },
+   "usable_sentences": 1,
+   "head_sentences": 0,
+   "sentences_sample": [
+    "梦见刀光，主破财"
+   ]
+  },
+  "铅砣": {
+   "counts": {
+    "ji": 0,
+    "xiong": 1,
+    "sentences": 1
+   },
+   "luck_raw": "中性",
+   "luck": "中性",
+   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_raw": "梦见铅砣，主破财（语料同场景判词）",
+   "gloss_evidence": "corpus_same_scenario",
+   "gloss": "梦见铅砣，主破财（传统说法，不代表吉凶；语料同场景判词）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见铅砣,主破财"
+   ],
+   "df": {
+    "梦见铅砣,主破财": 9
+   },
+   "usable_sentences": 1,
+   "head_sentences": 0,
+   "sentences_sample": [
+    "梦见铅砣，主破财"
+   ]
+  },
+  "青石": {
+   "counts": {
+    "ji": 0,
+    "xiong": 0,
+    "sentences": 1
+   },
+   "luck_raw": "中性",
+   "luck": "中性",
+   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_raw": "梦见青石，主大凶（语料同场景判词）",
+   "gloss_evidence": "corpus_same_scenario",
+   "gloss": "梦见青石，主大凶（传统说法，不代表吉凶；语料同场景判词）",
+   "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见青石,主大凶"
+   ],
+   "df": {
+    "梦见青石,主大凶": 3
+   },
+   "usable_sentences": 1,
+   "head_sentences": 0,
+   "sentences_sample": [
+    "梦见青石，主大凶"
+   ]
+  },
+  "白石": {
+   "counts": {
+    "ji": 0,
+    "xiong": 0,
+    "sentences": 1
+   },
+   "luck_raw": "中性",
+   "luck": "中性",
+   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_raw": "梦见白石，主大凶（语料同场景判词）",
+   "gloss_evidence": "corpus_same_scenario",
+   "gloss": "梦见白石，主大凶（传统说法，不代表吉凶；语料同场景判词）",
+   "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见白石,主大凶"
+   ],
+   "df": {
+    "梦见白石,主大凶": 3
+   },
+   "usable_sentences": 1,
+   "head_sentences": 0,
+   "sentences_sample": [
+    "梦见白石，主大凶"
+   ]
+  },
+  "黑石": {
+   "counts": {
+    "ji": 0,
+    "xiong": 0,
+    "sentences": 1
+   },
+   "luck_raw": "中性",
+   "luck": "中性",
+   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_raw": "梦见黑石，主大凶（语料同场景判词）",
+   "gloss_evidence": "corpus_same_scenario",
+   "gloss": "梦见黑石，主大凶（传统说法，不代表吉凶；语料同场景判词）",
+   "luck_basis": "无同场景判词证据（ji+xiong=0）→ 中性",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见黑石,主大凶"
+   ],
+   "df": {
+    "梦见黑石,主大凶": 3
+   },
+   "usable_sentences": 1,
+   "head_sentences": 0,
+   "sentences_sample": [
+    "梦见黑石，主大凶"
+   ]
+  },
+  "灰石": {
+   "counts": {
+    "ji": 0,
+    "xiong": 1,
+    "sentences": 1
+   },
+   "luck_raw": "中性",
+   "luck": "中性",
+   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_raw": "梦见灰石，主是非口舌（语料同场景判词）",
+   "gloss_evidence": "corpus_same_scenario",
+   "gloss": "梦见灰石，主是非口舌（传统说法，不代表吉凶；语料同场景判词）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见灰石,主是非口舌"
+   ],
+   "df": {
+    "梦见灰石,主是非口舌": 3
+   },
+   "usable_sentences": 1,
+   "head_sentences": 0,
+   "sentences_sample": [
+    "梦见灰石，主是非口舌"
+   ]
+  },
+  "紫石": {
+   "counts": {
+    "ji": 0,
+    "xiong": 1,
+    "sentences": 1
+   },
+   "luck_raw": "中性",
+   "luck": "中性",
+   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_raw": "梦见紫石，主是非口舌（语料同场景判词）",
+   "gloss_evidence": "corpus_same_scenario",
+   "gloss": "梦见紫石，主是非口舌（传统说法，不代表吉凶；语料同场景判词）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见紫石,主是非口舌"
+   ],
+   "df": {
+    "梦见紫石,主是非口舌": 3
+   },
+   "usable_sentences": 1,
+   "head_sentences": 0,
+   "sentences_sample": [
+    "梦见紫石，主是非口舌"
+   ]
+  },
+  "白玉": {
+   "counts": {
+    "ji": 0,
+    "xiong": 1,
+    "sentences": 1
+   },
+   "luck_raw": "中性",
+   "luck": "中性",
+   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_raw": "梦见白玉，是不祥之兆（语料同场景判词）",
+   "gloss_evidence": "corpus_same_scenario",
+   "gloss": "梦见白玉，是不祥之兆（传统说法，不代表吉凶；语料同场景判词）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见白玉,是不祥之兆"
+   ],
+   "df": {
+    "梦见白玉,是不祥之兆": 2
+   },
+   "usable_sentences": 1,
+   "head_sentences": 0,
+   "sentences_sample": [
+    "梦见白玉，是不祥之兆"
+   ]
+  },
+  "黑玉": {
+   "counts": {
+    "ji": 0,
+    "xiong": 1,
+    "sentences": 1
+   },
+   "luck_raw": "中性",
+   "luck": "中性",
+   "gloss_evidence_raw": "corpus_same_scenario",
+   "gloss_raw": "梦见黑玉，是不祥之兆（语料同场景判词）",
+   "gloss_evidence": "corpus_same_scenario",
+   "gloss": "梦见黑玉，是不祥之兆（传统说法，不代表吉凶；语料同场景判词）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "情境关注（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见黑玉,是不祥之兆"
+   ],
+   "df": {
+    "梦见黑玉,是不祥之兆": 2
+   },
+   "usable_sentences": 1,
+   "head_sentences": 0,
+   "sentences_sample": [
+    "梦见黑玉，是不祥之兆"
+   ]
+  },
+  "石砧": {
+   "counts": {
+    "ji": 5,
+    "xiong": 0,
+    "sentences": 5
+   },
+   "luck_raw": "大吉",
+   "luck": "大吉",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见石砧，主吉（语料「梦见石砧」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见石砧，主吉（语料「梦见石砧」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏吉、期待与安抚（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见石砧,主吉",
+    "梦见石砧,大吉",
+    "梦见石砧,富贵",
+    "梦见石砧,得财",
+    "梦见石砧,有财"
+   ],
+   "df": {
+    "梦见石砧,主吉": 1,
+    "梦见石砧,大吉": 1,
+    "梦见石砧,富贵": 1,
+    "梦见石砧,得财": 1,
+    "梦见石砧,有财": 1
+   },
+   "usable_sentences": 5,
+   "head_sentences": 5,
+   "sentences_sample": [
+    "梦见石砧，主吉",
+    "梦见石砧，大吉",
+    "梦见石砧，富贵",
+    "梦见石砧，得财",
+    "梦见石砧，有财"
+   ]
+  },
+  "木砧": {
+   "counts": {
+    "ji": 4,
+    "xiong": 0,
+    "sentences": 4
+   },
+   "luck_raw": "吉多于凶",
+   "luck": "吉多于凶",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见木砧，主吉（语料「梦见木砧」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见木砧，主吉（语料「梦见木砧」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏吉、期待与安抚（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见木砧,主吉",
+    "梦见木砧,大吉",
+    "梦见木砧,得财",
+    "梦见木砧,有财"
+   ],
+   "df": {
+    "梦见木砧,主吉": 1,
+    "梦见木砧,大吉": 1,
+    "梦见木砧,得财": 1,
+    "梦见木砧,有财": 1
+   },
+   "usable_sentences": 4,
+   "head_sentences": 4,
+   "sentences_sample": [
+    "梦见木砧，主吉",
+    "梦见木砧，大吉",
+    "梦见木砧，得财",
+    "梦见木砧，有财"
+   ]
+  },
+  "灰砧": {
+   "counts": {
+    "ji": 0,
+    "xiong": 2,
+    "sentences": 2
+   },
+   "luck_raw": "凶多于吉",
+   "luck": "凶多于吉",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见灰砧，将有大凶（语料「梦见灰砧」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见灰砧，将有大凶（语料「梦见灰砧」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "警示、焦虑与不安（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见灰砧,将有大凶",
+    "梦见灰砧,是不祥之兆"
+   ],
+   "df": {
+    "梦见灰砧,将有大凶": 1,
+    "梦见灰砧,是不祥之兆": 1
+   },
+   "usable_sentences": 2,
+   "head_sentences": 2,
+   "sentences_sample": [
+    "梦见灰砧，将有大凶",
+    "梦见灰砧，是不祥之兆"
+   ]
+  },
+  "银锭": {
+   "counts": {
+    "ji": 5,
+    "xiong": 2,
+    "sentences": 7
+   },
+   "luck_raw": "吉",
+   "luck": "吉",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见银锭，主吉（语料「梦见银锭」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见银锭，主吉（语料「梦见银锭」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏吉、期待与安抚（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见银锭,主口舌",
+    "梦见银锭,主吉",
+    "梦见银锭,大吉",
+    "梦见银锭,富贵",
+    "梦见银锭,得财",
+    "梦见银锭,有财",
+    "梦见银锭,破财"
+   ],
+   "df": {
+    "梦见银锭,主口舌": 1,
+    "梦见银锭,主吉": 1,
+    "梦见银锭,大吉": 1,
+    "梦见银锭,富贵": 1,
+    "梦见银锭,得财": 1,
+    "梦见银锭,有财": 1,
+    "梦见银锭,破财": 1
+   },
+   "usable_sentences": 7,
+   "head_sentences": 7,
+   "sentences_sample": [
+    "梦见银锭，主口舌",
+    "梦见银锭，主吉",
+    "梦见银锭，大吉",
+    "梦见银锭，富贵",
+    "梦见银锭，得财",
+    "梦见银锭，有财"
+   ]
+  },
+  "锡锭": {
+   "counts": {
+    "ji": 5,
+    "xiong": 3,
+    "sentences": 8
+   },
+   "luck_raw": "吉多于凶",
+   "luck": "吉多于凶",
+   "gloss_evidence_raw": "head_entry",
+   "gloss_raw": "梦见锡锭，主吉（语料「梦见锡锭」词条原文）",
+   "gloss_evidence": "head_entry",
+   "gloss": "梦见锡锭，主吉（语料「梦见锡锭」词条原文）",
+   "luck_basis": "语料同场景判词词频",
+   "type": "中性类",
+   "tone": "偏吉、期待与安抚（语料关注点：情境变化、现实压力）",
+   "symbols": [
+    "情境变化",
+    "现实压力"
+   ],
+   "pool_keys": [
+    "梦见锡锭,主口舌",
+    "梦见锡锭,主吉",
+    "梦见锡锭,大吉",
+    "梦见锡锭,富贵",
+    "梦见锡锭,得财",
+    "梦见锡锭,损失",
+    "梦见锡锭,有财",
+    "梦见锡锭,破财"
+   ],
+   "df": {
+    "梦见锡锭,主口舌": 1,
+    "梦见锡锭,主吉": 1,
+    "梦见锡锭,大吉": 1,
+    "梦见锡锭,富贵": 1,
+    "梦见锡锭,得财": 1,
+    "梦见锡锭,损失": 1,
+    "梦见锡锭,有财": 1,
+    "梦见锡锭,破财": 1
+   },
+   "usable_sentences": 8,
+   "head_sentences": 8,
+   "sentences_sample": [
+    "梦见锡锭，主口舌",
+    "梦见锡锭，主吉",
+    "梦见锡锭，大吉",
+    "梦见锡锭，富贵",
+    "梦见锡锭，得财",
+    "梦见锡锭，损失"
    ]
   }
  }

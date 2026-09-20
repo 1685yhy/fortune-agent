@@ -42,7 +42,14 @@ FIX_EXPECT = FIX_DIR / "k58_fixture_expected.json"
 FIX_CLASSICS = FIX_DIR / "k58_fixture_classics.json"
 
 # 夹具元素：覆盖各类机制（模板句 / 古籍引文 / 折叠 / 公式句 / 强档 / 长尾）
-ELEMENTS = ["猫", "狼", "蛇", "马", "棺材", "酒", "老人", "刀", "死亡", "兔子", "鸡", "牙齿"]
+ELEMENTS = ["猫", "狼", "蛇", "马", "棺材", "酒", "老人", "刀", "死亡", "兔子", "鸡", "牙齿",
+            # 探针元素：其「核心串」不是任一条目的核心（`梦见刀光的寓意N` 的核心是
+            # 「刀光寓意N」），必须显式列入，否则 DF=10 探针不会计入 刀光 的句池
+            "刀光", "铅砣",
+            # 跨元素套话旋钮探针元素（I-1）
+            "青石", "白石", "黑石", "灰石", "紫石", "白玉", "黑玉",
+            # 强档样本量/反例阈值探针元素（I-1）
+            "石砧", "木砧", "灰砧", "银锭", "锡锭"]
 CONTENT_CAP = 3000           # 夹具内正文截断上限（控制入库体积；确定性）
 
 # 定制条目（source=fixture_crafted）——每条都为「让某类植入**必红**」而存在。
@@ -68,6 +75,52 @@ CRAFTED = [
     # ④ 公式句判据（DF≥10）：同句出现在 **12 个不同条目**里 → 必判公式句、排除出计数
     *[{"title": f"见兔子者皆主不祥{i}", "content": "见兔子者，皆主不祥。",
        "source": "fixture_crafted"} for i in range(12)],
+    # ⑤ DF=10 探针（阈值下侧）：同句 10 个条目 → **恰好在门槛上**、必被排除；
+    #    若把 MIN_DF_FORMULA 调成 11，它会被放回计数 → 计数变化 → 必红
+    *[{"title": f"梦见刀光的寓意{i}", "content": "梦见刀光，主破财。",
+       "source": "fixture_crafted"} for i in range(10)],
+    # ⑥ DF=9 探针（阈值上侧）：同句 9 个条目 → **恰好在其下**、必须**不被**排除；
+    #    若把 MIN_DF_FORMULA 调成 9，它会被排除 → 计数变化 → 必红
+    #    （用独立元素 `铅砣` 承载，避免把 `牙齿` 的唯一句从 3 抬到 4 —— 那会毁掉
+    #      MIN_UNANIMOUS_FOR_STRONG=3 的上侧探针）
+    *[{"title": f"梦见铅砣的征兆{i}", "content": "梦见铅砣，主破财。",
+       "source": "fixture_crafted"} for i in range(9)],
+    # ⑦ MIN_SAMPLE_FOR_STRONG=5 探针（大吉门槛两侧）：恰好 5 条一致 → 大吉；
+    #    恰好 4 条 → 只到「吉多于凶」；把常量改成 4 或 6 都会让一侧翻转 → 必红
+    {"title": "梦见石砧", "content": "梦见石砧，得财。梦见石砧，主吉。梦见石砧，大吉。"
+                                    "梦见石砧，有财。梦见石砧，富贵。",
+     "source": "fixture_crafted"},
+    {"title": "梦见木砧", "content": "梦见木砧，得财。梦见木砧，主吉。梦见木砧，大吉。"
+                                    "梦见木砧，有财。",
+     "source": "fixture_crafted"},
+    # ⑧ MIN_UNANIMOUS_FOR_STRONG=3 探针（零反例强档门槛的下侧）：恰好 2 条一致凶
+    #    → 只到「凶多于吉」（<3 不给强档）
+    {"title": "梦见灰砧", "content": "梦见灰砧，将有大凶。梦见灰砧，是不祥之兆。",
+     "source": "fixture_crafted"},
+    # ⑨ 跨元素套话两个旋钮（I-1 顺手：清了「只有一个取值点」的探针）
+    #   · 模板 A「梦见X，主大凶」：3 个元素（青石/白石/黑石）各 DF=3 → 恰在上侧
+    #     → 必判族、被排除；MIN_FORMULA_DF 提到 4 就翻 → 必红
+    *[{"title": f"梦见{e}的寓意{i}", "content": f"梦见{e}，主大凶。",
+       "source": "fixture_crafted"} for e in ("青石", "白石", "黑石") for i in range(3)],
+    #   · 模板 B「梦见X，主口舌」：2 个元素（灰石/紫石）各 DF=3 → 恰在下侧
+    #     → 不判族、进计数；MIN_FORMULA_ELEMENTS 降到 2 就翻 → 必红
+    #   （措辞要与其它定制句**不同**：`梦见X，主口舌` 会与刀光那条掩码同模板 → 元素数变 3，
+    #     旋钮就会落到另一侧。踩过一次，故这里用「主是非口舌」。）
+    *[{"title": f"梦见{e}的说法{i}", "content": f"梦见{e}，主是非口舌。",
+       "source": "fixture_crafted"} for e in ("灰石", "紫石") for i in range(3)],
+    #   · 模板 C「梦见X，是不祥之兆」：2 个元素各 DF=2 → 族 DF 门槛的下侧
+    #     （MIN_FORMULA_DF 降到 2 就翻 → 必红）
+    *[{"title": f"梦见{e}的预兆{i}", "content": f"梦见{e}，是不祥之兆。",
+       "source": "fixture_crafted"} for e in ("白玉", "黑玉") for i in range(2)],
+    # ⑩ MAX_MINORITY_FOR_STRONG=2 探针（两侧）：5:2 → 强档「吉」；5:3 → 只到「吉多于凶」
+    {"title": "梦见银锭", "content": "梦见银锭，得财。梦见银锭，主吉。梦见银锭，大吉。"
+                                    "梦见银锭，有财。梦见银锭，富贵。"
+                                    "梦见银锭，主口舌。梦见银锭，破财。",
+     "source": "fixture_crafted"},
+    {"title": "梦见锡锭", "content": "梦见锡锭，得财。梦见锡锭，主吉。梦见锡锭，大吉。"
+                                    "梦见锡锭，有财。梦见锡锭，富贵。"
+                                    "梦见锡锭，主口舌。梦见锡锭，破财。梦见锡锭，损失。",
+     "source": "fixture_crafted"},
 ]
 
 
@@ -121,7 +174,7 @@ def fixture_classics() -> dict:
 
 def run_pipeline(entries: list, classics: dict) -> dict:
     """管线核心（与生成器同一批函数）：语料 → 同源句池 → 折叠 → 公式句 → 档位 → 释义。"""
-    elements = {e["title"] for e in entries} | set(ELEMENTS)
+    elements = {B.normalize_core(e["title"]) for e in entries} | set(ELEMENTS)
     uniq, pools = B.element_scope_pool(elements, entries=entries)
     ckeys = B.classic_quote_keys(classics)
     formula = B.formula_sentence_keys(pools, classic_keys=ckeys)
@@ -137,14 +190,29 @@ def run_pipeline(entries: list, classics: dict) -> dict:
         luck = B.luck_from_counts(len(ji_keys), len(xiong_keys))
         sentences = dict(p["sents"])
         head = dict(p["head"])
-        gloss, ev = B.same_scenario_gloss(el, {el: p["sents"]}, classics,
-                                         {el: p["head"]}, want_luck=luck)
+        gloss_raw, ev_raw = B.same_scenario_gloss(el, {el: p["sents"]}, classics,
+                                                 {el: p["head"]}, want_luck=luck)
+        # **组装层**（r8 I-2）：产物 gloss 的最终形态产自这里 —— 夹具必须覆盖到它，
+        # 否则 y1 限定语 / y2 反向降级 / y3 兜底文案三类补丁的改动夹具全绿。
+        syms = ["情境变化", "现实压力"]
+        # 夹具内的「覆盖量」= 标题核心串含该元素的夹具条目数（与产物口径同义、可复现）
+        cov = sum(1 for e in entries if el in B.normalize_core(e["title"]))
+        asm = B.assemble_rule_fields(el, cov, len(ji_keys), len(xiong_keys), luck,
+                                     gloss_raw, ev_raw, "", "中性类", syms)
         out["elements"][el] = {
             "counts": {"ji": len(ji_keys), "xiong": len(xiong_keys),
                        "sentences": len(p["sents"])},
-            "luck": luck,
-            "gloss_evidence": ev,
-            "gloss": gloss,
+            # 组装**前**（选句层）与组装**后**（产物形态）都记 —— 覆盖边界可分辨
+            "luck_raw": luck,
+            "luck": asm["luck"],
+            "gloss_evidence_raw": ev_raw,
+            "gloss_raw": gloss_raw,
+            "gloss_evidence": asm["ev_kind"],
+            "gloss": asm["gloss"],
+            "luck_basis": asm["luck_basis"],
+            "type": asm["ptype"],
+            "tone": asm["tone"],
+            "symbols": asm["syms"],
             "pool_keys": sorted(p["raw"]),
             "df": {k: len(v) for k, v in sorted(p["df"].items())},
             "usable_sentences": len(p["sents"]),
@@ -154,8 +222,21 @@ def run_pipeline(entries: list, classics: dict) -> dict:
     return out
 
 
+def _crafted_sentences(prefix: str) -> list:
+    """从 CRAFTED **正文**里取出句子（而不是在自检里重写一遍字面量）。
+
+    r8 I-3：原先自检里的探针句是**字面量**，改 `CRAFTED` 正文而不改自检 → 自检仍绿
+    = 自检有洞。现在一律从正文提取。
+    """
+    out = []
+    for e in CRAFTED:
+        if e["title"].startswith(prefix):
+            out.extend(x.strip() for x in B.split_sentences(e["content"]) if x.strip())
+    return out
+
+
 def self_check(entries: list, expected: dict) -> None:
-    """夹具自检：定制条目必须**真的进管线**，否则「植入必红」是空话。
+    """夹具自检：定制条目必须**真的进管线**、探针必须**真的落在阈值两侧**。
 
     （踩过的坑：定制条目的标题核心串与真实条目相同 → 被 `dedup_corpus` 去重丢掉，
     期望值里看不到任何注入效果 —— 那种夹具是假夹具。）
@@ -163,27 +244,67 @@ def self_check(entries: list, expected: dict) -> None:
     kept = {e["title"] for e in B.dedup_corpus(entries)}
     missing = [e["title"] for e in CRAFTED if e["title"] not in kept]
     assert not missing, f"定制条目被去重丢掉（标题核心串与真实条目冲突）：{missing}"
-    # ③ 豁免模糊匹配用例：该句必须①真的在 蛇 的句池里 ②被公式句判据排除（DF=12）
-    #    ③**不含**在精确豁免集合里，但④**包含**某古籍键作为子串（模糊版会放行）
+
+    # ① 长度门槛：从 CRAFTED 正文取那条 5 字句，当前必须**被拒**
+    short = [x for x in _crafted_sentences("梦见老人") if len(x) == 5]
+    assert short, "① 长度探针句没从 CRAFTED 正文里找到"
+    assert not B.sentence_is_usable(short[0], "老人"), f"① {short[0]!r} 当前竟然可用"
+
+    # ② 折叠映射：从正文取那一对仅差 `…` / `.` 的句子，当前必须是**两个**键
+    pair = [x for x in _crafted_sentences("梦见棺材的寓意") if "升官" in x]
+    assert len({B.sentence_key(x) for x in pair}) == len(pair) == 2, f"② 折叠探针对异常：{pair}"
+
+    # ③ 豁免：近似古籍引文的句子必须 ①在池里 ②被判公式句（DF=12）③不在精确豁免集
     snake_keys = list(expected["elements"]["蛇"]["df"])
     near = [k for k in snake_keys if "主移徙事也" in k]
     assert near, f"③ 用例未进 蛇 句池：{snake_keys[:3]}"
     assert near[0] in expected["formula_keys"], "③ 用例未被判为公式句（DF 不足？）"
     ck = B.classic_quote_keys(fixture_classics())
-    assert near[0] not in ck, "③ 用例被**精确**豁免了 —— 无法区分模糊匹配"
-    assert any(c in near[0] and c != near[0] for c in ck), "③ 用例不含任何古籍键子串 —— 模糊版也抓不到"
-    # ② 折叠用例：`…` 与 `.` 当前必须是**两个**键
-    assert B.sentence_key("梦见棺材，主升官…发财") != B.sentence_key("梦见棺材，主升官.发财"), \
-        "② 用例的两个变体已经折叠成同一个键 —— 折叠植入将无法变红"
-    # ① 长度门槛用例：5 字句当前必须**被拒**（否则门槛改动不会让它变红）
-    assert not B.sentence_is_usable("望老人凶兆", "老人"), \
-        "① 用例的 5 字句当前竟然可用 —— 门槛植入将无法变红"
-    # ④ 公式句用例：必被排除
-    assert "见兔子者,皆主不祥" in expected["formula_keys"], "④ 公式句用例未被排除"
-    # ② 折叠用例：`…` 与 `...` 当前必须是**两个**键（否则折叠植入无法变红）
-    assert B.sentence_key("梦见棺材，主升官…发财") != B.sentence_key("梦见棺材，主升官...发财"), \
-        "② 用例的两个变体已经折叠成同一个键 —— 折叠植入将无法变红"
-    print("夹具自检通过：4 类植入用例均真实生效")
+    assert near[0] not in ck and any(c in near[0] and c != near[0] for c in ck), \
+        "③ 用例与古籍键的关系不满足「近似但不等」"
+
+    # ④ DF 两侧探针（I-1）：DF=12 与 DF=10 必被排除；DF=9 必须**不被**排除
+    fk = expected["formula_keys"]
+    df12 = {B.sentence_key(x) for x in _crafted_sentences("见兔子者皆主不祥")}
+    df10 = {B.sentence_key(x) for x in _crafted_sentences("梦见刀光的寓意")}
+    df9 = {B.sentence_key(x) for x in _crafted_sentences("梦见铅砣的征兆")}
+    assert df12 and df12 <= set(fk), "④ DF=12 探针未被排除"
+    assert df10 and df10 <= set(fk), "④ DF=10 探针未被排除（门槛下侧没钉住）"
+    assert df9 and not (df9 & set(fk)), "④ DF=9 探针被排除了（门槛上侧没钉住）"
+
+    # ⑤ 强档样本量两侧（I-1 顺手：同类「只有一个取值点」的探针）
+    el = expected["elements"]
+    assert el["石砧"]["luck"] == "大吉" and el["木砧"]["luck"] == "吉多于凶", \
+        ("MIN_SAMPLE_FOR_STRONG=5 两侧探针失效："
+         f"铁钉={el['铁钉']['luck']} 铁锤={el['铁锤']['luck']}")
+    assert el["灰砧"]["luck"] == "凶多于吉", \
+        f"MIN_UNANIMOUS_FOR_STRONG=3 下侧探针失效：铜锤={el['铜锤']['luck']}"
+    assert el["银锭"]["luck"] == "吉" and el["锡锭"]["luck"] == "吉多于凶", \
+        ("MAX_MINORITY_FOR_STRONG=2 两侧探针失效："
+         f"银锁={el['银锁']['luck']} 铜锁={el['铜锁']['luck']}")
+
+    # ⑥ 跨元素套话族：模板 A（3 元素/DF3）必判族；模板 B（2 元素/DF3）必不判族；
+    #    模板 C（2 元素/DF2）必不判族 —— 三个旋钮因此各有两侧
+    fk_all = set(expected["formula_keys"])
+    for e in ("青石", "白石", "黑石"):
+        assert el[e]["luck"] == "中性", f"⑥ 模板 A 未判族（{e} 应被排除）：{el[e]['counts']}"
+    #   （注意：同一句在 N 个条目里出现 = **1 条唯一句**，故 B/C 的读数都是 0:1；
+    #     敏感性落在 `counts`/`df` 列上 —— 夹具用例逐列比对，照样必红。）
+    for e in ("灰石", "紫石"):
+        assert el[e]["counts"]["xiong"] == 1 and el[e]["luck"] == "中性", \
+            f"⑥ 模板 B 被误判族（{e}）：{el[e]['counts']}"
+        assert el[e]["df"] and max(el[e]["df"].values()) == 3, f"⑥ {e} 的 DF 不是 3"
+    for e in ("白玉", "黑玉"):
+        assert el[e]["counts"]["xiong"] == 1 and max(el[e]["df"].values()) == 2, \
+            f"⑥ 模板 C 异常（{e}）：{el[e]['counts']} {el[e]['df']}"
+
+    # ⑦ 组装层（I-2）：夹具必须覆盖产物的 **gloss 最终形态**（限定语/兜底文案）
+    assert "不代表吉凶" in el["马"]["gloss"], "⑥ 组装层未覆盖：马 的 gloss 没带限定语"
+    assert el["刀"]["gloss_evidence"] == "fallback_no_same_scenario", \
+        "⑥ 组装层未覆盖：刀 应走兜底分支"
+    assert el["马"]["gloss"] != el["马"]["gloss_raw"], \
+        "⑥ 组装层未生效：组装前后 gloss 相同（夹具又只锁到了选句层）"
+    print("夹具自检通过：6 类探针（长度/折叠/豁免/DF 两侧/强档样本量两侧/组装层）均真实生效")
 
 
 def main() -> int:
