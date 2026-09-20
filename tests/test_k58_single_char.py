@@ -706,3 +706,39 @@ def test_pipeline_caliber_lock_covers_splitter_usable_and_folding():
     assert "见猫者,皆主不祥" in f_noex and "梦见兔子,得财" not in f_noex, (f_noex,)
     assert "梦见马,吉;乘行,大富" in f_noex and "梦见马,吉;乘行,大富" not in f_ex, (f_ex,)
     assert JI_STRONG.search("梦见兔子，得财") and not XIONG_STRONG.search("梦见兔子，得财")
+
+
+# ══════════ k58 r6 边界钉（控制方裁决二） ══════════
+
+def test_mao_strong_band_rests_on_element_specific_sentences_not_exemption():
+    """`猫` 留在强档的**理由**必须被钉住：靠 **DF=1 的元素专属**凶句，
+    **不是**靠古籍引文豁免、也不是漏网。
+
+    背景（r6 裁决二）：曾考虑把「骨架级套话」（`见X者,皆主V`）也纳入排除 ——
+    那会打掉 `猫`。控制方裁决**不加严**：骨架级同样会误伤骨架相同的敦煌引文
+    （`梦见X,主V事` ⊃ 蛇「梦见蛇，主移徙事」DF180），是「更准」换「误杀权威」。
+    本用例把「猫 为什么该在强档」写死，避免后人误以为是豁免漏放。
+    """
+    from scripts.k55_dream.build_rules import (
+        classic_quote_keys, formula_sentence_keys,
+    )
+    r = next(x for x in DREAM_PATTERN_RULES if x["name"] == "猫")
+    # ① 表内事实：猫=凶，唯一句 0:3（3 条独立凶句），依据句**不是**古籍引文档
+    assert r["luck"] == "凶", (r["luck"], r["counts"])
+    assert (r["counts"]["ji"], r["counts"]["xiong"]) == (0, 3), r["counts"]
+    assert r["gloss_evidence"] != "classic_quote", r["gloss_evidence"]
+    # ② 合成夹具（与生成器同口径）：DF≥10 的模板句被排除；DF=1 的元素专属句保留
+    fake = {
+        "猫": {"raw": {"见猫者,皆主不祥": "见猫者，皆主不祥",
+                       "梦见猫,是不祥之兆": "梦见猫，是不祥之兆"},
+               "df": {"见猫者,皆主不祥": set(range(268)),
+                      "梦见猫,是不祥之兆": {7}}},
+    }
+    f = formula_sentence_keys(fake)
+    assert "见猫者,皆主不祥" in f, "DF≥10 的模板句必须被排除（这是 猫 掉 1 条的原因）"
+    assert "梦见猫,是不祥之兆" not in f, "DF=1 的元素专属句必须保留（这是 猫 保住凶的原因）"
+    # ③ 豁免是**按键**放行、且只对引文库里的键生效（不是「高 DF 一律放行」）
+    assert formula_sentence_keys(fake, classic_keys={"见猫者,皆主不祥"}) == set(), \
+        "豁免只对该键生效（机制透明）；但 猫 的依据句并不在引文库中："
+    assert "见猫者,皆主不祥" not in classic_quote_keys(), \
+        "「见猫者，皆主不祥」不在古籍引文库 —— 猫 的强档与豁免无关"
