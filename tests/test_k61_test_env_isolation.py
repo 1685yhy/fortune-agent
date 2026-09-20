@@ -1,0 +1,577 @@
+# -*- coding: utf-8 -*-
+"""k61 r2 ①：测试进程环境隔离（方案 A）的**锁**。
+
+背景：`src/config.py` 导入即 `load_env_file(".env")`，部署/生产检出的 `.env`
+（软链到生产）会把生产值灌进测试进程。除了已收口的 `DEEPSEEK_API_KEY`，
+`EXPERIENCE_MODE=true` 之类的**行为开关**同样会进来 —— 仓内已经有 3 处散落补丁
+在绕它（`test_chat_quota.py` / `test_member_pay.py` 的 autouse fixture、
+`test_qian_kinds.py` 的模块级置空），正说明它是**会改断言的泄漏**，
+只是新增用例不会知道要补。
+
+修法 = 协调方批准的**方案 A（测试侧 pin，零生产改动）**：`tests/conftest.py`
+在任何 `src.*` 导入之前把部署键 pin 成空值（`load_env_file` 不覆盖已存在变量），
+于是测试进程等价于「没有部署 .env」。
+
+本文件锁四件事：
+1. pin 清单**每条都有理由**（防「悄悄加/悄悄删」）；
+2. 测试进程里 pin 全部生效、`is_experience_mode()` 必须为 False；
+3. **pin 真的能压住一个真实 `.env`**（子进程实验：对照组证明 .env 确实会泄漏，
+   实验组证明 pin 之后不泄漏）—— 这是防「有人把它当生产默认又漏回去」的核心锁；
+4. 免费 GLM 用的 `ZHIPU_API_KEY` 与待裁决的 `PUBLIC_BASE_URL` **不在** pin 清单里
+   （正向对照：pin 过头会关掉本批的验证面 / 妨碍独立核查）。
+
+（仓库卫生守卫的机制自检见 `tests/test_k61_repo_hygiene.py`。）
+
+运行：TMPDIR=/dev/shm OMP_NUM_THREADS=1 /home/a/fortune-run/.venv/bin/python3 \
+      -m pytest tests/test_k61_test_env_isolation.py -q
+"""
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import pytest  # noqa: E402
+
+import conftest as k61conftest  # noqa: E402
+
+from conftest import (  # noqa: E402
+    ENV_PINS_AT_IMPORT,
+    TEST_ENV_NOT_PINNED,
+    TEST_ENV_PINS,
+    TEST_MEMORY_DIR,
+)
+
+REPO = str(Path(__file__).resolve().parent.parent)
+TESTS_DIR = str(Path(__file__).resolve().parent)
+
+
+# ══════════════════════════════════════════════════════════════════
+# 1) pin 清单卫生
+# ══════════════════════════════════════════════════════════════════
+
+class TestPinHygiene:
+    def test_every_pin_has_a_reason(self):
+        assert TEST_ENV_PINS, "pin 清单为空（隔离被整体撤掉？）"
+        for key, reason in TEST_ENV_PINS.items():
+            assert reason and len(reason) >= 10, f"pin 缺理由：{key}"
+
+    def test_every_exemption_has_a_reason(self):
+        assert TEST_ENV_NOT_PINNED, "豁免清单为空（应至少含 ZHIPU_API_KEY）"
+        for key, reason in TEST_ENV_NOT_PINNED.items():
+            assert reason and len(reason) >= 10, f"豁免缺理由：{key}"
+
+    def test_pin_and_exempt_are_disjoint(self):
+        assert not (set(TEST_ENV_PINS) & set(TEST_ENV_NOT_PINNED)), \
+            "同一个键既 pin 又豁免"
+
+    def test_free_glm_key_is_exempt(self):
+        """正向对照：pin 掉 ZHIPU_API_KEY 会让所有 GLM 端到端用例 skip。"""
+        assert "ZHIPU_API_KEY" not in TEST_ENV_PINS
+        assert "ZHIPU_API_KEY" in TEST_ENV_NOT_PINNED
+
+    def test_public_base_url_left_alone_for_arbitration(self):
+        """协调方指示：PUBLIC_BASE_URL 只登记、不 pin（pin 会掩盖生产值）。"""
+        assert "PUBLIC_BASE_URL" not in TEST_ENV_PINS
+
+    def test_leak_sensitive_keys_are_pinned(self):
+        """本批点名的行为开关/生产密钥必须在 pin 清单里。"""
+        for key in ("EXPERIENCE_MODE", "DEV_OPENID", "DEV_TOKEN_ENDPOINT",
+                    "DEEPSEEK_API_KEY", "JWT_SECRET_KEY", "ENCRYPTION_KEY",
+                    "ADMIN_KEY", "FORTUNE_API_KEY"):
+            assert key in TEST_ENV_PINS, f"{key} 漏出 pin 清单"
+
+
+# ══════════════════════════════════════════════════════════════════
+# 2) pin 在本进程生效（含 EXPERIENCE_MODE 的那条锁）
+# ══════════════════════════════════════════════════════════════════
+
+class TestPinsInEffect:
+    def test_pins_were_in_effect_at_import_time(self):
+        """**核心锁（顺序无关）**：导入期快照里 pin 必须全部生效（空值）。
+
+        为什么看导入期而不是「此刻」：pin 的唯一职责是在 `load_env_file(".env")`
+        之前把键占住，那件事只发生在导入期；而收集期就有约 20 个测试模块会直接
+        `os.environ["JWT_SECRET_KEY"] = "test-..."`（仓内既有约定、不回滚），
+        所以「此刻是否为空」对 JWT_SECRET_KEY 这类键天然不成立。
+        """
+        leaked = {k: v for k, v in ENV_PINS_AT_IMPORT.items() if v != ""}
+        assert not leaked, (
+            f"这些键在导入期没有被 pin（部署 .env 会灌进来）：{leaked}\n"
+            f"处置：确认 tests/conftest.py 的 `_pin_test_env()` 调用还在、"
+            f"且该键仍在 TEST_ENV_PINS 里。"
+        )
+
+    def test_experience_mode_is_off(self):
+        """**协调方点名的那条锁**：测试进程里 EXPERIENCE_MODE 必须是测试 pin 的值。
+
+        （仓内只有把它置空的写法，没有置真值且不回滚的写法，故这条可以看「此刻」。）
+        """
+        assert os.environ.get("EXPERIENCE_MODE") == ""
+        assert ENV_PINS_AT_IMPORT["EXPERIENCE_MODE"] == ""
+        from src.config import is_experience_mode, load_settings
+        assert is_experience_mode() is False, "测试进程不得处于体验模式（全免费/跳配额）"
+        assert load_settings().experience_mode is False
+
+    def test_deepseek_key_cannot_enter_test_process(self):
+        """k61 红线的**结构性**保证：测试进程不持有生产 DeepSeek key。
+
+        比守卫更强的一层：守卫拦「出站」，pin 让「连 key 都没有」—— 于是
+        `resolve_llm_api_key()` 恒为空，引擎的既有早退语义自动生效；
+        守卫退为兜底（仍会拦住用 Mock/硬编码 key 的调用点，见 P1 追加项）。
+        """
+        assert ENV_PINS_AT_IMPORT["DEEPSEEK_API_KEY"] == ""
+        assert os.environ.get("DEEPSEEK_API_KEY") == ""
+        from src.llm.client import resolve_llm_api_key
+        assert resolve_llm_api_key() == ""
+        assert resolve_llm_api_key(allow_anthropic_fallback=False) == ""
+
+    def test_conftest_does_not_globally_redirect_memory_dir(self):
+        """r11：conftest **不得**在导入期占用 `USER_MEMORY_DIR`（收窄全局影响面）。
+
+        为什么锁的是"**不设**"，而不是原来的"设了且指向 TEST_MEMORY_DIR"：
+        `tests/test_k62k63_fixup_side_effect_guard.py::test_guard_has_teeth_pre_fix_copy_dirties_memory`
+        的判定前提是「沙箱副本里摘掉 `test_bot.py` 的隔离 fixture + 子进程**显式剔除**
+        `USER_MEMORY_DIR` → 那条空 uid 用例**必须**把 `data/memory/.json` 写脏」。
+        conftest 全局设上之后，那个子进程里**沙箱自己的 conftest** 又把重定向装了回来
+        → 改前副本也不再脏 → 守卫失去判定力（k61 合并后 3 failed 之一，报文
+        `实际变化：[]`）。任何**自动**重定向（导入期 env 或 autouse fixture）都会
+        重新触发它 —— 所以只能"不设"，隔离改由各测试文件自理（`tests/test_bot.py`
+        的模块级 autouse fixture 就是现成范式），conftest 只提供 `TEST_MEMORY_DIR`
+        目录常量 + 会话级**探测**（`_k61_repo_dirt_guard`）。
+        """
+        # ① 导入期前后快照：pin 函数没有动过这个键。
+        #    用"前后对比"而不是"此刻必须为空"——开发者 shell 自己导出该变量时不假红。
+        assert k61conftest.USER_MEMORY_DIR_AFTER_PIN == \
+            k61conftest._USER_MEMORY_DIR_BEFORE_PIN, \
+            "conftest 的 _pin_test_env() 又全局设了 USER_MEMORY_DIR —— 见 conftest §0c ②"
+        # ② 目录常量保留（供测试文件显式隔离用）
+        assert os.path.isdir(TEST_MEMORY_DIR), TEST_MEMORY_DIR
+        # ③ 兜底是"探测"：仓库卫生守卫必须覆盖 data/（谁写的谁隔离，conftest 只负责发现）
+        assert any(s.rstrip("/") == "data" for s in k61conftest.DIRT_GUARD_SCOPES), \
+            k61conftest.DIRT_GUARD_SCOPES
+
+
+# ══════════════════════════════════════════════════════════════════
+# 3) pin 真的压得住一个真实 .env（子进程对照实验）
+# ══════════════════════════════════════════════════════════════════
+
+_PROBE_CODE = """
+import json, os
+{import_conftest}import src.config
+from src.config import is_experience_mode, load_settings
+print(json.dumps({{
+    "experience_mode": os.environ.get("EXPERIENCE_MODE"),
+    "dev_openid": os.environ.get("DEV_OPENID"),
+    "jwt_set": bool(os.environ.get("JWT_SECRET_KEY")),
+    "deepseek_set": bool(os.environ.get("DEEPSEEK_API_KEY")),
+    "is_exp": is_experience_mode(),
+    "settings_exp": load_settings().experience_mode,
+}}))
+"""
+
+
+def _probe(tmp_path, import_conftest: bool) -> dict:
+    """在**带 .env 的临时 cwd** 里跑一个子进程，返回它看到的配置状态。
+
+    关键：把父进程已 pin 的键从子进程环境里**删掉** —— 否则子进程继承的
+    空值会让对照组也「看不出泄漏」，实验失去意义。
+    """
+    (tmp_path / ".env").write_text(
+        "EXPERIENCE_MODE=true\n"
+        "DEV_OPENID=dev_user\n"
+        "JWT_SECRET_KEY=k61-canary-jwt-not-a-real-secret\n"
+        "DEEPSEEK_API_KEY=sk-k61-canary-not-a-real-key\n",
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    for key in list(TEST_ENV_PINS) + ["USER_MEMORY_DIR"]:
+        env.pop(key, None)
+    env["PYTHONPATH"] = os.pathsep.join([REPO, TESTS_DIR])
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    proc = subprocess.run(
+        [sys.executable, "-c", _PROBE_CODE.format(
+            import_conftest="import conftest\n" if import_conftest else "")],
+        cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=180,
+    )
+    assert proc.returncode == 0, f"探针失败：\n{proc.stdout}\n{proc.stderr}"
+    return json.loads(proc.stdout.strip().splitlines()[-1])
+
+
+def test_control_dotenv_really_leaks(tmp_path):
+    """对照组（**不导入 conftest**）：证明 .env 确实会灌进进程 —— 泄漏是真的。
+
+    这条是「改前失败」夹具：若哪天 `src/config.py` 不再加载 .env，本用例会红，
+    提醒我们 pin 机制（以及整套泄漏论证）需要重新评估。
+    """
+    got = _probe(tmp_path, import_conftest=False)
+    assert got["experience_mode"] == "true", got
+    assert got["dev_openid"] == "dev_user", got
+    assert got["jwt_set"] is True and got["deepseek_set"] is True, got
+    assert got["is_exp"] is True and got["settings_exp"] is True, got
+
+
+def test_pin_defeats_a_real_dotenv(tmp_path):
+    """实验组（导入 conftest = 走测试进程的真实加载顺序）：.env 被 pin 挡住。"""
+    got = _probe(tmp_path, import_conftest=True)
+    assert got["experience_mode"] == "", got
+    assert got["dev_openid"] == "", got
+    assert got["jwt_set"] is False, got
+    assert got["deepseek_set"] is False, got
+    assert got["is_exp"] is False and got["settings_exp"] is False, got
+
+
+# ══════════════════════════════════════════════════════════════════
+# 5) r3 ⑤：`.env` 加载必须与「收集了哪些文件」无关（GLM 门控顺序依赖）
+# ══════════════════════════════════════════════════════════════════
+#
+# 审查者实测：单独跑 `pytest tests/test_adaptive_advisor.py`（`ZHIPU_API_KEY` 在
+# 部署 `.env` 里）时 4 条 GLM 门控用例**静默 skip**；两个文件一起跑才真跑。
+# 根因：`.env` 是否加载取决于哪个模块先 `import src.config`。
+# 修法：conftest 显式导入 `src.config`（生产入口同款路径）→ 确定性加载。
+
+class TestDotenvLoadingIsDeterministic:
+    def test_conftest_loads_src_config(self):
+        """conftest 必须显式导入 src.config（r8：源码文本锁 → **AST 锁**，抗格式变化）。"""
+        import ast
+        import inspect
+        tree = ast.parse(inspect.getsource(k61conftest))
+        found = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                found = found or any(a.name == "src.config" for a in node.names)
+            elif isinstance(node, ast.ImportFrom):
+                found = found or (node.module == "src" and
+                                  any(a.name == "config" for a in node.names))
+        assert found, "conftest 没有在模块级导入 src.config（AST 检查）"
+        assert "src.config" in sys.modules, "src.config 未在会话开始前被导入"
+
+    def test_env_loaded_before_test_modules(self):
+        """`.env` 必须在**任何测试模块**被 import 之前就加载完（顺序无关）。"""
+        import src.config
+        assert hasattr(src.config, "load_env_file")
+
+    def test_single_file_run_does_not_silently_skip_glm_tests(self, tmp_path):
+        """**决定性锁**：单文件跑 + `.env` 有 ZHIPU key → GLM 门控用例**不得 skip**。
+
+        用 canary key（无效）：用例会**真跑**（打到 GLM 拿 401 → 引擎走兜底
+        路径，断言字段仍在 → 通过）。本用例只断言「门开了」：
+        既不是 skipped，且确实执行到了（passed 或 failed 都算执行过）。
+
+        ⚠️ 集成分支（batch2-k61）更正：原来点名的是
+        `tests/test_mood_detector.py::TestRealAPI::test_real_detection_flow`，
+        该文件已被 k62（`2a67833`）作为死模块删除 → 合并后子进程必然 ERROR。
+        替身为 `tests/test_adaptive_advisor.py::TestIntegration::
+        test_insight_field_in_integration`（k61 r8 实测同款两向），它**同形**：
+        真实 LLM 用例、`glm_route` 夹具、`ZHIPU_API_KEY` 门控（无 key 即 skip）。
+        本锁**不关心跑哪条用例**，只关心门控形态 —— 故断言逐字未动。
+        """
+        import subprocess
+        import sys as _sys
+
+        (tmp_path / ".env").write_text("ZHIPU_API_KEY=k61-canary-not-a-real-key\n",
+                                       encoding="utf-8")
+        env = os.environ.copy()
+        for key in list(TEST_ENV_PINS) + ["USER_MEMORY_DIR", "ZHIPU_API_KEY"]:
+            env.pop(key, None)
+        env["PYTHONPATH"] = os.pathsep.join([REPO, TESTS_DIR])
+        proc = subprocess.run(
+            [_sys.executable, "-m", "pytest",
+             os.path.join(REPO, "tests", "test_adaptive_advisor.py")
+             + "::TestIntegration::test_insight_field_in_integration",
+             "-q", "-p", "no:cacheprovider"],
+            cwd=str(tmp_path), env=env, capture_output=True, text=True,
+            # ⚠️ 集成分支（batch2-k61）：300 → 600。本锁要在**重负载**下不假红：
+            # 子进程里跑的是**真 LLM 用例**，其启动含共享的 embedding 模型加载
+            # （每次运行可见 `Loading weights: 391`）+ 一次真网络往返。
+            # 实测：负载平静 16.4s / 有 canary 调用 5.9–13.7s；但另一次在负载 9.1
+            # （并行 pytest + ugrep 203% CPU）时整文件跑到 391.01s ——
+            # **失败形态是撞自身 timeout 上限（非断言失败）**，属环境性假红。
+            # 放宽这个**测试自身参数**不改断言语义（断句仍是「不得出现 skipped」
+            # + 「1 passed 或 1 failed」）；它只是别把慢机器判成门控失效。
+            timeout=600,
+        )
+        out = proc.stdout + proc.stderr
+        assert "skipped" not in out, (
+            "单文件跑时 GLM 门控用例被静默 skip（顺序依赖回来了）：\n" + out[-800:]
+        )
+        assert ("1 passed" in out) or ("1 failed" in out), \
+            "用例既没通过也没失败 —— 没真的执行：\n" + out[-800:]
+
+
+# ══════════════════════════════════════════════════════════════════
+# 6) r5（审查整改）：I3 回退面入 pin / I4 数据路径隔离
+# ══════════════════════════════════════════════════════════════════
+
+class TestI3LlmKeyFallbackSurface:
+    """I3：`resolve_llm_api_key()` 的**回退面**（`ANTHROPIC_API_KEY`）必须一起 pin。
+
+    不 pin 的话，"测试进程不持有生产 LLM key"只是**名义上**成立：DEEPSEEK 为空时
+    会回退到 ANTHROPIC，而守卫的 pin 层绕过了；并且那条锁在**带该变量的机器上假红**
+    （审查者实测 1 failed / 14 passed；`env -u ANTHROPIC_API_KEY` 后 15 passed）。
+    本机宿主环境**确实带** `ANTHROPIC_API_KEY`（Claude Code 自带）→ 这些用例能跑通
+    本身就是"带该变量的机器不再假红"的验收。
+    """
+
+    def test_anthropic_key_is_pinned(self):
+        assert "ANTHROPIC_API_KEY" in TEST_ENV_PINS
+        assert ENV_PINS_AT_IMPORT["ANTHROPIC_API_KEY"] == ""
+
+    def test_resolver_cannot_fall_back(self):
+        """两个 key 都取不到 → 解析结果必为空（回退面已封）。"""
+        from src.llm.client import resolve_llm_api_key
+        assert resolve_llm_api_key() == ""
+        assert resolve_llm_api_key(allow_anthropic_fallback=True) == ""
+        assert resolve_llm_api_key(allow_anthropic_fallback=False) == ""
+
+    def test_deepseek_absence_lock_holds_with_anthropic_in_host_env(self):
+        """**验收**：宿主带 `ANTHROPIC_API_KEY` 时，那条 DeepSeek 锁不得假红。"""
+        import os as _os
+        assert _os.environ.get("ANTHROPIC_API_KEY") == "", \
+            "宿主变量漏进来了（pin 未生效）→ 会在带该变量的机器上假红"
+        from src.llm.client import resolve_llm_api_key
+        assert resolve_llm_api_key() == ""
+
+
+class TestI4DataPathIsolation:
+    """I4：`VECTORDB_DIR` / `FORTUNE_DB_PATH` / `FAISS_INDEX_DIR` 必须 pin 到**沙箱**。
+
+    这三个键的**代码默认值就是生产路径** → pin 成空值等于没 pin（r3 的
+    `FAISS_INDEX_DIR` pin 就是这种空操作）。实测后果：`test_engine_run_comparison`
+    → `evidence.py:41` / `baseline.py:47` 会真的打开生产向量库并 bump
+    `chroma.sqlite3` 的 mtime（审查者实测 11:12:37）。
+    """
+
+    def test_path_keys_are_sandboxed(self):
+        import os as _os
+        from conftest import TEST_FAISS_DIR, TEST_VECTORDB_DIR
+        assert _os.environ["VECTORDB_DIR"] == TEST_VECTORDB_DIR
+        assert _os.environ["FAISS_INDEX_DIR"] == TEST_FAISS_DIR
+        assert _os.environ["FORTUNE_DB_PATH"].startswith(str(Path(TEST_FAISS_DIR).parent))
+
+    def test_sandbox_db_is_a_real_snapshot(self):
+        """**r11 ①**：沙箱用户库必须是**真实的库快照**（不是空目录、不是空文件）。
+
+        为什么必须有这条：r10 把它 pin 到**不存在的空路径**，于是 eval 冒烟族
+        `seed_db_copy(settings.db_path)` 全部 `FileNotFoundError` → 每任务 skip；
+        L1/L4 断言 `executed>0`/`skipped is False` 才把这件事喊出来（L2/L3/e6 是**绿着空转**）。
+        本锁把"它是真库"钉死：非空 + 可打开 + 有业务表 + **不在生产路径下**。
+        """
+        import os as _os
+        import sqlite3
+        dst = _os.environ["FORTUNE_DB_PATH"]
+        assert _os.path.exists(dst), (
+            f"沙箱用户库不存在（{dst}）→ 依赖真实库的 eval 冒烟会**静默空转**（r10 的形态）")
+        assert _os.path.getsize(dst) > 0, f"沙箱用户库是空文件：{dst}"
+        con = sqlite3.connect(dst)
+        try:
+            tables = {r[0] for r in con.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+        finally:
+            con.close()
+        assert tables, f"沙箱用户库里没有任何表：{dst}"
+        for root in (k61conftest.PROD_DATA_ROOTS + k61conftest.PROD_DATA_WRITE_ROOTS):
+            assert not dst.startswith(root), f"沙箱用户库落在生产路径下：{dst} ⊂ {root}"
+
+    def test_snapshot_refuses_to_read_prod_while_watched(self, monkeypatch, tmp_path):
+        """**r11 ①（竞态锁）**：有看门狗在采样时，快照**不得**去读生产库。
+
+        实测过的假红形态（确定性探针 `HITS: 3`）：`test_k62k63_fixup_side_effect_guard`
+        会用**子进程**跑 pytest（沙箱副本）→ 子进程的 conftest 读生产库建快照 →
+        被**父会话**的 fd 看门狗采到 → 会话收尾 `ProdDataTouched` → 整轮 ERROR（竞态，0.05s 采样）。
+        判据是纯函数 `_snapshot_source()`：① 缓存可用 → 用缓存（不碰生产）；
+        ② 缓存不可用 + 有标记 → 返回 None（宁可不建快照）；③ 无标记时才允许读生产。
+        ⚠️ 路径 ③ **故意不在会话内验证**：那会在本会话自己的看门狗眼皮底下读生产库，
+        等于让本锁把守卫自己打红（要验证请在"没有会话"的进程里跑探针，见报告附件）。
+        """
+        monkeypatch.setattr(k61conftest, "DB_SNAPSHOT_CACHE",
+                            str(tmp_path / "nope" / "fortune.db"))
+        monkeypatch.setenv(k61conftest.PROD_WATCHDOG_ACTIVE_ENV, "1")
+        assert k61conftest._snapshot_source() is None, \
+            "有看门狗采样时仍去读生产库 → 会给别人的会话制造 ProdDataTouched 假红"
+        # 缓存可用时：优先缓存（即便有标记也不读生产）
+        cache = tmp_path / "cache.db"
+        cache.write_bytes(b"not-a-real-db-just-a-marker")
+        monkeypatch.setattr(k61conftest, "DB_SNAPSHOT_CACHE", str(cache))
+        assert str(k61conftest._snapshot_source()) == str(cache)
+        # 标记由会话夹具置上（子进程会继承它）
+        assert os.environ.get(k61conftest.PROD_WATCHDOG_ACTIVE_ENV) == "1"
+
+    def test_settings_do_not_point_at_production(self):
+        """**结构断言**：settings 的三个路径都不得落在生产数据根下。"""
+        from src.config import load_settings
+        s = load_settings()
+        prod_roots = k61conftest.PROD_DATA_ROOTS
+        for name, value in (("vectordb_dir", s.vectordb_dir),
+                            ("faiss_index_dir", s.faiss_index_dir),
+                            ("db_path", s.db_path)):
+            text = str(value)
+            for root in prod_roots:
+                assert not text.startswith(root), f"{name} 仍指向生产：{text}"
+
+    def test_prod_data_guard_installed(self, _k61_prod_data_guard):
+        """生产数据守卫是 autouse（本用例不做安装动作却拿到它）。"""
+        assert k61conftest.PROD_DATA_FILES, "被监视的生产数据文件清单为空"
+
+    def test_evidence_uses_settings_not_hardcoded_prod_path(self):
+        """`evidence.py` / `baseline.py` 的改造点读 **settings**（故 pin 即隔离）。"""
+        import inspect
+        from src.engine import baseline, evidence
+        for mod in (evidence, baseline):
+            src = inspect.getsource(mod)
+            assert "vectordb_dir" in src, mod.__name__
+            assert "/mnt/d/fortune-data" not in src, \
+                f"{mod.__name__} 里出现了硬编码生产路径"
+            assert "/home/a/data" not in src, \
+                f"{mod.__name__} 里出现了硬编码生产路径"
+
+
+# ══════════════════════════════════════════════════════════════════
+# 7) r7：生产数据守卫的**判据**必须是"本会话打开过"（不是"mtime 变了"）
+# ══════════════════════════════════════════════════════════════════
+#
+# 为什么改判据（审查者本机实测）：本机 30+ 并行 worktree，**另一个会话**在跑它自己的
+# pytest（lsof 抓到它持有生产路径下的文件；空闲 60s 内 mtime 自行变了 3 次）→
+# mtime 判据把**别人写的**记在**我头上** → 定向集两次都在收尾假红；
+# 而审查者自己的 fd 看门狗零命中。今晚全量门禁**必然**撞上（并发是常态）。
+
+class TestProdDataGuardCriterion:
+    def test_watchdog_running_and_scoped(self, _k61_prod_data_guard):
+        """看门狗在跑，且**粗筛**范围是整棵生产树（精确判定见 `_prod_fd_hit`）。"""
+        wd = k61conftest._PROD_WATCHDOG
+        assert wd.roots == tuple(k61conftest.PROD_DATA_WRITE_ROOTS), wd.roots
+        assert "hits" in vars(wd)
+
+    def test_two_tier_verdict_read_vs_write(self):
+        """**r11 两级判定的行为锁**（合并后 1 error 的根因）：只读语料不得被判成违规。
+
+        - 数据存储（`PROD_DATA_ROOTS`）→ **打开即命中**（只读也算，这是 I4 的主张）；
+        - 整棵生产树的其余部分（如只读语料 `books/`）→ **以写方式打开才命中**
+          （`tests/test_dream_rules_k55.py` 的溯源用例按设计要读真语料，
+           r10 的全树"打开即报"把全量门禁整轮打成了 ERROR）。
+        判据用 `/proc/<pid>/fdinfo` 的 `flags:` 低 2 位（0=只读/1=只写/2=读写）。
+        """
+        hit = k61conftest._prod_fd_hit
+        corpus = "/mnt/d/fortune-data/books/k55_dream/clean/dream_corpus.jsonl"
+        db = "/mnt/d/fortune-data/userdata/fortune.db"
+        # ① 只读语料：只读放行 / 写命中（flags 是八进制：0100000=O_RDONLY、0100001=O_WRONLY）
+        assert hit(corpus, "flags:\t0100000\nmnt_id:\t24\n") is False
+        assert hit(corpus, "flags:\t0100001\n") is True
+        assert hit(corpus, "flags:\t0100002\n") is True          # O_RDWR
+        # ② 数据存储：只读也命中（这是 I4 主张，r11 未放宽）
+        assert hit(db, "flags:\t0100000\n") is True
+        # ③ 拿不到 fdinfo / 格式变了 → **fail-closed**（判成写）
+        assert hit(corpus, "") is True
+        assert hit(corpus, "nonsense") is True
+        # ④ 生产树之外：一律不命中
+        assert hit("/tmp/x", "flags:\t0100001\n") is False
+        assert hit("/dev/shm/k61_test_data_x/userdata/fortune.db", "") is False
+
+    def test_failure_criterion_is_fd_hits_not_mtime(self):
+        """**判据锁（行为锁，r8 从源码文本锁换过来）**：只有 hits 会失败。"""
+        verdict = k61conftest._prod_guard_verdict
+        # ① mtime 变了但本会话没打开 → **不失败**
+        assert verdict([], ["/mnt/d/fortune-data/userdata/fortune.db"]) == ""
+        # ② 本会话打开了 → 失败，且报文含 pid/fd/path
+        msg = verdict([(12345, "7", "/mnt/d/fortune-data/vectordb_v2/chroma.sqlite3")], [])
+        assert msg and "本会话进程树" in msg
+        assert "pid=12345" in msg and "fd=7" in msg and "chroma.sqlite3" in msg
+        # ③ 两者同时 → 仍以 hits 为准
+        assert "本会话进程树" in verdict([(1, "3", "/mnt/d/fortune-data/x")], ["y"])
+
+    def test_own_session_open_is_recorded_then_drained(self, _k61_prod_data_guard):
+        """**植入实验**：本会话真的打开生产路径 → 看门狗必须记到（随后弹掉自证用）。"""
+        wd = k61conftest._PROD_WATCHDOG
+        prod_file = k61conftest.PROD_DATA_FILES[1]        # userdata/fortune.db
+        before = len(wd.hits)
+        try:
+            with open(prod_file, "rb") as fh:             # 只读；由本用例自证用
+                fh.read(8)
+                wd._sample_once()
+        except OSError as exc:
+            # r8（Important 3）：**不许 skip** —— skip 是静默面（本守卫的前提直接失效却看不见）。
+            pytest.fail(
+                f"生产数据文件不存在（{prod_file}）：{exc}\n"
+                "本守卫的**前提**是本机有生产数据；没有它，这条自检等于没跑。"
+                "若本机确实没有生产数据（如纯开发机），请**显式登记**该环境前提，"
+                "不要用 skip 把它藏起来。")
+        assert len(wd.hits) > before, "本会话打开了生产路径却没被看门狗记到"
+        hit = wd.hits[before]
+        assert str(hit[2]).startswith(tuple(k61conftest.PROD_DATA_ROOTS))
+        assert hit[0] == os.getpid()
+        del wd.hits[before:]                              # 自证用，弹掉避免 session 收尾报红
+
+    def test_read_only_corpus_open_is_not_flagged(self, _k61_prod_data_guard):
+        """**r11 回归锁（合并后 1 error 的直接形态）**：只读打开生产语料**不得**命中。
+
+        植入实验：本会话按 `tests/test_dream_rules_k55.py` 的方式只读打开一份
+        `books/` 下的语料 → 看门狗必须**零新增命中**（旧的全树"打开即报"会命中，
+        于是全量门禁在会话收尾报 `ProdDataTouched` → 整轮 ERROR）。
+        """
+        books_root = "/mnt/d/fortune-data/books"
+        sample = None
+        for dirpath, _dirnames, filenames in os.walk(books_root):
+            for fn in filenames:
+                if fn.endswith((".txt", ".jsonl")):
+                    sample = os.path.join(dirpath, fn)
+                    break
+            if sample:
+                break
+        if sample is None:
+            pytest.fail(
+                f"生产语料目录里没找到任何 .txt/.jsonl（{books_root}）——"
+                "本锁的**环境前提**是本机有生产语料（同 `test_own_session_open_is_"
+                "recorded_then_drained` 的处置：显式失败而不是 skip）。")
+        wd = k61conftest._PROD_WATCHDOG
+        before = len(wd.hits)
+        with open(sample, "rb") as fh:          # 只读（与那条溯源用例同款）
+            fh.read(64)
+            wd._sample_once()
+        assert len(wd.hits) == before, (
+            "只读打开生产语料被判成了违规（会让 test_dream_rules_k55 的溯源用例"
+            f"把整个会话打成 ERROR）：{wd.hits[before:]}")
+
+    def test_concurrent_writer_is_not_our_fault(self):
+        """**方向性（行为锁）**：别人写（mtime 变）+ 本会话没打开 → **必须不失败**。
+
+        真正的并发实验在报告里（跑测期间由另一个进程写生产文件、本会话全绿）；
+        这里把判据本身钉住：只看本会话的 fd。
+        """
+        mtime_changed = ["/mnt/d/fortune-data/userdata/fortune.db"]
+        assert k61conftest._prod_guard_verdict([], mtime_changed) == ""
+        # 反向：本会话真打开过 → 必失败
+        assert k61conftest._prod_guard_verdict([(1, "2", "/p")], mtime_changed) != ""
+
+
+class TestI4SandboxCorpusRestoresRealCorpusTests:
+    """r7-5：I4 隔离把 3 条**真语料**用例静默变 skip（审查者指出，此前未登记）。
+
+    `test_k24_ref_content_crash` ×2「本地古籍库为空」、`test_dream_engine_g4` ×1
+    「本地向量库为空」；并且 `test_engine_run_comparison` 的「真实本地检索前置」
+    不再成立（refs_n=0 / note=检索无命中）。修法：沙箱里种**最小本地语料**
+    （同名集合 `fortune_books_v2`），让它们仍能证明原意而**不碰生产**。
+    """
+
+    def test_sandbox_has_a_minimal_books_corpus(self):
+        # 本会话若没收集到依赖语料的文件，种植是**故意不跑**的（省 bge-m3 加载）——
+        # 这条锁**自带种植**（幂等），保证它在任何会话里都能给出结论，不靠 skip。
+        assert k61conftest._seed_sandbox_books_corpus() is True, \
+            "沙箱最小语料种不上（依赖 bge-m3 可用）；相关用例会 skip —— 需登记环境前提"
+        import chromadb
+        from chromadb.config import Settings as _CS
+        from src.book_categories import BOOKS_COLLECTION
+        from conftest import TEST_VECTORDB_DIR
+        client = chromadb.PersistentClient(path=str(TEST_VECTORDB_DIR),
+                                           settings=_CS(anonymized_telemetry=False))
+        col = client.get_collection(BOOKS_COLLECTION, embedding_function=None)
+        assert col.count() >= 20, f"沙箱语料太小/为空：{col.count()}"
+
+    def test_sandbox_corpus_is_used_by_settings_not_prod(self):
+        """沙箱语料在**沙箱目录**里，生产目录不含它（结构性证明不碰生产）。"""
+        from src.config import load_settings
+        s = load_settings()
+        assert str(s.vectordb_dir).startswith(str(k61conftest.TEST_DATA_DIR))
+        for root in k61conftest.PROD_DATA_ROOTS:
+            assert not str(s.vectordb_dir).startswith(root)

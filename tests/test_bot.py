@@ -214,6 +214,14 @@ def test_format_loading():
 def make_mock_handler():
     """Helper: create a MessageHandler with all mocks."""
     mock_llm = Mock()
+    # k61（禁网红线）：裸 `Mock()` 的 `.api_key` 是自动生成的 **真值** Mock，而
+    # `handler._analyze_message` / `_quick_flash` 都以
+    # `getattr(self.llm, 'api_key', '')` 判定「key 是否已配置」→ 判定为「已配置」
+    # → 真的对 `api.deepseek.com` 发请求（k61 全量实测：本文件 7 条用例命中进程
+    # 级守卫）。显式置空 = 「本测试的假 llm 没有 key」→ 走无-key 短路分支。
+    # 行为等价：改前那次真实请求必然失败并被 `except Exception` 吞掉 → 两条调用点
+    # 的返回值分别是 None/""（与短路分支逐字相同），故断言与链路均无需改动。
+    mock_llm.api_key = ""
     mock_llm.analyze.return_value = Mock(response="分析结果")
     mock_llm.chat.return_value = Mock(response="🔮 命理助手 返回的结果")
     mock_llm.chat_conversation.return_value = "🔮 命理助手 返回的结果"
@@ -278,6 +286,12 @@ def test_process_bazi_missing_info_uses_saved():
     mock_retriever.search.return_value = []
 
     mock_llm = Mock()
+    # k61（禁网红线）：裸 Mock 的 `.api_key` 是真值 Mock → handler 判定
+    # 「key 已配置」→ `_gen_info_collection_prompt` → `_quick_flash` 真的对
+    # api.deepseek.com 发请求（k61 全量实测命中守卫）。置空 = 走无-key 短路，
+    # 与改前「请求失败被吞 → 返回 ""」逐字等价（本条用例断言的是 engine/dao
+    # 调用与路由，不经 LLM 内容）。
+    mock_llm.api_key = ""
     mock_analysis = Mock()
     mock_analysis.response = "您的八字分析结果：日主乙木..."
     mock_llm.analyze.return_value = mock_analysis
@@ -320,6 +334,12 @@ def test_process_bazi_with_extracted_info():
     mock_retriever.search.return_value = []
 
     mock_llm = Mock()
+    # k61（禁网红线）：裸 Mock 的 `.api_key` 是真值 Mock → handler 判定
+    # 「key 已配置」→ `_gen_info_collection_prompt` → `_quick_flash` 真的对
+    # api.deepseek.com 发请求（k61 全量实测命中守卫）。置空 = 走无-key 短路，
+    # 与改前「请求失败被吞 → 返回 ""」逐字等价（本条用例断言的是 engine/dao
+    # 调用与路由，不经 LLM 内容）。
+    mock_llm.api_key = ""
     mock_analysis = Mock()
     mock_analysis.response = "您的八字分析结果：日主乙木..."
     mock_llm.analyze.return_value = mock_analysis

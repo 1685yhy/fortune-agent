@@ -60,6 +60,12 @@ def _mock_engine(bazi=None):
 def _make_handler(db_path, engine=None, llm_response="您的八字分析结果：日主乙木…"):
     dao = UserDAO(db_path)
     llm = Mock()
+    # k61（禁网红线）：裸 Mock 的 `.api_key` 是真值 Mock → handler 的
+    # `getattr(self.llm, 'api_key', '')` 判定「已配置」→ `_quick_flash` /
+    # MessageAnalyzer 真的对 api.deepseek.com 发请求（k61 全量实测命中守卫）。
+    # 显式置空 = 走无-key 短路；与「本测试禁网」的原意一致，且改前那次请求必然
+    # 失败被吞 → `_quick_flash` 返回 ""，短路分支返回值逐字相同。
+    llm.api_key = ""
     analysis = Mock()
     analysis.response = llm_response
     llm.analyze.return_value = analysis

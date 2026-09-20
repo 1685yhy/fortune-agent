@@ -1542,7 +1542,7 @@ async def api_tts(req: TTSRequest, uid: str = Depends(require_user)):
     安全修复：必须登录（防刷 TTS 成本）。
     """
     import httpx
-    from src.config import public_base_url, tts_upstream_base
+    from src.config import public_client_base, tts_upstream_base
     if not (req.text or "").strip():
         raise HTTPException(status_code=400, detail="text 不能为空")
     try:
@@ -1558,7 +1558,9 @@ async def api_tts(req: TTSRequest, uid: str = Depends(require_user)):
         audio_url = data.get("audio_url", "")
         if audio_url.startswith("/"):
             # 相对路径 → 完整 URL（按配置的对外域名，8768 静态挂载 /audio）
-            audio_url = f"{public_base_url()}{audio_url}"
+            # k61 r3：客户端 URL 走 public_client_base()（回环值不下发）；
+            # 服务内部转发仍走 tts_upstream_base()
+            audio_url = f"{public_client_base()}{audio_url}"
         return {
             "audio_url": audio_url,
             "duration_ms": data.get("duration_ms", 0),
@@ -2778,15 +2780,6 @@ async def admin_active_members(authorization: str = Header("")):
     if member_dao is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     return {"members": member_dao.list_active_members()}
-
-
-@app.get("/membership")
-async def membership_page():
-    """会员价格页面"""
-    html = Path(__file__).parent / "membership.html"
-    if html.exists():
-        return HTMLResponse(html.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>会员页面未找到</h1>", status_code=404)
 
 
 @app.get("/pricing")

@@ -9,6 +9,15 @@
 - Serendipity 引擎输出
 - 行动建议包含具体步骤和成功指标
 - 名人匹配已移除（2026-08-09 方案 v5 选 A）：celebrity_match 恒为空 dict
+
+k61（用户红线「测试涉及 LLM 一律用免费 glm-4-flash，不许用 DeepSeek」）：
+`TestIntegration` 原按 `DEEPSEEK_API_KEY` 门控 —— 部署 `.env`（软链到生产）
+由 `src/config.py` 导入时灌进 `os.environ` → 全量跑时真的打生产 DeepSeek
+（k61 探针实测 5 条用例共 16 次 `api.deepseek.com` 出站）。现：
+  - 真实端到端用例经 `glm_route` 夹具走**免费 glm-4-flash**（ZHIPU_API_KEY 门控）；
+  - `test_response_under_5_seconds` 改用 mock 传输层（零外呼）+ 出站请求形状断言；
+  - 进程级守卫 `tests/conftest.py::_k61_deepseek_egress_guard` 兜底禁止真实
+    deepseek 出站。断言阈值一条未改。
 """
 import json
 import os
@@ -361,37 +370,96 @@ class TestFallback:
 
 
 # ============================================================
-# 集成测试（可选，需要真实 API Key）
+# 集成测试（真实 LLM —— k61 起一律走免费 glm-4-flash）
 # ============================================================
 
 class TestIntegration:
-    """集成测试 - 需要真实 API Key。
+    """集成测试 - 需要真实 LLM。
 
-    设置环境变量 DEEPSEEK_API_KEY 后才会运行。
+    k61（用户红线「测试涉及 LLM 一律用免费智谱 glm-4-flash，不许用 DeepSeek」）：
+    本类原按 `DEEPSEEK_API_KEY` 门控 —— 部署 `.env`（软链到生产）由
+    `src/config.py` 导入时灌进 `os.environ`，于是**全量跑时不再 skip，真的打生产
+    DeepSeek**（k61 探针实测：本类 5 条用例共 16 次 `api.deepseek.com` 出站）。
+    现在：
+      - 真实端到端用例（`test_ten_bazi_uniqueness` / `test_different_personality_*
+        / test_serendipity_* / test_insight_*`）经 `glm_route` 夹具走**免费
+        glm-4-flash**（`ZHIPU_API_KEY` 门控，无 key 才 skip）；
+      - 只验证本地管线与请求形状的 `test_response_under_5_seconds` 改用
+        mock 传输层，**零外呼**；
+      - 进程级守卫（`tests/conftest.py`）兜底：任何真实 deepseek 出站一律失败。
     """
 
     @pytest.fixture
-    def api_key(self):
-        key = os.environ.get("DEEPSEEK_API_KEY", "")
-        if not key:
-            pytest.skip("需要设置 DEEPSEEK_API_KEY 环境变量")
-        return key
+    def api_key(self, glm_route):
+        """真实 LLM 用的 key —— k61 起是**免费 GLM** key（不再是生产 DeepSeek）。
+
+        引擎要求 `api_key` 非空才走 LLM 路径；实际外呼由 `glm_route` 用
+        `ZHIPU_API_KEY` 打到 `open.bigmodel.cn`（`glm-4-flash`），传入的付费
+        key/模型一律被替换。无 `ZHIPU_API_KEY` → skip（原语义：无可用 key 不跑）。
+        """
+        return glm_route
 
     @pytest.fixture
     def advisor(self):
         return AdaptiveAdvisor()
 
-    def test_response_under_5_seconds(self, advisor, sample_bazi_a, api_key):
-        """响应时间 < 5 秒。"""
+    def _mock_response(self):
+        """完整可解析的 LLM 输出（与 TestAdaptiveAdvisorMocked 同形，5 领域齐）。"""
+        return json.dumps({
+            "actions": [
+                {"category": cat, "advice": f"{cat}建议：结合命盘看流年",
+                 "timing": "2027年9月15日-10月15日", "confidence": "high",
+                 "concrete_steps": "1.本月梳理 2.下月争取",
+                 "success_metric": "3个月内可见变化"}
+                for cat in LIFE_DOMAINS
+            ],
+            "serendipity": "顺带一提：你的桃花星很旺。",
+            "daily_tip": "今天宜静不宜动。",
+            "style_notes": "命格偏强，宜顺势而为",
+        }, ensure_ascii=False)
+
+    def test_response_under_5_seconds(self, advisor, sample_bazi_a, mock_deepseek_http):
+        """`generate()` 的**本地管线** < 5 秒 + 出站请求形状正确（k61 根因收口）。
+
+        ── 原判据为什么站不住（k61 根因） ───────────────────────────────────
+        原实现断言的是 `advisor.generate()` 的整体墙钟 < 5 秒，而该调用内部含
+        **一次真实远端 LLM 调用**（`_call_llm` → 统一层 → `api.deepseek.com`，
+        `max_tokens=3000`、`timeout=45.0`）。远端生成延迟（服务端排队/生成长度/
+        网络抖动）**不是我方可控量**，拿 5 秒硬墙钟当门禁判据必然假红：
+        k57 门禁实测 >5s 红；含 k57 全部改动的 k59 门禁里同一用例是绿的
+        → 判定为环境性假红（代码未变，只有并发/上游变了）。
+
+        ── 收口（不外呼，且不掏空断言） ────────────────────────────────────
+        ① 耗时断言限定在**我方拥有的部分**：mock 传输层固定 LLM 响应（零外呼），
+           墙钟此时只覆盖 提示词构造 + 命盘格式化 + 响应解析 + 组装 + emoji 收敛
+           —— 这些都是本模块自己会写坏的代码（实测分布见报告，p99 远低于 5s）。
+        ② 原来隐含的「真调了 DeepSeek 且按约定参数调」改成**显式形状断言**
+           （端点/模型/max_tokens/thinking/鉴权头）—— 比原来只断言耗时**更强**：
+           原来即使把端点调错、参数写错，只要快也照样绿。
+        ③ 真实 LLM 的端到端行为仍由本类其余用例经免费 GLM 覆盖。
+        """
+        captured = mock_deepseek_http(self._mock_response())
+
         start = time.time()
         result = advisor.generate(
             sample_bazi_a,
             user_context="最近工作很忙，想了解事业运势",
-            api_key=api_key,
+            api_key="k61-local-pipeline",
         )
         elapsed = time.time() - start
-        assert elapsed < 5.0, f"响应时间 {elapsed:.2f}s 超过 5s 限制"
+        assert elapsed < 5.0, f"本地管线耗时 {elapsed:.2f}s 超过 5s 限制"
         assert len(result.get("actions", [])) == 5
+
+        # 形状断言：确实经统一层打了 DeepSeek 兼容端点，且参数契约未漂移
+        assert len(captured) == 1, f"应恰好一次 LLM 调用，实际 {len(captured)}"
+        req = captured[0]
+        assert req["method"] == "POST"
+        assert req["url"] == "https://api.deepseek.com/anthropic/v1/messages"
+        assert req["json"]["model"] == "deepseek-flash[1m]"
+        assert req["json"]["max_tokens"] == 3000
+        assert req["json"]["thinking"] == {"type": "disabled"}
+        assert req["headers"]["authorization"] == "Bearer k61-local-pipeline"
+        assert req["json"]["messages"][0]["role"] == "system"
 
     def test_ten_bazi_uniqueness(self, advisor, engine, api_key):
         """10组不同八字 → >80% 独特建议率。"""
