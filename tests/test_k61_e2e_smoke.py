@@ -31,6 +31,25 @@ k61 P2 把 `test_response_under_5_seconds` 的**远端**延迟断言收口成了
 **不是**生产 DeepSeek 链路的延迟。生产延迟**无法**在测试里测 —— k61 红线禁止测试
 访问 DeepSeek。产品级 5 秒承诺的最终判读需要**人工**在部署环境看线上数据
 （或另开批次的非门禁探针），本文件的数字只作**参考基线**。
+
+## 集成分支（batch2-k61）变更登记：准确率测量随死模块一并移除，种子语料就地保留
+
+- **移除**：原 r4 ② 的 `test_e2e_mood_accuracy_reports_only`（+ 其助手
+  `_stratified_sample` / `rows_to_moods` / `E2E_PER_CLASS`）。
+  它 `from src.engines.mood_detector import MoodDetector`（**产品模块**），
+  而该模块已被 k62（`2a67833`）按用户拍板作为死代码删除 → 该用例永远
+  `ModuleNotFoundError`（实测：`No module named 'src.engines.mood_detector'`）。
+  ⚠️ **该能力（情绪/人设判定）随模块一起移除 —— 它是死模块，"情绪/人设判定"
+  从未接入产品（`src/` 下 0 引用、无生产调用点）。这里不是"丢了一个在用的能力"，
+  而是"删掉了一个从未被用过的能力的测试"**。如将来真要做该能力，需**重新立项**
+  （k62 守卫 `tests/test_k62_deadcode_removal_guard.py` 会拦住模块复活）。
+- **保留**：`LABELED_TEST_CASES`（54 条分层种子语料）**就地内联**在本文件（下方），
+  不再从被删的 `tests/test_mood_detector.py` import。
+  条数取证：k61 r8 §8.3 曾写「24 条」，与事实源不符 —— 该常量在
+  `main` / `ea110c3` / `2a67833^` / `k61-registered-r2` **每个含它的 ref 上都是 54 条**
+  （k61 自己 `tests/test_mood_detector.py:518` 亦写「全 54 条 0.556」）。
+  集成分支按**事实源 54 条**内联；样本语义逐条逐序不变（证据与锁见
+  `tests/test_k61_e2e_seed_corpus.py`）。
 """
 import os
 import time
@@ -114,80 +133,83 @@ def test_e2e_advisor_generate_reports_latency(glm_route):
 
 
 # ══════════════════════════════════════════════════════════════════
-# r4 ②（控制方裁决 = 方案 B）：真 provider 的**准确率**测量 —— 只报数，不设阈值
+# 分层种子语料（就地内联，**不得改回 import**）
 # ══════════════════════════════════════════════════════════════════
 #
-# 为什么在这里而不是门禁里：0.70 那个阈值是**在 DeepSeek 上校准**的，而本批按红线
-# 只能跑免费 glm-4-flash —— 实测免费档够不到该阈值（见下面的报数）。把"按 provider
-# 分档"当修法 = 实质放宽判据（控制方不批）；"保持 0.70 让它红" = 制造噪音（也不批）。
-# 于是：**判别力**留在门禁（`tests/test_mood_detector.py` 的
-# `TestAccuracySampleHasDiscriminativePower`：死端点必须 < 0.70 + 分层样本必须
-# 覆盖三类），**真实准确率**在这里**测量并报数**，供人工参考。
+# 出处：`tests/test_mood_detector.py`（该文件已随死模块被 k62 `2a67833` 删除）
+# 的 `LABELED_TEST_CASES`，**逐字**搬来，含原始分组注释与顺序 —— 顺序是语义的一部分：
+# 分层抽样取「每类前 N 条」，换序即换样本。
 #
-# ⚠️ **定级（k61 r5 更正）**：被测模块 `MoodDetector` 在 `src/` 下**被引用 0 次
-# （无生产调用点）**，因此这里的分数**只是该模块自身的测试读数**，
-# **不得**作为产品准确率/用户体验结论引用。
+# 格式：(message, expected_mood, category)
 #
-# 报数必须同时给出 **provider** 与 **样本量**（控制方硬要求），并保留分层样本。
+# 本常量当前**无 LLM 消费者**（消费它的 `test_e2e_mood_accuracy_reports_only`
+# 已随被测模块一起移除，见模块 docstring）。它作为**固定、分层、可复现的种子语料**
+# 保留在此，并由 `tests/test_k61_e2e_seed_corpus.py` 锁住形状与抽样结果
+# （该锁在常规门禁里跑，不随 `K61_E2E` 跳过）。
+LABELED_TEST_CASES = [
+    # ── Anxiety / Worry / Fear -> gentle ──
+    ("我好焦虑，不知道该怎么办", "gentle", "anxiety"),
+    ("最近压力好大，晚上睡不着", "gentle", "anxiety"),
+    ("我害怕这次考试会考砸", "gentle", "fear"),
+    ("担心老公的身体，他最近总说累", "gentle", "worry"),
+    ("很紧张，明天要去面试了", "gentle", "anxiety"),
+    ("最近总是很烦躁，看什么都不顺眼", "gentle", "anxiety"),
+    ("我好害怕失去这份工作", "gentle", "fear"),
+    ("总觉得心里不踏实", "gentle", "anxiety"),
+    ("每天都在担心孩子的成绩", "gentle", "worry"),
+    ("最近工作特别累，想辞职了", "gentle", "exhaustion"),
 
-#: 分层样本每类取几条（与门禁内 `representative_sample()` 同一口径：每类前 N 条）
-E2E_PER_CLASS = 4
+    # ── Data / Analysis / Numbers -> analyst ──
+    ("帮我分析一下明年的财运走势", "analyst", "analysis"),
+    ("从命理角度分析我适合什么职业", "analyst", "analysis"),
+    ("我的八字里木旺不旺？和金的关系是什么", "analyst", "data"),
+    ("给我一个数据分析，我什么时候能升职", "analyst", "data"),
+    ("这个投资方案成功率有多少", "analyst", "analysis"),
+    ("比较一下申月和酉月对我的影响", "analyst", "analysis"),
+    ("用数据分析一下我今年的事业运势", "analyst", "data"),
+    ("从概率角度分析我该不该跳槽", "analyst", "analysis"),
+    ("做一个详细的流年分析报告", "analyst", "analysis"),
+    ("帮我看看这个合婚配对的结果", "analyst", "analysis"),
+    ("今年有几个重要时间节点需要关注", "analyst", "analysis"),
+    ("用统计学角度看看我的财运", "analyst", "data"),
+    ("这个八字格局有什么特点", "analyst", "analysis"),
+    ("从五行角度分析一下我的体质", "analyst", "analysis"),
+    ("我的八字里哪些元素比较强", "analyst", "data"),
 
+    # ── Humor / Casual / Joking -> sassy ──
+    ("哈哈哈大师我的桃花运来了吗", "sassy", "humor"),
+    ("今天心情超好，感觉要发财了", "sassy", "joy"),
+    ("笑死，测了好几个八字都说我会发财", "sassy", "humor"),
+    ("哎呀今天被夸了，开心死了", "sassy", "joy"),
+    ("哈哈哈上次你说的话真的太准了", "sassy", "humor"),
+    ("我是不是命里带财啊？开个玩笑哈哈", "sassy", "humor"),
+    ("今天运气也太好了吧", "sassy", "joy"),
+    ("来给我算算啥时候能暴富", "sassy", "casual"),
+    ("哈哈刚买彩票就让我来算一卦", "sassy", "humor"),
+    ("今天天气真好，心情也跟着好了", "sassy", "joy"),
+    ("帮我看看我是不是天选之子", "sassy", "humor"),
+    ("大师我今天捡到钱了！", "sassy", "joy"),
+    ("最近运气爆棚啊，来算算能不能持续", "sassy", "joy"),
+    ("哈哈我感觉我要走上人生巅峰了", "sassy", "humor"),
+    ("我上辈子是不是拯救了银河系", "sassy", "humor"),
 
-def _stratified_sample():
-    """分层样本：gentle/analyst/sassy 各取前 4 条（确定性、可复现）。"""
-    import collections
+    # ── Anger / Frustration -> gentle (de-escalate) ──
+    ("我真的很生气，感觉被坑了", "gentle", "anger"),
+    ("太让人火大了，这什么破事", "gentle", "anger"),
+    ("烦死了，每天都遇到倒霉事", "gentle", "frustration"),
+    ("我对这个结果非常不满意", "gentle", "anger"),
+    ("忍了很久了，这次真的受不了", "gentle", "frustration"),
 
-    from test_mood_detector import LABELED_TEST_CASES
-    by = collections.defaultdict(list)
-    for case in LABELED_TEST_CASES:
-        by[case[1]].append(case)
-    sample = []
-    for cls in ("gentle", "analyst", "sassy"):
-        sample.extend(by[cls][:E2E_PER_CLASS])
-    return sample
+    # ── Confusion / Uncertainty -> analyst (clarify) ──
+    ("好纠结要不要换工作，帮我想想", "analyst", "confusion"),
+    ("不知道该怎么选择，给点建议", "analyst", "confusion"),
+    ("我很迷茫，不知道未来的方向", "gentle", "confusion"),
+    ("想不通为什么总是遇到这种事", "gentle", "confusion"),
 
-
-@pytest.mark.e2e
-def test_e2e_mood_accuracy_reports_only(glm_route):
-    """被测模块在真 provider 上的判定准确率 —— **只报数**（provider + 样本量 + 分层明细）。
-
-    不设通过阈值：阈值是 provider 相关的，而本批只能跑免费档（见模块顶部说明）。
-
-    ⚠️ **定级（k61 r5 更正）**：被测模块 `src/engines/mood_detector.py` 在 `src/` 下
-    **被引用 0 次 —— 没有生产调用点**。所以本用例的分数**只是该模块自身的测试读数**，
-    度量不到任何产品行为，**不得**被引用为"产品准确率下降"或"用户体验变差"的证据。
-    """
-    from src.engines.mood_detector import MoodDetector
-
-    sample = _stratified_sample()
-    detector = MoodDetector(api_key=glm_route)
-    import collections
-    per = collections.defaultdict(lambda: [0, 0])
-    rows = []
-    for msg, expected, _ in sample:
-        got = detector.detect(msg).mood
-        per[expected][1] += 1
-        if got == expected:
-            per[expected][0] += 1
-        rows.append(f"{expected}->{got}")
-
-    total = len(sample)
-    correct = sum(v[0] for v in per.values())
-    provider = f"zhipu/{GLM_DEFAULT_MODEL}"
-    print(f"\n[k61 e2e] mood accuracy provider={provider} n={total} "
-          f"score={correct}/{total}={correct / total:.3f}")
-    for cls in ("gentle", "analyst", "sassy"):
-        c, n = per[cls]
-        print(f"[k61 e2e]   {cls:8s} {c}/{n}")
-    print(f"[k61 e2e]   detail: {' '.join(rows)}")
-
-    # 只断言"测完了"（每条都真的被判过一次），不断言分数 —— 分数是报告项。
-    assert len(rows) == total
-    assert all(m in ("sassy", "analyst", "gentle") for m in rows_to_moods(rows))
-    assert 0.0 <= correct / total <= 1.0
-
-
-def rows_to_moods(rows):
-    """从 `exp->got` 明细里取出 got 列（自检用）。"""
-    return [r.split("->", 1)[1] for r in rows]
+    # ── Neutral / Simple Greeting -> sassy ──
+    ("你好", "sassy", "neutral"),
+    ("在吗", "sassy", "neutral"),
+    ("好的谢谢", "sassy", "neutral"),
+    ("早上好", "sassy", "neutral"),
+    ("明白了", "sassy", "neutral"),
+]
