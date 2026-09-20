@@ -25,6 +25,11 @@ from scripts.k55_dream import build_rules as B
 from scripts.k55_dream import freeze_fixture as FF
 
 FIX_DIR = Path(__file__).resolve().parent / "data"
+# 生产产物路径（**import 期**取一次，供 mtime 结构锁使用；不受 monkeypatch 影响）
+_REPO = Path(__file__).resolve().parent.parent
+_PROD_OUT_MODULE = _REPO / "src" / "engines" / "dream_rules.py"
+_PROD_OUT_TABLE = Path("/mnt/d/fortune-data/books/k55_dream/reports/rule_table.csv")
+_PROD_REPORTS = Path("/mnt/d/fortune-data/books/k55_dream/reports")
 CORPUS = FIX_DIR / "k58_fixture_corpus.jsonl"
 EXPECT = FIX_DIR / "k58_fixture_expected.json"
 CLASSICS = FIX_DIR / "k58_fixture_classics.json"
@@ -166,18 +171,34 @@ def test_main_entrypoint_runs_end_to_end_on_frozen_fixture(tmp_path, monkeypatch
     monkeypatch.setattr(B.colloc_mod, "corpus_stats",
                         lambda els: {"standalone": {}, "head": {}})
     out_mod = tmp_path / "dream_rules_e2e.py"
+    # ⚠️ 三个输出路径**都要重定向**（r11 Important ①）：`OUT_TABLE` 是**import 期**绑定的，
+    # 只 patch `REPORTS`/`OUT_MODULE` 会漏掉它 → 本用例曾把**夹具数据**写进生产
+    # `rule_table.csv`（验证者用 mtime 指纹抓到：CSV=15:15、排除清单=11:28）。
     monkeypatch.setattr(B, "REPORTS", tmp_path)
     monkeypatch.setattr(B, "OUT_MODULE", out_mod)
+    monkeypatch.setattr(B, "OUT_TABLE", tmp_path / "rule_table.csv")
     monkeypatch.setattr(_sys, "argv", ["build_rules.py", "--top", "400",
                                        "--min-coverage", "1", "--min-standalone", "1",
                                        "--min-coverage-for-retain", "1",
                                        "--retain-from", str(CORPUS)])
 
+    # **结构锁**（r11 Important ①）：跑之前先记下三个**生产产物**的 mtime，
+    # 跑完断言一个都没动 —— 结构锁 > 行为锁（它不依赖我「记得 patch 哪些路径」）。
+    prod_paths = [Path(_PROD_OUT_MODULE), Path(_PROD_OUT_TABLE), Path(_PROD_REPORTS) / "rule_exclusions.json"]
+    before = {str(p): (p.stat().st_mtime_ns if p.exists() else None) for p in prod_paths}
+
     rc = B.main()
-    assert rc == 0, f"入口返回 {rc}"
-    # 产物必须**完整**（r10 C-1 的另一半：崩之前会先写 rule_exclusions.json，留半写状态）
+    assert rc == 0, f"入口返回 {rc}"            # ← 真正拦住"半写"的是这条（见下注）
+    # 产物必须**完整**：模块生成、三件齐
     assert out_mod.exists() and out_mod.stat().st_size > 500, "规则模块未生成/过小"
+    # ⚠️ 理由更正（r11 Minor）：**「rule_exclusions.json 存在」防不住半写** ——
+    # 它在规则循环**之前**就写了。真正拦住半写的是 `rc == 0` + 上面的模块断言
+    # （验证者注入「第 3 条规则失败」时：该 json 恰好存在，CSV/模块未写 → 由 rc/模块断言拦下）。
     assert (tmp_path / "rule_exclusions.json").exists(), "排除清单未写"
+    assert (tmp_path / "rule_table.csv").exists(), "CSV 未写（说明 OUT_TABLE 未重定向成功）"
+    after = {str(p): (p.stat().st_mtime_ns if p.exists() else None) for p in prod_paths}
+    changed = {k: (before[k], after[k]) for k in before if before[k] != after[k]}
+    assert not changed, f"本用例**写了生产路径**（结构锁）：{changed}"
     ns: dict = {}
     exec(compile(out_mod.read_text(encoding="utf-8"), str(out_mod), "exec"), ns)
     rules = ns["DREAM_PATTERN_RULES"]
