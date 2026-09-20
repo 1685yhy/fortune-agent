@@ -13,12 +13,15 @@
 
 ## 处置（根因，不是清理现场）
 
-1. `data/memory/`：会话级把 `USER_MEMORY_DIR` 重定向到临时目录
+1. `data/memory/`：把 `USER_MEMORY_DIR` 重定向到临时目录
    （`UserMemory` 自己文档化的隔离口，见 `tests/conftest.py` §0）。
    k61 探针实测：全量跑共 **164 次** `UserMemory._save` 写点，其中 `user_id=""`
    的 4 次来自 `tests/test_bot.py::test_handle_voice_with_text_routes_through_process`
    与 `::test_voice_message_type_routing`（语音路径不带 user_id）—— 那 4 次正是
-   覆盖 `data/memory/.json` 的元凶；重定向后 164 次全部落到 tmp。
+   覆盖 `data/memory/.json` 的元凶。
+   ⚠️ **r11 更正**：承担这条重定向的**不是** conftest（那会让
+   `test_k62k63_fixup_side_effect_guard` 的判定力归零，见 conftest §0c ②），
+   而是 `tests/test_bot.py` 自己的模块级 autouse fixture（batch2/k62 的处置）。
 2. `src/engine/out/comparison_runs.jsonl`：`run_comparison()` 的输出路径此前**硬编码
    在函数体内**，已提为默认参数 `out_path=DEFAULT_OUT_PATH`（生产/CLI 行为逐字不变），
    调用它的用例传 `tmp_path`。该文件同时是 `tests/test_engine_build_report.py` 的

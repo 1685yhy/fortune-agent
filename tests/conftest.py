@@ -20,6 +20,11 @@ k57 门禁里 `test_response_under_5_seconds` 真跑到 >5s 墙钟失败即其�
 
 0. **测试进程环境隔离**（r2 / 方案 A）：`TEST_ENV_PINS` 在任何 `src.*` 导入之前
    把部署键 pin 成空值 —— 测试进程等价于「没有部署 .env」。见 §0。
+   **r11 收窄**（本文件曾被全量门禁打红，根因是"改了别人依赖的全局语义"）：路径类
+   pin 的沙箱里放**真实库的只读快照**（`FORTUNE_DB_PATH`，不能是空目录 —— 否则
+   eval 冒烟的"复制真实库"当场 FileNotFoundError）；`USER_MEMORY_DIR` **不再全局
+   重定向**（会拆掉 `test_k62k63_fixup_side_effect_guard` 的判定力），改回"每个测试
+   文件自理 + conftest 只提供目录常量"。详见 §0c。
 1. `_k61_deepseek_egress_guard`（autouse / session）——**进程级**拦截：
    测试期间任何指向 `deepseek` 域的真实出站连接一律以
    `DeepSeekEgressBlocked(BaseException)` 失败。拦截点全部落在「真正会把字节
@@ -166,13 +171,40 @@ TEST_ENV_SANDBOX_PATHS = {
     "FORTUNE_DB_PATH": "用户数据库路径。代码默认 = 生产目录",
 }
 
-#: 生产数据根（I4 守卫据此断言"跑测试不打开生产向量库"）。
-PROD_DATA_ROOTS = ("/mnt/d/fortune-data", "/home/a/data")
+#: **生产数据存储**（数据库/索引/用户库）—— 本会话**打开过**即报红。
+#: 这正是 I4 的原始主张：「跑测试不打开**生产向量库/生产库**」。
+#:
+#: ⚠️ **r11 收窄（这是合并后 1 error 的根因）**：r7–r10 这里写的是**整棵**
+#: `/mnt/d/fortune-data` —— 把 `books/` 下的**只读语料**也算成了"生产库"。
+#: 而 `tests/test_dream_rules_k55.py::test_public_domain_records_are_verbatim_and_traceable`
+#: /`::test_third_party_records_carry_source_url` 是**按设计**要读真实语料的溯源用例
+#: （`books/k55_dream/clean/dream_corpus.jsonl`、`books/zonghe/12880_dreams.txt`，
+#: 且自带"数据不在就 skip"的门）—— 全量门禁跑到会话收尾，看门狗把这几次**只读**
+#: 打开记成"打开过生产数据" → `ProdDataTouched` → 整轮报 ERROR（挂在最后一个用例上，
+#: 所以表现为 `ERROR tests/test_ziwei_authority_fix.py::…`，单跑却绿）。
+#: 语料是**只读数据源**、不是库；把"读语料"判成违规属于**过拦**（且无法通过 pin 修：
+#: 那两条用例就是要读真语料，pin 空沙箱只会让它们静默 skip —— 与 r7-5 同款教训）。
+#: 现在：**数据存储 = 打开即报红**；**整棵生产树 = 只对"以写方式打开"报红**。
+PROD_DATA_ROOTS = (
+    "/mnt/d/fortune-data/vectordb_v2",   # 向量库（k61 已 pin VECTORDB_DIR）
+    "/mnt/d/fortune-data/faiss",         # FAISS 索引（已 pin FAISS_INDEX_DIR）
+    "/mnt/d/fortune-data/userdata",      # 用户业务库（已 pin FORTUNE_DB_PATH）
+    "/home/a/data/userdata",             # 正在运行的生产服务自己的用户库
+)
 
-#: 会话级临时目录：把 `UserMemory()` 的默认目录（repo 内 `data/memory/`）重定向出去。
-#: 这是 `UserMemory` 自己文档化的隔离口（`USER_MEMORY_DIR`，「测试隔离用」）。
-#: 不重定向时，任何走默认目录的用例都会写脏**被 git 跟踪**的 `data/memory/*.json`
-#: （实测全量跑必现 `M data/memory/.json`）。
+#: 生产数据**整棵树**：只读不算违规（见上注），**以写方式打开**即报红。
+PROD_DATA_WRITE_ROOTS = ("/mnt/d/fortune-data", "/home/a/data")
+
+#: 会话级临时目录：**供测试文件自行**把 `UserMemory()` 的默认目录（repo 内
+#: `data/memory/`）重定向出去。这是 `UserMemory` 自己文档化的隔离口
+#: （`USER_MEMORY_DIR`，「测试隔离用」），`tests/test_bot.py` 就是这么用的
+#: （模块级 autouse fixture `monkeypatch.setenv`）。
+#:
+#: ⚠️ **r11：conftest 不再替所有测试设这个环境变量**（原来在 `_pin_test_env()` 里
+#: 全局设过）。原因见下面 §0c 的长注 —— 全局重定向会让
+#: `tests/test_k62k63_fixup_side_effect_guard.py::test_guard_has_teeth_pre_fix_copy_dirties_memory`
+#: 失去判定力（那条守卫的判定前提正是「**没有**环境变量兜底时，未隔离的用例会把
+#: `data/memory/.json` 写脏」）。本常量保留，供需要的测试文件显式使用。
 TEST_MEMORY_DIR = tempfile.mkdtemp(prefix="k61_test_memory_")
 atexit.register(shutil.rmtree, TEST_MEMORY_DIR, ignore_errors=True)
 
@@ -186,14 +218,21 @@ def _pin_test_env() -> None:
     """
     for key in TEST_ENV_PINS:
         os.environ[key] = ""
-    os.environ["USER_MEMORY_DIR"] = TEST_MEMORY_DIR
     # I4：路径类 pin 到沙箱（不能 pin 空值 —— 空值会落到代码默认 = 生产路径）
     os.environ["VECTORDB_DIR"] = TEST_VECTORDB_DIR
     os.environ["FAISS_INDEX_DIR"] = TEST_FAISS_DIR
     os.environ["FORTUNE_DB_PATH"] = os.path.join(TEST_DB_DIR, "fortune.db")
 
 
+#: r11：`USER_MEMORY_DIR` 的导入期**前后快照**（锁用例据此断言「本 pin 函数没有
+#: 动过它」）。用前后对比而不是「此刻是否为空」：开发者 shell 里若自己导出了这个
+#: 变量，断言"必须为空"会假红，而 pin 的职责只是"不替所有测试做决定"。
+_USER_MEMORY_DIR_BEFORE_PIN = os.environ.get("USER_MEMORY_DIR")
+
 _pin_test_env()
+
+#: 见 §0c：conftest 不得在导入期占用 `USER_MEMORY_DIR`（全局重定向会拆掉别人的判定力）。
+USER_MEMORY_DIR_AFTER_PIN = os.environ.get("USER_MEMORY_DIR")
 
 # ── r3 ⑤：把 `.env` 的加载**定死**（消灭"取决于还导入了谁"的顺序依赖）──
 # 此前 `.env` 是否进进程，取决于**这一次收集了哪些文件**（哪个模块恰好先
@@ -218,14 +257,98 @@ ENV_PINS_AT_IMPORT = {key: os.environ.get(key) for key in TEST_ENV_PINS}
 
 
 # ══════════════════════════════════════════════════════════════════
+# 0c) r11：收窄全局影响面 —— 两处「改了别人依赖的语义」的整改
+# ══════════════════════════════════════════════════════════════════
+#
+# k61 合并进 main 后跑全量门禁打红了**别人的**用例（控制方 A/B 实测：同一批 4 条
+# 用例在 `4ab678d`（无 k61）为 `2 passed, 2 skipped`，加上 k61 后 `3 failed, 1 passed`）。
+# 逐条查清后，根因是本文件**在导入期改了全局语义**，而别人的用例依赖那些语义。
+#
+# 四处整改（前两处在下面，后两处见各自的长注）：
+#   ① `FORTUNE_DB_PATH` 沙箱里放**真实的库快照**（不是空目录）—— 见下；
+#   ② `USER_MEMORY_DIR` **不再全局重定向**（改回每个测试文件自理）—— 见下；
+#   ③ 生产数据看门狗从"整棵 `/mnt/d/fortune-data` **打开即报**"改成**两级判定**
+#      （数据存储=打开即报；整棵生产树=**写**才报）—— 见 `PROD_DATA_ROOTS` 的长注；
+#   ④ 守卫的 `bytes()` 归一化**不再把"不可扫"记成"守卫自身异常"**（r10 复审 I-1）——
+#      见 `_as_scannable_payload` / `_join_scannable_buffers`（钩子层）。
+
+# ── ① `FORTUNE_DB_PATH`：沙箱里必须是**一份真实的库**（只读快照），不能是空目录 ──
+#
+# r10 把 `FORTUNE_DB_PATH` pin 到沙箱里一个**不存在的**路径。后果（实测复现）：
+# `tests/test_eval_l1.py::test_smoke_l1_default_slice` /
+# `tests/test_eval_l4.py::test_smoke_l4_light` 的既定语义是「把 `settings.db_path`
+# 那份库复制到临时库再跑主链」（`scripts/eval_agent/l1_eval.py::seed_db_copy`：
+# `shutil.copy2(R["settings"].db_path, tdir)`），pin 之后源文件不存在 →
+# `FileNotFoundError: .../userdata/fortune.db` → L1 七条任务、L4 两条任务**全 skip**
+# → `executed=0` → 阈值断言必红（L4 那条更直接：`assert r["skipped"] is False`）。
+#
+# 修法：沙箱里放**代码默认那份库的只读快照**（会话导入期取一次）。两边同时成立：
+#   - 别人的用例：`settings.db_path` 仍指向**一份真实的 fortune.db**（内容 = 会话
+#     开始时的快照），复制/断言语义与「不 pin」时相同；
+#   - k61 的隔离主张：整个**测试会话期间**没有任何用例打开生产库（快照在导入期取，
+#     早于 fd 看门狗启动），生产库仍是**零写入**。
+# 快照源 = `src/config.py` 的**代码默认值**（`Settings().db_path`，不经 env）——
+# 也就是「不 pin 时那个键会取到的值」，语义逐字对齐。生产库不存在的机器上保持
+# 「不存在」→ 相关用例照旧 skip（不制造假数据）。
+def _materialize_user_db_snapshot() -> None:
+    """把代码默认用户库的**只读快照**放进 `FORTUNE_DB_PATH` 沙箱（r11 ①；幂等）。"""
+    dst = os.environ["FORTUNE_DB_PATH"]
+    if os.path.exists(dst):
+        return
+    try:
+        default_db = str(src.config.Settings().db_path)    # 纯代码默认（不经 env）
+    except Exception as exc:                               # pragma: no cover
+        logging.getLogger(__name__).warning("[k61] 取用户库代码默认值失败：%s", exc)
+        return
+    if not os.path.exists(default_db):
+        return                      # 没数据的机器：保持"不存在"（用例照旧 skip）
+    try:
+        shutil.copy2(default_db, dst)       # 只读复制：生产库内容/mtime 零改动
+    except Exception as exc:                            # pragma: no cover
+        # 复制失败不算会话失败：相关用例会照旧 skip 并写明原因（同 r7-5 语料种植的处置）
+        logging.getLogger(__name__).warning(
+            "[k61] 用户库快照失败（依赖真实库的用例会 skip）：%s", exc)
+
+
+_materialize_user_db_snapshot()
+
+
+# ── ② `USER_MEMORY_DIR`：conftest **不再**全局重定向（改回"每个测试文件自理"）──
+#
+# r10 在 `_pin_test_env()` 里全局设了 `USER_MEMORY_DIR`。它确实压住了
+# `data/memory/.json` 的脏（k61 探针：全量跑 164 次 `UserMemory._save`，其中空 uid
+# 的 4 次覆盖了那个**被跟踪**文件），但代价是**改掉了所有测试依赖的目录语义**：
+#
+# `tests/test_k62k63_fixup_side_effect_guard.py::test_guard_has_teeth_pre_fix_copy_dirties_memory`
+# 的判定前提是「把 `tests/test_bot.py` 的隔离 fixture 摘掉后，跑那条空 uid 用例
+# **必须**把 `data/memory/.json` 写脏」—— 它为此在子进程里**显式剔除**
+# `USER_MEMORY_DIR`（原话：若靠环境变量才不脏，那测的是环境不是测试文件自身的隔离）。
+# conftest 全局设上之后，那个子进程里**沙箱自己的 conftest** 又把重定向装了回来 →
+# 改前副本也不再脏 → 守卫失去判定力（实测报文 `实际变化：[]`，k61 合并后 3 failed 之一）。
+#
+# 为什么**只能**去掉而不能"改窄"：任何**自动**重定向（导入期 env / autouse fixture）
+# 都会在沙箱子进程里重新生效，那条守卫的判别力就会再次归零 —— 它是靠"环境里没有
+# 兜底"来证明"测试文件自己做了隔离"的。而"per-file 自理"正是仓内**既有约定**：
+# batch2（k62）修那次事故的处置就是给 `tests/test_bot.py` 加模块级 autouse fixture
+# （`monkeypatch.setenv("USER_MEMORY_DIR", …)`），本文件只提供 `TEST_MEMORY_DIR` 目录。
+# 兜底由 `_k61_repo_dirt_guard`（会话级**探测**：真被写脏就报红）承担 —— 分工是
+# 「谁写的谁负责隔离，conftest 只负责发现」。
+# 取证：r11 报告「全量门禁」一节 —— 去掉全局重定向后全量跑 `data/memory/.json`
+# 仍与 HEAD 逐字节相同（两个元凶用例已由 batch2 各自隔离）。
+assert USER_MEMORY_DIR_AFTER_PIN == _USER_MEMORY_DIR_BEFORE_PIN, (
+    "conftest 在导入期改了 USER_MEMORY_DIR —— 会拆掉 "
+    "test_k62k63_fixup_side_effect_guard 那条守卫的判定力（见 §0c ②）")
+
+
+# ══════════════════════════════════════════════════════════════════
 # 0b) 仓库卫生守卫（r2 / ④）：测试不得写脏**被 git 跟踪**的文件
 # ══════════════════════════════════════════════════════════════════
 #
 # 实测（r2 基线，全量 `pytest tests/ -q`）：跑完必脏两个被跟踪文件 ——
 #   M data/memory/.json                    （走 UserMemory 默认目录的用例）
 #   M src/engine/out/comparison_runs.jsonl （run_comparison 的硬编码输出路径）
-# 两者都已在 r2 修根因（见 §0 的 USER_MEMORY_DIR 重定向 + run_comparison 的
-# `out_path` 参数）。本守卫是**防复发锁**：会话结束时比对「会话开始时干净、
+# 两者都已在 r2 修根因（见 §0 的 USER_MEMORY_DIR 隔离 —— r11 起由各测试文件自理 + §0c ① 的
+# run_comparison `out_path` 参数）。本守卫是**防复发锁**：会话结束时比对「会话开始时干净、
 # 结束时变脏」的**被跟踪**文件，有则报红。
 #
 # 为什么要做**增量**比对而不是直接断言「工作区干净」：开发期间工作区本来就
@@ -317,6 +440,46 @@ def _prod_data_mtimes() -> dict:
     return out
 
 
+# ── r11：两级判定（纯函数，供行为锁直接调；见 PROD_DATA_ROOTS 的长注）──
+
+def _is_write_open(fdinfo_text) -> bool:
+    """`/proc/<pid>/fdinfo/<fd>` 的内容是否表示**以写方式**打开（O_WRONLY / O_RDWR）。
+
+    `flags:` 是八进制；低 2 位即访问模式（0=只读、1=只写、2=读写）。
+    **解析失败/拿不到 → 判成"写"**（fail-closed：宁可报红也不漏 —— 与守卫其余部分一致）。
+    """
+    for line in str(fdinfo_text or "").splitlines():
+        if line.startswith("flags:"):
+            try:
+                return (int(line.split(":", 1)[1].strip(), 8) & 0o3) in (0o1, 0o2)
+            except ValueError:      # pragma: no cover - 格式变了
+                return True
+    return True                     # pragma: no cover - 读不到 fdinfo
+
+
+def _read_fdinfo(pid, fd) -> str:
+    """读 fdinfo（只读；失败返回 ""，由 `_is_write_open` 兜成 fail-closed）。"""
+    try:
+        with open(f"/proc/{pid}/fdinfo/{fd}", "r", encoding="utf-8") as fh:
+            return fh.read(4096)
+    except OSError:
+        return ""
+
+
+def _prod_fd_hit(path, fdinfo_text=None) -> bool:
+    """单个 fd 是否算命中生产数据守卫（**纯判定**，两级）。
+
+    - 路径在 `PROD_DATA_ROOTS`（数据存储）→ **打开即命中**（只读也算：这正是 I4 主张）；
+    - 路径只在 `PROD_DATA_WRITE_ROOTS`（如只读语料 books/）→ 仅**写方式打开**命中。
+    """
+    text = str(path)
+    if any(text.startswith(root) for root in PROD_DATA_ROOTS):
+        return True
+    if any(text.startswith(root) for root in PROD_DATA_WRITE_ROOTS):
+        return _is_write_open(fdinfo_text)
+    return False
+
+
 class ProdDataTouched(BaseException):
     """**本会话的进程树**打开过生产数据路径（r7 改判据）。
 
@@ -339,7 +502,11 @@ class ProdDataTouched(BaseException):
 # mtime 变化**仍会记录**（作为证据写进报告），但**不再作为失败判据**。
 
 class _ProdFdWatchdog:
-    """采样本会话进程树的 fd，判断"生产数据路径有没有被**本会话**打开"。"""
+    """采样本会话进程树的 fd，判断"生产数据路径有没有被**本会话**打开"。
+
+    `roots` 是**粗筛**（r11 起 = `PROD_DATA_WRITE_ROOTS`，整棵生产树）；
+    精确判定（数据存储=打开即命中 / 只读语料=写才命中）在 `_prod_fd_hit`。
+    """
 
     def __init__(self, roots, interval: float = 0.05):
         self.roots = tuple(str(r) for r in roots)
@@ -396,7 +563,14 @@ class _ProdFdWatchdog:
                 except OSError:
                     continue
                 target = target.split(" (deleted)", 1)[0]
-                if any(target.startswith(root) for root in self.roots):
+                if not any(target.startswith(root) for root in self.roots):
+                    continue                      # 粗筛（整棵生产树）
+                # r11：只读语料要再看一眼是不是"以写方式打开"（判定见 _prod_fd_hit）。
+                # 数据存储不看 fdinfo（打开即命中）→ 不为它们付读 fdinfo 的成本。
+                fdinfo = None
+                if not any(target.startswith(root) for root in PROD_DATA_ROOTS):
+                    fdinfo = _read_fdinfo(pid, name)
+                if _prod_fd_hit(target, fdinfo):
                     self.hits.append((pid, name, target))
 
     def _run(self):
@@ -418,7 +592,8 @@ class _ProdFdWatchdog:
             self._thread.join(timeout=2)
 
 
-_PROD_WATCHDOG = _ProdFdWatchdog(PROD_DATA_ROOTS)
+# 粗筛用**整棵**生产树（判定在 `_prod_fd_hit` 里分两级，见其 docstring）。
+_PROD_WATCHDOG = _ProdFdWatchdog(PROD_DATA_WRITE_ROOTS)
 
 
 _PROD_MTIME_AT_START = _prod_data_mtimes()
@@ -432,9 +607,11 @@ def _prod_guard_verdict(hits, mtime_changed) -> str:
     """
     if hits:
         sample = "\n".join(f"  pid={pid} fd={fd} → {path}" for pid, fd, path in hits[:5])
-        return ("[k61 生产数据守卫] **本会话进程树**打开过生产数据路径：\n" + sample
+        return ("[k61 生产数据守卫] **本会话进程树**碰了生产数据（数据存储=打开即报；"
+                "整棵生产树=以写方式打开才报）：\n" + sample
                 + "\n处置：让被测代码走沙箱目录（conftest 已 pin VECTORDB_DIR / "
-                  "FORTUNE_DB_PATH / FAISS_INDEX_DIR 到测试目录），不要打开生产库。")
+                  "FORTUNE_DB_PATH / FAISS_INDEX_DIR 到测试目录），不要打开生产库；"
+                  "只读语料（books/）若确需引用，请以**只读**方式打开。")
     return ""
 
 
@@ -1314,11 +1491,42 @@ def _as_scannable_payload(data):
 
     `bytes(data)` 对 `int` **不抛异常**（返回 `bytes(n)` 个零字节），这是无害的：
     零字节不像请求头，扫描器不会误判（`scan_payload` 只看"像不像请求头明文"）。
+
+    ⚠️ **r11 I-1**：`bytes()` 的失败**不止 TypeError**。这几种都**不是**守卫故障，
+    而是"这块载荷扫不了"，必须与 `str`/普通对象**同样放行**：
+      - `mmap` 已 close：`ValueError: mmap closed or invalid`；
+      - `memoryview` 已 release：`ValueError: operation forbidden on released memoryview object`；
+      - 自定义 `__bytes__` 抛 `ValueError`；
+      - 并发下 buffer 大小/形状变了：`BufferError`。
+    r10 只吞 TypeError → 这些会落到钩子的 `except Exception` → `_note_hook_error`
+    → **会话收尾把整轮报 ERROR**，报文还谎称"守卫可能已静默失效"；而实际行为与
+    **不挂钩的裸 Python 逐字相同**（异常原样抛给调用方、`violations` 恒 0、无误拦）。
+    "守卫报错了"与"守卫没问题"在这条路径上被写反了 —— 归到"不可扫 → 放行"才是真相。
     """
     try:
         return bytes(data)
     except TypeError:
         return None          # 真不可转换（str / 普通对象…）→ 放行
+    except (ValueError, BufferError):
+        return None          # r11 I-1：不可扫（closed mmap / released memoryview…）→ 放行
+
+
+def _join_scannable_buffers(buffers):
+    """把 `sendmsg` / `writev` 的**缓冲列表**并成 `bytes` 交给扫描器。
+
+    r11 I-1：任何一块"扫不了"（见 `_as_scannable_payload` 的 ValueError/BufferError）
+    就**整块放行**（返回 `b""`）—— 与裸 Python 的行为一致：
+    `bytes(b)` 会在同一个位置抛同样的异常，守卫对线缆没有任何改变。
+    旧写法把这类异常落到钩子的 `except Exception` → `_note_hook_error` →
+    会话收尾谎报"守卫可能已静默失效"（见 §0c ③）。
+    """
+    parts = []
+    for b in (buffers or []):
+        p = _as_scannable_payload(b)
+        if p is None:
+            return b""          # 有扫不了的一块 → 整条不判（不假装扫过）
+        parts.append(p)
+    return b"".join(parts)
 
 
 def _guard_send(sock, data, *a, **kw):
@@ -1348,7 +1556,7 @@ def _guard_sendall(sock, data, *a, **kw):
 def _guard_sendmsg(sock, buffers, *a, **kw):
     """C2：`sendmsg` 走的是 `buffers` 列表（r3 完全没钩 → 绕过）。"""
     try:
-        data = b"".join(bytes(b) for b in (buffers or []))
+        data = _join_scannable_buffers(buffers)   # r11 I-1：扫不了就放行，不记"守卫异常"
         if data:
             _GUARD.scan_payload(sock, data)
     except EgressBlocked:
@@ -1621,7 +1829,7 @@ def _guard_os_writev(fd, buffers, *a, **kw):
     """r7（C2 残余）：`os.writev(fd, buffers)` —— r6 未挂钩。"""
     try:
         if _GUARD._is_socket_fd(fd):
-            data = b"".join(bytes(b) for b in (buffers or []))
+            data = _join_scannable_buffers(buffers)   # r11 I-1：扫不了就放行
             if data:
                 _GUARD.scan_payload(None, data, fd=fd)
     except EgressBlocked:

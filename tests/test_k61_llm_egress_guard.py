@@ -56,6 +56,38 @@ def _drain_self_inflicted_violations(_k61_deepseek_egress_guard):
     del guard.violations[before:]
 
 
+#: r11 M-3：载荷闸门的「招牌类型」—— 类型集里出现**任何一个**即命中。
+#: 为什么不是一个（`memoryview`）：白名单是开放集合的**枚举**，漏掉 memoryview 的写法
+#: （`isinstance(d, (bytes, bytearray))`）同样把 `mmap`/`array.array`/第三方 buffer
+#: 整个跳过、直送网线 —— 却**照样绿**（r10 绊线的缺口）。
+PAYLOAD_TYPE_MARKERS = ("bytes", "bytearray", "memoryview")
+
+
+def _payload_type_gate_offenders(src):
+    """在**源码文本**里找「按类型放行/跳过载荷」的写法 → `[(行号, 类型名集)]`。
+
+    抽成纯函数是为了**给绊线自己上牙**（正例/反例/负例三档，见
+    `test_no_payload_gate_enumerates_types`）：只看 `memoryview` 那一档
+    防不住"换个类型名继续枚举"。用 AST 而不是字符串匹配 —— docstring/注释里
+    引用旧写法（conftest 的说明里就引用了）不算违规。
+    """
+    import ast
+    offenders = []
+    for node in ast.walk(ast.parse(src)):
+        if not (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "isinstance"
+                and len(node.args) >= 2):
+            continue
+        types = node.args[1]
+        if not isinstance(types, (ast.Tuple, ast.List)):
+            continue
+        names = {e.id for e in types.elts if isinstance(e, ast.Name)}
+        if names & set(PAYLOAD_TYPE_MARKERS):
+            offenders.append((node.lineno, sorted(names)))
+    return offenders
+
+
 def _assert_blocked_by(exc_value, layer: str):
     """**归因断言**：这次拦截必须来自**这一层**（报文里带 `拦截层: <layer>`）。
 
@@ -670,10 +702,11 @@ class TestFragmentWriteBypass:
         port, _ = local_sink
         s = self._raw_sock(port)
         try:
-            with pytest.raises(DeepSeekEgressBlocked):
+            with pytest.raises(DeepSeekEgressBlocked) as ei:
                 s.sendmsg([self.LINE])
         finally:
             s.close()
+        _assert_blocked_by(ei.value, "socket 明文请求头")   # r11 M-2：归因（该层真被锁住）
 
     def test_os_write_blocked(self, local_sink):
         port, _ = local_sink
@@ -805,29 +838,39 @@ class TestFragmentWriteBypass:
 
         用 `ast` 而不是字符串匹配：**docstring/注释里引用旧写法不算违规**
         （`_as_scannable_payload` 的说明里就引用了旧代码当反例）。
+
+        ⚠️ **r11 M-3（绊线自身的牙）**：r10 这层只认「类型集里有没有 `memoryview`」——
+        于是**不含 memoryview 的白名单照样绿**（`isinstance(d, (bytes, bytearray))`
+        同样是类型白名单，同样把 `mmap`/`array.array`/第三方 buffer 整个跳过）。
+        现改为：类型集里出现**任何一个**载荷招牌类型（bytes/bytearray/memoryview）
+        即命中，并**给绊线自己上牙** —— 反例（不含 memoryview 的白名单）必须命中、
+        与载荷无关的类型判定（`isinstance(addr, (tuple, list))`）必须不误杀。
         """
-        import ast
         import inspect as _inspect
-        src = _inspect.getsource(k61conftest)
-        tree = ast.parse(src)
-        offenders = []
-        for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call)
-                    and isinstance(node.func, ast.Name)
-                    and node.func.id == "isinstance"
-                    and len(node.args) >= 2):
-                continue
-            types = node.args[1]
-            if not isinstance(types, (ast.Tuple, ast.List)):
-                continue
-            names = {e.id for e in types.elts if isinstance(e, ast.Name)}
-            if "memoryview" in names:        # 白名单的招牌成员 → 就是那类写法
-                offenders.append((node.lineno, sorted(names)))
+        # ① 正例：conftest 里不得有任何"按类型放行/跳过载荷"的闸门
+        offenders = _payload_type_gate_offenders(_inspect.getsource(k61conftest))
         assert not offenders, (
             "载荷闸门退回**类型白名单**（r10 C1 的根因）：白名单外的缓冲协议对象"
             "（mmap/array.array/ctypes/第三方 C 扩展）会整个跳过扫描、直送网线。\n"
             f"命中位置（行号, 类型集）：{offenders}\n"
             "改法：用 `_as_scannable_payload(data)`（bytes() 归一化，转不了才放行）。")
+        # ② 反例（绊线的**判定力**）：这几种形态都必须被认出来
+        for snippet in (
+            "if isinstance(d, (bytes, bytearray)):\n    pass\n",          # ← M-3 原缺口
+            "if isinstance(d, (bytearray,)):\n    pass\n",
+            "if isinstance(d, (memoryview,)):\n    pass\n",
+            "if isinstance(d, (bytes, bytearray, memoryview)):\n    pass\n",
+        ):
+            assert _payload_type_gate_offenders(snippet), (
+                f"绊线漏掉了这种类型闸门（M-3：不含 memoryview 的白名单照样绿）：{snippet!r}")
+        # ③ 负例（不得误杀）：与载荷无关的类型判定必须放行
+        for snippet in (
+            "if isinstance(addr, (tuple, list)):\n    pass\n",
+            "if isinstance(peer, (tuple, list)):\n    pass\n",
+            "if isinstance(v, (str, int)):\n    pass\n",
+        ):
+            assert not _payload_type_gate_offenders(snippet), (
+                f"绊线误杀（与载荷无关的类型判定）：{snippet!r}")
 
     def test_os_write_to_a_file_is_not_scanned(self, tmp_path, _k61_deepseek_egress_guard):
         """**对照（r5 自测踩到的坑）**：写**文件**不得被当成网络写扫描。
@@ -1006,10 +1049,11 @@ class TestSendtoAndWritevBlocked:
         port, _ = local_sink
         s = self._sock(port)
         try:
-            with pytest.raises(DeepSeekEgressBlocked):
+            with pytest.raises(DeepSeekEgressBlocked) as ei:
                 os.writev(s.fileno(), [self.LINE])
         finally:
             s.close()
+        _assert_blocked_by(ei.value, "socket 明文请求头")   # r11 M-2：归因（该层真被锁住）
 
     def test_control_sendall_still_blocked(self, local_sink):
         port, _ = local_sink
@@ -1119,22 +1163,32 @@ class TestSendFamilyApiSurface:
                       # `connect_ex` 同族同罪（返回 errno 而非抛异常，更隐蔽）。
                       "connect", "connect_ex")
         },
-        # r10 I-1（第二条）：**模块级**绑定，不是 `_socket.socket` 的方法。
+        # r10 I-1（第二条）：**模块级**入口，不是 `_socket.socket` 的方法。
         # 审查者实测 `_socket.getaddrinfo("api.deepseek.com", 443)` → 真解析成功
-        # （119.188.220.215）、**0 trip**（A 层钩的只是 `socket.getaddrinfo`；
-        # `socket.py` 是 `from _socket import getaddrinfo` → 改 `socket` 的模块属性
-        # 改不到 `_socket` 里那份绑定）。
-        # ⚠️ **用词必须准确**：这条**不是**"挂不上钩"（`_socket` 是普通模块，属性可改）；
+        # （119.188.220.215）、**0 trip**。
+        # ⚠️ **r11 更正机制用词（r10 写错了）**：A 层钩的是 `socket.py` 里的
+        # **Python 包装** `socket.getaddrinfo`；`_socket.getaddrinfo` 是它**底下那个
+        # C 函数**（包装的实现体里直接调它）—— 所以是「**包装 vs 被包装**」，
+        # **不是** r10 写的「同一 C 实现的第二条绑定」。
+        # 实测反证：`_socket.getaddrinfo is socket.getaddrinfo` → **False**
+        # （前者 `builtin_function_or_method`、后者 `def`，源码里写着
+        # `for res in _socket.getaddrinfo(...)`）。结构断言见
+        # `test_module_level_declared_entries_are_second_bindings`（②③ 两条）。
+        # ⚠️ 这条**不是**"挂不上钩"（`_socket` 是普通模块，属性可改）；
         # 登记在这里是因为 r10 **不扩大未经审查的补丁面**（任务红线），属"当前不覆盖"。
         # 危害面比上面小：解析本身**不发字节**；真发字节那一步是 `_socket.socket.send*`，
         # 同表已声明、同一条 pin 兜底。
         ("_socket", "getaddrinfo"): (
-            "`socket.getaddrinfo`（A 层，已挂钩）的**同一 C 实现的第二条绑定** —— "
-            "**实测**：`_socket.getaddrinfo('api.deepseek.com', 443)` 解析成功且 **0 trip**，"
-            "绕过 A 层。**兜底 = pin**：解析出来也没有可用的生产 key；"
+            "A 层钩的是 **`socket.py` 里的 Python 包装** `socket.getaddrinfo`；"
+            "`_socket.getaddrinfo` 是它**底下的 C 函数**（包装实现体里直接调用它）"
+            "—— 直接调 C 函数**不经过包装** → 绕过 A 层。"
+            "**实测**：`_socket.getaddrinfo('api.deepseek.com', 443)` 解析成功且 **0 trip**；"
+            "`_socket.getaddrinfo is socket.getaddrinfo` → False（**r11 更正**：r10 写的"
+            "「同一 C 实现的第二条绑定」与事实不符，真实关系是包装 vs 被包装）。"
+            "**兜底 = pin**：解析出来也没有可用的生产 key；"
             "真正把字节送出去的那一步（`_socket.socket.send*`）已在 "
             "`DECLARED_UNCOVERABLE` 里声明、兜底同为 pin。"
-            "（**不是**「挂不上钩」——`_socket` 是普通模块，属性可改；r10 按红线"
+            "（**不是**「挂不上钩」——`_socket` 是普通模块、属性可改；r10 按红线"
             "不做未经审查的补丁面扩张，故登记为「当前不覆盖」。）"
         ),
     }
@@ -1292,6 +1346,91 @@ class TestSendFamilyApiSurface:
             base = lock.split("[")[0]
             assert base in names, f"{key} 登记的锁用例 {lock} 在本模块里不存在"
             assert wrapper in dir(k61conftest), f"{key} 登记的包装 {wrapper} 在 conftest 里不存在"
+
+    #: r11 M-2：允许**不**做归因断言的 HOOKED 锁（为空 = 全部必须归因）。
+    #: 加名字必须写明理由 —— 本表由 `test_every_hooked_lock_asserts_attribution` 读。
+    RETAINED_LOCKS_WITHOUT_ATTRIBUTION = {}
+
+    def test_every_hooked_lock_asserts_attribution(self):
+        """**r11 M-2（AST 结构锁）**：每条 HOOKED 锁的源码必须真的做**归因断言**。
+
+        为什么"名字存在"那档不够：`test_every_hooked_path_names_an_existing_lock`
+        只证明"登记的锁名在本模块里存在" —— 锁名对不上**层次**时它照样绿
+        （r10 C-1 就是这么存活的：锁名存在，但它证明的是"那种**载荷**会被扫"，
+        而不是"这条**路径**会被扫"）。`_assert_blocked_by(exc, layer)` 是"该层"的
+        **可机器化代理**：它同时断言「拦下来了」+「拦住的是这一层（归因）」，
+        所以"摘掉该层的钩子 → 本锁变红"才成立。
+
+        用 AST 取函数源码（不是全局 grep）：`_assert_blocked_by` 出现在**别的**
+        用例里不算数 —— 必须在本锁自己的函数体里。
+        """
+        import ast
+        import inspect as _inspect
+        src = _inspect.getsource(sys.modules[__name__])
+        funcs = {n.name: (ast.get_source_segment(src, n) or "")
+                 for n in ast.walk(ast.parse(src))
+                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        missing = []
+        for key, (_wrapper, lock) in self.HOOKED.items():
+            base = lock.split("[")[0]
+            if base in self.RETAINED_LOCKS_WITHOUT_ATTRIBUTION:
+                continue
+            body = funcs.get(base)
+            assert body is not None, f"{key} 登记的锁用例 {lock} 找不到源码"
+            if "_assert_blocked_by" not in body:
+                missing.append(f"{key} → {base}")
+        assert not missing, (
+            "这些 HOOKED 锁没有做**归因断言**（`_assert_blocked_by`）—— "
+            "它们只证明「发生了拦截」，不证明「拦在它声称的那一层」：\n  "
+            + "\n  ".join(missing)
+            + "\n处置：在该锁里 `with pytest.raises(...) as ei:` 后加 "
+              "`_assert_blocked_by(ei.value, \"<该层在 _trip 里写的 where 串>\")`；"
+              "确有个案做不到时，登记进 RETAINED_LOCKS_WITHOUT_ATTRIBUTION 并写明理由。")
+
+    #: r11 M-1：**登记表已不引用、但仍在跑**的旧锁 —— 显式登记（"无主冗余"→"有主冗余"）。
+    #: 为什么保留而不是删：它们是 r10 之前那几条路径的**载荷面**对照锁；r10 C-1 把登记
+    #: 改指向"按路径 × 按载荷拆开"的新锁之后，这四条就成了**多余但无害**的回归对照。
+    #: 删掉会丢掉一点对照面，留着又没人知道它们为什么在 → 用本表把它们**挂上出处**，
+    #: 并由下面那条用例保证它们不会悄悄烂掉。
+    #: ⚠️ **没有**做"全模块无孤儿锁"的门禁：本模块 116 条 `test_*` 里只有 12 条是登记表
+    #: 的锁（其余属 TLS / httpx / 代理等**不在 HOOKED 登记范围**的族）——一刀切会让
+    #: 大量合法用例假红（计数见 r11 报告）。
+    RETAINED_LOCKS = {
+        "test_memoryview_send_blocked":
+            "r10 前 `(\"socket.socket\",\"send\")` 的登记锁；现登记已改指向 "
+            "`test_buffer_protocol_objects_are_scanned[send-mmap]`，本条留作**载荷面对照**"
+            "（memoryview 仍须被扫）",
+        "test_single_block_still_blocked":
+            "r3 起的整块 bytes 对照锁（证明后续改动没有把判定改松）",
+        "test_os_write_blocked":
+            "r10 前 `(\"os\",\"write\")` 的登记锁；留作 os.write 的载荷面对照",
+        "test_sendto_blocked":
+            "r10 前 `(\"socket.socket\",\"sendto\")` 的登记锁；留作 sendto 的载荷面对照",
+    }
+
+    def test_retained_locks_are_still_real_locks(self):
+        """**r11 M-1**：显式登记的"旧锁"必须还在、且还真的在断言被拦（不许烂成空跑）。
+
+        - 名字存在（用例被删/改名 → 红，逼迫同步本表）；
+        - **不在** HOOKED 里（否则就是重复登记：一条锁挂两处，登记表失去单一事实源）；
+        - 源码里仍有 `pytest.raises(` —— "还在断言被拦"的最低结构线
+          （M-2 那条管的是**登记内**的锁必须做**归因**；本条只要求旧锁别烂成 no-op）。
+        """
+        import ast
+        import inspect as _inspect
+        src = _inspect.getsource(sys.modules[__name__])
+        funcs = {n.name: (ast.get_source_segment(src, n) or "")
+                 for n in ast.walk(ast.parse(src))
+                 if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        hooked_bases = {lock.split("[")[0] for _w, lock in self.HOOKED.values()}
+        for name, why in self.RETAINED_LOCKS.items():
+            assert why and len(why) >= 10, f"{name} 缺保留理由"
+            assert name in funcs, f"登记的旧锁 {name} 不在本模块里（被删/改名了？）"
+            assert name not in hooked_bases, (
+                f"{name} 同时被 HOOKED 引用 —— 旧锁登记表与 HOOKED 重复，"
+                "请二选一（登记表要保持单一事实源）")
+            assert "pytest.raises(" in funcs[name], (
+                f"{name} 已经不再断言「被拦」了（烂成空跑）—— 请删除本登记或把锁修回来")
 
     def test_not_a_channel_entries_have_measured_reasons(self):
         for key, reason in self.DECLARED_NOT_A_CHANNEL.items():
@@ -1816,20 +1955,22 @@ class TestFileObjectOverSocketFd:
         sink = make_sink(ATTACK_PEER, "plain")
         s = socket.create_connection((ATTACK_PEER, sink.port), timeout=3)
         try:
-            with pytest.raises(PublicEgressBlocked):
+            with pytest.raises(PublicEgressBlocked) as ei:
                 open(s.fileno(), "wb")
         finally:
             s.close()
+        _assert_blocked_by(ei.value, "io.open / builtins.open（socket fd ← 文件对象）")
         assert sink.payloads() == b""
 
     def test_io_open_socket_fd_blocked(self, make_sink):
         sink = make_sink(ATTACK_PEER, "plain")
         s = socket.create_connection((ATTACK_PEER, sink.port), timeout=3)
         try:
-            with pytest.raises(PublicEgressBlocked):
+            with pytest.raises(PublicEgressBlocked) as ei:
                 io.open(s.fileno(), "wb")
         finally:
             s.close()
+        _assert_blocked_by(ei.value, "io.open / builtins.open（socket fd ← 文件对象）")
 
     def test_copyfileobj_into_socket_file_blocked(self, make_sink, tmp_path):
         """`shutil.copyfileobj(src, 文件对象)`：接收端是 socket 支撑 → **逐块判内容**。
@@ -1944,7 +2085,7 @@ class TestSameFamilyWritePaths:
         sink = make_sink(ATTACK_PEER, "plain")
         s = socket.create_connection((ATTACK_PEER, sink.port), timeout=3)
         try:
-            with pytest.raises(EgressBlocked):
+            with pytest.raises(EgressBlocked) as ei:
                 if name == "posix.splice":
                     r, w = os.pipe()
                     os.write(w, TLS_LINE[:16])
@@ -1953,6 +2094,12 @@ class TestSameFamilyWritePaths:
                     posix.eventfd_write(s.fileno(), int.from_bytes(b"CONNECT ", "little"))
         finally:
             s.close()
+        # r11 M-2：`posix.<name>` 与 `os.<name>` 是**两个模块属性、同一个包装** ——
+        # 归因仍应指向该包装自己的层名（钩子是按函数体挂的，不区分调用者用哪个绑定）。
+        _assert_blocked_by(
+            ei.value,
+            "os.splice（socket ← file/pipe）" if name == "posix.splice"
+            else "os.eventfd_write（socket ← 计数器值）")
         assert sink.payloads() == b""
 
     def test_os_eventfd_write_to_socket_blocked(self, make_sink):
@@ -2177,6 +2324,91 @@ class TestDeclaredLimitations:
             f"`_socket.socket` 族里在 C 类型上不存在的名字集合变了：{sorted(absent)}"
             f"（已知应为 {sorted(KNOWN_ABSENT)}）→ 请核对登记项是否正确")
 
+    @staticmethod
+    def _forensic_namespaces():
+        """取证循环能解析的命名空间 → 对象（r11 I-2：登记项的模块名必须落在这里）。
+
+        `_socket`（模块本身）**也**在里面：`("_socket", "getaddrinfo")` 这类
+        **模块级**登记项要靠它取证（r10 的循环写死了 `if mod == "_socket.socket"`，
+        这类条目完全不在循环内）。
+        """
+        import _socket
+        return dict(TestSendFamilyApiSurface._modules(), **{"_socket": _socket})
+
+    def test_every_uncoverable_entry_is_forensically_resolvable(self):
+        """**r11 I-2 的反向锁**：登记表里不得有任何条目能**躲开**取证循环。
+
+        r10 的取证锁把循环写死成 `if mod == "_socket.socket"` → 模块级登记项
+        `("_socket", "getaddrinfo")` **完全不在循环内**，唯一把关只剩
+        `test_uncoverable_entries_have_reasons`（"理由 ≥40 字且含 pin/兜底"）——
+        也就是"写一段像样的话就能登记成功"，结构上**没有任何取证**。
+        这条把"能被取证"变成可检查：条目的模块名必须落在 `_forensic_namespaces()`。
+        """
+        known = self._forensic_namespaces()
+        orphans = [f"{m}.{n}" for (m, n)
+                   in TestSendFamilyApiSurface.DECLARED_UNCOVERABLE if m not in known]
+        assert not orphans, (
+            "这些登记项的模块名没有取证渠道（会躲开所有结构断言，只剩理由文本把关）："
+            f"{orphans}\n处置：把该命名空间加进 `_forensic_namespaces()`，"
+            "并为它补一条结构取证用例（如 `test_module_level_declared_entries_are_second_bindings`）。")
+
+    def test_module_level_declared_entries_are_second_bindings(self):
+        """**取证（r11 I-2）**：`_socket` 的**模块级**登记项逐条结构取证。
+
+        替代的是"只有理由文本"的档位。结构事实（缺一条即红）：
+          ① 属性存在（名字没写错 —— 写错的话整套论证是空的）；
+          ② `_socket.<name>` 是**C 函数**（`inspect.isbuiltin` 为真）；
+          ③ **已挂钩**的 `socket.<name>` 是**Python 包装**，且其源码里**调用**了
+             `_socket.<name>` —— 这正是"直接调 C 函数绕过 A 层"的机制；
+          ④ `_socket` 是普通模块 → 属性**可改**（赋值成它自己即证据，立刻还原）——
+             所以这条**不是**"挂不上钩"；理由文本也必须如实这么写。
+        ⚠️ **r11 更正**：r10 登记写的机制是「同一 C 实现的**第二条绑定**」，实测为假
+        （`_socket.getaddrinfo is socket.getaddrinfo` → `False`：前者是
+        `builtin_function_or_method`、后者是 `def`）—— 真实关系是**包装 vs 被包装**。
+        ②③ 就是把这条更正**钉成可检查的结构断言**（再写错就会红）。
+        """
+        import _socket
+        import inspect as _inspect
+        entries = sorted((m, n) for (m, n)
+                         in TestSendFamilyApiSurface.DECLARED_UNCOVERABLE if m == "_socket")
+        assert entries, (
+            "模块级登记项为空 —— 要么是被撤回了（那就要说明它已被钩住），"
+            "要么是本条取证被悄悄架空；两者都必须显式处理，不能让它空跑。")
+        for (mod_name, name) in entries:
+            assert hasattr(_socket, name), f"`_socket.{name}` 不存在（登记的名字写错了？）"
+            assert hasattr(socket, name), f"`socket.{name}` 不存在（A 层钩的是它？）"
+            assert _inspect.isbuiltin(getattr(_socket, name)), (
+                f"`_socket.{name}` 不是 C 函数（builtin）——"
+                "那「直调它绕过 A 层」的论证就要重写。")
+            wrapper = getattr(socket, name)
+            assert not _inspect.isbuiltin(wrapper), (
+                f"`socket.{name}` 竟然也是 C 函数 —— 那 A 层钩的就不是 Python 包装，"
+                "登记的机制需重写。")
+            # ⚠️ 不能 `inspect.getsource(getattr(socket, name))`：本会话里 A 层已经把
+            # `socket.<name>` **换成了我们自己的包装**，getsource 拿到的是包装的源码
+            # （r11 自测踩到）。改为直接读 **stdlib 的 socket.py** 里那个 `def`。
+            import ast as _ast
+            mod_src = Path(socket.__file__).read_text(encoding="utf-8")
+            node = next((n for n in _ast.walk(_ast.parse(mod_src))
+                         if isinstance(n, _ast.FunctionDef) and n.name == name), None)
+            assert node is not None, (
+                f"`{socket.__file__}` 里没有 `def {name}(…)` —— 「Python 包装」的机制"
+                "与事实不符，登记理由需要重写。")
+            wsrc = _ast.get_source_segment(mod_src, node) or ""
+            assert f"_socket.{name}" in wsrc, (
+                f"`socket.{name}` 的源码里没有调用 `_socket.{name}` ——"
+                "「包装 vs 被包装」的机制与事实不符，登记理由需要重写。")
+            try:
+                setattr(_socket, name, getattr(_socket, name))     # 只赋值成它自己
+            except Exception as exc:
+                pytest.fail(
+                    f"`_socket.{name}` 竟然不可赋值（{exc!r}）—— 理由须改写成"
+                    "「不可变类型、挂不上钩」，并从「当前不覆盖」这组移出。")
+            reason = TestSendFamilyApiSurface.DECLARED_UNCOVERABLE[(mod_name, name)]
+            assert ("属性可改" in reason) or ("不是" in reason), (
+                f"`{mod_name}.{name}` 的理由没写清它是「**当前不覆盖**」而不是"
+                f"「挂不上钩」（两句混用会让后人以为那是做不到）：{reason[:60]}…")
+
     def test_declared_param_proxy_over_block(self, make_sink, tls_cert_path):
         """**取证（过拦面）**：用 **`proxies=` 参数**配明文代理时，白名单主机的 TLS 会被拒。
 
@@ -2211,3 +2443,107 @@ class TestDeclaredLimitations:
         finally:
             s.close()
         assert b"api.deepseek.com" in sink.payloads(), "ctypes 被覆盖了？→ 更新声明"
+
+
+# ══════════════════════════════════════════════════════════════════
+# 21) r11 I-1：「不可扫的载荷」= 放行，**不得**记成"守卫自身异常"
+# ══════════════════════════════════════════════════════════════════
+
+class TestUnscannablePayloadIsNotAGuardFault:
+    """r10 复审 I-1 的**误报向量**：`bytes()` 的非 TypeError 失败 → 谎报守卫失效。
+
+    机制：`_as_scannable_payload` 原先只吞 `TypeError`。于是
+    `sendall(closed_mmap)`（`ValueError: mmap closed or invalid`）、
+    `send(released_memoryview)`（`ValueError: operation forbidden on released memoryview
+    object`）、自定义 `__bytes__` 抛 `ValueError`、并发下的 `BufferError` ——
+    这些都会落到钩子的 `except Exception` → `_note_hook_error` →
+    **会话收尾把整轮报 ERROR**，报文还谎称「N 个钩子自身抛异常（守卫可能已静默失效）」。
+
+    而事实是：**可见异常与不挂钩的裸 Python 逐字相同**、`violations` 恒 0、
+    **没有任何误拦**。把"载荷扫不了"记成"守卫坏了"，方向正好写反。
+
+    本类逐条钉住三件事（缺一条即红）：
+      ① 抛出的异常类型与文本 **== 不挂钩的基线**（逐字相同）；
+      ② `hook_errors` **零新增**（这正是 I-1 的判据）；
+      ③ `violations` 零新增（既没有误拦，也不是"拦住了"）。
+
+    基线怎么拿：守卫对象自己保存着原函数（`_orig_sendall` / `_orig_send` /
+    `_orig_sendmsg` / `_orig_os_write`）→ 同样的入参跑一遍原函数即得"裸 Python 行为"。
+    """
+
+    #: 路径 → (基线调用, 挂钩调用)；两者都**惰性**（lambda 里再调），
+    #: 否则会在构造元组时就把两个调用都执行掉（r11 自测踩到：载荷直接在这里抛）。
+    PATHS = {
+        "sendall": (lambda g, s, d: g._orig_sendall(s, d),
+                    lambda g, s, d: s.sendall(d)),
+        "send": (lambda g, s, d: g._orig_send(s, d),
+                 lambda g, s, d: s.send(d)),
+        "sendmsg": (lambda g, s, d: g._orig_sendmsg(s, [d]),
+                    lambda g, s, d: s.sendmsg([d])),
+        "os.write": (lambda g, s, d: g._orig_os_write(s.fileno(), d),
+                     lambda g, s, d: os.write(s.fileno(), d)),
+    }
+
+    @staticmethod
+    def _closed_mmap():
+        """已 close 的 mmap：`bytes(m)` → `ValueError: mmap closed or invalid`。"""
+        import mmap as _mmap
+        m = _mmap.mmap(-1, 64)
+        m.close()
+        return m
+
+    @staticmethod
+    def _released_memoryview():
+        """已 release 的 memoryview：`bytes(mv)` → `ValueError: operation forbidden …`。"""
+        mv = memoryview(bytearray(64))
+        mv.release()
+        return mv
+
+    @staticmethod
+    def _value_error_bytes_obj():
+        """自定义 `__bytes__` 抛 `ValueError` 的对象（第三方 C 扩展的同类形态）。"""
+        class _Weird:
+            def __bytes__(self):
+                raise ValueError("k61: custom __bytes__ refuses")
+        return _Weird()
+
+    @pytest.mark.parametrize("path", sorted(PATHS))
+    @pytest.mark.parametrize("kind", ["closed_mmap", "released_memoryview",
+                                      "value_error_bytes_obj"])
+    def test_exception_and_accounting_match_bare_python(self, path, kind, local_sink,
+                                                        _k61_deepseek_egress_guard):
+        guard = _k61_deepseek_egress_guard
+        port, _seen = local_sink
+        payload = {"closed_mmap": self._closed_mmap,
+                   "released_memoryview": self._released_memoryview,
+                   "value_error_bytes_obj": self._value_error_bytes_obj}[kind]()
+
+        def _exc_of(fn):
+            try:
+                fn()
+            except BaseException as exc:      # noqa: BLE001 —— 要的就是"抛了什么"
+                return (type(exc).__name__, str(exc))
+            return None
+
+        s_base = socket.create_connection(("127.0.0.1", port), timeout=3)
+        s_hooked = socket.create_connection(("127.0.0.1", port), timeout=3)
+        errs_before, viol_before = len(guard.hook_errors), len(guard.violations)
+        try:
+            call_baseline, call_hooked = self.PATHS[path]
+            baseline = _exc_of(lambda: call_baseline(guard, s_base, payload))
+            hooked = _exc_of(lambda: call_hooked(guard, s_hooked, payload))
+        finally:
+            s_base.close()
+            s_hooked.close()
+
+        assert baseline is not None, (
+            "基线（不挂钩的原函数）居然没抛异常 —— 本用例的载荷不再「不可转换」，"
+            "换一个能触发 ValueError 的载荷再来（否则这条锁在空跑）。")
+        assert hooked == baseline, (
+            f"`{path}` 上守卫改变了可见行为：\n  不挂钩={baseline}\n  挂钩后={hooked}\n"
+            "不扫的载荷必须**原样透传**（异常逐字相同）。")
+        assert len(guard.hook_errors) == errs_before, (
+            "「不可扫的载荷」被记成了**守卫自身异常**（I-1）→ 会话收尾会把整轮报 "
+            f"ERROR，并谎称守卫可能已静默失效：{guard.hook_errors[errs_before:]}")
+        assert len(guard.violations) == viol_before, (
+            f"这类载荷**不该**被判成违规（无误拦）：{guard.violations[viol_before:]}")

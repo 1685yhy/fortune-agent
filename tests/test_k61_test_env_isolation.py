@@ -128,13 +128,30 @@ class TestPinsInEffect:
         assert resolve_llm_api_key() == ""
         assert resolve_llm_api_key(allow_anthropic_fallback=False) == ""
 
-    def test_memory_dir_redirected_out_of_repo(self):
-        """UserMemory 默认目录必须已被重定向出仓库（否则写脏 data/memory/*.json）。"""
-        from src.memory.user_memory import UserMemory
-        base = os.path.abspath(UserMemory().base_dir)
-        assert base == os.path.abspath(TEST_MEMORY_DIR), base
-        assert not base.startswith(os.path.abspath(REPO) + os.sep), \
-            f"默认记忆目录仍指向仓库内：{base}"
+    def test_conftest_does_not_globally_redirect_memory_dir(self):
+        """r11：conftest **不得**在导入期占用 `USER_MEMORY_DIR`（收窄全局影响面）。
+
+        为什么锁的是"**不设**"，而不是原来的"设了且指向 TEST_MEMORY_DIR"：
+        `tests/test_k62k63_fixup_side_effect_guard.py::test_guard_has_teeth_pre_fix_copy_dirties_memory`
+        的判定前提是「沙箱副本里摘掉 `test_bot.py` 的隔离 fixture + 子进程**显式剔除**
+        `USER_MEMORY_DIR` → 那条空 uid 用例**必须**把 `data/memory/.json` 写脏」。
+        conftest 全局设上之后，那个子进程里**沙箱自己的 conftest** 又把重定向装了回来
+        → 改前副本也不再脏 → 守卫失去判定力（k61 合并后 3 failed 之一，报文
+        `实际变化：[]`）。任何**自动**重定向（导入期 env 或 autouse fixture）都会
+        重新触发它 —— 所以只能"不设"，隔离改由各测试文件自理（`tests/test_bot.py`
+        的模块级 autouse fixture 就是现成范式），conftest 只提供 `TEST_MEMORY_DIR`
+        目录常量 + 会话级**探测**（`_k61_repo_dirt_guard`）。
+        """
+        # ① 导入期前后快照：pin 函数没有动过这个键。
+        #    用"前后对比"而不是"此刻必须为空"——开发者 shell 自己导出该变量时不假红。
+        assert k61conftest.USER_MEMORY_DIR_AFTER_PIN == \
+            k61conftest._USER_MEMORY_DIR_BEFORE_PIN, \
+            "conftest 的 _pin_test_env() 又全局设了 USER_MEMORY_DIR —— 见 conftest §0c ②"
+        # ② 目录常量保留（供测试文件显式隔离用）
+        assert os.path.isdir(TEST_MEMORY_DIR), TEST_MEMORY_DIR
+        # ③ 兜底是"探测"：仓库卫生守卫必须覆盖 data/（谁写的谁隔离，conftest 只负责发现）
+        assert any(s.rstrip("/") == "data" for s in k61conftest.DIRT_GUARD_SCOPES), \
+            k61conftest.DIRT_GUARD_SCOPES
 
 
 # ══════════════════════════════════════════════════════════════════
@@ -374,10 +391,35 @@ class TestI4DataPathIsolation:
 
 class TestProdDataGuardCriterion:
     def test_watchdog_running_and_scoped(self, _k61_prod_data_guard):
-        """看门狗在跑，且监视的是生产数据根。"""
+        """看门狗在跑，且**粗筛**范围是整棵生产树（精确判定见 `_prod_fd_hit`）。"""
         wd = k61conftest._PROD_WATCHDOG
-        assert wd.roots == tuple(k61conftest.PROD_DATA_ROOTS), wd.roots
+        assert wd.roots == tuple(k61conftest.PROD_DATA_WRITE_ROOTS), wd.roots
         assert "hits" in vars(wd)
+
+    def test_two_tier_verdict_read_vs_write(self):
+        """**r11 两级判定的行为锁**（合并后 1 error 的根因）：只读语料不得被判成违规。
+
+        - 数据存储（`PROD_DATA_ROOTS`）→ **打开即命中**（只读也算，这是 I4 的主张）；
+        - 整棵生产树的其余部分（如只读语料 `books/`）→ **以写方式打开才命中**
+          （`tests/test_dream_rules_k55.py` 的溯源用例按设计要读真语料，
+           r10 的全树"打开即报"把全量门禁整轮打成了 ERROR）。
+        判据用 `/proc/<pid>/fdinfo` 的 `flags:` 低 2 位（0=只读/1=只写/2=读写）。
+        """
+        hit = k61conftest._prod_fd_hit
+        corpus = "/mnt/d/fortune-data/books/k55_dream/clean/dream_corpus.jsonl"
+        db = "/mnt/d/fortune-data/userdata/fortune.db"
+        # ① 只读语料：只读放行 / 写命中（flags 是八进制：0100000=O_RDONLY、0100001=O_WRONLY）
+        assert hit(corpus, "flags:\t0100000\nmnt_id:\t24\n") is False
+        assert hit(corpus, "flags:\t0100001\n") is True
+        assert hit(corpus, "flags:\t0100002\n") is True          # O_RDWR
+        # ② 数据存储：只读也命中（这是 I4 主张，r11 未放宽）
+        assert hit(db, "flags:\t0100000\n") is True
+        # ③ 拿不到 fdinfo / 格式变了 → **fail-closed**（判成写）
+        assert hit(corpus, "") is True
+        assert hit(corpus, "nonsense") is True
+        # ④ 生产树之外：一律不命中
+        assert hit("/tmp/x", "flags:\t0100001\n") is False
+        assert hit("/dev/shm/k61_test_data_x/userdata/fortune.db", "") is False
 
     def test_failure_criterion_is_fd_hits_not_mtime(self):
         """**判据锁（行为锁，r8 从源码文本锁换过来）**：只有 hits 会失败。"""
@@ -412,6 +454,36 @@ class TestProdDataGuardCriterion:
         assert str(hit[2]).startswith(tuple(k61conftest.PROD_DATA_ROOTS))
         assert hit[0] == os.getpid()
         del wd.hits[before:]                              # 自证用，弹掉避免 session 收尾报红
+
+    def test_read_only_corpus_open_is_not_flagged(self, _k61_prod_data_guard):
+        """**r11 回归锁（合并后 1 error 的直接形态）**：只读打开生产语料**不得**命中。
+
+        植入实验：本会话按 `tests/test_dream_rules_k55.py` 的方式只读打开一份
+        `books/` 下的语料 → 看门狗必须**零新增命中**（旧的全树"打开即报"会命中，
+        于是全量门禁在会话收尾报 `ProdDataTouched` → 整轮 ERROR）。
+        """
+        books_root = "/mnt/d/fortune-data/books"
+        sample = None
+        for dirpath, _dirnames, filenames in os.walk(books_root):
+            for fn in filenames:
+                if fn.endswith((".txt", ".jsonl")):
+                    sample = os.path.join(dirpath, fn)
+                    break
+            if sample:
+                break
+        if sample is None:
+            pytest.fail(
+                f"生产语料目录里没找到任何 .txt/.jsonl（{books_root}）——"
+                "本锁的**环境前提**是本机有生产语料（同 `test_own_session_open_is_"
+                "recorded_then_drained` 的处置：显式失败而不是 skip）。")
+        wd = k61conftest._PROD_WATCHDOG
+        before = len(wd.hits)
+        with open(sample, "rb") as fh:          # 只读（与那条溯源用例同款）
+            fh.read(64)
+            wd._sample_once()
+        assert len(wd.hits) == before, (
+            "只读打开生产语料被判成了违规（会让 test_dream_rules_k55 的溯源用例"
+            f"把整个会话打成 ERROR）：{wd.hits[before:]}")
 
     def test_concurrent_writer_is_not_our_fault(self):
         """**方向性（行为锁）**：别人写（mtime 变）+ 本会话没打开 → **必须不失败**。
