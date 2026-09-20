@@ -31,8 +31,12 @@
 1. 不得为了让断言通过而**改宽**扫描面（排除目录、放宽正则、删文件数下限）；
    扫描面有**逐 glob 文件数下限**，只许升不许降；
 2. 不得删除本文件里锁定「活代码仍在」的用例（night_persona /
-   quality_predictor / emoji 清理用例 / 列不许 DROP）—— 那些是**不许碰**的活
-   路径；它们改前改后都是绿的，存在的意义正是拦住「把活代码当残留删掉」；
+   emoji 清理用例 / 列不许 DROP）—— 那些是**不许碰**的活路径；它们改前改后
+   都是绿的，存在的意义正是拦住「把活代码当残留删掉」；
+   ⚠️ k64 例外（控制方裁决）：`quality_predictor` 已从本清单**移除**并按
+   「文件不许复活」**反转断言**（见 `test_live_paths_untouched_no_over_deletion`
+   第 2 条）—— k62 判它「活」是按引用面判的，k64 复核证明它只写不读且调用点
+   本身抛异常被吞（P1）。**不要把它再列为「必须保留」**；
 3. 不设白名单。
 
 ── 跨批边界（k62 r2 更正，勿恢复） ──────────────────────────────────────
@@ -619,9 +623,15 @@ def test_live_paths_untouched_no_over_deletion():
     assert (ROOT / "src/bot/night_persona.py").exists(), "night_persona.py 被误删（活代码）"
     assert "night_persona" in _read("src/bot/handler.py"), \
         "handler 不再引用 night_persona（活路径被摘）"
-    # 2) ML 质量预测器（E4 活代码）
-    qp = _read("src/ml/quality_predictor.py")
-    assert "PERSONALITY_MAP" in qp, "quality_predictor.PERSONALITY_MAP 被误删（活代码）"
+    # 2) ML 质量预测器（E4）—— **k64 已按控制方裁决（用户拍板）整模块删除，故本断言反转**。
+    #    k62 当时把它判为「活代码」是**按引用面判的**（handler 里有 update() 调用），
+    #    k64 的独立复核证明它**只写不读**：两个读方法 predict()/should_retry() 全仓 0 调用，
+    #    且唯一调用点缺必填参数 personality → 每次反馈抛 TypeError 被 except Exception
+    #    吞掉（P1，k64 修复）。反转后口径：**文件不许复活**（同 k64 守卫
+    #    tests/test_k64_quality_predictor_removed.py，此处只作跨批守夜，不重复其 AST 扫描）。
+    assert not (ROOT / "src/ml/quality_predictor.py").exists(), \
+        "quality_predictor.py 复活 —— 该模块已按控制方裁决（k64）删除，" \
+        "该能力当前未实现，要做需重新立项"
 
 
 def test_emoji_cleanup_cases_preserved():
