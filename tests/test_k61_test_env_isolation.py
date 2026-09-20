@@ -258,7 +258,16 @@ class TestDotenvLoadingIsDeterministic:
              os.path.join(REPO, "tests", "test_adaptive_advisor.py")
              + "::TestIntegration::test_insight_field_in_integration",
              "-q", "-p", "no:cacheprovider"],
-            cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=300,
+            cwd=str(tmp_path), env=env, capture_output=True, text=True,
+            # ⚠️ 集成分支（batch2-k61）：300 → 600。本锁要在**重负载**下不假红：
+            # 子进程里跑的是**真 LLM 用例**，其启动含共享的 embedding 模型加载
+            # （每次运行可见 `Loading weights: 391`）+ 一次真网络往返。
+            # 实测：负载平静 16.4s / 有 canary 调用 5.9–13.7s；但另一次在负载 9.1
+            # （并行 pytest + ugrep 203% CPU）时整文件跑到 391.01s ——
+            # **失败形态是撞自身 timeout 上限（非断言失败）**，属环境性假红。
+            # 放宽这个**测试自身参数**不改断言语义（断句仍是「不得出现 skipped」
+            # + 「1 passed 或 1 failed」）；它只是别把慢机器判成门控失效。
+            timeout=600,
         )
         out = proc.stdout + proc.stderr
         assert "skipped" not in out, (
