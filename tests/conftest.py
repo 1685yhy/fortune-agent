@@ -22,12 +22,26 @@ k57 门禁里 `test_response_under_5_seconds` 真跑到 >5s 墙钟失败即其�
    把部署键 pin 成空值 —— 测试进程等价于「没有部署 .env」。见 §0。
 1. `_k61_deepseek_egress_guard`（autouse / session）——**进程级**拦截：
    测试期间任何指向 `deepseek` 域的真实出站连接一律以
-   `DeepSeekEgressBlocked(BaseException)` 失败。拦截点在「真正会开 socket 的那一层」：
-     - `socket.getaddrinfo`（覆盖 httpx/anyio/requests/urllib/原生 socket）
-     - `socket.create_connection`（覆盖标准库同步路径）
-     - `httpx.HTTPTransport.handle_request` / `httpx.AsyncHTTPTransport.handle_async_request`
+   `DeepSeekEgressBlocked(BaseException)` 失败。拦截点全部落在「真正会把字节
+   送出去、或真正会建立客户端 TLS 的那一层」，**逐条清单（含"没覆盖的"）
+   以 `tests/test_k61_llm_egress_guard.py` 的枚举为唯一事实源**：
+   `HOOKED`（已挂钩 + 有行为锁）/ `DECLARED_UNCOVERABLE`（做不到）/
+   `DECLARED_NOT_A_CHANNEL`（名字像但不是通道，带实测）/ `DECLARED_LIMITATIONS`
+   （**降级：钩上了但判据不完整，可被绕过**）。摘要：
+     - A 层 `socket.getaddrinfo`（覆盖 httpx/anyio/requests/urllib/原生 socket）
+     - B 层 `socket.create_connection`（标准库同步路径）
+     - C 层 `socket.socket.connect`/`connect_ex`（按**解析后的 IP** 判）
+     - D 层 `send`/`sendall`/`sendmsg`/`sendto` + `os.write`/`writev`/`sendfile`/`splice`/
+       `eventfd_write` + `posix.*` 同族（**跨块累积**判明文请求头）
+     - E 层 `httpx.HTTPTransport.handle_request` / `AsyncHTTPTransport.handle_async_request`
        （**只有真实传输层**才命中；`httpx.MockTransport` 是独立类，不受影响 →
        用 mock transport 固定请求形状的用例照常工作）
+     - F 层 客户端 TLS 的**全部入口**（`SSLContext.wrap_socket`/`wrap_bio`、
+       `SSLSocket._create`、`SSLObject._create`、C 层 `_wrap_socket`/`_wrap_bio` 的
+       遮蔽层）：判据是**合取** —— SNI 在白名单**且**真实对端可接受（见
+       `_tls_target_refused`；r8 曾只看 SNI ⇒ SNI 可撒谎，r9 修回）。
+     - G 层 把 socket fd 包成**文件对象**的族（`io.FileIO` / `os.fdopen` /
+       `io.open` / `builtins.open` / `shutil.copyfileobj`）：C 层直写 fd，内容看不见 → 拒。
    免费源白名单 `FREE_LLM_HOSTS`（只放免费源，当前 `open.bigmodel.cn`）不受影响；
    该白名单在 `tests/test_k61_llm_egress_guard.py` 里做正向对照（白名单必须放行）。
 
@@ -38,6 +52,13 @@ k57 门禁里 `test_response_under_5_seconds` 真跑到 >5s 墙钟失败即其�
    ⚠️ 有了 §0 的 pin 之后，**这一层是兜底而不是唯一防线**：pin 让测试进程连
    DeepSeek key 都没有（结构性免疫），守卫负责拦住那些不依赖环境变量、
    用 Mock/硬编码 key 直接调统一层的调用点。
+
+   ⚠️ **本层不是"全覆盖"**（k61 r8 曾把"结构锁 + 几条行为锁"写成"每条路径都有
+   行为锁"，被独立审查实测证伪：`grep wrap_bio tests/` 0 命中、把整条守卫摘掉
+   守卫测试文件仍 91 passed）。r9 的处置：**每条声称覆盖的路径都补行为锁，并把
+   "摘掉该路径的守卫 → 对应锁变红"实测记录写进
+   `.superpowers/sdd/task-k61-r9-report.md`**；做不到的一律不进 HOOKED，
+   改列 DECLARED_*（连同"可被怎么绕"的实测）。
 
 2. `glm_route` fixture——需要**真实 LLM** 的端到端用例走**免费 `glm-4-flash`**。
    做法与仓库既有评测路由完全同款（`scripts/verify_qa_scenarios.py`、
@@ -51,6 +72,8 @@ k57 门禁里 `test_response_under_5_seconds` 真跑到 >5s 墙钟失败即其�
    见 §0b。
 """
 import atexit
+import builtins
+import io
 import logging
 import os
 import posix
@@ -985,6 +1008,45 @@ class _EgressGuard:
         posix.sendfile = _guard_os_sendfile
         os.sendfile = _guard_os_sendfile
         socket.socket.sendfile = _guard_sock_sendfile
+        # r9（C2 ③）：`os.splice` / `posix.splice` —— **同族别名**（两个模块属性、同一函数）。
+        # 它既不是 send 也不是 write 起头 → r8 的"按前缀猜"漏了它（实测明文出线）。
+        self._orig_os_splice = os.splice
+        self._orig_posix_splice = posix.splice
+        os.splice = _guard_os_splice
+        posix.splice = _guard_os_splice
+        # r9：`eventfd_write`（Linux 独有；不在时跳过 —— 平台上没有这个通道）。
+        self._orig_eventfd_write = getattr(os, "eventfd_write", None)
+        self._orig_posix_eventfd_write = getattr(posix, "eventfd_write", None)
+        if self._orig_eventfd_write is not None:
+            os.eventfd_write = _guard_eventfd_write
+            posix.eventfd_write = _guard_eventfd_write
+        # r9（C2）：TLS 入口的同族面 —— `_create`（Python 类方法）+ C 层 `_wrap_*` 的**遮蔽层**
+        # （`ssl.SSLContext` 是 `_ssl._SSLContext` 的 Python 子类 → 子类属性可遮蔽继承来的
+        #  C 方法；`_ssl._SSLContext._wrap_*` 本身不可赋值，那是声明的残留）。
+        # ⚠️ 存**原 classmethod 对象**（`__dict__` 里那份）而不是绑定方法：还原后语义逐字相同。
+        self._orig_sslsocket_create = ssl.SSLSocket.__dict__["_create"]
+        self._orig_sslobject_create = ssl.SSLObject.__dict__["_create"]
+        ssl.SSLSocket._create = classmethod(_guard_sslsocket_create)
+        ssl.SSLObject._create = classmethod(_guard_sslobject_create)
+        self._orig_ctx_wrap_socket = ssl.SSLContext._wrap_socket      # 解析后的 C 方法（继承来的）
+        self._orig_ctx_wrap_bio = ssl.SSLContext._wrap_bio
+        #: 类字典里**原本**有没有这两个名字（实测：没有，都是继承 `_ssl._SSLContext` 的）。
+        #: 卸载时要按"原本有没有"决定「delattr 还原继承」还是「赋回原属性」—— 不靠假设。
+        self._own_ctx_wrap_socket = ssl.SSLContext.__dict__.get("_wrap_socket")
+        self._own_ctx_wrap_bio = ssl.SSLContext.__dict__.get("_wrap_bio")
+        ssl.SSLContext._wrap_socket = _guard_ctx_wrap_socket           # 遮蔽（子类属性）
+        ssl.SSLContext._wrap_bio = _guard_ctx_wrap_bio
+        # r9（I1）：把 socket fd 包成"文件对象"的族（C 层直写 fd，钩子看不见内容）。
+        self._orig_fdopen = os.fdopen
+        self._orig_io_open = io.open
+        self._orig_builtins_open = builtins.open
+        self._orig_fileio = io.FileIO
+        self._orig_copyfileobj = shutil.copyfileobj
+        os.fdopen = _guard_fdopen
+        io.open = _guard_io_open
+        builtins.open = _guard_io_open
+        io.FileIO = _GuardedFileIO
+        shutil.copyfileobj = _guard_copyfileobj
         socket.getaddrinfo = _guard_getaddrinfo
         socket.create_connection = _guard_create_connection
         socket.socket.connect = _guard_connect
@@ -1026,6 +1088,29 @@ class _EgressGuard:
         posix.sendfile = self._orig_posix_sendfile
         os.sendfile = self._orig_os_sendfile
         socket.socket.sendfile = self._orig_sock_sendfile
+        os.splice = self._orig_os_splice
+        posix.splice = self._orig_posix_splice
+        if getattr(self, "_orig_eventfd_write", None) is not None:
+            os.eventfd_write = self._orig_eventfd_write
+            posix.eventfd_write = self._orig_posix_eventfd_write
+        ssl.SSLSocket._create = self._orig_sslsocket_create
+        ssl.SSLObject._create = self._orig_sslobject_create
+        # 遮蔽层还原：原本是**继承来的** → `del` 掉子类属性（重新解析到 `_ssl._SSLContext`）；
+        # 原本类字典里就有 → 赋回原属性。
+        for _name, _own in (("_wrap_socket", getattr(self, "_own_ctx_wrap_socket", None)),
+                            ("_wrap_bio", getattr(self, "_own_ctx_wrap_bio", None))):
+            try:
+                if _own is not None:
+                    setattr(ssl.SSLContext, _name, _own)
+                else:
+                    delattr(ssl.SSLContext, _name)
+            except Exception:      # pragma: no cover - 理论上不成立
+                pass
+        os.fdopen = self._orig_fdopen
+        io.open = self._orig_io_open
+        builtins.open = self._orig_builtins_open
+        io.FileIO = self._orig_fileio
+        shutil.copyfileobj = self._orig_copyfileobj
         if getattr(self, "_httpx", None) is not None:
             self._httpx.HTTPTransport.handle_request = self._orig_httpx_sync
             self._httpx.AsyncHTTPTransport.handle_async_request = self._orig_httpx_async
@@ -1260,48 +1345,110 @@ def _guard_os_write(fd, data):
     return _GUARD._orig_os_write(fd, data)
 
 
-def _tls_target_refused(server_hostname, peer_ip):
-    """客户端 TLS 的目标是否必须拒绝（r8：判据改成 **server_hostname 优先**）。
+def _peer_ip_of(sock):
+    """socket 的**真实对端** IP（拿不到 → None；None 在判据里 = 判不了 = fail-closed）。"""
+    try:
+        peer = sock.getpeername()
+    except Exception:
+        return None
+    if isinstance(peer, (tuple, list)) and peer:
+        return peer[0]
+    return None
 
-    为什么改（两条实测）：
-    1. **r7 的 peer-IP 判据过宽**：在配了 `http://` 代理的机器上，客户端虽然连的是
-       代理，但 TLS 是**端到端**到目标（`server_hostname` = 目标）→ 用 peer-IP 判会把
-       **白名单主机误杀**（e2e 会红而不是 skip）。
-    2. **r7 只钩 `wrap_socket`**：异步家族（asyncio `sslproto`）走 **`wrap_bio`** ——
-       实测 `aiohttp` 显式 `proxy="https://…"` 时 `wrap_bio(server_hostname='127.0.0.1')`
-       （**代理主机**）→ 守卫 0 反应，监听器**解密后**收到 `CONNECT api.deepseek.com:443`。
 
-    判据：`server_hostname` 在（说明这次 TLS 是冲着那个主机去的）→ 只放行**白名单主机**；
-    `server_hostname` 为空 → 退回 peer-IP（只放行白名单主机解析出的 IP）。
-    加密不是豁免理由：**非白名单目标的 TLS 一律拒**。
+def _tls_peer_acceptable(peer_ip) -> bool:
+    """这次客户端 TLS 的**真实对端**是否可接受（r9 C1：SNI 不得单独作判据）。
+
+    可接受 = ① 白名单主机解析出的 IP（**直连**：TLS 端到端到白名单目标），或
+             ② **明文代理**主机解析出的 IP（HTTPS 走 `http://` 代理时，TLS 是端到端
+                到目标、传输对端是代理；代理**之上**的目标由 D 层的 CONNECT 行判）。
+
+    ⚠️ 两条"看起来能放宽"的路都**故意不给**：
+    - **任意回环/私网 IP**：那正是 r9 C1 的绕过形态 —— 假终点/假代理在 `127.0.0.1`
+      监听，配一个**撒谎的 SNI** 就能把明文送进去（本批实测复现：拆掉对端判据后
+      `wrap_socket(…, server_hostname="open.bigmodel.cn")` 打 `127.0.0.1` → 守卫 0 反应，
+      TLS 监听器**解密后**收到 `CONNECT api.deepseek.com:443`）。
+    - **不加区分地认任何 IP**：等于把判据交回给 SNI（就是 r8 的缺陷本身）。
+
+    残留（**已实测、已声明，未修**）：若测试进程自己把 `HTTPS_PROXY` 指到一个
+    **能终结 TLS 的本地端点**，再配撒谎 SNI，对端会落进 ② 而被放行 —— 形态是
+    "环境变量声称是明文代理、调用方却把它当不透明代理用"。本轮按控制方给的修法
+    只做"SNI 必须真 + 对端必须可接受"的合取，该残留写进报告（未假装覆盖）。
     """
-    if server_hostname:
-        return not _is_allowed_host(server_hostname)
     if peer_ip is None:
-        return True                     # 两头都判不了 → fail-closed
-    return not _GUARD._ip_learned(peer_ip)
+        return False                    # 判不了对端 → fail-closed
+    with _GUARD._lock:
+        return str(peer_ip) in _GUARD._allowed_ips \
+            or str(peer_ip) in _GUARD._proxy_ips
+
+
+def _tls_target_refused(server_hostname, peer_ip):
+    """客户端 TLS 的目标是否必须拒绝（**合取**判据；r9 C1 修法）。
+
+    ## 为什么必须合取（r8 的回归）
+
+    r8 为收窄误杀把判据改成"**只看调用方给的 `server_hostname`**"、**把 peer 检查整个删掉**
+    ⇒ **SNI 可以撒谎**。审查者用**文档化的库参数**复现、本批也逐条复现（原始输出见
+    `.superpowers/sdd/task-k61-r9-report.md`）：
+
+    | 撒谎方式（全是公开/文档化参数） | r8 tip | 监听器（TLS 终结）看到的 |
+    |---|---|---|
+    | `httpx` `extensions={"sni_hostname": "open.bigmodel.cn"}` | 放行 | **解密后** `CONNECT api.deepseek.com:443` |
+    | `urllib3.HTTPSConnectionPool(server_hostname="open.bigmodel.cn")` | 放行 | 同上 |
+    | 裸 `ctx.wrap_socket(sock, server_hostname="open.bigmodel.cn")` | 放行 | 同上 |
+
+    ## 判据（两条**同时**成立才放行）
+
+    ① 有效 SNI 主机在白名单 —— 但 SNI 是**调用方自报**的，单用它 = 谁都能自称白名单；
+    ② 真实对端可接受（见 `_tls_peer_acceptable`）—— 把"自称"钉回"实际连的是谁"。
+
+    为什么②要**认代理 IP**（r7 的 peer 判据本来能挡住，但会误杀）：在配了 `http://`
+    代理的机器上，客户端 TLS 的对端是**代理**而 SNI 是**目标** —— 不认代理 IP 就会把
+    白名单主机的 TLS 误杀（r8 当初就是为这个才拆掉 peer 检查的）。r9 实测证明
+    "认代理 IP"之后**误杀不会回来**：白名单 + （白名单学到的 IP ∪ 明文代理 IP）
+    两条路都真跑通过（见报告 §r9-C1 的实测表）。
+
+    加密不是豁免理由：**非白名单目标的 TLS 一律拒**；`server_hostname` 缺失 → 拒。
+    """
+    if not server_hostname or not _is_allowed_host(server_hostname):
+        return True
+    return not _tls_peer_acceptable(peer_ip)
+
+
+def _tls_target_refused_sni_only(server_hostname):
+    """**降级判据**（只判 SNI，**可被撒谎绕过**）—— wrap_bio / `SSLObject._create` 专用。
+
+    ⚠️ 这是**降级声明**，不是覆盖：`wrap_bio` 拿到的是 `MemoryBIO`，**没有对端可判**
+    （BIO 与 socket 之间没有反向引用，asyncio/anyio 的传输层也不把它递进来），
+    所以合取判据的②在这里**做不到** —— 只能判 SNI。诚实结论：
+    **对异步家族（asyncio `sslproto` / aiohttp / anyio）撒谎的 SNI 挡不住**，
+    该路径为"降级：只判 SNI"。
+    （为什么**不能**改成"异步一律 fail-closed"：那会把所有走 asyncio 的 HTTPS ——
+      包括免费 GLM 的正规链路 —— 全部打死，是**误杀**而不是防护。）
+
+    本函数在报告里对应的条目是"**已声明：可被撒谎绕过**"，不得计为已覆盖路径。
+    """
+    return not (server_hostname and _is_allowed_host(server_hostname))
 
 
 def _guard_wrap_socket(self, sock, *a, **kw):
-    """r7/r8（C1）：**客户端 TLS** → fail-closed（判据见 `_tls_target_refused`）。"""
-    server_side = kw.get("server_side", a[0] if a else False)
+    """r7/r8/r9（C1）：**客户端 TLS** → fail-closed（合取判据见 `_tls_target_refused`）。"""
+    server_side = _create_arg(a, kw, 0, "server_side", False)     # a[0] = server_side
     if not server_side:
-        host = kw.get("server_hostname")
-        peer_ip = None
-        try:
-            peer = sock.getpeername()
-            peer_ip = peer[0] if isinstance(peer, (tuple, list)) else None
-        except Exception:
-            peer_ip = None
+        host = _create_arg(a, kw, 3, "server_hostname")           # a[3] = server_hostname
+        peer_ip = _peer_ip_of(sock)
         if _tls_target_refused(host, peer_ip):
             _GUARD._trip(
                 "ssl.SSLContext.wrap_socket（客户端 TLS）",
                 str(host or peer_ip),
                 extra=f"  server_hostname={host!r} 对端={peer_ip}\n"
-                      "  判据: 客户端一旦对非白名单目标发起 TLS，真实目标就被 TLS 藏住 —— "
-                      "**与代理是怎么配置的无关**（环境变量 / proxies= / mounts= / proxy= 都一样）。\n",
+                      "  判据（r9 合取）: ① SNI 必须是白名单主机（SNI 是调用方自报的，"
+                      "**单独用会被撒谎绕过**）**且** ② 真实对端必须是白名单主机学到的 IP "
+                      "或明文代理学到的 IP。\n"
+                      "  与代理是怎么配置的无关（环境变量 / proxies= / mounts= / proxy= 都一样）。\n",
                 exc=PublicEgressBlocked,
-                rule="测试进程只允许对**白名单主机**发起客户端 TLS；其它目标上的 TLS 会藏住真实目标 → 拒绝。"
+                rule="测试进程只允许对**白名单主机**发起客户端 TLS，且对端必须真的是那个"
+                     "白名单目标（或明文代理）。非白名单目标上的 TLS 会藏住真实目标 → 拒绝。"
                      "确需明文可判的代理请用 `http://` 代理（CONNECT 行可见）。")
     # ⚠️ 挂成 **类属性** → 描述符协议生效，调用时第一个参数是 `self`（SSLContext）。
     # r7 实测踩到：写成 `(sock, *a, **kw)` 会把 SSLContext 当成 socket →
@@ -1310,25 +1457,119 @@ def _guard_wrap_socket(self, sock, *a, **kw):
 
 
 def _guard_wrap_bio(self, incoming, outgoing, *a, **kw):
-    """r8（C1 主修）：**异步家族**的客户端 TLS 入口（asyncio `sslproto` / aiohttp 走这里）。
+    """r8（C1 主修）+ r9 降级声明：**异步家族**的客户端 TLS 入口（asyncio `sslproto` / aiohttp）。
 
-    与 `wrap_socket` 同一判据（见 `_tls_target_refused`），但拿不到 socket 对端
-    （参数是 `MemoryBIO`）→ 只靠 `server_hostname`；为空时 fail-closed。
+    判据 = `_tls_target_refused_sni_only`（**只判 SNI**）：参数是 `MemoryBIO`，没有对端
+    可判 → 合取判据的②**做不到** → 本路径**降级**、**可被撒谎的 SNI 绕过**（已实测并声明）。
     """
-    server_side = kw.get("server_side", a[0] if a else False)
+    server_side = _create_arg(a, kw, 0, "server_side", False)     # a[0] = server_side
     if not server_side:
-        host = kw.get("server_hostname")
-        if _tls_target_refused(host, None):
+        host = _create_arg(a, kw, 1, "server_hostname")           # a[1] = server_hostname
+        if _tls_target_refused_sni_only(host):
             _GUARD._trip(
                 "ssl.SSLContext.wrap_bio（客户端 TLS / 异步家族）",
                 str(host or "<无 server_hostname>"),
                 extra=f"  server_hostname={host!r}\n"
                       "  判据: 异步家族（asyncio sslproto / aiohttp）用 wrap_bio —— "
-                      "r7 只钩了 wrap_socket，实测 `aiohttp` 显式 proxy= 时经此路漏出 CONNECT。\n",
+                      "r7 只钩了 wrap_socket，实测 `aiohttp` 显式 proxy= 时经此路漏出 CONNECT。\n"
+                      "  ⚠️ 本路径**只判 SNI**（拿不到对端）→ **撒谎的 SNI 挡不住**，"
+                      "属**降级声明**，不计为已覆盖。\n",
                 exc=PublicEgressBlocked,
                 rule="异步家族的客户端 TLS 同样只允许白名单主机；"
                      "`server_hostname` 为空时 fail-closed（判不了就拒）。")
     return _GUARD._orig_wrap_bio(self, incoming, outgoing, *a, **kw)
+
+
+# ── r9 C2：TLS 入口的**同族**面 ──
+# r8 只钩了 `SSLContext.wrap_socket` / `wrap_bio` 两个"友好入口"。实测（本批原始输出见报告）
+# 同族里还有 **4 个**能建出客户端 TLS 的入口被整个漏掉：
+#   `ssl.SSLSocket._create`（Python 类方法，**可钩**）、`ssl.SSLObject._create`（同上）、
+#   `_ssl._SSLContext._wrap_socket` / `_wrap_bio`（C 方法，**不可直接赋值**，
+#   但 `ssl.SSLContext` 是它的 Python 子类 → 在子类上挂同名属性即可**遮蔽**它）。
+# 实测 r8 tip：`ssl.SSLSocket._create(sock=…, server_hostname="127.0.0.1")`、裸
+# `SSLObject._create(server_hostname="api.deepseek.com")`、`ctx._wrap_socket(sock, False,
+# "open.bigmodel.cn")` 三条**全部 0 反应**（监听器解密后收到 CONNECT）。
+
+def _create_arg(a, kw, index, name, default=None):
+    """`_create` 家族按"位置或关键字"取参数（它们既被位置调用、也被关键字调用）。"""
+    if name in kw:
+        return kw[name]
+    return a[index] if len(a) > index else default
+
+
+def _guard_sslsocket_create(cls, *a, **kw):
+    """r9 C2：`ssl.SSLSocket._create` —— 客户端 TLS 的**同族入口**（合取判据）。"""
+    sock = _create_arg(a, kw, 0, "sock")
+    server_side = _create_arg(a, kw, 1, "server_side", False)
+    host = _create_arg(a, kw, 4, "server_hostname")
+    if not server_side:
+        peer_ip = _peer_ip_of(sock) if sock is not None else None
+        if _tls_target_refused(host, peer_ip):
+            _GUARD._trip(
+                "ssl.SSLSocket._create（客户端 TLS）",
+                str(host or peer_ip),
+                extra=f"  server_hostname={host!r} 对端={peer_ip}\n"
+                      "  判据同 wrap_socket（合取）：SNI 必须在白名单**且**对端可接受。\n"
+                      "  为什么要有这一层: r8 只钩 `SSLContext.wrap_socket/wrap_bio`，"
+                      "`SSLSocket._create(sock=…, server_hostname=…)` 直调实测 **0 反应**。\n",
+                exc=PublicEgressBlocked,
+                rule="`ssl.SSLSocket._create` 是客户端 TLS 的同族入口，判据与 wrap_socket 相同。")
+    return _GUARD._orig_sslsocket_create.__func__(cls, *a, **kw)
+
+
+def _guard_sslobject_create(cls, *a, **kw):
+    """r9 C2：`ssl.SSLObject._create` —— 同上，但**只判 SNI**（降级，无对端可判）。"""
+    server_side = _create_arg(a, kw, 2, "server_side", False)
+    host = _create_arg(a, kw, 3, "server_hostname")
+    if not server_side:
+        if _tls_target_refused_sni_only(host):
+            _GUARD._trip(
+                "ssl.SSLObject._create（客户端 TLS / BIO）",
+                str(host or "<无 server_hostname>"),
+                extra=f"  server_hostname={host!r}\n"
+                      "  判据: 只有 BIO、**没有对端可判** → 降级为只判 SNI"
+                      "（**撒谎的 SNI 挡不住**，见 `_tls_target_refused_sni_only`）。\n",
+                exc=PublicEgressBlocked,
+                rule="`ssl.SSLObject._create` 只接受白名单 SNI；该路径无对端可判 → 降级。")
+    return _GUARD._orig_sslobject_create.__func__(cls, *a, **kw)
+
+
+def _guard_ctx_wrap_socket(self, sock, *a, **kw):
+    """r9 C2：`_ssl._SSLContext._wrap_socket` 的**遮蔽层**（挂在 Python 子类 `ssl.SSLContext` 上）。
+
+    C 方法本身不可赋值（仍是声明的残留：`_ssl._SSLContext._wrap_socket(ctx, …)`
+    这种**未绑定直调**绕过本遮蔽层），但**一切经 `ssl.SSLContext` 实例的调用**
+    （含 `SSLSocket._create` 内部那次）都走这里 → 判据与 `wrap_socket` 同（合取）。
+    """
+    server_side = _create_arg(a, kw, 0, "server_side", False)
+    host = _create_arg(a, kw, 1, "server_hostname")
+    if not server_side:
+        peer_ip = _peer_ip_of(sock) if sock is not None else None
+        if _tls_target_refused(host, peer_ip):
+            _GUARD._trip(
+                "ssl.SSLContext._wrap_socket（C 层入口的遮蔽层）",
+                str(host or peer_ip),
+                extra=f"  server_hostname={host!r} 对端={peer_ip}\n"
+                      "  判据同 wrap_socket（合取）。\n",
+                exc=PublicEgressBlocked,
+                rule="客户端 `_wrap_socket` 只允许白名单 SNI + 可接受对端。")
+    return _GUARD._orig_ctx_wrap_socket(self, sock, *a, **kw)
+
+
+def _guard_ctx_wrap_bio(self, incoming, outgoing, *a, **kw):
+    """r9 C2：`_ssl._SSLContext._wrap_bio` 的**遮蔽层**（同上；只判 SNI = 降级）。"""
+    server_side = _create_arg(a, kw, 0, "server_side", False)
+    host = _create_arg(a, kw, 1, "server_hostname")
+    if not server_side:
+        if _tls_target_refused_sni_only(host):
+            _GUARD._trip(
+                "ssl.SSLContext._wrap_bio（C 层入口的遮蔽层 / 降级）",
+                str(host or "<无 server_hostname>"),
+                extra=f"  server_hostname={host!r}\n"
+                      "  判据: 只有 BIO、无对端可判 → 降级为只判 SNI。\n",
+                exc=PublicEgressBlocked,
+                rule="客户端 `_wrap_bio` 只接受白名单 SNI；无对端可判 → 降级。")
+    return _GUARD._orig_ctx_wrap_bio(self, incoming, outgoing, *a, **kw)
 
 
 def _guard_sendto(sock, data, *a, **kw):
@@ -1382,6 +1623,175 @@ def _guard_sock_sendfile(self, file, *a, **kw):
                  exc=PublicEgressBlocked,
                  rule="测试进程不得用 sendfile 往 socket 灌文件内容（内容不可判）。")
     return _GUARD._orig_sock_sendfile(self, file, *a, **kw)
+
+
+# ── r9 C2 ③：`os.splice` —— file→pipe→socket 同族（r8 的派生谓词漏了它）──
+#
+# r8 的"发送族 API 面"是**用前缀猜出来的**：`name.startswith(("send", "write"))`。
+# 那个谓词**天生不可靠**（本批实测）：`os.splice` 起头既不是 send 也不是 write，
+# 却是能把**文件内容**灌进 socket 的通道 —— 实测 `os.splice(file→pipe)` +
+# `os.splice(pipe→socket)` 把 `CONNECT api.deepseek.com:443` 原样送上监听器，守卫 0 反应。
+# "按名字猜"还会有第二类错：名字像却**不是**通道（`socket.sendmsg_afalg` 名字像，
+# 实测只对 AF_ALG 生效 → `OSError: algset is only supported for AF_ALG`）。
+# ⇒ r9 起改为**显式枚举**（枚举来源与逐条处置见
+#   `tests/test_k61_llm_egress_guard.py::TestSendFamilyApiSurface`），
+#   前缀扫描退为"提醒人做决定"的**绊线**，不再充当判据。
+
+def _guard_os_splice(src, dst, count, *a, **kw):
+    """r9 C2：`os.splice(src, dst, …)` —— 内核里搬数据，内容**判不了** → 与 sendfile 同处置。
+
+    只在 `dst` 真的是 socket fd 时 fail-closed（`src` 是 socket = 从网络**读**，不是出站）。
+    """
+    try:
+        if _GUARD._is_socket_fd(dst):
+            _GUARD._trip("os.splice（socket ← file/pipe）", f"src_fd={src} dst_fd={dst}",
+                         extra="  判据: 内容在内核里从文件/管道搬到 socket，守卫判定不了"
+                               "其中是否含请求头明文 → fail-closed。\n"
+                               "  为什么 r8 漏了它: 派生谓词按 `send`/`write` 前缀猜名字，"
+                               "`splice` 两头都不沾（实测 0 反应、明文原样出线）。\n",
+                         exc=PublicEgressBlocked,
+                         rule="测试进程不得用 splice 把文件/管道内容灌进 socket（内容不可判）。"
+                              "确需发送可判明文请用 send/sendall/os.write。")
+    except EgressBlocked:
+        raise
+    except Exception as exc:
+        _GUARD._note_hook_error("os.splice 钩子", exc)
+    return _GUARD._orig_os_splice(src, dst, count, *a, **kw)
+
+
+def _guard_eventfd_write(fd, value):
+    """r9：`os.eventfd_write(fd, value)` —— **把"值"写进 fd**（同族，本批实测新发现）。
+
+    实测（本批原始输出见报告）：在一个 **socket fd** 上 `os.eventfd_write(fd, 0x204E4F43…)`
+    → 监听器**真的**收到那 8 字节（`b'CONNECT '` = 该 uint64 的 little-endian）。
+    也就是说：这是个**一次 8 字节**的写通道（任意 8 字节都可通过选值得到，
+    除 `0` / `0xFFFFFFFFFFFFFFFF` 被拒）。
+    判据处置：8 字节窗口里**不可能**出现请求头形状（`_REQUEST_HEAD_RE` 最短匹配
+    `"Host:"` 也要 5 字节且需要后续行结构）→ 扫描没有意义 → 与 sendfile 同族 **fail-closed**。
+    只在 `fd` 真的是 socket 时触发（正当用法写的是 eventfd，不是 socket）。
+    """
+    try:
+        if _GUARD._is_socket_fd(fd):
+            _GUARD._trip("os.eventfd_write（socket ← 计数器值）", f"fd={fd}",
+                         extra="  判据: 每次只能塞 8 字节（值是 uint64，little-endian 落地），"
+                               "判定不了是否在拼请求头明文 → fail-closed。\n"
+                               "  为什么 r8 漏了它: 派生谓词只按 `send`/`write` 前缀找名字，"
+                               "`eventfd_write` 的写语义藏在后缀里。\n",
+                         exc=PublicEgressBlocked,
+                         rule="测试进程不得用 eventfd_write 往 socket 里塞值（内容不可判）。"
+                              "确需发送可判明文请用 send/sendall/os.write。")
+    except EgressBlocked:
+        raise
+    except Exception as exc:
+        _GUARD._note_hook_error("os.eventfd_write 钩子", exc)
+    return _GUARD._orig_eventfd_write(fd, value)
+
+
+# ── r9 I1：**把 socket fd 包成文件对象**的族（`io.FileIO` / `os.fdopen` / `io.open` /
+#    `builtins.open` / `shutil.copyfileobj`）──
+#
+# 实测（本批原始输出见报告）：`io.FileIO(sock.fileno(), "wb").write(b"CONNECT api.deepseek.com:443 …")`
+# / `os.fdopen(sock.fileno(), "wb").write(…)` / `shutil.copyfileobj(f, os.fdopen(sock.fileno(), "wb"))`
+# 三条**全部 0 反应**，明文原样到达监听器。根因：`FileIO.write` 是 **C 层直写 fd**
+# （走 `write(2)`），**不经过** `os.write` / `socket.send` 任何钩子 —— 与 `os.sendfile`
+# 是同一个根因（"内容可见性"取决于走哪条路，而不是内容本身）。
+# 处置（与 sendfile 同族）：**fail-closed**，且**只在这个 fd 真的是 socket 时触发**
+# （`fstat` 的 `S_ISSOCK` 权威判定）→ 正常文件 I/O 一行不受影响。
+#
+# 为什么不用"扫描写入内容"（更宽松）替代 fail-closed：
+# - `io.open`/`os.fdopen`/`builtins.open` 返回的是 C 的 `BufferedWriter`/`TextIOWrapper`，
+#   内容在 `FileIO`（C）里落盘/落线 —— 要扫就得把**调用方拿到的对象**换成代理，
+#   那会改掉整个进程里每个 `open()` 的类型/行为（产品码在跑，风险不可接受）；
+# - `io.FileIO` 可以子类化扫描，但"构造函数拒一个 socket fd"与另外几条**同一处置**更好记、
+#   也更符合本守卫既有的"内容不可判 → 拒"口径（见 sendfile / 不透明代理）。
+# - `shutil.copyfileobj` 是**局部**的（接收端对象只在本函数内用）→ 那里用**扫描代理**
+#   （内容可判，故不 fail-closed，零误杀）。
+
+def _check_file_object_over_socket_fd(where: str, fd):
+    """`fd` 真的是 socket → 拒（把 socket 包成文件对象 = 内容看不见）。"""
+    if isinstance(fd, bool) or not isinstance(fd, int):
+        return
+    if not _GUARD._is_socket_fd(fd):
+        return
+    _GUARD._trip(where, f"fd={fd}",
+                 extra="  判据: 文件对象的写入是 **C 层直写 fd**（`write(2)`），"
+                       "绕过 `os.write` / `socket.send` 全部钩子 → 内容不可判 → fail-closed。\n"
+                       "  r9 实测（r8 tip）: `io.FileIO` / `os.fdopen` / `shutil.copyfileobj` "
+                       "三条公开 API 全部 0 反应、明文原样出线。\n",
+                 exc=PublicEgressBlocked,
+                 rule="测试进程不得把 socket fd 包成文件对象来写（内容不可判）。"
+                      "确需发送可判明文请用 send/sendall/os.write/writev。")
+
+
+class _GuardedFileIO(io.FileIO):
+    """`io.FileIO` 的守卫替身：**构造期**判定 fd 是不是 socket（r9 I1）。"""
+
+    def __init__(self, file, mode="r", closefd=True, opener=None):
+        _check_file_object_over_socket_fd("io.FileIO（socket fd ← 文件对象）", file)
+        super().__init__(file, mode, closefd, opener)
+
+
+def _socket_fd_of_fileobj(obj):
+    """对象背后是不是 socket fd（是 → 返回 fd；否/拿不到 → None）。"""
+    try:
+        fd = obj.fileno()
+    except Exception:
+        return None
+    if isinstance(fd, bool) or not isinstance(fd, int):
+        return None
+    return fd if _GUARD._is_socket_fd(fd) else None
+
+
+class _ScanningWriteProxy:
+    """`shutil.copyfileobj` 专用的**临时**接收端代理：写一块 → 判一块 → 再写。
+
+    只在 `fdst` 真的是 socket 支撑时才包（其他情况一行不变）；`copyfileobj` 只用到
+    `.write`，其余属性一律转发给真对象。
+    """
+
+    __slots__ = ("_fdst", "_fd")
+
+    def __init__(self, fdst, fd):
+        self._fdst = fdst
+        self._fd = fd
+
+    def write(self, data):
+        if isinstance(data, (bytes, bytearray, memoryview)):
+            _GUARD.scan_payload(None, data, fd=self._fd)
+        return self._fdst.write(data)
+
+    def __getattr__(self, name):        # 只在正常查找失败时触发（slots 下无 __dict__）
+        return getattr(self._fdst, name)
+
+
+def _guard_fdopen(fd, *a, **kw):
+    """r9 I1：`os.fdopen(fd, …)` —— fd 是 socket → 拒。"""
+    _check_file_object_over_socket_fd("os.fdopen（socket fd ← 文件对象）", fd)
+    return _GUARD._orig_fdopen(fd, *a, **kw)
+
+
+def _guard_io_open(file, *a, **kw):
+    """r9 I1：`io.open` / **`builtins.open`** —— 传的是 **fd** 且是 socket → 拒。
+
+    为什么连 `builtins.open` 一起换：`io.open is builtins.open` 为 True，但它们是
+    **两个绑定**（模块属性 vs 内建命名空间），只补一处时 `open(sock_fd, "wb")`
+    仍能绕（r8 的"别名"教训的同型）。
+    只对 `int` 的首参做判定 → 路径/`PathLike` 直接透传，正常 `open()` 零行为差异。
+    """
+    _check_file_object_over_socket_fd("io.open / builtins.open（socket fd ← 文件对象）", file)
+    return _GUARD._orig_io_open(file, *a, **kw)
+
+
+def _guard_copyfileobj(fsrc, fdst, length=0):
+    """r9 I1：`shutil.copyfileobj(src, dst)` —— `dst` 是 socket 支撑 → **逐块扫内容**。
+
+    这里**不**fail-closed：内容是可见的（逐块经过本函数），所以按既有 D 层口径判
+    （只有真的像请求头且目标是 deepseek/非白名单时才拦）→ 本地 socket 的正常拷贝不误杀。
+    """
+    fd = _socket_fd_of_fileobj(fdst)
+    if fd is None:
+        return _GUARD._orig_copyfileobj(fsrc, fdst, length)
+    return _GUARD._orig_copyfileobj(fsrc, _ScanningWriteProxy(fdst, fd), length)
 
 
 def _guard_httpx_sync(transport, request):
