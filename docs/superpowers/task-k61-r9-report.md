@@ -143,8 +143,10 @@ OK2b-隔离 => BLOCK PublicEgressBlocked          ← 白名单主机的 TLS 被
 **(c) 学习集是"会话级、粘住"的**（本批实测的顺序依赖）：`_proxy_ips` 一旦学到某 IP 就**不会**清；
 于是"先跑过一条设 `HTTPS_PROXY=http://127.0.0.1:P` 的用例"之后，**任何**之后
 "撒谎 SNI + 对端 127.0.0.1"的用例都会被放行（同一探针单独跑 BLOCK、串在代理用例之后 ALLOW）。
-⇒ 本文件按**地址分工**消除该依赖：`127.0.0.2`=攻击面对端 / `.3`=代理正向对照 / `.4`=白名单正向对照，
-且攻击用例前置断言"该 IP 不在两个学习集里"。
+⇒ 本文件按**地址分工**消除该依赖：`127.0.0.2`=攻击面对端 / `.3`=代理正向对照 /
+`.4`=白名单正向对照 / `.5`=参数配代理的过拦取证（专用），且相关用例前置断言"该 IP 不在两个学习集里"。
+**这不是空谈**：过拦取证用例起初用 `.3`（与"代理正向对照"同址）→ **假绿**
+（前一条用例已经把该 IP 学进 `_proxy_ips`）→ 改专用 `.5` 才有判别力（本项目内实测）。
 
 **为什么不顺手把 (a) 也关掉**：唯一能区分"端到端 TLS"与"对代理做 TLS"的判据是
 "这个 fd 上**是否见过明文 CONNECT**"的关联判据 —— 它**既放宽**（攻击方可以先写一行无害 CONNECT
@@ -244,47 +246,47 @@ r9 aiohttp proxy(https) => BLOCK:PublicEgressBlocked ['拦截层: ssl.SSLContext
 ```
 $ cd /dev/shm/k61r9 && TMPDIR=/dev/shm nice -n 10 /home/a/fortune-agent/.venv/bin/python teeth.py
 == k61 r9 锁的牙：摘掉守卫 → 对应锁是否变红 ==
-A socket.getaddrinfo                                 RED（锁有牙） 1 failed | ['...::TestGuardLayers::test_socket_getaddrinfo_blocked']
-B socket.create_connection                           RED（锁有牙） 1 failed | ['...::TestGuardLayers::test_socket_create_connection_blocked']
-C socket.socket.connect                              RED（锁有牙） 1 failed | ['...::TestAddressJudgment::test_public_ip_literal_direct_socket_blocked']
-C socket.socket.connect_ex                           RED（锁有牙） 1 failed | ['...::test_public_ip_literal_connect_ex_blocked']
-D socket.send                                        RED（锁有牙） 1 failed | ['...::TestFragmentWriteBypass::test_memoryview_send_blocked']
-D socket.sendall                                     RED（锁有牙） 1 failed | ['...::test_single_block_still_blocked']
-D socket.sendmsg                                     RED（锁有牙） 1 failed | ['...::test_sendmsg_blocked']
-D socket.sendto                                      RED（锁有牙） 1 failed | ['...::TestSendtoAndWritevBlocked::test_sendto_blocked']
-D os.write                                           RED（锁有牙） 1 failed | ['...::TestFragmentWriteBypass::test_os_write_blocked']
-D os.writev                                          RED（锁有牙） 1 failed | ['...::TestSendtoAndWritevBlocked::test_os_writev_blocked']
-E httpx 同步传输层                                    RED（锁有牙） 1 failed | ['...::TestGuardLayers::test_httpx_sync_real_transport_blocked']
-E httpx 异步传输层                                    RED（锁有牙） 1 failed | ['...::test_httpx_async_real_transport_blocked']
-os.sendfile                                          RED（锁有牙） 1 failed | ['...::test_aliases_are_actually_blocked[os.sendfile]']
-posix.write                                          RED（锁有牙） 1 failed, 1 passed | ['...::test_aliases_are_actually_blocked[posix.write]']
-posix.writev                                         RED（锁有牙） 1 failed | ['...::test_aliases_are_actually_blocked[posix.writev]']
-posix.sendfile                                       RED（锁有牙） 1 failed | ['...::test_aliases_are_actually_blocked[posix.sendfile]']
-socket.socket.sendfile                               RED（锁有牙） 1 failed | ['...::test_aliases_are_actually_blocked[socket.socket.sendfile]']
-os.splice                                            RED（锁有牙） 1 failed | ['...::TestSameFamilyWritePaths::test_os_splice_into_socket_blocked']
-posix.splice                                         RED（锁有牙） 1 failed | ['...::test_posix_write_aliases_are_blocked[posix.splice]']
-os.eventfd_write                                     RED（锁有牙） 1 failed | ['...::test_os_eventfd_write_to_socket_blocked']
-posix.eventfd_write                                  RED（锁有牙） 1 failed | ['...::test_posix_write_aliases_are_blocked[posix.eventfd_write]']
-os.fdopen                                            RED（锁有牙） 1 failed | ['...::TestFileObjectOverSocketFd::test_os_fdopen_socket_fd_blocked']
-io.open                                              RED（锁有牙） 1 failed | ['...::test_io_open_socket_fd_blocked']
-builtins.open                                        RED（锁有牙） 1 failed | ['...::test_builtins_open_socket_fd_blocked']
-io.FileIO                                            RED（锁有牙） 1 failed | ['...::test_io_fileio_socket_fd_blocked']
-shutil.copyfileobj                                   RED（锁有牙） 1 failed | ['...::test_copyfileobj_into_socket_file_blocked']
-SSLContext.wrap_socket                               RED（锁有牙） 1 failed | ['...::TestTlsSniCannotLie::test_lying_sni_to_local_endpoint_blocked']
-SSLContext.wrap_bio（单独摘）                           RED（锁有牙） 1 failed | ['...::TestTlsEntryPointsHooked::test_wrap_bio_non_whitelisted_sni_blocked']
-SSLSocket._create（单独摘，锁=归因版）                     RED（锁有牙） 1 failed | ['...::test_sslsocket_create_lying_sni_blocked']
-SSLSocket._create（单独摘，锁=无归因版→被同族兜住）            GREEN（没牙 / 被同族兜住） 1 passed
-SSLObject._create（单独摘）                             RED（锁有牙） 1 failed | ['...::test_sslobject_create_non_whitelisted_sni_blocked']
-SSLContext._wrap_socket 遮蔽（单独摘）                    RED（锁有牙） 1 failed | ['...::test_sslcontext_wrap_socket_shadow_lying_sni_blocked']
-SSLContext._wrap_bio 遮蔽（单独摘）                       RED（锁有牙） 1 failed | ['...::test_sslcontext_wrap_bio_shadow_non_whitelisted_sni_blocked']
-B 整族（create_connection + getaddrinfo）               RED（锁有牙） 1 failed | ['...::test_socket_create_connection_blocked']
-sendfile 整族（socket.sendfile + os/posix.sendfile + send） RED（锁有牙） 1 failed | ['...::test_aliases_are_actually_blocked[socket.socket.sendfile]']
-文件对象整族（os.fdopen + io.open + builtins.open）         RED（锁有牙） 1 failed | ['...::test_os_fdopen_socket_fd_blocked']
-wrap_socket 三层整族（wrap_socket + SSLSocket._create + _wrap_socket 遮蔽） RED（锁有牙） 1 failed | ['...::test_lying_sni_to_local_endpoint_blocked']
-wrap_bio 整族（wrap_bio + SSLObject._create + _wrap_bio 遮蔽） RED（锁有牙） 1 failed | ['...::test_wrap_bio_non_whitelisted_sni_blocked']
-SSLSocket._create 整族（_create + _wrap_socket 遮蔽）     RED（锁有牙） 1 failed | ['...::test_sslsocket_create_lying_sni_blocked']
-wrap_socket 整族（wrap_socket + _wrap_socket 遮蔽）       RED（锁有牙） 1 failed | ['...::test_lying_sni_to_local_endpoint_blocked']
-SSLObject._create 整族（_create + _wrap_bio 遮蔽）        RED（锁有牙） 1 failed | ['...::test_sslobject_create_non_whitelisted_sni_blocked']
+A socket.getaddrinfo                                 RED（锁有牙）                 1 failed, 135 deselected in 0.20s | ['tests/test_k61_llm_egress_guard.py::TestGuardLayers::test_socket_getaddrinfo_blocked']
+B socket.create_connection                           RED（锁有牙）                 1 failed, 135 deselected in 0.19s | ['tests/test_k61_llm_egress_guard.py::TestGuardLayers::test_socket_create_connection_blocked']
+C socket.socket.connect                              RED（锁有牙）                 1 failed, 135 deselected in 0.19s | ['tests/test_k61_llm_egress_guard.py::TestAddressJudgment::test_public_ip_literal_direct_socket_blocked']
+C socket.socket.connect_ex                           RED（锁有牙）                 1 failed, 135 deselected in 0.20s | ['tests/test_k61_llm_egress_guard.py::TestAddressJudgment::test_public_ip_literal_connect_ex_blocked']
+D socket.send                                        RED（锁有牙）                 1 failed, 135 deselected in 0.40s | ['tests/test_k61_llm_egress_guard.py::TestFragmentWriteBypass::test_memoryview_send_blocked']
+D socket.sendall                                     RED（锁有牙）                 1 failed, 135 deselected in 0.18s | ['tests/test_k61_llm_egress_guard.py::TestFragmentWriteBypass::test_single_block_still_blocked']
+D socket.sendmsg                                     RED（锁有牙）                 1 failed, 135 deselected in 0.19s | ['tests/test_k61_llm_egress_guard.py::TestFragmentWriteBypass::test_sendmsg_blocked']
+D socket.sendto                                      RED（锁有牙）                 1 failed, 135 deselected in 0.19s | ['tests/test_k61_llm_egress_guard.py::TestSendtoAndWritevBlocked::test_sendto_blocked']
+D os.write                                           RED（锁有牙）                 1 failed, 135 deselected in 0.40s | ['tests/test_k61_llm_egress_guard.py::TestFragmentWriteBypass::test_os_write_blocked']
+D os.writev                                          RED（锁有牙）                 1 failed, 135 deselected in 0.40s | ['tests/test_k61_llm_egress_guard.py::TestSendtoAndWritevBlocked::test_os_writev_blocked']
+E httpx 同步传输层                                        RED（锁有牙）                 1 failed, 135 deselected in 0.42s | ['tests/test_k61_llm_egress_guard.py::TestGuardLayers::test_httpx_sync_real_transport_blocked']
+E httpx 异步传输层                                        RED（锁有牙）                 1 failed, 135 deselected in 0.22s | ['tests/test_k61_llm_egress_guard.py::TestGuardLayers::test_httpx_async_real_transport_blocked']
+os.sendfile                                          RED（锁有牙）                 1 failed, 135 deselected in 0.39s | ['tests/test_k61_llm_egress_guard.py::TestSendFamilyApiSurface::test_aliases_are_actually_blocked[os.sendfile]']
+posix.write                                          RED（锁有牙）                 1 failed, 1 passed, 134 deselected in 0.60s | ['tests/test_k61_llm_egress_guard.py::TestSendFamilyApiSurface::test_aliases_are_actually_blocked[posix.write]']
+posix.writev                                         RED（锁有牙）                 1 failed, 135 deselected in 0.19s | ['tests/test_k61_llm_egress_guard.py::TestSendFamilyApiSurface::test_aliases_are_actually_blocked[posix.writev]']
+posix.sendfile                                       RED（锁有牙）                 1 failed, 135 deselected in 0.39s | ['tests/test_k61_llm_egress_guard.py::TestSendFamilyApiSurface::test_aliases_are_actually_blocked[posix.sendfile]']
+socket.socket.sendfile                               RED（锁有牙）                 1 failed, 135 deselected in 0.19s | ['tests/test_k61_llm_egress_guard.py::TestSendFamilyApiSurface::test_aliases_are_actually_blocked[socket.socket.sendfile]']
+os.splice                                            RED（锁有牙）                 1 failed, 135 deselected in 0.57s | ['tests/test_k61_llm_egress_guard.py::TestSameFamilyWritePaths::test_os_splice_into_socket_blocked']
+posix.splice                                         RED（锁有牙）                 1 failed, 135 deselected in 0.59s | ['tests/test_k61_llm_egress_guard.py::TestSameFamilyWritePaths::test_posix_write_aliases_are_blocked[posix.splice]']
+os.eventfd_write                                     RED（锁有牙）                 1 failed, 135 deselected in 0.78s | ['tests/test_k61_llm_egress_guard.py::TestSameFamilyWritePaths::test_os_eventfd_write_to_socket_blocked']
+posix.eventfd_write                                  RED（锁有牙）                 1 failed, 135 deselected in 0.78s | ['tests/test_k61_llm_egress_guard.py::TestSameFamilyWritePaths::test_posix_write_aliases_are_blocked[posix.eventfd_write]']
+os.fdopen                                            RED（锁有牙）                 1 failed, 135 deselected in 0.78s | ['tests/test_k61_llm_egress_guard.py::TestFileObjectOverSocketFd::test_os_fdopen_socket_fd_blocked']
+io.open                                              RED（锁有牙）                 1 failed, 135 deselected in 0.77s | ['tests/test_k61_llm_egress_guard.py::TestFileObjectOverSocketFd::test_io_open_socket_fd_blocked']
+builtins.open                                        RED（锁有牙）                 1 failed, 135 deselected in 0.79s | ['tests/test_k61_llm_egress_guard.py::TestFileObjectOverSocketFd::test_builtins_open_socket_fd_blocked']
+io.FileIO                                            RED（锁有牙）                 1 failed, 135 deselected in 0.77s | ['tests/test_k61_llm_egress_guard.py::TestFileObjectOverSocketFd::test_io_fileio_socket_fd_blocked']
+shutil.copyfileobj                                   RED（锁有牙）                 1 failed, 135 deselected in 1.21s | ['tests/test_k61_llm_egress_guard.py::TestFileObjectOverSocketFd::test_copyfileobj_into_socket_file_blocked']
+SSLContext.wrap_socket                               RED（锁有牙）                 1 failed, 135 deselected in 0.80s | ['tests/test_k61_llm_egress_guard.py::TestTlsSniCannotLie::test_lying_sni_to_local_endpoint_blocked']
+SSLContext.wrap_bio（单独摘）                             RED（锁有牙）                 1 failed, 135 deselected in 0.52s | ['tests/test_k61_llm_egress_guard.py::TestTlsEntryPointsHooked::test_wrap_bio_non_whitelisted_sni_blocked']
+SSLSocket._create（单独摘，锁=归因版）                         RED（锁有牙）                 1 failed, 135 deselected in 0.76s | ['tests/test_k61_llm_egress_guard.py::TestTlsEntryPointsHooked::test_sslsocket_create_lying_sni_blocked']
+SSLSocket._create（单独摘，锁=无归因版→被同族兜住）                  GREEN（没牙 / 被同族兜住）        1 passed, 135 deselected in 0.76s | -
+SSLObject._create（单独摘）                               RED（锁有牙）                 1 failed, 135 deselected in 0.51s | ['tests/test_k61_llm_egress_guard.py::TestTlsEntryPointsHooked::test_sslobject_create_non_whitelisted_sni_blocked']
+SSLContext._wrap_socket 遮蔽（单独摘）                      RED（锁有牙）                 1 failed, 135 deselected in 0.81s | ['tests/test_k61_llm_egress_guard.py::TestTlsEntryPointsHooked::test_sslcontext_wrap_socket_shadow_lying_sni_blocked']
+SSLContext._wrap_bio 遮蔽（单独摘）                         RED（锁有牙）                 1 failed, 135 deselected in 0.34s | ['tests/test_k61_llm_egress_guard.py::TestTlsEntryPointsHooked::test_sslcontext_wrap_bio_shadow_non_whitelisted_sni_blocked']
+B 整族（create_connection + getaddrinfo）                RED（锁有牙）                 1 failed, 135 deselected in 0.20s | ['tests/test_k61_llm_egress_guard.py::TestGuardLayers::test_socket_create_connection_blocked']
+sendfile 整族（socket.sendfile + os/posix.sendfile + send） RED（锁有牙）                 1 failed, 135 deselected in 0.40s | ['tests/test_k61_llm_egress_guard.py::TestSendFamilyApiSurface::test_aliases_are_actually_blocked[socket.socket.sendfile]']
+文件对象整族（os.fdopen + io.open + builtins.open）          RED（锁有牙）                 1 failed, 135 deselected in 0.59s | ['tests/test_k61_llm_egress_guard.py::TestFileObjectOverSocketFd::test_os_fdopen_socket_fd_blocked']
+wrap_socket 三层整族（wrap_socket + SSLSocket._create + _wrap_socket 遮蔽） RED（锁有牙）                 1 failed, 135 deselected in 0.78s | ['tests/test_k61_llm_egress_guard.py::TestTlsSniCannotLie::test_lying_sni_to_local_endpoint_blocked']
+wrap_bio 整族（wrap_bio + SSLObject._create + _wrap_bio 遮蔽） RED（锁有牙）                 1 failed, 135 deselected in 1.10s | ['tests/test_k61_llm_egress_guard.py::TestTlsEntryPointsHooked::test_wrap_bio_non_whitelisted_sni_blocked']
+SSLSocket._create 整族（_create + _wrap_socket 遮蔽）      RED（锁有牙）                 1 failed, 135 deselected in 0.76s | ['tests/test_k61_llm_egress_guard.py::TestTlsEntryPointsHooked::test_sslsocket_create_lying_sni_blocked']
+wrap_socket 整族（wrap_socket + _wrap_socket 遮蔽）        RED（锁有牙）                 1 failed, 135 deselected in 0.80s | ['tests/test_k61_llm_egress_guard.py::TestTlsSniCannotLie::test_lying_sni_to_local_endpoint_blocked']
+SSLObject._create 整族（_create + _wrap_bio 遮蔽）         RED（锁有牙）                 1 failed, 135 deselected in 0.19s | ['tests/test_k61_llm_egress_guard.py::TestTlsEntryPointsHooked::test_sslobject_create_non_whitelisted_sni_blocked']
 
 == 汇总 ==
 总 41 条：RED 40 / GREEN 1 / 其它 0
@@ -305,12 +307,12 @@ conftest 已还原: (干净)
 
 ```
 $ TMPDIR=/dev/shm nice -n 10 /home/a/fortune-agent/.venv/bin/python -m pytest tests/test_k61_llm_egress_guard.py -q
-134 passed in 16.95s                      （r9 改前：91 passed）
+136 passed in 17.70s                      （r9 改前：91 passed）
 
 $ … pytest tests/test_k61_e2e_smoke.py tests/test_k61_llm_egress_guard.py \
         tests/test_k61_private_collection_guard.py tests/test_k61_public_url_product_bug.py \
         tests/test_k61_repo_hygiene.py tests/test_k61_test_env_isolation.py -q
-193 passed, 2 skipped in 22.39s           （2 skip = e2e opt-in 门控）
+195 passed, 2 skipped in 22.33s           （2 skip = e2e opt-in 门控）
 
 $ … 上面 6 个文件 + tests/test_adaptive_advisor.py + tests/test_bot.py -q -rs
 276 passed, 5 skipped in 30.02s
@@ -331,12 +333,16 @@ SKIPPED [3] tests/test_adaptive_advisor.py 缺少 ZHIPU_API_KEY（免费 glm-4-f
 | 1 | `ssl.SSLContext.wrap_bio` / `ssl.SSLObject._create` / `ssl.SSLContext._wrap_bio` | **降级：只判 SNI，撒谎可绕** | `test_declared_wrap_bio_sni_can_lie`（取证锁） | 无对端可判；不能改成一律拒（会打死 asyncio HTTPS） |
 | 2 | `_ssl._SSLContext._wrap_socket/_wrap_bio` 的**未绑定直调** | 绕过遮蔽层 | `test_declared_unbound_c_level_wrap_bio_can_slip` | C 类型不可赋值 |
 | 3 | `from _io import FileIO` 写 socket fd | 绕过 `io.FileIO` 钩子 | `test_declared_io_fileio_c_level_import_can_slip` | 同一 C 类型第二条绑定；`copyfileobj` 那层仍能兜住经它的写入 |
-| 4 | `_socket.socket.send/sendall/sendmsg/sendto/sendfile/sendmsg_afalg` | 不可挂钩（C 不可变类型） | `TypeError: cannot set … of immutable type` | 兜底=pin（无生产 key） |
+| 4 | `_socket.socket.send/sendall/sendmsg/sendto/sendfile/sendmsg_afalg` | 不可挂钩（C 不可变类型） | 取证锁 `test_declared_socket_c_type_is_immutable`（实测 `TypeError`） | 兜底=pin（无生产 key） |
 | 5 | 子进程（子解释器/curl/fork+exec） | 进程边界 | `test_declared_subprocess_can_slip_and_pin_is_inherited` | 同时实测**pin 被继承**（`DEEPSEEK_API_KEY` 子进程里为 `''`） |
 | 6 | ctypes 直调 libc `write(2)` | 不经 Python 属性查找 | `test_declared_ctypes_raw_syscall_can_slip` | 同上兜底 |
 | 7 | **残留**：env 声称明文代理 + 撒谎 SNI（§2.3a） | 合取判据的已知缺口 | `test_declared_env_plaintext_proxy_endpoint_plus_lying_sni_can_slip` | **未修**，需拍板（§2.3） |
-| — | **过拦面**：`proxies=` 参数配明文代理（§2.3b） | 不是漏拦，是过拦 | `probe3.py ok2b_param_proxy` → BLOCK | 本仓 0 命中 |
+| — | **过拦面**：`proxies=` 参数配明文代理（§2.3b） | 不是漏拦，是过拦 | 取证锁 `test_declared_param_proxy_over_block`（专用地址 `.5`）+ `probe3.py ok2b_param_proxy` | 本仓 0 命中 |
 | — | `ioctl` / `fcntl` 这类**设备控制**接口 | **范围外** | **未实测**（只有推理：对 socket 无"写字节"语义） | 若审查者认为算通道，请明示 → 下轮进枚举 |
+
+**每条"没覆盖的"都有取证锁**（§6 全表：BIO 降级 / C 层直调 / `_io.FileIO` / `_socket` 不可挂钩 /
+子进程 / ctypes / env 代理端点残留 / 参数代理过拦 —— 8 条各有一条 `test_declared_*`）：
+它们的"红"意味着**声明与事实不符**（洞被修好了或行为变了）→ 逼人回来更新声明。
 
 **枚举完备性**：**无法证明**。绊线是启发式的（`eventfd_write` 就是它自己漏过的那类），
 所以枚举逐条按文档族对照；"新名字溜过"只能靠绊线逼人做决定，不能靠它保证无漏。
@@ -412,8 +418,8 @@ TMPDIR=/dev/shm nice -n 10 $PY /dev/shm/k61r9/teeth.py      # 每条跑完自动
 for w in r7 r8 r9; do TMPDIR=/dev/shm nice -n 10 $PY /dev/shm/k61r9/probe_aiohttp.py $w; done
 
 # 5) 测试
-TMPDIR=/dev/shm nice -n 10 $PY -m pytest tests/test_k61_llm_egress_guard.py -q          # 134 passed
-TMPDIR=/dev/shm nice -n 10 $PY -m pytest tests/test_k61_*.py -q                          # 193 passed / 2 skipped
+TMPDIR=/dev/shm nice -n 10 $PY -m pytest tests/test_k61_llm_egress_guard.py -q          # 136 passed
+TMPDIR=/dev/shm nice -n 10 $PY -m pytest tests/test_k61_*.py -q                          # 195 passed / 2 skipped
 ```
 
 **红线自查**：`git diff --name-only d926a95 HEAD` = `tests/conftest.py` + `tests/test_k61_llm_egress_guard.py`
