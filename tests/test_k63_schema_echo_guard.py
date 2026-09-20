@@ -150,6 +150,18 @@ def test_one_strong_signal_is_enough():
         assert is_schema_echo(text) is True, text
 
 
+def test_documented_boundary_two_weak_signals_in_normal_prose():
+    """**已知边界（显式钉住，不隐藏）**：正常建议里**同时**出现两条弱信号 → 会被误判置空。
+
+    这是阈值设计的代价（宁可对形态可疑的文本从严，也不放行模板说明）。
+    行为与报告 §9.3-7 的披露**逐条对齐**；本用例存在的意义是防止未来有人
+    "以为它不会误判"而在别处依赖精确率 100%。
+    """
+    text = "2026年的关键时间窗口在立秋之后，签合同必须包含违约条款。"
+    assert is_schema_echo(text) is True          # 弱信号 2 条：时间窗口 + 必须包含
+    assert scrub_schema_echo(text) == ""
+
+
 # ============================================================
 # C：接线 —— generate() 字段层
 # ============================================================
