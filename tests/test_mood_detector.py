@@ -506,9 +506,18 @@ class TestRealAPI:
     def test_real_accuracy_on_sample(self, glm_route):
         """Run a sample of test cases with the real API to verify accuracy.
 
-        k61 说明：阈值 0.70 **未改**；换 provider 后的实测值见报告（免费
-        glm-4-flash）。若这条在 GLM 上真红，那是模型能力差异，须由控制方裁定，
-        不得就地放宽阈值。
+        ⚠️ **k61 r3 诚实更正（审查者实测指出，本用例曾被误当作"真实端到端"证据）**：
+        本用例取样 `LABELED_TEST_CASES[:10]`，而那 10 条的期望值**全是 `gentle`**，
+        兜底常量也**恒为 `gentle`** → **端点完全死掉时本用例照样得 1.00（10/10）**
+        —— 它**没有判别力**，不能作为"真实端到端准确率"的验收证据。
+
+        实测（免费 glm-4-flash，k61 r3 探针）：
+          - 全 54 条：30/54 = **0.556**（gentle 16/17、analyst 13/17、**sassy 1/20**）
+          - 分层 12 条（每类 4 条）：8/12 = **0.667** —— **低于本用例的 0.70 阈值**
+        即：**样本换成有代表性的，这条在免费 GLM 上必然红**；而 0.70 是当年按
+        DeepSeek 校准的。**改样本或改阈值都属于改宽/改判据，须由控制方裁定**
+        （见报告 §r3-② 的方案 A/B/C）。在裁定前本用例保持原样、且不再被引用为
+        准确率证据；判别力由下面那条确定性用例守住。
         """
         detector = MoodDetector(api_key=glm_route)
         sample_cases = LABELED_TEST_CASES[:10]  # First 10 cases
@@ -519,3 +528,58 @@ class TestRealAPI:
                 correct += 1
         accuracy = correct / len(sample_cases)
         assert accuracy >= 0.70, f"Real API accuracy {accuracy:.1%} below 70% threshold"
+
+
+# ====================================================================
+# k61 r3 ②：判别力锁 —— 端点坏掉时，准确率类用例**必须红**
+# ====================================================================
+# 审查者实测：改前的样本（前 10 条全 gentle）+ 兜底常量 gentle → 死端点也得
+# 1.00（零判别力）。本用例用一个**确定性**的方式把"判别力"钉住：拿一个有代表性
+# 的分层样本，在**端点全坏**的条件下算分，断言它**低于阈值** —— 也就是说，
+# 真出问题时那条准确率用例会红，而不是"永远绿"。
+
+#: 分层样本：每类取前 N 条（确定性、可复现；不挑不捡 —— 就是文件内既有顺序）。
+REPRESENTATIVE_PER_CLASS = 4
+
+
+def representative_sample():
+    """按类别分层的代表性样本（gentle/analyst/sassy 各取前 4 条）。"""
+    import collections
+    by = collections.defaultdict(list)
+    for case in LABELED_TEST_CASES:
+        by[case[1]].append(case)
+    sample = []
+    for cls in ("gentle", "analyst", "sassy"):
+        sample.extend(by[cls][:REPRESENTATIVE_PER_CLASS])
+    return sample
+
+
+class TestAccuracySampleHasDiscriminativePower:
+    """端点坏 → 必须红（k61 r3 ②）。"""
+
+    def test_representative_sample_covers_multiple_categories(self):
+        """样本必须**覆盖多个类别**（审查者指出的根因：单一期望值 = 无判别力）。"""
+        sample = representative_sample()
+        expected = {c[1] for c in sample}
+        assert expected == {"gentle", "analyst", "sassy"}, expected
+        assert len(sample) == REPRESENTATIVE_PER_CLASS * 3
+
+    def test_dead_endpoint_scores_below_threshold(self):
+        """**植入实验**：把 LLM 端点彻底打死，准确率必须落到阈值之下。
+
+        兜底常量恒为 `gentle`，所以死端点得分 = 样本里 gentle 的占比。
+        分层样本 = 4/12 = 0.333 < 0.70 → 准确率用例在真出故障时**会红**。
+        （改前样本是 10/10 = 1.00 → 永远绿，即"没有判别力"。）
+        """
+        from unittest.mock import patch
+
+        sample = representative_sample()
+        detector = MoodDetector(api_key="test_key")
+        with patch(LLM_TARGET, side_effect=RuntimeError("k61: 端点已死")):
+            got = [detector.detect(msg).mood for msg, _, _ in sample]
+        correct = sum(1 for (_, exp, _), g in zip(sample, got) if exp == g)
+        score = correct / len(sample)
+        assert score < 0.70, (
+            f"死端点下得分 {score:.3f} 仍 >= 0.70 —— 样本没有判别力"
+            f"（改前样本会是 1.00）")
+        assert set(got) == {"gentle"}, "死端点应全部落到兜底人设 gentle"
