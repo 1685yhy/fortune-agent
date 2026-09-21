@@ -235,7 +235,7 @@ class _BaziLite:
 _SHARE_ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 _SHARE_ID_LEN = 8
 _SHARE_QR_PREFIX = "https://yilichat.com/share?id="
-_WEAPP_APPID = "wxa100b72566782fd0"
+_WEAPP_APPID = "wxe5391a48fe36b278"
 _WEAPP_PATH = "pages/chat/chat"
 _MAX_PAIRS = 50
 _MAX_U_LEN = 200
