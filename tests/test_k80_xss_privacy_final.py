@@ -430,6 +430,18 @@ CONSUMER_NEEDLES = {
     # k80 新增的编码/归属符号（新消费点若走它们，同样要被看见）
     "json_for_script", "js_string_literal", "html_attr_text",
     "report_owner_tag", "assert_report_owner", "_REPORT_JSON_CONSUMERS",
+    # ── k81-M1（终验实测逃逸 K/L）：**已登记模块自己的 helper** ──────────────
+    # 终验实测 `from src.api.share import _load_report` / `s._load_report(rid)`
+    # → **零命中**：新消费者不必自己拼路径，只要"借用已登记模块里真读 JSON 的
+    # helper"就整类不可见（对照：`_card_from_report` 在表里 → 红，证明判据本身
+    # 是工作的，漏的是**表格**）。
+    # 判据：凡是**真的把报告 JSON 读进来**的入口，无论它在哪个模块、是不是
+    # 私有名，都必须在表里。当前全仓共 3 个（`visual_report.load_report_from`
+    # 是唯一实现，`share._load_report` / `visual_report.load_report` 是它的两个
+    # 薄包装；`report_path_in` 是唯一"路径怎么拼"实现，`share._report_path` 是
+    # 它的薄包装）；`purge_report_files` 直接读 `owner_enc` 决定删哪些文件，
+    # 同样在消费点清单里。
+    "_load_report", "_report_path", "purge_report_files", "without_report_owner",
 }
 
 #: **形状判据**（k80-必修3 的关键）：不再只看"符号名对不对"，还看"像不像在拼
@@ -438,18 +450,102 @@ _PATH_PARTS = ("reports", "data" + "/reports", "report")
 _FUNCISH = ("report", "reading", "insight", "share")
 
 
-def _fold_const(node):
-    """静态可折叠的字符串（字面量 / 加法拼接 / f-string 的字面段）。"""
+def _fold_const(node, consts=None):
+    """静态可折叠的字符串（字面量 / 加法拼接 / f-string 的字面段 / **常量名**）。
+
+    k81-M1：新增 `consts`（局部/模块级常量传播表）—— 只传了它才解析 `Name`。
+    不传 = 老行为（纯字面量折叠），既有调用点语义不变。
+
+    为什么必须做（终验实测逃逸 B）：`DIR = "data/reports"` 先赋局部变量、再
+    `pathlib.Path(DIR) / (rid + ".json")` —— **纯静态字面量 + 一层局部间接**，
+    旧扫描器不做常量传播 ⇒ 零命中，与它自己声称的"静态可折叠的路径串在面内"
+    直接冲突。
+    """
+    if consts:
+        if isinstance(node, ast.Name) and node.id in consts:
+            return consts[node.id]
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.JoinedStr):
-        return "".join(v.value for v in node.values
-                       if isinstance(v, ast.Constant) and isinstance(v.value, str))
+        parts = []
+        for v in node.values:
+            if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                parts.append(v.value)
+            elif isinstance(v, ast.FormattedValue) and v.conversion in (-1, None) \
+                    and v.format_spec is None:
+                # 只折叠"没有格式转换/格式说明"的 F 值，且值本身要能静态折叠
+                folded = _fold_const(v.value, consts)
+                if folded is not None:
+                    parts.append(folded)
+        return "".join(parts)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left, right = _fold_const(node.left), _fold_const(node.right)
+        left = _fold_const(node.left, consts)
+        right = _fold_const(node.right, consts)
         if left is not None and right is not None:
             return left + right
     return None
+
+
+def _assign_pairs(tree):
+    """模块/函数里 `名 = 表达式` 的（目标名，右值）对（只取简单名目标）。"""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for t in node.targets:
+                if isinstance(t, ast.Name):
+                    yield t.id, node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            if isinstance(node.target, ast.Name):
+                yield node.target.id, node.value
+
+
+def _collect_const_strings(tree):
+    """**常量候选表**：`名 → {静态可折叠的字符串, …}`（k81-M1）。
+
+    同一名字被赋过多个不同值（不同作用域/分支各赋各的）⇒ **全都留在候选集里**
+    —— 判据用"任一候选带 `reports` 就算碰了报告目录"，于是"赋两次以规避传播"
+    这条捷径不通（只有候选**全都不带**才算干净）。链式折叠（`a="x"` → `b=a+"y"`）
+    只用**无歧义**的名字参与（见 `_unambiguous`），最多 4 轮 fixpoint。
+
+    **只做"赋值链"这一层**。不做的：跨函数/跨模块传播（参数、返回值、import
+    进来的常量）、容器元素（`cfg["dir"]`）、`getattr` 结果、运行期才产生的值
+    —— 这些仍写在 `visual_report._REPORT_JSON_CONSUMERS` 的"仍在面外"里。
+    """
+    cands = {}
+    for _ in range(4):
+        changed = False
+        for name, value in _assign_pairs(tree):
+            folded = _fold_const(value, _unambiguous(cands))
+            if folded is None:
+                continue
+            bucket = cands.setdefault(name, set())
+            if folded not in bucket:
+                bucket.add(folded)
+                changed = True
+        if not changed:
+            break
+    return cands
+
+
+def _unambiguous(cands):
+    """候选表里"只有一个可能值"的那些（`_fold_const` 用的精确折叠表）。"""
+    return {k: next(iter(v)) for k, v in cands.items() if len(v) == 1}
+
+
+def _folded_in_subtree(node, consts, cands=None):
+    """子树里所有**静态可折叠**的子表达式折出来的串（含节点自身）。
+
+    用于"这段代码像不像在拼报告路径"：只要**式子里的任何一层**折出来带
+    `reports`，就算碰了报告目录（终验逃逸 B 正是"外层折不出、内层 `DIR` 折得出"）。
+    `cands` 给的是**逐名候选集**（含"同名多值"的每一个值），用于堵"赋两次"。
+    """
+    out = []
+    for sub in ast.walk(node):
+        folded = _fold_const(sub, consts)
+        if folded:
+            out.append(folded)
+        if cands and isinstance(sub, ast.Name):
+            out.extend(cands.get(sub.id, ()))
+    return out
 
 
 def _subtree_text(node) -> str:
@@ -468,7 +564,7 @@ def _subtree_text(node) -> str:
 def scan_source(src: str, rel: str):
     """扫一段源码里"读报告 JSON"的迹象；返回 `[(kind, hit, lineno)]`。
 
-    四类判据：
+    四类判据（k81-M1 起，②③④ 的折叠都带**常量传播**，见 `_collect_const_strings`）：
       ① **符号引用**：`Name`/`Attribute`/`import` 别名命中 `CONSUMER_NEEDLES`；
       ② **路径拼接**：`/` 或 `os.path.join` 的参数里出现 `"reports"`；表达式里
          出现含 `reports` 的字符串常量（如 `"data/reports/" + rid + ".json"`）；
@@ -479,6 +575,8 @@ def scan_source(src: str, rel: str):
     """
     hits = []
     tree = ast.parse(src)
+    _cands = _collect_const_strings(tree)
+    consts = _unambiguous(_cands)
     for node in ast.walk(tree):
         # ① 符号名（含 import 别名：只 import 不调用的文件同样是消费点）
         if isinstance(node, ast.Name) and node.id in CONSUMER_NEEDLES:
@@ -489,21 +587,29 @@ def scan_source(src: str, rel: str):
             hits.append(("symbol", node.name, node.lineno))
         # ② 路径拼接
         elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            # k81-M1：两侧**逐层折叠**（含常量传播）—— 终验逃逸 B
+            # （`pathlib.Path(DIR) / (rid + ".json")`，DIR 是局部常量）在此变红。
             for side in (node.left, node.right):
                 if isinstance(side, ast.Constant) and side.value == "reports":
                     hits.append(("path", '/ "reports"', node.lineno))
+                elif any("reports" in f for f in _folded_in_subtree(side, consts, _cands)):
+                    hits.append(("path", "/ <folded reports>",
+                                 getattr(side, "lineno", node.lineno)))
         elif isinstance(node, ast.Call):
             fn = node.func
             name = fn.attr if isinstance(fn, ast.Attribute) else (
                 fn.id if isinstance(fn, ast.Name) else "")
             args = list(node.args)
             if name == "join":                       # os.path.join(...)
-                folded = [_fold_const(a) for a in args]
+                folded = [_fold_const(a, consts) for a in args]
                 if any(f and "reports" in f for f in folded):
                     hits.append(("path", "os.path.join(...reports...)", node.lineno))
+                elif any("reports" in f for a in args
+                         for f in _folded_in_subtree(a, consts, _cands)):
+                    hits.append(("path", "os.path.join(<folded reports>)", node.lineno))
             # ③ 动态取函数名
             if name == "getattr" and len(args) >= 2:
-                target = _fold_const(args[1])
+                target = _fold_const(args[1], consts)
                 if target is not None and any(w in target for w in _FUNCISH):
                     hits.append(("getattr-name", target, node.lineno))
                 elif target is None and any(
@@ -511,7 +617,7 @@ def scan_source(src: str, rel: str):
                     hits.append(("getattr-dynamic", _subtree_text(args[1])[:60], node.lineno))
             # ④ 动态导入
             if name in ("import_module", "__import__") and args:
-                target = _fold_const(args[0])
+                target = _fold_const(args[0], consts)
                 if target is not None and any(w in target for w in _FUNCISH):
                     hits.append(("import-name", target, node.lineno))
                 elif target is None and any(
@@ -522,15 +628,17 @@ def scan_source(src: str, rel: str):
         #    否则散文（`"…reports/element_freq_top.csv"`）、HTTP 路由串
         #    （`"/api/reports/"`）、"weekly reports" 这类都会假红。
         if isinstance(node, (ast.BinOp, ast.JoinedStr, ast.Call)):
-            folded = _fold_const(node)
+            folded = _fold_const(node, consts)
             if folded and "data/reports" in folded:
                 hits.append(("path-folded", folded[:60], node.lineno))
             else:
-                for sub in ast.walk(node):
-                    if isinstance(sub, ast.Constant) and isinstance(sub.value, str) \
-                            and "data/reports" in sub.value:
-                        hits.append(("path-part", sub.value[:60], node.lineno))
-                        break
+                # k81-M1：这里从"只找字面量常量"扩成"找**任何可折叠的子表达式**
+                # （含常量名）" —— 路径常量被搬进局部变量后，字面量已不在这个
+                # 节点里（逃逸 B 的第二种写法：`p = DIR + "/" + rid + ".json"`）。
+                part = next((f for f in _folded_in_subtree(node, consts, _cands)
+                             if "data/reports" in f), None)
+                if part is not None:
+                    hits.append(("path-part", part[:60], node.lineno))
     # 去重（同一处可能同时命中多条）
     return sorted(set(hits), key=lambda x: (x[2], x[0]))
 
@@ -657,13 +765,74 @@ class TestConsumerInventoryGateIsNotBypassable:
          "from pathlib import Path\np = Path(DATA) / 'reports' / (rid + '.json')\n", "path"),
         ("f-string 拼路径",
          'p = f"{DATA}/data/reports/{rid}.json"\n', "path-folded"),
+        # ── k81-M1：终验实测的**两个绿案例**，改后必须红（至少 B 必红）────────
+        ("k81-B 静态字面量 + 一层局部间接（终验绿案例）",
+         "import pathlib\n"
+         "def f(rid):\n"
+         "    DIR = 'data/reports'\n"
+         "    return pathlib.Path(DIR) / (rid + '.json')\n", "path"),
+        ("k81-B' 路径常量搬进局部名后用加法拼",
+         "DIR = 'data/reports'\n"
+         "def f(rid):\n"
+         "    return DIR + '/' + rid + '.json'\n", "path-part"),
+        ("k81-B'' os.path.join 的目录实参是局部常量",
+         "import os\n"
+         "DIR = 'data/reports'\n"
+         "p = os.path.join(root, DIR, rid + '.json')\n", "path"),
+        ("k81-B''' f-string 里插局部常量",
+         "DIR = 'data/reports'\n"
+         "def f(rid):\n"
+         "    return f'{DIR}/{rid}.json'\n", "path-folded"),
+        ("k81-K 借用已登记模块自己的 helper（from-import，终验绿案例）",
+         "from src.api.share import _load_report\nr = _load_report(rid)\n", "symbol"),
+        ("k81-L 借用已登记模块自己的 helper（属性访问，终验绿案例）",
+         "from src.api import share as s\nr = s._load_report(rid)\n", "symbol"),
+        ("k81-K' 另外两个真读 JSON 的 helper 同样在表里",
+         "from src.api.share import _report_path\n"
+         "from src.storage.dao import purge_report_files\n", "symbol"),
     ])
     def test_escape_techniques_are_all_caught(self, label, src, expect_kind):
-        """终验的逃逸手法逐条注入：改前 6/7 静默通过，改后都必须在面内。"""
+        """终验的逃逸手法逐条注入：改前 6/7 静默通过，改后都必须在面内。
+
+        k81 追加：终验点名的两个**仍在绿**的逃逸（B 局部常量传播、K/L 借用
+        helper）也钉在这里 —— 它们改前是绿的（有实测记录），现在必须红。
+        """
         hits = scan_source(src, "src/plugins/new_reader.py")
         kinds = {k for k, _h, _l in hits}
         assert expect_kind in kinds, (
             f"{label} 没被扫出来（期望 {expect_kind}，实得 {sorted(kinds)}）")
+
+    def test_local_constant_propagation_does_not_invent_false_positives(self):
+        """常量传播**不许把正常代码判红**（否则门禁会被"绕过式豁免"反噬）。
+
+        判据：不带报告目录常量的普通拼接/路径代码 → 零命中。
+        """
+        for label, src in [
+            ("普通字符串拼接",
+             "def f(a, b):\n    sep = '-' + ':'\n    return a + sep + b\n"),
+            ("普通 pathlib 拼接",
+             "from pathlib import Path\nROOT = '/mnt/d/fortune-data'\n"
+             "p = Path(ROOT) / 'statics' / 'app.js'\n"),
+            ("只提到 report 三个字的路由串",
+             "ROUTES = ('/api/report/{id}', '/report/{id}')\n"),
+            ("常量名与报告目录无关",
+             "BASE = '/mnt/d/fortune-data'\nd = BASE + '/json'\n"),
+        ]:
+            hits = scan_source(src, "src/plugins/innocent.py")
+            assert hits == [], f"{label}: 假红 {hits}"
+
+    def test_assign_twice_is_not_an_escape(self):
+        """**赋两次不是逃逸手法**：同名多值时，**任一候选**带 `data/reports` 即红。
+
+        改前这里会被"先把常量赋成两个不同值"绕过（或干脆不做传播 ⇒ 一直绿）。
+        现在的判据是"候选集里只要有带报告目录的就算碰"（`_collect_const_strings`
+        保留**每一个**候选值，`_folded_in_subtree` 逐个对照）。
+        """
+        src = ("def a():\n    D = 'data/reports'\n    return D\n"
+               "def b():\n    D = 'other/place'\n    return open(D)\n")
+        hits = scan_source(src, "src/plugins/evasive.py")
+        assert any("data/reports" in h for _k, h, _l in hits), \
+            f"同名多值把常量传播绕过去了：{hits}"
 
     def test_a_new_reader_in_scripts_or_root_is_red(self, tmp_path):
         """面扩到位：同一个消费者放到 scripts/ 或仓根也必须红。"""

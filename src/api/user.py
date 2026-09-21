@@ -1014,14 +1014,19 @@ def _person_birth(req: PersonRequest) -> dict:
     中文原样保留；None/空/"unknown" 归一为 None → update 路径不覆盖既有值
     （与 save_bazi_info 的 gender 保护约定一致；创建时由 _birth_dict 落 "unknown"）。
     既有接口契约零破坏：persons API 仍接受 male/female 入参（归一兼容）。
+
+    k81 必修1：这里原来是**第四张内联别名表**（只认 `male/female/男/女`）——
+    于是建档时送 `女性` / `1` / `girl` 会被归一成 None ⇒ 落盘 `unknown` ⇒
+    引擎按"未知默认男"排盘（**女性用户被当成男性排**，与终验在
+    `/api/report/generate` 上实测的是同一个 bug）。现改为查唯一别名表
+    （`birth_contract.gender_of_alias`）。**原有语义完整保留**："认不出/未提供"
+    仍然是 `None`（= 不覆盖既有值），不是 `unknown` —— 这一条是 update 路径的
+    保护约定，本批不动（表里的 `unknown/未知/none/null/空` 查表结果不是
+    男/女 ⇒ 依旧落 None，逐输入与改前一致）。
     """
-    gender = (req.gender or "").strip()
-    _gl = gender.lower()
-    if _gl in ("male", "男"):
-        gender = "男"
-    elif _gl in ("female", "女"):
-        gender = "女"
-    else:
+    from src.api.birth_contract import gender_of_alias
+    gender = gender_of_alias(req.gender)
+    if gender not in ("男", "女"):
         gender = None
     return {
         "gender": gender,

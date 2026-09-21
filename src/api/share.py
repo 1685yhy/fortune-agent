@@ -784,13 +784,48 @@ _SHARE_KEEP_PROFILE_FIELDS = ("bazi", "day_master")
 #: —— 于是新报告（带 `owner_enc`）的分享页把归属密文一起嵌进了匿名页面。
 _SHARE_REDACT_TOP_FIELDS = ("owner_enc",)
 
+#: `profile` **之外**的顶层字段里，明确判定为"内容本体从而保留"的那些
+#: （与 `_SHARE_REDACT_TOP_FIELDS` 一起构成**闭集**）。
+#:
+#: k81-M2（终验点名）：`profile.*` 早有闭集测试
+#: （`test_every_profile_field_is_classified`），**顶层字段却是逐个枚举**的
+#: ——`_SHARE_REDACT_TOP_FIELDS = ("owner_enc",)` 是"人记着补"，而 `owner_enc`
+#: 自己就是这么漏的（k76 新增了字段、剥离清单没跟上）。今天是没实际泄漏，
+#: 但"**再漏一个 owner_enc 类字段**"恰好没有绊线。本批给顶层也做闭集：
+#: `tests/test_k81_gender_privacy_final.py::TestTopLevelFieldsAreClassified`
+#: 用**实际生成的报告**跑 `顶层键 ⊆ 剥离集 ∪ 保留集`，新增顶层键不表态即红。
+#:
+#: 逐字段理由（全部 = 被分享的内容本体；控制方已授权分享通道承载八字结论）：
+#:   - `reading_id`      报告的**身份**（分享链接与页面对应的就是它；页面 JS 与
+#:                       og 卡片都要用），非个人信息；
+#:   - `generated_at`    生成时刻（TTL 判据 `_report_share_expires_at` 要用）；
+#:   - `generated_date`  生成日期的展示文案（页面直接渲染）；
+#:   - `version`         报告 payload 版本（渲染兼容用）；
+#:   - `profile`         命主信息**容器**（其内部逐字段分类见
+#:                       `_SHARE_REDACT_PROFILE_FIELDS` / `_SHARE_KEEP_PROFILE_FIELDS`）；
+#:   - `bazi_analysis`   八字分析正文（格局/用神/十神/大运/流年）＝内容本体；
+#:   - `charts`          图表数据（五行雷达/月运/年运）＝内容本体；
+#:   - `insights`        洞察文案＝内容本体；
+#:   - `recommendations` 建议卡片＝内容本体。
+#:
+#: 注意：**不保留**的顶层键不止 `owner_enc` 一类 —— 将来任何"账号/归属/鉴权"
+#: 性质的顶层键都进 `_SHARE_REDACT_TOP_FIELDS`，不进这里。
+_SHARE_KEEP_TOP_FIELDS = (
+    "reading_id", "generated_at", "generated_date", "version",
+    "profile", "bazi_analysis", "charts", "insights", "recommendations",
+)
+
 
 def _redact_report_for_share(report: dict) -> dict:
     """报告 → 分享通道可公开的副本（剥离个人信息与归属标识，**不改原 dict**）。
 
     - `profile.name` / `birth_date` / `birth_info` / `gender` 一律清空（名字置
       "用户"占位，`_build_report_html` 对内会退回中性标题）；
-    - 顶层 `owner_enc` 一并剥离（**账号标识密文**：公开页不需要，见常量注释）；
+    - 顶层 `owner_enc` 一并剥离（**账号标识密文**：公开页不需要，见常量注释）。
+      k81-M2**语义收紧**：改前是"置空串"，于是匿名页的内嵌 JSON 里**仍留着
+      `"owner_enc": ""` 这个键名**（值没了、键还在）。现在**整键移除** ——
+      "不下发"就是连字段名都不出现，与本人路径的 `without_report_owner`
+      同口径（两处都是 `pop`）。公开页 JS 从不读该键，行为无变化。
     - 深拷贝到 JSON 兼容结构，避免调用方拿到被改动的原报告。
       k79：深拷贝失败时（超深嵌套触到递归上限）退成**浅拷贝 + 单独复制 profile**
       —— 否则下面的剥离会改到**调用方手里那份报告的** `profile`（"不改原 dict"
@@ -809,9 +844,11 @@ def _redact_report_for_share(report: dict) -> dict:
         for field in _SHARE_REDACT_PROFILE_FIELDS:
             if field in profile:
                 profile[field] = "用户" if field == "name" else ""
+    # k81-M2：顶层剥离 = **整键移除**（改前置空串 → 匿名页里仍留 `"owner_enc": ""`
+    # 这个键名）。判据（`.get(field)` 为假）对两种写法都成立，所以 k80 的既有断言
+    # 一条都不用改、判定力不变。
     for field in _SHARE_REDACT_TOP_FIELDS:
-        if field in safe:
-            safe[field] = ""
+        safe.pop(field, None)
     return safe
 
 

@@ -59,6 +59,14 @@ class BirthInfo(BaseModel):
     # `male`/`female`/1/0 —— 拒收会把正当调用方打挂；"未知"是**受控值**，
     # 不是"把用户给的串转发下去"。白名单之外的一切（含攻击载荷）都变成
     # `unknown`，不可能再带出任何字符。
+    #
+    # k81 必修1：别名表补齐了**最常见的中文写法**（`男性`→男、`女性`/`女士`→女、
+    # `先生`→男）—— 改前 `女性` 落到 `unknown`，被引擎按"未知默认男"排盘
+    # （**女性用户被当成男性排**，终验实测）。别名与查表规则现在只有一份
+    # （`birth_contract.GENDER_ALIASES` / `gender_of_alias`），本处只调用。
+    # 注意 pydantic 契约本身仍是**字符串字段**：JSON 里送数字（`"gender": 0`）
+    # 是 **422**（`str` 类型校验），数字写法只在字符串形态（`"0"`）下被识别
+    # —— 这是既有契约，本批未改。
     @field_validator("gender")
     @classmethod
     def _gender_in_whitelist(cls, v):
@@ -750,8 +758,16 @@ def report_shape_problem(report) -> str:
 #: 拦得住的形态（每一条都有注入证明，见该测试类的 param 列表）：
 #:   - **符号引用**：直接 `Name`/`Attribute` 引用本清单任一符号（含 `load_report`、
 #:     `report_shape_problem`、`json_for_script` 等）；
+#:     **k81-M1 补齐**：清单必须包含"已登记模块自己真读 JSON 的 helper"——
+#:     终验实测 `from src.api.share import _load_report` / `s._load_report(rid)`
+#:     曾**零命中**（借用别人的 helper 就整类不可见）；`_load_report` /
+#:     `_report_path` / `purge_report_files` / `without_report_owner` 已进表。
 #:   - **路径拼接**：`/ "reports"`、`os.path.join(..., "reports", ...)`、
 #:     `"data/reports/" + rid + ".json"` 这类**静态可折叠**的路径串；
+#:     **k81-M1 补齐（终验逃逸 B）**：折叠现在带**常量传播** ——
+#:     `DIR = "data/reports"; pathlib.Path(DIR) / (rid + ".json")` 这种
+#:     "纯静态字面量 + 一层局部间接"**也已进面内**（改前它与本段声称的
+#:     "静态可折叠的路径串在面内"直接冲突）。
 #:   - **动态取函数名**：`getattr(m, "load_" + "report")`（静态折叠成 `load_report`
 #:     → 名字里带 report → 红）、`getattr(m, suffix + "report")`（折叠不出来，但字面
 #:     里带 report → 红）、`getattr(m, "load_report_from")`（常量名带 report → 红）；
@@ -760,6 +776,13 @@ def report_shape_problem(report) -> str:
 #: **仍在面外**（如实列出，别当成已覆盖）：
 #:   - **运行期**才拼出来的路径/函数名：从数据库、配置、环境变量读来的目录或符号名，
 #:     `.format()`/`%`/`join()` **在运行时**产出的串（扫描器只做静态折叠）；
+#:   - **常量传播只做"赋值链"这一层**：`名 = <静态可折叠字符串>` 的模块级/函数级
+#:     赋值（含 `a="x"` → `b=a+"y"` 的链式，最多 4 轮）。**不传播**：参数与返回值、
+#:     import 进来的别的模块常量、容器元素（`cfg["dir"]`）、`getattr` 结果、
+#:     `global`/`nonlocal` 回写。**同名多值不算逃逸**：一个名字在模块里被赋过
+#:     多个不同值时，**每个候选值都留着**（任一候选带 `data/reports` 即红 ——
+#:     "赋两次以规避"这条捷径不通）；只有**链式折叠**（`b = a + "y"`）需要名字
+#:     无歧义，多值时该链折不出来（宁可漏这一层，也不把两个值拼成一个去假红）；
 #:   - **跨函数/跨模块的数据流**：把目录或符号名当参数传来传去，最终在第 3 个文件里
 #:     用到（扫描器不做过程间分析）；
 #:   - **间接消费**：新代码不碰路径也不碰这些符号，而是调用 `GET /api/report/{id}`
@@ -767,8 +790,10 @@ def report_shape_problem(report) -> str:
 #:   - **非 .py 的消费点**：`.js` / `.sh` / `.md` 里的脚本直接读 `data/reports/*.json`；
 #:   - **tests/ 与 data/ 目录**（有意排除：测试本来就要造报告语料）。
 #:
-#: ⇒ 结论：**"源码里静态可折叠的报告路径/符号引用"这一面不会逃逸；上面几类仍在面外**，
-#: 新增消费点时别指望门禁替你把关 —— 它只负责"让你看见"。
+#: ⇒ 结论：**"源码里静态可折叠的报告路径/符号引用"（含**一层赋值间接**）
+#: 这一面不会逃逸；上面几类仍在面外**，新增消费点时别指望门禁替你把关 ——
+#: 它只负责"让你看见"。（k81：本段此前把"静态可折叠"说过头了 —— 局部变量
+#: 就逃逸；现已补上传播并如实改写这一段。）
 _REPORT_JSON_CONSUMERS = (
     "src/api/visual_report.py::get_report_json",
     "src/api/visual_report.py::get_report_page",
@@ -808,6 +833,34 @@ def report_owner_tag(report: dict) -> str:
         return ""
 
 
+def without_report_owner(report: dict) -> dict:
+    """报告副本：**不再下发**归属密文 `owner_enc`（k81-M3）。
+
+    为什么（终验 M3）：k80 把 `owner_enc` 从**匿名分享页**剥掉了，但**本人路径**
+    （`GET /api/report/{id}` 的 JSON、`GET /report/{id}` 的页面内嵌 JSON）仍全量
+    下发 `"owner_enc":"dev:…"`。它落在鉴权 + 归属校验之后，**不构成越权缺陷**，
+    但它是**账号标识密文**、客户端拿它没有任何用途 —— 没有理由留这个暴露面
+    （用户右键"查看源代码"即可见；一旦有人把响应转发/截图，密文随之出门）。
+    归属判定**只在服务端**做，客户端不需要参与。
+
+    边界（**不改变归属校验**）：本函数只做剥离，不做判定。两个调用点都是
+    **先 `assert_report_owner(...)`、后 `without_report_owner(...)`** ——
+    顺序由 `tests/test_k81_gender_privacy_final.py::TestOwnerPathNoLongerShipsOwnerEnc`
+    的 403（他人）/ 200（本人）实测钉住；剥早了会让"本人"变成"归属未知 → 403"。
+
+    实现：`dict(report)` 浅拷贝后弹出该键（**不改调用方手里那份 dict**；
+    键**移除**而不是置空 —— "没下发"就是没有这个字段）。与分享通道
+    `_redact_report_for_share` 对 `_SHARE_REDACT_TOP_FIELDS` 的处置**同机制**
+    （k81 起那处也改成 `pop`，改前置空串会让匿名页里仍留着 `"owner_enc": ""`
+    这个键名）；两处都满足既有判据 `.get(field)` 为假，k80 的断言一条未改。
+    """
+    if not isinstance(report, dict):
+        return report
+    safe = dict(report)
+    safe.pop(_REPORT_OWNER_FIELD, None)
+    return safe
+
+
 def assert_report_owner(report: dict, uid: str) -> None:
     """归属校验：报告属于 uid 才放行，否则 403（与 `ensure_owner` 同口径）。
 
@@ -841,9 +894,12 @@ async def get_report_json(reading_id: str, uid: str = Depends(require_user)):
         logger.warning("报告内容不可展示（404）reading_id=%s: %s", reading_id, problem)
         raise HTTPException(status_code=404, detail="报告未找到")
     assert_report_owner(report, uid)
+    # k81-M3：归属校验**已通过**，此后客户端不再需要归属密文 → 剥离后再下发
+    # （顺序不能反：先剥会让 `assert_report_owner` 读到空归属 → 本人 403）。
+    public = without_report_owner(report)
     # k79：返回前过 `json_safe`（NaN/Infinity → null）—— 否则 Starlette 用
     # allow_nan=False 序列化，一份含 NaN 的报告在这里 **500**（复审实测）。
-    return json_safe(report)
+    return json_safe(public)
 
 
 @router.get("/report/{reading_id}")
@@ -873,7 +929,10 @@ async def get_report_page(reading_id: str, uid: str = Depends(require_user)):
         f" #易理明灯 #AI命理"
     )
 
-    html = _build_report_html(report, share_text)
+    # k81-M3：同 `/api/report/{id}` —— 归属校验之后再剥离 `owner_enc`，本页
+    # 内嵌的报告 JSON 里不再出现账号标识密文（改前它随 `REPORT` 一起进页面，
+    # "查看源代码"即可见）。
+    html = _build_report_html(without_report_owner(report), share_text)
     return HTMLResponse(html)
 
 
