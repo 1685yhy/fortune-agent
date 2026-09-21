@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import tempfile
 import threading
 import time
 import uuid
@@ -43,6 +44,12 @@ from .utils.cache import (
     TTL_PRECOMPUTE_DAILY, TTL_DAILY_FORTUNE, TTL_HOURLY_FORTUNE,
     TTL_XUETANG_TOPICS, TTL_XUETANG_LESSON,
 )
+# k72：图片内容校验（魔数嗅探）的单一事实源——本文件的 chat/face/palm 上传
+# 与 src/api/user.py 的头像上传共用同一实现，不再各留一份判断逻辑。
+from .utils.image_sniff import (
+    IMAGE_CONTENT_TYPES, IMAGE_FORMAT_EXT,
+    sniff_image_ext, sniff_image_format,
+)
 
 # Security imports
 from .security.ratelimit import RateLimiter, RateLimitMiddleware
@@ -55,6 +62,10 @@ from .logging_config import resolve_log_dir, resolve_log_level
 from .security.sanitizer import InputSanitizer
 from .security.encryption import DataEncryptor
 from .security.privacy import PrivacyManager, PIPL_DISCLAIMER
+# k78：数据删除响应的**用户可见文案**单一事实源（本处与 security/router.py 曾各写一份）
+# k79-M1：新增"没删干净"的那条（与实况相反的成功文案同样是文案错误）
+from .security.account_copy import (DATA_PURGE_INCOMPLETE_NOTICE,
+                                    USER_DATA_PURGED_NOTICE)
 from .security.audit import AuditLogger
 from .security.router import router as security_router, init_security_router
 from .validators.response_checker import ResponseValidator
@@ -358,6 +369,35 @@ def _prewarm_night_lamps(date_str: str, limit: int = 50) -> dict:
     return stats
 
 
+def _drop_cancelled_users(uids) -> list:
+    """推送批次统一过滤：**已注销账号不再被触达**（k77）。
+
+    三条依据（任何一条单独成立即足够）：
+      ① 注销 = 撤回同意（《个人信息保护法》），继续主动触达与撤回相悖；
+      ② 注销后登录被 403 拦截 —— 推送里的内容用户点不进来看，只剩骚扰；
+      ③ 注销成功页对用户的承诺是"不会再收到消息打扰"，这条承诺必须由代码兑现
+         （改前三条触达链——每日/每周运势、晨笺/晚安、择吉日提醒——都没有过滤
+         cancelled，已注销用户在 90 天保留期内照常收到推送）。
+
+    实现在**单一位置**（本函数），三条链路共用；`UserDAO.get_pushable_users_with_bazi()`
+    是同一规则的另一个入口（那条链路的一次性查询版本，避免逐用户查状态）。
+    取状态失败 → **跳过该用户**（fail-closed：宁可少发一条，不可对已注销用户违约）。
+    唯一的"放行"情形是 `dao is None`（服务装配尚未完成、连库都没有）——那时三条
+    推送链本身也跑不起来（各自还要 prefs/plan 表），不是"放行已注销用户"。
+    """
+    out = []
+    for uid in (uids or []):
+        try:
+            # 注意：此处的 dao 是**模块级 UserDAO**（形参同名者不在此作用域内）
+            if dao is not None and dao.get_user_status(uid) == "cancelled":
+                continue
+        except Exception as e:
+            logger.warning("推送状态判定失败，按不打扰处理 uid=%s: %s", uid, e)
+            continue
+        out.append(uid)
+    return out
+
+
 async def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
     """按偏好时间下发:晨笺(kind=jian)或晚安(kind=night)。
 
@@ -378,6 +418,8 @@ async def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
         logger.debug("服务号未配置,%s 发送跳过", "晨笺" if kind == "jian" else "晚安")
         return stats
     uids = dao.list_enabled_at(now_hm, kind)
+    # k77：已注销账号不再触达（注销即撤回同意 + 注销页承诺"不再打扰"）
+    uids = _drop_cancelled_users(uids)
     stats["total"] = len(uids)
     tpl_key = "MP_JIAN_TEMPLATE_ID" if kind == "jian" else "MP_NIGHT_TEMPLATE_ID"
     tpl_id = _env(tpl_key)
@@ -561,6 +603,10 @@ def _zeri_reminder_batch(zdao, now, member_dao=None) -> dict:
                 if not plan:
                     continue
                 uid = plan["user_id"]
+                # k77：已注销账号不再触达（注销即撤回同意 + 注销页承诺"不再打扰"）
+                if uid not in _drop_cancelled_users([uid]):
+                    stats["skipped"] += 1
+                    continue
                 # 失败停推: zeri_prefs.bound_status='invalid'(仿晨笺 invalid 语义)
                 zpref = zdao.get_pref(uid) or {}
                 if zpref.get("bound_status") == "invalid":
@@ -1804,6 +1850,65 @@ async def chat_pending_consume(req: PendingConsumeRequest,
     return consume_pending(session_dao, uid, req.session_id, req.time)
 
 
+class SessionDeleteRequest(BaseModel):
+    """删除对话请求（k77-I4）。
+
+    scope 三选一，**必须显式**给出（服务端不做任何隐式扩大）：
+      - "session"：删 `session_id` 指定的这一段对话（前端现代路径）；
+      - "legacy" ：删该用户**没有会话编号**的历史消息行（"会话隔离"上线前
+        写入的行，服务端无法定位到具体某一段对话，只能按这批旧记录整体删）。
+    缺失/非法 scope → 400（宁可报错，也不猜用户想删多少）。
+    """
+    scope: str = ""
+    session_id: str = ""
+
+
+@app.post("/api/chat/sessions/delete")
+async def chat_sessions_delete(req: SessionDeleteRequest,
+                               uid: str = Depends(require_user)):
+    """删除对话（**服务端真实删除**）——前端「历史 → 删除」的服务端落点。
+
+    背景（k77-I4 复审判定，属**产品缺陷**而非文案问题）：前端删除此前**只清本地
+    storage**，服务端 `sessions.content` 原样保留 —— 用户点"删掉这段对话"，
+    云端副本其实还在，与页面承诺的"逐条删掉你的对话与记录"不符。
+
+    契约：
+      请求 {"scope":"session","session_id":"s_xxx"} → 删该会话的消息行；
+      请求 {"scope":"legacy"} → 删无会话编号的历史行；
+      响应 {"status":"ok","deleted":N,"legacy_remaining":M}
+        —— `legacy_remaining` 是**如实回执**：若还有无编号的历史行没删（例如删的是
+        现代会话），把它如实告诉前端，不谎报"已清零"。
+
+    鉴权：require_user（uid = JWT sub）；SQL 一律带 user_id 条件 ⇒ 只能删自己的行。
+    作用域校验：scope 必须是 session/legacy 之一；`session` 且 session_id 非法
+    （不符合 `normalize_session_id` 口径）→ 400，不执行任何删除。
+    """
+    from .api.chat_stream import normalize_session_id
+
+    # k78-必修4：DAO 未就绪 → **503**，与周边端点同口径（改前直接 None.delete_sessions()
+    # → AttributeError → 500）。不影响任何删除语义：本分支不执行任何删除。
+    # 对照：`/api/chat/pending` 走 build_pending_response，dao=None 时按"无补全"返回 200
+    # 空列表（读接口的降级口径），写接口则与同页其他写端点一致给 503 —— 二者都不 500。
+    if session_dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    scope = (req.scope or "").strip()
+    if scope == "session":
+        sid = normalize_session_id(req.session_id or "")
+        if not sid:
+            raise HTTPException(status_code=400, detail="session_id 缺失或格式非法")
+        deleted = session_dao.delete_sessions(uid, session_id=sid)
+    elif scope == "legacy":
+        deleted = session_dao.delete_sessions(uid, legacy_only=True)
+    else:
+        raise HTTPException(status_code=400,
+                            detail="scope 必须是 session 或 legacy")
+    remaining = session_dao.count_legacy_sessions(uid)
+    logger.info("删除对话：user=%s scope=%s deleted=%s legacy_remaining=%s",
+                uid, scope, deleted, remaining)
+    return {"status": "ok", "deleted": deleted, "legacy_remaining": remaining}
+
+
 @app.get("/api/health")
 async def health():
     """轻量健康检查：不触发任何重活（不查 DB、不调 LLM），看门狗专用。"""
@@ -1927,11 +2032,33 @@ async def user_data_deletion(user_id: str, request: Request, uid: str = Depends(
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
     audit.data_deletion(user_id, ip)
     deleted = pm.delete_user_data(user_id)
+    # k79-M1：**真删失败**（表在、删不掉）时不得再回"个人数据已删除" —— 改前每表
+    # 失败只写日志、计数记 0，端点照样 ok（复审实测：空库 15 张表报 `no such table:`
+    # 仍 200 + "已删除"，与"真删失败"在响应里不可区分）。现在：
+    #   - 真失败 → 500 + `DATA_PURGE_INCOMPLETE_NOTICE`（与实况一致的坏消息）
+    #     + `failed_tables` / `failed_files` 便于人工跟进；
+    #   - 表不存在（`no such table`，环境差异）→ 仍 200（"0 行"是事实），
+    #     但响应里带 `missing_tables`，不再与"删成功 0 行"混为一谈。
+    if not deleted.get("ok", True):
+        logger.error("Data deletion INCOMPLETE for user %s: %s",
+                     user_id, deleted.get("failed_tables"))
+        return JSONResponse(status_code=500, content={
+            "status": "incomplete",
+            "message": DATA_PURGE_INCOMPLETE_NOTICE,
+            "records_deleted": deleted,
+            "failed_tables": deleted.get("failed_tables") or {},
+            "failed_files": deleted.get("failed_files") or [],
+            "disclaimer": PIPL_DISCLAIMER,
+        })
     logger.warning("Data deletion completed for user %s", user_id)
     return {
         "status": "ok",
-        "message": "所有个人数据已删除（不可恢复）",
+        # k78：不再写"所有/不可恢复"——「所有」不含依法留存的 payments/midas_orders，
+        # 「不可恢复」与"备份窗口内可人工尝试找回"冲突（详见 account_copy 模块文档）
+        "message": USER_DATA_PURGED_NOTICE,
         "records_deleted": deleted,
+        # k79-M1：环境差异（表不存在）是**可选可见项** —— 让运维看得见而不误报失败
+        "missing_tables": deleted.get("missing_tables") or [],
         "disclaimer": PIPL_DISCLAIMER,
     }
 
@@ -2174,6 +2301,64 @@ def _generic_calendar(date_str: str = None) -> dict:
 from fastapi import UploadFile, File, Form
 
 
+# ── k76：上传落临时文件的两个公共动作（面相/手相共用）──────────────────
+# 背景（k72 核查 A/遗留风险 1）：`/api/face-reading`、`/api/palm-reading` 此前
+#   ① `await image.read()` **无大小上限** → 可被刷爆磁盘/内存；
+#   ② 临时文件只在**成功路径** unlink，`analyze()` 抛错时**永久残留**。
+# 口径：大小上限与 `/api/chat/upload` **同源**（`_CHAT_UPLOAD_MAX`，单一事实源，
+# 见下方该常量的注释；两处不一致时以那个常量为准）；临时文件用 try/finally
+# 覆盖**所有**退出路径（正常返回、提前 return、异常、甚至写盘失败）。
+
+#: 上传图片大小上限（**单一事实源**）：/api/chat/upload、/api/face-reading、
+#: /api/palm-reading 三个入口共用本常量。k76 把它从 chat 段落**上移**到这里
+#: （定义位置先于全部使用方，源码顺序即可读懂；值逐字节未变 = 5MB）。
+_CHAT_UPLOAD_MAX = 5 * 1024 * 1024  # 5MB
+
+
+def _unlink_quietly(path) -> None:
+    """静默删除临时文件（不存在/权限等一律忽略——清理失败不该改变响应）。"""
+    if not path:
+        return
+    try:
+        os.unlink(path)
+    except Exception:
+        pass
+
+
+async def _read_upload_within_limit(image, fallback_name: str = "photo.jpg"):
+    """读上传图片 → 校验（大小 + 魔数）→ 落临时文件，返回 `(tmp_path, content)`。
+
+    校验顺序与 /api/chat/upload 一致（**任一校验失败即拒绝，且都不落盘**）：
+      ① 无文件 → 400；② `_CHAT_UPLOAD_MAX + 1` 字节上限 → 413；
+      ③ 魔数嗅探（`sniff_image_format`）→ 415。
+    落盘失败时把已建的空临时文件删掉再抛（不把半成品留在 /tmp）。
+
+    k77 合并裁定：k76 建了本函数（读+限长+落盘），k72 的嗅探原本**平行写在各
+    路由体内**；合并时把嗅探也并入本入口——于是 `/api/face-reading` 与
+    `/api/palm-reading` 是**同一段代码**在把关，而不是两段"看起来一样"的代码。
+    这直接消除 k72 点名的失败模式（同一校验在多个端点各写一份 → 必然漂移）。
+    """
+    if not image or not image.filename:
+        raise HTTPException(status_code=400, detail="缺少图片文件")
+    content = await image.read(_CHAT_UPLOAD_MAX + 1)
+    if len(content) > _CHAT_UPLOAD_MAX:
+        raise HTTPException(
+            status_code=413,
+            detail=f"图片不能超过 {_CHAT_UPLOAD_MAX // (1024 * 1024)}MB")
+    if not sniff_image_format(content):
+        raise HTTPException(status_code=415, detail="文件内容不是有效图片")
+    suffix = os.path.splitext(image.filename or fallback_name)[1] or ".jpg"
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+            tmp.write(content)
+        return tmp_path, content
+    except Exception:
+        _unlink_quietly(tmp_path)   # 写盘失败：不留半成品
+        raise
+
+
 @app.post("/api/face-reading")
 async def face_reading(
     image: UploadFile = File(...),
@@ -2183,60 +2368,63 @@ async def face_reading(
     """CV 精确面相分析 — 上传自拍照片，返回精确测量 + 古籍解读。
 
     安全修复：必须登录；user_id 一律取 JWT sub。
+    k72：本端点原**完全不校验**上传内容（无类型白名单、无魔数嗅探）——
+    与 /api/chat/upload 的差距正是"只查声明不查内容"的同类缺口。现补魔数嗅探，
+    与上传校验的单一事实源同源（src/utils/image_sniff.py）。
+    k76：大小上限与 /api/chat/upload **同源**（`_CHAT_UPLOAD_MAX`，单一事实源）；
+    临时文件在**所有**路径（含异常/提前返回）都被 finally 清理。
     """
     user_id = uid
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
+    # k72：内容校验必须在"会吞异常的兜底 try"**之前**（这里是同一层 try 内的
+    # 第一步 + `except HTTPException: raise` 明规则）——否则 415 会被
+    # `except Exception` 一并吞掉（降级成 200 + status:error），校验就形同虚设。
+    # k77 合并裁定：读/限长/嗅探/落盘 四步统一收进 `_read_upload_within_limit()`
+    # （k76 已把读+限长+落盘收进去，k77 把 k72 的嗅探也并入同一入口），
+    # 于是两个端点共用同一段把关代码，而不是两段"看起来一样"的代码。
+    # 读取失败的语义仍按原样兜底为 status:error（k24 口径）。
     try:
-        import tempfile, os
-        # Save uploaded file temporarily
-        suffix = os.path.splitext(image.filename or "photo.jpg")[1] or ".jpg"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await image.read()
-            tmp.write(content)
-            tmp_path = tmp.name
-
-        # Run face analysis
-        from .engines.face_reader import FaceReader, generate_report
-
-        reader = FaceReader()
-        metrics = reader.analyze(tmp_path)
-
-        # Clean up temp file
+        tmp_path, _content = await _read_upload_within_limit(image, "photo.jpg")
         try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
+            # Run face analysis
+            from .engines.face_reader import FaceReader, generate_report
 
-        if metrics is None:
+            reader = FaceReader()
+            metrics = reader.analyze(tmp_path)
+
+            if metrics is None:
+                return {
+                    "status": "no_face",
+                    "message": "未检测到人脸，请上传一张正面自拍照片（光线充足、面部清晰）📷",
+                }
+
+            api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+            report = generate_report(metrics, retriever=handler.retriever if hasattr(handler, 'retriever') else None,
+                                     api_key=api_key)
+
             return {
-                "status": "no_face",
-                "message": "未检测到人脸，请上传一张正面自拍照片（光线充足、面部清晰）📷",
+                "status": "ok",
+                "measurements": {
+                    "face_shape": {"type": metrics.face_shape, "confidence": metrics.face_shape_conf},
+                    "eye_type": {"type": metrics.eye_type, "confidence": metrics.eye_type_conf},
+                    "eyebrow_type": {"type": metrics.eyebrow_type, "confidence": metrics.eyebrow_type_conf},
+                    "nose_type": {"type": metrics.nose_type, "confidence": metrics.nose_type_conf},
+                    "mouth_type": {"type": metrics.mouth_type, "confidence": metrics.mouth_type_conf},
+                    "skin_tone": {"type": metrics.skin_tone, "confidence": metrics.skin_tone_confidence},
+                    "three_sections": {"upper": metrics.upper_ratio, "middle": metrics.middle_ratio, "lower": metrics.lower_ratio},
+                    "face_dimensions_mm": {"width": round(metrics.face_width, 1), "height": round(metrics.face_height, 1)},
+                    "moles": [{"region": m["region"], "size_px": m["size_px"]} for m in metrics.moles],
+                    "best_features": metrics.best_features,
+                    "improvement_areas": metrics.improvement_areas,
+                },
+                "report": report,
             }
-
-        api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
-        report = generate_report(metrics, retriever=handler.retriever if hasattr(handler, 'retriever') else None,
-                                 api_key=api_key)
-
-        return {
-            "status": "ok",
-            "measurements": {
-                "face_shape": {"type": metrics.face_shape, "confidence": metrics.face_shape_conf},
-                "eye_type": {"type": metrics.eye_type, "confidence": metrics.eye_type_conf},
-                "eyebrow_type": {"type": metrics.eyebrow_type, "confidence": metrics.eyebrow_type_conf},
-                "nose_type": {"type": metrics.nose_type, "confidence": metrics.nose_type_conf},
-                "mouth_type": {"type": metrics.mouth_type, "confidence": metrics.mouth_type_conf},
-                "skin_tone": {"type": metrics.skin_tone, "confidence": metrics.skin_tone_confidence},
-                "three_sections": {"upper": metrics.upper_ratio, "middle": metrics.middle_ratio, "lower": metrics.lower_ratio},
-                "face_dimensions_mm": {"width": round(metrics.face_width, 1), "height": round(metrics.face_height, 1)},
-                "moles": [{"region": m["region"], "size_px": m["size_px"]} for m in metrics.moles],
-                "best_features": metrics.best_features,
-                "improvement_areas": metrics.improvement_areas,
-            },
-            "report": report,
-        }
-
+        finally:
+            _unlink_quietly(tmp_path)
+    except HTTPException:
+        raise          # 400/413/415 等校验拒绝：原样上抛（不被兜底吞成 200）
     except Exception as e:
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
 
@@ -2250,40 +2438,42 @@ async def palm_reading(
     """CV 手相分析 — 上传手掌照片，检测掌纹并分析。
 
     安全修复：必须登录；user_id 一律取 JWT sub。
+    k72：同 /api/face-reading，补魔数嗅探（原完全不校验上传内容）。
+    k76：大小上限与 /api/chat/upload **同源**（`_CHAT_UPLOAD_MAX`，单一事实源）；
+    临时文件在**所有**路径（含异常/提前返回）都被 finally 清理。
     """
     user_id = uid
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
+    # k72 + k77：同 /api/face-reading —— 读/限长/嗅探/落盘收进 `_read_upload_within_limit()`；
+    # HTTPException（400/413/415）经 `except HTTPException: raise` 原样上抛（不被兜底吞掉）；
+    # 读取/CV 失败保持原语义（status:error），临时文件在所有路径都被 finally 清理。
     try:
-        import tempfile, os
-        suffix = os.path.splitext(image.filename or "hand.jpg")[1] or ".jpg"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await image.read()
-            tmp.write(content)
-            tmp_path = tmp.name
-        from .engines.palm_reader import PalmReader, generate_palm_report
-        reader = PalmReader()
-        metrics = reader.analyze(tmp_path)
+        tmp_path, _content = await _read_upload_within_limit(image, "hand.jpg")
         try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
-        if metrics is None:
-            return {"status": "no_hand", "message": "未检测到手掌，请上传一张光线充足的手掌照片 ✋"}
-        api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
-        report = generate_palm_report(metrics, retriever=handler.retriever, api_key=api_key)
-        return {
-            "status": "ok",
-            "palm_shape": metrics.palm_shape,
-            "palm_color": metrics.palm_color,
-            "finger_type": metrics.finger_type,
-            "life_line": metrics.life_line,
-            "wisdom_line": metrics.wisdom_line,
-            "feeling_line": metrics.feeling_line,
-            "fate_line": metrics.fate_line,
-            "special_patterns": metrics.special_patterns,
-            "report": report,
-        }
+            from .engines.palm_reader import PalmReader, generate_palm_report
+            reader = PalmReader()
+            metrics = reader.analyze(tmp_path)
+            if metrics is None:
+                return {"status": "no_hand", "message": "未检测到手掌，请上传一张光线充足的手掌照片 ✋"}
+            api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+            report = generate_palm_report(metrics, retriever=handler.retriever, api_key=api_key)
+            return {
+                "status": "ok",
+                "palm_shape": metrics.palm_shape,
+                "palm_color": metrics.palm_color,
+                "finger_type": metrics.finger_type,
+                "life_line": metrics.life_line,
+                "wisdom_line": metrics.wisdom_line,
+                "feeling_line": metrics.feeling_line,
+                "fate_line": metrics.fate_line,
+                "special_patterns": metrics.special_patterns,
+                "report": report,
+            }
+        finally:
+            _unlink_quietly(tmp_path)
+    except HTTPException:
+        raise          # 400/413/415 等校验拒绝：原样上抛（不被兜底吞成 200）
     except Exception as e:
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
 
@@ -2305,13 +2495,14 @@ async def palm_reading(
 # 注意：GET /api/chat/uploads/{file} 不带鉴权——小程序 <image src> 无法携带
 # Authorization 头；uuid 文件名不可猜测，与既有 /share-cards 静态服务同策略。
 # ════════════════════════════════════════════════════════════════
-_CHAT_UPLOAD_MAX = 5 * 1024 * 1024  # 5MB
-_CHAT_UPLOAD_EXT = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-    "image/gif": ".gif",
-}
+# 注：`_CHAT_UPLOAD_MAX`（5MB，单一事实源）k76 起定义在文件上方
+# 「k76：上传落临时文件的两个公共动作」段——/api/chat/upload、/api/face-reading、
+# /api/palm-reading 三个入口同源共用（k77 合并时口径归并，值逐字节未变）。
+# 声明类型 → 落盘扩展名。**由单一事实源派生**（k72）：白名单与嗅探表同源，
+# 不允许在此另写一份字面量——两处漂移正是头像端点漏掉嗅探的成因。
+# （k77 合并裁定：k76 曾在此另写一份字面量 dict，与派生结果逐键逐值相同，
+#  但字面量正是"漂移的温床"——保留派生版，删除字面量副本。）
+_CHAT_UPLOAD_EXT = {ct: IMAGE_FORMAT_EXT[fmt] for ct, fmt in IMAGE_CONTENT_TYPES.items()}
 
 
 def _chat_uploads_dir() -> Path:
@@ -2480,19 +2671,6 @@ def cleanup_chat_uploads(ttl_seconds: float = None, now: float = None,
     return {"scanned": scanned, "removed": removed, "ttl": ttl}
 
 
-def _sniff_image_ext(data: bytes) -> str:
-    """魔数嗅探真实图片格式（防 content-type 伪装/非图片数据）。"""
-    if data[:3] == b"\xff\xd8\xff":
-        return ".jpg"
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
-        return ".png"
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return ".webp"
-    if data[:6] in (b"GIF87a", b"GIF89a"):
-        return ".gif"
-    return ""
-
-
 @app.post("/api/chat/upload")
 async def chat_upload(
     # 字段名固定 file：与小程序 wx.uploadFile({name:'file'}) 的真实契约一致
@@ -2514,7 +2692,7 @@ async def chat_upload(
     content = await image.read(_CHAT_UPLOAD_MAX + 1)
     if len(content) > _CHAT_UPLOAD_MAX:
         raise HTTPException(status_code=413, detail="图片不能超过 5MB")
-    ext = _sniff_image_ext(content)
+    ext = sniff_image_ext(content)
     if not ext:
         raise HTTPException(status_code=415, detail="文件内容不是有效图片")
     # 文件名一律服务端 uuid 生成（绝不采用客户端文件名，路径穿越防护）

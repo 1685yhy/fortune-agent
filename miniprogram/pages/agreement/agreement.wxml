@@ -4,7 +4,7 @@
     <view class="agreement-header">
       <image class="agreement-icon" src="/assets/images/ic-scroll.png"></image>
       <text class="agreement-title">用户协议</text>
-      <text class="agreement-subtitle">最后更新：2026年8月</text>
+      <text class="agreement-subtitle">最后更新：2026年9月</text>
     </view>
 
     <view class="agreement-section">
@@ -156,7 +156,21 @@
     </view>
 
     <view class="agreement-section">
-      <text class="agreement-section-title">九、联系方式</text>
+      <text class="agreement-section-title">九、个人信息与第三方服务</text>
+      <text class="agreement-text">
+        我们如何收集、存储、使用与删除您的个人信息（收集范围、存储位置与方式、保存期限、注销与删除、您的权利），以小程序内《隐私保护指引》为准，请一并阅读：
+      </text>
+      <navigator class="agreement-text" url="/pages/privacy/privacy" open-type="navigate">→ 查看《隐私保护指引》</navigator>
+      <text class="agreement-text">
+        为完成您请求的功能，部分信息会发送给第三方服务商：DeepSeek（杭州深度求索）与智谱 GLM（北京智谱华章）——用于生成命理解读与对话回应，接收您的排盘信息与提问，「姓名分析」「取名」还会接收您输入的姓名与期望说明文字；微软 Edge 语音合成（edge-tts）——仅当您点「朗读」时，接收待朗读的文字并合成语音；公网搜索引擎（Bing、360、百度等）——仅当提问需要最新信息时，接收由模型依您的提问生成的检索词，检索词可能包含您提问中的内容；微信「同声传译」插件（提供方：腾讯，插件 AppID wx069ba97219f66d99）——仅当您使用语音输入时，录音由该插件上传至微信侧识别；腾讯云——云服务器与数据库，数据存储在中国大陆境内；Google Fonts——打开分享出的报告网页时，该页字体由 `fonts.googleapis.com` 提供，您的浏览器会因此向该服务发起请求。
+      </text>
+      <text class="agreement-text">
+        上述服务商各自独立处理数据，其处理与留存方式我们无法控制。您可以选择不使用相应功能以避免内容外发（例如用键盘代替语音输入、不点朗读、不分享报告）。我们不会向第三方出售您的个人信息，也不会将您的个人信息用于商业广告推送。
+      </text>
+    </view>
+
+    <view class="agreement-section">
+      <text class="agreement-section-title">十、联系方式</text>
       <text class="agreement-text">
         如您对本协议有任何疑问或建议，请通过以下方式联系我们：
       </text>

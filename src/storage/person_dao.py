@@ -303,13 +303,31 @@ def _normalize_gender(g) -> str:
 
     存储层兜底：写（_birth_dict）与读（_row_to_person）双向归一，保证
     persons API 输出 gender 恒为中文、引擎/前端契约不再出现 male/female。
+
+    ── k81 必修1：别名表收敛到唯一事实源 ────────────────────────────────────
+    终验实测本函数与 `api/birth_contract.normalize_gender`"值集相同、逐输入
+    16/40 不同"（`1`/`0`/`m`/`f`/`man`/`woman`/`boy`/`girl`/`男性`/`女性` 等
+    本函数一律 unknown、那边一律 男/女）。这**不是**无害的：走档案链路的
+    `女性` → unknown → 引擎按"未知默认男"排盘 ⇒ **女性用户被当成男性排**，
+    与终验在 `/api/report/generate` 上实测到的是同一个 bug、同一条根因。
+    本批把**表**收敛到 `birth_contract.GENDER_ALIASES`（`gender_of_alias` 查表）。
+
+    刻意**不**收敛的部分（"为何允许不同"）：本函数是**存储哨兵**，不是入参边界 ——
+    `None`/falsy 必须停在 `unknown`（= 未提供），绝不继承 `normalize_gender`
+    的"None → 男（历史默认）"，否则一份缺 gender 的老档案会被认领成"男"。
+    即：**字符串输入逐输入一致；None/bool/int 边界各处刻意不同**（各有文档）。
+
+    对存量数据的影响（"若会误伤就停下"的自查结论：**不误伤**）：本函数是
+    persons 读/写两侧的**唯一**归一点，落盘值只可能来自它或 `_person_birth`
+    （同样只有 男/女/unknown/None）。放宽别名只会把**原本落 unknown 的历史髒值**
+    （`1`=男、`0`=女、`男性`/`女性`…）读成它们**字面就写着**的性别 ——
+    没有任何一个值会被映射到**错误**的性别，也没有任何今天为 男/女 的值改变。
     """
-    v = str(g or "").strip().lower()
-    if v in ("男", "male"):
-        return "男"
-    if v in ("女", "female"):
-        return "女"
-    return "unknown"
+    # 局部 import：`src/api/**` 在本仓是上层（`storage` 目前只在 dao.py 里
+    # 函数内引用 api，见 `dao.py::purge_report_files`），不在此文件顶层建立
+    # storage → api 的模块级依赖。
+    from src.api.birth_contract import gender_of_alias
+    return gender_of_alias(g)
 
 
 # ────────────────────────────────────────────────────────────────────

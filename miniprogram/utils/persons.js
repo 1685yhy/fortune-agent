@@ -48,6 +48,29 @@ function shichenIndexFromClockHour(h) {
   return 0;
 }
 
+/** birth_hour 的**严格解析**（单一事实源）：规范整数 → 数值，其余 → NaN。
+
+    接受：number 且为整数（0-23 由调用方判范围）；纯十进制整数字符串 '0'..'23'
+    （允许首尾空白，内部只认 [0-9]）。
+    拒绝：Number() 认得出、但**档案里不可能存在**的其它形态 ——
+      '0x10'→16 / '0o17'→15 / '0b101'→5（进制前缀）、'1e1'→10（科学计数）、
+      '+10'→10（带符号）、'10.5'（小数）、'10abc'（半截垃圾）、'  '（空）、
+      以及 [10] / {} / true 这类非字符串非数字的脏值（String([10])==='10'）。
+
+    为什么必须拒绝（k77-M4/M5「宁少不假」）：这些形态一旦放行，就会被下游当作
+    正常钟点去查时辰窗口，**凭空显示一个用户从未填过的时辰**（'0x0' 更是直接
+    显示"子时"，与本批要消灭的"凭空子时"观感完全一样）。写路径（表单/对话解析/
+    DB）只产生整数与数字字符串，所以严格化**不会**影响任何真实档案 ——
+    只是把脏数据的表现从"安静地显示假时辰"改成"不显示时辰"。
+    调用方拿到 NaN ⇒ 一律按"无时辰"处理，**绝不兜底 0（子时）**。 */
+function parseHourStrict(value) {
+  if (typeof value === 'number') return Number.isInteger(value) ? value : NaN;
+  if (typeof value !== 'string') return NaN;
+  const s = value.trim();
+  if (!/^[0-9]{1,2}$/.test(s)) return NaN;
+  return Number(s);
+}
+
 /** 出生小时（+可选分钟）→ 时辰序号 0-11。
 
     画像口径（k19 归一）：birth_hour 只存在两形态——时辰代表整点
@@ -91,36 +114,56 @@ function genderCode(g) {
   return g === '女' ? '女' : (g === '男' ? '男' : 'unknown');
 }
 
-/** 出生时刻显示文本：时辰 + （有精确分钟时附钟表时间 10:55）。 */
+/** 出生时刻显示文本：时辰 + （有精确分钟时附钟表时间 10:55）。
+
+    k77-M5「宁少不假」（与 me.js 同口径，共用一个解析器）：`birth_hour` 必须先过
+    `parseHourStrict` 且落在 0-23 才显示时辰；解析失败/越界 ⇒ **返回空串（不显示
+    时辰尾缀）**。改前是直接丢给 `hourToShichenIndex`，而它对不认识的输入返回 0
+    ⇒ "abc"/99/-1/'0x10'/NaN 一律**凭空显示「子时」**；本函数是 5 个渲染出口
+    （persons.js 列表页 / bazi.js 三处 / onboarding.js 导览卡）的唯一公因子
+    （都经 birthBrief / birthSummary），在根上拦死，五处同时正确。
+    精确钟表行仍拼 HH:MM —— 但钟点取自**解析后的数值**，不直接回显原始字符串
+    （否则脏值会以 "0x10:30" 这种形态出现在用户眼前）。 */
 function timeText(p) {
   if (!p) return '';
   const h = p.birth_hour;
   if (h === undefined || h === null || h === '') return '';
-  const idx = hourToShichenIndex(h, p.birth_minute);
+  const hh = parseHourStrict(h);
+  if (!(hh >= 0 && hh <= 23)) return '';
+  const idx = hourToShichenIndex(hh, p.birth_minute);
   const base = shichenCN(idx);
   const m = parseInt(p.birth_minute, 10);
   if (!Number.isNaN(m) && m > 0) {
     // 精确钟表行：分钟>0 必为时钟小时语义 → 直接拼 HH:MM
-    return `${base} ${h}:${String(m).padStart(2, '0')}`;
+    return `${base} ${hh}:${String(m).padStart(2, '0')}`;
   }
   return base;
+}
+
+/** 历法标记：'lunar' → 农历，其余（含缺失/历史存量）→ 公历。
+ *  birthSummary / birthBrief 共用同一判定，禁止各自内联 —— 否则两处文案会对同一
+ *  档案给出互相矛盾的历法口径（k70-F2 即「简版」缺标记被读成公历）。 */
+function calLabel(p) {
+  return (p && p.calendar === 'lunar') ? '农历' : '公历';
 }
 
 /** 生辰摘要（原型 birthLine / prof-birth）：公历 1998年5月12日 卯时 女 · 北京 */
 function birthSummary(p) {
   if (!p) return '';
-  const cal = p.calendar === 'lunar' ? '农历' : '公历';
   const tt = timeText(p);
   const shi = tt ? tt + ' ' : '';
-  return `${cal} ${p.birth_year}年${p.birth_month}月${p.birth_day}日 ${shi}${genderCN(p.gender)} · ${p.city || '未填出生地'}`;
+  return `${calLabel(p)} ${p.birth_year}年${p.birth_month}月${p.birth_day}日 ${shi}${genderCN(p.gender)} · ${p.city || '未填出生地'}`;
 }
 
-/** 列表页摘要（原型 prof-birth 简版）：1998 年 5 月 12 日 · 卯时 · 女 · 北京 */
+/** 列表页摘要（原型 prof-birth 简版）：农历 1998 年 5 月 12 日 · 卯时 · 女 · 北京。
+ *  k70-F2：该行是**原样回显**（不做换算），但年/月/日数字本身不带历法信息 —— 不标
+ *  「农历/公历」会被读成公历（实测 1999 年 3 月 28 日 的农历档被读作公历 3 月 28 日）。
+ *  「原样回显」契约不变，只补标记（与 birthSummary 同源 calLabel）。 */
 function birthBrief(p) {
   if (!p) return '';
   const tt = timeText(p);
   const shi = tt ? tt + ' · ' : '';
-  return `${p.birth_year} 年 ${p.birth_month} 月 ${p.birth_day} 日 · ${shi}${genderCN(p.gender)} · ${p.city || '未填'}`;
+  return `${calLabel(p)} ${p.birth_year} 年 ${p.birth_month} 月 ${p.birth_day} 日 · ${shi}${genderCN(p.gender)} · ${p.city || '未填'}`;
 }
 
 /** 印章首字：姓名首字（无姓名 → 命） */
@@ -224,6 +267,7 @@ module.exports = {
   LOCAL_KEY,
   hasLocalArchive,
   hourToShichenIndex,
+  parseHourStrict,
   shichenIndexFromClockHour,
   shichenIndexToHour,
   shichenCN,

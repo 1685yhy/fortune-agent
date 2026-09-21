@@ -1,6 +1,7 @@
 """数据访问对象."""
 import json
 import logging
+import re
 import sqlite3
 from typing import Optional, Dict
 from datetime import datetime
@@ -68,6 +69,352 @@ def _encrypt_text(text: Optional[str]) -> Optional[str]:
     if not text:
         return text
     return _get_encryptor().encrypt(text)
+
+
+# ══════════════════════════════════════════════════════════════════════
+# k76：账号数据清除（**唯一实现**，两条链路共用）
+# ══════════════════════════════════════════════════════════════════════
+# 调用方：`UserDAO.cleanup_cancelled_accounts()`（注销 90 天归档清理，启动时跑）
+# 与 `PrivacyManager.delete_user_data()`（PIPL 删除权，DELETE /user/{id}/data）。
+# 改前两条链路各写各的删除清单 ⇒ 覆盖不一致（k72-A3）。现在只有这一份。
+#
+# 顺序（有依赖，不可随意调换）：
+#   ① 先**采集**该用户被引用的上传文件名 —— 引用它们的行马上要被删掉，
+#      删完就再也找不到"哪些图属于他"了；
+#   ② 删 DB 行（清单见 models.ACCOUNT_PURGE_TABLES）；
+#   ③ 删文件（头像/上传图/L3 画像/本人报告/对应分享图 PNG）。
+# payments / midas_orders **不删**（依法留存，见 models.ACCOUNT_RETAIN_TABLES）。
+
+#: 上传文件名在引用里的形态（与 main.py 的 `_CHAT_UPLOAD_REF_RE` 同口径，
+#: 但**不 import main**——storage 层不能反向依赖应用层；两处正则都锚定同一个
+#: 上传 URL 路径形态，测试里有一致性断言）。
+_UPLOAD_REF_RE = re.compile(r"/api/chat/uploads/([A-Za-z0-9._-]{1,128})")
+
+#: 采集上传引用要扫的 (表, 列)——只扫"可能承载用户消息内容"的列。
+_UPLOAD_REF_COLUMNS = (
+    ("sessions", ("content", "tool_calls")),
+    ("session_summaries", ("summary", "memories")),
+    ("favorites", ("summary",)),
+    ("consultations", ("question", "analysis", "chart_data")),
+    ("share_entries", ("content",)),
+)
+
+
+def collect_user_upload_names(conn, user_id: str, owner_tag: str = "") -> set:
+    """该用户消息/记录里**被引用**的上传文件名集合（删行**之前**调用）。
+
+    - 只扫 `_UPLOAD_REF_COLUMNS`；表/列不存在自动跳过（老库兼容）；
+    - 值可能是密文（sessions.content 等）→ 统一 `_decrypt_or_plain` 后再匹配；
+    - share_entries 无 user_id：按 `owner_tag` 命中该用户创建的分享行；
+    - 任何异常 → 返回已收集到的部分（宁少删文件，不误删别人的图）。
+    """
+    names = set()
+    for table, cols in _UPLOAD_REF_COLUMNS:
+        key_col = "owner_tag" if table == "share_entries" else "user_id"
+        key_val = owner_tag if key_col == "owner_tag" else user_id
+        if not key_val:
+            continue                      # 无归属标记 → 该表没有"属于他"的行
+        try:
+            existing = {r[1] for r in conn.execute(
+                f"PRAGMA table_info({table})").fetchall()}
+            if not existing:
+                continue                  # 表不存在
+            use_cols = [c for c in cols if c in existing]
+            if not use_cols or key_col not in existing:
+                continue
+            rows = conn.execute(
+                f"SELECT {', '.join(use_cols)} FROM {table} WHERE {key_col} = ?",
+                (key_val,)).fetchall()
+        except Exception as e:
+            logger.warning("上传引用采集 %s 失败（跳过该表）: %s", table, e)
+            continue
+        for row in rows:
+            for value in row:
+                if not value:
+                    continue
+                text = value if isinstance(value, str) else str(value)
+                try:
+                    text = _decrypt_or_plain(text) or text
+                except Exception:
+                    pass
+                # "." / ".." 也满足正则的字符集，但它们不是文件名（`dir/".."` 是父目录，
+                # unlink 会失败甚至命中目录）——显式剔除，别把删除面交给巧合
+                names.update(n for n in _UPLOAD_REF_RE.findall(text)
+                             if n not in (".", ".."))
+    return names
+
+
+def _purge_dir_files(paths, label: str, failures=None) -> int:
+    """逐个删文件（不存在/失败都只是告警，不中断整体清除）。返回删除个数。
+
+    k79-M1：**"删失败"与"本来就没有"必须可区分** —— 失败（除 FileNotFoundError 外
+    的任何异常：权限、目录、I/O）不再只写一行日志，同时追加到 `failures`
+    （调用方收集后进响应，见 `purge_account_data` 的 `failed_files`）；
+    `FileNotFoundError`（本来就没有）**不算失败**，也不进 failures。
+    返回类型不变（删除个数），既有调用方与断言不受影响。
+    """
+    import os as _os
+    removed = 0
+    for p in paths:
+        try:
+            _os.unlink(p)
+            removed += 1
+        except FileNotFoundError:
+            continue
+        except Exception as e:
+            logger.warning("注销清理 %s 文件失败 %s: %s", label, p, e)
+            if failures is not None:
+                failures.append({"kind": label, "path": str(p),
+                                 "error": f"{type(e).__name__}: {e}"})
+    return removed
+
+
+def purge_account_files(user_id: str, upload_names=None, memory_dir=None,
+                        avatar_dir=None, uploads_dir=None, reports_dir=None,
+                        charts_dir=None, failures=None) -> dict:
+    """删除该用户的**文件类**落点，返回 `{类别: 删除个数}`。
+
+    覆盖（与 `models.ACCOUNT_PURGE_FILE_KINDS` 一一对应）：
+      - avatar     : `data/avatars/{user_id}.jpg`（`AVATAR_DIR` 可覆盖）
+      - uploads    : `upload_names` 里的文件（调用方在删行前用
+                     `collect_user_upload_names()` 采好；**只删被引用的**，
+                     绝不整目录清空——同目录下有别人的图）
+      - memory     : `data/memory/{user_id}.json`（L3 画像，走 UserMemory 自带接口）
+      - reports    : `data/reports/*.json` 中归属为该用户的（`owner_enc` 解密命中）
+      - share_cards: 上述报告对应的分享图 PNG（`CHARTS_DIR/share_{reading_id}.png`）
+
+    k79-M1：`failures`（可选，list）会收集**真删除失败**（权限/I/O 等；"文件本来
+    就不存在"不算）—— 供 `purge_account_data()` 汇总进响应的 `failed_files`，
+    不再让"删失败"只留一行日志。
+    """
+    import os as _os
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parent.parent.parent
+    stats = {"avatar": 0, "uploads": 0, "memory": 0, "reports": 0, "share_cards": 0}
+
+    # ① 头像：文件名就是 user_id（与 api/user.py 的 `{safe_id}.jpg` 同口径）
+    av_dir = _Path(avatar_dir) if avatar_dir else _Path(
+        _os.environ.get("AVATAR_DIR", "").strip() or (root / "data" / "avatars"))
+    stats["avatar"] = _purge_dir_files([av_dir / f"{user_id}.jpg"], "头像",
+                                      failures=failures)
+
+    # ② 上传图：只删被该用户消息引用过的那些
+    if upload_names:
+        if uploads_dir:
+            up_dir = _Path(uploads_dir)
+        else:
+            from ..config import load_settings
+            up_dir = _Path(_os.environ.get("FORTUNE_UPLOADS_DIR", "").strip()
+                           or (load_settings().data_dir / "uploads" / "chat"))
+        stats["uploads"] = _purge_dir_files(
+            [up_dir / n for n in sorted(upload_names)], "上传图", failures=failures)
+
+    # ③ L3 画像文件
+    try:
+        from src.memory.user_memory import UserMemory
+        um = UserMemory(base_dir=memory_dir) if memory_dir else UserMemory()
+        stats["memory"] = 1 if um.clear_all(user_id) else 0
+    except Exception as e:
+        logger.warning("注销清理画像文件 %s 失败: %s", user_id, e)
+        if failures is not None:      # k79-M1：画像文件没清掉是真失败，要可区分
+            failures.append({"kind": "memory", "path": str(memory_dir or ""),
+                             "error": f"{type(e).__name__}: {e}"})
+
+    # ④⑤ 报告文件 + 对应分享图（k77：抽成单点 `purge_report_files`，注销时
+    #     **立即**清理"公开面"时复用同一段逻辑，不另写一份 —— 两份必然漂移）
+    rep = purge_report_files(user_id, reports_dir=reports_dir, charts_dir=charts_dir,
+                             failures=failures)
+    stats["reports"] += rep["reports"]
+    stats["share_cards"] += rep["share_cards"]
+
+    return stats
+
+
+def purge_report_files(user_id: str, reports_dir=None, charts_dir=None,
+                       failures=None) -> dict:
+    """删除该用户的**报告文件**与对应**分享图 PNG**，返回 `{reports, share_cards}`。
+
+    归属判据：报告 JSON 里的 `owner_enc`（AES 密文）解密后 == user_id。
+    **归属未知的老报告一律不动**（宁可少删，不误删别人的报告）——这类报告
+    （**本服务开始记录报告归属之前**生成的，没有 `owner_enc`）定位不到具体账号，
+    不能凭一次注销就删掉可能是别人的东西；它们的公开面只能靠**分享有效期**
+    收敛（30 天，`share_ttl_seconds()`，见 `api/share.py::_report_share_expires_at`）。
+
+    ⚠️ **文案必须与此一致**（k78-必修1）：这一例外原先**没写进任何文案**，而 3 份
+    用户可见文案共 7 处写着无条件的"注销时你生成的分享链接会立即删除"
+    —— `miniprogram/privacy.md` 三处（第一节第 13 条 / 第五节第 3 条 / 第六节）、
+    `miniprogram/pages/privacy/privacy.wxml` 两处（注销范围段 / 分享段）、
+    `miniprogram/pages/settings/settings.wxml` 两处（安全与数据段 / 注销确认弹层）
+    ⇒ "归属未知的老报告"这一情形对用户是**假话**。
+    k78 已按实况给全部 7 处补上该例外（"无法确认归属的老报告分享页…按 30 天有效期
+    自然失效"），并由守卫钉住：`miniprogram/tests/k71_privacy_consistency.test.js`
+    的「k78-必修1 全仓条件规则」（miniprogram 面）与 §14「后端用户可见字符串面」
+    （src/ 面的 detail=/message= 字面量）—— 再写无条件句、或把例外删掉，守卫即红。
+
+    两处调用：
+      - `purge_account_files()`（90 天期满的账号清除，覆盖全部文件类落点）；
+      - `UserDAO.cancel_user()`（k77-F：注销**当时**就删"公开面"——报告分享页
+        `/share/{reading_id}` 与分享图都是**匿名可读**的对外面，与 k76 对
+        `share_entries` 的处理同款理由：用户已撤回同意，不应再对外提供。
+        这对用户**不减少任何可见功能**：注销后登录已被 403 拦截，本人也读不到报告。
+    """
+    import os as _os
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parent.parent.parent
+    out = {"reports": 0, "share_cards": 0}
+    rep_dir = _Path(reports_dir) if reports_dir else (root / "data" / "reports")
+    ch_dir = _Path(charts_dir) if charts_dir else _Path(
+        _os.environ.get("CHARTS_DIR", "/opt/fortune-data/charts"))
+    try:
+        from src.security.encryption import DataEncryptor
+        # k79：**报告 JSON 的读取只有一份实现**（`visual_report.load_report_from`
+        # —— 与两个读接口同一个"根必须是对象、解析失败当不存在"的契约）。
+        # 改前这里自己 `json.loads` 后直接 `data.get(...)`：reports 目录里只要有一个
+        # "根不是对象"的 JSON（如 `[1,2,3]`），`'list' object has no attribute 'get'`
+        # 就会打断**整轮**清理 —— 本人报告一个都没删掉（`/share/{id}` 仍公开可读）、
+        # 只留一行 warning，端点却照样回"已注销"。实测见 k79 报告的"附带发现"。
+        from src.api.visual_report import load_report_from
+        enc = DataEncryptor()
+        for f in sorted(rep_dir.glob("*.json")):
+            data = load_report_from(rep_dir, f.stem)
+            if data is None:
+                continue          # 不是一份报告（根非对象 / 解析失败）→ 跳过，不中断
+            owner_enc = data.get("owner_enc") or ""
+            if not owner_enc:
+                continue
+            try:
+                owner = enc.decrypt(owner_enc) or ""
+            except Exception:
+                continue
+            if owner != user_id:
+                continue
+            reading_id = data.get("reading_id") or f.stem
+            out["reports"] += _purge_dir_files([f], "报告", failures=failures)
+            out["share_cards"] += _purge_dir_files(
+                [ch_dir / f"share_{reading_id}.png"], "分享图", failures=failures)
+    except Exception as e:
+        logger.warning("注销清理报告文件 %s 失败: %s", user_id, e)
+        # k79-M1：整段失败（如报告目录不可读）此前完全不可见 —— 现在进 failures。
+        # 注意"归属未知的老报告一律不动"是**设计**，走的是 continue 而不是这里。
+        if failures is not None:
+            failures.append({"kind": "reports", "path": str(rep_dir),
+                             "error": f"{type(e).__name__}: {e}"})
+    return out
+
+
+def _is_missing_table_error(exc) -> bool:
+    """SQLite 的 "表不存在" 错误（**环境差异**）与"真删除失败"分开判定（k79-M1）。
+
+    依据：`sqlite3` 对不存在的表报 `no such table: X`。表不存在 ⇒ 该表里**本来就
+    没有**这个用户的行，"删了 0 行"是**事实**，不是失败（空库/尚未建表的部署、
+    测试里没 init_db 的库都走这条）。反之，"删不掉但表在"（权限、磁盘 I/O、
+    database is locked、schema 漂移导致的 `no such column`）是**真失败** ——
+    数据可能还在，必须让调用方/用户看得见。
+    """
+    text = str(exc).lower()
+    return "no such table" in text
+
+
+def purge_account_data(conn, user_id: str, memory_dir=None,
+                       purge_files: bool = True, **file_dirs) -> dict:
+    """**账号数据清除的唯一实现**：删该用户的全部 DB 行 + 文件。
+
+    返回 `{"deleted_rows": n, "tables": {表: 行数}, "files": {类别: 个数},
+           "retained": {表: 依据}, "ok": bool, "failed_tables": {表: 原因},
+           "missing_tables": [表], "failed_files": [{kind,path,error}]}`。
+
+    - 归属列取自 `models.ACCOUNT_PURGE_TABLES`（含 share_entries 的 `owner_tag`）；
+    - 每次删除独立 try：某张表失败只告警，不中断其余表（**尽力删干净**）；
+    - `payments` / `midas_orders` 明确**保留**（依法留存），结果里带依据说明；
+    - `purge_files=False` 供只想删行的调用方（如单测）。
+
+    ⚠️ k79-M1（复审报的 Minor，本仓按"报了就要修"处置）：改前**每张表失败都只
+    `logger.warning` 并把 `tables[table]` 记 0**，端点照样返回 `status:"ok"` +
+    "个人数据已删除" —— "**删除失败**"与"**本来就没有**"在响应里**不可区分**
+    （复审空库实测 15 张表 `no such table:` 仍 200 + "已删除"）。现在：
+
+      - **真失败** → 进 `failed_tables`（表 → 原因），`ok=False`，并**告警级日志**；
+        调用端点据此**不得**再回"删除完成"（见 `main.py` / `security/router.py`）；
+      - **表不存在**（`no such table`，环境差异）→ 进 `missing_tables`，**不算失败**
+        （0 行就是事实），但**在响应里可见**，不再与"删成功 0 行"混为一谈；
+      - 文件类失败同理汇总进 `failed_files`（改前只写日志，`files` 里记 0）。
+    """
+    from .models import (ACCOUNT_PURGE_TABLES, ACCOUNT_RETAIN_TABLES)
+    from .share_dao import owner_tag_for
+
+    owner_tag = owner_tag_for(user_id)
+    tables: Dict[str, int] = {}
+    failed_tables: Dict[str, str] = {}
+    missing_tables: list = []
+
+    # ① 删行之前先采集上传图引用（删完就找不到归属了）
+    upload_names = set()
+    if purge_files:
+        try:
+            upload_names = collect_user_upload_names(conn, user_id, owner_tag)
+        except Exception as e:
+            logger.warning("注销清理：上传引用采集失败 %s: %s", user_id, e)
+
+    # ② 删 DB 行（清单单一事实源）
+    for table, key_col in ACCOUNT_PURGE_TABLES:
+        key_val = owner_tag if key_col == "owner_tag" else user_id
+        if key_col == "owner_tag" and not key_val:
+            tables[table] = 0      # 无归属标记 → 本表无该用户的行（不误删全表）
+            continue
+        try:
+            cur = conn.execute(f"DELETE FROM {table} WHERE {key_col} = ?", (key_val,))
+            tables[table] = cur.rowcount or 0
+        except Exception as e:
+            logger.warning("注销清理 %s.%s 失败: %s", table, user_id, e)
+            tables[table] = 0
+            if _is_missing_table_error(e):
+                missing_tables.append(table)
+            else:
+                failed_tables[table] = f"{type(e).__name__}: {e}"
+
+    # ③ users 行最后删（否则 status='cancelled' 的判定行先没了）
+    try:
+        cur = conn.execute("DELETE FROM users WHERE user_id = ?", (user_id,))
+        tables["users"] = cur.rowcount or 0
+    except Exception as e:
+        logger.warning("注销清理 users.%s 失败: %s", user_id, e)
+        tables["users"] = 0
+        if _is_missing_table_error(e):
+            missing_tables.append("users")
+        else:
+            failed_tables["users"] = f"{type(e).__name__}: {e}"
+
+    # ④ 文件（k79-M1：真失败汇总进 failed_files，不再只留日志）
+    files, failed_files = {}, []
+    if purge_files:
+        try:
+            # file_dirs：avatar_dir / uploads_dir / reports_dir / charts_dir 透传
+            # （部署自定义目录或测试注入用；缺省各自回落到生产默认目录）
+            files = purge_account_files(user_id, upload_names=upload_names,
+                                        memory_dir=memory_dir, failures=failed_files,
+                                        **file_dirs)
+        except Exception as e:
+            logger.warning("注销清理文件 %s 失败: %s", user_id, e)
+            failed_files.append({"kind": "purge_account_files", "path": "",
+                                 "error": f"{type(e).__name__}: {e}"})
+
+    deleted_rows = sum(tables.values())
+    retained = {t: why for t, _col, why in ACCOUNT_RETAIN_TABLES}
+    if failed_tables or failed_files:
+        # 真失败必须**喊出来**（改前只有每表一行 warning，聚合层面完全静默）
+        logger.error("账号数据清除**未完成** %s：失败表 %s / 失败文件 %s（其余已删）",
+                     user_id, failed_tables, failed_files)
+    else:
+        logger.info("账号数据清除完成 %s：删 %d 行 / 文件 %s；表不存在（环境差异）%s；依法留存 %s",
+                    user_id, deleted_rows, files, missing_tables, sorted(retained))
+    return {"deleted_rows": deleted_rows, "tables": tables,
+            "files": files, "retained": retained,
+            "ok": not (failed_tables or failed_files),
+            "failed_tables": failed_tables,
+            "missing_tables": missing_tables,
+            "failed_files": failed_files}
 
 
 class UserDAO:
@@ -308,13 +655,55 @@ class UserDAO:
         return row[0] if row[0] in ("active", "cancelled") else "active"
 
     def cancel_user(self, user_id: str) -> bool:
-        """软删用户：status=cancelled + cancelled_at=now（不删除任何数据）。
+        """软删用户：status=cancelled + cancelled_at=now。
+
+        业务数据走既有口径：**保留 90 天**（期满由
+        `cleanup_cancelled_accounts()` 物理清除，覆盖范围 =
+        `models.ACCOUNT_PURGE_TABLES`）。
+
+        **k76 唯一例外**：该账号创建的**匿名分享链接**在注销时**立即删除**
+        （控制方 2026-09-21 拍板："注销时一并删除用户的分享记录"）。
+        理由：分享链接是**对外的公开可访问面**（任何拿到链接的人都能打开），
+        与"保留 90 天可恢复"的账号内数据不是一回事 —— 注销后继续公开 90 天，
+        等于用户已经撤回同意却仍在持续对外提供内容。分享行按 HMAC 伪名
+        `owner_tag` 定位（本表不存 user_id，见 share_dao 红线）。
+        删除失败**不阻断注销**（注销是用户的强诉求，不能被附属清理拖失败）。
+
+        **k77-F 同款收口**：同一理由适用于**报告分享页**（`/share/{reading_id}`）
+        ——它也是匿名可读的公开面，改前要等到 90 天期满的清才消失。故注销时一并
+        删除该账号的**报告文件与分享图**（`purge_report_files`，归属按 owner_enc
+        命中；老报告无归属字段则不动）。这不减少用户任何可见功能：注销后登录即被
+        403 拦截，本人也读不到那些报告。
 
         users 行不存在（如仅建过命主档案）时补建注销行，保证登录拦截生效。
-        90 天后由 cleanup_cancelled_accounts() 物理清除。
         """
         conn = self._connect()
         now = datetime.now().isoformat()
+        # k76：先删该账号的分享链接（与昵称等账号数据无关，只删公开面）
+        try:
+            from .share_dao import ShareDAO, owner_tag_for
+            tag = owner_tag_for(user_id)
+            if tag:
+                removed = ShareDAO(conn).delete_by_owner(tag)
+                if removed:
+                    logger.info("注销时删除分享记录: %s 条（user=%s）", removed, user_id)
+        except Exception as e:
+            logger.warning("注销时删除分享记录失败（不阻断注销）: %s", e)
+        # k77-F：报告分享页的公开面同理——注销当时就删报告文件与分享图
+        # k79-M1：失败**不阻断注销**（既有设计），但不再只留一行 warning ——
+        # 文案对用户承诺的是"注销时立即删除"，真删失败必须以 **error** 级留下
+        # 可检索的证据（90 天期满的清理会再试一次，那是兜底不是借口）。
+        _rep_failures: list = []
+        try:
+            _rep = purge_report_files(user_id, failures=_rep_failures)
+            if _rep.get("reports") or _rep.get("share_cards"):
+                logger.info("注销时删除报告分享面: %s（user=%s）", _rep, user_id)
+        except Exception as e:
+            logger.warning("注销时删除报告文件失败（不阻断注销）: %s", e)
+        if _rep_failures:
+            logger.error("注销时报告分享面**未删净**（user=%s）：%s —— 该账号的报告"
+                         "分享页可能仍可匿名访问，等 90 天期满清理再试；请人工核查",
+                         user_id, _rep_failures)
         cursor = conn.execute(
             "UPDATE users SET status='cancelled', cancelled_at=?, updated_at=? "
             "WHERE user_id=? AND status != 'cancelled'",
@@ -339,9 +728,10 @@ class UserDAO:
                                    memory_dir: Optional[str] = None) -> dict:
         """清理已注销满保留期的用户（启动时调用一次）。
 
-        删除：users 行 + persons + consultations + sessions + session_summaries
-              + memberships + payments + push_log + chart_records + favorites
-              + jian_cards + 画像文件（data/memory/*.json）
+        删除范围 = `src/storage/models.py::ACCOUNT_PURGE_TABLES`（**单一事实源**，
+        k76 起不再在本方法里内联表名清单——内联清单与 privacy.py 各写一份必然漂移，
+        正是 k72-A3「注销删除覆盖不全」的成因）。
+
         retention_days: 保留天数（默认 90），cancelled_at < now-90d 才清除。
         memory_dir: 画像文件目录（默认 UserMemory 默认目录；测试可注入临时目录）
         """
@@ -357,31 +747,8 @@ class UserDAO:
             ).fetchall()
             removed, total_deleted = 0, 0
             for (user_id,) in rows:
-                for table in ("consultations", "sessions", "session_summaries",
-                              "memberships", "payments", "push_log", "persons",
-                              "chart_records", "favorites", "jian_cards"):
-                    try:
-                        c = conn.execute(f"DELETE FROM {table} WHERE user_id = ?",
-                                         (user_id,))
-                        total_deleted += c.rowcount
-                    except Exception as e:
-                        logger.warning("注销清理 %s.%s 失败: %s",
-                                       table, user_id, e)
-                try:
-                    c = conn.execute("DELETE FROM users WHERE user_id = ?",
-                                     (user_id,))
-                    total_deleted += c.rowcount
-                except Exception as e:
-                    logger.warning("注销清理 users.%s 失败: %s", user_id, e)
-                # 画像文件（data/memory/{user_id}.json）
-                try:
-                    from src.memory.user_memory import UserMemory
-                    if memory_dir:
-                        UserMemory(base_dir=memory_dir).clear_all(user_id)
-                    else:
-                        UserMemory().clear_all(user_id)
-                except Exception as e:
-                    logger.warning("注销清理画像文件 %s 失败: %s", user_id, e)
+                stats = purge_account_data(conn, user_id, memory_dir=memory_dir)
+                total_deleted += stats.get("deleted_rows", 0)
                 removed += 1
             conn.commit()
             conn.close()
@@ -437,11 +804,26 @@ class UserDAO:
         return {"total_users": total, "total_consultations": total_cons}
 
     def get_all_users_with_bazi(self) -> list:
-        """查询所有保存了八字信息的用户（bazi_info 自动解密）"""
+        """查询所有保存了八字信息的用户（bazi_info 自动解密）。
+
+        k77：返回项带 `status` 字段，**已注销账号也在其中**（语义不变：本方法只回答
+        "谁填了八字"）。**推送/触达类调用方必须自己过滤掉 cancelled**
+        ——见 `get_pushable_users_with_bazi()`（推送批次的专用入口）。
+        为什么不在本方法里过滤：本方法的既有调用方不止推送（预计算/统计），
+        在共用查询里改语义会连带改掉它们的口径；推送"不打扰已注销用户"这条
+        规则属于**推送**的职责，故新增一个专用方法把这条规则固定在单一位置。
+        """
         conn = self._connect()
-        rows = conn.execute(
-            "SELECT user_id, bazi_info, push_enabled, push_time FROM users WHERE bazi_info IS NOT NULL"
-        ).fetchall()
+        try:
+            rows = conn.execute(
+                "SELECT user_id, bazi_info, push_enabled, push_time, status "
+                "FROM users WHERE bazi_info IS NOT NULL"
+            ).fetchall()
+        except Exception:
+            # 老库无 status 列（未跑迁移）：退回不带 status 的查询，状态一律按 active
+            rows = [tuple(r) + ("active",) for r in conn.execute(
+                "SELECT user_id, bazi_info, push_enabled, push_time FROM users "
+                "WHERE bazi_info IS NOT NULL").fetchall()]
         conn.close()
         users = []
         for row in rows:
@@ -457,8 +839,23 @@ class UserDAO:
                 "bazi_info": bazi_data,
                 "push_enabled": bool(row[2]),
                 "push_time": row[3] or "08:00",
+                "status": (row[4] if len(row) > 4 else "active") or "active",
             })
         return users
+
+    def get_pushable_users_with_bazi(self) -> list:
+        """推送专用：有八字信息 **且未注销** 的用户（`push_enabled` 由调用方再判）。
+
+        k77：注销账号虽然保留 90 天数据，但**不能再被推送触达** ——
+        ① 注销即撤回同意（PIPL），继续主动触达与撤回相悖；
+        ② 注销后登录已被 403 拦截，推送里的内容用户点不进来看，只会变成骚扰；
+        ③ 注销成功页对用户的承诺是"不会再收到消息打扰"，这条承诺必须由代码兑现
+           （此前改前无任何过滤：`get_all_users_with_bazi` 不带 status 条件，
+           已注销用户在整个 90 天保留期内照常收到每日/每周推送 —— 承诺与实现不符）。
+        与 `get_all_users_with_bazi()` 是同一份查询 + 一道状态过滤，**不另写 SQL**。
+        """
+        return [u for u in self.get_all_users_with_bazi()
+                if u.get("status") != "cancelled"]
 
     def get_user_push_settings(self, user_id: str) -> dict:
         """查询用户推送设置"""

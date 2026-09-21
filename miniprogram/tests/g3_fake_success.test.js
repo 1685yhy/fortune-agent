@@ -260,11 +260,19 @@ test('H-3 history.confirmDel 删除当前会话：晨笺收藏条目保留（per
   page.data.dlgDel = { id: 'current', isCurrent: true };
   page.setData = dottedSetData;
   page._load = () => {};
-  page.confirmDel();
-  await new Promise((r) => setTimeout(r, 400));
-  const saved = store.ylm_chat_messages;
-  assert.deepEqual(saved.map((m) => m.id), ['j1'], '删除会话不抹除晨笺收藏');
-  assert.ok(toasts.includes('已删除 · 夜话不留痕'));
+  /* k77-I4：删除改为"先删服务端再删本机" —— 本用例关心的是**本机**行为，
+     故把服务端删除 stub 成成功（服务端语义另有 tests/test_k77_* 与 g2 用例覆盖） */
+  const savedDel = api.deleteChatSessions;
+  api.deleteChatSessions = () => Promise.resolve({ status: 'ok', deleted: 1, legacy_remaining: 0 });
+  try {
+    page.confirmDel();
+    await new Promise((r) => setTimeout(r, 400));
+    const saved = store.ylm_chat_messages;
+    assert.deepEqual(saved.map((m) => m.id), ['j1'], '删除会话不抹除晨笺收藏');
+    assert.ok(toasts.includes('已删除 · 夜话不留痕'));
+  } finally {
+    api.deleteChatSessions = savedDel;
+  }
 });
 
 test('H-3 dreams.onContinue：续聊写回不覆盖宿主里的收藏条目（persist）', async () => {

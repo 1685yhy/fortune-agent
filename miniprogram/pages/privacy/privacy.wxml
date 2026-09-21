@@ -4,12 +4,51 @@
 
   <view class="privacy-section">
     <text class="privacy-heading">你的信息属于你</text>
-    <text class="privacy-text">你的八字、你的梦、你的故事——只属于你，不属于我们。我们不会拿你的数据训练模型，不会把你的信息给第三方，不会在你睡着时偷偷收集。</text>
+    <text class="privacy-text">你的八字、你的梦、你的故事——只属于你，不属于我们。我们不会出售你的个人信息，不会在你睡着时偷偷收集。为了你要的功能，有些内容必须交给第三方处理——下面一节把它们一条条列全，不藏话。</text>
   </view>
 
   <view class="privacy-section">
     <text class="privacy-heading">你随时可以</text>
-    <text class="privacy-text">查看我们存了什么、删除部分或全部信息、要求不再记录。</text>
+    <text class="privacy-text">查看我们存了什么、逐条删掉你的对话与记录、注销账号（「设置 → 危险区 → 注销账号」）。注销后登录入口立即关闭，账号内数据保留 90 天后由清理任务物理删除：对话、档案、命书、收藏、姓名分析与取名记录、择日计划、求签记录、灯语、用量与偏好统计、你上传的图片与头像，以及对话自动汇总出的记录，都在删除范围内；你分享出去的链接在注销时立即删除（唯一例外：开始记录报告归属之前生成、无法确认归属的老报告分享页——它们定位不到账号，按 30 天有效期自然失效）。唯有一项不在注销清理范围内：支付流水（依《电子商务法》第三十一条，保存不少于三年）。注销后不能自助恢复，如需找回请在保留期内尽快联系我们（第十节联系方式），能否找回取决于备份是否仍覆盖，我们无法保证。</text>
+  </view>
+
+  <view class="privacy-section">
+    <text class="privacy-heading">语音输入</text>
+    <text class="privacy-text">只有你主动按住麦克风时，它才会打开。录音只用来转成文字，我们不留你的录音。</text>
+    <view class="privacy-list">
+      <view class="privacy-list-item">· 录音不写进你的手机，也不传到我们的服务器——我们的服务器没有接收录音的入口，音频即使改了名字上传也会被拒收</view>
+      <view class="privacy-list-item">· 但转写这一步由微信「同声传译」插件（提供方：腾讯，插件 AppID wx069ba97219f66d99）完成，录音会由该插件上传到微信那一侧识别。这是录音唯一离开你手机的情形，微信侧如何处理与留存，我们控制不了</view>
+      <view class="privacy-list-item">· 转出来的文字，之后和打字发出的消息完全相同</view>
+      <view class="privacy-list-item">· 不想让录音离开手机，就用键盘输入</view>
+    </view>
+  </view>
+
+  <view class="privacy-section">
+    <text class="privacy-heading">会发给谁</text>
+    <text class="privacy-text">为了把你的八字讲给你听，我们需要把它交给大模型来解读——所以你的排盘信息（八字）和你的提问，会发送给第三方大模型服务商处理：DeepSeek（杭州深度求索）与智谱 GLM（北京智谱华章）。除了解读，还有几路也会把内容送出你的手机，一次列全：</text>
+    <view class="privacy-list">
+      <view class="privacy-list-item">· 微信小程序平台（腾讯）：登录时由微信完成身份校验，并把你的微信标识（openid）返回给我们作为账号；你购买会员的支付由微信支付完成（我们不接触你的卡号、密码或支付凭证）；你订阅的每日运势等消息，也经由微信的订阅消息接口下发（消息内容会经过微信的服务器）</view>
+      <view class="privacy-list-item">· 姓名分析、取名：你输入的姓名、性别，以及「取名」里写的期望说明文字，同样会发给上面这两家大模型</view>
+      <view class="privacy-list-item">· 语音播报（点「朗读」）：待朗读的文字——通常是 AI 的回复或灯语，其中带着你的排盘与提问——会发给我们的语音合成服务，它采用微软 Edge 语音合成（edge-tts）技术，会把文字传到微软的接口</view>
+      <view class="privacy-list-item">· 联网检索：当你的问题需要最新信息时，由模型依你的提问生成的检索词会发给公网搜索引擎（Bing、360、百度等）——检索词里可能带着你问的内容</view>
+      <view class="privacy-list-item">· 语音那一段的录音，由微信「同声传译」插件上传微信侧识别（见上一节）</view>
+      <view class="privacy-list-item">· 数据存储与备份在中国大陆境内的腾讯云服务器上完成；当你打开别人分享的报告网页时，该页字体从 Google Fonts（fonts.googleapis.com 与 fonts.gstatic.com）加载，浏览器会因此向它们发起请求</view>
+      <view class="privacy-list-item">· 发送的内容里不附带你的微信标识、手机号、昵称与头像；与上述服务商的传输都走加密通道</view>
+      <view class="privacy-list-item">· 这些服务商各自独立处理数据，它们怎么留存我们控制不了；不想让哪一项外发，就别用那一项功能（语音用键盘、不点朗读、不分享报告）</view>
+    </view>
+  </view>
+
+  <view class="privacy-section">
+    <text class="privacy-heading">关于训练</text>
+    <text class="privacy-text">我们会用真实对话让回答变得更准。这件事有一个硬前提：先抹掉身份标识——微信标识、手机号、证件号、邮箱、长数字串一律替换成占位符，导出时不带任何账号标识。脱敏之后的对话可能进入训练集；没有脱敏的记录不会用于训练。另外，我们也会看功能使用量、检索命中率这类整体统计，用来判断哪些功能真的有用。</text>
+  </view>
+
+  <view class="privacy-section">
+    <text class="privacy-heading">关于数据</text>
+    <text class="privacy-text">你的出生信息与对话记录，在本机留一份（历史和档案就存在你手机上），同时也加密存放在中国大陆境内的服务器上（AES-256 加密，传输走 HTTPS/TLS 1.3）。要读它们得通过服务端的鉴权接口（需要你的登录凭证），加密字段还要有服务端的密钥才解得开。</text>
+    <text class="privacy-text">但并非所有内容都上了锁，这一点我们如实说：昵称、你为他人填写的称呼与关系（如「妈妈」「朋友」）、你收藏的对话片段、姓名分析与取名的保存记录、择日计划与备注、求签保存记录、灯语文本、你上传的图片（对话里发的照片与头像）、分享出去的对话正文，以及对话里自动汇总出的情绪状态、关注点与话题统计，都以明文（未加密）形式存在服务器上。请不要把敏感信息写进这些地方。</text>
+    <text class="privacy-text">你主动发来的照片会存到服务器上，只用于这次分析，不再被任何对话引用满 72 小时后自动清除。你设置的头像同样存在服务器上，但要一直保存到你换头像或注销账号——头像不受那 72 小时规则影响。手机号经 AES-256 加密存储，只有你主动绑定才有，不绑定不影响使用。</text>
+    <text class="privacy-text">你主动分享出去的对话内容也会存到服务器上（内容本身未加密），任何拿到分享链接的人都能看到；分享链接（含报告分享页）有 30 天有效期，到期自动失效，注销账号时你生成的分享链接会立即删除（唯一例外：开始记录报告归属之前生成、无法确认归属的老报告分享页，它们按 30 天有效期自然失效）——分享前请先确认内容。</text>
   </view>
 
   <view class="privacy-section">
@@ -18,16 +57,11 @@
   </view>
 
   <view class="privacy-section">
-    <text class="privacy-heading">关于数据</text>
-    <text class="privacy-text">咨询记录默认存储在本地设备上。我们不会未经授权访问或使用你的数据。</text>
-  </view>
-
-  <view class="privacy-section">
     <text class="privacy-heading">双人合盘</text>
-    <text class="privacy-text">使用双人合盘时，对方（他/她）的出生信息仅保存在您的设备本地，仅用于本次合盘计算，不会上传，也不会用于任何其他用途。</text>
+    <text class="privacy-text">使用双人合盘时，对方（他/她）的出生信息会在你本机留一份（方便下次直接填），并发送到服务器完成这一次的计算——服务器不留存双方生辰，只留下不含生辰的脱敏摘要。你为对方填写的称呼与关系（如「伴侣」「家人」）会以明文存在你的账号下；填写前请先取得对方同意。</text>
     <view class="privacy-list">
-      <view class="privacy-list-item">· 免费档合盘：即时计算，不留存任何记录</view>
-      <view class="privacy-list-item">· 深度报告：归档前对关键信息脱敏处理</view>
+      <view class="privacy-list-item">· 免费档合盘：即时计算，服务器只留脱敏摘要（契合分、等级、关系、缘语），可在「合盘历史」里看到</view>
+      <view class="privacy-list-item">· 深度报告：归档时只写脱敏摘要与报告正文，不写双方生辰</view>
       <view class="privacy-list-item">· 分享图：默认脱敏，不包含时辰、出生地与姓名</view>
     </view>
   </view>

@@ -50,14 +50,6 @@
     "uploadFile": 30000,
     "downloadFile": 30000
   },
-  "permission": {
-    "scope.userLocation": {
-      "desc": "用于真太阳时校准以提升排盘精度"
-    }
-  },
-  "requiredBackgroundModes": [
-    "audio"
-  ],
   "useExtendedLib": {},
   "lazyCodeLoading": "requiredComponents",
   "plugins": {

@@ -299,12 +299,47 @@ Page({
        整点（奇数集），**不是** 0-11 序号 —— 原实现 _hourToIndex 先按序号直取，
        把钟点 10 变成 HOUR_CN[10]='戌时'（正解巳时，序号 5）。改引 utils/persons
        单点映射（paipan.js 的 k19 注释「不再把 10 误读成 戌时」即此口径）。
-       无时辰（缺失/空串）→ 不显示时辰尾缀（沿用原 hasHour 空白语义）。 */
+       无时辰（缺失/空串）→ 不显示时辰尾缀（沿用原 hasHour 空白语义）。
+
+       k73-M1「宁少不假」：**hour 必须能完整解析为 0-23 的整数才显示时辰**。
+       原实现只拦 undefined/null/''，其余一律转交 hourToShichenIndex —— 而该函数
+       对无法识别的输入**返回 0（=子时）**，于是 "abc" / 99 / -1 / NaN 会凭空
+       显示「子时」（实测改前：四者全显示 "1995.05.12 子时"；旧实现一律不显示
+       时辰）。今天写路径（DB 只存整数或 NULL）不可达，但上游数据形态一变
+       （历史数据、脏数据、迁移脚本）就会**安静地显示一个假时辰**，故在此拦死：
+       解析失败或越界 ⇒ 不显示，**绝不兜底 0**。
+       用 Number 完整解析而非 parseInt：parseInt('10abc')=10 会把半截垃圾当好值
+       （实测改前 "10abc" 显示巳时）；非整数（10.5）同样不显示（不是合法钟点，
+       宁少不假）。空串/空数组先归一为 NaN —— Number('') === 0 会把它们当子时。
+
+       k75「闸门与渲染必须同一个解析器」：上面这道闸门用 Number 完整解析，
+       但**交给单点的仍是原始值** —— 而 persons.hourToShichenIndex 内部是
+       parseInt(hour, 10)，两个解析器对同一输入给出不同数值。凡 Number 认、
+       parseInt 不认的形态（"0x10"→16 vs 0；"1e1"→10 vs 1；"0b101"→5 vs 0；
+       "0o17"→15 vs 0）闸门放行，渲染侧却按 parseInt 的结果算，于是
+       **解析结果被丢掉、又退回兜底 0（=子时）**：复审实测 "0x10"/"0b101"/"0o17"
+       显示子时（期望申/卯/申），"1e1" 显示丑时（期望巳）——与「解析失败一律
+       不显示、绝不兜底 0」直接冲突。故把**校验后的数值** hourNum 交给单点：
+       闸门与渲染从此共用同一个解析结果，两个解析器不可能再分叉。
+
+       k77-M4「只认规范整数」（复审判定：k75 那条只对齐了两个解析器，却没管
+       **哪些形态该被认**）：改前用 Number() 完整解析，于是凡 Number 认的写法
+       全部放行 —— 复审实测 "0x10"→申时、"1e1"→巳时、"0b101"→卯时、
+       "0o17"→申时、"+10"→巳时、[10]→巳时（String([10])==='10'）、
+       **"0x0"→子时**。前几条是"用户没填的时辰被凭空显示"，最后一条更糟：
+       它显示的是**子时** —— 与 k73-M1 要消灭的"凭空子时"观感一模一样，
+       等于本闸门对最该拦的那一档漏了。改法：走 `persons.parseHourStrict`
+       （单一事实源，M5 的 timeText 同用），**只接受规范整数形态**
+       （number 整数 / 纯十进制整数字符串），进制前缀、科学计数、带符号、
+       小数、半截垃圾、数组对象一律 NaN ⇒ 不显示时辰。 */
     const rawHour = b.hour !== undefined && b.hour !== null ? b.hour : b.birthHour;
     const rawMinute = b.minute !== undefined && b.minute !== null ? b.minute : b.birthMinute;
     const hasHour = rawHour !== undefined && rawHour !== null && rawHour !== '';
-    const hour = hasHour
-      ? persons.shichenCN(persons.hourToShichenIndex(rawHour, rawMinute))
+    const hourNum = persons.parseHourStrict(rawHour);
+    const hasUsableHour = hasHour
+      && Number.isInteger(hourNum) && hourNum >= 0 && hourNum <= 23;
+    const hour = hasUsableHour
+      ? persons.shichenCN(persons.hourToShichenIndex(hourNum, rawMinute))
       : '';
     const patch = {
       birthdayText: `${sy}.${pad(sm)}.${pad(sd)}${hour ? ' ' + hour : ''}`,

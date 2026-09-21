@@ -193,14 +193,20 @@ Page({
     // 时辰（选填）：档案有时辰才回填。k19：档案 birth_minute>0 或 hour 非
     // 时辰代表整点（HOUR_VALUES 奇数集）→ 精确钟表行 → 回填钟表模式
     // （hourToShichenIndex 同步按分钟/时钟窗口映射，不再把 10 误读成 戌时）
-    if (p.birth_hour !== undefined && p.birth_hour !== null && p.birth_hour !== '') {
-      patch.bHourIdx = persons.hourToShichenIndex(p.birth_hour, p.birth_minute) + 1;
+    // k77-M5 同类收口「宁少不假」：hour 必须先过 parseHourStrict（单一事实源）
+    // 且落 0-23 —— 否则 'abc'/99/'0x10' 这类脏值会让本页**凭空高亮一个时辰**
+    // （hourToShichenIndex 对不认识的值返回 0 = 子时）。与 me.js / timeText 同口径。
+    const bh = persons.parseHourStrict(p.birth_hour);
+    const hasHour = p.birth_hour !== undefined && p.birth_hour !== null
+      && p.birth_hour !== '' && bh >= 0 && bh <= 23;
+    if (hasHour) {
+      patch.bHourIdx = persons.hourToShichenIndex(bh, p.birth_minute) + 1;
       patch.bHourSet = true;
       const isClockRow = parseInt(p.birth_minute, 10) > 0
-        || persons.HOUR_VALUES.indexOf(parseInt(p.birth_hour, 10)) === -1;
+        || persons.HOUR_VALUES.indexOf(bh) === -1;
       patch.bClockSet = isClockRow;
       if (isClockRow) {
-        patch.bClockHIdx = parseInt(p.birth_hour, 10) || 0;
+        patch.bClockHIdx = bh;
         patch.bClockMIdx = parseInt(p.birth_minute, 10) || 0;
       }
     } else {
@@ -478,7 +484,14 @@ Page({
     if (!solarText && p.birthYear) {
       solarText = `${p.birthYear}年${p.birthMonth}月${p.birthDay}日`;
       // 存库 birth.hour 为时钟小时 0-23 → 时辰序号（子23-0/丑1-2/…/亥21-22 起时口径，
-      // 与服务端 SHICHEN_NAME 同口径；persons.hourToShichenIndex 只管整点代表不适用）
+      // 与服务端 SHICHEN_NAME 同口径）。
+      // k73-M3 注释更正（**只改注释，不改行为**）：原注释称「persons.hourToShichenIndex
+      // 只管整点代表不适用」——该说法自 k19 起已作废：hourToShichenIndex 现在同时认
+      // 「时辰代表整点（HOUR_VALUES 奇数集）」与「时钟小时 0-23」两种形态（见
+      // utils/persons.js 的 k19 画像口径）。本行内联公式与它对 0-23 **逐值一致**
+      // （已核对全部 24 值，含 23/0 → 子时跨日；越界值行为不同，但该域外输入不属于
+      // 本契约）。此处保留内联仅为不动本批行为；日后要收归单点，可直接改调
+      // persons.hourToShichenIndex（0-23 同值）。
       const idx = Math.floor((((parseInt(p.birthHour, 10) || 0) + 1) % 24) / 2);
       const label = HOUR_OPTIONS[idx + 1] || '';
       shichenTxt = label.split('(')[0];

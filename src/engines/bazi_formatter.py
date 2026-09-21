@@ -420,39 +420,18 @@ def get_kongwang(day_pillar):
 def compute_cg_shishen(day_gan, hidden_stems):
     return [_get_shishen(day_gan, s, for_hidden=True) for s in hidden_stems]
 
-def compare_with_wenzhen(y, m, d, h, mi, gender_code, city="北京"):
-    import urllib.request, json
-    from src.engines.bazi import BaziEngine as BE
-    gender = "女" if gender_code == 0 else "男"
-    r = BE().calculate(y,m,d,h,mi,city,gender)
-    ob = list(r.bazi)
-    day_gan = ob[2][0]
-    d_str = f'{y:04d}-{m:02d}-{d:02d}%20{h:02d}:{mi:02d}'
-    url = f'https://bzapi3.iwzbz.com/getbasebz8.php?d={d_str}&s={gender_code}&today={d_str}&vip=0&yzs=0&pqf=0'
-    wz = json.loads(urllib.request.urlopen(url,timeout=10).read())
-    wz_pillars = [wz['bz'][str(i)]+wz['bz'][str(i+1)] for i in range(0,8,2)]
-    items = [
-        ("四柱"," ".join(ob)," ".join(wz_pillars)),
-        ("十神",[r.shishen[i] if i<len(r.shishen) else _get_shishen(day_gan,ob[i][0]) for i in range(4)],wz.get('ss',[])),
-        ("藏干",[BRANCH_HIDDEN.get(p[1],["?"]) for p in ob],wz.get('cg',[])),
-        ("藏干十神",[compute_cg_shishen(day_gan,BRANCH_HIDDEN.get(p[1],["?"])) for p in ob],wz.get('cgss',[])),
-        ("纳音",[NAYIN_TABLE.get(p,"?") for p in ob],wz.get('ny',[])),
-        ("空亡",[get_kongwang(p) for p in ob],wz.get('kw',[])),
-        ("星运",[get_changsheng(day_gan,p[1]) for p in ob],wz.get('xy',[])),
-        ("自坐",[get_changsheng(day_gan,p[1]) for p in ob],wz.get('zz',[])),
-    ]
-    ok = sum(1 for _,o,t in items if o==t)
-    for name,o,t in items:
-        mark = "OK" if o==t else "DIFF"
-        print(f"[{mark}] {name}")
-        if o!=t:
-            print(f"    Ours: {o}")
-            print(f"    WZ:   {t}")
-    our_dy = [g for _,g in r.dayun[:8]]
-    wz_dy = wz.get('dayun',[])[:8]
-    dy_ok = our_dy == wz_dy
-    print(f"[{'OK' if dy_ok else 'DIFF'}] 大运(8步)")
-    if not dy_ok:
-        print(f"    Ours (with age): {[(a,g) for a,g in r.dayun[:4]]}")
-        print(f"    WZ: {wz_dy[:4]}")
-    print(f"Score: {ok+dy_ok}/{len(items)+1}")
+# ── k76：`compare_with_wenzhen()` 已**删除**（控制方按「接口安全红线」裁定）──
+# 被删函数把「出生日期 + 性别」拼进 URL 发给**第三方问真八字**排盘接口，属
+# **未披露的对外发送**；且全仓**零调用**（死代码）——死代码 + 未披露外发 = 双重
+# 问题，故整段移除，避免将来被误启用。
+#
+# 删除前已核**零调用**（含动态形态）：
+#   - 全树（排除 .git）仅本文件出现该名字，且只有 def 行；
+#   - getattr / eval / __import__ / importlib / 字符串拼接 构造调用 → 0 命中；
+#   - 从本模块 import 的 4 处（src/tools/fortune_cycle.py、src/engines/bazi.py、
+#     tests/bulk_compare_wenzhen.py、scripts/calibrate_qz_250.py 等）的导入清单里
+#     **都不含**该名字。
+#
+# 离线标定脚本（tests/bulk_compare_wenzhen.py、scripts/calibrate_qz_250.py、
+# scripts/scrape_wenzhen.py）**不受影响**：它们各自独立构造请求，不走本函数——
+# 那些是人工离线跑的对标工具，不是服务的运行时代码路径。

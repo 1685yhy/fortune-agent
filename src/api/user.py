@@ -28,6 +28,13 @@ from src.storage.person_dao import (
 from src.storage.birth_profile import bazi_info_out_of_sync
 from src.storage.models import connect as db_connect
 from src.security.auth import require_user
+# k78：账号注销/数据删除的**用户可见文案**单一事实源（此前同一句在 3 个文件各写一份，
+# 服务端这份缺"支付流水依法留存"例外 ⇒ 与小程序侧口径分裂）。
+from src.security.account_copy import ACCOUNT_CANCELLED_NOTICE
+# k72：上传内容校验（魔数嗅探）的单一事实源——与 /api/chat/upload 共用同一实现。
+from src.utils.image_sniff import (
+    IMAGE_CONTENT_TYPES, IMAGE_EXT_FORMAT, sniff_image_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +64,16 @@ _ACCESS_TOKEN_TTL_SECONDS = 110 * 60
 
 MAX_AVATAR_BYTES = 2 * 1024 * 1024
 _AVATAR_CHUNK_BYTES = 64 * 1024  # 头像分块读取块大小（累计超限立即中止）
+# k72：三张表全部**由单一事实源派生**（src/utils/image_sniff.py），本文件不再
+# 自带一份字面量判断——头像端点此前漏掉魔数嗅探，根因就是"同一条规则写了两遍"。
+# 声明类型白名单（content-type 只是客户端自述，仅作入口条件）
 _ALLOWED_AVATAR_TYPES = {"image/jpeg", "image/png", "image/webp"}
-_ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+# 允许的**真实内容**格式（魔数嗅探得出）
+_ALLOWED_AVATAR_FORMATS = {IMAGE_CONTENT_TYPES[ct] for ct in _ALLOWED_AVATAR_TYPES}
+# 允许的客户端文件名后缀（与上表同源，防两处漂移）
+_ALLOWED_AVATAR_EXTS = {
+    ext for ext, fmt in IMAGE_EXT_FORMAT.items() if fmt in _ALLOWED_AVATAR_FORMATS
+}
 
 
 def _ensure_session_key_column():
@@ -293,7 +308,7 @@ async def user_login(req: LoginRequest):
                 logger.info("登录被拦截：账号已注销 user=%s", user_id)
                 raise HTTPException(
                     status_code=403,
-                    detail="账号已注销，数据保留 90 天后删除",
+                    detail=ACCOUNT_CANCELLED_NOTICE,
                 )
         except HTTPException:
             raise
@@ -536,6 +551,11 @@ async def user_upload_avatar(file: UploadFile = File(...), uid: str = Depends(re
     1. 读前预拒：file.size（Content-Length 派生，可用时）> MAX_AVATAR_BYTES → 不读 body 直接 400；
     2. 分块读取：64KB 分块累计，超 MAX_AVATAR_BYTES 立即中止 400（无 Content-Length 的流式上传兜底）。
     任何路径下内存占用有界（≤ MAX + 一块）。
+
+    k72 补内容校验：原实现**只查 content-type 与文件名后缀**（都是客户端自述），
+    不查真实内容。实测把 MP3 改名 x.png、声明 image/png 打进来 → HTTP 200 且
+    原样落盘（落盘文件头 8 字节为 `ID3`）。现补魔数嗅探，与 /api/chat/upload
+    同一实现（src/utils/image_sniff.py 单一事实源）。
     """
     content_type = (file.content_type or "").split(";")[0].strip().lower()
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -558,6 +578,11 @@ async def user_upload_avatar(file: UploadFile = File(...), uid: str = Depends(re
     data = b"".join(chunks)
     if not data:
         raise HTTPException(status_code=400, detail="图片内容为空")
+    # k72：**内容**校验（魔数嗅探）——上面的 content-type/后缀都只是客户端自述，
+    # 伪装者改得了声明、改不了自己文件开头的字节。声明与内容都要过关。
+    # 错误码沿用本端点既有口径（400 + 同一句 detail），不改变前端已依赖的契约。
+    if sniff_image_format(data) not in _ALLOWED_AVATAR_FORMATS:
+        raise HTTPException(status_code=400, detail="仅支持 jpg/png/webp 图片")
     # 防路径穿越：user_id 只保留安全字符再拼文件名
     safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", uid)
     avatar_dir = _avatar_dir()
@@ -989,14 +1014,19 @@ def _person_birth(req: PersonRequest) -> dict:
     中文原样保留；None/空/"unknown" 归一为 None → update 路径不覆盖既有值
     （与 save_bazi_info 的 gender 保护约定一致；创建时由 _birth_dict 落 "unknown"）。
     既有接口契约零破坏：persons API 仍接受 male/female 入参（归一兼容）。
+
+    k81 必修1：这里原来是**第四张内联别名表**（只认 `male/female/男/女`）——
+    于是建档时送 `女性` / `1` / `girl` 会被归一成 None ⇒ 落盘 `unknown` ⇒
+    引擎按"未知默认男"排盘（**女性用户被当成男性排**，与终验在
+    `/api/report/generate` 上实测的是同一个 bug）。现改为查唯一别名表
+    （`birth_contract.gender_of_alias`）。**原有语义完整保留**："认不出/未提供"
+    仍然是 `None`（= 不覆盖既有值），不是 `unknown` —— 这一条是 update 路径的
+    保护约定，本批不动（表里的 `unknown/未知/none/null/空` 查表结果不是
+    男/女 ⇒ 依旧落 None，逐输入与改前一致）。
     """
-    gender = (req.gender or "").strip()
-    _gl = gender.lower()
-    if _gl in ("male", "男"):
-        gender = "男"
-    elif _gl in ("female", "女"):
-        gender = "女"
-    else:
+    from src.api.birth_contract import gender_of_alias
+    gender = gender_of_alias(req.gender)
+    if gender not in ("男", "女"):
         gender = None
     return {
         "gender": gender,
@@ -1108,7 +1138,8 @@ async def user_cancel(req: CancelRequest, uid: str = Depends(require_user)):
         _dao.cancel_user(uid)
         return {
             "success": True,
-            "message": "账号已注销，数据保留 90 天后删除",
+            # k78：与登录 403 同一常量（同一事实），不再各写一份
+            "message": ACCOUNT_CANCELLED_NOTICE,
         }
     raise HTTPException(status_code=503, detail="服务未就绪")
 

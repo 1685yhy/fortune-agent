@@ -15,6 +15,8 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 
 from .encryption import DataEncryptor
+# k78：用户可见文案的单一事实源（本模块只引常量，不再内联写文案）
+from .account_copy import DATA_RETENTION_ACTION_NOTICE
 
 logger = logging.getLogger(__name__)
 
@@ -98,100 +100,54 @@ class PrivacyManager:
 
         return results
 
-    def delete_user_data(self, user_id: str) -> Dict[str, int]:
-        """Delete all data for a user (Right to be Forgotten).
+    def delete_user_data(self, user_id: str) -> Dict[str, Any]:
+        """Delete all data for a user (Right to be Forgotten / PIPL 第 47 条).
 
-        Deletes from:
-        - users table
-        - consultations table
-        - push_log table
-        - member_dao tables
+        k76：**改为委托 `storage.dao.purge_account_data()`**（唯一实现）。
 
-        Args:
-            user_id: The user identifier
+        改前的问题（k72-A3）：本方法自己内联了 5 张表的删除（consultations /
+        push_log / user_preferences / users / payments），而 `dao.cleanup_
+        cancelled_accounts()` 另有 10 张表的清单 —— 两份清单都不含 zeri_plans、
+        night_lamp、night_prefs、night_remember、jian_prefs、ming_saves、
+        ming_quota、qian_saves、chat_quota、share_entries、persons 之外的
+        头像/上传图/报告文件 ⇒「删除权」名不副实。现在删除清单**只有一份**
+        （`storage/models.py::ACCOUNT_PURGE_TABLES` / `ACCOUNT_RETAIN_TABLES`）。
 
-        Returns:
-            Dict with counts of deleted records per table
+        返回：`{表名: 删除行数, ..., "user": n, "files": {...}, "retained": {...},
+        "ok": bool, "failed_tables": {...}, "missing_tables": [...],
+        "failed_files": [...]}` —— 保留 `"user"` 键（既有调用方与测试读它）。
+        `payments` / `midas_orders` **不删**（依法留存），依据见返回值 `retained`。
+
+        k79-M1：`ok` / `failed_tables` / `failed_files` 透传自
+        `purge_account_data()` —— 调用端点据此**不得**在真失败时仍回"删除完成"
+        （见 `api/user.py` 同级的两个删除端点）。
         """
+        from ..storage.dao import purge_account_data
+
         conn = self._connect()
-        deleted = {}
-
         try:
-            # Delete from consultations
-            deleted["consultations"] = conn.execute(
-                "DELETE FROM consultations WHERE user_id = ?", (user_id,)
-            ).rowcount
-
-            # Delete from push_log
-            try:
-                deleted["push_log"] = conn.execute(
-                    "DELETE FROM push_log WHERE user_id = ?", (user_id,)
-                ).rowcount
-            except Exception:
-                deleted["push_log"] = 0
-
-            # Delete from user_preferences
-            try:
-                deleted["preferences"] = conn.execute(
-                    "DELETE FROM user_preferences WHERE user_id = ?", (user_id,)
-                ).rowcount
-            except Exception:
-                deleted["preferences"] = 0
-
-            # Delete main user record
-            deleted["user"] = conn.execute(
-                "DELETE FROM users WHERE user_id = ?", (user_id,)
-            ).rowcount
-
-            # Delete from members table
-            try:
-                deleted["members"] = conn.execute(
-                    "DELETE FROM members WHERE user_id = ?", (user_id,)
-                ).rowcount
-            except Exception:
-                deleted["members"] = 0
-
-            # Delete from payments table
-            try:
-                deleted["payments"] = conn.execute(
-                    "DELETE FROM payments WHERE user_id = ?", (user_id,)
-                ).rowcount
-            except Exception:
-                deleted["payments"] = 0
-
-            # Delete from conversation_memory
-            try:
-                from ..storage.conversation_memory import ConversationMemory
-                memory = ConversationMemory(self.db_path)
-                memory.clear_user_memory(user_id)
-                deleted["memory"] = 1
-            except Exception:
-                deleted["memory"] = 0
-
-            # Delete L3 user memory files (方案 §5.5 隐私：注销时记忆一并删除)
-            try:
-                from ..memory.user_memory import UserMemory
-                um = UserMemory()
-                entries_removed = um.clear_entries(user_id)
-                file_removed = um.clear_all(user_id)
-                deleted["l3_memory"] = entries_removed + file_removed
-            except Exception:
-                deleted["l3_memory"] = 0
-
+            stats = purge_account_data(conn, user_id)
             conn.commit()
+            deleted: Dict[str, Any] = dict(stats["tables"])
+            deleted["user"] = stats["tables"].get("users", 0)
+            deleted["files"] = stats["files"]
+            deleted["retained"] = stats["retained"]
+            # k79-M1：让"真失败"能一路走到响应（改前这里就把失败信息丢掉了）
+            deleted["ok"] = stats.get("ok", True)
+            deleted["failed_tables"] = stats.get("failed_tables") or {}
+            deleted["missing_tables"] = stats.get("missing_tables") or []
+            deleted["failed_files"] = stats.get("failed_files") or []
             logger.info(
                 "Deleted all data for user %s: %s",
                 self.encryptor.encrypt_user_id(user_id), deleted,
             )
-
+            return deleted
         except Exception as e:
             conn.rollback()
             logger.error("Failed to delete user data for %s: %s", user_id, str(e))
             raise
         finally:
             conn.close()
-
-        return deleted
 
     def export_user_data(self, user_id: str) -> Optional[Dict[str, Any]]:
         """Export all data for a user (data portability).
@@ -385,7 +341,9 @@ class PrivacyManager:
             "policy": {
                 "inactive_threshold_days": inactive_days,
                 "inactive_threshold_display": f"{inactive_days}天未活跃",
-                "action": "数据删除（不可恢复）",
+                # k78：与 account_copy 同源（改前写"（不可恢复）"，与"备份仍覆盖时可
+                # 人工尝试找回"冲突；本仓统一口径是"不可自助恢复"）
+                "action": DATA_RETENTION_ACTION_NOTICE,
                 "compliance": "《中华人民共和国个人信息保护法》第47条",
                 "last_updated": datetime.now(timezone.utc).isoformat(),
             },

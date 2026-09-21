@@ -106,12 +106,19 @@ Page({
       birth_year: parseInt(parts[0], 10) || 0,
       birth_month: parseInt(parts[1], 10) || 0,
       birth_day: parseInt(parts[2], 10) || 0,
-      birth_hour: clockMode ? d.dClockH
-        : persons.shichenIndexToHour(d.dHourIndex),
-      birth_minute: clockMode ? d.dClockM : 0,
       calendar: d.dCal,
       city: (d.dPlace || '').trim(),
     };
+    /* k77-M5：dHourIndex === -1 = 档案里的时辰**解析不出来**（脏值，见 onOpenEdit）。
+       此时**不发送** birth_hour/birth_minute —— 服务端 `_person_birth` 对缺省值填
+       None ⇒ update 路径不覆盖既有值（`nv if nv is not None else existing`）。
+       绝不能走 shichenIndexToHour(-1)：那会取到 HOUR_VALUES[0]=23，把用户从没填过
+       的「子时」**写进档案**（正是本批要消灭的"凭空子时"，且在写路径上落库）。 */
+    if (d.dHourIndex >= 0 || clockMode) {
+      payload.birth_hour = clockMode ? d.dClockH
+        : persons.shichenIndexToHour(d.dHourIndex);
+      payload.birth_minute = clockMode ? d.dClockM : 0;
+    }
     if (d.solarOn !== this._origSolar) payload.solar_time = d.solarOn ? 1 : 0;
     return payload;
   },
@@ -127,11 +134,17 @@ Page({
     this._origSolar = raw.solar_time !== 0;
     // k19：精确钟表行（minute>0 或 hour 非时辰代表整点）→ 回显钟表模式，
     // 时辰 chips 高亮按 hourToShichenIndex(小时,分钟) 时钟口径推导（修旧误读）
-    const rawClockRow = (parseInt(raw.birth_minute, 10) > 0)
-      || (raw.birth_hour !== undefined && raw.birth_hour !== null
-        && raw.birth_hour !== ''
-        && persons.HOUR_VALUES.indexOf(parseInt(raw.birth_hour, 10)) === -1);
-    const clockH = rawClockRow ? (parseInt(raw.birth_hour, 10) || 0) : -1;
+    // k77-M5 同类收口「宁少不假」：脏值（'abc'/99/'0x10'）不得让本表单
+    // **凭空高亮一个时辰**（改前 hourToShichenIndex 对不认识的值返回 0 = 子时，
+    // 且 clockH 的 `|| 0` 会把 '0x10' 的 parseInt 结果 0 当成合法钟点）。
+    // 与 me.js / timeText / paipan / hehun 共用同一个 parseHourStrict。
+    const bhNum = persons.parseHourStrict(raw.birth_hour);
+    const hasHour = raw.birth_hour !== undefined && raw.birth_hour !== null
+      && raw.birth_hour !== '' && bhNum >= 0 && bhNum <= 23;
+    const rawClockRow = hasHour
+      && ((parseInt(raw.birth_minute, 10) > 0
+        || persons.HOUR_VALUES.indexOf(bhNum) === -1));
+    const clockH = rawClockRow ? bhNum : -1;
     this.setData({
       mode: 'form',
       editing: raw,
@@ -139,7 +152,8 @@ Page({
       dRel: raw.relation || '自己',
       dCal: raw.calendar === 'lunar' ? 'lunar' : 'solar',
       dDate: raw.birth_year ? this._fmtDate(raw.birth_year, raw.birth_month, raw.birth_day) : '',
-      dHourIndex: persons.hourToShichenIndex(raw.birth_hour, raw.birth_minute),
+      // k77-M5：脏值 ⇒ 不预选任何时辰 chip（-1 表示"未选"，wxml 恒不命中）
+      dHourIndex: hasHour ? persons.hourToShichenIndex(bhNum, raw.birth_minute) : -1,
       dGender: persons.genderCN(raw.gender),
       dPlace: raw.city || '',
       solarOn: raw.solar_time !== 0,
@@ -229,7 +243,9 @@ Page({
       const parts = String(d.dDate).split('-');
       const p2 = (s) => parseInt(s, 10) || 0;
       // k19：钟表模式 → 显示「巳时 10:55」；否则时辰名
-      let timeTxt = persons.shichenCN(d.dHourIndex);
+      // k77-M5：dHourIndex === -1（档案时辰解析不出来）→ 如实说"时辰未填"，
+      // 不得经 shichenCN(-1) 回落成"子时"（那是凭空给用户一个没填过的时辰）
+      let timeTxt = d.dHourIndex >= 0 ? persons.shichenCN(d.dHourIndex) : '时辰未填';
       if (d.dClockMode && d.dClockH >= 0) {
         timeTxt = `${timeTxt} ${d.dClockH}:${String(d.dClockM || 0).padStart(2, '0')}`;
       }

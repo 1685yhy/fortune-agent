@@ -70,7 +70,11 @@
               </view>
             </view>
           </view>
-          <view class="hist-note">夜话存于本机 · 换设备不随行</view>
+          <!-- k77-C 判定（全仓扫描后的逐处判定）：原文「夜话存于本机 · 换设备不随行」
+               会被读成"对话只在本机、没上传" —— 与《隐私保护指引》/隐私页
+               「对话记录同时加密存放在服务器上」口径相反（本页真正局部的只是**列表**）。
+               改为如实说法：局部的是历史列表本身。 -->
+          <view class="hist-note">历史列表存于本机 · 换设备不随行</view>
         </view>
       </view>
     </scroll-view>
@@ -129,7 +133,15 @@
       <view class="modal-title danger">删除这段对话？</view>
       <view class="modal-body">
         <text>「{{dlgDel.brief}}」</text>
-        <text>删除后将</text><text class="mb-strong">不可恢复</text><text>，收藏与命书不受影响。</text>
+        <!-- k77-I4：文案 = 真实删除范围（服务端也删）。旧版本保存的条目没有会话
+             编号，服务端定位不到具体这一段的，如实说明这批旧记录会整体清除。 -->
+        <block wx:if="{{dlgDel.legacy}}">
+          <text>这条记录由旧版本保存，服务器上无法单独定位到它。</text>
+          <text>确认后将删除本机这条记录，并清除服务器上</text><text class="mb-strong">全部这类旧记录</text><text>（带会话编号的对话不受影响）；删除后</text><text class="mb-strong">不可恢复</text><text>，收藏与命书不受影响。</text>
+        </block>
+        <block wx:else>
+          <text>本机与服务器上这一段对话会一起删除，删除后</text><text class="mb-strong">不可恢复</text><text>，收藏与命书不受影响。</text>
+        </block>
       </view>
       <view class="modal-actions">
         <view class="btn btn-ghost" hover-class="btn-active" hover-stay-time="0" bindtap="closeDlgDel">留着</view>

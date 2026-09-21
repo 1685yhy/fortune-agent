@@ -664,15 +664,46 @@ test('B3 归档删除：storage 写失败 → 「删除失败，请重试」不�
   }
 });
 
+/* k77-I4 重钉：删除现在**先删服务端、再删本机**（复审判定：只清本地 storage、
+   服务端 sessions.content 仍在 = 用户点"删除"其实没删）。故本用例补上"服务端删成功"
+   这一前置条件（stub api.deleteChatSessions），原断言（storage 成功后给成功提示）
+   一条不删；其下新增"服务端删失败 → 本机不删 + 不假成功"的反向用例。 */
 test('B3 归档删除成功：storage 写成功 → 「已删除 · 夜话不留痕」', async () => {
   const toasts = [];
   const oldWx = global.wx;
   const page = makeHistoryPage(toasts, false);
+  const savedDel = api.deleteChatSessions;
+  api.deleteChatSessions = () => Promise.resolve({ status: 'ok', deleted: 1, legacy_remaining: 0 });
   try {
     page.confirmDel();
     await new Promise((r) => setTimeout(r, 400));
     assert.ok(toasts.includes('已删除 · 夜话不留痕'));
   } finally {
+    api.deleteChatSessions = savedDel;
+    global.wx = oldWx;
+  }
+});
+
+/* k77-I4 新增（行为型）：服务端删除失败 → **本机一条也不删** + 如实报失败。
+   为什么这条重要：改前"删除"完全没碰服务端，本机删了用户就以为删干净了；
+   现在服务端失败必须**不删本机**，否则又回到"用户以为删掉了、云端其实还在"。 */
+test('k77-I4 服务端删除失败：本机不删 + 「删除失败，请重试」（不假成功）', async () => {
+  const toasts = [];
+  const oldWx = global.wx;
+  const page = makeHistoryPage(toasts, false);
+  const savedDel = api.deleteChatSessions;
+  api.deleteChatSessions = () => Promise.reject(new Error('net down'));
+  let wrote = false;
+  const origSet = global.wx.setStorageSync;
+  global.wx.setStorageSync = (k, v) => { wrote = true; return origSet(k, v); };
+  try {
+    page.confirmDel();
+    await new Promise((r) => setTimeout(r, 500));
+    assert.ok(toasts.includes('删除失败，请重试'), '必须如实提示失败: ' + toasts.join(','));
+    assert.ok(!toasts.includes('已删除 · 夜话不留痕'), '服务端没删掉就不得报成功');
+    assert.equal(wrote, false, '服务端删除失败时不得改动本机归档（避免"本机没了、云端还在"）');
+  } finally {
+    api.deleteChatSessions = savedDel;
     global.wx = oldWx;
   }
 });

@@ -759,16 +759,27 @@ def _build_compatibility_html() -> str:
             // Chart data
             var chartEl = document.getElementById('chartContent');
             if (data.charts) {
+                /* k80-同类排查：这是全仓仅剩的另一处"服务端数据 → innerHTML"写入点
+                   （排盘字段全部由引擎产出）。当前这些值不是用户原文，但**同一个写入点**
+                   只要将来多回一个用户可控字段就会变成注入 —— 按"值进 HTML 上下文
+                   就要转义"的规则先兜住（纵深防御，不改变显示结果）。 */
+                var esc = function (v) {
+                    return String(v == null ? '' : v)
+                        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+                        .replace(/'/g, '&#39;');
+                };
+                var u1 = data.charts.user1 || {}, u2 = data.charts.user2 || {};
                 var html = '<b>用户A：</b><br>';
-                html += '八字：' + (data.charts.user1 && data.charts.user1.bazi || '') + '<br>';
-                html += '日主：' + (data.charts.user1 && data.charts.user1.day_master || '') + '<br>';
-                html += '格局：' + (data.charts.user1 && data.charts.user1.geju || '') + '<br>';
-                html += '用神：' + (data.charts.user1 && data.charts.user1.yongshen || '') + '<br><br>';
+                html += '八字：' + esc(u1.bazi) + '<br>';
+                html += '日主：' + esc(u1.day_master) + '<br>';
+                html += '格局：' + esc(u1.geju) + '<br>';
+                html += '用神：' + esc(u1.yongshen) + '<br><br>';
                 html += '<b>用户B：</b><br>';
-                html += '八字：' + (data.charts.user2 && data.charts.user2.bazi || '') + '<br>';
-                html += '日主：' + (data.charts.user2 && data.charts.user2.day_master || '') + '<br>';
-                html += '格局：' + (data.charts.user2 && data.charts.user2.geju || '') + '<br>';
-                html += '用神：' + (data.charts.user2 && data.charts.user2.yongshen || '');
+                html += '八字：' + esc(u2.bazi) + '<br>';
+                html += '日主：' + esc(u2.day_master) + '<br>';
+                html += '格局：' + esc(u2.geju) + '<br>';
+                html += '用神：' + esc(u2.yongshen);
                 chartEl.innerHTML = html;
             }
 

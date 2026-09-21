@@ -811,12 +811,28 @@ class BaziEngine:
         # G1（2026-08-29 P0-A）：性别契约统一 —— 兼容历史 male/female
         # （前端旧 genderCode 产出）→ 中文；其余（unknown/None/空）→ 男
         # （P1-3 既定默认保持，结果中标注性别未知）
-        _g = (gender or "").strip().lower()
-        calc_gender = "女" if _g in ("女", "female") else "男"
+        #
+        # k81 必修1：这里原来是**本文件内联的第二张别名表**（`("女","female")` /
+        # `("男","male")`）—— 与 `birth_contract` / `person_dao` 各写一份，于是
+        # 走"引擎直调"这条路的 `女性` / `1` / `girl` 都被当成"未知" ⇒ 按男排
+        # （大运方向错）。本批改为查**唯一别名表**（`gender_of_alias`）。
+        # **策略零变化**：认不出的值仍然"计算按男、输出记 unknown"（P1-3 既定
+        # 默认），变的只是"哪些写法算认得出"。
+        # 顺带修掉一个崩溃：改前 `(gender or "").strip()` 对 int/bool 入参
+        # 直接 AttributeError（`1.strip()`）。
+        # ⚠️ k82 必修3 更正：本行原写"现在按别名表 → `1`=男、`0`=女"，**对 int `0`
+        # 是错的**。查表入口 `gender_of_alias` 先做 `value or ""`（falsy 哨兵），
+        # 所以 int `0` 被折成 `""` ⇒ `unknown` ⇒ **本函数按男排**（不是女）；
+        # 只有**字符串** `"0"` 才 ⇒ 女。实测：`calculate(..., 0)` → `gender='unknown'`
+        # 且大运与 `男` 同向（顺排）；`calculate(..., "0")` → `gender='女'` 且逆排。
+        # 这处 int 边界的不对称**判断为保留**（理由与可达性见
+        # `birth_contract.gender_of_alias` 文档，及 `person_dao._normalize_gender`）。
+        from src.api.birth_contract import gender_of_alias
+        _g = gender_of_alias(gender)
+        calc_gender = "女" if _g == "女" else "男"
         # G1：结果暴露同样归一（paipan API 输出恒为中文）；"unknown"
         # 标记保留（P1-3 中性表述信号）
-        _gender_out = ("unknown" if _g not in ("女", "female", "男", "male")
-                       else calc_gender)
+        _gender_out = _g
         # G5 夏令时（默认关）：修正前原始北京时间落在 DST_TABLE 区间（闭区间含边界）
         # → 减 1 小时还原真实时间，再走真太阳时修正与排盘（问真客户端口径）。
         if daylight_saving:

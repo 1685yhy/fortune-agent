@@ -201,7 +201,7 @@
   border-color: var(--line);
 }
 
-/* ── 数据说明（对话与命书加密存储 · 仅本人可见） ── */
+/* ── 数据说明（加密/明文分列 · 不公开展示 · 分享链接 30 天失效） ── */
 .sec-note {
   margin-top: 31rpx;                     /* 16px */
   padding: 27rpx 35rpx;                  /* 14px 18px */

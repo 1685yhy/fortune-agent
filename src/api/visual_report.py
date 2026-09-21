@@ -17,7 +17,7 @@ from typing import Optional, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.security.auth import require_user
 from src.engines.bazi import BaziEngine, BaziResult, TIANGAN, DIZHI, WUXING_TG, WUXING_DZ
@@ -28,6 +28,10 @@ router = APIRouter(tags=["visual_report"])
 
 _DATA_DIR = Path(__file__).parent.parent.parent / "data" / "reports"
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+#: 对外域名（与 share.py 的 `_BASE_URL` 同值：同一份报告网页在两个模块里都要生成
+#: 绝对链接）。k76 起本模块也用它拼分享通道地址。
+_PUBLIC_BASE = "https://fortune.talcloud.com"
 
 _engine = BaziEngine()
 
@@ -42,6 +46,45 @@ class BirthInfo(BaseModel):
     gender: str = "男"
     city: str = "北京"
     name: str = ""
+
+    # ── k80-必修1 第 1 层（**根因层**）：入参白名单 ─────────────────────────
+    # 改前 `gender: str = "男"` **无任何校验**：任意字符串原样进 `profile.gender`
+    # 落盘，再被报告页内嵌进 `<script>`（匿名分享页 `/share/{id}` 上执行攻击者 JS
+    # —— 存储型 XSS）。这里在**入口**上把它收敛到白名单值（`男`/`女`/`unknown`，
+    # 与 `birth_contract.normalize_gender` / `person_dao` / 前端 gender 契约同词表）。
+    #
+    # 为什么是"归一化"而不是"422 拒收"：本仓既有的性别契约就是
+    # `'男' | '女' | 'unknown'` 三值（见 `miniprogram/tests/gender_contract.test.js`
+    # 与 `src/storage/person_dao._normalize_gender`），前端历史契约还会送
+    # `male`/`female`/1/0 —— 拒收会把正当调用方打挂；"未知"是**受控值**，
+    # 不是"把用户给的串转发下去"。白名单之外的一切（含攻击载荷）都变成
+    # `unknown`，不可能再带出任何字符。
+    #
+    # k81 必修1：别名表补齐了**最常见的中文写法**（`男性`→男、`女性`/`女士`→女、
+    # `先生`→男）—— 改前 `女性` 落到 `unknown`，被引擎按"未知默认男"排盘
+    # （**女性用户被当成男性排**，终验实测）。别名与查表规则现在只有一份
+    # （`birth_contract.GENDER_ALIASES` / `gender_of_alias`），本处只调用。
+    # 注意 pydantic 契约本身仍是**字符串字段**：JSON 里送数字（`"gender": 0`）
+    # 是 **422**（`str` 类型校验），数字写法只在字符串形态（`"0"`）下被识别
+    # —— 这是既有契约，本批未改。
+    @field_validator("gender")
+    @classmethod
+    def _gender_in_whitelist(cls, v):
+        from src.api.birth_contract import normalize_gender
+        return normalize_gender(v)
+
+    #: 展示用字段的长度上限（同类根因：`name` 也是**无校验的自由文本**，改前能长到
+    #: 任意长度并直接进 `<title>`/og 标签）。这里只做"长度 + 控制字符"的卫生，
+    #: 内容一律靠输出编码层（`html_attr_text` / `esc()`）保证不被解释成 HTML/JS。
+    @field_validator("name", "city")
+    @classmethod
+    def _clean_short_text(cls, v, info):
+        import re as _re
+        text = str(v or "")
+        # 控制字符（含 NUL/换行）在标题与地名里没有任何正当用途
+        text = _re.sub(r"[\x00-\x1f\x7f]", "", text)
+        limit = 32 if info.field_name == "name" else 64
+        return text[:limit]
 
 
 class GenerateReportRequest(BaseModel):
@@ -370,8 +413,14 @@ def generate_report_data(
     bazi_result: BaziResult,
     birth: Optional[dict] = None,
     name: str = "",
+    owner_uid: str = "",
 ) -> dict:
-    """Generate complete report data from a BaziResult."""
+    """Generate complete report data from a BaziResult.
+
+    owner_uid（k76）：报告归属人。非空时以 AES 密文落 `owner_enc` 字段，
+    供 `assert_report_owner()` 做归属校验；留空（老调用方）则报告归属未知
+    → 本人读路径一律 403（fail-closed，见 `_LEGACY_OWNER_UNKNOWN`）。
+    """
     monthly = _compute_monthly_fortune(bazi_result)
     annual = _compute_annual_trend(bazi_result)
     radar = _wuxing_to_radar(bazi_result.wuxing)
@@ -417,78 +466,566 @@ def generate_report_data(
         "recommendations": recommendations,
     }
 
+    # k76 归属：只在有归属人时落密文（老调用方不传 → 不写字段 = 归属未知）
+    if owner_uid:
+        try:
+            from src.security.encryption import DataEncryptor
+            report[_REPORT_OWNER_FIELD] = DataEncryptor().encrypt(owner_uid)
+        except Exception as e:
+            # 加密不可用 → 宁可不落归属（读路径 fail-closed 会拒），也不落明文 user_id
+            logger.warning("报告归属落库失败（报告将按'归属未知'处理）: %s", e)
+
     # Store to disk
-    report_path = _DATA_DIR / f"{reading_id}.json"
+    # k80-M3：「路径怎么拼」**只有一份实现**（`report_path_in`）—— 改前这里有第二处
+    # 内联的「目录常量 + 拼接文件名」，k79 的声明"路径唯一实现"与代码对不上
+    # （写路径与读路径各拼各的，正是"同一件事两份实现"的老毛病）。现在读写同源。
+    report_path = report_path_in(_DATA_DIR, reading_id)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return report
 
 
-def load_report(reading_id: str) -> Optional[dict]:
-    """Load a stored report by reading_id."""
-    report_path = _DATA_DIR / f"{reading_id}.json"
-    if not report_path.exists():
-        return None
+def report_path_in(data_dir, reading_id: str) -> Path:
+    """报告文件路径（**唯一**的"路径怎么拼"实现，k79-M2）。
+
+    `visual_report`（本人读）与 `api/share.py`（分享读）共用它，各传自己的目录常量。
+    """
+    return Path(data_dir) / f"{reading_id}.json"
+
+
+def load_report_from(data_dir, reading_id: str) -> Optional[dict]:
+    """**加载一份报告 JSON 的唯一实现**（k79-M2 收敛点）。
+
+    `data_dir` 由调用方**传入**（而不是本函数去读某个模块的 `_DATA_DIR`）—— 这样
+    `api/share.py` 可以带着**自己的**目录常量复用这同一段实现，同时两个模块的目录
+    常量仍能被测试各自 monkeypatch（`share._DATA_DIR` / `visual_report._DATA_DIR`），
+    k78 担心的"委托会让测试隔离失效"因此**不成立**：隔离取决于"调用点读的是谁的
+    模块全局"，而调用点在各自模块内（`share._load_report` 传 `share._DATA_DIR`）。
+
+    为什么必须收敛（k79-M2）：k78 让两处"可展示性**判据**"共用同一函数，却让
+    "**加载**"各留一份副本 —— 这正是本批 Critical（必修1）的土壤：同一件事有两份
+    实现，改一处漏一处。加载的语义（根必须是对象、解析失败当不存在）与判据一样
+    属于"报告 JSON 的契约"，只能有一份。
+
+    k78：**根 JSON 必须是对象**，否则与"不存在"同等对待（返回 None → 调用方 404）。
+    改前直接把 `json.loads` 的结果返回：磁盘上若是一份畸形 JSON（`[1,2,3]` /
+    `"just a string"` / `12345`），`if not report` 对**真值非空**的畸形值不成立，
+    于是继续往渲染/归属里走 → AttributeError/TypeError → **500**。
+    "报告不存在"是 404 的语义；"文件在但内容不是一份报告"同样属于**不可展示**，
+    不是服务器内部错误。
+    """
     try:
-        return json.loads(report_path.read_text(encoding="utf-8"))
+        report_path = report_path_in(data_dir, reading_id)
+        if not report_path.exists():
+            return None
+        data = json.loads(report_path.read_text(encoding="utf-8"))
     except Exception:
+        # k79：**本函数永不抛**（"取不到 / 读不了 / 不是一份报告"一律 None → 404）。
+        # 覆盖的不只是 JSON 解析失败，还包括**路径本身**的异常：超长文件名
+        # （`OSError: File name too long`）、含 NUL 字节（`ValueError`）、权限等。
+        # 实测改前 `/api/share/{300 个字符的 id}` → **500**（`exists()` 抛 OSError
+        # 逃出 try，因为旧代码只 try 了 `json.loads`）—— 与"不存在 → 404"的契约不符。
         return None
+    return data if isinstance(data, dict) else None
+
+
+def load_report(reading_id: str) -> Optional[dict]:
+    """Load a stored report by reading_id（本模块目录；实现在 `load_report_from`）。"""
+    return load_report_from(_DATA_DIR, reading_id)
+
+
+def as_mapping(value) -> dict:
+    """把报告里的"应该是对象"的字段安全当映射用；不是对象 → 空 dict。
+
+    k79（必修1 的根因之一）：`report.get("profile", {})` 在**键存在且值为 `null`**
+    时返回 `None`（默认值不生效），接着 `profile.get(...)` 就 AttributeError → 500
+    （复审实测 `{"profile": null}`）。所以取值**不能靠默认值**，只能靠"取值后判类型"。
+    全仓读报告 JSON 的消费点统一走本函数，不再各写各的 isinstance。
+    """
+    return value if isinstance(value, dict) else {}
+
+
+def as_text(value, default: str = "") -> str:
+    """把报告字段安全当**文本**用；不是字符串 → 默认值。
+
+    ⚠️ **不做 `str()` 兜底**：把 `12345` / `{'a':1}` / 嵌套列表 repr 成文案念给用户，
+    既不是一句人话、又可能把结构里的字段名/内容漏到页面上；宁可退回中性文案。
+    数字/布尔/None/容器 → 一律 `default`。规则只有一条，所有消费点一致。
+    """
+    return value if isinstance(value, str) else default
+
+
+#: `json_safe` 的递归深度上限：超过即截断为 None（见函数说明）。
+_JSON_SAFE_MAX_DEPTH = 200
+
+
+def json_safe(value, _depth: int = 0):
+    """把报告数据整理成**可 JSON 序列化**的结构（非有限浮点 NaN/Infinity → None）。
+
+    k79-必修1（复审清单里的 `insights=[NaN]`）：`json.loads` **默认接受** NaN /
+    Infinity（RFC 8259 之外的扩展），但 Starlette 的 JSONResponse 用
+    `allow_nan=False` 序列化 ⇒ 直接把原 dict 返回给客户端时，一份含 `NaN` 的报告
+    在 `/api/report/{id}` 上 **500**（复审实测，见本批改前 HTTP 表）；同理
+    `_card_from_report` 的 `bazi_data.wuxing` / `shishen` 里带 NaN 也会把
+    `/api/share/{id}` 打成 500。
+
+    NaN 是**值层面**的缺陷（不是"这不是一份报告"）⇒ 按本批口径**降级**为 null：
+    既不 500、也不 404。HTML 页那条路不需要它（NaN 在 JS 里是合法字面量），
+    但两条路都过一遍，规则只有一条。
+
+    深度超过 `_JSON_SAFE_MAX_DEPTH` 的嵌套截断为 None（报告渲染不出 200 层嵌套；
+    截断而不是递归到爆栈 —— 本函数必须**永不抛**）。
+    """
+    if _depth > _JSON_SAFE_MAX_DEPTH:
+        return None
+    if isinstance(value, float):
+        # NaN / ±Infinity → None（math.isfinite 对 NaN 返回 False）
+        import math as _math
+        return value if _math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: json_safe(v, _depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v, _depth + 1) for v in value]
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+    # 其它类型（bytes / set / 自定义对象 / 超大整数等）→ 字符串化（可序列化）
+    return str(value)
+
+
+#: 内嵌 `<script>` 时必须转义的字符（k80-必修1 的**输出编码层**）：
+#:   - `<` `>` `&`：`<`/`>` 让 `</script>` 之类的串**提前闭合脚本标签**（存储型 XSS 的正门），
+#:     `&` 是 HTML 实体入口（配合 `innerHTML` 的二次解析）；
+#:   - U+2028 / U+2029（下面元组里的两个**行分隔符**字符）：JS 里它们算换行，
+#:     出现在字符串字面量中即 SyntaxError（整页脚本死掉 = 白屏）；
+#:   - `$`：本页的模板替换用 `string.Template`，而 `report_json` 是**先 `.replace()`
+#:     进模板、再交给 `safe_substitute`** 的 —— 用户数据里若含 `$og_title` 之类，
+#:     会被二次替换（把别处的占位值注入进来）。转义 `$` 后这一整类都不成立。
+#:
+#: 用 `\uXXXX` 形式（而不是 `&lt;` 之类实体）：这些串处在 **JS 字面量**里，
+#: `<` 经 JS/JSON 解析后**正好等于** `<`，语义零变化；而实体只会变成字面文本。
+_SCRIPT_ESCAPES = (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"),
+                   (" ", "\\u2028"), (" ", "\\u2029"),
+                   ("$", "\\u0024"))
+
+
+def json_for_script(value) -> str:
+    """把对象序列化成**可安全内嵌进 `<script>`** 的字符串（k80-必修1 输出编码层）。
+
+    通用修法：**覆盖所有字段**，不只是 `gender` —— 任何字段（`name`、`insights`、
+    LLM 产出、将来的新字段）变脏都不该能逃出脚本标签。
+
+    改前 `_build_report_html` 把 `json.dumps(...)` **原样**塞进
+    `var REPORT = …;`：`profile.gender = '</script><script>alert(document.cookie)</script>'`
+    即提前闭合脚本、注入攻击者 JS，在**匿名公开页** `/share/{id}` 上执行
+    （k80 终验实测：页面里 `<script` 出现 2 次，正常应为 1 次）。
+
+    与 `json_safe` 的分工：`json_safe` 管**值**（NaN/Infinity/超深嵌套 → 可序列化），
+    本函数管**编码**（序列化后的字面文本在 HTML 的 `<script>` 里不构成逃逸）。
+    """
+    text = json.dumps(json_safe(value), ensure_ascii=False)
+    for raw, escaped in _SCRIPT_ESCAPES:
+        text = text.replace(raw, escaped)
+    return text
+
+
+def js_string_literal(value) -> str:
+    """把任意值变成**一段合法的 JS 字符串字面量**（含引号）。
+
+    用于 `var X = <literal>;` 这种"值要进 JS 字符串"的位置。
+    改前的做法是 `str(v).replace('"', '&quot;')`（只挡双引号）——反斜杠、换行、
+    `</script>` 全都能逃出去：`share_text` 里一个换行就把 `var SHARE_TEXT = "…";`
+    变成未闭合字符串 ⇒ **整页 SyntaxError 白屏**（k80 终验实测 `html_len=0`）。
+    """
+    return json_for_script(value if isinstance(value, str) else str(value))
+
+
+def html_attr_text(value) -> str:
+    """把任意值变成可安全放进 **HTML 文本/属性**的字符串（`& < > " '` 全转义）。"""
+    import html as _html
+    return _html.escape(value if isinstance(value, str) else str(value), quote=True)
+
+
+def first_insight_text(report, limit: int = 0) -> str:
+    """报告里**第一条可展示的洞察文本**；没有则空串。
+
+    k79（必修1 的根因之一）："取 `insights[0]` 再截断"这段逻辑此前在**三处各写一份**
+    —— `get_report_page` 的 share_text、`/share/{reading_id}` 的 share_text、
+    `share._card_from_report` 的摘要；其中两处**没有类型兜底**，`insights=[12345]`
+    即 TypeError → 500（复审实测）。k78 只改了其中**一处**（`visual_report` 那处），
+    另外两处照旧 —— "同一句话的副本没跟着改"。现在只剩这一份：
+
+      - `insights` 缺失/非列表 → 空串；
+      - 元素非字符串（数字/布尔/None/嵌套对象/NaN）、或字符串全空白 → **跳过**，
+        取第一条**真的是文本**的（不是把 repr 当文案给用户看）；
+      - `limit > 0` 时按字符截断。
+
+    消费点：`_build_report_html` 的 og 描述、`get_report_page` 与
+    `/share/{reading_id}` 的 share_text、`share._card_from_report` 的摘要。
+    """
+    insights = report.get("insights") if isinstance(report, dict) else None
+    if not isinstance(insights, list):
+        return ""
+    for item in insights:
+        if isinstance(item, str) and item.strip():
+            return item[:limit] if limit and limit > 0 else item
+    return ""
+
+
+#: 报告**可渲染性**判据（k78-必修3 引入、k79-必修1 按**全部消费点**重写的单一事实源）。
+#:
+#: 判据分两段，边界写死（这是本批最该说清的一件事）：
+#:   ① **结构**：根必须是对象；`profile` / `bazi_analysis` / `charts` 存在即必须是
+#:      对象（消费点当映射用）、`insights` 存在即必须是列表（当列表用）。
+#:      —— 只有**结构**不可能，才判"不可展示"。
+#:   ② **内容**：连一个可展示的条目都没有（`profile` 为空 **且** 没有任何字符串
+#:      洞察）⇒ 空壳报告，不可展示（k78 已有这条，本批把"insights 非空但全不是文本"
+#:      一并归入 —— 那种报告渲染出来是空白页，与空壳无实质差别）。
+#:
+#: ⚠️ **值层面**的异常（元素是数字/布尔/None/NaN、`profile.name` 是数字、超长或
+#: 深嵌套、字段缺失）**不**判为不可展示 —— 它们由各消费点**类型兜底降级**
+#: （摘要退回中性文案、名字退回中性标题、图表空着），既不 500 也不 404。
+#: 依据：k82 之前的仓库里 `data/reports/` 有 4 份报告（**已核实为开发期合成
+#: fixture**：同一份合成生辰 1990-05-20 男、姓名是占位符 `测试`/`测试用户`、4 分钟
+#: 内生成；**k82 已从版本库移除**，见 `tests/test_k82_gender_alias_last.py` 的卫生组），
+#: 结构均为 profile/bazi_analysis/charts = 对象 + insights = 字符串列表。
+#: ⚠️ 本行原写"线上 4 份**真实**报告" —— 那是**失实引用**（它们不是线上真实用户
+#: 数据），k82 一并更正；结论（只要求这三处是对象/列表）**不变**，且依据本来就是
+#: "报告生成器只产出这种形状"，不依赖这 4 个文件存在。
+#: 判据不要求字段齐全（老报告缺可选字段照常渲染）。
+def report_shape_problem(report) -> str:
+    """报告结构是否**可展示**：返回问题描述；可展示则返回空串。
+
+    调用口径（与"不存在 → 404"同款）：**不可展示 = 404**，绝不 500。
+
+    ⚠️ 本判据是**必要不充分**条件，别把它当"渲染安全"的全部保证（k79-必修1）：
+    它是 404 与否的**唯一**决策点，但"不 500"由**消费点全都不抛**保证 —— 见
+    `_REPORT_JSON_CONSUMERS` 的清单与 `tests/test_k79_...::test_no_5xx_...`
+    的穷举实测。判据漏判一个形态，后果只是"这一页降级显示"，不会是 500。
+    """
+    if not isinstance(report, dict):
+        return "报告内容不是一个对象"
+    # ① 结构：容器字段（存在即必须是正确容器；缺失 = 老报告可选字段，不判问题）
+    for field, kind, label, want in (
+            ("profile", dict, "个人信息段（profile）", "对象"),
+            ("bazi_analysis", dict, "八字分析段（bazi_analysis）", "对象"),
+            ("charts", dict, "图表段（charts）", "对象"),
+            ("insights", list, "结论段（insights）", "列表")):
+        value = report.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, kind):
+            return f"报告的{label}不是{want}"
+    # ② 内容：profile 为空 **且** 没有任何可展示的洞察文本 ⇒ 空壳
+    if not report.get("profile") and not first_insight_text(report):
+        return "报告没有任何可展示内容"
+    return ""
+
+
+#: 读取本份报告 JSON 的**全部消费点**（k79-必修1 逐处核对，全仓搜索得出）。
+#:
+#: 为什么要有这份清单：k78 的判据是**按一个消费点**写的（"`_build_report_html` 读
+#: `profile.name` 与 `insights[0]`"），却在 4 个路由上声称共用 —— 其余消费点
+#: （`_card_from_report` 读 `bazi_analysis`、`/share/{id}` 的 share_text 直接下标
+#: `insights[0][:50]`）没被覆盖。本批的处置**不是**"把判据补全到与清单一样长"
+#: （那只是把同一份需求写第二遍，下次新增消费点还会漏），而是：
+#:   ① 消费点**各自全都不抛**（类型兜底）—— 判据漏了也只是降级，不会 500；
+#:   ② 判据只回答"这是不是一份报告"；
+#:   ③ 这份清单由 `tests/test_k79_...::test_consumer_inventory_is_closed` **机器穷举**
+#:      —— 出现新的读报告 JSON 的文件/符号即红，逼着人来更新清单。
+#:
+#: 逐处（字段 = 该处真正读到的字段）：
+#:   1. `api/visual_report.py::get_report_json`（`GET /api/report/{id}`）
+#:      → 整份返回给客户端（鉴权+归属后）。读：全部字段。
+#:   2. `api/visual_report.py::get_report_page`（`GET /report/{id}`）
+#:      → `profile.name` / `insights[0]`（share_text，经 `first_insight_text`）。
+#:   3. `api/visual_report.py::_build_report_html`（上面两处 + 分享页共用）
+#:      → `profile.name` / `insights[0]` / `reading_id`（Python 侧）；
+#:        页面内嵌 JS 另读 `profile.*` / `bazi_analysis.*` / `charts.*` /
+#:        `insights[]` / `recommendations[]` / `generated_date`（JS 侧同样全兜底）。
+#:   4. `api/visual_report.py::report_owner_tag` / `assert_report_owner`
+#:      → `owner_enc`、`reading_id`（仅日志）。
+#:   5. `api/share.py::get_share_metadata`（`GET /api/share/{id}`，非数字 id 分支）
+#:      → 经 `_card_from_report`：`reading_id` / `profile.name` / `profile.bazi` /
+#:        `profile.day_master` / `bazi_analysis.{geju,yongshen,wuxing,shishen}` /
+#:        `insights[0]`。
+#:   6. `api/share.py::get_share_page_by_reading`（`GET /share/{id}`，匿名）
+#:      → `generated_at`（TTL）、`profile.name|birth_date|birth_info`（剥离）、
+#:        `insights[0]`（share_text）、其余整份内嵌。
+#:   7. `storage/dao.py::purge_report_files`（`UserDAO.cancel_user` /
+#:      `purge_account_data` → 注销接口）
+#:      → `owner_enc`、`reading_id`（决定要删的 PNG 名）。
+#:
+#: ## 这份清单**拦得住什么**、**仍在面外**什么（k80-必修3：如实写清楚）
+#:
+#: 机器门禁 = `tests/test_k80_xss_privacy_final.py::TestConsumerInventoryGateIsNotBypassable`。
+#: 扫描面（k80 扩面）：`src/**/*.py`（含将来的 `src/plugins/`）+ **`scripts/**/*.py`**
+#: + **仓根 `*.py`**；排除 `tests/`、`data/`。
+#:
+#: 拦得住的形态（每一条都有注入证明，见该测试类的 param 列表）：
+#:   - **符号引用**：直接 `Name`/`Attribute` 引用本清单任一符号（含 `load_report`、
+#:     `report_shape_problem`、`json_for_script` 等）；
+#:     **k81-M1 补齐**：清单必须包含"已登记模块自己真读 JSON 的 helper"——
+#:     终验实测 `from src.api.share import _load_report` / `s._load_report(rid)`
+#:     曾**零命中**（借用别人的 helper 就整类不可见）；`_load_report` /
+#:     `_report_path` / `purge_report_files` / `without_report_owner` 已进表。
+#:   - **路径拼接**：`/ "reports"`、`os.path.join(..., "reports", ...)`、
+#:     `"data/reports/" + rid + ".json"` 这类**静态可折叠**的路径串；
+#:     **k81-M1 补齐（终验逃逸 B）**：折叠现在带**常量传播** ——
+#:     `DIR = "data/reports"; pathlib.Path(DIR) / (rid + ".json")` 这种
+#:     "纯静态字面量 + 一层局部间接"**也已进面内**（改前它与本段声称的
+#:     "静态可折叠的路径串在面内"直接冲突）。
+#:   - **动态取函数名**：`getattr(m, "load_" + "report")`（静态折叠成 `load_report`
+#:     → 名字里带 report → 红）、`getattr(m, suffix + "report")`（折叠不出来，但字面
+#:     里带 report → 红）、`getattr(m, "load_report_from")`（常量名带 report → 红）；
+#:   - **动态导入**：`importlib.import_module("src.api." + "visual_report")`。
+#:
+#: **仍在面外**（如实列出，别当成已覆盖）：
+#:   - **运行期**才拼出来的路径/函数名：从数据库、配置、环境变量读来的目录或符号名，
+#:     `.format()`/`%`/`join()` **在运行时**产出的串（扫描器只做静态折叠）；
+#:   - **常量传播只做"赋值链"这一层**：`名 = <静态可折叠字符串>` 的模块级/函数级
+#:     赋值（含 `a="x"` → `b=a+"y"` 的链式，最多 4 轮）。**不传播**：参数与返回值、
+#:     import 进来的别的模块常量、容器元素（`cfg["dir"]`）、`getattr` 结果、
+#:     `global`/`nonlocal` 回写。**同名多值不算逃逸**：一个名字在模块里被赋过
+#:     多个不同值时，**每个候选值都留着**（任一候选带 `data/reports` 即红 ——
+#:     "赋两次以规避"这条捷径不通）；只有**链式折叠**（`b = a + "y"`）需要名字
+#:     无歧义，多值时该链折不出来（宁可漏这一层，也不把两个值拼成一个去假红）；
+#:   - **跨函数/跨模块的数据流**：把目录或符号名当参数传来传去，最终在第 3 个文件里
+#:     用到（扫描器不做过程间分析）；
+#:   - **间接消费**：新代码不碰路径也不碰这些符号，而是调用 `GET /api/report/{id}`
+#:     这类**接口**（HTTP 层）拿到数据 —— 扫描器看的是源码符号，不是调用图；
+#:   - **非 .py 的消费点**：`.js` / `.sh` / `.md` 里的脚本直接读 `data/reports/*.json`；
+#:   - **tests/ 与 data/ 目录**（有意排除：测试本来就要造报告语料）。
+#:
+#: ⇒ 结论：**"源码里静态可折叠的报告路径/符号引用"（含**一层赋值间接**）
+#: 这一面不会逃逸；上面几类仍在面外**，新增消费点时别指望门禁替你把关 ——
+#: 它只负责"让你看见"。（k81：本段此前把"静态可折叠"说过头了 —— 局部变量
+#: 就逃逸；现已补上传播并如实改写这一段。）
+_REPORT_JSON_CONSUMERS = (
+    "src/api/visual_report.py::get_report_json",
+    "src/api/visual_report.py::get_report_page",
+    "src/api/visual_report.py::_build_report_html",
+    "src/api/visual_report.py::assert_report_owner",
+    "src/api/share.py::get_share_metadata",
+    "src/api/share.py::get_share_page_by_reading",
+    "src/storage/dao.py::purge_report_files",
+)
+
+
+# ─── k76 报告归属（读接口鉴权的单一事实源）─────────────────────────────
+# 背景（k72 独立核查 A2）：`data/reports/{id}.json` 明文含姓名+八字+出生日期，
+# 而 `GET /api/report/{id}`、`GET /report/{id}` **无鉴权**，拿到短 id 即可读。
+# 控制方裁定按「接口安全红线」必修：**读自己的报告要鉴权 + 归属校验**；
+# 被分享的内容走分享通道（`/share/{id}`，匿名可读但剥离个人信息），两条路径分开。
+#
+# 归属怎么存：写盘时把 `owner_uid` 经**既有** `DataEncryptor` AES 加密后落
+# `owner_enc` 字段（不新增算法/密钥）。老报告（无该字段）= 归属未知。
+#: 报告里记录归属的字段名。归属未知（老报告没这个字段）在"本人读"路径上的
+#: 处置是**拒绝**（fail-closed）：依据 `docs/FUNCTION_GAP_AUDIT.md` 记录该 web
+#: 报告体系"❌ 未用"（小程序读报告走 `/api/reports/{id}`，是另一套已带归属校验
+#: 的接口），挡掉老报告不中断任何在用链路；而把它们对"任意已登录用户"开放，
+#: 等于把 k72-A2 的越权面留着。
+_REPORT_OWNER_FIELD = "owner_enc"
+
+
+def report_owner_tag(report: dict) -> str:
+    """报告里记录的归属标记（解密后的 user_id）；无记录/解不开 → 空串。"""
+    enc = (report or {}).get(_REPORT_OWNER_FIELD) or ""
+    if not enc:
+        return ""
+    try:
+        from src.security.encryption import DataEncryptor
+        return DataEncryptor().decrypt(enc) or ""
+    except Exception:
+        return ""
+
+
+def without_report_owner(report: dict) -> dict:
+    """报告副本：**不再下发**归属密文 `owner_enc`（k81-M3）。
+
+    为什么（终验 M3）：k80 把 `owner_enc` 从**匿名分享页**剥掉了，但**本人路径**
+    （`GET /api/report/{id}` 的 JSON、`GET /report/{id}` 的页面内嵌 JSON）仍全量
+    下发 `"owner_enc":"dev:…"`。它落在鉴权 + 归属校验之后，**不构成越权缺陷**，
+    但它是**账号标识密文**、客户端拿它没有任何用途 —— 没有理由留这个暴露面
+    （用户右键"查看源代码"即可见；一旦有人把响应转发/截图，密文随之出门）。
+    归属判定**只在服务端**做，客户端不需要参与。
+
+    边界（**不改变归属校验**）：本函数只做剥离，不做判定。两个调用点都是
+    **先 `assert_report_owner(...)`、后 `without_report_owner(...)`** ——
+    顺序由 `tests/test_k81_gender_privacy_final.py::TestOwnerPathNoLongerShipsOwnerEnc`
+    的 403（他人）/ 200（本人）实测钉住；剥早了会让"本人"变成"归属未知 → 403"。
+
+    实现：`dict(report)` 浅拷贝后弹出该键（**不改调用方手里那份 dict**；
+    键**移除**而不是置空 —— "没下发"就是没有这个字段）。与分享通道
+    `_redact_report_for_share` 对 `_SHARE_REDACT_TOP_FIELDS` 的处置**同机制**
+    （k81 起那处也改成 `pop`，改前置空串会让匿名页里仍留着 `"owner_enc": ""`
+    这个键名）；两处都满足既有判据 `.get(field)` 为假，k80 的断言一条未改。
+    """
+    if not isinstance(report, dict):
+        return report
+    safe = dict(report)
+    safe.pop(_REPORT_OWNER_FIELD, None)
+    return safe
+
+
+def assert_report_owner(report: dict, uid: str) -> None:
+    """归属校验：报告属于 uid 才放行，否则 403（与 `ensure_owner` 同口径）。
+
+    - 归属未知（老报告 / 解密失败）→ **403**，不放行给任何登录用户；
+    - 归属存在但不等于 uid → 403。
+    分享通道不走本函数（见 `share.py` 的 `/share/{reading_id}`）。
+    """
+    owner = report_owner_tag(report)
+    if not owner or owner != uid:
+        logger.warning(
+            "鉴权拒绝 403: 越权访问报告 reading_id=%s owner=%s token_user=%s",
+            (report or {}).get("reading_id", ""), owner or "(未知)", uid or "(空)")
+        raise HTTPException(status_code=403, detail="无权访问该报告")
 
 
 # ─── API endpoints ─────────────────────────────────────────────
 
 @router.get("/api/report/{reading_id}")
-async def get_report_json(reading_id: str):
-    """Get report data as JSON."""
+async def get_report_json(reading_id: str, uid: str = Depends(require_user)):
+    """Get report data as JSON（k76：必须登录 + 归属校验）。
+
+    被分享的报告不走本接口 —— 分享通道是 `GET /share/{reading_id}`
+    （匿名可读、已剥离个人信息）。两条路径分开是控制方拍板的要求。
+    """
     report = load_report(reading_id)
     if not report:
         raise HTTPException(status_code=404, detail="报告未找到")
-    return report
+    # k78-必修3：文件在、内容却不是一份可展示的报告 ⇒ 与"不存在"同款（404），不是 500
+    problem = report_shape_problem(report)
+    if problem:
+        logger.warning("报告内容不可展示（404）reading_id=%s: %s", reading_id, problem)
+        raise HTTPException(status_code=404, detail="报告未找到")
+    assert_report_owner(report, uid)
+    # k81-M3：归属校验**已通过**，此后客户端不再需要归属密文 → 剥离后再下发
+    # （顺序不能反：先剥会让 `assert_report_owner` 读到空归属 → 本人 403）。
+    public = without_report_owner(report)
+    # k79：返回前过 `json_safe`（NaN/Infinity → null）—— 否则 Starlette 用
+    # allow_nan=False 序列化，一份含 NaN 的报告在这里 **500**（复审实测）。
+    return json_safe(public)
 
 
 @router.get("/report/{reading_id}")
-async def get_report_page(reading_id: str):
-    """Get the rendered HTML report page."""
+async def get_report_page(reading_id: str, uid: str = Depends(require_user)):
+    """Get the rendered HTML report page（k76：必须登录 + 归属校验）。
+
+    403/401 用与 404 同款的极简页返回（浏览器直接访问时人可读）；
+    接口状态码语义保持准确（未授权 = 403）。
+    """
     report = load_report(reading_id)
     if not report:
-        return HTMLResponse(
-            "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-            "<title>报告未找到</title></head><body>"
-            "<h1>报告未找到</h1><p>该命运报告不存在或已被删除。</p></body></html>",
-            status_code=404,
-        )
+        return HTMLResponse(_SIMPLE_NOT_FOUND_HTML, status_code=404)
+    # k78-必修3：畸形内容 = 不可展示 ⇒ 与"不存在"同款 404 页（改前会 KeyError/TypeError → 500）
+    problem = report_shape_problem(report)
+    if problem:
+        logger.warning("报告页内容不可展示（404）reading_id=%s: %s", reading_id, problem)
+        return HTMLResponse(_SIMPLE_NOT_FOUND_HTML, status_code=404)
+    try:
+        assert_report_owner(report, uid)
+    except HTTPException as e:
+        return HTMLResponse(_simple_error_html(e.detail), status_code=e.status_code)
 
-    # Share text for social media
+    # Share text for social media（k79：走 `first_insight_text` 单一实现 —— 这段
+    # "取 insights[0] 并截断"的逻辑此前三处各一份，只改了一处，副本即漂移）
     share_text = (
-        f"我的2026运势报告来了！{report['insights'][0][:50]}..."
+        f"我的2026运势报告来了！{first_insight_text(report, 50)}..."
         f" #易理明灯 #AI命理"
     )
 
-    html = _build_report_html(report, share_text)
+    # k81-M3：同 `/api/report/{id}` —— 归属校验之后再剥离 `owner_enc`，本页
+    # 内嵌的报告 JSON 里不再出现账号标识密文（改前它随 `REPORT` 一起进页面，
+    # "查看源代码"即可见）。
+    html = _build_report_html(without_report_owner(report), share_text)
     return HTMLResponse(html)
 
 
-def _build_report_html(report: dict, share_text: str) -> str:
+_SIMPLE_NOT_FOUND_HTML = (
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+    "<title>报告未找到</title></head><body>"
+    "<h1>报告未找到</h1><p>该命运报告不存在或已被删除。</p></body></html>"
+)
+
+
+def _simple_error_html(detail: str) -> str:
+    """报告页的极简错误页（detail 由本模块常量/写死文案产生，仍做转义兜底）。"""
+    import html as _html
+    msg = _html.escape(str(detail or "无权访问该报告"))
+    return (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<title>无法查看</title></head><body>"
+        f"<h1>无法查看</h1><p>{msg}。</p>"
+        "<p>如果这是别人分享给你的报告，请用分享链接打开。</p></body></html>"
+    )
+
+
+def _build_report_html(report: dict, share_text: str, share_url: str = "") -> str:
     """Build the full HTML report page with embedded data.
 
     Uses string.Template to avoid f-string conflicts with JavaScript/CSS braces.
+
+    share_url（k76）：该页对外分享时使用的地址。**默认为分享通道**
+    `/share/{reading_id}`（匿名可读）——因为本页 `/report/{reading_id}` 自
+    k76 起需登录+归属校验，把本页 URL 分享出去对方会打不开。og:url 也用它，
+    否则微信抓取会抓到一个 401 页、卡片变空。
+
+    k78-必修3 / k79-必修1：**本函数不抛异常**（Python 侧与页面内嵌 JS 侧都不抛）。
+    改前 `report["profile"]["name"]` 直接下标 —— 畸形报告（如
+    `{"generated_at":["x"]}`，即没有 profile/insights 的空壳）会 KeyError → 500。
+    现在：① 入口先过 `report_shape_problem()`，不可展示则返回错误页（**不 500**，
+    与调用方的 404 口径一致）；② 取字段一律走 `.get()` + 类型兜底；③ 内嵌 JS 对
+    `profile` / `bazi_analysis` / `charts` / `insights` / `recommendations` **逐个
+    兜底**（改前 `r.profile.name`、`r.charts.wuxing_radar.forEach` 无保护 —— 一份
+    缺 `charts` 的报告会让页面在浏览器里 TypeError 白屏，虽不是服务端 500，
+    但同属"报了可展示却渲染不出来"，k79 一并收掉）。
     """
     import json as _json
     from string import Template
 
-    report_json = _json.dumps(report, ensure_ascii=False)
-    share_text_escaped = share_text.replace('"', '&quot;')
+    problem = report_shape_problem(report)
+    if problem:
+        return _simple_error_html(problem)
 
-    # Build OG title
-    pname = report["profile"]["name"]
+    try:
+        report_json = json_for_script(report)
+    except Exception as e:
+        # k79：报告**能解析但序列化不了**时（超深嵌套触到递归上限等）不再 500 ——
+        # 退成"只带可展示文本的最小载荷"，页面照常出（判据只保证结构，兜底在这里）。
+        logger.warning("报告 JSON 重新序列化失败，降级为最小载荷: %s", e)
+        report_json = json_for_script({
+            "generated_date": as_text(report.get("generated_date")),
+            "insights": [first_insight_text(report)],
+        })
+    # 分享文案由调用方给定，允许任何类型（f-string/常量都会给 str）；
+    # 非 str 一律按空串处理，绝不在本函数里抛。
+    share_text_escaped = js_string_literal(share_text or "")
+
+    # Build OG title（k78/k79：全部走 .get() + 类型兜底，缺字段不再 KeyError）
+    profile = as_mapping(report.get("profile"))
+    pname = as_text(profile.get("name"))
     if pname in ("", "用户", "anonymous"):
         og_title = "我的2026运势报告 | 易理明灯"
     else:
         og_title = f"{pname}的命运报告 | 易理明灯"
 
-    og_desc = report["insights"][0][:100] if report["insights"] else "AI命理分析报告"
-    og_desc_short = report["insights"][0][:80] if report["insights"] else "AI命理分析报告"
-    reading_id = report["reading_id"]
+    first = first_insight_text(report)
+    og_desc = first[:100] or "AI命理分析报告"
+    og_desc_short = first[:80] or "AI命理分析报告"
+    reading_id = as_text(report.get("reading_id"))
+
+    # k80-必修1（输出编码层 · HTML 侧）：og:* / title / description 落在 **HTML 文本与属性**
+    # 上下文里，必须 HTML 转义。改前只对 share_text 做了半套（只换 `"`）——
+    # `profile.name` 走 og_title 直接进 `<title>`（RCDATA：`</title><script>…` 即逃逸）
+    # 与 `<meta content="…">`（属性逃逸），是同一 Critical 的第二条通路。
+    og_title_h = html_attr_text(og_title)
+    og_desc_h = html_attr_text(og_desc)
+    og_desc_short_h = html_attr_text(og_desc_short)
+    # 分享地址两条通道各一份：og:url 进 HTML 属性；JS 里那份进字符串字面量。
+    share_url_js = js_string_literal(
+        share_url or f"{_PUBLIC_BASE}/share/{reading_id}")
+    og_url_h = html_attr_text(share_url or f"{_PUBLIC_BASE}/report/{reading_id}")
 
     # The static HTML/CSS/JS template — contains NO Python f-string interpolation
     # All Python values are substituted via $PLACEHOLDER markers using string.Template
@@ -504,7 +1041,7 @@ def _build_report_html(report: dict, share_text: str) -> str:
     <meta property="og:description" content="$og_desc">
     <meta property="og:type" content="website">
     <meta property="og:image" content="https://fortune.talcloud.com/static/og-report.png">
-    <meta property="og:url" content="https://fortune.talcloud.com/report/$reading_id">
+    <meta property="og:url" content="$og_url">
     <meta name="description" content="$og_desc">
 
     <!-- WeChat Share Meta -->
@@ -695,53 +1232,126 @@ def _build_report_html(report: dict, share_text: str) -> str:
     <script>
     (function() {
         var REPORT = $report_json;
-        var SHARE_TEXT = "$share_text_escaped";
+        var SHARE_TEXT = $share_text_escaped;
+        // k76：分享出去的链接必须是**分享通道**（/share/{id}，匿名可读）；
+        // 本页（/report/{id}）自本批起需登录+归属校验，把它分享给别人等于给死链。
+        var SHARE_URL = $share_url;
+
+        /*: ── k80 兜底工具（服务端判据只保证"结构"，**值层面**一律在这里降级）──
+           三条原则（与 Python 侧 `as_text` / `as_mapping` / `first_insight_text`
+           同一套，别再各写各的）：
+             ① **容器层**：不是对象/数组 → 当空（k79 已有）；
+             ② **元素层**（k80-必修2 的根因）：数组**元素**不是对象、字段缺失/类型
+                错 → 该元素降级或跳过，**绝不让一个坏元素把整页渲染打死**。
+                k79 只补了容器层：`charts.wuxing_radar=[1,"x",null]` 在
+                `d.value` / `item.axis` 上仍然 TypeError → 白屏（复审实测
+                `html_len=0`）；
+             ③ **不把 repr 当文案**：对象/数组/NaN/Infinity 一律**不**渲染成
+                `[object Object]`／`NaN`（与 `as_text` 的"数字/容器 → 退回中性
+                文案"同原则；k80-M4 报的 `rec.action` 出 `[object Object]`、
+                `annual_trend` 缺 score 出 `MNaN,NaN` 都属这类）。 */
+        function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+        function obj(v) { return isObj(v) ? v : {}; }
+        function arr(v) { return Array.isArray(v) ? v : []; }
+        function txt(v) {
+            if (typeof v === 'string') return v;
+            if (typeof v === 'number' && isFinite(v)) return String(v);
+            return '';
+        }
+        function num(v) {
+            if (typeof v === 'number') return isFinite(v) ? v : null;
+            if (typeof v === 'string' && v.trim() !== '') {
+                var n = Number(v);
+                return isFinite(n) ? n : null;
+            }
+            return null;
+        }
+        /*: **渲染汇点转义**（k80-必修1 的第 4 层，这条不修的话前 3 层都白修）：
+           值最终进 `innerHTML`，必须转义。只做"脚本标签逃逸"是不够的 —— payload
+           被 `<` 编码后仍是**运行时的 HTML 字符串**（如 img+onerror），拼进
+           innerHTML 照样执行（innerHTML 插入的 script 元素不执行，但事件属性会
+           执行）。所以每个插入点都过 esc()。
+           （本注释刻意不写尖括号形态的"script 标签"字样：它是**页面文本**的一部分，
+           会让"页面里有几个脚本标签"这种计数口径失真。） */
+        function esc(v) {
+            return txt(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
         function render() {
-            var r = REPORT;
-            var p = r.profile;
-            var ba = r.bazi_analysis;
+            var r = obj(REPORT);
+            // k79：字段逐个兜底（改前 p = r.profile 无保护，报告缺 profile/
+            // bazi_analysis/charts 时下面 p.name / ba.geju / r.charts.* 会
+            // TypeError → 页面白屏）。服务端判据漏判的形态在这里降级显示，
+            // 绝不把整页打死。
+            var p = obj(r.profile);
+            var ba = obj(r.bazi_analysis);
+            var ch = obj(r.charts);
+            var insights = arr(r.insights);
+            var recs = arr(r.recommendations);
+            // 元素层降级：只有"画得出来"的条目留下（数值必须是有限数）
+            var radar = arr(ch.wuxing_radar).filter(isObj).map(function(d) {
+                return { axis: txt(d.axis), value: num(d.value) };
+            }).filter(function(d) { return d.value !== null; });
+            var monthly = arr(ch.monthly_fortune).filter(isObj).map(function(m) {
+                return { label: txt(m.label), score: num(m.score) };
+            }).filter(function(m) { return m.score !== null; });
+            var annual = arr(ch.annual_trend).filter(isObj).map(function(y) {
+                return { year: txt(y.year), score: num(y.score) };
+            }).filter(function(y) { return y.score !== null; });
+            var recItems = recs.map(function(rec) {
+                var o = obj(rec);
+                return { time_window: txt(o.time_window), action: txt(o.action),
+                         reason: txt(o.reason) };
+            }).filter(function(x) {
+                return x.time_window || x.action || x.reason;
+            });
+            var shensha = arr(ba.shensha).map(txt).filter(function(s) {
+                return s.trim() !== '';
+            });
             var html = '';
 
             html += '<div class="report-header">';
             html += '<div class="badge">命运报告 v5.0</div>';
-            html += '<h1>' + p.name + '的命运报告</h1>';
-            html += '<div class="subtitle">' + r.generated_date + ' · AI智能生成</div>';
+            html += '<h1>' + (esc(p.name) || '我') + '的命运报告</h1>';
+            html += '<div class="subtitle">' + esc(r.generated_date) + ' · AI智能生成</div>';
             html += '</div>';
 
             // Profile Card
+            var genderText = txt(p.gender);
             html += '<div class="profile-card">';
-            html += '<div class="bazi-display">' + p.bazi + '</div>';
-            html += '<div class="day-master">日主 ' + p.day_master + ' · ' + p.gender + '</div>';
+            html += '<div class="bazi-display">' + esc(p.bazi) + '</div>';
+            html += '<div class="day-master">日主 ' + esc(p.day_master) +
+                    (genderText ? ' · ' + esc(genderText) : '') + '</div>';
             html += '<div style="margin-top:12px">';
-            html += '<div class="row"><span class="label">出生</span><span class="value">' + p.birth_info + '</span></div>';
-            html += '<div class="row"><span class="label">格局</span><span class="value">' + ba.geju + '</span></div>';
-            html += '<div class="row"><span class="label">用神</span><span class="value">' + ba.yongshen + '</span></div>';
-            html += '<div class="row"><span class="label">神煞</span><span class="value">' + (ba.shensha && ba.shensha.length ? ba.shensha.join('、') : '无') + '</span></div>';
+            html += '<div class="row"><span class="label">出生</span><span class="value">' + esc(p.birth_info) + '</span></div>';
+            html += '<div class="row"><span class="label">格局</span><span class="value">' + esc(ba.geju) + '</span></div>';
+            html += '<div class="row"><span class="label">用神</span><span class="value">' + esc(ba.yongshen) + '</span></div>';
+            html += '<div class="row"><span class="label">神煞</span><span class="value">' + (shensha.length ? esc(shensha.join('、')) : '无') + '</span></div>';
             html += '</div></div>';
 
             // Wuxing Analysis
             html += '<div class="section-title">五行能量分布</div>';
             html += '<div class="chart-card">';
-            html += '<div class="radar-container">' + drawRadar(r.charts.wuxing_radar) + '</div>';
+            html += '<div class="radar-container">' + drawRadar(radar) + '</div>';
 
             // Legend
             html += '<div class="radar-legend">';
             var wxClr = {"金":"#f0d060","木":"#60c060","水":"#5090e0","火":"#e06060","土":"#c09050"};
-            r.charts.wuxing_radar.forEach(function(item) {
-                html += '<div class="radar-legend-item"><span class="dot" style="background:' + wxClr[item.axis] + '"></span>' + item.axis + ' ' + item.value + '</div>';
+            radar.forEach(function(item) {
+                html += '<div class="radar-legend-item"><span class="dot" style="background:' + (wxClr[item.axis] || '#667eea') + '"></span>' + esc(item.axis) + ' ' + item.value + '</div>';
             });
             html += '</div>';
 
             // Wuxing bars
             html += '<div class="wuxing-bars">';
-            r.charts.wuxing_radar.forEach(function(item) {
-                var vals = r.charts.wuxing_radar.map(function(x) { return x.value; });
-                var maxVal = Math.max(1, Math.max.apply(null, vals));
+            var maxVal = Math.max(1, Math.max.apply(null, radar.map(function(x) { return x.value; })));
+            radar.forEach(function(item) {
                 var pct = Math.round((item.value / maxVal) * 100);
-                html += '<div class="wuxing-bar-item wx-' + item.axis + '">';
+                html += '<div class="wuxing-bar-item wx-' + esc(item.axis) + '">';
                 html += '<div class="bar-track"><div class="bar-fill" style="height:' + pct + '%"></div></div>';
-                html += '<div class="bar-label">' + item.axis + '</div>';
+                html += '<div class="bar-label">' + esc(item.axis) + '</div>';
                 html += '<div class="bar-value">' + item.value + '</div></div>';
             });
             html += '</div></div>';
@@ -749,36 +1359,37 @@ def _build_report_html(report: dict, share_text: str) -> str:
             // K-Line Chart
             html += '<div class="section-title">年度运势走势</div>';
             html += '<div class="chart-card">';
-            var mf = r.charts.monthly_fortune;
-            if (mf && mf.length > 0) {
+            if (monthly.length > 0) {
                 html += '<h3>未来12个月运势趋势</h3>';
             }
-            html += drawKLine(mf);
+            html += drawKLine(monthly);
             html += '</div>';
 
             // Annual Trend
             html += '<div class="chart-card">';
             html += '<h3>年运势大趋势</h3>';
-            html += drawAnnualTrend(r.charts.annual_trend);
+            html += drawAnnualTrend(annual);
             html += '</div>';
 
             // Key Insights
             html += '<div class="section-title">核心洞察</div>';
             html += '<ul class="insight-list">';
-            r.insights.forEach(function(insight) {
-                html += '<li>' + insight + '</li>';
+            insights.forEach(function(insight) {
+                // k79：只展示**文本**条目（与服务端 first_insight_text 同一原则：
+                // 不把数字/对象的 repr 当文案）
+                if (typeof insight === 'string' && insight.trim()) html += '<li>' + esc(insight) + '</li>';
             });
             html += '</ul>';
 
             // Recommendations
             html += '<div class="section-title">行动建议</div>';
             html += '<ol class="rec-list">';
-            r.recommendations.forEach(function(rec, idx) {
+            recItems.forEach(function(rec, idx) {
                 html += '<li>';
                 html += '<div class="rec-number">' + (idx + 1) + '</div>';
-                html += '<div class="rec-time">' + rec.time_window + '</div>';
-                html += '<div class="rec-action">' + rec.action + '</div>';
-                html += '<div class="rec-reason">' + rec.reason + '</div>';
+                if (rec.time_window) html += '<div class="rec-time">' + esc(rec.time_window) + '</div>';
+                if (rec.action) html += '<div class="rec-action">' + esc(rec.action) + '</div>';
+                if (rec.reason) html += '<div class="rec-reason">' + esc(rec.reason) + '</div>';
                 html += '</li>';
             });
             html += '</ol>';
@@ -790,11 +1401,19 @@ def _build_report_html(report: dict, share_text: str) -> str:
             html += '<button class="share-btn" onclick="shareReport()">分 享</button>';
             html += '</div>';
 
-            document.getElementById('app').innerHTML = html;
+            var app = document.getElementById('app');
+            if (app) app.innerHTML = html;
         }
 
-        function drawKLine(months) {
-            if (!months || months.length === 0) return '';
+        function drawKLine(raw) {
+            // k80-必修2 元素层兜底 + M4：本函数可能被任意形态调用，先归一再画。
+            var months = arr(raw).filter(isObj).map(function(m) {
+                return { label: txt(m.label), score: num(m.score) };
+            }).filter(function(m) { return m.score !== null; });
+            /* 少于两个点画不出线：`xStep = cw/(n-1)` 在 n=1 时是 Infinity →
+               坐标 NaN → SVG 里出 `MNaN,NaN`（k80-M4 实测）。降级为"不画"，
+               而不是画一条 NaN 折线。 */
+            if (months.length < 2) return '';
             var pw = 100, ph = 100, pd = 5;
             var cw = pw - pd * 2, ch = ph - pd * 2;
             var scores = months.map(function(m) { return m.score; });
@@ -838,15 +1457,19 @@ def _build_report_html(report: dict, share_text: str) -> str:
             var labels = '<div class="kline-labels">';
             months.forEach(function(m, i) {
                 if (i % 2 === 0 || i === months.length - 1) {
-                    labels += '<span>' + m.label + '</span>';
+                    labels += '<span>' + esc(m.label) + '</span>';
                 } else { labels += '<span></span>'; }
             });
             labels += '</div>';
             return svg + labels;
         }
 
-        function drawAnnualTrend(years) {
-            if (!years || years.length === 0) return '';
+        function drawAnnualTrend(raw) {
+            // k80：同 drawKLine —— 先归一（缺 score / score 非有限数的年份直接剔除）。
+            var years = arr(raw).filter(isObj).map(function(y) {
+                return { year: txt(y.year), score: num(y.score) };
+            }).filter(function(y) { return y.score !== null; });
+            if (years.length < 2) return '';
             var pw = 100, ph = 60, pd = 5;
             var cw = pw - pd * 2, ch = ph - pd * 2;
             var scores = years.map(function(y) { return y.score; });
@@ -869,14 +1492,17 @@ def _build_report_html(report: dict, share_text: str) -> str:
                 var x = pd + i * xStep, y2 = yPos(y.score);
                 var cr = y.score >= 70 ? "#60c060" : (y.score >= 45 ? "#f0d060" : "#e06060");
                 svg += '<circle cx="' + x + '" cy="' + y2 + '" r="1.5" fill="' + cr + '"/>';
-                svg += '<text x="' + x + '" y="' + (ph - 1) + '" font-size="3" fill="#888" text-anchor="middle">' + y.year + '</text>';
+                svg += '<text x="' + x + '" y="' + (ph - 1) + '" font-size="3" fill="#888" text-anchor="middle">' + esc(y.year) + '</text>';
             });
             svg += '</svg>';
             return svg;
         }
 
-        function drawRadar(data) {
-            if (!data || data.length === 0) return '';
+        function drawRadar(raw) {
+            var data = arr(raw).filter(isObj).map(function(d) {
+                return { axis: txt(d.axis), value: num(d.value) };
+            }).filter(function(d) { return d.value !== null; });
+            if (data.length === 0) return '';
             var cx = 120, cy = 120, rr = 80;
             var svg = '<svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">';
 
@@ -913,7 +1539,7 @@ def _build_report_html(report: dict, share_text: str) -> str:
                 svg += '<circle cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) + '" r="3" fill="' + (wxClr[d.axis] || "#667eea") + '"/>';
                 var lx = cx + (rr + 18) * Math.cos(a);
                 var ly = cy + (rr + 18) * Math.sin(a);
-                svg += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" font-size="9" fill="#b0b0c0" text-anchor="middle" dominant-baseline="middle">' + d.axis + '</text>';
+                svg += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" font-size="9" fill="#b0b0c0" text-anchor="middle" dominant-baseline="middle">' + esc(d.axis) + '</text>';
             });
             svg += '</svg>';
             return svg;
@@ -921,10 +1547,10 @@ def _build_report_html(report: dict, share_text: str) -> str:
 
         function shareReport() {
             if (navigator.share) {
-                navigator.share({ title: SHARE_TEXT.split(" #")[0], text: SHARE_TEXT, url: window.location.href }).catch(function(){});
+                navigator.share({ title: SHARE_TEXT.split(" #")[0], text: SHARE_TEXT, url: SHARE_URL }).catch(function(){});
             } else {
                 var ta = document.createElement("textarea");
-                ta.value = SHARE_TEXT + "\\n" + window.location.href;
+                ta.value = SHARE_TEXT + "\\n" + SHARE_URL;
                 document.body.appendChild(ta);
                 ta.select();
                 try { document.execCommand("copy"); var btn = document.querySelector(".share-btn"); var orig = btn.textContent; btn.textContent = "已复制！"; setTimeout(function() { btn.textContent = orig; }, 2000); } catch(e) {}
@@ -939,10 +1565,12 @@ def _build_report_html(report: dict, share_text: str) -> str:
 
     t = Template(template_str)
     return t.safe_substitute(
-        og_title=og_title,
-        og_desc=og_desc,
-        og_desc_short=og_desc_short,
+        og_title=og_title_h,
+        og_desc=og_desc_h,
+        og_desc_short=og_desc_short_h,
         reading_id=reading_id,
+        share_url=share_url_js,
+        og_url=og_url_h,
     )
 
 @router.post("/api/report/generate")
@@ -966,6 +1594,7 @@ async def generate_report(req: GenerateReportRequest, uid: str = Depends(require
             bazi_result,
             birth=req.birth.model_dump(),
             name=req.birth.name,
+            owner_uid=uid,     # k76：落归属密文，供读接口做归属校验
         )
 
         return report_data

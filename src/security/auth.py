@@ -463,6 +463,40 @@ def ensure_owner(path_user_id: str, token_user_id: str):
         raise HTTPException(status_code=403, detail="无权访问该用户数据")
 
 
+async def optional_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),
+) -> str:
+    """**只用于"记归属"，绝不用于"放行"**的可选身份依赖（k76）。
+
+    返回：有效 JWT 的 `sub`（str）；无令牌 / 令牌无效 / 已过期 → `""`（空串）。
+
+    ⚠️ 使用约束（本函数存在的唯一理由）：
+      - 它**不放行任何东西** —— 拿它做鉴权门等于没有鉴权。需要"必须登录"的
+        路由一律用 `require_user`（401 硬拒）。
+      - 它只服务一种形态：路由本身**按产品设计对匿名开放**（如匿名分享落地页
+        的创建），但**登录用户**产生的那份数据需要在注销时能被定位删除（PIPL）。
+        此时用本依赖**记归属标记**（HMAC 伪名，不落明文 user_id），空串表示
+        "本次调用确实匿名、无归属可删"。
+      - 令牌无效/过期在此**不报错**（与匿名同待遇：不记归属）—— 因为该端点
+        本来就不要求登录，报 401 会把原本可用的匿名链路挡掉（业务语义变化）。
+    """
+    auth = get_auth_handler()
+    token = ""
+    if credentials is not None:
+        token = credentials.credentials
+    if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
+        return ""
+    payload = auth.jwt.verify_token(token)
+    if not payload or not payload.get("sub"):
+        return ""
+    return str(payload["sub"])
+
+
 async def require_chat_user(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security_scheme),

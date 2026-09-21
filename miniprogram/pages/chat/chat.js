@@ -1761,10 +1761,24 @@ Page({
     if (!hasReal) return;
     const firstUser = msgs.find((m) => m.role === 'user' && !m.pending);
     const label = (firstUser && firstUser.content) ? String(firstUser.content).slice(0, 18) : '一段夜话';
+    /* k77-I4：归档时记下**这段对话的服务端会话编号** —— 历史页「删除」要凭它
+       把服务端那一段（sessions 表里同一 session_id 的消息行）一起删掉。
+       取值顺序：① 流式宿主当前会话标识（就是每次请求随附给服务端的那个，最准）
+       ② 本地 ylm_session_id 兜底。**必须在 _resetChatUi 之前调用**（本函数由
+       startNewChat 在重置前调用 ⇒ 拿到的是"这一段"而不是"下一段"的编号）。
+       取不到 / 旧版本留下的归档没有该字段 → 空串，删除走 legacy 作用域。 */
+    let archSid = '';
+    try {
+      archSid = (streamHost && streamHost.sessionId) ? streamHost.sessionId : '';
+    } catch (e) { archSid = ''; }
+    if (!archSid) {
+      try { archSid = wx.getStorageSync('ylm_session_id') || ''; } catch (e) { archSid = ''; }
+    }
     const arch = {
       id: 'arch_' + Date.now(),
       createdAt: Date.now(),
       label,
+      sessionId: String(archSid || ''),
       messages: msgs.map((m) => {
         const copy = Object.assign({}, m);
         delete copy.segments;

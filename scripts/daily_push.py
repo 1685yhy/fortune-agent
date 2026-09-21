@@ -385,7 +385,8 @@ def run_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> dict:
 
     logger.info(f"开始每日运势推送: {today['date']}")
 
-    users = dao.get_all_users_with_bazi()
+    # k77：推送**不触达已注销账号**（注销即撤回同意；注销成功页承诺"不再打扰"）
+    users = dao.get_pushable_users_with_bazi()
     logger.info(f"找到 {len(users)} 个有八字信息的用户")
 
     cfg = _subscribe_config()
@@ -601,7 +602,8 @@ def run_weekly_push_batch(dao: UserDAO, today: dict, dry_run: bool = False) -> d
     logger.info(f"开始周度运势推送: {today['date']}")
     week = get_week_range()
 
-    users = dao.get_all_users_with_bazi()
+    # k77：推送**不触达已注销账号**（注销即撤回同意；注销成功页承诺"不再打扰"）
+    users = dao.get_pushable_users_with_bazi()
     logger.info(f"找到 {len(users)} 个有八字信息的用户")
 
     cfg = _subscribe_config()
