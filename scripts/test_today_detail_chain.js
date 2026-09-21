@@ -158,7 +158,8 @@ const today = makeInstance(todayCfg);
   detail.onLoad.call(detail);
 
   check('详解头部干支', detail.data.dateLine.includes('庚申日'), detail.data.dateLine);
-  // 农历按日期实算（2026-08-15 = 农历七月三日，与 lunar util 一致）
+  // 农历按日期实算（2026-08-15 = 农历七月初三日，与 lunar util 一致；
+  // 日名口径同引擎 zeri/wannianli._lunar_day_cn —— k70-F1）
   const lunar = require(path.resolve(__dirname, '../miniprogram/utils/lunar.js'));
   const expLunar = lunar.formatLunarDate(2026, 8, 15);
   check('详解头部农历（实算一致）', detail.data.dateLine.includes(expLunar),

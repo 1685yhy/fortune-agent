@@ -106,21 +106,30 @@ function timeText(p) {
   return base;
 }
 
+/** 历法标记：'lunar' → 农历，其余（含缺失/历史存量）→ 公历。
+ *  birthSummary / birthBrief 共用同一判定，禁止各自内联 —— 否则两处文案会对同一
+ *  档案给出互相矛盾的历法口径（k70-F2 即「简版」缺标记被读成公历）。 */
+function calLabel(p) {
+  return (p && p.calendar === 'lunar') ? '农历' : '公历';
+}
+
 /** 生辰摘要（原型 birthLine / prof-birth）：公历 1998年5月12日 卯时 女 · 北京 */
 function birthSummary(p) {
   if (!p) return '';
-  const cal = p.calendar === 'lunar' ? '农历' : '公历';
   const tt = timeText(p);
   const shi = tt ? tt + ' ' : '';
-  return `${cal} ${p.birth_year}年${p.birth_month}月${p.birth_day}日 ${shi}${genderCN(p.gender)} · ${p.city || '未填出生地'}`;
+  return `${calLabel(p)} ${p.birth_year}年${p.birth_month}月${p.birth_day}日 ${shi}${genderCN(p.gender)} · ${p.city || '未填出生地'}`;
 }
 
-/** 列表页摘要（原型 prof-birth 简版）：1998 年 5 月 12 日 · 卯时 · 女 · 北京 */
+/** 列表页摘要（原型 prof-birth 简版）：农历 1998 年 5 月 12 日 · 卯时 · 女 · 北京。
+ *  k70-F2：该行是**原样回显**（不做换算），但年/月/日数字本身不带历法信息 —— 不标
+ *  「农历/公历」会被读成公历（实测 1999 年 3 月 28 日 的农历档被读作公历 3 月 28 日）。
+ *  「原样回显」契约不变，只补标记（与 birthSummary 同源 calLabel）。 */
 function birthBrief(p) {
   if (!p) return '';
   const tt = timeText(p);
   const shi = tt ? tt + ' · ' : '';
-  return `${p.birth_year} 年 ${p.birth_month} 月 ${p.birth_day} 日 · ${shi}${genderCN(p.gender)} · ${p.city || '未填'}`;
+  return `${calLabel(p)} ${p.birth_year} 年 ${p.birth_month} 月 ${p.birth_day} 日 · ${shi}${genderCN(p.gender)} · ${p.city || '未填'}`;
 }
 
 /** 印章首字：姓名首字（无姓名 → 命） */
