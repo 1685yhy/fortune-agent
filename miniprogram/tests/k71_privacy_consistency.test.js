@@ -1292,26 +1292,130 @@ const REPO_FORBIDDEN_EXEMPT = [
     why: '同上：版本说明里引述"此前写过的不随注销删除"这一已反转的旧说法' },
 ];
 
-test('k77-C 全仓禁语扫描：任何用户可见文案都不得复活"与代码不符的绝对句"', () => {
-  const rel = (p) => path.relative(ROOT, p);
-  const violations = [];
-  /* 收集扫描单元：{file, text, kind}（wxml 剥标签；js 只取中文字符串；md 全文） */
-  const units = [];
-  SCAN_WXML.forEach((p) => units.push({ file: rel(p), text: wxmlText(fs.readFileSync(p, 'utf8')), kind: 'wxml' }));
-  SCAN_JS.forEach((p) => {
-    const src = fs.readFileSync(p, 'utf8');
-    jsUserCopy(src).forEach((s) => units.push({ file: rel(p), text: s.text, kind: 'js-string' }));
-  });
-  SCAN_MD.forEach((p) => units.push({ file: rel(p), text: flat(fs.readFileSync(p, 'utf8')), kind: 'md' }));
+/* ════════════════════════════════════════════════════════════════════════
+   k80-M1：**上下文例外登记表**（CONTEXT_EXEMPT）—— 跨两张扫描器生效的显式豁免
 
+   与上面那张 REPO_FORBIDDEN_EXEMPT 的分工：那张只管 §12 一张表，且允许"整个文件
+   豁免 / 引号内引述豁免"；本表跨 **§12/§13 的 miniprogram 面** 与 **§14 的 src/ 后端面**
+   （窄面 + 宽面）统一生效，且**只**按 (file, ruleRe, unit) 三元组精确命中 ——
+   没有整文件豁免、没有关键词豁免、没有"附近出现某词就放行"。
+
+   为什么要有它（k79-final2 终验实测）：禁语表是宽面正则，宽面必然有假红。终验注入的
+   4 条正当文案里 3 条被判红，逐条给出来源：
+     `导出你的所有个人数据（数据可携带权）` ← 命中 /所有个人数据|全部个人数据|…/
+       （§14 后端面 BACKEND_FORBIDDEN[0]）：它是**导出权**（PIPL 第 45 条数据可携带权），
+       不是"已删除"式的不实绝对句 —— 规则本意是禁"所有个人数据已删除"（漏掉依法留存例外）。
+     `注销后立即删除本地缓存` ← 命中"注销即删"条件规则（§12 的 RULES_SHARE_DELETE_ON_CANCEL
+       与 §14 的 BACKEND_FORBIDDEN[3] 是同一条正则）：说的是**本地缓存**，不是分享链接 ——
+       规则本意是"注销并非一律立即删除**分享链接**"（归属未知的老报告刻意不删）。
+     `破镜不可恢复` ← 命中 /不可恢复/（§14 后端面 BACKEND_FORBIDDEN[2]）：是**古籍/签文数据
+       表**里的成语（破镜重圆类词条），不是隐私承诺 —— 规则本意是禁与"备份仍可人工尝试找回"
+       冲突的恢复承诺。
+
+   正确修法**不是**往 unlessNear 里塞词（那会连真违规一起放过 = 削弱规则，明确禁止），
+   而是"逐条显式登记 + 四道防新面外的机制"：
+     ① 有界（本表 + `contextExemptShapeErrors`）：只对 (file, ruleRe, unit) 三元组精确生效；
+     ② 可枚举（紧邻的 `CONTEXT_EXEMPT_MAX` + §15 的断言）：条目数被钉住，失败时打印整张表；
+     ③ 卫生（§15 的"登记过的例外必须仍然被需要"）：一次都没被用到的条目即红；
+     ④ 不削弱（§15 的注入证明）：同一条规则的**真违规**在同一文件里仍然红（可执行断言）。
+
+   三元组三个字段（**逐字比对**，不比子串/正则/关键词）：
+     - file   ：**完整相对路径**（`src/api/user.py` / `pages/settings/settings.wxml`）。
+                例外只对**该文件**生效 —— 同一条文案换个文件出现，仍然红。
+     - ruleRe ：被豁免的**那一条规则的正则源码字符串**（与 `rule.re.source` 逐字相等）。
+                比 `String(rule.re)` 稳：后者含 flags，写法差一个字符就静默失效（k77 实测踩过）。
+     - unit   ：被豁免的**整条文案**的精确文本（`===` 比较）。miniprogram 面 = 该扫描单元的
+                折叠全文（wxml 剥标签后 / js 字符串字面量 / md 全文）；后端宽面 = 该字符串
+                常量的**完整文本**（`wide_face_hits[].full`，不是截断到 120 字的 `text`）。
+                **这一条是防"面外"的核心**：新的正当文案必须**新登记一条**，
+                无法靠"出现某个词"自动放行。
+     - why    ：≥15 字，写清"为什么这不是该规则要禁的那种断言"。
+
+   三元组里为什么不必再带"哪张表"：miniprogram 面只枚举 `miniprogram/`（SCAN_WXML/SCAN_JS/
+   SCAN_MD 的根是 ROOT=miniprogram），后端面只枚举 `src/**.py` —— 两张面的文件集不相交，
+   `file` 已经把它们分开（同一条正则同时存在于两张表是**有意**的：豁免按正则源码登记，
+   两张表里的同一条规则同时生效，正是我们要的"一处登记、两张面都认"）。
+
+   初始条目 = **0 条**（本仓现存文案零假红，实测 `wide_face_hits=[]`、`leftover=[]`）。 */
+const CONTEXT_EXEMPT = [
+  /* 无条目。新增一条时必须**同时**满足：① file 是完整相对路径 ② ruleRe 逐字等于某条规则
+     的 .source ③ unit 是整条文案的精确文本 ④ why ≥15 字写清"为什么这不是该规则要禁的断言"，
+     并把下面紧邻的 CONTEXT_EXEMPT_MAX 同步上调（评审 diff 里可见）。 */
+];
+
+/*: 例外条目数上界（**紧邻表**的常量，②可枚举）：新增/删除条目必须同步改这里。 */
+const CONTEXT_EXEMPT_MAX = 0;
+
+test('k80-M1 例外表②可枚举：条目数被紧邻表的 CONTEXT_EXEMPT_MAX 精确钉住（失败即打印整张表）', () => {
+  assert.equal(CONTEXT_EXEMPT.length, CONTEXT_EXEMPT_MAX,
+    `例外表条目数 ${CONTEXT_EXEMPT.length} ≠ 紧邻表的常量 CONTEXT_EXEMPT_MAX=${CONTEXT_EXEMPT_MAX}`
+    + '（新增豁免必须同步改这个常量，让"多了一条豁免"在评审 diff 里露出来；'
+    + '条目必须逐条可枚举、可审计）。整张表：\n' + JSON.stringify(CONTEXT_EXEMPT, null, 2));
+});
+
+/*: 例外判定（**唯一**一处实现：§12 / §13 / §14 窄面与宽面 / 注入证明 都走它）。
+    三元组 (file, 规则正则源码, 整条文案) 逐字相等 ⇒ 返回条目下标；否则 -1。 */
+function exemptHitIndex(exempt, file, ruleRe, unit) {
+  for (let i = 0; i < exempt.length; i++) {
+    const e = exempt[i];
+    if (e.file === file && e.ruleRe === ruleRe && e.unit === unit) return i;
+  }
+  return -1;
+}
+
+/*: 例外条目形状检查（① 有界）：只允许"完整相对路径 + 某条**存在**的规则的正则源码 +
+    整条文案 + ≥15 字的 why"。任何一项不合规即红（含"ruleRe 写了一条不存在的规则"，
+    那等于变相削弱规则）。 */
+function contextExemptShapeErrors(exempt, knownRuleSources) {
+  const errs = [];
+  exempt.forEach((e, i) => {
+    const at = `#${i} ${JSON.stringify(e)}`;
+    if (typeof e.file !== 'string' || !e.file.includes('/') || e.file.startsWith('/')
+      || e.file.startsWith('./') || e.file.startsWith('../')) {
+      errs.push(`${at}：file 必须是**完整相对路径**（形如 src/api/user.py / `
+        + 'pages/settings/settings.wxml）—— 例外只对该文件生效，不许"整个仓/整个目录"的口子');
+    }
+    if (typeof e.ruleRe !== 'string' || knownRuleSources.indexOf(e.ruleRe) === -1) {
+      errs.push(`${at}：ruleRe 必须**逐字等于**某条禁用规则的 .source`
+        + '（写错一个字符 ⇒ 豁免静默失效，k77 实测踩过；写一条不存在的规则 = 削弱规则）');
+    }
+    if (typeof e.unit !== 'string' || e.unit.trim() === '') {
+      errs.push(`${at}：unit 必须是被豁免**整条文案**的精确文本（逐字相等；`
+        + '不许子串/正则/关键词，空的 unit 等于给整个文件开口子）');
+    }
+    if (typeof e.why !== 'string' || e.why.trim().length < 15) {
+      errs.push(`${at}：why 必须 ≥15 字，写清"为什么这不是该规则要禁的那种断言"`);
+    }
+  });
+  return errs;
+}
+
+/*: 判定核心（**纯函数**：真实扫描与注入证明用同一套逻辑，注入证明直接调它）。
+    入 units ：{file, text, kind?, line?, name?}
+    入 rules ：{re, unlessNear, why}
+    入 exempt：CONTEXT_EXEMPT 形状（注入证明里传**局部构造**的测试表，不动真表）
+    入 opts.quotedExempt：§12 既有的 REPO_FORBIDDEN_EXEMPT（引述豁免，语义原样保留）
+    出 violations：[{file, kind, line, name, unitIndex, hit, why, context}]（未豁免的命中）
+    出 usedExempt ：[{index, entry}]（③卫生的输入：登记过的条目必须至少被用到一次） */
+function scanUnits(units, rules, exempt = [], opts = {}) {
+  const quotedExempt = opts.quotedExempt || [];
   const UNLESS_WINDOW = 160;
-  for (const u of units) {
-    for (const rule of REPO_FORBIDDEN) {
-      /* 例外表：不带 quoted 的条目豁免整个文件；带 quoted 的只豁免"引号内"的命中 */
-      /* 按**正则源码**比对（不比 String()：后者含 flags，写法差一个字符就静默不匹配
-         —— 本轮实测踩过：豁免条目写成 /90 天可恢复/ 而规则是 /90 ?天可恢复/，
-         豁免静默失效。改 .source 后仍要求逐字相同，但不再受 flags 干扰。） */
-      const exs = REPO_FORBIDDEN_EXEMPT.filter(
+  const violations = [];
+  const usedExempt = [];
+  const usedSeen = new Set();
+  units.forEach((u, unitIndex) => {
+    for (const rule of rules) {
+      /* ① 显式例外登记表（k80-M1）：三元组精确命中 ⇒ 该 (文件, 规则, 整条文案) 整体放行 */
+      const exIdx = exemptHitIndex(exempt, u.file, rule.re.source, u.text);
+      if (exIdx >= 0) {
+        if (!usedSeen.has(exIdx)) {
+          usedSeen.add(exIdx);
+          usedExempt.push({ index: exIdx, entry: exempt[exIdx] });
+        }
+        continue;
+      }
+      /* 既有机制（§12）：不带 quoted 的条目豁免整个文件；带 quoted 的只豁免"引号内"的命中 */
+      const exs = quotedExempt.filter(
         (e) => e.file === u.file && e.re.source === rule.re.source);
       if (exs.some((e) => !e.quoted)) continue;
       const re = new RegExp(rule.re.source, rule.re.flags.includes('g') ? rule.re.flags : rule.re.flags + 'g');
@@ -1322,19 +1426,46 @@ test('k77-C 全仓禁语扫描：任何用户可见文案都不得复活"与代�
         const win = u.text.slice(Math.max(0, i - UNLESS_WINDOW),
           i + m[0].length + UNLESS_WINDOW);
         if (rule.unlessNear && rule.unlessNear.test(win)) continue;   // 例外就近 → 判为"带例外的准确句"
-        /* 引号内 ⇒ 视为"引述历史表述"而非断言（见 REPO_FORBIDDEN_EXEMPT 注释）。
-           判定要**两侧都闭合**：命中左边有开引号、右边有对应闭引号，且引号内不跨句
-           （否则"很远处的开引号"会把真断言误判成引述）。 */
+        /* 引号内 ⇒ 视为"引述历史表述"而非断言（见 REPO_FORBIDDEN_EXEMPT 注释）。 */
         if (exs.some((e) => e.quoted) && quotedAt(u.text, i, m[0].length)) continue;
-        violations.push(`${u.file} [${u.kind}] 命中「${m[0]}」：${rule.why}\n`
-          + `      上下文：…${u.text.slice(Math.max(0, i - 30), i + m[0].length + 30)}…`);
+        violations.push({ file: u.file, kind: u.kind, line: u.line, name: u.name, unitIndex,
+          hit: m[0], why: rule.why,
+          context: '…' + u.text.slice(Math.max(0, i - 30), i + m[0].length + 30) + '…' });
         break;   // 同一规则在同一单元里只报一次
       }
     }
-  }
-  assert.deepEqual(violations, [],
-    `全仓用户可见文案出现与代码不符的绝对句（共 ${violations.length} 处）：\n  - `
-    + violations.join('\n  - '));
+  });
+  return { violations, usedExempt };
+}
+
+/*: §12/§13 的扫描单元（miniprogram 面：全仓 wxml / js 中文字符串字面量 / md）。
+    抽成一处、两张表共用（此前两个测试各写一遍装配，容易一边改一边漏）。 */
+let _repoCopyUnits = null;
+function repoCopyUnits() {
+  if (_repoCopyUnits) return _repoCopyUnits;
+  const rel = (p) => path.relative(ROOT, p);
+  const units = [];
+  SCAN_WXML.forEach((p) => units.push({ file: rel(p), text: wxmlText(fs.readFileSync(p, 'utf8')), kind: 'wxml' }));
+  SCAN_JS.forEach((p) => {
+    const src = fs.readFileSync(p, 'utf8');
+    jsUserCopy(src).forEach((s) => units.push({ file: rel(p), text: s.text, kind: 'js-string' }));
+  });
+  SCAN_MD.forEach((p) => units.push({ file: rel(p), text: flat(fs.readFileSync(p, 'utf8')), kind: 'md' }));
+  _repoCopyUnits = units;
+  return units;
+}
+
+test('k77-C 全仓禁语扫描：任何用户可见文案都不得复活"与代码不符的绝对句"', () => {
+  /* 判定逻辑抽到 `scanUnits`（k80-M1）：真实扫描与注入证明**同一套**函数 ——
+     既有的 REPO_FORBIDDEN_EXEMPT（整文件 / 引述豁免，按正则源码比对）语义原样保留，
+     另接线显式例外登记表 CONTEXT_EXEMPT（三元组精确命中才放行）。 */
+  const { violations } = scanUnits(repoCopyUnits(), REPO_FORBIDDEN, CONTEXT_EXEMPT,
+    { quotedExempt: REPO_FORBIDDEN_EXEMPT });
+  const bad = violations.map((v) => `${v.file} [${v.kind}] 命中「${v.hit}」：${v.why}\n`
+    + `      上下文：${v.context}`);
+  assert.deepEqual(bad, [],
+    `全仓用户可见文案出现与代码不符的绝对句（共 ${bad.length} 处）：\n  - `
+    + bad.join('\n  - '));
 });
 
 test('k77-C 例外表卫生：登记过的例外必须仍然被需要（防豁免堆积）', () => {
@@ -1417,31 +1548,12 @@ test('k78-必修1 全仓条件规则：注销即删分享链接的绝对句必�
      故本规则：这类句子必须**就近**出现例外词（归属/老报告/无法确认/定位不到），
      否则红。例外不在附近就红 —— 这不是放宽：无条件句仍然红（k78 报告有注入实测）。 */
   const rule = RULES_SHARE_DELETE_ON_CANCEL;
-  const rel = (p) => path.relative(ROOT, p);
-  const units = [];
-  SCAN_WXML.forEach((p) => units.push({ file: rel(p), text: wxmlText(fs.readFileSync(p, 'utf8')) }));
-  SCAN_JS.forEach((p) => {
-    const src = fs.readFileSync(p, 'utf8');
-    jsUserCopy(src).forEach((s) => units.push({ file: rel(p), text: s.text }));
-  });
-  SCAN_MD.forEach((p) => units.push({ file: rel(p), text: flat(fs.readFileSync(p, 'utf8')) }));
-  const violations = [];
-  const UNLESS_WINDOW = 160;
-  for (const u of units) {
-    const re = new RegExp(rule.re.source, 'g');
-    let m;
-    while ((m = re.exec(u.text)) !== null) {
-      if (!m[0]) { re.lastIndex++; continue; }
-      const i = m.index;
-      const win = u.text.slice(Math.max(0, i - UNLESS_WINDOW),
-        i + m[0].length + UNLESS_WINDOW);
-      if (rule.unlessNear.test(win)) continue;
-      violations.push(`${u.file} 命中「${m[0]}」← ${rule.why}`);
-      break;
-    }
-  }
-  assert.deepEqual(violations, [],
-    `出现"注销即删分享链接"的无条件句（缺归属例外）：\n  - ${violations.join('\n  - ')}`);
+  /* k80-M1：判定同样走 `scanUnits`（三扫描器共用同一套逻辑）⇒ CONTEXT_EXEMPT 对
+     §13 这条条件规则一并生效（"注销后立即删除本地缓存"这类正当句可逐条登记豁免）。 */
+  const { violations } = scanUnits(repoCopyUnits(), [rule], CONTEXT_EXEMPT);
+  const bad = violations.map((v) => `${v.file} 命中「${v.hit}」← ${v.why}`);
+  assert.deepEqual(bad, [],
+    `出现"注销即删分享链接"的无条件句（缺归属例外）：\n  - ${bad.join('\n  - ')}`);
 });
 
 /* ════════════════════════════════════════════════════════════════
@@ -1733,8 +1845,11 @@ for p in sorted(pathlib.Path("src").rglob("*.py")):
 
 # ⑤ **宽面**禁语扫描（k79-必修2 的修法之二）：禁语表不只过窄面（detail=/message=/
 #    10 个字典键），而是过**全部中文字符串常量 + 拼接折叠结果**。
-#    噪声实测：本仓 33469 条中文字符串（含折叠）对 4 条禁语**零命中** ⇒ 不需要为
+#    噪声实测：本仓**全部**中文字符串（含折叠）对 4 条禁语**零命中** ⇒ 不需要为
 #    汉字数据表设过滤白名单（白名单本身就是新的"面外"；实测无噪声就不引入）。
+#    k80-M2：这里的"条数"**不写死** —— 它随代码变化（每改一次代码就变），手写必然漂移
+#    （k79 报告 / 终验 / 本树实测三个数互不相同）。真值由 JS 侧**运行时实测**读出
+#    （断言里的 BACKEND.string_constants / BACKEND.folded），本注释只保留结论。
 for item in string_constants:
     for rule in FORBIDDEN:
         m = re.search(rule["re"], item["text"])
@@ -1744,7 +1859,8 @@ for item in string_constants:
             continue
         wide_hits.append({"file": item["file"], "line": item["line"],
                           "kind": item["kind"], "hit": m.group(0),
-                          "text": item["text"][:120], "why": rule["why"]})
+                          "text": item["text"][:120], "full": item["text"],
+                          "rule": rule["re"], "why": rule["why"]})
         break
 
 leftover = []
@@ -1778,6 +1894,37 @@ const BACKEND_FORBIDDEN_JSON = JSON.stringify(
 
 const BACKEND = pyJsonEnv(BACKEND_EXTRACTOR,
   { K71_BACKEND_FORBIDDEN_JSON: BACKEND_FORBIDDEN_JSON }, 180000);
+
+/*: 后端"窄面"扫描单元（detail=/message= 关键字实参 + 10 个字典键 + 文案常量模块的常量）。 */
+function backendNarrowUnits() {
+  return BACKEND.user_facing.concat(BACKEND.constants)
+    .map((u) => ({ file: u.file, line: u.line, kind: u.kind || u.name, text: u.text }));
+}
+
+/*: 后端**宽面**的例外判定（k80-M1 的第二台扫描器）：
+    检测本身在 python 侧完成（同一份规则表经 env 传入，含 unlessNear 与常量折叠），
+    这里**只做例外表判定** —— 命中项的 (file, ruleRe=命中规则的正则源码, unit=常量完整文本)
+    三元组若在 CONTEXT_EXEMPT 里登记过 ⇒ 放行（并记为"该条目被用到"，供 ③卫生 断言）。
+    为什么在 JS 侧判：例外表经 env 塞进 python 模板串要多一层转义 = 新的歧义面；
+    而 `rule`（规则正则源码）与 `full`（未截断的常量原文）已由抽取器回传，JS 侧可逐字比对。
+    注意 unit 用 `full` 而不是截断到 120 字的 `text`：登记的必须是**整条文案**的精确文本。 */
+function wideFaceScan() {
+  const bad = [];
+  const usedExempt = [];
+  const usedSeen = new Set();
+  for (const h of BACKEND.wide_face_hits) {
+    const idx = exemptHitIndex(CONTEXT_EXEMPT, h.file, h.rule, h.full);
+    if (idx >= 0) {
+      if (!usedSeen.has(idx)) {
+        usedSeen.add(idx);
+        usedExempt.push({ index: idx, entry: CONTEXT_EXEMPT[idx], hit: h });
+      }
+      continue;
+    }
+    bad.push(`${h.file}:${h.line} [${h.kind}] 命中「${h.hit}」← ${h.why}`);
+  }
+  return { bad, usedExempt };
+}
 
 test('k78-必修2 前提：后端用户可见字符串面真的被枚举到（抽取器不得失效）', () => {
   assert.deepEqual(BACKEND.parse_failures, [],
@@ -1831,12 +1978,14 @@ test('k79-必修2 宽面：禁语表过一遍 src/ 全部中文字符串常量�
        a. **常量折叠 + 局部名解析**（抽取器里的 `const_str` / `collect_locals`）⇒
           ③④ 现在落在窄面上；①② 折出来的整句落在宽面上；
        b. **禁语表也过宽面**（本节）：全部中文字符串常量 + 折叠结果逐条过 4 条禁语。
-     噪声：本条规则**自己先实测过** —— 本仓 3.3 万条中文字符串（含折叠）对 4 条禁语
+     噪声：本条规则**自己先实测过** —— 本仓全部中文字符串（含折叠）对 4 条禁语
      **零命中**，故**不引入**"汉字数据表白名单"（白名单本身就是一个新的"面外"）。
-     若日后数据表里真的出现这些句子，本断言会红 —— 那是**要人来判**的信号，
-     不是自动豁免。 */
-  const bad = BACKEND.wide_face_hits.map(
-    (h) => `${h.file}:${h.line} [${h.kind}] 命中「${h.hit}」← ${h.why}`);
+     若日后数据表里真的出现这些句子，本断言会红 —— 那是**要人来判**的信号：
+     k80-M1 起，唯一的放行路径是**逐条显式登记**（CONTEXT_EXEMPT 的三元组精确命中，
+     见 §15 的四道机制），**没有**自动豁免 —— 不许往 unlessNear 里塞词（那是削弱规则）。
+     （k80-M2：本注释不写死条数 —— 它随代码变化，手写必漂移；真值见断言里
+      `BACKEND.string_constants` / `BACKEND.folded` 的运行时实测。） */
+  const { bad } = wideFaceScan();
   assert.deepEqual(bad, [],
     `src/ 的字符串常量里出现与代码不符的绝对句（窄面之外也要拦）：\n  - `
     + bad.join('\n  - '));
@@ -1846,27 +1995,14 @@ test('k79-必修2 宽面：禁语表过一遍 src/ 全部中文字符串常量�
 });
 
 test('k78-必修2 后端用户可见字符串：禁语表逐条扫描（含常量面）', () => {
-  const UNLESS_WINDOW = 160;
-  const units = BACKEND.user_facing.concat(BACKEND.constants);
-  const violations = [];
-  for (const u of units) {
-    for (const rule of BACKEND_FORBIDDEN) {
-      const re = new RegExp(rule.re.source, 'g');
-      let m;
-      while ((m = re.exec(u.text)) !== null) {
-        if (!m[0]) { re.lastIndex++; continue; }
-        const i = m.index;
-        const win = u.text.slice(Math.max(0, i - UNLESS_WINDOW),
-          i + m[0].length + UNLESS_WINDOW);
-        if (rule.unlessNear && rule.unlessNear.test(win)) continue;
-        violations.push(`${u.file}:${u.line} [${u.kind || u.name}] 命中「${m[0]}」：${rule.why}`);
-        break;
-      }
-    }
-  }
-  assert.deepEqual(violations, [],
-    `后端用户可见文案出现与代码不符的绝对句（共 ${violations.length} 处）：\n  - `
-    + violations.join('\n  - '));
+  /* k80-M1：判定走共用的 `scanUnits`（与 miniprogram 面、注入证明同一套逻辑），
+     CONTEXT_EXEMPT 对后端窄面一并生效。 */
+  const { violations } = scanUnits(backendNarrowUnits(), BACKEND_FORBIDDEN, CONTEXT_EXEMPT);
+  const bad = violations.map(
+    (v) => `${v.file}:${v.line} [${v.kind}] 命中「${v.hit}」：${v.why}`);
+  assert.deepEqual(bad, [],
+    `后端用户可见文案出现与代码不符的绝对句（共 ${bad.length} 处）：\n  - `
+    + bad.join('\n  - '));
 });
 
 test('k78-必修2 旧文案字面量不得以字符串常量形式回归 src/', () => {
@@ -1883,4 +2019,185 @@ test('k78-必修2 文案常量确实被用上（单一事实源不是"定义了�
   assert.deepEqual(unused, [],
     '下列文案常量**没有任何调用点原样引用**（要么被内联副本取代 = 口径分裂，'
     + '要么常量已死）：\n  - ' + unused.join('\n  - '));
+});
+
+/* ════════════════════════════════════════════════════════════════
+   15. k80-M1：例外机制的"防新面外"四条机制（① 有界 / ② 可枚举 / ③ 卫生 / ④ 不削弱）
+       —— 表本体与 ② 的"条目数钉住"在 §12 前的 `CONTEXT_EXEMPT` 处（紧邻常量
+       `CONTEXT_EXEMPT_MAX`），本节放 ① 的形状检查、③ 的卫生、④ 的注入证明。
+       k80-M2：消灭本文件里"宽面条数"的手写数字（改为运行时实测）。
+   ════════════════════════════════════════════════════════════════ */
+
+/*: 三张禁用规则表的合集（形状检查用它判定"ruleRe 是不是一条**存在**的规则"）。 */
+const ALL_FORBIDDEN_RULES = []
+  .concat(REPO_FORBIDDEN)
+  .concat([RULES_SHARE_DELETE_ON_CANCEL])
+  .concat(BACKEND_FORBIDDEN);
+const ALL_FORBIDDEN_RULE_SOURCES = ALL_FORBIDDEN_RULES.map((r) => r.re.source);
+
+test('k80-M1 例外表①有界：条目只能对 (完整相对路径, 存在的规则, 整条文案) 三元组生效', () => {
+  const errs = contextExemptShapeErrors(CONTEXT_EXEMPT, ALL_FORBIDDEN_RULE_SOURCES);
+  assert.deepEqual(errs, [],
+    `例外登记表形状不合规（共 ${errs.length} 条）：\n  - ${errs.join('\n  - ')}\n`
+    + '（对照：REPO_FORBIDDEN、RULES_SHARE_DELETE_ON_CANCEL、BACKEND_FORBIDDEN 三张表的'
+    + `规则正则源码合集共 ${ALL_FORBIDDEN_RULE_SOURCES.length} 条可选）\n整张表：\n`
+    + JSON.stringify(CONTEXT_EXEMPT, null, 2));
+});
+
+test('k80-M1 例外表③卫生：登记过的例外必须仍然被需要（一次都没用到即红，防豁免堆积）', () => {
+  /* 四台扫描器全部跑真实的仓内文案（不注入），把"被用到的条目"汇总起来 ——
+     某条登记在四台里**一次都没被用到**，说明那条文案已经不出现/已改写 ⇒ 例外该删。 */
+  const runs = [
+    ['§12 miniprogram 全仓禁语面', scanUnits(repoCopyUnits(), REPO_FORBIDDEN, CONTEXT_EXEMPT,
+      { quotedExempt: REPO_FORBIDDEN_EXEMPT })],
+    ['§13 注销即删分享链接条件规则面', scanUnits(repoCopyUnits(), [RULES_SHARE_DELETE_ON_CANCEL], CONTEXT_EXEMPT)],
+    ['§14 后端窄面（detail=/message=/常量）', scanUnits(backendNarrowUnits(), BACKEND_FORBIDDEN, CONTEXT_EXEMPT)],
+    ['§14 后端宽面（全部中文字符串常量）', wideFaceScan()],
+  ];
+  const usedIndexes = new Set();
+  runs.forEach(([, r]) => r.usedExempt.forEach((x) => usedIndexes.add(x.index)));
+  const stale = CONTEXT_EXEMPT.map((e, i) => ({ i, e })).filter((x) => !usedIndexes.has(x.i))
+    .map((x) => `#${x.i} file=${x.e.file} ← ruleRe=${JSON.stringify(x.e.ruleRe)} ← unit「${x.e.unit}」`);
+  assert.deepEqual(stale, [],
+    `下列例外登记在四台扫描器里**一次都没被用到**（那条文案已经不出现 / 已改写）→ `
+    + '请删掉例外并同步下调 CONTEXT_EXEMPT_MAX，避免豁免只增不减：\n  - '
+    + stale.join('\n  - ') + '\n整张表：\n' + JSON.stringify(CONTEXT_EXEMPT, null, 2));
+});
+
+test('k80-M1 例外表④不削弱 + 注入证明：正当文案未登记→红 / 已登记→绿，同文件真违规仍红', () => {
+  /* 为什么必须有这条（k79-final2 终验）：宽容的宽面正则必然有假红，终验注入的 4 条
+     **正当文案**里 3 条被判红。正确的修法只能是"逐条显式登记"，而"把词塞进 unlessNear"
+     会把**真违规**一起放过。本测试用**同一套判定函数** `scanUnits`（真实扫描在用的那个）
+     跑三段，逐段打印原始结果：
+       ① 未登记      → 判红（复现 k79 终验那 3 条假红）
+       ② 登记三元组  → 判绿（且该条目被记为"被用到"，③ 卫生才不形同虚设）
+       ③ 同文件真违规 → **仍判红**（证明那条登记没有削弱这条规则）
+     三条正当文案逐条给出它命中的**哪张表的哪条规则**（截取自 k79-final2 终验报告）。 */
+  const CASES = [
+    { name: '导出权（PIPL 第 45 条数据可携带权）',
+      file: 'src/security/account_copy.py',
+      rule: BACKEND_FORBIDDEN[0],
+      faces: [['§14 后端面', [BACKEND_FORBIDDEN[0]]]],
+      legit: '导出你的所有个人数据（数据可携带权）',
+      truth: '所有个人数据已删除',
+      truthHit: '所有个人数据',
+      why: '这是**导出权**（把用户自己的全部数据还给他），不是"已删除"式的不实绝对句：'
+        + '规则要禁的是"所有个人数据已删除"这类漏掉依法留存例外的断言，导出权与留存无矛盾' },
+    { name: '本地缓存（不是分享链接）',
+      file: 'pages/settings/settings.wxml',
+      rule: RULES_SHARE_DELETE_ON_CANCEL,
+      faces: [['§13 条件规则面', [RULES_SHARE_DELETE_ON_CANCEL]],
+        ['§14 后端面（同一条正则）', [BACKEND_FORBIDDEN[3]]]],
+      legit: '注销后立即删除本地缓存',
+      truth: '注销后立即删除分享链接',
+      truthHit: '注销后立即删除',
+      why: '说的是**本地缓存**，不是分享链接：规则要禁的是"注销 ⇒ 一律立即删除分享链接"'
+        + '（归属未知的老报告刻意不删）；本地缓存确实随注销清掉，与代码一致' },
+    { name: '古籍/签文数据表里的成语',
+      file: 'src/data/classics.py',
+      rule: BACKEND_FORBIDDEN[2],
+      faces: [['§14 后端面', [BACKEND_FORBIDDEN[2]]]],
+      legit: '破镜不可恢复',
+      truth: '数据删除（不可恢复）',
+      truthHit: '不可恢复',
+      why: '这是古籍/签文数据（破镜重圆类词条）里的成语，不是隐私承诺：规则要禁的是'
+        + '与"备份仍可由人工尝试找回"冲突的恢复承诺' },
+  ];
+  const uniq = (xs) => [...new Set(xs)];
+  const brief = (r) => JSON.stringify(r.violations.map(
+    (v) => ({ file: v.file, unitIndex: v.unitIndex, hit: v.hit })));
+  const evidence = ['k80-M1 注入证明（判定函数 = scanUnits，与 §12/§13/§14 真实扫描同一套）：'];
+
+  CASES.forEach((c, ci) => {
+    /* 注入用例必须对着**真实规则表里的那条规则对象**跑（防"用例与真表脱节"） */
+    assert.ok(ALL_FORBIDDEN_RULES.indexOf(c.rule) !== -1,
+      `用例「${c.name}」引用的规则不在任何真实禁用规则表里（注入证明与真表脱节）`);
+    const unit = (text) => ({ file: c.file, text, kind: 'js-string' });
+    /* 登记条目（局部构造，**不动真表** —— 真表仍必须是 0 条，见 ②可枚举） */
+    const entry = { file: c.file, ruleRe: c.rule.re.source, unit: c.legit, why: c.why };
+
+    c.faces.forEach(([faceName, rules]) => {
+      /* ① 未登记 → 判红（复现 k79-final2 假红） */
+      const before = scanUnits([unit(c.legit)], rules, []);
+      assert.ok(before.violations.length >= 1,
+        `用例「${c.name}」× ${faceName}：未登记时应判红（这就是 k79 终验报的假红），实际判绿`
+        + ' —— 注入串/规则表对不上了？');
+      assert.equal(before.usedExempt.length, 0, '未登记时不该有"被用到的例外"');
+
+      /* ② 登记 (file, ruleRe, unit) 三元组 → 判绿（且条目被记为"被用到"） */
+      const after = scanUnits([unit(c.legit)], rules, [entry]);
+      assert.deepEqual(after.violations, [],
+        `用例「${c.name}」× ${faceName}：登记了三元组却仍判红（例外机制没接通）——`
+        + `原始命中：${brief(after)}`);
+      assert.equal(after.usedExempt.length, 1,
+        `用例「${c.name}」× ${faceName}：登记条目没被记为"被用到"`
+        + '（③ 卫生测试会因此形同虚设）');
+
+      /* ③ 同一条文件里的**真违规**：同一登记下仍判红（= 没削弱规则） */
+      const mixed = scanUnits([unit(c.legit), unit(c.truth)], rules, [entry]);
+      assert.ok(mixed.violations.length >= 1,
+        `用例「${c.name}」× ${faceName}：同文件的真违规「${c.truth}」被这条登记一起放过了`
+        + '（= 削弱规则，判据不成立）');
+      assert.ok(mixed.violations.every((v) => v.unitIndex === 1),
+        `用例「${c.name}」× ${faceName}：被判红的不是真违规单元（unitIndex 应全为 1）——`
+        + `原始命中：${brief(mixed)}`);
+      assert.ok(mixed.violations.some((v) => v.hit === c.truthHit),
+        `用例「${c.name}」× ${faceName}：真违规命中的不是「${c.truthHit}」——`
+        + `原始命中：${brief(mixed)}`);
+      /* ④ 只喂真违规（同文件、同登记）也独立判红 */
+      const truthOnly = scanUnits([unit(c.truth)], rules, [entry]);
+      assert.ok(truthOnly.violations.length >= 1,
+        `用例「${c.name}」× ${faceName}：登记后单喂真违规竟判绿 —— 原始命中：${brief(truthOnly)}`);
+
+      evidence.push(`  [用例 ${ci + 1} ${c.name} × ${faceName}]`
+        + ` file=${c.file} ruleRe=${c.rule.re.source}`
+        + `\n    ① 未登记 正当文案「${c.legit}」 → 判红（命中 ${before.violations.length} 处）：${brief(before)}`
+        + `\n    ② 已登记 unit「${c.legit}」 → 判绿（violations=0；登记条目被用到 ${after.usedExempt.length} 次）`
+        + `\n    ③ 同一登记下 真违规「${c.truth}」 → 仍判红（命中 ${mixed.violations.length} 处）：${brief(mixed)}`);
+    });
+  });
+  /* 真表必须仍是 0 条（注入用的是局部表）——与 ②可枚举 双保险 */
+  assert.equal(CONTEXT_EXEMPT.length, 0,
+    `注入证明只该用**局部**构造的例外表，真表 CONTEXT_EXEMPT 必须仍是 0 条，实际 `
+    + `${CONTEXT_EXEMPT.length} 条：\n${JSON.stringify(CONTEXT_EXEMPT, null, 2)}`);
+  console.log(evidence.join('\n'));
+});
+
+/* ── k80-M2：消灭"宽面条数"的手写数字 ─────────────────────────────────────
+   根因：这个数**每改一次代码就变**（k79 报告 / 终验 / 本树实测给出三个互不相同的值），
+   手写必然漂移 —— 于是本判据**不点名任何历史数字**（点名本身就得把数字写回文件），
+   改用**结构判据**：本文件里凡"数字紧贴『条』"且同一行出现"宽度词"的写法一律红。
+   真值交给运行时实测（失败信息里带上 `BACKEND.string_constants` / `BACKEND.folded`）。
+   既有阈值断言（`>= 1000` / `>= 250` / `>= 4` / `>= 100` 等）一个都不动。 */
+test('k80-M2 消灭手写条数：本文件不得再写死"宽面条数"（必须运行时实测）', () => {
+  const SELF = fs.readFileSync(__filename, 'utf8');
+  /*: 数字紧贴「条」= 在"声称条数"（阈值写法如 `>= 1000,` 后面没有『条』，不会命中）。 */
+  const WIDTH_NUMBER = /[0-9]{4,}\s*条|[0-9]+(?:\.[0-9]+)?\s*万\s*条/;
+  /*: 同一行出现"宽度词"才算（避免把无关的『第 31 条』『4 条禁语』误判）。 */
+  const WIDTH_WORD = /中文字符串|字符串常量|宽面|string_constants|条数/;
+  const bad = SELF.split('\n')
+    .map((text, i) => ({ line: i + 1, text }))
+    .filter((x) => WIDTH_NUMBER.test(x.text) && WIDTH_WORD.test(x.text))
+    .map((x) => `第 ${x.line} 行：${x.text.trim()}`);
+  assert.deepEqual(bad, [],
+    '本文件又把"宽面条数"写成了死数字（数字随代码变化，手写必漂移）——'
+    + '请改成运行时实测表述：\n  - ' + bad.join('\n  - ')
+    + `\n真值（本次运行实测）：BACKEND.string_constants=${BACKEND.string_constants}`
+    + `、BACKEND.folded=${BACKEND.folded}`
+    + `（面不能悄悄缩小的判据由既有的 >= 1000 阈值钉住，未改动）`);
+
+  /* 三个历史漂移数字：**不把数字本身写回文件**，所以在这里按位拼出来 ——
+     谁把它们粘回本文件即红（"眼不见为净"地删掉判据是不行的）。 */
+  const STALE_WIDTH_NUMBERS = [[3, 3, 4, 6, 9], [3, 4, 3, 0, 6], [3, 3, 5, 8, 0]]
+    .map((digits) => digits.join(''));
+  const revived = STALE_WIDTH_NUMBERS.filter((n) => SELF.indexOf(n) !== -1);
+  assert.deepEqual(revived, [],
+    '下列"宽面条数"的历史数字又被粘回本文件（应改成运行时实测表述）：'
+    + revived.join(', ')
+    + `\n真值（本次运行实测）：BACKEND.string_constants=${BACKEND.string_constants}`
+    + `、BACKEND.folded=${BACKEND.folded}`);
+
+  console.log(`k80-M2 实测（运行时，非手写）：src/ 中文字符串常量 BACKEND.string_constants=`
+    + `${BACKEND.string_constants}（其中可折叠 folded=${BACKEND.folded}）；`
+    + `本文件里的"宽面条数"手写数字：${bad.length} 处；历史漂移数字复活：${revived.length} 处`);
 });

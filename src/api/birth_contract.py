@@ -23,8 +23,45 @@ SHICHEN_TO_HOUR = {0: 23, 1: 1, 2: 3, 3: 5, 4: 7, 5: 9,
                    6: 12, 7: 13, 8: 15, 9: 17, 10: 19, 11: 21}
 
 
+#: 性别**白名单**（唯一事实源）—— 与 `storage/person_dao._normalize_gender`、
+#: `engines/bazi.BaziEngine.calculate` 的 `_gender_out`、小程序
+#: `miniprogram/tests/gender_contract.test.js` 声明的契约**同一个词表**：
+#: `'男' | '女' | 'unknown'`（中文单一契约；不产出 male/female，也不透传任意串）。
+GENDERS: Tuple[str, ...] = ("男", "女", "unknown")
+
+#: 别名 → 白名单值（大小写/空白无关）。**白名单之外的输入不在这里兜底**，
+#: 一律按 `unknown` 处理（见下）。
+_GENDER_ALIASES = {
+    "1": "男", "m": "男", "male": "男", "男": "男", "man": "男",
+    "boy": "男", "male1": "男",
+    "0": "女", "f": "女", "female": "女", "女": "女", "woman": "女",
+    "girl": "女",
+    # "unknown"/"未知"/"" 等"不知道"的写法（含历史脏值）统一进 unknown
+    "unknown": "unknown", "未知": "unknown", "性别未知": "unknown",
+    "": "unknown", "none": "unknown", "null": "unknown", "nan": "unknown",
+}
+
+
+def is_valid_gender(gender) -> bool:
+    """该值是否**已经在**白名单内（`男`/`女`/`unknown`）。
+
+    给 API 边界（pydantic 校验器）用：只用它判"要不要拒"，归一化一律走
+    `normalize_gender`（两者同一个词表，不会再出现第二个白名单）。
+    """
+    return normalize_gender(gender) in GENDERS
+
+
 def normalize_gender(gender: Union[int, str, None]) -> str:
-    """性别归一化：1/0、male/female、男/女 → 男/女（八字引擎只认 男/女）。"""
+    """性别归一化：1/0、male/female、男/女 → 男/女；**其余一律 → "unknown"**。
+
+    改前（k80 必修1 的根因）：白名单之外**原样透传** `str(gender)` —— 于是
+    `POST /api/report/generate` 的 `gender` 可以是任意字符串（如
+    `</script><script>alert(document.cookie)</script>`），经 `profile.gender`
+    落盘、再被报告页内嵌进 `<script>`，形成**存储型 XSS**（匿名分享页
+    `/share/{id}` 上执行）。"未知"是**受控值**（白名单成员），不是"转发用户给的串"。
+
+    None/bool/int 的既有口径不变：None → 男（历史默认）、True/1 → 男、False/0 → 女。
+    """
     if gender is None:
         return "男"
     if isinstance(gender, bool):
@@ -32,11 +69,7 @@ def normalize_gender(gender: Union[int, str, None]) -> str:
     if isinstance(gender, int):
         return "男" if gender == 1 else "女"
     g = str(gender).strip().lower()
-    if g in ("1", "m", "male", "男", "man", "boy", "male1"):
-        return "男"
-    if g in ("0", "f", "female", "女", "woman", "girl"):
-        return "女"
-    return str(gender)
+    return _GENDER_ALIASES.get(g, "unknown")
 
 
 def normalize_hour(hour: Optional[int], clock_signal: bool = False) -> int:

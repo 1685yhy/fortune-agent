@@ -17,7 +17,7 @@ from typing import Optional, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from src.security.auth import require_user
 from src.engines.bazi import BaziEngine, BaziResult, TIANGAN, DIZHI, WUXING_TG, WUXING_DZ
@@ -46,6 +46,37 @@ class BirthInfo(BaseModel):
     gender: str = "男"
     city: str = "北京"
     name: str = ""
+
+    # ── k80-必修1 第 1 层（**根因层**）：入参白名单 ─────────────────────────
+    # 改前 `gender: str = "男"` **无任何校验**：任意字符串原样进 `profile.gender`
+    # 落盘，再被报告页内嵌进 `<script>`（匿名分享页 `/share/{id}` 上执行攻击者 JS
+    # —— 存储型 XSS）。这里在**入口**上把它收敛到白名单值（`男`/`女`/`unknown`，
+    # 与 `birth_contract.normalize_gender` / `person_dao` / 前端 gender 契约同词表）。
+    #
+    # 为什么是"归一化"而不是"422 拒收"：本仓既有的性别契约就是
+    # `'男' | '女' | 'unknown'` 三值（见 `miniprogram/tests/gender_contract.test.js`
+    # 与 `src/storage/person_dao._normalize_gender`），前端历史契约还会送
+    # `male`/`female`/1/0 —— 拒收会把正当调用方打挂；"未知"是**受控值**，
+    # 不是"把用户给的串转发下去"。白名单之外的一切（含攻击载荷）都变成
+    # `unknown`，不可能再带出任何字符。
+    @field_validator("gender")
+    @classmethod
+    def _gender_in_whitelist(cls, v):
+        from src.api.birth_contract import normalize_gender
+        return normalize_gender(v)
+
+    #: 展示用字段的长度上限（同类根因：`name` 也是**无校验的自由文本**，改前能长到
+    #: 任意长度并直接进 `<title>`/og 标签）。这里只做"长度 + 控制字符"的卫生，
+    #: 内容一律靠输出编码层（`html_attr_text` / `esc()`）保证不被解释成 HTML/JS。
+    @field_validator("name", "city")
+    @classmethod
+    def _clean_short_text(cls, v, info):
+        import re as _re
+        text = str(v or "")
+        # 控制字符（含 NUL/换行）在标题与地名里没有任何正当用途
+        text = _re.sub(r"[\x00-\x1f\x7f]", "", text)
+        limit = 32 if info.field_name == "name" else 64
+        return text[:limit]
 
 
 class GenerateReportRequest(BaseModel):
@@ -437,7 +468,10 @@ def generate_report_data(
             logger.warning("报告归属落库失败（报告将按'归属未知'处理）: %s", e)
 
     # Store to disk
-    report_path = _DATA_DIR / f"{reading_id}.json"
+    # k80-M3：「路径怎么拼」**只有一份实现**（`report_path_in`）—— 改前这里有第二处
+    # 内联的「目录常量 + 拼接文件名」，k79 的声明"路径唯一实现"与代码对不上
+    # （写路径与读路径各拼各的，正是"同一件事两份实现"的老毛病）。现在读写同源。
+    report_path = report_path_in(_DATA_DIR, reading_id)
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
 
     return report
@@ -550,6 +584,59 @@ def json_safe(value, _depth: int = 0):
     return str(value)
 
 
+#: 内嵌 `<script>` 时必须转义的字符（k80-必修1 的**输出编码层**）：
+#:   - `<` `>` `&`：`<`/`>` 让 `</script>` 之类的串**提前闭合脚本标签**（存储型 XSS 的正门），
+#:     `&` 是 HTML 实体入口（配合 `innerHTML` 的二次解析）；
+#:   - U+2028 / U+2029（下面元组里的两个**行分隔符**字符）：JS 里它们算换行，
+#:     出现在字符串字面量中即 SyntaxError（整页脚本死掉 = 白屏）；
+#:   - `$`：本页的模板替换用 `string.Template`，而 `report_json` 是**先 `.replace()`
+#:     进模板、再交给 `safe_substitute`** 的 —— 用户数据里若含 `$og_title` 之类，
+#:     会被二次替换（把别处的占位值注入进来）。转义 `$` 后这一整类都不成立。
+#:
+#: 用 `\uXXXX` 形式（而不是 `&lt;` 之类实体）：这些串处在 **JS 字面量**里，
+#: `<` 经 JS/JSON 解析后**正好等于** `<`，语义零变化；而实体只会变成字面文本。
+_SCRIPT_ESCAPES = (("<", "\\u003c"), (">", "\\u003e"), ("&", "\\u0026"),
+                   (" ", "\\u2028"), (" ", "\\u2029"),
+                   ("$", "\\u0024"))
+
+
+def json_for_script(value) -> str:
+    """把对象序列化成**可安全内嵌进 `<script>`** 的字符串（k80-必修1 输出编码层）。
+
+    通用修法：**覆盖所有字段**，不只是 `gender` —— 任何字段（`name`、`insights`、
+    LLM 产出、将来的新字段）变脏都不该能逃出脚本标签。
+
+    改前 `_build_report_html` 把 `json.dumps(...)` **原样**塞进
+    `var REPORT = …;`：`profile.gender = '</script><script>alert(document.cookie)</script>'`
+    即提前闭合脚本、注入攻击者 JS，在**匿名公开页** `/share/{id}` 上执行
+    （k80 终验实测：页面里 `<script` 出现 2 次，正常应为 1 次）。
+
+    与 `json_safe` 的分工：`json_safe` 管**值**（NaN/Infinity/超深嵌套 → 可序列化），
+    本函数管**编码**（序列化后的字面文本在 HTML 的 `<script>` 里不构成逃逸）。
+    """
+    text = json.dumps(json_safe(value), ensure_ascii=False)
+    for raw, escaped in _SCRIPT_ESCAPES:
+        text = text.replace(raw, escaped)
+    return text
+
+
+def js_string_literal(value) -> str:
+    """把任意值变成**一段合法的 JS 字符串字面量**（含引号）。
+
+    用于 `var X = <literal>;` 这种"值要进 JS 字符串"的位置。
+    改前的做法是 `str(v).replace('"', '&quot;')`（只挡双引号）——反斜杠、换行、
+    `</script>` 全都能逃出去：`share_text` 里一个换行就把 `var SHARE_TEXT = "…";`
+    变成未闭合字符串 ⇒ **整页 SyntaxError 白屏**（k80 终验实测 `html_len=0`）。
+    """
+    return json_for_script(value if isinstance(value, str) else str(value))
+
+
+def html_attr_text(value) -> str:
+    """把任意值变成可安全放进 **HTML 文本/属性**的字符串（`& < > " '` 全转义）。"""
+    import html as _html
+    return _html.escape(value if isinstance(value, str) else str(value), quote=True)
+
+
 def first_insight_text(report, limit: int = 0) -> str:
     """报告里**第一条可展示的洞察文本**；没有则空串。
 
@@ -653,6 +740,35 @@ def report_shape_problem(report) -> str:
 #:   7. `storage/dao.py::purge_report_files`（`UserDAO.cancel_user` /
 #:      `purge_account_data` → 注销接口）
 #:      → `owner_enc`、`reading_id`（决定要删的 PNG 名）。
+#:
+#: ## 这份清单**拦得住什么**、**仍在面外**什么（k80-必修3：如实写清楚）
+#:
+#: 机器门禁 = `tests/test_k80_xss_privacy_final.py::TestConsumerInventoryGateIsNotBypassable`。
+#: 扫描面（k80 扩面）：`src/**/*.py`（含将来的 `src/plugins/`）+ **`scripts/**/*.py`**
+#: + **仓根 `*.py`**；排除 `tests/`、`data/`。
+#:
+#: 拦得住的形态（每一条都有注入证明，见该测试类的 param 列表）：
+#:   - **符号引用**：直接 `Name`/`Attribute` 引用本清单任一符号（含 `load_report`、
+#:     `report_shape_problem`、`json_for_script` 等）；
+#:   - **路径拼接**：`/ "reports"`、`os.path.join(..., "reports", ...)`、
+#:     `"data/reports/" + rid + ".json"` 这类**静态可折叠**的路径串；
+#:   - **动态取函数名**：`getattr(m, "load_" + "report")`（静态折叠成 `load_report`
+#:     → 名字里带 report → 红）、`getattr(m, suffix + "report")`（折叠不出来，但字面
+#:     里带 report → 红）、`getattr(m, "load_report_from")`（常量名带 report → 红）；
+#:   - **动态导入**：`importlib.import_module("src.api." + "visual_report")`。
+#:
+#: **仍在面外**（如实列出，别当成已覆盖）：
+#:   - **运行期**才拼出来的路径/函数名：从数据库、配置、环境变量读来的目录或符号名，
+#:     `.format()`/`%`/`join()` **在运行时**产出的串（扫描器只做静态折叠）；
+#:   - **跨函数/跨模块的数据流**：把目录或符号名当参数传来传去，最终在第 3 个文件里
+#:     用到（扫描器不做过程间分析）；
+#:   - **间接消费**：新代码不碰路径也不碰这些符号，而是调用 `GET /api/report/{id}`
+#:     这类**接口**（HTTP 层）拿到数据 —— 扫描器看的是源码符号，不是调用图；
+#:   - **非 .py 的消费点**：`.js` / `.sh` / `.md` 里的脚本直接读 `data/reports/*.json`；
+#:   - **tests/ 与 data/ 目录**（有意排除：测试本来就要造报告语料）。
+#:
+#: ⇒ 结论：**"源码里静态可折叠的报告路径/符号引用"这一面不会逃逸；上面几类仍在面外**，
+#: 新增消费点时别指望门禁替你把关 —— 它只负责"让你看见"。
 _REPORT_JSON_CONSUMERS = (
     "src/api/visual_report.py::get_report_json",
     "src/api/visual_report.py::get_report_page",
@@ -808,18 +924,18 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
         return _simple_error_html(problem)
 
     try:
-        report_json = _json.dumps(json_safe(report), ensure_ascii=False)
+        report_json = json_for_script(report)
     except Exception as e:
         # k79：报告**能解析但序列化不了**时（超深嵌套触到递归上限等）不再 500 ——
         # 退成"只带可展示文本的最小载荷"，页面照常出（判据只保证结构，兜底在这里）。
         logger.warning("报告 JSON 重新序列化失败，降级为最小载荷: %s", e)
-        report_json = _json.dumps({
+        report_json = json_for_script({
             "generated_date": as_text(report.get("generated_date")),
             "insights": [first_insight_text(report)],
-        }, ensure_ascii=False)
+        })
     # 分享文案由调用方给定，允许任何类型（f-string/常量都会给 str）；
     # 非 str 一律按空串处理，绝不在本函数里抛。
-    share_text_escaped = str(share_text or "").replace('"', '&quot;')
+    share_text_escaped = js_string_literal(share_text or "")
 
     # Build OG title（k78/k79：全部走 .get() + 类型兜底，缺字段不再 KeyError）
     profile = as_mapping(report.get("profile"))
@@ -833,6 +949,18 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
     og_desc = first[:100] or "AI命理分析报告"
     og_desc_short = first[:80] or "AI命理分析报告"
     reading_id = as_text(report.get("reading_id"))
+
+    # k80-必修1（输出编码层 · HTML 侧）：og:* / title / description 落在 **HTML 文本与属性**
+    # 上下文里，必须 HTML 转义。改前只对 share_text 做了半套（只换 `"`）——
+    # `profile.name` 走 og_title 直接进 `<title>`（RCDATA：`</title><script>…` 即逃逸）
+    # 与 `<meta content="…">`（属性逃逸），是同一 Critical 的第二条通路。
+    og_title_h = html_attr_text(og_title)
+    og_desc_h = html_attr_text(og_desc)
+    og_desc_short_h = html_attr_text(og_desc_short)
+    # 分享地址两条通道各一份：og:url 进 HTML 属性；JS 里那份进字符串字面量。
+    share_url_js = js_string_literal(
+        share_url or f"{_PUBLIC_BASE}/share/{reading_id}")
+    og_url_h = html_attr_text(share_url or f"{_PUBLIC_BASE}/report/{reading_id}")
 
     # The static HTML/CSS/JS template — contains NO Python f-string interpolation
     # All Python values are substituted via $PLACEHOLDER markers using string.Template
@@ -1039,42 +1167,103 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
     <script>
     (function() {
         var REPORT = $report_json;
-        var SHARE_TEXT = "$share_text_escaped";
+        var SHARE_TEXT = $share_text_escaped;
         // k76：分享出去的链接必须是**分享通道**（/share/{id}，匿名可读）；
         // 本页（/report/{id}）自本批起需登录+归属校验，把它分享给别人等于给死链。
-        var SHARE_URL = "$share_url";
+        var SHARE_URL = $share_url;
+
+        /*: ── k80 兜底工具（服务端判据只保证"结构"，**值层面**一律在这里降级）──
+           三条原则（与 Python 侧 `as_text` / `as_mapping` / `first_insight_text`
+           同一套，别再各写各的）：
+             ① **容器层**：不是对象/数组 → 当空（k79 已有）；
+             ② **元素层**（k80-必修2 的根因）：数组**元素**不是对象、字段缺失/类型
+                错 → 该元素降级或跳过，**绝不让一个坏元素把整页渲染打死**。
+                k79 只补了容器层：`charts.wuxing_radar=[1,"x",null]` 在
+                `d.value` / `item.axis` 上仍然 TypeError → 白屏（复审实测
+                `html_len=0`）；
+             ③ **不把 repr 当文案**：对象/数组/NaN/Infinity 一律**不**渲染成
+                `[object Object]`／`NaN`（与 `as_text` 的"数字/容器 → 退回中性
+                文案"同原则；k80-M4 报的 `rec.action` 出 `[object Object]`、
+                `annual_trend` 缺 score 出 `MNaN,NaN` 都属这类）。 */
+        function isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+        function obj(v) { return isObj(v) ? v : {}; }
+        function arr(v) { return Array.isArray(v) ? v : []; }
+        function txt(v) {
+            if (typeof v === 'string') return v;
+            if (typeof v === 'number' && isFinite(v)) return String(v);
+            return '';
+        }
+        function num(v) {
+            if (typeof v === 'number') return isFinite(v) ? v : null;
+            if (typeof v === 'string' && v.trim() !== '') {
+                var n = Number(v);
+                return isFinite(n) ? n : null;
+            }
+            return null;
+        }
+        /*: **渲染汇点转义**（k80-必修1 的第 4 层，这条不修的话前 3 层都白修）：
+           值最终进 `innerHTML`，必须转义。只做"脚本标签逃逸"是不够的 —— payload
+           被 `<` 编码后仍是**运行时的 HTML 字符串**（如 img+onerror），拼进
+           innerHTML 照样执行（innerHTML 插入的 script 元素不执行，但事件属性会
+           执行）。所以每个插入点都过 esc()。
+           （本注释刻意不写尖括号形态的"script 标签"字样：它是**页面文本**的一部分，
+           会让"页面里有几个脚本标签"这种计数口径失真。） */
+        function esc(v) {
+            return txt(v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
 
         function render() {
-            var r = REPORT || {};
+            var r = obj(REPORT);
             // k79：字段逐个兜底（改前 p = r.profile 无保护，报告缺 profile/
             // bazi_analysis/charts 时下面 p.name / ba.geju / r.charts.* 会
             // TypeError → 页面白屏）。服务端判据漏判的形态在这里降级显示，
             // 绝不把整页打死。
-            var p = (r.profile && typeof r.profile === 'object') ? r.profile : {};
-            var ba = (r.bazi_analysis && typeof r.bazi_analysis === 'object') ? r.bazi_analysis : {};
-            var ch = (r.charts && typeof r.charts === 'object') ? r.charts : {};
-            var insights = Array.isArray(r.insights) ? r.insights : [];
-            var recs = Array.isArray(r.recommendations) ? r.recommendations : [];
-            var radar = Array.isArray(ch.wuxing_radar) ? ch.wuxing_radar : [];
-            var monthly = Array.isArray(ch.monthly_fortune) ? ch.monthly_fortune : [];
-            var annual = Array.isArray(ch.annual_trend) ? ch.annual_trend : [];
+            var p = obj(r.profile);
+            var ba = obj(r.bazi_analysis);
+            var ch = obj(r.charts);
+            var insights = arr(r.insights);
+            var recs = arr(r.recommendations);
+            // 元素层降级：只有"画得出来"的条目留下（数值必须是有限数）
+            var radar = arr(ch.wuxing_radar).filter(isObj).map(function(d) {
+                return { axis: txt(d.axis), value: num(d.value) };
+            }).filter(function(d) { return d.value !== null; });
+            var monthly = arr(ch.monthly_fortune).filter(isObj).map(function(m) {
+                return { label: txt(m.label), score: num(m.score) };
+            }).filter(function(m) { return m.score !== null; });
+            var annual = arr(ch.annual_trend).filter(isObj).map(function(y) {
+                return { year: txt(y.year), score: num(y.score) };
+            }).filter(function(y) { return y.score !== null; });
+            var recItems = recs.map(function(rec) {
+                var o = obj(rec);
+                return { time_window: txt(o.time_window), action: txt(o.action),
+                         reason: txt(o.reason) };
+            }).filter(function(x) {
+                return x.time_window || x.action || x.reason;
+            });
+            var shensha = arr(ba.shensha).map(txt).filter(function(s) {
+                return s.trim() !== '';
+            });
             var html = '';
 
             html += '<div class="report-header">';
             html += '<div class="badge">命运报告 v5.0</div>';
-            html += '<h1>' + (p.name || '我') + '的命运报告</h1>';
-            html += '<div class="subtitle">' + (r.generated_date || '') + ' · AI智能生成</div>';
+            html += '<h1>' + (esc(p.name) || '我') + '的命运报告</h1>';
+            html += '<div class="subtitle">' + esc(r.generated_date) + ' · AI智能生成</div>';
             html += '</div>';
 
             // Profile Card
+            var genderText = txt(p.gender);
             html += '<div class="profile-card">';
-            html += '<div class="bazi-display">' + (p.bazi || '') + '</div>';
-            html += '<div class="day-master">日主 ' + (p.day_master || '') + ' · ' + (p.gender || '') + '</div>';
+            html += '<div class="bazi-display">' + esc(p.bazi) + '</div>';
+            html += '<div class="day-master">日主 ' + esc(p.day_master) +
+                    (genderText ? ' · ' + esc(genderText) : '') + '</div>';
             html += '<div style="margin-top:12px">';
-            html += '<div class="row"><span class="label">出生</span><span class="value">' + (p.birth_info || '') + '</span></div>';
-            html += '<div class="row"><span class="label">格局</span><span class="value">' + (ba.geju || '') + '</span></div>';
-            html += '<div class="row"><span class="label">用神</span><span class="value">' + (ba.yongshen || '') + '</span></div>';
-            html += '<div class="row"><span class="label">神煞</span><span class="value">' + (ba.shensha && ba.shensha.length ? ba.shensha.join('、') : '无') + '</span></div>';
+            html += '<div class="row"><span class="label">出生</span><span class="value">' + esc(p.birth_info) + '</span></div>';
+            html += '<div class="row"><span class="label">格局</span><span class="value">' + esc(ba.geju) + '</span></div>';
+            html += '<div class="row"><span class="label">用神</span><span class="value">' + esc(ba.yongshen) + '</span></div>';
+            html += '<div class="row"><span class="label">神煞</span><span class="value">' + (shensha.length ? esc(shensha.join('、')) : '无') + '</span></div>';
             html += '</div></div>';
 
             // Wuxing Analysis
@@ -1086,19 +1275,18 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
             html += '<div class="radar-legend">';
             var wxClr = {"金":"#f0d060","木":"#60c060","水":"#5090e0","火":"#e06060","土":"#c09050"};
             radar.forEach(function(item) {
-                html += '<div class="radar-legend-item"><span class="dot" style="background:' + wxClr[item.axis] + '"></span>' + item.axis + ' ' + item.value + '</div>';
+                html += '<div class="radar-legend-item"><span class="dot" style="background:' + (wxClr[item.axis] || '#667eea') + '"></span>' + esc(item.axis) + ' ' + item.value + '</div>';
             });
             html += '</div>';
 
             // Wuxing bars
             html += '<div class="wuxing-bars">';
+            var maxVal = Math.max(1, Math.max.apply(null, radar.map(function(x) { return x.value; })));
             radar.forEach(function(item) {
-                var vals = radar.map(function(x) { return x.value; });
-                var maxVal = Math.max(1, Math.max.apply(null, vals));
                 var pct = Math.round((item.value / maxVal) * 100);
-                html += '<div class="wuxing-bar-item wx-' + item.axis + '">';
+                html += '<div class="wuxing-bar-item wx-' + esc(item.axis) + '">';
                 html += '<div class="bar-track"><div class="bar-fill" style="height:' + pct + '%"></div></div>';
-                html += '<div class="bar-label">' + item.axis + '</div>';
+                html += '<div class="bar-label">' + esc(item.axis) + '</div>';
                 html += '<div class="bar-value">' + item.value + '</div></div>';
             });
             html += '</div></div>';
@@ -1106,11 +1294,10 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
             // K-Line Chart
             html += '<div class="section-title">年度运势走势</div>';
             html += '<div class="chart-card">';
-            var mf = monthly;
-            if (mf && mf.length > 0) {
+            if (monthly.length > 0) {
                 html += '<h3>未来12个月运势趋势</h3>';
             }
-            html += drawKLine(mf);
+            html += drawKLine(monthly);
             html += '</div>';
 
             // Annual Trend
@@ -1125,20 +1312,19 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
             insights.forEach(function(insight) {
                 // k79：只展示**文本**条目（与服务端 first_insight_text 同一原则：
                 // 不把数字/对象的 repr 当文案）
-                if (typeof insight === 'string' && insight.trim()) html += '<li>' + insight + '</li>';
+                if (typeof insight === 'string' && insight.trim()) html += '<li>' + esc(insight) + '</li>';
             });
             html += '</ul>';
 
             // Recommendations
             html += '<div class="section-title">行动建议</div>';
             html += '<ol class="rec-list">';
-            recs.forEach(function(rec, idx) {
-                if (!rec || typeof rec !== 'object') return;
+            recItems.forEach(function(rec, idx) {
                 html += '<li>';
                 html += '<div class="rec-number">' + (idx + 1) + '</div>';
-                html += '<div class="rec-time">' + (rec.time_window || '') + '</div>';
-                html += '<div class="rec-action">' + (rec.action || '') + '</div>';
-                html += '<div class="rec-reason">' + (rec.reason || '') + '</div>';
+                if (rec.time_window) html += '<div class="rec-time">' + esc(rec.time_window) + '</div>';
+                if (rec.action) html += '<div class="rec-action">' + esc(rec.action) + '</div>';
+                if (rec.reason) html += '<div class="rec-reason">' + esc(rec.reason) + '</div>';
                 html += '</li>';
             });
             html += '</ol>';
@@ -1150,11 +1336,19 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
             html += '<button class="share-btn" onclick="shareReport()">分 享</button>';
             html += '</div>';
 
-            document.getElementById('app').innerHTML = html;
+            var app = document.getElementById('app');
+            if (app) app.innerHTML = html;
         }
 
-        function drawKLine(months) {
-            if (!months || months.length === 0) return '';
+        function drawKLine(raw) {
+            // k80-必修2 元素层兜底 + M4：本函数可能被任意形态调用，先归一再画。
+            var months = arr(raw).filter(isObj).map(function(m) {
+                return { label: txt(m.label), score: num(m.score) };
+            }).filter(function(m) { return m.score !== null; });
+            /* 少于两个点画不出线：`xStep = cw/(n-1)` 在 n=1 时是 Infinity →
+               坐标 NaN → SVG 里出 `MNaN,NaN`（k80-M4 实测）。降级为"不画"，
+               而不是画一条 NaN 折线。 */
+            if (months.length < 2) return '';
             var pw = 100, ph = 100, pd = 5;
             var cw = pw - pd * 2, ch = ph - pd * 2;
             var scores = months.map(function(m) { return m.score; });
@@ -1198,15 +1392,19 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
             var labels = '<div class="kline-labels">';
             months.forEach(function(m, i) {
                 if (i % 2 === 0 || i === months.length - 1) {
-                    labels += '<span>' + m.label + '</span>';
+                    labels += '<span>' + esc(m.label) + '</span>';
                 } else { labels += '<span></span>'; }
             });
             labels += '</div>';
             return svg + labels;
         }
 
-        function drawAnnualTrend(years) {
-            if (!years || years.length === 0) return '';
+        function drawAnnualTrend(raw) {
+            // k80：同 drawKLine —— 先归一（缺 score / score 非有限数的年份直接剔除）。
+            var years = arr(raw).filter(isObj).map(function(y) {
+                return { year: txt(y.year), score: num(y.score) };
+            }).filter(function(y) { return y.score !== null; });
+            if (years.length < 2) return '';
             var pw = 100, ph = 60, pd = 5;
             var cw = pw - pd * 2, ch = ph - pd * 2;
             var scores = years.map(function(y) { return y.score; });
@@ -1229,14 +1427,17 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
                 var x = pd + i * xStep, y2 = yPos(y.score);
                 var cr = y.score >= 70 ? "#60c060" : (y.score >= 45 ? "#f0d060" : "#e06060");
                 svg += '<circle cx="' + x + '" cy="' + y2 + '" r="1.5" fill="' + cr + '"/>';
-                svg += '<text x="' + x + '" y="' + (ph - 1) + '" font-size="3" fill="#888" text-anchor="middle">' + y.year + '</text>';
+                svg += '<text x="' + x + '" y="' + (ph - 1) + '" font-size="3" fill="#888" text-anchor="middle">' + esc(y.year) + '</text>';
             });
             svg += '</svg>';
             return svg;
         }
 
-        function drawRadar(data) {
-            if (!data || data.length === 0) return '';
+        function drawRadar(raw) {
+            var data = arr(raw).filter(isObj).map(function(d) {
+                return { axis: txt(d.axis), value: num(d.value) };
+            }).filter(function(d) { return d.value !== null; });
+            if (data.length === 0) return '';
             var cx = 120, cy = 120, rr = 80;
             var svg = '<svg viewBox="0 0 240 240" xmlns="http://www.w3.org/2000/svg">';
 
@@ -1273,7 +1474,7 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
                 svg += '<circle cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) + '" r="3" fill="' + (wxClr[d.axis] || "#667eea") + '"/>';
                 var lx = cx + (rr + 18) * Math.cos(a);
                 var ly = cy + (rr + 18) * Math.sin(a);
-                svg += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" font-size="9" fill="#b0b0c0" text-anchor="middle" dominant-baseline="middle">' + d.axis + '</text>';
+                svg += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" font-size="9" fill="#b0b0c0" text-anchor="middle" dominant-baseline="middle">' + esc(d.axis) + '</text>';
             });
             svg += '</svg>';
             return svg;
@@ -1299,12 +1500,12 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
 
     t = Template(template_str)
     return t.safe_substitute(
-        og_title=og_title,
-        og_desc=og_desc,
-        og_desc_short=og_desc_short,
+        og_title=og_title_h,
+        og_desc=og_desc_h,
+        og_desc_short=og_desc_short_h,
         reading_id=reading_id,
-        share_url=share_url or f"{_PUBLIC_BASE}/share/{reading_id}",
-        og_url=share_url or f"{_PUBLIC_BASE}/report/{reading_id}",
+        share_url=share_url_js,
+        og_url=og_url_h,
     )
 
 @router.post("/api/report/generate")

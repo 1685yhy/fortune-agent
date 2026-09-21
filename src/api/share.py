@@ -581,7 +581,7 @@ _SHARE_PAGE_BODY = """
   var hint = document.getElementById("webHint");
   if (inWx) { wxBtn.style.display = "block"; }
   else { webBtn.style.display = "block"; hint.style.display = "block"; }
-  var KEY = "yilm_like___ID__";
+  var KEY = __ID_JS__;
   var n = 0;
   try { n = parseInt(localStorage.getItem(KEY) || "0", 10) || 0; } catch (e) {}
   var cnt = document.getElementById("likeCnt");
@@ -634,6 +634,19 @@ def _share_expired_html() -> str:
     )
 
 
+def _js_string_literal(value) -> str:
+    """JS 字符串字面量（**实现只有一份**：`visual_report.js_string_literal`）。
+
+    k80 同类排查：本页把 `share_id` 填进 `var KEY = …;` —— **JS 字符串上下文**。
+    改前用 `html.escape` 兜底：`"` 变 `&quot;` 看着挡住了，但**反斜杠/换行**没挡，
+    一个换行就让 `var KEY = "…";` 变成未闭合字符串 ⇒ 整页 SyntaxError（白屏）。
+    现在按"值进哪个上下文就用哪个上下文的编码"来办（HTML 用 html.escape，
+    JS 用 json.dumps + 脚本内嵌转义）。
+    """
+    from src.api.visual_report import js_string_literal
+    return js_string_literal(value)
+
+
 def _render_share_page(share_id: str, entry: dict) -> str:
     """对话数据 → 落地页 HTML。所有对话内容经 html.escape,防 XSS。"""
     pairs_html = []
@@ -655,7 +668,7 @@ def _render_share_page(share_id: str, entry: dict) -> str:
         .replace("__PAIRS__", "".join(pairs_html))
         .replace("__APPID__", _WEAPP_APPID)
         .replace("__PATH__", _WEAPP_PATH)
-        .replace("__ID__", html.escape(share_id))
+        .replace("__ID_JS__", _js_string_literal("yilm_like_" + str(share_id)))
     )
     return _fill_share_page(body)
 
@@ -668,24 +681,23 @@ async def get_share_metadata(report_id: str, uid: str = Depends(require_user)):
 
     - report_id 为咨询 ID（数字）：必须登录 + 归属校验（403 非本人 / 404 不存在）
     - report_id 为 reading_id（8 位 hex）：兼容旧版 data/reports 报告（公开分享页）
+
+    k80-M5：**分派判据从"是不是全数字"改成"哪一边真的有东西"**。
+    改前一律 `report_id.isdigit()` 分派 ⇒ **全数字的 8 位 reading_id** 被误当咨询 ID。
+    `reading_id = uuid4().hex[:8]` 全是数字的概率是 `(10/16)^8 ≈ 2.33%` ——
+    这些报告（本人路径能正常打开）的**分享卡片会 404/503**（终验实测：约 2.3% 的
+    分享链接打不开）。现在先看**报告文件在不在**（存在即按报告处理），再看数字 →
+    咨询，两边都落空才是 404。两个命名空间（8 位 hex 文件名 vs 整数咨询 ID）
+    各自独立，同名时"文件在"是唯一能同时解释两边的判据（此情形已在本仓不存在：
+    咨询 ID 是自增整数，8 位纯数字且恰好有同名报告文件才会撞上，撞上时按报告处理）。
     """
     # 1. 定位报告来源
-    if report_id.isdigit():
-        # 咨询记录派生报告：owner 校验
-        if _dao is None:
-            raise HTTPException(status_code=503, detail="Service not ready")
-        c = _dao.get_consultation(int(report_id))
-        if c is None:
-            raise HTTPException(status_code=404, detail="报告未找到")
-        ensure_owner(c.get("user_id", ""), uid)
-        card = _card_from_consultation(c, report_id)
-    else:
+    report = (_load_report(report_id)
+              if _READING_ID_RE.match(report_id or "") else None)
+    if report is not None:
         # 旧版 JSON 报告：k76 起同样做**归属校验**（改前只要求登录，任意登录用户
         # 拿到 8 位 reading_id 即可读出他人姓名+八字——与 /report/{id} 同一个越权面）。
         # 归属未知的老报告 → 403（fail-closed，与读接口同一判据）。
-        report = _load_report(report_id)
-        if not report:
-            raise HTTPException(status_code=404, detail="报告未找到")
         from src.api.visual_report import assert_report_owner, report_shape_problem
         assert_report_owner(report, uid)
         # k78-必修3：归属正确但内容畸形时，改前在 _card_from_report 里
@@ -695,6 +707,17 @@ async def get_share_metadata(report_id: str, uid: str = Depends(require_user)):
             logger.warning("分享卡片报告内容不可展示（404）reading_id=%s: %s", report_id, problem)
             raise HTTPException(status_code=404, detail="报告未找到")
         card = _card_from_report(report)
+    elif report_id.isdigit():
+        # 咨询记录派生报告：owner 校验
+        if _dao is None:
+            raise HTTPException(status_code=503, detail="Service not ready")
+        c = _dao.get_consultation(int(report_id))
+        if c is None:
+            raise HTTPException(status_code=404, detail="报告未找到")
+        ensure_owner(c.get("user_id", ""), uid)
+        card = _card_from_consultation(c, report_id)
+    else:
+        raise HTTPException(status_code=404, detail="报告未找到")
 
     # 2. 尝试生成真实分享图；失败/环境未就绪 → 结构化降级
     image_url = _try_generate_image(card)
@@ -721,17 +744,53 @@ async def get_share_metadata(report_id: str, uid: str = Depends(require_user)):
 
 
 #: 分享通道在公开页上**必须剥离**的个人信息字段（`profile` 下）。
+#:
 #: 依据（k72-A2 / 控制方红线）：姓名、出生日期属个人信息，不得出现在无需鉴权的
 #: 公开页面上；八字与运势结论是**被分享的内容本体**（控制方已授权分享通道承载），
 #: 故保留。这份清单同时被 `/share/{reading_id}` 使用。
-_SHARE_REDACT_PROFILE_FIELDS = ("name", "birth_date", "birth_info")
+#:
+#: k80-必修1 第 3 层：**逐个字段重新问过"这是用户的个人信息吗"** ——
+#:   - `name`       个人信息（可直接识别）        → 剥离；
+#:   - `birth_date` 个人信息（可直接识别）        → 剥离；
+#:   - `birth_info` 与 `birth_date` 同一事实的另一种写法 → 剥离；
+#:   - `gender`     **个人信息** —— 本仓自己的事实源就把它列为收集项：
+#:                  `miniprogram/privacy.md` 第 2 条「**性别**：用于区分阴阳年干的
+#:                  排盘规则…」（同一条也写进 `privacy.wxml`）⇒ 与"姓名/出生日期不得
+#:                  出现在匿名公开页"同一口径，**本批一并剥离**。
+#:                  （改前不剥：登录用户提交恶意/任意 `gender` 会原样落在
+#:                  匿名公开页上；这是本批 Critical 的传递通道。）
+#:   - `bazi` / `day_master` → 被分享的**内容本体**（八字结论），保留。
+#:
+#: 顶层字段（不在 `profile` 下，k80 一并处理）见 `_SHARE_REDACT_TOP_FIELDS`。
+_SHARE_REDACT_PROFILE_FIELDS = ("name", "birth_date", "birth_info", "gender")
+
+#: `profile` 下**明确判定为"内容本体"从而保留**的字段（与剥离清单一起构成**闭集**：
+#: 报告新出现一个 `profile.*` 字段而不表态 → `tests/test_k80_...::
+#: TestGenderPayloadCannotReachAnyPage::test_every_profile_field_is_classified` 即红）。
+#:
+#:   - `bazi`       四柱 = 被分享的内容本体（控制方已授权分享通道承载）；
+#:   - `day_master` 日主 = 八字结论的一部分。
+#:
+#: 注意**日期与年龄类**的自洽性（如实记录边界）：`bazi_analysis.dayun[].age` 与
+#: `generated_at` 组合可以**反推**出生年份（起运岁数 + 报告生成年 ≈ 出生年）。
+#: 这是分享通道**内容本体**的固有属性（没有大运就没有这份报告），本批不削；
+#: 若要彻底消除，只能整段不下发大运 —— 属产品口径变更，留待控制方拍板。
+_SHARE_KEEP_PROFILE_FIELDS = ("bazi", "day_master")
+
+#: 公开页上必须剥离的**顶层**字段。`owner_enc` = AES(user_id) 的**归属标识密文**：
+#: 它不是个人信息明文，但它是**账号标识**（能把同一个人生成的报告关联起来，
+#: 也不想把它交给匿名访客）；`GET /report/{id}` 的归属校验只在服务端用得到，
+#: 公开页完全不需要。它由 k76 引入（写盘时落 `owner_enc`），k76 的剥离清单没跟上
+#: —— 于是新报告（带 `owner_enc`）的分享页把归属密文一起嵌进了匿名页面。
+_SHARE_REDACT_TOP_FIELDS = ("owner_enc",)
 
 
 def _redact_report_for_share(report: dict) -> dict:
-    """报告 → 分享通道可公开的副本（剥离个人信息，**不改原 dict**）。
+    """报告 → 分享通道可公开的副本（剥离个人信息与归属标识，**不改原 dict**）。
 
-    - `profile.name` / `birth_date` / `birth_info` 一律清空（值与占位符"用户"
-      同款处理：`_build_report_html` 对内会退回中性标题）；
+    - `profile.name` / `birth_date` / `birth_info` / `gender` 一律清空（名字置
+      "用户"占位，`_build_report_html` 对内会退回中性标题）；
+    - 顶层 `owner_enc` 一并剥离（**账号标识密文**：公开页不需要，见常量注释）；
     - 深拷贝到 JSON 兼容结构，避免调用方拿到被改动的原报告。
       k79：深拷贝失败时（超深嵌套触到递归上限）退成**浅拷贝 + 单独复制 profile**
       —— 否则下面的剥离会改到**调用方手里那份报告的** `profile`（"不改原 dict"
@@ -743,11 +802,16 @@ def _redact_report_for_share(report: dict) -> dict:
         safe = dict(report)
         _prof = safe.get("profile")
         safe["profile"] = dict(_prof) if isinstance(_prof, dict) else _prof
+    if not isinstance(safe, dict):
+        return safe
     profile = safe.get("profile")
     if isinstance(profile, dict):
         for field in _SHARE_REDACT_PROFILE_FIELDS:
             if field in profile:
                 profile[field] = "用户" if field == "name" else ""
+    for field in _SHARE_REDACT_TOP_FIELDS:
+        if field in safe:
+            safe[field] = ""
     return safe
 
 
