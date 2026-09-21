@@ -43,6 +43,12 @@ from .utils.cache import (
     TTL_PRECOMPUTE_DAILY, TTL_DAILY_FORTUNE, TTL_HOURLY_FORTUNE,
     TTL_XUETANG_TOPICS, TTL_XUETANG_LESSON,
 )
+# k72：图片内容校验（魔数嗅探）的单一事实源——本文件的 chat/face/palm 上传
+# 与 src/api/user.py 的头像上传共用同一实现，不再各留一份判断逻辑。
+from .utils.image_sniff import (
+    IMAGE_CONTENT_TYPES, IMAGE_FORMAT_EXT,
+    sniff_image_ext, sniff_image_format,
+)
 
 # Security imports
 from .security.ratelimit import RateLimiter, RateLimitMiddleware
@@ -2183,17 +2189,30 @@ async def face_reading(
     """CV 精确面相分析 — 上传自拍照片，返回精确测量 + 古籍解读。
 
     安全修复：必须登录；user_id 一律取 JWT sub。
+    k72：本端点原**完全不校验**上传内容（无类型白名单、无魔数嗅探）——
+    与 /api/chat/upload 的差距正是"只查声明不查内容"的同类缺口。现补魔数嗅探，
+    与上传校验的单一事实源同源（src/utils/image_sniff.py）。
     """
     user_id = uid
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
+
+    # k72：内容校验必须在 try 之前——下面的 `except Exception` 会把
+    # HTTPException 一并吞掉（降级成 200 + status:error），校验就形同虚设。
+    # 读取本身仍按原语义走兜底（读失败 → status:error，不变），只有"内容不是
+    # 图片"才升格为真的 415。
+    try:
+        content = await image.read()
+    except Exception as e:
+        return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
+    if not sniff_image_format(content):
+        raise HTTPException(status_code=415, detail="文件内容不是有效图片")
 
     try:
         import tempfile, os
         # Save uploaded file temporarily
         suffix = os.path.splitext(image.filename or "photo.jpg")[1] or ".jpg"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await image.read()
             tmp.write(content)
             tmp_path = tmp.name
 
@@ -2250,15 +2269,23 @@ async def palm_reading(
     """CV 手相分析 — 上传手掌照片，检测掌纹并分析。
 
     安全修复：必须登录；user_id 一律取 JWT sub。
+    k72：同 /api/face-reading，补魔数嗅探（原完全不校验上传内容）。
     """
     user_id = uid
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
+    # k72：同 /api/face-reading —— 内容校验须在兜底 try 之前，否则被 except 吞掉；
+    # 读取失败保持原语义（status:error）。
+    try:
+        content = await image.read()
+    except Exception as e:
+        return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
+    if not sniff_image_format(content):
+        raise HTTPException(status_code=415, detail="文件内容不是有效图片")
     try:
         import tempfile, os
         suffix = os.path.splitext(image.filename or "hand.jpg")[1] or ".jpg"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await image.read()
             tmp.write(content)
             tmp_path = tmp.name
         from .engines.palm_reader import PalmReader, generate_palm_report
@@ -2306,12 +2333,9 @@ async def palm_reading(
 # Authorization 头；uuid 文件名不可猜测，与既有 /share-cards 静态服务同策略。
 # ════════════════════════════════════════════════════════════════
 _CHAT_UPLOAD_MAX = 5 * 1024 * 1024  # 5MB
-_CHAT_UPLOAD_EXT = {
-    "image/jpeg": ".jpg",
-    "image/png": ".png",
-    "image/webp": ".webp",
-    "image/gif": ".gif",
-}
+# 声明类型 → 落盘扩展名。**由单一事实源派生**（k72）：白名单与嗅探表同源，
+# 不允许在此另写一份字面量——两处漂移正是头像端点漏掉嗅探的成因。
+_CHAT_UPLOAD_EXT = {ct: IMAGE_FORMAT_EXT[fmt] for ct, fmt in IMAGE_CONTENT_TYPES.items()}
 
 
 def _chat_uploads_dir() -> Path:
@@ -2480,19 +2504,6 @@ def cleanup_chat_uploads(ttl_seconds: float = None, now: float = None,
     return {"scanned": scanned, "removed": removed, "ttl": ttl}
 
 
-def _sniff_image_ext(data: bytes) -> str:
-    """魔数嗅探真实图片格式（防 content-type 伪装/非图片数据）。"""
-    if data[:3] == b"\xff\xd8\xff":
-        return ".jpg"
-    if data[:8] == b"\x89PNG\r\n\x1a\n":
-        return ".png"
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return ".webp"
-    if data[:6] in (b"GIF87a", b"GIF89a"):
-        return ".gif"
-    return ""
-
-
 @app.post("/api/chat/upload")
 async def chat_upload(
     # 字段名固定 file：与小程序 wx.uploadFile({name:'file'}) 的真实契约一致
@@ -2514,7 +2525,7 @@ async def chat_upload(
     content = await image.read(_CHAT_UPLOAD_MAX + 1)
     if len(content) > _CHAT_UPLOAD_MAX:
         raise HTTPException(status_code=413, detail="图片不能超过 5MB")
-    ext = _sniff_image_ext(content)
+    ext = sniff_image_ext(content)
     if not ext:
         raise HTTPException(status_code=415, detail="文件内容不是有效图片")
     # 文件名一律服务端 uuid 生成（绝不采用客户端文件名，路径穿越防护）
