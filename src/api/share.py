@@ -49,25 +49,19 @@ def setup(dao):
 
 
 def _load_report(reading_id: str) -> dict:
-    """Load a stored report by reading_id.
+    """Load a stored report by reading_id（**委托** `visual_report.load_report_from`）。
 
-    k78-必修3：**根 JSON 必须是对象**，否则与"不存在"同等对待（返回 None → 调用方
-    404）。改前把 `json.loads` 的结果原样返回 —— 磁盘上若是畸形 JSON（`[1,2,3]`、
-    `"just a string"`、`12345`），`(report or {}).get(...)` 会 AttributeError → 500；
-    而本函数的名义契约是"不存在 → 404"。畸形内容 = **不可展示**，不是服务器错误。
+    k79-M2：加载实现**只有一份**（`visual_report.load_report_from(data_dir, id)`），
+    本函数把自己的目录常量**传进去**，因此：
 
-    ⚠️ 路径**不**委托 `visual_report.load_report`：本模块的 `_DATA_DIR` 是分享页
-    自己的目录常量（测试也按本模块 monkeypatch 它），委托会让测试的隔离失效。
-    两处的"可展示性"判据仍共用同一函数（`report_shape_problem`），不各写一份。
+      - 语义（根必须是对象、解析失败当"不存在"）不再有第二份副本可漂移；
+      - 测试隔离**不破** —— k78 担心的"委托会让测试的隔离失效"不成立：隔离取决于
+        "调用点读的是谁的模块全局"，而这里读的是 **本模块的** `_DATA_DIR`
+        （调用时求值 → `monkeypatch.setattr(share_api, "_DATA_DIR", tmp)` 照常生效；
+        `tests/test_k76_security_batch.py` 对 `vr._DATA_DIR` 的 monkeypatch 也照常生效）。
     """
-    report_path = _DATA_DIR / f"{reading_id}.json"
-    if not report_path.exists():
-        return None
-    try:
-        data = json.loads(report_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    return data if isinstance(data, dict) else None
+    from src.api.visual_report import load_report_from
+    return load_report_from(_DATA_DIR, reading_id)
 
 
 # ── k77-F：**报告分享页**的有效期（控制方拍板：与对话分享同为 30 天）──────
@@ -93,7 +87,9 @@ _READING_ID_RE = re.compile(r"^[0-9a-f]{8}$")
 
 
 def _report_path(reading_id: str) -> Path:
-    return _DATA_DIR / f"{reading_id}.json"
+    """报告文件路径（k79-M2：与加载器同一个"路径怎么拼"的实现，不再各写一份）。"""
+    from src.api.visual_report import report_path_in
+    return report_path_in(_DATA_DIR, reading_id)
 
 
 def _report_share_expires_at(report: dict, path: Path) -> float:
@@ -232,29 +228,54 @@ def _card_from_consultation(c: dict, report_id: str) -> dict:
 
 
 def _card_from_report(report: dict) -> dict:
-    """旧版 data/reports JSON 报告 → 分享卡片数据。"""
-    reading_id = report.get("reading_id", "")
-    profile = report.get("profile", {})
-    ba = report.get("bazi_analysis", {})
-    insights = report.get("insights", [])
+    """旧版 data/reports JSON 报告 → 分享卡片数据。
 
-    user_name = profile.get("name", "用户")
+    k79-必修1（Critical）：本函数此前是**唯一没有类型兜底**的报告消费点，复审实测
+    四类畸形全部 500：
+
+        {'profile': None, ...}                → AttributeError（`report.get("profile", {})`
+                                                 在**键存在且值为 null** 时返回 None，
+                                                 **默认值不生效** → `profile.get(...)`）
+        {'insights': [12345]}                 → TypeError（`12345[:60]`）
+        {'insights': [{'a':1}]}               → KeyError（`{'a':1}[:60]`）
+        {'bazi_analysis': 'notadict'}         → AttributeError（`'str'.get(...)`）
+
+    现在取值一律"先判类型再当映射/文本用"（`as_mapping` / `as_text` /
+    `first_insight_text`，都是 `visual_report.py` 里的**同一份**实现），
+    **任何输入**都返回一张可用的卡片，不再抛。
+    """
+    from src.api.visual_report import (as_mapping, as_text, first_insight_text,
+                                       json_safe)
+
+    profile = as_mapping(report.get("profile"))
+    ba = as_mapping(report.get("bazi_analysis"))
+    reading_id = as_text(report.get("reading_id"))
+
+    user_name = as_text(profile.get("name"), "用户")
     if user_name in ("", "用户", "anonymous"):
         user_name = "我的命书"
-    bazi = profile.get("bazi", "")
-    day_master = profile.get("day_master", "")
-    geju = ba.get("geju", "") or ""
-    yongshen_raw = ba.get("yongshen", "") or ""
+    bazi = as_text(profile.get("bazi"))
+    day_master = as_text(profile.get("day_master"))
+    geju = as_text(ba.get("geju"))
+    yongshen_raw = as_text(ba.get("yongshen"))
     yongshen = yongshen_raw.split("（")[0] if yongshen_raw else ""
-    wuxing = ba.get("wuxing", {}) if isinstance(ba.get("wuxing", {}), dict) else {}
+    wuxing = as_mapping(ba.get("wuxing"))
+    shishen = ba.get("shishen")
+    shishen = shishen if isinstance(shishen, list) else []
 
-    key_insight = insights[0] if insights else ""
-    summary = key_insight[:60] if key_insight else "AI命理分析报告"
+    # 摘要：**第一条真的是文本**的洞察（元素非字符串一律跳过，不把 repr 念给用户）
+    summary = first_insight_text(report, 60) or "AI命理分析报告"
 
-    # 八字柱列表（profile.bazi 为空格分隔字符串）
-    bazi_list = [p for p in str(bazi).split() if p]
+    # 八字柱列表（profile.bazi 为空格分隔字符串；已是列表的老报告则只取其中的文本项）
+    if isinstance(profile.get("bazi"), list):
+        bazi_list = [x for x in profile["bazi"] if isinstance(x, str) and x.strip()]
+    else:
+        bazi_list = [p for p in bazi.split() if p]
 
-    return {
+    # k79：`bazi_data.wuxing` / `shishen` 是**原样透传**的报告数据，可能含
+    # NaN/Infinity（`json.loads` 接受，Starlette 的 JSONResponse 不接受 ⇒ 500）。
+    # 卡片整体过 `json_safe`：非有限浮点 → null，其它字段本来就是 str/list/dict。
+    return json_safe({
         "reading_id": reading_id,
         "source": "legacy_report",
         "title": f"{user_name}的命运报告 | 易理明灯",
@@ -275,11 +296,11 @@ def _card_from_report(report: dict) -> dict:
             "bazi": bazi_list,
             "day_master": day_master,
             "wuxing": wuxing,
-            "shishen": ba.get("shishen", []),
+            "shishen": shishen,
             "geju": geju or "普通格",
             "yongshen": yongshen,
         },
-    }
+    })
 
 
 def _try_generate_image(card: dict) -> Optional[str]:
@@ -712,11 +733,16 @@ def _redact_report_for_share(report: dict) -> dict:
     - `profile.name` / `birth_date` / `birth_info` 一律清空（值与占位符"用户"
       同款处理：`_build_report_html` 对内会退回中性标题）；
     - 深拷贝到 JSON 兼容结构，避免调用方拿到被改动的原报告。
+      k79：深拷贝失败时（超深嵌套触到递归上限）退成**浅拷贝 + 单独复制 profile**
+      —— 否则下面的剥离会改到**调用方手里那份报告的** `profile`（"不改原 dict"
+      这条契约会在兜底路径上破掉）。
     """
     try:
         safe = json.loads(json.dumps(report, ensure_ascii=False, default=str))
     except Exception:
         safe = dict(report)
+        _prof = safe.get("profile")
+        safe["profile"] = dict(_prof) if isinstance(_prof, dict) else _prof
     profile = safe.get("profile")
     if isinstance(profile, dict):
         for field in _SHARE_REDACT_PROFILE_FIELDS:
@@ -760,10 +786,13 @@ async def get_share_page_by_reading(reading_id: str):
     if time.time() >= _report_share_expires_at(report, _report_path(reading_id)):
         return HTMLResponse(_report_share_expired_html(), status_code=410)
 
-    from src.api.visual_report import _build_report_html
+    # k79-必修1：这里原来是 `insights[0][:50]` —— 与 `visual_report.py` 里
+    # **同一句话的副本**；k78 在那里加了类型兜底，这一份没跟着改（复审点名：
+    # "同一句话的副本没跟着改"）。现在两处都调 `first_insight_text`（同一实现），
+    # 副本本身被消灭：元素非字符串 → 退回中性文案，不再 TypeError → 500。
+    from src.api.visual_report import _build_report_html, first_insight_text
 
     safe = _redact_report_for_share(report)
-    insights = safe.get("insights", [])
-    key_insight = insights[0][:50] if insights else "AI命理分析报告"
+    key_insight = first_insight_text(safe, 50) or "AI命理分析报告"
     share_text = f"我的2026运势报告来了！{key_insight}... #易理明灯 #AI命理"
     return HTMLResponse(_build_report_html(safe, share_text))

@@ -443,8 +443,27 @@ def generate_report_data(
     return report
 
 
-def load_report(reading_id: str) -> Optional[dict]:
-    """Load a stored report by reading_id.
+def report_path_in(data_dir, reading_id: str) -> Path:
+    """报告文件路径（**唯一**的"路径怎么拼"实现，k79-M2）。
+
+    `visual_report`（本人读）与 `api/share.py`（分享读）共用它，各传自己的目录常量。
+    """
+    return Path(data_dir) / f"{reading_id}.json"
+
+
+def load_report_from(data_dir, reading_id: str) -> Optional[dict]:
+    """**加载一份报告 JSON 的唯一实现**（k79-M2 收敛点）。
+
+    `data_dir` 由调用方**传入**（而不是本函数去读某个模块的 `_DATA_DIR`）—— 这样
+    `api/share.py` 可以带着**自己的**目录常量复用这同一段实现，同时两个模块的目录
+    常量仍能被测试各自 monkeypatch（`share._DATA_DIR` / `visual_report._DATA_DIR`），
+    k78 担心的"委托会让测试隔离失效"因此**不成立**：隔离取决于"调用点读的是谁的
+    模块全局"，而调用点在各自模块内（`share._load_report` 传 `share._DATA_DIR`）。
+
+    为什么必须收敛（k79-M2）：k78 让两处"可展示性**判据**"共用同一函数，却让
+    "**加载**"各留一份副本 —— 这正是本批 Critical（必修1）的土壤：同一件事有两份
+    实现，改一处漏一处。加载的语义（根必须是对象、解析失败当不存在）与判据一样
+    属于"报告 JSON 的契约"，只能有一份。
 
     k78：**根 JSON 必须是对象**，否则与"不存在"同等对待（返回 None → 调用方 404）。
     改前直接把 `json.loads` 的结果返回：磁盘上若是一份畸形 JSON（`[1,2,3]` /
@@ -453,38 +472,196 @@ def load_report(reading_id: str) -> Optional[dict]:
     "报告不存在"是 404 的语义；"文件在但内容不是一份报告"同样属于**不可展示**，
     不是服务器内部错误。
     """
-    report_path = _DATA_DIR / f"{reading_id}.json"
-    if not report_path.exists():
-        return None
     try:
+        report_path = report_path_in(data_dir, reading_id)
+        if not report_path.exists():
+            return None
         data = json.loads(report_path.read_text(encoding="utf-8"))
     except Exception:
+        # k79：**本函数永不抛**（"取不到 / 读不了 / 不是一份报告"一律 None → 404）。
+        # 覆盖的不只是 JSON 解析失败，还包括**路径本身**的异常：超长文件名
+        # （`OSError: File name too long`）、含 NUL 字节（`ValueError`）、权限等。
+        # 实测改前 `/api/share/{300 个字符的 id}` → **500**（`exists()` 抛 OSError
+        # 逃出 try，因为旧代码只 try 了 `json.loads`）—— 与"不存在 → 404"的契约不符。
         return None
     return data if isinstance(data, dict) else None
 
 
-#: 报告**可渲染性**判据（k78-必修3 的单一事实源）。
-#: 只校验"渲染路径真正依赖的两个字段的类型"——不是要求字段齐全（老报告可能缺
-#: 可选字段，缺了照常渲染），而是**存在即必须是正确类型**，否则渲染必然抛异常。
-#: 依据：`_build_report_html` 读 `profile.name` 与 `insights[0]`；
-#: 线上全部 4 份真实报告（data/reports/*.json）均为 profile=dict + insights=list。
+def load_report(reading_id: str) -> Optional[dict]:
+    """Load a stored report by reading_id（本模块目录；实现在 `load_report_from`）。"""
+    return load_report_from(_DATA_DIR, reading_id)
+
+
+def as_mapping(value) -> dict:
+    """把报告里的"应该是对象"的字段安全当映射用；不是对象 → 空 dict。
+
+    k79（必修1 的根因之一）：`report.get("profile", {})` 在**键存在且值为 `null`**
+    时返回 `None`（默认值不生效），接着 `profile.get(...)` 就 AttributeError → 500
+    （复审实测 `{"profile": null}`）。所以取值**不能靠默认值**，只能靠"取值后判类型"。
+    全仓读报告 JSON 的消费点统一走本函数，不再各写各的 isinstance。
+    """
+    return value if isinstance(value, dict) else {}
+
+
+def as_text(value, default: str = "") -> str:
+    """把报告字段安全当**文本**用；不是字符串 → 默认值。
+
+    ⚠️ **不做 `str()` 兜底**：把 `12345` / `{'a':1}` / 嵌套列表 repr 成文案念给用户，
+    既不是一句人话、又可能把结构里的字段名/内容漏到页面上；宁可退回中性文案。
+    数字/布尔/None/容器 → 一律 `default`。规则只有一条，所有消费点一致。
+    """
+    return value if isinstance(value, str) else default
+
+
+#: `json_safe` 的递归深度上限：超过即截断为 None（见函数说明）。
+_JSON_SAFE_MAX_DEPTH = 200
+
+
+def json_safe(value, _depth: int = 0):
+    """把报告数据整理成**可 JSON 序列化**的结构（非有限浮点 NaN/Infinity → None）。
+
+    k79-必修1（复审清单里的 `insights=[NaN]`）：`json.loads` **默认接受** NaN /
+    Infinity（RFC 8259 之外的扩展），但 Starlette 的 JSONResponse 用
+    `allow_nan=False` 序列化 ⇒ 直接把原 dict 返回给客户端时，一份含 `NaN` 的报告
+    在 `/api/report/{id}` 上 **500**（复审实测，见本批改前 HTTP 表）；同理
+    `_card_from_report` 的 `bazi_data.wuxing` / `shishen` 里带 NaN 也会把
+    `/api/share/{id}` 打成 500。
+
+    NaN 是**值层面**的缺陷（不是"这不是一份报告"）⇒ 按本批口径**降级**为 null：
+    既不 500、也不 404。HTML 页那条路不需要它（NaN 在 JS 里是合法字面量），
+    但两条路都过一遍，规则只有一条。
+
+    深度超过 `_JSON_SAFE_MAX_DEPTH` 的嵌套截断为 None（报告渲染不出 200 层嵌套；
+    截断而不是递归到爆栈 —— 本函数必须**永不抛**）。
+    """
+    if _depth > _JSON_SAFE_MAX_DEPTH:
+        return None
+    if isinstance(value, float):
+        # NaN / ±Infinity → None（math.isfinite 对 NaN 返回 False）
+        import math as _math
+        return value if _math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {k: json_safe(v, _depth + 1) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(v, _depth + 1) for v in value]
+    if isinstance(value, (str, int, bool)) or value is None:
+        return value
+    # 其它类型（bytes / set / 自定义对象 / 超大整数等）→ 字符串化（可序列化）
+    return str(value)
+
+
+def first_insight_text(report, limit: int = 0) -> str:
+    """报告里**第一条可展示的洞察文本**；没有则空串。
+
+    k79（必修1 的根因之一）："取 `insights[0]` 再截断"这段逻辑此前在**三处各写一份**
+    —— `get_report_page` 的 share_text、`/share/{reading_id}` 的 share_text、
+    `share._card_from_report` 的摘要；其中两处**没有类型兜底**，`insights=[12345]`
+    即 TypeError → 500（复审实测）。k78 只改了其中**一处**（`visual_report` 那处），
+    另外两处照旧 —— "同一句话的副本没跟着改"。现在只剩这一份：
+
+      - `insights` 缺失/非列表 → 空串；
+      - 元素非字符串（数字/布尔/None/嵌套对象/NaN）、或字符串全空白 → **跳过**，
+        取第一条**真的是文本**的（不是把 repr 当文案给用户看）；
+      - `limit > 0` 时按字符截断。
+
+    消费点：`_build_report_html` 的 og 描述、`get_report_page` 与
+    `/share/{reading_id}` 的 share_text、`share._card_from_report` 的摘要。
+    """
+    insights = report.get("insights") if isinstance(report, dict) else None
+    if not isinstance(insights, list):
+        return ""
+    for item in insights:
+        if isinstance(item, str) and item.strip():
+            return item[:limit] if limit and limit > 0 else item
+    return ""
+
+
+#: 报告**可渲染性**判据（k78-必修3 引入、k79-必修1 按**全部消费点**重写的单一事实源）。
+#:
+#: 判据分两段，边界写死（这是本批最该说清的一件事）：
+#:   ① **结构**：根必须是对象；`profile` / `bazi_analysis` / `charts` 存在即必须是
+#:      对象（消费点当映射用）、`insights` 存在即必须是列表（当列表用）。
+#:      —— 只有**结构**不可能，才判"不可展示"。
+#:   ② **内容**：连一个可展示的条目都没有（`profile` 为空 **且** 没有任何字符串
+#:      洞察）⇒ 空壳报告，不可展示（k78 已有这条，本批把"insights 非空但全不是文本"
+#:      一并归入 —— 那种报告渲染出来是空白页，与空壳无实质差别）。
+#:
+#: ⚠️ **值层面**的异常（元素是数字/布尔/None/NaN、`profile.name` 是数字、超长或
+#: 深嵌套、字段缺失）**不**判为不可展示 —— 它们由各消费点**类型兜底降级**
+#: （摘要退回中性文案、名字退回中性标题、图表空着），既不 500 也不 404。
+#: 依据：线上 4 份真实报告（`data/reports/*.json`）结构均为 profile/bazi_analysis/
+#: charts = 对象 + insights = 字符串列表；判据不要求字段齐全（老报告缺可选字段照常渲染）。
 def report_shape_problem(report) -> str:
     """报告结构是否**可展示**：返回问题描述；可展示则返回空串。
 
     调用口径（与"不存在 → 404"同款）：**不可展示 = 404**，绝不 500。
+
+    ⚠️ 本判据是**必要不充分**条件，别把它当"渲染安全"的全部保证（k79-必修1）：
+    它是 404 与否的**唯一**决策点，但"不 500"由**消费点全都不抛**保证 —— 见
+    `_REPORT_JSON_CONSUMERS` 的清单与 `tests/test_k79_...::test_no_5xx_...`
+    的穷举实测。判据漏判一个形态，后果只是"这一页降级显示"，不会是 500。
     """
     if not isinstance(report, dict):
         return "报告内容不是一个对象"
-    profile = report.get("profile")
-    if profile is not None and not isinstance(profile, dict):
-        return "报告的个人信息段（profile）不是对象"
-    insights = report.get("insights")
-    if insights is not None and not isinstance(insights, list):
-        return "报告的结论段（insights）不是列表"
-    # profile 缺失/为空 与 insights 缺失/为空 ⇒ 没有任何可展示内容（空壳报告）
-    if not profile and not insights:
+    # ① 结构：容器字段（存在即必须是正确容器；缺失 = 老报告可选字段，不判问题）
+    for field, kind, label, want in (
+            ("profile", dict, "个人信息段（profile）", "对象"),
+            ("bazi_analysis", dict, "八字分析段（bazi_analysis）", "对象"),
+            ("charts", dict, "图表段（charts）", "对象"),
+            ("insights", list, "结论段（insights）", "列表")):
+        value = report.get(field)
+        if value is None:
+            continue
+        if not isinstance(value, kind):
+            return f"报告的{label}不是{want}"
+    # ② 内容：profile 为空 **且** 没有任何可展示的洞察文本 ⇒ 空壳
+    if not report.get("profile") and not first_insight_text(report):
         return "报告没有任何可展示内容"
     return ""
+
+
+#: 读取本份报告 JSON 的**全部消费点**（k79-必修1 逐处核对，全仓搜索得出）。
+#:
+#: 为什么要有这份清单：k78 的判据是**按一个消费点**写的（"`_build_report_html` 读
+#: `profile.name` 与 `insights[0]`"），却在 4 个路由上声称共用 —— 其余消费点
+#: （`_card_from_report` 读 `bazi_analysis`、`/share/{id}` 的 share_text 直接下标
+#: `insights[0][:50]`）没被覆盖。本批的处置**不是**"把判据补全到与清单一样长"
+#: （那只是把同一份需求写第二遍，下次新增消费点还会漏），而是：
+#:   ① 消费点**各自全都不抛**（类型兜底）—— 判据漏了也只是降级，不会 500；
+#:   ② 判据只回答"这是不是一份报告"；
+#:   ③ 这份清单由 `tests/test_k79_...::test_consumer_inventory_is_closed` **机器穷举**
+#:      —— 出现新的读报告 JSON 的文件/符号即红，逼着人来更新清单。
+#:
+#: 逐处（字段 = 该处真正读到的字段）：
+#:   1. `api/visual_report.py::get_report_json`（`GET /api/report/{id}`）
+#:      → 整份返回给客户端（鉴权+归属后）。读：全部字段。
+#:   2. `api/visual_report.py::get_report_page`（`GET /report/{id}`）
+#:      → `profile.name` / `insights[0]`（share_text，经 `first_insight_text`）。
+#:   3. `api/visual_report.py::_build_report_html`（上面两处 + 分享页共用）
+#:      → `profile.name` / `insights[0]` / `reading_id`（Python 侧）；
+#:        页面内嵌 JS 另读 `profile.*` / `bazi_analysis.*` / `charts.*` /
+#:        `insights[]` / `recommendations[]` / `generated_date`（JS 侧同样全兜底）。
+#:   4. `api/visual_report.py::report_owner_tag` / `assert_report_owner`
+#:      → `owner_enc`、`reading_id`（仅日志）。
+#:   5. `api/share.py::get_share_metadata`（`GET /api/share/{id}`，非数字 id 分支）
+#:      → 经 `_card_from_report`：`reading_id` / `profile.name` / `profile.bazi` /
+#:        `profile.day_master` / `bazi_analysis.{geju,yongshen,wuxing,shishen}` /
+#:        `insights[0]`。
+#:   6. `api/share.py::get_share_page_by_reading`（`GET /share/{id}`，匿名）
+#:      → `generated_at`（TTL）、`profile.name|birth_date|birth_info`（剥离）、
+#:        `insights[0]`（share_text）、其余整份内嵌。
+#:   7. `storage/dao.py::purge_report_files`（`UserDAO.cancel_user` /
+#:      `purge_account_data` → 注销接口）
+#:      → `owner_enc`、`reading_id`（决定要删的 PNG 名）。
+_REPORT_JSON_CONSUMERS = (
+    "src/api/visual_report.py::get_report_json",
+    "src/api/visual_report.py::get_report_page",
+    "src/api/visual_report.py::_build_report_html",
+    "src/api/visual_report.py::assert_report_owner",
+    "src/api/share.py::get_share_metadata",
+    "src/api/share.py::get_share_page_by_reading",
+    "src/storage/dao.py::purge_report_files",
+)
 
 
 # ─── k76 报告归属（读接口鉴权的单一事实源）─────────────────────────────
@@ -548,7 +725,9 @@ async def get_report_json(reading_id: str, uid: str = Depends(require_user)):
         logger.warning("报告内容不可展示（404）reading_id=%s: %s", reading_id, problem)
         raise HTTPException(status_code=404, detail="报告未找到")
     assert_report_owner(report, uid)
-    return report
+    # k79：返回前过 `json_safe`（NaN/Infinity → null）—— 否则 Starlette 用
+    # allow_nan=False 序列化，一份含 NaN 的报告在这里 **500**（复审实测）。
+    return json_safe(report)
 
 
 @router.get("/report/{reading_id}")
@@ -571,11 +750,10 @@ async def get_report_page(reading_id: str, uid: str = Depends(require_user)):
     except HTTPException as e:
         return HTMLResponse(_simple_error_html(e.detail), status_code=e.status_code)
 
-    # Share text for social media（k78：类型兜底，insights 缺/空/非字符串都不再抛）
-    _ins = report.get("insights") if isinstance(report.get("insights"), list) else []
-    _first = _ins[0] if (_ins and isinstance(_ins[0], str)) else ""
+    # Share text for social media（k79：走 `first_insight_text` 单一实现 —— 这段
+    # "取 insights[0] 并截断"的逻辑此前三处各一份，只改了一处，副本即漂移）
     share_text = (
-        f"我的2026运势报告来了！{_first[:50]}..."
+        f"我的2026运势报告来了！{first_insight_text(report, 50)}..."
         f" #易理明灯 #AI命理"
     )
 
@@ -612,11 +790,15 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
     k76 起需登录+归属校验，把本页 URL 分享出去对方会打不开。og:url 也用它，
     否则微信抓取会抓到一个 401 页、卡片变空。
 
-    k78-必修3：**本函数不再抛异常**。改前 `report["profile"]["name"]` 直接下标 ——
-    畸形报告（如 `{"generated_at":["x"]}`，即没有 profile/insights 的空壳）会
-    KeyError → 500。现在：① 入口先过 `report_shape_problem()`，不可展示则返回
-    错误页（**不 500**，与调用方的 404 口径一致）；② 取字段一律走 `.get()` + 类型
-    兜底，任何字段缺失/类型异常都只影响标题与描述文案，不影响"能出页面"。
+    k78-必修3 / k79-必修1：**本函数不抛异常**（Python 侧与页面内嵌 JS 侧都不抛）。
+    改前 `report["profile"]["name"]` 直接下标 —— 畸形报告（如
+    `{"generated_at":["x"]}`，即没有 profile/insights 的空壳）会 KeyError → 500。
+    现在：① 入口先过 `report_shape_problem()`，不可展示则返回错误页（**不 500**，
+    与调用方的 404 口径一致）；② 取字段一律走 `.get()` + 类型兜底；③ 内嵌 JS 对
+    `profile` / `bazi_analysis` / `charts` / `insights` / `recommendations` **逐个
+    兜底**（改前 `r.profile.name`、`r.charts.wuxing_radar.forEach` 无保护 —— 一份
+    缺 `charts` 的报告会让页面在浏览器里 TypeError 白屏，虽不是服务端 500，
+    但同属"报了可展示却渲染不出来"，k79 一并收掉）。
     """
     import json as _json
     from string import Template
@@ -625,22 +807,32 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
     if problem:
         return _simple_error_html(problem)
 
-    report_json = _json.dumps(report, ensure_ascii=False)
-    share_text_escaped = share_text.replace('"', '&quot;')
+    try:
+        report_json = _json.dumps(json_safe(report), ensure_ascii=False)
+    except Exception as e:
+        # k79：报告**能解析但序列化不了**时（超深嵌套触到递归上限等）不再 500 ——
+        # 退成"只带可展示文本的最小载荷"，页面照常出（判据只保证结构，兜底在这里）。
+        logger.warning("报告 JSON 重新序列化失败，降级为最小载荷: %s", e)
+        report_json = _json.dumps({
+            "generated_date": as_text(report.get("generated_date")),
+            "insights": [first_insight_text(report)],
+        }, ensure_ascii=False)
+    # 分享文案由调用方给定，允许任何类型（f-string/常量都会给 str）；
+    # 非 str 一律按空串处理，绝不在本函数里抛。
+    share_text_escaped = str(share_text or "").replace('"', '&quot;')
 
-    # Build OG title（k78：全部走 .get() + 类型兜底，缺字段不再 KeyError）
-    profile = report.get("profile") if isinstance(report.get("profile"), dict) else {}
-    pname = profile.get("name") or ""
-    if not isinstance(pname, str) or pname in ("", "用户", "anonymous"):
+    # Build OG title（k78/k79：全部走 .get() + 类型兜底，缺字段不再 KeyError）
+    profile = as_mapping(report.get("profile"))
+    pname = as_text(profile.get("name"))
+    if pname in ("", "用户", "anonymous"):
         og_title = "我的2026运势报告 | 易理明灯"
     else:
         og_title = f"{pname}的命运报告 | 易理明灯"
 
-    insights = report.get("insights") if isinstance(report.get("insights"), list) else []
-    first = insights[0] if (insights and isinstance(insights[0], str)) else ""
+    first = first_insight_text(report)
     og_desc = first[:100] or "AI命理分析报告"
     og_desc_short = first[:80] or "AI命理分析报告"
-    reading_id = report.get("reading_id") or ""
+    reading_id = as_text(report.get("reading_id"))
 
     # The static HTML/CSS/JS template — contains NO Python f-string interpolation
     # All Python values are substituted via $PLACEHOLDER markers using string.Template
@@ -853,45 +1045,55 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
         var SHARE_URL = "$share_url";
 
         function render() {
-            var r = REPORT;
-            var p = r.profile;
-            var ba = r.bazi_analysis;
+            var r = REPORT || {};
+            // k79：字段逐个兜底（改前 p = r.profile 无保护，报告缺 profile/
+            // bazi_analysis/charts 时下面 p.name / ba.geju / r.charts.* 会
+            // TypeError → 页面白屏）。服务端判据漏判的形态在这里降级显示，
+            // 绝不把整页打死。
+            var p = (r.profile && typeof r.profile === 'object') ? r.profile : {};
+            var ba = (r.bazi_analysis && typeof r.bazi_analysis === 'object') ? r.bazi_analysis : {};
+            var ch = (r.charts && typeof r.charts === 'object') ? r.charts : {};
+            var insights = Array.isArray(r.insights) ? r.insights : [];
+            var recs = Array.isArray(r.recommendations) ? r.recommendations : [];
+            var radar = Array.isArray(ch.wuxing_radar) ? ch.wuxing_radar : [];
+            var monthly = Array.isArray(ch.monthly_fortune) ? ch.monthly_fortune : [];
+            var annual = Array.isArray(ch.annual_trend) ? ch.annual_trend : [];
             var html = '';
 
             html += '<div class="report-header">';
             html += '<div class="badge">命运报告 v5.0</div>';
-            html += '<h1>' + p.name + '的命运报告</h1>';
-            html += '<div class="subtitle">' + r.generated_date + ' · AI智能生成</div>';
+            html += '<h1>' + (p.name || '我') + '的命运报告</h1>';
+            html += '<div class="subtitle">' + (r.generated_date || '') + ' · AI智能生成</div>';
             html += '</div>';
 
             // Profile Card
             html += '<div class="profile-card">';
-            html += '<div class="bazi-display">' + p.bazi + '</div>';
-            html += '<div class="day-master">日主 ' + p.day_master + ' · ' + p.gender + '</div>';
+            html += '<div class="bazi-display">' + (p.bazi || '') + '</div>';
+            html += '<div class="day-master">日主 ' + (p.day_master || '') + ' · ' + (p.gender || '') + '</div>';
             html += '<div style="margin-top:12px">';
-            html += '<div class="row"><span class="label">出生</span><span class="value">' + p.birth_info + '</span></div>';
-            html += '<div class="row"><span class="label">格局</span><span class="value">' + ba.geju + '</span></div>';
-            html += '<div class="row"><span class="label">用神</span><span class="value">' + ba.yongshen + '</span></div>';
+            html += '<div class="row"><span class="label">出生</span><span class="value">' + (p.birth_info || '') + '</span></div>';
+            html += '<div class="row"><span class="label">格局</span><span class="value">' + (ba.geju || '') + '</span></div>';
+            html += '<div class="row"><span class="label">用神</span><span class="value">' + (ba.yongshen || '') + '</span></div>';
             html += '<div class="row"><span class="label">神煞</span><span class="value">' + (ba.shensha && ba.shensha.length ? ba.shensha.join('、') : '无') + '</span></div>';
             html += '</div></div>';
 
             // Wuxing Analysis
             html += '<div class="section-title">五行能量分布</div>';
             html += '<div class="chart-card">';
-            html += '<div class="radar-container">' + drawRadar(r.charts.wuxing_radar) + '</div>';
+            html += '<div class="radar-container">' + drawRadar(radar) + '</div>';
 
             // Legend
             html += '<div class="radar-legend">';
             var wxClr = {"金":"#f0d060","木":"#60c060","水":"#5090e0","火":"#e06060","土":"#c09050"};
-            r.charts.wuxing_radar.forEach(function(item) {
+            radar.forEach(function(item) {
                 html += '<div class="radar-legend-item"><span class="dot" style="background:' + wxClr[item.axis] + '"></span>' + item.axis + ' ' + item.value + '</div>';
             });
             html += '</div>';
 
             // Wuxing bars
             html += '<div class="wuxing-bars">';
-            r.charts.wuxing_radar.forEach(function(item) {
-                var vals = r.charts.wuxing_radar.map(function(x) { return x.value; });
+            radar.forEach(function(item) {
+                var vals = radar.map(function(x) { return x.value; });
                 var maxVal = Math.max(1, Math.max.apply(null, vals));
                 var pct = Math.round((item.value / maxVal) * 100);
                 html += '<div class="wuxing-bar-item wx-' + item.axis + '">';
@@ -904,7 +1106,7 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
             // K-Line Chart
             html += '<div class="section-title">年度运势走势</div>';
             html += '<div class="chart-card">';
-            var mf = r.charts.monthly_fortune;
+            var mf = monthly;
             if (mf && mf.length > 0) {
                 html += '<h3>未来12个月运势趋势</h3>';
             }
@@ -914,26 +1116,29 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
             // Annual Trend
             html += '<div class="chart-card">';
             html += '<h3>年运势大趋势</h3>';
-            html += drawAnnualTrend(r.charts.annual_trend);
+            html += drawAnnualTrend(annual);
             html += '</div>';
 
             // Key Insights
             html += '<div class="section-title">核心洞察</div>';
             html += '<ul class="insight-list">';
-            r.insights.forEach(function(insight) {
-                html += '<li>' + insight + '</li>';
+            insights.forEach(function(insight) {
+                // k79：只展示**文本**条目（与服务端 first_insight_text 同一原则：
+                // 不把数字/对象的 repr 当文案）
+                if (typeof insight === 'string' && insight.trim()) html += '<li>' + insight + '</li>';
             });
             html += '</ul>';
 
             // Recommendations
             html += '<div class="section-title">行动建议</div>';
             html += '<ol class="rec-list">';
-            r.recommendations.forEach(function(rec, idx) {
+            recs.forEach(function(rec, idx) {
+                if (!rec || typeof rec !== 'object') return;
                 html += '<li>';
                 html += '<div class="rec-number">' + (idx + 1) + '</div>';
-                html += '<div class="rec-time">' + rec.time_window + '</div>';
-                html += '<div class="rec-action">' + rec.action + '</div>';
-                html += '<div class="rec-reason">' + rec.reason + '</div>';
+                html += '<div class="rec-time">' + (rec.time_window || '') + '</div>';
+                html += '<div class="rec-action">' + (rec.action || '') + '</div>';
+                html += '<div class="rec-reason">' + (rec.reason || '') + '</div>';
                 html += '</li>';
             });
             html += '</ol>';

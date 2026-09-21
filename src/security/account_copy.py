@@ -14,11 +14,55 @@
 文案是**同一份事实**的表述；事实改一次就要改 N 处，就一定会漏改。故把"账号注销 /
 数据删除"这两条事实的面向用户表述收在这里，调用方只引常量。
 
-⚠️ **本模块在守卫的扫描面内**（`miniprogram/tests/k71_privacy_consistency.test.js`
-§14「后端用户可见字符串面」）：本文件里的模块级字符串常量会被逐条按
-"与代码实况是否一致"的规则表判定；同一节还**自动扫描** `src/**/*.py` 里
-`detail=` / `message=` 关键字实参与 `"message"` / `"detail"` 等字典字面量，
-所以"绕过本模块直接写内联字面量"**不会逃逸**（两条路都必须过）。
+## 本模块在守卫的扫描面内 —— 边界的**准确**表述（k79-必修2 更正）
+
+守卫：`miniprogram/tests/k71_privacy_consistency.test.js` §14「后端用户可见字符串面」。
+
+**改前这里写的是"绕过本模块直接写内联字面量**不会逃逸**"—— 这句话是错的**（复审
+实测四类逃逸，守卫当时**全绿**）。现在把边界写清楚，别再说过头：
+
+拦得住的形态（两条路，都必须过）：
+  - `detail=` / `message=` **关键字实参**，值为：字面量、**可静态折叠**的表达式
+    （`"a" + "b"` / `"%s…" % x` / `"…".format(x)`）、模块级常量名、**函数内局部
+    常量名**（`zz = "…"; raise …(detail=zz)`）；
+  - 字典字面量的 10 个键（`message/detail/msg/error/reason/hint/disclaimer/
+    action/label/title/description`）的值，同上；
+  - **宽面**：`src/**/*.py` 里**全部中文字符串常量 + 折叠结果**逐条过禁语表
+    （本仓实测 3.4 万条对 4 条禁语**零命中**，故不设"汉字数据表白名单"）。
+
+**仍在面外**（如实列出，别当成已覆盖）：
+  - 运行时才拼出来的文案：变量插值后再拼接、`.join()` / `.replace()` 的结果、
+    从数据库/配置读来的字符串、`f"{X}…"` 里 X 的取值；
+  - 跨函数/跨模块传递后才进入 `detail=` 的值（本扫描器只做**局部 + 模块级**常量
+    解析，不做跨函数数据流）；
+  - 非这 10 个键的字典键（如 `{"desc": "…"}`）、列表/元组里的文案、`print` 日志；
+  - 非 `src/` 路径下的文案（脚本、部署文件、SQL 里的字面量）。
+
+⇒ 结论：**"`detail=`/`message=`/这 10 个键 + 全部中文字符串常量"这一面不会逃逸；
+上面那几类仍在面外**，写文案时别指望守卫替你把关。
+
+## 这几条文案"谁看得见"——可见面要说准（k79-必修3 更正）
+
+k78 为这几条文案的可见性背书时用了「客户端 ≥9 处渲染 `err.detail`」。逐条核过，
+**这个理由说过头了**（结论——"该改"——没错，理由不准）：
+
+  - 作为**一般性判断成立**：`miniprogram/utils/api.js` 对非 2xx（含 403）
+    `reject(res.data || {error:'请求失败'})`，整个响应体（含 `detail`）确实会交给
+    调用点；客户端也确实有多处把 `err.detail` 直接渲染给用户（如
+    `pages/settings/settings.js` 手机号绑定处）。
+  - 但这三条常量**当前在小程序里一处都不显示**：
+      · `ACCOUNT_CANCELLED_NOTICE` 作**登录 403** 的 `detail` → `app.js` 的
+        `catch` 只 `console.warn` + 进本地模式，**不渲染**；
+      · 同一条常量作**注销响应**的 `message` → `pages/settings/settings.js` 的
+        `.then()` 只 `setData` + 弹自己的 toast「账号已注销」，**完全忽略响应体**；
+      · `USER_DATA_PURGED_NOTICE`（`DELETE /api/user/data/{id}`、
+        `DELETE /api/security/user/{id}/data`，见 `main.py` / `security/router.py`）
+        与 `DATA_RETENTION_ACTION_NOTICE`（`GET /retention/info`）→
+        **小程序全仓零调用点**。
+
+⇒ 本模块的正确理由是「**API / OpenAPI 接入方可见面**」：直连接口的调用方、对外
+可读的 OpenAPI 文档（`security/router.py` 的 `confirm` description 已按这个口径写），
+以及将来任何新接线。**不要**用"客户端会渲染"当理由。
 
 事实依据（改文案前必须逐条核对，依据都在代码里）：
   - 注销：`users.status='cancelled'`，业务数据保留 **90 天**，期满由
@@ -53,5 +97,15 @@ USER_DATA_PURGED_NOTICE = (
 #: 这里用本仓已统一的口径「不可自助恢复」（与隐私文案的"注销没有自助恢复入口"同词）。
 DATA_RETENTION_ACTION_NOTICE = "数据删除（不可自助恢复）"
 
+#: 「删除我的数据」**没删干净**时的响应 message（k79-M1）。
+#: 改前无论删成没删干净都回 `USER_DATA_PURGED_NOTICE`（"个人数据已删除…"）——
+#: 表删除失败每处只写一行日志、计数记 0，"删失败"与"本来就没有"在响应里**不可区分**，
+#: 用户看到的是**与实况不符的成功**。现在真失败（非"表不存在"）走这条：
+#: 说清"没删完"+"这不是没有数据"+可重试，并附 `failed_tables` 便于人工跟进。
+DATA_PURGE_INCOMPLETE_NOTICE = (
+    "删除未完成：仍有数据未能删除（服务器内部错误，不是「本来就没有数据」）。"
+    "请稍后重试；若反复失败请联系客服人工处理"
+)
+
 __all__ = ["ACCOUNT_CANCELLED_NOTICE", "USER_DATA_PURGED_NOTICE",
-           "DATA_RETENTION_ACTION_NOTICE"]
+           "DATA_RETENTION_ACTION_NOTICE", "DATA_PURGE_INCOMPLETE_NOTICE"]

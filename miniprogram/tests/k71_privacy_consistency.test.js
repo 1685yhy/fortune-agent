@@ -53,6 +53,16 @@ function pyJson(code, timeout = 120000) {
   const last = raw.trim().split('\n').pop();
   return JSON.parse(last);
 }
+/*: k79：带**额外环境变量**的 pyJson（禁语表等规则表经 env 传入，避免把带转义的
+   正则源码嵌进模板字符串再解析一层）。 */
+function pyJsonEnv(code, extraEnv, timeout = 120000) {
+  const raw = execFileSync('python3', ['-c', code], {
+    cwd: REPO, encoding: 'utf8', timeout,
+    env: Object.assign({}, process.env, { PYTHONIOENCODING: 'utf-8' }, extraEnv),
+  });
+  const last = raw.trim().split('\n').pop();
+  return JSON.parse(last);
+}
 
 const WXML_RAW = read('pages/privacy/privacy.wxml');
 const MD_RAW = read('privacy.md');
@@ -1491,31 +1501,93 @@ const BACKEND_OLD_LITERALS = [
     不用正则扫 .py：`# 「所有个人数据已删除」` 这类注释/文档串不是用户可见文案，
     用正则扫必假红；用 AST 才能只取"真的会回给用户"的那些字。 */
 const BACKEND_EXTRACTOR = `
-import ast, json, pathlib, re, sys
+import ast, json, os, pathlib, re, sys
 COPY_MODULE = ${JSON.stringify(BACKEND_COPY_MODULE)}
 OLD_LITERALS = json.loads(${JSON.stringify(JSON.stringify(
   BACKEND_OLD_LITERALS.map((r) => ({ literal: r.literal, unless: r.unlessNear.source }))))})
+#: 禁语表**经环境变量**传入（不是嵌进本模板字符串）：规则里带正则转义，
+#: 经模板字符串再解析一层容易出歧义 —— env 走的是 JSON 原文，零转义风险。
+FORBIDDEN = json.loads(os.environ["K71_BACKEND_FORBIDDEN_JSON"])
 MSG_KEYS = {"message", "detail", "msg", "error", "reason", "hint", "disclaimer",
             "action", "label", "title", "description"}
 KW_NAMES = {"detail", "message"}
+#: unlessNear 的窗口（与 JS 侧同一口径；宽面同样用它）
+UNLESS_WINDOW = 160
 
 
 def has_cjk(s):
     return any("\\u4e00" <= ch <= "\\u9fff" for ch in s)
 
 
+def _literal_value(node):
+    """字面量标量（str/int/float/bool/None）；不是 → (None, False)。"""
+    if isinstance(node, ast.Constant):
+        v = node.value
+        if v is None or isinstance(v, (str, int, float, bool)):
+            return v, True
+    return None, False
+
+
 def const_str(node):
-    """字符串常量 / f-string 的字面量段（f-string 里插值掉的变量不参与）。"""
+    """**静态可求值**的字符串（k79-必修2 的修法之一：常量折叠）。
+
+    改前只认 ast.Constant 与 ast.JoinedStr 的字面量段 ⇒
+        raise ValueError("x", detail="账号已注销，" + "数据保留 90 天后删除")
+    里 detail= 的值是 BinOp，resolve() 拿到 None，整句**在面外**（复审实测）。
+    现在按**编译期能算出来**的规约折叠：加法拼接 / % 格式化 / .format()；
+    任一段不是静态字面量 → 返回 None（不猜）。
+    """
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     if isinstance(node, ast.JoinedStr):
         return "".join(v.value for v in node.values
                        if isinstance(v, ast.Constant) and isinstance(v.value, str))
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = const_str(node.left), const_str(node.right)
+        if left is not None and right is not None:
+            return left + right
+        return None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mod):
+        fmt = const_str(node.left)
+        if fmt is None:
+            return None
+        if isinstance(node.right, ast.Tuple):
+            vals = []
+            for e in node.right.elts:
+                v, ok = _literal_value(e)
+                if not ok:
+                    return None
+                vals.append(v)
+            vals = tuple(vals)
+        else:
+            v, ok = _literal_value(node.right)
+            if not ok:
+                return None
+            vals = v
+        try:
+            return fmt % vals
+        except Exception:
+            return None
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) \
+            and node.func.attr == "format":
+        base = const_str(node.func.value)
+        if base is None:
+            return None
+        args = []
+        for a in node.args:
+            v, ok = _literal_value(a)
+            if not ok:
+                return None
+            args.append(v)
+        try:
+            return base.format(*args)
+        except Exception:
+            return None
     return None
 
 
 def const_name(node):
-    """」detail=SOME_CONSTANT「 里的名字（调用点引用常量时 AST 看不到字面量）。"""
+    """」detail=SOME_CONSTANT 里的名字（调用点引用常量时 AST 看不到字面量）。"""
     return node.id if isinstance(node, ast.Name) else None
 
 
@@ -1527,22 +1599,42 @@ for _p in sorted(pathlib.Path("src").rglob("*.py")):
     except Exception:
         continue
     for _n in _t.body:
-        if isinstance(_n, ast.Assign) and isinstance(_n.value, ast.Constant) \
-                and isinstance(_n.value.value, str):
-            for _tgt in _n.targets:
-                if isinstance(_tgt, ast.Name):
-                    # 文案常量（COPY_MODULE）优先：名字撞车时以文案模块为准
-                    if _tgt.id not in GLOBAL_CONST or str(_p) == COPY_MODULE:
-                        GLOBAL_CONST[_tgt.id] = _n.value.value
+        _v = const_str(_n.value) if isinstance(_n, ast.Assign) else None
+        if _v is None:
+            continue
+        for _tgt in _n.targets:
+            if isinstance(_tgt, ast.Name):
+                # 文案常量（COPY_MODULE）优先：名字撞车时以文案模块为准
+                if _tgt.id not in GLOBAL_CONST or str(_p) == COPY_MODULE:
+                    GLOBAL_CONST[_tgt.id] = _v
 
 
-def resolve(node):
-    """取字符串：字面量优先；detail=常量名 则按模块级常量解析（否则扫不到）。"""
-    s = const_str(node)
-    if s:
-        return s
-    name = const_name(node)
-    return GLOBAL_CONST.get(name) if name else None
+def collect_locals(func_node):
+    """函数体内（**不含嵌套函数**）的 名字 = 静态字符串 表（k79-必修2）。
+
+    改前的解析面只有**模块级**常量 ⇒
+        def f(): zz = "…"; raise ValueError("x", detail=zz)
+    在面外（复审实测）。现在每个函数有自己的局部常量表，detail= 引用局部名也能解析。
+    近似之处（如实写明）：不区分分支/覆盖顺序（同名多次赋值取**最后**一次遍历到的），
+    也不做代数/运行时求值 —— 它只是"把本来就写死在同一函数里的字面量认出来"。
+    """
+    out = {}
+    def rec(n):
+        for child in ast.iter_child_nodes(n):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue          # 嵌套函数有自己的表，由外层递归处理
+            if isinstance(child, ast.Assign):
+                v = const_str(child.value)
+                if v is not None and len(child.targets) == 1 \
+                        and isinstance(child.targets[0], ast.Name):
+                    out[child.targets[0].id] = v
+            if isinstance(child, ast.AnnAssign) and child.value is not None:
+                v = const_str(child.value)
+                if v is not None and isinstance(child.target, ast.Name):
+                    out[child.target.id] = v
+            rec(child)
+    rec(func_node)
+    return out
 
 
 def docstring_nodes(tree):
@@ -1561,47 +1653,99 @@ def docstring_nodes(tree):
 
 
 user_facing, constants, string_constants = [], [], []
+wide_hits = []
+resolved_via_local = [0]
 files, parse_failures = 0, []
+
+
+def resolve(node, stack):
+    """取字符串：字面量/折叠优先；detail=名字 按**局部 → 外层 → 模块级**解析。"""
+    s = const_str(node)
+    if s:
+        return s
+    name = const_name(node)
+    if not name:
+        return None
+    for scope in reversed(stack):
+        if name in scope:
+            resolved_via_local[0] += 1
+            return scope[name]
+    return GLOBAL_CONST.get(name)
+
+
+def window(text, match):
+    i = match.start()
+    return text[max(0, i - UNLESS_WINDOW): match.end() + UNLESS_WINDOW]
+
+
+def scan(node, stack, docs):
+    # ① 关键字实参 detail= / message=（HTTPException 等）；值可以是字面量/拼接/常量名
+    if isinstance(node, ast.Call):
+        for kw in node.keywords or []:
+            if kw.arg in KW_NAMES:
+                s = resolve(kw.value, stack)
+                if s and has_cjk(s):
+                    user_facing.append({"file": str(p), "line": kw.value.lineno,
+                                        "kind": "kw:" + kw.arg, "text": s})
+    # ② 字典字面量的 message/detail/... 值（同上）
+    if isinstance(node, ast.Dict):
+        for k, v in zip(node.keys, node.values):
+            if isinstance(k, ast.Constant) and k.value in MSG_KEYS:
+                s = resolve(v, stack)
+                if s and has_cjk(s):
+                    user_facing.append({"file": str(p), "line": v.lineno,
+                                        "kind": "dict:" + str(k.value), "text": s})
+    # ③ 全部字符串常量（排除 docstring）—— 供"旧文案字面量不得回归"与**宽面禁语**扫描
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        if id(node) not in docs and has_cjk(node.value):
+            string_constants.append({"file": str(p), "line": node.lineno,
+                                     "text": node.value, "kind": "const"})
+    # ③' 可静态折叠的表达式也进宽面（"a" + "b" 折出来的整句必须看得见）
+    elif isinstance(node, (ast.BinOp, ast.JoinedStr)):
+        folded = const_str(node)
+        if folded and len(folded) > 1 and has_cjk(folded):
+            string_constants.append({"file": str(p), "line": node.lineno,
+                                     "text": folded, "kind": "folded"})
+    # ④ 文案常量模块的模块级字符串常量（含注释性 docstring 之外的常量）
+    if str(p) == COPY_MODULE and isinstance(node, ast.Assign):
+        tgt = node.targets[0] if node.targets else None
+        if isinstance(tgt, ast.Name):
+            v = const_str(node.value)
+            if v is not None and id(node.value) not in docs:
+                constants.append({"file": str(p), "line": node.value.lineno,
+                                  "name": tgt.id, "text": v})
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            scan(child, stack + [collect_locals(child)], docs)
+        else:
+            scan(child, stack, docs)
+
+
 for p in sorted(pathlib.Path("src").rglob("*.py")):
     try:
         tree = ast.parse(p.read_text(encoding="utf-8"))
     except Exception as e:
-        parse_failures.append(f"{p}: {e}")
+        parse_failures.append(str(p) + ": " + str(e))
         continue
     files += 1
     docs = docstring_nodes(tree)
-    for node in ast.walk(tree):
-        # ① 关键字实参 detail= / message=（HTTPException 等）；值可以是字面量或常量名
-        if isinstance(node, ast.Call):
-            for kw in node.keywords or []:
-                if kw.arg in KW_NAMES:
-                    s = resolve(kw.value)
-                    if s and has_cjk(s):
-                        user_facing.append({"file": str(p), "line": kw.value.lineno,
-                                            "kind": "kw:" + kw.arg, "text": s})
-        # ② 字典字面量的 message/detail/... 值（同上，支持常量名）
-        if isinstance(node, ast.Dict):
-            for k, v in zip(node.keys, node.values):
-                if isinstance(k, ast.Constant) and k.value in MSG_KEYS:
-                    s = resolve(v)
-                    if s and has_cjk(s):
-                        user_facing.append({"file": str(p), "line": v.lineno,
-                                            "kind": "dict:" + str(k.value), "text": s})
-        # ③ 全部字符串常量（排除 docstring）—— 只用于"旧文案字面量不得回归"
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            if id(node) not in docs and has_cjk(node.value):
-                string_constants.append({"file": str(p), "line": node.lineno,
-                                         "text": node.value})
-    # ④ 文案常量模块的模块级字符串常量（含注释性 docstring 之外的常量）
-    if str(p) == COPY_MODULE:
-        for node in tree.body:
-            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) \
-                    and isinstance(node.value.value, str):
-                if id(node.value) in docs:
-                    continue
-                name = node.targets[0].id if isinstance(node.targets[0], ast.Name) else "?"
-                constants.append({"file": str(p), "line": node.value.lineno,
-                                  "name": name, "text": node.value.value})
+    scan(tree, [], docs)
+
+# ⑤ **宽面**禁语扫描（k79-必修2 的修法之二）：禁语表不只过窄面（detail=/message=/
+#    10 个字典键），而是过**全部中文字符串常量 + 拼接折叠结果**。
+#    噪声实测：本仓 33469 条中文字符串（含折叠）对 4 条禁语**零命中** ⇒ 不需要为
+#    汉字数据表设过滤白名单（白名单本身就是新的"面外"；实测无噪声就不引入）。
+for item in string_constants:
+    for rule in FORBIDDEN:
+        m = re.search(rule["re"], item["text"])
+        if not m:
+            continue
+        if rule["unless"] and re.search(rule["unless"], window(item["text"], m)):
+            continue
+        wide_hits.append({"file": item["file"], "line": item["line"],
+                          "kind": item["kind"], "hit": m.group(0),
+                          "text": item["text"][:120], "why": rule["why"]})
+        break
 
 leftover = []
 for item in string_constants:
@@ -1617,18 +1761,34 @@ for item in string_constants:
 print(json.dumps({"files": files, "parse_failures": parse_failures,
                   "user_facing": user_facing, "constants": constants,
                   "string_constants": len(string_constants),
+                  "folded": len([x for x in string_constants if x["kind"] == "folded"]),
+                  "resolved_via_local": resolved_via_local[0],
+                  "wide_face_hits": wide_hits,
+                  "forbidden_rules": len(FORBIDDEN),
                   "leftover": leftover}, ensure_ascii=False))
+
 `;
 
-const BACKEND = pyJson(BACKEND_EXTRACTOR, 180000);
+/*: 把禁语表**经环境变量**交给抽取器（k79-必修2 的宽面扫描需要同一份规则表）。
+    不用模板字符串内嵌：规则里带 \n 这类转义，多一层解析容易出歧义；env 传的是
+    JSON 原文，零转义风险。 */
+const BACKEND_FORBIDDEN_JSON = JSON.stringify(
+  BACKEND_FORBIDDEN.map((r) => ({ re: r.re.source, unless: r.unlessNear.source,
+                                  why: r.why })));
+
+const BACKEND = pyJsonEnv(BACKEND_EXTRACTOR,
+  { K71_BACKEND_FORBIDDEN_JSON: BACKEND_FORBIDDEN_JSON }, 180000);
 
 test('k78-必修2 前提：后端用户可见字符串面真的被枚举到（抽取器不得失效）', () => {
   assert.deepEqual(BACKEND.parse_failures, [],
     `src/ 下有文件无法解析（抽取面出现盲区）：${BACKEND.parse_failures.join(', ')}`);
   assert.ok(BACKEND.files >= 100,
     `只解析了 ${BACKEND.files} 个 src/*.py（改前实测 100+），枚举器可能失效`);
+  //: 阈值 250 **保持不变**（不放宽、不删断言）；括号里改成**实测值**：
+  //: k79 实测 414（同一把尺子量 k78 版本是 406 —— 本条注释此前写的"285"
+  //: 与实际对不上，k79-M4 按实况改准；实测方法见 k79 报告）。
   assert.ok(BACKEND.user_facing.length >= 250,
-    `只抽到 ${BACKEND.user_facing.length} 条后端用户可见字符串（改前实测 285）——`
+    `只抽到 ${BACKEND.user_facing.length} 条后端用户可见字符串（k79 实测 414）——`
     + '抽取器可能失效（抽取器一失效，下面的禁语扫描会"全绿"）');
   const filesHit = new Set(BACKEND.user_facing.map((u) => u.file));
   assert.ok(filesHit.size >= 20,
@@ -1639,10 +1799,50 @@ test('k78-必修2 前提：后端用户可见字符串面真的被枚举到（�
       || BACKEND.constants.map((u) => u.file).indexOf(f) !== -1,
       `${f} 不在后端用户可见字符串面内（重开盲区）`);
   });
-  assert.ok(BACKEND.constants.length >= 3,
-    `文案常量模块 ${BACKEND_COPY_MODULE} 只抽到 ${BACKEND.constants.length} 条常量`);
+  /*: 阈值 k79 由 3 → 4（**只增不减**）：k79-M1 新增 `DATA_PURGE_INCOMPLETE_NOTICE`。
+     "3 常量、4 处引用"是 k78 报告里的说法，**两半都不准**（k79-M4 按实况改准，
+     实测方法：`grep -rn <常量名> src/ --include=*.py | grep -v account_copy.py`）：
+       - 常量数：k78 是 **3**、k79 是 **4**；
+       - 调用点：k78 是 **5 处使用点 / 4 个文件**（user.py 2、main.py 1、router.py 1、
+         privacy.py 1）+ 4 处 import（`from … import …` 不算使用点）；
+         k79 是 **7 处使用点 / 4 个文件**（新增 main.py、router.py 各 1 处失败分支）。
+     下面的断言钉住的是**常量数**（"定义了却没人引用"由另一条断言钉住）。 */
+  assert.ok(BACKEND.constants.length >= 4,
+    `文案常量模块 ${BACKEND_COPY_MODULE} 只抽到 ${BACKEND.constants.length} 条常量`
+    + '（k79 实测 4）');
   assert.ok(BACKEND.string_constants >= 1000,
     `src/ 里的中文字符串常量只有 ${BACKEND.string_constants} 条（疑枚举失效）`);
+  //: k79-必修2：宽面里"可静态折叠的拼接"必须真的被抓到 —— 折叠失效则`"a" + "b"`
+  //: 那一整类逃逸又看不见了。
+  assert.ok(BACKEND.folded >= 100,
+    `宽面里可静态折叠的字符串只抽到 ${BACKEND.folded} 条（k79 实测 1000+）`
+    + '—— 常量折叠失效，拼接类逃逸会整体回到面外');
+  assert.ok(BACKEND.resolved_via_local >= 1,
+    '没有任何 detail=/message= 是通过**局部常量**解析出来的（局部名解析失效）');
+});
+
+test('k79-必修2 宽面：禁语表过一遍 src/ 全部中文字符串常量（含拼接折叠结果）', () => {
+  /* 修的是什么（复审实测的四类逃逸，全部**在窄面之外**）：
+       ① `LEGACY_TEXT = "所有个人数据已删除" + "（不可恢复）"`   ← 拼接，窄面解析不到
+       ② `_NOTICE = "你的所有个人数据已全部清除"`               ← 模块常量不在 detail=/message= 位
+       ③ `zz = "…"; raise ValueError("x", detail=zz)`           ← 局部变量进 detail=
+       ④ `raise ValueError("x", detail="账号已注销，" + "数据保留 90 天后删除")` ← 拼接进 detail=
+     修法（两条一起，缺一不可）：
+       a. **常量折叠 + 局部名解析**（抽取器里的 `const_str` / `collect_locals`）⇒
+          ③④ 现在落在窄面上；①② 折出来的整句落在宽面上；
+       b. **禁语表也过宽面**（本节）：全部中文字符串常量 + 折叠结果逐条过 4 条禁语。
+     噪声：本条规则**自己先实测过** —— 本仓 3.3 万条中文字符串（含折叠）对 4 条禁语
+     **零命中**，故**不引入**"汉字数据表白名单"（白名单本身就是一个新的"面外"）。
+     若日后数据表里真的出现这些句子，本断言会红 —— 那是**要人来判**的信号，
+     不是自动豁免。 */
+  const bad = BACKEND.wide_face_hits.map(
+    (h) => `${h.file}:${h.line} [${h.kind}] 命中「${h.hit}」← ${h.why}`);
+  assert.deepEqual(bad, [],
+    `src/ 的字符串常量里出现与代码不符的绝对句（窄面之外也要拦）：\n  - `
+    + bad.join('\n  - '));
+  // 反向前提：扫面和空转必须能区分（面太小则本断言形同虚设）
+  assert.ok(BACKEND.string_constants >= 1000,
+    `宽面只扫到 ${BACKEND.string_constants} 条字符串 —— 面太小`);
 });
 
 test('k78-必修2 后端用户可见字符串：禁语表逐条扫描（含常量面）', () => {

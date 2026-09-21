@@ -63,7 +63,9 @@ from .security.sanitizer import InputSanitizer
 from .security.encryption import DataEncryptor
 from .security.privacy import PrivacyManager, PIPL_DISCLAIMER
 # k78：数据删除响应的**用户可见文案**单一事实源（本处与 security/router.py 曾各写一份）
-from .security.account_copy import USER_DATA_PURGED_NOTICE
+# k79-M1：新增"没删干净"的那条（与实况相反的成功文案同样是文案错误）
+from .security.account_copy import (DATA_PURGE_INCOMPLETE_NOTICE,
+                                    USER_DATA_PURGED_NOTICE)
 from .security.audit import AuditLogger
 from .security.router import router as security_router, init_security_router
 from .validators.response_checker import ResponseValidator
@@ -2030,6 +2032,24 @@ async def user_data_deletion(user_id: str, request: Request, uid: str = Depends(
     ip = request.headers.get("X-Forwarded-For", request.client.host if request.client else "unknown")
     audit.data_deletion(user_id, ip)
     deleted = pm.delete_user_data(user_id)
+    # k79-M1：**真删失败**（表在、删不掉）时不得再回"个人数据已删除" —— 改前每表
+    # 失败只写日志、计数记 0，端点照样 ok（复审实测：空库 15 张表报 `no such table:`
+    # 仍 200 + "已删除"，与"真删失败"在响应里不可区分）。现在：
+    #   - 真失败 → 500 + `DATA_PURGE_INCOMPLETE_NOTICE`（与实况一致的坏消息）
+    #     + `failed_tables` / `failed_files` 便于人工跟进；
+    #   - 表不存在（`no such table`，环境差异）→ 仍 200（"0 行"是事实），
+    #     但响应里带 `missing_tables`，不再与"删成功 0 行"混为一谈。
+    if not deleted.get("ok", True):
+        logger.error("Data deletion INCOMPLETE for user %s: %s",
+                     user_id, deleted.get("failed_tables"))
+        return JSONResponse(status_code=500, content={
+            "status": "incomplete",
+            "message": DATA_PURGE_INCOMPLETE_NOTICE,
+            "records_deleted": deleted,
+            "failed_tables": deleted.get("failed_tables") or {},
+            "failed_files": deleted.get("failed_files") or [],
+            "disclaimer": PIPL_DISCLAIMER,
+        })
     logger.warning("Data deletion completed for user %s", user_id)
     return {
         "status": "ok",
@@ -2037,6 +2057,8 @@ async def user_data_deletion(user_id: str, request: Request, uid: str = Depends(
         # 「不可恢复」与"备份窗口内可人工尝试找回"冲突（详见 account_copy 模块文档）
         "message": USER_DATA_PURGED_NOTICE,
         "records_deleted": deleted,
+        # k79-M1：环境差异（表不存在）是**可选可见项** —— 让运维看得见而不误报失败
+        "missing_tables": deleted.get("missing_tables") or [],
         "disclaimer": PIPL_DISCLAIMER,
     }
 

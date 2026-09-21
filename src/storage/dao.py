@@ -144,8 +144,15 @@ def collect_user_upload_names(conn, user_id: str, owner_tag: str = "") -> set:
     return names
 
 
-def _purge_dir_files(paths, label: str) -> int:
-    """逐个删文件（不存在/失败都只是告警，不中断整体清除）。返回删除个数。"""
+def _purge_dir_files(paths, label: str, failures=None) -> int:
+    """逐个删文件（不存在/失败都只是告警，不中断整体清除）。返回删除个数。
+
+    k79-M1：**"删失败"与"本来就没有"必须可区分** —— 失败（除 FileNotFoundError 外
+    的任何异常：权限、目录、I/O）不再只写一行日志，同时追加到 `failures`
+    （调用方收集后进响应，见 `purge_account_data` 的 `failed_files`）；
+    `FileNotFoundError`（本来就没有）**不算失败**，也不进 failures。
+    返回类型不变（删除个数），既有调用方与断言不受影响。
+    """
     import os as _os
     removed = 0
     for p in paths:
@@ -156,12 +163,15 @@ def _purge_dir_files(paths, label: str) -> int:
             continue
         except Exception as e:
             logger.warning("注销清理 %s 文件失败 %s: %s", label, p, e)
+            if failures is not None:
+                failures.append({"kind": label, "path": str(p),
+                                 "error": f"{type(e).__name__}: {e}"})
     return removed
 
 
 def purge_account_files(user_id: str, upload_names=None, memory_dir=None,
                         avatar_dir=None, uploads_dir=None, reports_dir=None,
-                        charts_dir=None) -> dict:
+                        charts_dir=None, failures=None) -> dict:
     """删除该用户的**文件类**落点，返回 `{类别: 删除个数}`。
 
     覆盖（与 `models.ACCOUNT_PURGE_FILE_KINDS` 一一对应）：
@@ -172,6 +182,10 @@ def purge_account_files(user_id: str, upload_names=None, memory_dir=None,
       - memory     : `data/memory/{user_id}.json`（L3 画像，走 UserMemory 自带接口）
       - reports    : `data/reports/*.json` 中归属为该用户的（`owner_enc` 解密命中）
       - share_cards: 上述报告对应的分享图 PNG（`CHARTS_DIR/share_{reading_id}.png`）
+
+    k79-M1：`failures`（可选，list）会收集**真删除失败**（权限/I/O 等；"文件本来
+    就不存在"不算）—— 供 `purge_account_data()` 汇总进响应的 `failed_files`，
+    不再让"删失败"只留一行日志。
     """
     import os as _os
     from pathlib import Path as _Path
@@ -182,7 +196,8 @@ def purge_account_files(user_id: str, upload_names=None, memory_dir=None,
     # ① 头像：文件名就是 user_id（与 api/user.py 的 `{safe_id}.jpg` 同口径）
     av_dir = _Path(avatar_dir) if avatar_dir else _Path(
         _os.environ.get("AVATAR_DIR", "").strip() or (root / "data" / "avatars"))
-    stats["avatar"] = _purge_dir_files([av_dir / f"{user_id}.jpg"], "头像")
+    stats["avatar"] = _purge_dir_files([av_dir / f"{user_id}.jpg"], "头像",
+                                      failures=failures)
 
     # ② 上传图：只删被该用户消息引用过的那些
     if upload_names:
@@ -193,7 +208,7 @@ def purge_account_files(user_id: str, upload_names=None, memory_dir=None,
             up_dir = _Path(_os.environ.get("FORTUNE_UPLOADS_DIR", "").strip()
                            or (load_settings().data_dir / "uploads" / "chat"))
         stats["uploads"] = _purge_dir_files(
-            [up_dir / n for n in sorted(upload_names)], "上传图")
+            [up_dir / n for n in sorted(upload_names)], "上传图", failures=failures)
 
     # ③ L3 画像文件
     try:
@@ -202,17 +217,22 @@ def purge_account_files(user_id: str, upload_names=None, memory_dir=None,
         stats["memory"] = 1 if um.clear_all(user_id) else 0
     except Exception as e:
         logger.warning("注销清理画像文件 %s 失败: %s", user_id, e)
+        if failures is not None:      # k79-M1：画像文件没清掉是真失败，要可区分
+            failures.append({"kind": "memory", "path": str(memory_dir or ""),
+                             "error": f"{type(e).__name__}: {e}"})
 
     # ④⑤ 报告文件 + 对应分享图（k77：抽成单点 `purge_report_files`，注销时
     #     **立即**清理"公开面"时复用同一段逻辑，不另写一份 —— 两份必然漂移）
-    rep = purge_report_files(user_id, reports_dir=reports_dir, charts_dir=charts_dir)
+    rep = purge_report_files(user_id, reports_dir=reports_dir, charts_dir=charts_dir,
+                             failures=failures)
     stats["reports"] += rep["reports"]
     stats["share_cards"] += rep["share_cards"]
 
     return stats
 
 
-def purge_report_files(user_id: str, reports_dir=None, charts_dir=None) -> dict:
+def purge_report_files(user_id: str, reports_dir=None, charts_dir=None,
+                       failures=None) -> dict:
     """删除该用户的**报告文件**与对应**分享图 PNG**，返回 `{reports, share_cards}`。
 
     归属判据：报告 JSON 里的 `owner_enc`（AES 密文）解密后 == user_id。
@@ -249,12 +269,18 @@ def purge_report_files(user_id: str, reports_dir=None, charts_dir=None) -> dict:
         _os.environ.get("CHARTS_DIR", "/opt/fortune-data/charts"))
     try:
         from src.security.encryption import DataEncryptor
+        # k79：**报告 JSON 的读取只有一份实现**（`visual_report.load_report_from`
+        # —— 与两个读接口同一个"根必须是对象、解析失败当不存在"的契约）。
+        # 改前这里自己 `json.loads` 后直接 `data.get(...)`：reports 目录里只要有一个
+        # "根不是对象"的 JSON（如 `[1,2,3]`），`'list' object has no attribute 'get'`
+        # 就会打断**整轮**清理 —— 本人报告一个都没删掉（`/share/{id}` 仍公开可读）、
+        # 只留一行 warning，端点却照样回"已注销"。实测见 k79 报告的"附带发现"。
+        from src.api.visual_report import load_report_from
         enc = DataEncryptor()
         for f in sorted(rep_dir.glob("*.json")):
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-            except Exception:
-                continue
+            data = load_report_from(rep_dir, f.stem)
+            if data is None:
+                continue          # 不是一份报告（根非对象 / 解析失败）→ 跳过，不中断
             owner_enc = data.get("owner_enc") or ""
             if not owner_enc:
                 continue
@@ -265,12 +291,30 @@ def purge_report_files(user_id: str, reports_dir=None, charts_dir=None) -> dict:
             if owner != user_id:
                 continue
             reading_id = data.get("reading_id") or f.stem
-            out["reports"] += _purge_dir_files([f], "报告")
+            out["reports"] += _purge_dir_files([f], "报告", failures=failures)
             out["share_cards"] += _purge_dir_files(
-                [ch_dir / f"share_{reading_id}.png"], "分享图")
+                [ch_dir / f"share_{reading_id}.png"], "分享图", failures=failures)
     except Exception as e:
         logger.warning("注销清理报告文件 %s 失败: %s", user_id, e)
+        # k79-M1：整段失败（如报告目录不可读）此前完全不可见 —— 现在进 failures。
+        # 注意"归属未知的老报告一律不动"是**设计**，走的是 continue 而不是这里。
+        if failures is not None:
+            failures.append({"kind": "reports", "path": str(rep_dir),
+                             "error": f"{type(e).__name__}: {e}"})
     return out
+
+
+def _is_missing_table_error(exc) -> bool:
+    """SQLite 的 "表不存在" 错误（**环境差异**）与"真删除失败"分开判定（k79-M1）。
+
+    依据：`sqlite3` 对不存在的表报 `no such table: X`。表不存在 ⇒ 该表里**本来就
+    没有**这个用户的行，"删了 0 行"是**事实**，不是失败（空库/尚未建表的部署、
+    测试里没 init_db 的库都走这条）。反之，"删不掉但表在"（权限、磁盘 I/O、
+    database is locked、schema 漂移导致的 `no such column`）是**真失败** ——
+    数据可能还在，必须让调用方/用户看得见。
+    """
+    text = str(exc).lower()
+    return "no such table" in text
 
 
 def purge_account_data(conn, user_id: str, memory_dir=None,
@@ -278,18 +322,32 @@ def purge_account_data(conn, user_id: str, memory_dir=None,
     """**账号数据清除的唯一实现**：删该用户的全部 DB 行 + 文件。
 
     返回 `{"deleted_rows": n, "tables": {表: 行数}, "files": {类别: 个数},
-           "retained": {表: 依据}}`。
+           "retained": {表: 依据}, "ok": bool, "failed_tables": {表: 原因},
+           "missing_tables": [表], "failed_files": [{kind,path,error}]}`。
 
     - 归属列取自 `models.ACCOUNT_PURGE_TABLES`（含 share_entries 的 `owner_tag`）；
     - 每次删除独立 try：某张表失败只告警，不中断其余表（**尽力删干净**）；
     - `payments` / `midas_orders` 明确**保留**（依法留存），结果里带依据说明；
     - `purge_files=False` 供只想删行的调用方（如单测）。
+
+    ⚠️ k79-M1（复审报的 Minor，本仓按"报了就要修"处置）：改前**每张表失败都只
+    `logger.warning` 并把 `tables[table]` 记 0**，端点照样返回 `status:"ok"` +
+    "个人数据已删除" —— "**删除失败**"与"**本来就没有**"在响应里**不可区分**
+    （复审空库实测 15 张表 `no such table:` 仍 200 + "已删除"）。现在：
+
+      - **真失败** → 进 `failed_tables`（表 → 原因），`ok=False`，并**告警级日志**；
+        调用端点据此**不得**再回"删除完成"（见 `main.py` / `security/router.py`）；
+      - **表不存在**（`no such table`，环境差异）→ 进 `missing_tables`，**不算失败**
+        （0 行就是事实），但**在响应里可见**，不再与"删成功 0 行"混为一谈；
+      - 文件类失败同理汇总进 `failed_files`（改前只写日志，`files` 里记 0）。
     """
     from .models import (ACCOUNT_PURGE_TABLES, ACCOUNT_RETAIN_TABLES)
     from .share_dao import owner_tag_for
 
     owner_tag = owner_tag_for(user_id)
     tables: Dict[str, int] = {}
+    failed_tables: Dict[str, str] = {}
+    missing_tables: list = []
 
     # ① 删行之前先采集上传图引用（删完就找不到归属了）
     upload_names = set()
@@ -311,6 +369,10 @@ def purge_account_data(conn, user_id: str, memory_dir=None,
         except Exception as e:
             logger.warning("注销清理 %s.%s 失败: %s", table, user_id, e)
             tables[table] = 0
+            if _is_missing_table_error(e):
+                missing_tables.append(table)
+            else:
+                failed_tables[table] = f"{type(e).__name__}: {e}"
 
     # ③ users 行最后删（否则 status='cancelled' 的判定行先没了）
     try:
@@ -319,24 +381,40 @@ def purge_account_data(conn, user_id: str, memory_dir=None,
     except Exception as e:
         logger.warning("注销清理 users.%s 失败: %s", user_id, e)
         tables["users"] = 0
+        if _is_missing_table_error(e):
+            missing_tables.append("users")
+        else:
+            failed_tables["users"] = f"{type(e).__name__}: {e}"
 
-    # ④ 文件
-    files = {}
+    # ④ 文件（k79-M1：真失败汇总进 failed_files，不再只留日志）
+    files, failed_files = {}, []
     if purge_files:
         try:
             # file_dirs：avatar_dir / uploads_dir / reports_dir / charts_dir 透传
             # （部署自定义目录或测试注入用；缺省各自回落到生产默认目录）
             files = purge_account_files(user_id, upload_names=upload_names,
-                                        memory_dir=memory_dir, **file_dirs)
+                                        memory_dir=memory_dir, failures=failed_files,
+                                        **file_dirs)
         except Exception as e:
             logger.warning("注销清理文件 %s 失败: %s", user_id, e)
+            failed_files.append({"kind": "purge_account_files", "path": "",
+                                 "error": f"{type(e).__name__}: {e}"})
 
     deleted_rows = sum(tables.values())
     retained = {t: why for t, _col, why in ACCOUNT_RETAIN_TABLES}
-    logger.info("账号数据清除完成 %s：删 %d 行 / 文件 %s；依法留存 %s",
-                user_id, deleted_rows, files, sorted(retained))
+    if failed_tables or failed_files:
+        # 真失败必须**喊出来**（改前只有每表一行 warning，聚合层面完全静默）
+        logger.error("账号数据清除**未完成** %s：失败表 %s / 失败文件 %s（其余已删）",
+                     user_id, failed_tables, failed_files)
+    else:
+        logger.info("账号数据清除完成 %s：删 %d 行 / 文件 %s；表不存在（环境差异）%s；依法留存 %s",
+                    user_id, deleted_rows, files, missing_tables, sorted(retained))
     return {"deleted_rows": deleted_rows, "tables": tables,
-            "files": files, "retained": retained}
+            "files": files, "retained": retained,
+            "ok": not (failed_tables or failed_files),
+            "failed_tables": failed_tables,
+            "missing_tables": missing_tables,
+            "failed_files": failed_files}
 
 
 class UserDAO:
@@ -612,12 +690,20 @@ class UserDAO:
         except Exception as e:
             logger.warning("注销时删除分享记录失败（不阻断注销）: %s", e)
         # k77-F：报告分享页的公开面同理——注销当时就删报告文件与分享图
+        # k79-M1：失败**不阻断注销**（既有设计），但不再只留一行 warning ——
+        # 文案对用户承诺的是"注销时立即删除"，真删失败必须以 **error** 级留下
+        # 可检索的证据（90 天期满的清理会再试一次，那是兜底不是借口）。
+        _rep_failures: list = []
         try:
-            _rep = purge_report_files(user_id)
+            _rep = purge_report_files(user_id, failures=_rep_failures)
             if _rep.get("reports") or _rep.get("share_cards"):
                 logger.info("注销时删除报告分享面: %s（user=%s）", _rep, user_id)
         except Exception as e:
             logger.warning("注销时删除报告文件失败（不阻断注销）: %s", e)
+        if _rep_failures:
+            logger.error("注销时报告分享面**未删净**（user=%s）：%s —— 该账号的报告"
+                         "分享页可能仍可匿名访问，等 90 天期满清理再试；请人工核查",
+                         user_id, _rep_failures)
         cursor = conn.execute(
             "UPDATE users SET status='cancelled', cancelled_at=?, updated_at=? "
             "WHERE user_id=? AND status != 'cancelled'",

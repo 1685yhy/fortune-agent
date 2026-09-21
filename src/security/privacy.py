@@ -113,9 +113,14 @@ class PrivacyManager:
         头像/上传图/报告文件 ⇒「删除权」名不副实。现在删除清单**只有一份**
         （`storage/models.py::ACCOUNT_PURGE_TABLES` / `ACCOUNT_RETAIN_TABLES`）。
 
-        返回：`{表名: 删除行数, ..., "user": n, "files": {...}, "retained": {...}}`
-        —— 保留 `"user"` 键（既有调用方与测试读它）。
+        返回：`{表名: 删除行数, ..., "user": n, "files": {...}, "retained": {...},
+        "ok": bool, "failed_tables": {...}, "missing_tables": [...],
+        "failed_files": [...]}` —— 保留 `"user"` 键（既有调用方与测试读它）。
         `payments` / `midas_orders` **不删**（依法留存），依据见返回值 `retained`。
+
+        k79-M1：`ok` / `failed_tables` / `failed_files` 透传自
+        `purge_account_data()` —— 调用端点据此**不得**在真失败时仍回"删除完成"
+        （见 `api/user.py` 同级的两个删除端点）。
         """
         from ..storage.dao import purge_account_data
 
@@ -127,6 +132,11 @@ class PrivacyManager:
             deleted["user"] = stats["tables"].get("users", 0)
             deleted["files"] = stats["files"]
             deleted["retained"] = stats["retained"]
+            # k79-M1：让"真失败"能一路走到响应（改前这里就把失败信息丢掉了）
+            deleted["ok"] = stats.get("ok", True)
+            deleted["failed_tables"] = stats.get("failed_tables") or {}
+            deleted["missing_tables"] = stats.get("missing_tables") or []
+            deleted["failed_files"] = stats.get("failed_files") or []
             logger.info(
                 "Deleted all data for user %s: %s",
                 self.encryptor.encrypt_user_id(user_id), deleted,

@@ -18,7 +18,7 @@ from pydantic import BaseModel
 from .auth import AuthHandler, require_auth, require_admin
 from .privacy import PrivacyManager, PIPL_DISCLAIMER
 # k78：用户可见文案（数据删除响应）的单一事实源——与 src/main.py 同源
-from .account_copy import USER_DATA_PURGED_NOTICE
+from .account_copy import DATA_PURGE_INCOMPLETE_NOTICE, USER_DATA_PURGED_NOTICE
 from .audit import AuditLogger, audit_log
 from .sanitizer import InputSanitizer
 from .encryption import DataEncryptor
@@ -280,6 +280,21 @@ async def delete_user_data(
 
     try:
         deleted = _privacy_manager.delete_user_data(user_id)
+
+        # k79-M1：同 `src/main.py` 的同一端点 —— **真删失败**时不得再回"删除完成"
+        # （改前两张表删失败也只写日志，端点照样 ok；与"本来就没有"不可区分）。
+        # 表不存在（`no such table`，环境差异）不算失败，仍 200。
+        if not deleted.get("ok", True):
+            logger.error("Data deletion INCOMPLETE for user %s: %s",
+                         user_id, deleted.get("failed_tables"))
+            return JSONResponse(status_code=500, content={
+                "status": "incomplete",
+                "message": DATA_PURGE_INCOMPLETE_NOTICE,
+                "records_deleted": deleted,
+                "failed_tables": deleted.get("failed_tables") or {},
+                "failed_files": deleted.get("failed_files") or [],
+                "disclaimer": PIPL_DISCLAIMER,
+            })
         logger.warning("User %s requested data deletion", user_id)
 
         return DataDeleteResponse(
