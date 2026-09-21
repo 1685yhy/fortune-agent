@@ -4,17 +4,24 @@ Provides:
   GET /api/share/{report_id} → {imageUrl, card}
       - report_id 为咨询 ID（数字）→ 从 consultations 加载，owner 校验：
           不存在 404 / 非本人 403（IDOR 防护）
-      - report_id 为 reading_id（8 位 hex）→ 兼容旧版 data/reports JSON 报告
-          不存在 404（公开分享页，无归属校验）
+      - report_id 为 reading_id（8 位）→ 兼容旧版 data/reports JSON 报告：
+          不存在 404（k76 起**同样做归属校验**，非本人/归属未知 403）
       优先尝试生成真实分享图（ShareCardGenerator，依赖 playwright + CHARTS_DIR）；
       环境未就绪时降级返回结构化 card 数据（标题/摘要/样式/昵称/二维码占位），
       由前端自行渲染分享。
-  GET /share/{reading_id} → OpenGraph HTML 分享页（微信爬虫卡片）
+  GET /share/{reading_id} → **分享通道**（匿名可读的报告分享页）
+      k76：公开页剥离个人信息（姓名/出生日期），就地渲染报告，不再跳转到
+      需鉴权的 /report/{reading_id}（本人路径）。
+  POST /api/share → 匿名对话分享落库（有有效期，见下）
+  GET  /share?id=... → 匿名对话落地页（过期 → 410）
 """
 import html
 import json
 import logging
+import re
 import secrets
+import time
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -22,7 +29,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
-from src.security.auth import require_user, ensure_owner
+from src.security.auth import require_user, ensure_owner, optional_user
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +57,79 @@ def _load_report(reading_id: str) -> dict:
         return json.loads(report_path.read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+# ── k77-F：**报告分享页**的有效期（控制方拍板：与对话分享同为 30 天）──────
+# 背景：`/share/{reading_id}` 是**匿名可读的公开页**（k76 已剥离姓名/出生信息），
+# 但此前**没有有效期** —— 一旦分享出去就永久公开，与 k76 给对话分享设的
+# 30 天口径不一致：同一个"分享出去的链接"在两个入口有两条规则。
+#
+# 单一事实源（**选择：与对话分享同一个配置项**，不另立第二旋钮）：
+# 有效期仍只由 `src/config.py::share_ttl_days()`（环境变量 `FORTUNE_SHARE_TTL_DAYS`，
+# 默认 30）定义，本页经 `share_ttl_seconds()` 取值。理由：
+#   ① 控制方拍板的是**一条口径**——"分享链接不做无限期公开"，30 天是这条口径的取值；
+#      两个入口都是"公开可访问的分享链接"，语义同类，没有分设取值的依据；
+#   ② 加第二个环境变量等于允许"对话 30 天 / 报告永久"这种半失效状态复活
+#      （正是本批要消灭的状态），而且必然出现"只改一处"的漂移
+#      —— k72/k74/k75 反复点名的失败模式；
+#   ③ 若将来确实需要区别对待，须先有产品拍板，届时再加旋钮，并由守卫
+#      （k77 的分享有效期断言）同时钉住两个入口，避免只改一边。
+
+#: reading_id 的合法形态（`visual_report.py` 生成口径：uuid4 前 8 位十六进制）。
+#  本页是**匿名**入口，校验形态只为①拒绝路径穿越式怪串②不做无意义磁盘探测；
+#  与 `/report/{reading_id}` 的"鉴权 + 归属校验"是两条不同的路径，不冲突。
+_READING_ID_RE = re.compile(r"^[0-9a-f]{8}$")
+
+
+def _report_path(reading_id: str) -> Path:
+    return _DATA_DIR / f"{reading_id}.json"
+
+
+def _report_share_expires_at(report: dict, path: Path) -> float:
+    """报告分享页的**失效时刻**（epoch 秒）—— 存量回算与对话分享同款。
+
+    取值顺序（回算口径）：
+      ① 报告 JSON 的 `generated_at`（生成报告时写入的 ISO 字符串）→ + TTL；
+      ② 缺失/不可解析（k77 之前的老报告，或字段被清）→ 退回**文件 mtime** + TTL
+         （mtime 是"这个文件什么时候出现在磁盘上"，是存量行最接近生成时刻的可用
+         信号；与 share_dao 对老行 `COALESCE(created_at, now)` 的回算同思路）；
+      ③ 两条路都拿不到（文件已消失等）→ 返回 0.0 = **视为已过期**
+         （fail-closed，与 `ShareDAO.get_state` 对 `expires_at IS NULL` 的处理同款：
+         绝不因为"算不出来"就退回"永久有效"）。
+    """
+    from src.config import share_ttl_seconds
+
+    base = None
+    raw = (report or {}).get("generated_at")
+    if isinstance(raw, str) and raw.strip():
+        try:
+            base = datetime.fromisoformat(raw.strip()).timestamp()
+        except Exception:
+            base = None
+    if base is None:
+        try:
+            base = path.stat().st_mtime
+        except Exception:
+            base = None
+    if base is None:
+        return 0.0
+    return base + float(share_ttl_seconds())
+
+
+def _report_share_expired_html() -> str:
+    """报告分享页过期页（HTTP 410）——与对话分享的过期页同款口径与样式。"""
+    from src.config import share_ttl_days
+
+    days_text = f"{share_ttl_days():g}"
+    return _SHARE_PAGE_HEAD.replace("__CSS__", _SHARE_PAGE_CSS).replace(
+        "__BODY__",
+        f"""
+<div class="wrap empty">
+  <div class="seal">明灯</div>
+  <h2>这份报告分享已过期</h2>
+  <p>分享链接的有效期为 {days_text} 天，到期后自动失效</p>
+</div>""",
+    )
 
 
 def _get_base_url(request=None) -> str:
@@ -168,7 +248,10 @@ def _card_from_report(report: dict) -> dict:
         "wuxing_summary": _wuxing_summary(wuxing),
         "style": {"bg": "#faf8f5", "accent": "#c9a96e", "text": "#1a1a1a"},
         "qr_placeholder": "扫码查看完整报告",
-        "report_url": f"{_BASE_URL}/report/{reading_id}",
+        # k76：指向**分享通道**而不是 /report/{reading_id}——后者自本批起需要
+        # 登录+归属校验，把"分享给别人看"的链接指到那里等于给对方一个打不开的页。
+        # 分享通道（/share/{reading_id}）匿名可读且已剥离个人信息，是收件人该走的路径。
+        "report_url": f"{_BASE_URL}/share/{reading_id}",
         "bazi_data": {
             "bazi": bazi_list,
             "day_master": day_master,
@@ -229,7 +312,14 @@ class _BaziLite:
 #   POST /api/share      body {pairs:[{u,tag,content}], dateText} → {"id": "8位base62"}
 #   GET  /api/share/qr?url=... → 二维码 PNG(仅允许 https://yilichat.com/share?id= 前缀)
 #   GET  /share?id=...    → 墨韵风格 HTML 落地页(纯静态,无外部依赖,内容 HTML 转义)
-# 红线:匿名分享 —— 不落任何用户标识;页面无鉴权,内容即公开。
+# 红线:匿名分享 —— 不落任何**明文**用户标识;页面无鉴权,内容即公开。
+#
+# k76(控制方 2026-09-21 拍板)两项收紧:
+#   ① **有效期**:链接默认 30 天(`FORTUNE_SHARE_TTL_DAYS` 可配),到期失效
+#      —— 过期返回 **410 Gone** + 「已过期」文案(≠ 不存在的 200 空页),
+#      存量行按 created_at 回算(见 ShareDAO._migrate);
+#   ② **归属标记**:登录用户创建时记 owner_tag(HMAC 伪名,非明文 user_id),
+#      注销时据此删除本人分享;未登录创建 = 空标记(无归属可删,TTL 照旧约束)。
 # 注意:本段路由必须定义在 /api/share/{report_id} 之前(FastAPI 按注册顺序匹配)。
 
 _SHARE_ID_ALPHABET = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -293,12 +383,19 @@ def _clean_share_body(body: ShareCreateIn) -> dict:
 
 
 @router.post("/api/share")
-def create_share(body: ShareCreateIn):
-    """匿名落库一条分享对话,返回 8 位 base62 短 id(不含任何用户标识)。"""
+def create_share(body: ShareCreateIn, _uid: str = Depends(optional_user)):
+    """匿名落库一条分享对话,返回 8 位 base62 短 id(不含任何明文用户标识)。
+
+    k76:按 `optional_user` 记**归属标记**(HMAC 伪名)供注销删除;未登录 → 空标记。
+    本端点**仍然匿名可用**(登录不是前提,只是"记不记得住归属"的差别)。
+    """
+    from src.storage.share_dao import owner_tag_for
+
     content = _clean_share_body(body)
+    owner_tag = owner_tag_for(_uid)
     for _ in range(5):  # 主键冲突(极小概率)换 id 重试
         share_id = _gen_share_id()
-        if _sdao().insert(share_id, content):
+        if _sdao().insert(share_id, content, owner_tag=owner_tag):
             return {"id": share_id}
     raise HTTPException(status_code=500, detail="生成分享 id 失败,请重试")
 
@@ -335,9 +432,18 @@ def get_share_qr(url: str = Query(..., min_length=1, max_length=500)):
 
 @router.get("/share")
 def get_share_page(id: str = Query(..., min_length=4, max_length=32)):
-    """墨韵风格 HTML 落地页:扫码打开看对话内容(纯静态,防 XSS)。"""
-    entry = _sdao().get(id)
-    if not entry:
+    """墨韵风格 HTML 落地页:扫码打开看对话内容(纯静态,防 XSS)。
+
+    k76 三种返回(到期行为**明确**、与"不存在"分开):
+      - 有效          → 200 + 对话页;
+      - **已过期**    → **410 Gone** + 「这段分享已过期」页(带有效期天数);
+      - 不存在/损坏   → 200 + 「这段对话已随风而去」页(既有行为,未改)。
+    过期一律**不返回内容**(fail-closed,由 ShareDAO.get_state 判定)。
+    """
+    state, entry = _sdao().get_state(id)
+    if state == "expired":
+        return HTMLResponse(_share_expired_html(), status_code=410)
+    if state != "ok" or not entry:
         return HTMLResponse(_SHARE_EMPTY_HTML)
     return HTMLResponse(_render_share_page(id, entry))
 
@@ -448,6 +554,25 @@ _SHARE_EMPTY_HTML = _SHARE_PAGE_HEAD.replace("__CSS__", _SHARE_PAGE_CSS).replace
 )
 
 
+def _share_expired_html() -> str:
+    """过期分享落地页(HTTP 410)文案:明说"已过期"与有效期,不谎称"不存在"。"""
+    from src.config import share_ttl_days
+
+    days = share_ttl_days()
+    days_text = f"{days:g}"
+    return _SHARE_PAGE_HEAD.replace("__CSS__", _SHARE_PAGE_CSS).replace(
+        "__BODY__",
+        f"""
+<div class="wrap empty">
+  <div class="seal">明灯</div>
+  <h2>这段分享已过期</h2>
+  <p>分享链接的有效期为 {days_text} 天，到期后自动失效</p>
+  <p>来和明灯聊聊吧</p>
+</div>
+""",
+    )
+
+
 def _render_share_page(share_id: str, entry: dict) -> str:
     """对话数据 → 落地页 HTML。所有对话内容经 html.escape,防 XSS。"""
     pairs_html = []
@@ -494,10 +619,14 @@ async def get_share_metadata(report_id: str, uid: str = Depends(require_user)):
         ensure_owner(c.get("user_id", ""), uid)
         card = _card_from_consultation(c, report_id)
     else:
-        # 旧版 JSON 报告（公开分享页）
+        # 旧版 JSON 报告：k76 起同样做**归属校验**（改前只要求登录，任意登录用户
+        # 拿到 8 位 reading_id 即可读出他人姓名+八字——与 /report/{id} 同一个越权面）。
+        # 归属未知的老报告 → 403（fail-closed，与读接口同一判据）。
         report = _load_report(report_id)
         if not report:
             raise HTTPException(status_code=404, detail="报告未找到")
+        from src.api.visual_report import assert_report_owner
+        assert_report_owner(report, uid)
         card = _card_from_report(report)
 
     # 2. 尝试生成真实分享图；失败/环境未就绪 → 结构化降级
@@ -524,91 +653,64 @@ async def get_share_metadata(report_id: str, uid: str = Depends(require_user)):
     }
 
 
-@router.get("/share/{reading_id}")
-async def get_share_redirect(reading_id: str):
-    """Redirect to the report page with OpenGraph meta tags.
+#: 分享通道在公开页上**必须剥离**的个人信息字段（`profile` 下）。
+#: 依据（k72-A2 / 控制方红线）：姓名、出生日期属个人信息，不得出现在无需鉴权的
+#: 公开页面上；八字与运势结论是**被分享的内容本体**（控制方已授权分享通道承载），
+#: 故保留。这份清单同时被 `/share/{reading_id}` 使用。
+_SHARE_REDACT_PROFILE_FIELDS = ("name", "birth_date", "birth_info")
 
-    This endpoint returns a minimal HTML page with full OpenGraph
-    meta tags for social media crawlers, then redirects to the
-    full report page via JavaScript.
+
+def _redact_report_for_share(report: dict) -> dict:
+    """报告 → 分享通道可公开的副本（剥离个人信息，**不改原 dict**）。
+
+    - `profile.name` / `birth_date` / `birth_info` 一律清空（值与占位符"用户"
+      同款处理：`_build_report_html` 对内会退回中性标题）；
+    - 深拷贝到 JSON 兼容结构，避免调用方拿到被改动的原报告。
     """
+    try:
+        safe = json.loads(json.dumps(report, ensure_ascii=False, default=str))
+    except Exception:
+        safe = dict(report)
+    profile = safe.get("profile")
+    if isinstance(profile, dict):
+        for field in _SHARE_REDACT_PROFILE_FIELDS:
+            if field in profile:
+                profile[field] = "用户" if field == "name" else ""
+    return safe
+
+
+@router.get("/share/{reading_id}")
+async def get_share_page_by_reading(reading_id: str):
+    """分享通道：匿名可读的**报告分享页**（微信/浏览器卡片 + 完整报告）。
+
+    k76 的两点与改前不同（控制方拍板，两条路径分开）：
+      ① **公开页不出现个人信息** —— 改前标题写 `{姓名}的命运报告`，且整份报告
+         （含 `profile.name` / 出生日期）嵌进页面 JSON；现在标题恒为中性标题，
+         个人信息字段经 `_redact_report_for_share` 剥离后才入页。
+      ② **不再 JS 跳转到 `/report/{reading_id}`** —— 那个页面 k76 起要鉴权+归属
+         校验（本人路径），分享接收者没有令牌。故本页**就地渲染**报告，
+         分享通道自身闭环（接收者的体验与改前一致：还是看到完整报告）。
+
+    k77-F（控制方拍板）：本页**与对话分享同一有效期口径**（默认 30 天，见
+    `_report_share_expires_at`）。到期 → **410 Gone** + 过期页（与 `/share?id=`
+    的过期返回同款），**不再返回任何报告内容**（fail-closed）。
+    为什么要做：本页是**匿名可读的公开面**，改前永久有效 —— 同一句"分享出去的
+    链接"在对话分享（30 天）与报告分享（永久）之间口径分裂，本批一并收口。
+    """
+    # k77：形态校验（uuid4 前 8 位十六进制）→ 非法形态直接 404，
+    # 不做磁盘探测、不接受怪串（匿名入口的纵深防御；合法 id 逐个不受影响）
+    if not _READING_ID_RE.match(reading_id or ""):
+        raise HTTPException(status_code=404, detail="报告未找到")
     report = _load_report(reading_id)
     if not report:
         raise HTTPException(status_code=404, detail="报告未找到")
+    if time.time() >= _report_share_expires_at(report, _report_path(reading_id)):
+        return HTMLResponse(_report_share_expired_html(), status_code=410)
 
-    profile = report.get("profile", {})
-    insights = report.get("insights", [])
-    ba = report.get("bazi_analysis", {})
+    from src.api.visual_report import _build_report_html
 
-    user_name = profile.get("name", "用户")
-    if user_name in ("", "用户", "anonymous"):
-        title = "我的2026运势报告 | 易理明灯"
-    else:
-        title = f"{user_name}的命运报告 | 易理明灯"
-
-    key_insight = insights[0][:100] if insights else "AI命理分析报告"
-    description = key_insight
-
-    html = f"""<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{title}</title>
-
-    <!-- OpenGraph -->
-    <meta property="og:title" content="{title}">
-    <meta property="og:description" content="{description}">
-    <meta property="og:type" content="website">
-    <meta property="og:image" content="{_BASE_URL}/static/og-report.png">
-    <meta property="og:url" content="{_BASE_URL}/share/{reading_id}">
-    <meta property="og:site_name" content="易理明灯">
-    <meta property="og:locale" content="zh_CN">
-
-    <!-- WeChat specific -->
-    <meta name="wechat:title" content="{title}">
-    <meta name="wechat:description" content="{description[:80]}">
-    <meta name="wechat:image" content="{_BASE_URL}/static/og-report.png">
-
-    <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="{title}">
-    <meta name="twitter:description" content="{description[:120]}">
-    <meta name="twitter:image" content="{_BASE_URL}/static/og-report.png">
-
-    <!-- Standard meta -->
-    <meta name="description" content="{description}">
-    <meta name="keywords" content="命运报告,AI命理,八字,运势,易理明灯">
-
-    <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, sans-serif; background: #0a0a0f; color: #e8e8ed;
-               display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; text-align: center; }}
-        .card {{ padding: 48px 24px; }}
-        .card h1 {{ font-size: 24px; font-weight: 600; margin-bottom: 12px; }}
-        .card p {{ color: #8888a0; font-size: 14px; margin-bottom: 24px; }}
-        .card .btn {{ display: inline-block; padding: 12px 32px; border-radius: 30px;
-                     background: linear-gradient(135deg, #667eea, #764ba2); color: #fff;
-                     text-decoration: none; font-weight: 500; font-size: 15px; }}
-        .spinner {{ width: 24px; height: 24px; border: 2px solid rgba(255,255,255,0.1);
-                    border-top: 2px solid #667eea; border-radius: 50%;
-                    animation: spin 0.8s linear infinite; margin: 0 auto 16px; }}
-        @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="spinner"></div>
-        <h1>正在加载命运报告...</h1>
-        <p>即将跳转至完整的可视化报告页面</p>
-        <a class="btn" href="{_BASE_URL}/report/{reading_id}">查看完整报告</a>
-    </div>
-
-    <script>
-        // Redirect to the full report page after a brief delay
-        setTimeout(function() {{
-            window.location.href = "{_BASE_URL}/report/{reading_id}";
-        }}, 1500);
-    </script>
-</body>
-</html>"""
-    return HTMLResponse(html)
+    safe = _redact_report_for_share(report)
+    insights = safe.get("insights", [])
+    key_insight = insights[0][:50] if insights else "AI命理分析报告"
+    share_text = f"我的2026运势报告来了！{key_insight}... #易理明灯 #AI命理"
+    return HTMLResponse(_build_report_html(safe, share_text))

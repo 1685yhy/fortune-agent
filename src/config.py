@@ -166,6 +166,46 @@ def public_client_base() -> str:
 DEFAULT_PUBLIC_CLIENT_BASE = "https://yilichat.com"
 
 
+# ── k76：分享链接有效期（控制方 2026-09-21 拍板）────────────────────────────
+# 背景：匿名分享此前**永久公开**（`share_entries` 只有 created_at，无任何 TTL），
+# 与「不做无限期公开」的合规口径冲突。控制方拍板：**设 30 天有效期，到期后
+# 链接失效（已有链接也会失效）**。
+#
+# 单一事实源：有效期只在这里定义（环境变量 `FORTUNE_SHARE_TTL_DAYS`），
+# 存储层（share_dao）与读接口（api/share.py）都经本函数取值，不各自写死。
+SHARE_TTL_DAYS_ENV = "FORTUNE_SHARE_TTL_DAYS"
+SHARE_TTL_DAYS_DEFAULT = 30
+
+
+def share_ttl_days() -> float:
+    """分享链接有效期（天）。默认 30；`FORTUNE_SHARE_TTL_DAYS` 可覆盖。
+
+    非法值（非数字 / ≤0）→ 回落到默认 30 并打 warning（**不静默**）：
+    TTL 是合规参数，配错时宁可退回已拍板的默认值，也不要变成"永不过期"
+    （0/负数若被解释为无限期，等于把本批修复静默撤回）。
+    """
+    raw = os.getenv(SHARE_TTL_DAYS_ENV, "")
+    if not (raw or "").strip():
+        return float(SHARE_TTL_DAYS_DEFAULT)
+    try:
+        days = float(raw)
+    except (TypeError, ValueError):
+        logger.warning("%s=%r 不是数字 → 分享有效期回落到默认 %s 天",
+                       SHARE_TTL_DAYS_ENV, raw, SHARE_TTL_DAYS_DEFAULT)
+        return float(SHARE_TTL_DAYS_DEFAULT)
+    if days <= 0:
+        logger.warning("%s=%r 非正数 → 分享有效期回落到默认 %s 天（0/负数不等于"
+                       "'永不过期'；如需永不过期请另提需求，不靠配错实现）",
+                       SHARE_TTL_DAYS_ENV, raw, SHARE_TTL_DAYS_DEFAULT)
+        return float(SHARE_TTL_DAYS_DEFAULT)
+    return days
+
+
+def share_ttl_seconds() -> float:
+    """分享链接有效期（秒）—— `share_ttl_days()` 的秒数形式（存储层用）。"""
+    return share_ttl_days() * 86400.0
+
+
 def load_settings(config_path: str = "config/settings.yaml") -> Settings:
     settings = Settings()
     path = Path(config_path)

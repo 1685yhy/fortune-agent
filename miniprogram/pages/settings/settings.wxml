@@ -203,7 +203,7 @@
     <!-- 数据说明（同 me 页原 sn-body 文案） -->
     <view class="sec-note">
       <text class="sn-title">安全与数据</text>
-      <text class="sn-body">对话与命书均经加密存储，仅你本人可见。退出登录不影响本地灯油与命书；注销账号后数据进入加密归档，90 天可恢复期内联系明灯即可找回，期满彻底删除。</text>
+      <text class="sn-body">对话与命书加密存储；昵称、称呼与关系、收藏、择日计划与灯语为明文存储。你的内容不会公开展示（为生成回应会交给第三方大模型），只有你主动分享出去的链接拿到即可打开（对话分享链接与报告分享页都是 30 天后自动失效，注销时你分享出去的链接会立即删除）。退出登录不影响本地灯油与命书；注销后登录入口立即关闭，账号内数据保留 90 天后由清理任务删除（你上传的图片、头像与记忆文件同样在清理范围内），唯支付流水依《电子商务法》第三十一条按法定期限留存。注销没有自助恢复入口，如需找回请在保留期内尽快联系我们，能否找回取决于备份是否仍覆盖，我们无法保证。</text>
     </view>
 
     <!-- 危险区（朱砂注销 · 二次确认） -->
@@ -212,7 +212,7 @@
       <view class="me-row danger-row" hover-class="me-row-active" hover-stay-time="0" bindtap="onDeregTap">
         <view class="mr-ic"><image src="/assets/images/ic-moon.png"></image></view>
         <view class="mr-label mr-label-danger">注销账号</view>
-        <view class="mr-val">数据不可恢复</view>
+        <view class="mr-val">注销后无法自助恢复</view>
         <view class="mr-chev"><image class="chev" src="/assets/images/ic-chev.png"></image></view>
       </view>
     </view>
@@ -246,8 +246,8 @@
         <text>注销账号</text>
       </view>
       <view class="acct-card-body">
-        <text>注销后，对话、命书、收藏与解梦手记将</text><text class="mb-strong">不可恢复</text><text>；</text>
-        <text>数据将加密归档，90 天后彻底删除。</text>
+        <text>注销后登录入口立即关闭，对话、命书、收藏与解梦手记</text><text class="mb-strong">无法自助恢复</text><text>（如需找回请在保留期内尽快联系我们，能否找回取决于备份，我们不保证）；</text>
+        <text>你分享出去的链接会立即删除；其余数据保留 90 天后逐项删除（你上传的图片与头像也在清理范围内，支付流水等依法需留存的交易记录除外）。</text>
       </view>
       <view class="acct-card-note">此操作不可撤销 · 请慎重</view>
       <input class="acct-input" value="{{deregInput}}" bindinput="onDeregInput"
@@ -263,11 +263,11 @@
   <view wx:if="{{deregDone}}" class="gone-screen" catchtouchmove="noop">
     <image class="gone-lantern" src="/assets/images/lantern.jpg"></image>
     <view class="gs-title">账号已注销</view>
-    <view class="gs-sub">你的对话、命书与手记已加密归档
-90 天内不再打扰 · 愿你前路有光</view>
+    <view class="gs-sub">你的对话、命书与手记将保留 90 天
+之后清除 · 不会再收到消息打扰 · 愿你前路有光</view>
     <view class="gs-line"></view>
     <view class="gs-poem">感谢相伴，灯火长明。</view>
     <view class="gs-btn" hover-class="acct-btn-active" hover-stay-time="0" bindtap="onDeregGoneBack">回到首页</view>
-    <view class="gs-note">重新登录后，一切从一灯开始</view>
+    <view class="gs-note">此账号在保留期内无法登录；保留期满数据清除后，用同一个微信登录会重新开始</view>
   </view>
 </view>

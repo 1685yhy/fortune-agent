@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import tempfile
 import threading
 import time
 import uuid
@@ -364,6 +365,33 @@ def _prewarm_night_lamps(date_str: str, limit: int = 50) -> dict:
     return stats
 
 
+def _drop_cancelled_users(uids) -> list:
+    """推送批次统一过滤：**已注销账号不再被触达**（k77）。
+
+    三条依据（任何一条单独成立即足够）：
+      ① 注销 = 撤回同意（《个人信息保护法》），继续主动触达与撤回相悖；
+      ② 注销后登录被 403 拦截 —— 推送里的内容用户点不进来看，只剩骚扰；
+      ③ 注销成功页对用户的承诺是"不会再收到消息打扰"，这条承诺必须由代码兑现
+         （改前三条触达链——每日/每周运势、晨笺/晚安、择吉日提醒——都没有过滤
+         cancelled，已注销用户在 90 天保留期内照常收到推送）。
+
+    实现在**单一位置**（本函数），三条链路共用；`UserDAO.get_pushable_users_with_bazi()`
+    是同一规则的另一个入口（那条链路的一次性查询版本，避免逐用户查状态）。
+    取状态失败 → **跳过该用户**（fail-closed：宁可少发一条，不可对已注销用户违约）。
+    """
+    out = []
+    for uid in (uids or []):
+        try:
+            # 注意：此处的 dao 是**模块级 UserDAO**（形参同名者不在此作用域内）
+            if dao is not None and dao.get_user_status(uid) == "cancelled":
+                continue
+        except Exception as e:
+            logger.warning("推送状态判定失败，按不打扰处理 uid=%s: %s", uid, e)
+            continue
+        out.append(uid)
+    return out
+
+
 async def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
     """按偏好时间下发:晨笺(kind=jian)或晚安(kind=night)。
 
@@ -384,6 +412,8 @@ async def _send_jian_batch(dao, now_hm: str, kind: str = "jian") -> dict:
         logger.debug("服务号未配置,%s 发送跳过", "晨笺" if kind == "jian" else "晚安")
         return stats
     uids = dao.list_enabled_at(now_hm, kind)
+    # k77：已注销账号不再触达（注销即撤回同意 + 注销页承诺"不再打扰"）
+    uids = _drop_cancelled_users(uids)
     stats["total"] = len(uids)
     tpl_key = "MP_JIAN_TEMPLATE_ID" if kind == "jian" else "MP_NIGHT_TEMPLATE_ID"
     tpl_id = _env(tpl_key)
@@ -567,6 +597,10 @@ def _zeri_reminder_batch(zdao, now, member_dao=None) -> dict:
                 if not plan:
                     continue
                 uid = plan["user_id"]
+                # k77：已注销账号不再触达（注销即撤回同意 + 注销页承诺"不再打扰"）
+                if uid not in _drop_cancelled_users([uid]):
+                    stats["skipped"] += 1
+                    continue
                 # 失败停推: zeri_prefs.bound_status='invalid'(仿晨笺 invalid 语义)
                 zpref = zdao.get_pref(uid) or {}
                 if zpref.get("bound_status") == "invalid":
@@ -1810,6 +1844,58 @@ async def chat_pending_consume(req: PendingConsumeRequest,
     return consume_pending(session_dao, uid, req.session_id, req.time)
 
 
+class SessionDeleteRequest(BaseModel):
+    """删除对话请求（k77-I4）。
+
+    scope 三选一，**必须显式**给出（服务端不做任何隐式扩大）：
+      - "session"：删 `session_id` 指定的这一段对话（前端现代路径）；
+      - "legacy" ：删该用户**没有会话编号**的历史消息行（"会话隔离"上线前
+        写入的行，服务端无法定位到具体某一段对话，只能按这批旧记录整体删）。
+    缺失/非法 scope → 400（宁可报错，也不猜用户想删多少）。
+    """
+    scope: str = ""
+    session_id: str = ""
+
+
+@app.post("/api/chat/sessions/delete")
+async def chat_sessions_delete(req: SessionDeleteRequest,
+                               uid: str = Depends(require_user)):
+    """删除对话（**服务端真实删除**）——前端「历史 → 删除」的服务端落点。
+
+    背景（k77-I4 复审判定，属**产品缺陷**而非文案问题）：前端删除此前**只清本地
+    storage**，服务端 `sessions.content` 原样保留 —— 用户点"删掉这段对话"，
+    云端副本其实还在，与页面承诺的"逐条删掉你的对话与记录"不符。
+
+    契约：
+      请求 {"scope":"session","session_id":"s_xxx"} → 删该会话的消息行；
+      请求 {"scope":"legacy"} → 删无会话编号的历史行；
+      响应 {"status":"ok","deleted":N,"legacy_remaining":M}
+        —— `legacy_remaining` 是**如实回执**：若还有无编号的历史行没删（例如删的是
+        现代会话），把它如实告诉前端，不谎报"已清零"。
+
+    鉴权：require_user（uid = JWT sub）；SQL 一律带 user_id 条件 ⇒ 只能删自己的行。
+    作用域校验：scope 必须是 session/legacy 之一；`session` 且 session_id 非法
+    （不符合 `normalize_session_id` 口径）→ 400，不执行任何删除。
+    """
+    from .api.chat_stream import normalize_session_id
+
+    scope = (req.scope or "").strip()
+    if scope == "session":
+        sid = normalize_session_id(req.session_id or "")
+        if not sid:
+            raise HTTPException(status_code=400, detail="session_id 缺失或格式非法")
+        deleted = session_dao.delete_sessions(uid, session_id=sid)
+    elif scope == "legacy":
+        deleted = session_dao.delete_sessions(uid, legacy_only=True)
+    else:
+        raise HTTPException(status_code=400,
+                            detail="scope 必须是 session 或 legacy")
+    remaining = session_dao.count_legacy_sessions(uid)
+    logger.info("删除对话：user=%s scope=%s deleted=%s legacy_remaining=%s",
+                uid, scope, deleted, remaining)
+    return {"status": "ok", "deleted": deleted, "legacy_remaining": remaining}
+
+
 @app.get("/api/health")
 async def health():
     """轻量健康检查：不触发任何重活（不查 DB、不调 LLM），看门狗专用。"""
@@ -2180,6 +2266,64 @@ def _generic_calendar(date_str: str = None) -> dict:
 from fastapi import UploadFile, File, Form
 
 
+# ── k76：上传落临时文件的两个公共动作（面相/手相共用）──────────────────
+# 背景（k72 核查 A/遗留风险 1）：`/api/face-reading`、`/api/palm-reading` 此前
+#   ① `await image.read()` **无大小上限** → 可被刷爆磁盘/内存；
+#   ② 临时文件只在**成功路径** unlink，`analyze()` 抛错时**永久残留**。
+# 口径：大小上限与 `/api/chat/upload` **同源**（`_CHAT_UPLOAD_MAX`，单一事实源，
+# 见下方该常量的注释；两处不一致时以那个常量为准）；临时文件用 try/finally
+# 覆盖**所有**退出路径（正常返回、提前 return、异常、甚至写盘失败）。
+
+#: 上传图片大小上限（**单一事实源**）：/api/chat/upload、/api/face-reading、
+#: /api/palm-reading 三个入口共用本常量。k76 把它从 chat 段落**上移**到这里
+#: （定义位置先于全部使用方，源码顺序即可读懂；值逐字节未变 = 5MB）。
+_CHAT_UPLOAD_MAX = 5 * 1024 * 1024  # 5MB
+
+
+def _unlink_quietly(path) -> None:
+    """静默删除临时文件（不存在/权限等一律忽略——清理失败不该改变响应）。"""
+    if not path:
+        return
+    try:
+        os.unlink(path)
+    except Exception:
+        pass
+
+
+async def _read_upload_within_limit(image, fallback_name: str = "photo.jpg"):
+    """读上传图片 → 校验（大小 + 魔数）→ 落临时文件，返回 `(tmp_path, content)`。
+
+    校验顺序与 /api/chat/upload 一致（**任一校验失败即拒绝，且都不落盘**）：
+      ① 无文件 → 400；② `_CHAT_UPLOAD_MAX + 1` 字节上限 → 413；
+      ③ 魔数嗅探（`sniff_image_format`）→ 415。
+    落盘失败时把已建的空临时文件删掉再抛（不把半成品留在 /tmp）。
+
+    k77 合并裁定：k76 建了本函数（读+限长+落盘），k72 的嗅探原本**平行写在各
+    路由体内**；合并时把嗅探也并入本入口——于是 `/api/face-reading` 与
+    `/api/palm-reading` 是**同一段代码**在把关，而不是两段"看起来一样"的代码。
+    这直接消除 k72 点名的失败模式（同一校验在多个端点各写一份 → 必然漂移）。
+    """
+    if not image or not image.filename:
+        raise HTTPException(status_code=400, detail="缺少图片文件")
+    content = await image.read(_CHAT_UPLOAD_MAX + 1)
+    if len(content) > _CHAT_UPLOAD_MAX:
+        raise HTTPException(
+            status_code=413,
+            detail=f"图片不能超过 {_CHAT_UPLOAD_MAX // (1024 * 1024)}MB")
+    if not sniff_image_format(content):
+        raise HTTPException(status_code=415, detail="文件内容不是有效图片")
+    suffix = os.path.splitext(image.filename or fallback_name)[1] or ".jpg"
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+            tmp.write(content)
+        return tmp_path, content
+    except Exception:
+        _unlink_quietly(tmp_path)   # 写盘失败：不留半成品
+        raise
+
+
 @app.post("/api/face-reading")
 async def face_reading(
     image: UploadFile = File(...),
@@ -2192,41 +2336,32 @@ async def face_reading(
     k72：本端点原**完全不校验**上传内容（无类型白名单、无魔数嗅探）——
     与 /api/chat/upload 的差距正是"只查声明不查内容"的同类缺口。现补魔数嗅探，
     与上传校验的单一事实源同源（src/utils/image_sniff.py）。
+    k76：大小上限与 /api/chat/upload **同源**（`_CHAT_UPLOAD_MAX`，单一事实源）；
+    临时文件在**所有**路径（含异常/提前返回）都被 finally 清理。
     """
     user_id = uid
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
-    # k72：内容校验必须在 try 之前——下面的 `except Exception` 会把
-    # HTTPException 一并吞掉（降级成 200 + status:error），校验就形同虚设。
-    # 读取本身仍按原语义走兜底（读失败 → status:error，不变），只有"内容不是
-    # 图片"才升格为真的 415。
+    # k72：内容校验必须在"会吞异常的兜底 try"**之前**——否则 415 会被
+    # `except Exception` 一并吞掉（降级成 200 + status:error），校验就形同虚设。
+    # k77 合并裁定：读/限长/嗅探/落盘 四步统一收进 `_read_upload_within_limit()`
+    # （k76 已把读+限长+落盘收进去，k77 把 k72 的嗅探也并入同一入口），
+    # 调用点只留 `except HTTPException: raise` 一条明规则（与文件内既有写法一致），
+    # 顺序陷阱由"单一入口"结构性消除。读取失败的语义仍按原样兜底为 status:error。
     try:
-        content = await image.read()
+        tmp_path, _content = await _read_upload_within_limit(image, "photo.jpg")
+    except HTTPException:
+        raise          # 400/413/415 等校验拒绝：原样上抛（不被兜底吞成 200）
     except Exception as e:
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
-    if not sniff_image_format(content):
-        raise HTTPException(status_code=415, detail="文件内容不是有效图片")
 
     try:
-        import tempfile, os
-        # Save uploaded file temporarily
-        suffix = os.path.splitext(image.filename or "photo.jpg")[1] or ".jpg"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
-
         # Run face analysis
         from .engines.face_reader import FaceReader, generate_report
 
         reader = FaceReader()
         metrics = reader.analyze(tmp_path)
-
-        # Clean up temp file
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
 
         if metrics is None:
             return {
@@ -2255,9 +2390,8 @@ async def face_reading(
             },
             "report": report,
         }
-
-    except Exception as e:
-        return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
+    finally:
+        _unlink_quietly(tmp_path)
 
 
 @app.post("/api/palm-reading")
@@ -2270,31 +2404,25 @@ async def palm_reading(
 
     安全修复：必须登录；user_id 一律取 JWT sub。
     k72：同 /api/face-reading，补魔数嗅探（原完全不校验上传内容）。
+    k76：大小上限与 /api/chat/upload **同源**（`_CHAT_UPLOAD_MAX`，单一事实源）；
+    临时文件在**所有**路径（含异常/提前返回）都被 finally 清理。
     """
     user_id = uid
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
-    # k72：同 /api/face-reading —— 内容校验须在兜底 try 之前，否则被 except 吞掉；
+    # k72 + k77：同 /api/face-reading —— 读/限长/嗅探/落盘收进 `_read_upload_within_limit()`；
+    # HTTPException（400/413/415）须在兜底 try 之前原样上抛，否则被 except 吞掉；
     # 读取失败保持原语义（status:error）。
     try:
-        content = await image.read()
+        tmp_path, _content = await _read_upload_within_limit(image, "hand.jpg")
+    except HTTPException:
+        raise
     except Exception as e:
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
-    if not sniff_image_format(content):
-        raise HTTPException(status_code=415, detail="文件内容不是有效图片")
     try:
-        import tempfile, os
-        suffix = os.path.splitext(image.filename or "hand.jpg")[1] or ".jpg"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(content)
-            tmp_path = tmp.name
         from .engines.palm_reader import PalmReader, generate_palm_report
         reader = PalmReader()
         metrics = reader.analyze(tmp_path)
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
         if metrics is None:
             return {"status": "no_hand", "message": "未检测到手掌，请上传一张光线充足的手掌照片 ✋"}
         api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
@@ -2311,8 +2439,8 @@ async def palm_reading(
             "special_patterns": metrics.special_patterns,
             "report": report,
         }
-    except Exception as e:
-        return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
+    finally:
+        _unlink_quietly(tmp_path)
 
 
 # ════════════════════════════════════════════════════════════════
@@ -2332,9 +2460,13 @@ async def palm_reading(
 # 注意：GET /api/chat/uploads/{file} 不带鉴权——小程序 <image src> 无法携带
 # Authorization 头；uuid 文件名不可猜测，与既有 /share-cards 静态服务同策略。
 # ════════════════════════════════════════════════════════════════
-_CHAT_UPLOAD_MAX = 5 * 1024 * 1024  # 5MB
+# 注：`_CHAT_UPLOAD_MAX`（5MB，单一事实源）k76 起定义在文件上方
+# 「k76：上传落临时文件的两个公共动作」段——/api/chat/upload、/api/face-reading、
+# /api/palm-reading 三个入口同源共用（k77 合并时口径归并，值逐字节未变）。
 # 声明类型 → 落盘扩展名。**由单一事实源派生**（k72）：白名单与嗅探表同源，
 # 不允许在此另写一份字面量——两处漂移正是头像端点漏掉嗅探的成因。
+# （k77 合并裁定：k76 曾在此另写一份字面量 dict，与派生结果逐键逐值相同，
+#  但字面量正是"漂移的温床"——保留派生版，删除字面量副本。）
 _CHAT_UPLOAD_EXT = {ct: IMAGE_FORMAT_EXT[fmt] for ct, fmt in IMAGE_CONTENT_TYPES.items()}
 
 

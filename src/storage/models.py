@@ -162,6 +162,79 @@ def connect(db_path: str, timeout: float = 10.0) -> sqlite3.Connection:
     return conn
 
 
+# ══════════════════════════════════════════════════════════════════════
+# k76：账号注销/删除的**用户数据落点清单**（单一事实源）
+# ══════════════════════════════════════════════════════════════════════
+# 背景（k72 独立核查 A3）：注销删除覆盖不全 —— `privacy.delete_user_data()`
+# 只删 consultations/push_log/user_preferences/users/payments；`dao.cleanup_
+# cancelled_accounts()` 的 10 张表清单**也不含** zeri_plans / night_lamp /
+# night_prefs / night_remember / jian_prefs / ming_saves / ming_quota /
+# qian_saves / chat_quota / share_entries。两条链路各写各的清单 ⇒ 必然漂移。
+# 本批把清单**收敛到此处一份**，两条链路都读它（数据一致性铁律）。
+#
+# 清单来源 = `SCHEMA_SQL` 建表（本文件）+ 各 DAO 自建表（`CREATE TABLE` 点）：
+#   favorites(favorite_dao) chart_records(chart_dao) jian_prefs/jian_cards(jian_dao)
+#   ming_saves/ming_quota(ming_dao) qian_saves(qian_dao) zeri_*(zeri_dao)
+#   night_prefs/night_remember(night_dao) night_lamp(lamp_dao)
+#   chat_quota(chat_quota_dao) share_entries(share_dao) midas_orders(pay_midas)
+#
+# 三类判定：
+#   【应删】本人可识别/可关联到本人的数据，注销后不再保留（PIPL 第 47 条删除权）。
+#   【应删·按伪名】share_entries 不存 user_id（匿名分享红线），按 HMAC 伪名
+#       `owner_tag` 定位删除；查不到归属（当年未登录创建）的分享行删不掉，
+#       但受 30 天有效期约束（见 src/config.share_ttl_days）。
+#   【依法留存】payments / midas_orders = 支付流水，**不删**，依据《电子商务法》
+#       第 31 条（商品和服务信息、交易信息应当保存**不少于三年**）+
+#       《网络交易监督管理办法》第 15 条。留存的是"交易事实"，注销不消灭它。
+# ⚠️ 唯一性：下列元组 (表名, 归属列) 是**删除行为的唯一事实源**；新增用户表
+#    必须在 `ACCOUNT_PURGE_TABLES` 里登记，`tests/test_k76_*` 会核对建表清单。
+ACCOUNT_PURGE_TABLES = (
+    # 主表（users 行最后由调用方删，保证其它表先清干净）
+    ("consultations", "user_id"),
+    ("push_log", "user_id"),
+    ("memberships", "user_id"),
+    ("user_preferences", "user_id"),
+    ("sessions", "user_id"),
+    ("session_summaries", "user_id"),
+    ("persons", "user_id"),
+    ("chart_records", "user_id"),
+    ("favorites", "user_id"),
+    ("jian_prefs", "user_id"),
+    ("jian_cards", "user_id"),
+    ("ming_saves", "user_id"),
+    ("ming_quota", "user_id"),
+    ("qian_saves", "user_id"),
+    ("zeri_plans", "user_id"),
+    ("zeri_prefs", "user_id"),
+    ("zeri_quota", "user_id"),
+    ("night_prefs", "user_id"),
+    ("night_remember", "user_id"),
+    ("night_lamp", "user_id"),
+    ("chat_quota", "user_id"),
+    ("user_tone_feedback", "user_id"),   # 遗留表（docs/DATABASE.md §2.9）：代码零引用，
+                                         # 但生产库**确实存在**且有 user_id 列 —— 有行
+                                         # 就必须能删干净，否则"期满彻底删除"名不副实
+    ("share_entries", "owner_tag"),      # 匿名分享：按 HMAC 伪名归属，见上注
+)
+
+#: 注销时**依法留存**的表（(表名, 归属列, 依据)）——明确"不删"，并说明为什么。
+ACCOUNT_RETAIN_TABLES = (
+    ("payments", "user_id",
+     "支付流水：《电子商务法》第 31 条（交易信息保存不少于三年）"),
+    ("midas_orders", "user_id",
+     "支付流水（米大师订单）：同《电子商务法》第 31 条"),
+)
+
+#: 用户**文件类**落点（(标识, 依据)）——由 `dao.purge_account_files()` 实现删除。
+ACCOUNT_PURGE_FILE_KINDS = (
+    ("avatar", "data/avatars/{user_id}.jpg 头像"),
+    ("uploads", "data/uploads/chat/* —— 仅删该用户会话/收藏/分享里被引用的那些"),
+    ("memory", "data/memory/{user_id}.json L3 画像"),
+    ("reports", "data/reports/*.json —— 归属为该用户的报告（owner_enc 命中）"),
+    ("share_cards", "分享图 PNG —— 仅当对应报告被删时一并删"),
+)
+
+
 def _get_columns(conn, table: str) -> set:
     """获取表中现有列名"""
     cursor = conn.execute(f"PRAGMA table_info({table})")
