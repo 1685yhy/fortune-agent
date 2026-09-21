@@ -28,6 +28,10 @@ from src.storage.person_dao import (
 from src.storage.birth_profile import bazi_info_out_of_sync
 from src.storage.models import connect as db_connect
 from src.security.auth import require_user
+# k72：上传内容校验（魔数嗅探）的单一事实源——与 /api/chat/upload 共用同一实现。
+from src.utils.image_sniff import (
+    IMAGE_CONTENT_TYPES, IMAGE_EXT_FORMAT, sniff_image_format,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +61,16 @@ _ACCESS_TOKEN_TTL_SECONDS = 110 * 60
 
 MAX_AVATAR_BYTES = 2 * 1024 * 1024
 _AVATAR_CHUNK_BYTES = 64 * 1024  # 头像分块读取块大小（累计超限立即中止）
+# k72：三张表全部**由单一事实源派生**（src/utils/image_sniff.py），本文件不再
+# 自带一份字面量判断——头像端点此前漏掉魔数嗅探，根因就是"同一条规则写了两遍"。
+# 声明类型白名单（content-type 只是客户端自述，仅作入口条件）
 _ALLOWED_AVATAR_TYPES = {"image/jpeg", "image/png", "image/webp"}
-_ALLOWED_AVATAR_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
+# 允许的**真实内容**格式（魔数嗅探得出）
+_ALLOWED_AVATAR_FORMATS = {IMAGE_CONTENT_TYPES[ct] for ct in _ALLOWED_AVATAR_TYPES}
+# 允许的客户端文件名后缀（与上表同源，防两处漂移）
+_ALLOWED_AVATAR_EXTS = {
+    ext for ext, fmt in IMAGE_EXT_FORMAT.items() if fmt in _ALLOWED_AVATAR_FORMATS
+}
 
 
 def _ensure_session_key_column():
@@ -536,6 +548,11 @@ async def user_upload_avatar(file: UploadFile = File(...), uid: str = Depends(re
     1. 读前预拒：file.size（Content-Length 派生，可用时）> MAX_AVATAR_BYTES → 不读 body 直接 400；
     2. 分块读取：64KB 分块累计，超 MAX_AVATAR_BYTES 立即中止 400（无 Content-Length 的流式上传兜底）。
     任何路径下内存占用有界（≤ MAX + 一块）。
+
+    k72 补内容校验：原实现**只查 content-type 与文件名后缀**（都是客户端自述），
+    不查真实内容。实测把 MP3 改名 x.png、声明 image/png 打进来 → HTTP 200 且
+    原样落盘（落盘文件头 8 字节为 `ID3`）。现补魔数嗅探，与 /api/chat/upload
+    同一实现（src/utils/image_sniff.py 单一事实源）。
     """
     content_type = (file.content_type or "").split(";")[0].strip().lower()
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -558,6 +575,11 @@ async def user_upload_avatar(file: UploadFile = File(...), uid: str = Depends(re
     data = b"".join(chunks)
     if not data:
         raise HTTPException(status_code=400, detail="图片内容为空")
+    # k72：**内容**校验（魔数嗅探）——上面的 content-type/后缀都只是客户端自述，
+    # 伪装者改得了声明、改不了自己文件开头的字节。声明与内容都要过关。
+    # 错误码沿用本端点既有口径（400 + 同一句 detail），不改变前端已依赖的契约。
+    if sniff_image_format(data) not in _ALLOWED_AVATAR_FORMATS:
+        raise HTTPException(status_code=400, detail="仅支持 jpg/png/webp 图片")
     # 防路径穿越：user_id 只保留安全字符再拼文件名
     safe_id = re.sub(r"[^A-Za-z0-9_.-]", "_", uid)
     avatar_dir = _avatar_dir()
