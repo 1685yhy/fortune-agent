@@ -6,6 +6,11 @@
 - 冒烟实跑（黑盒跑生产主链）：按仓库约定缺 LLM key 即 skip；
   默认轻量切片（keys 存在时），完整 brief 范围（12 no_tool + edge + 5 P0）
   由 RUN_EVAL_L1_FULL_SMOKE=1 触发
+- **k68 抖动策略**：冒烟走 `tests/eval_flake_retry.py` 的「有界重试（≤2 次尝试）
+  + 必须如实上报」。**第一原则**：只有「确实完整执行了、只是阈值差一点」才允许
+  重试；`executed=0` / 有 skip / 异常（k61 那类「评测根本没跑」）一律不重试直接红。
+  **阈值一行未改**（仍是 `l1_eval.THRESHOLDS`：工具选择 ≥90% / 参数 ≥90% /
+  误调率 =0%），既有断言一条未动。
 
 红线（本文件只读数据源）：data/eval/agent_tasks.jsonl 只读；src/bot/tool_calls.py
 零改动；运行期隔离（临时库 + USER_MEMORY_DIR/CHARTS_DIR 重定向）由 l1_eval 兜底。
@@ -19,12 +24,14 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
 _EVAL_DIR = _REPO / "scripts" / "eval_agent"
-for _p in (_REPO, _EVAL_DIR):
+_TESTS_DIR = Path(__file__).resolve().parent
+for _p in (_TESTS_DIR, _REPO, _EVAL_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
 import pytest  # noqa: E402
 
+import eval_flake_retry  # noqa: E402
 import l1_eval  # noqa: E402
 from interceptor import ToolCallRecorder, canonical_tool_name  # noqa: E402
 
@@ -513,7 +520,22 @@ def _restore_env(snap):
             os.environ[k] = v
 
 
+def _l1_summary(m):
+    return (f"工具选择 {m['tool_selection_accuracy']:.1%} "
+            f"({m['tool_selection_passed']}/{m['executed']}) | "
+            f"参数 {m['param_accuracy']:.1%} "
+            f"({m['param_passed']}/{m['param_denominator']}) | "
+            f"误调率 {m['false_call_count']}/{m['no_tool_count']} | "
+            f"失败={m['failed']} | 跳过={m['skipped']}")
+
+
 def _run_smoke(tmp_path, scope_ids, scope_label):
+    """冒烟实跑（k68 抖动策略：**有界重试 ≤2 次尝试 + 必须如实上报**）。
+
+    第一原则：只有「确实完整执行了（executed==total 且 skipped==[] 且无异常）、
+    只是阈值差一点」才允许重试；`executed=0` / 有 skip / 基础设施失败
+    （k61 那类「评测根本没跑」）一律**不重试**，直接红。
+    """
     if not _llm_keys_ready():
         pytest.skip("缺少 ZHIPU_API_KEY（glm-4-flash 路由）")
     if not _real_db_ready():
@@ -522,19 +544,28 @@ def _run_smoke(tmp_path, scope_ids, scope_label):
     try:
         tasks = [t for t in _load_tasks() if t["id"] in scope_ids]
         assert tasks, f"{scope_label} 无任务可选"
-        out = l1_eval.run_eval(tasks, tmp_path / "l1-smoke",
-                               model_route="glm", keep_tmp=True)
-        m = out["metrics"]
-        print(f"\n[smoke {scope_label}] 工具选择 {m['tool_selection_accuracy']:.1%} "
-              f"({m['tool_selection_passed']}/{m['executed']}) | "
-              f"参数 {m['param_accuracy']:.1%} "
-              f"({m['param_passed']}/{m['param_denominator']}) | "
-              f"误调率 {m['false_call_count']}/{m['no_tool_count']}")
-        if m["skipped"]:
-            print(f"[smoke {scope_label}] 跳过: {m['skipped']}")
-        assert l1_eval.thresholds_met(m), (
-            f"L1 阈值未达标: {m}")
-        return m
+
+        def _attempt(attempt_no):
+            # 第 1 次沿用原落盘路径（不重试的常态路径产物位置不变）
+            out_dir = tmp_path / ("l1-smoke" if attempt_no == 1
+                                  else f"l1-smoke-retry{attempt_no}")
+            out = l1_eval.run_eval(tasks, out_dir,
+                                   model_route="glm", keep_tmp=True)
+            m = out["metrics"]
+            print(f"[smoke {scope_label}] 第 {attempt_no} 次尝试：{_l1_summary(m)}")
+            if m["skipped"]:
+                print(f"[smoke {scope_label}] 跳过: {m['skipped']}")
+            print(f"[smoke {scope_label}] 第 {attempt_no} 次尝试落盘: {out_dir}")
+            return out
+
+        def _check(out):
+            m = out["metrics"]
+            return eval_flake_retry.make_check(
+                ok=l1_eval.thresholds_met(m), summary=_l1_summary(m), metrics=m)
+
+        out = eval_flake_retry.run_with_bounded_retry(
+            f"l1-{scope_label}", _attempt, _check)
+        return out["metrics"]
     finally:
         _restore_env(snap)
         l1_eval._close_runtime()
