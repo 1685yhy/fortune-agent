@@ -819,7 +819,14 @@ class BaziEngine:
         # **策略零变化**：认不出的值仍然"计算按男、输出记 unknown"（P1-3 既定
         # 默认），变的只是"哪些写法算认得出"。
         # 顺带修掉一个崩溃：改前 `(gender or "").strip()` 对 int/bool 入参
-        # 直接 AttributeError（`1.strip()`），现在按别名表 → `1`=男、`0`=女。
+        # 直接 AttributeError（`1.strip()`）。
+        # ⚠️ k82 必修3 更正：本行原写"现在按别名表 → `1`=男、`0`=女"，**对 int `0`
+        # 是错的**。查表入口 `gender_of_alias` 先做 `value or ""`（falsy 哨兵），
+        # 所以 int `0` 被折成 `""` ⇒ `unknown` ⇒ **本函数按男排**（不是女）；
+        # 只有**字符串** `"0"` 才 ⇒ 女。实测：`calculate(..., 0)` → `gender='unknown'`
+        # 且大运与 `男` 同向（顺排）；`calculate(..., "0")` → `gender='女'` 且逆排。
+        # 这处 int 边界的不对称**判断为保留**（理由与可达性见
+        # `birth_contract.gender_of_alias` 文档，及 `person_dao._normalize_gender`）。
         from src.api.birth_contract import gender_of_alias
         _g = gender_of_alias(gender)
         calc_gender = "女" if _g == "女" else "男"

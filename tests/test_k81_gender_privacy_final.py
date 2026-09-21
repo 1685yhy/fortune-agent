@@ -99,8 +99,16 @@ GENDER_INPUTS = [
     ("nan", "unknown", "unknown", None, "unknown"),
     ("NaN", "unknown", "unknown", None, "unknown"),
     # ── 语义含糊/非性别设计ator：**故意不收**（宁可 unknown，也不猜）──
-    ("男命", "unknown", "unknown", None, "unknown"),
-    ("女命", "unknown", "unknown", None, "unknown"),
+    # ── k82 必修1 **更正**：`男命/女命` 不属于这一组 ─────────────────────
+    # k81 把这两行放在"语义含糊、故意不收"里，理由写"可男可女/语义含糊" ——
+    # **理由是错的**：排盘语境里 `命` ＝ 命造/这张盘，`男命/女命` 指**命主的性别**，
+    # 是唯一性别指向，与已收的 `男性/女性` 完全对称（终验实测：`女命` 改前 →
+    # `unknown` → 顺排，与 `女性` 是同一类 bug）。k82 按明文「收词判据」收入表内，
+    # 故这两行的期望值**由 unknown 更正为 男/女**（**不是放宽**：方向是"必须认出来"，
+    # 覆盖未减、无 skip/xfail；行数只增不减，见 k82 门禁的交叉断言）。
+    ("男命", "男", "男", "男", "男"),
+    ("女命", "女", "女", "女", "女"),
+    # ── 语义含糊/非性别指示词：**故意不收**（宁可 unknown，也不猜）──
     ("好人", "unknown", "unknown", None, "unknown"),
     ("2", "unknown", "unknown", None, "unknown"),
     ("1.0", "unknown", "unknown", None, "unknown"),

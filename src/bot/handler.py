@@ -9277,11 +9277,18 @@ class MessageHandler:
             chart_info = "，".join(chart_info_parts)
             # k11-B：秒回安抚同为 LLM 产物（报告 §五#3 低危同类）——补性别与
             # 称谓规则；输出后另有 _do_bazi_analysis 拼装前 scrub 兜底
+            # k82 必修2：本处的字面量集合由 `("男","女","male","female")` **收敛**为
+            # `("男","女")` —— `_ig` 取的是 `BaziEngine` 的 `result.gender`，
+            # 而引擎输出**恒为** `男/女/unknown`（`birth_contract.GENDER_ALIASES`
+            # 归一 + `bazi.py::_gender_out`），`male`/`female` 两个分支**不可达**。
+            # 留着它就是**第二份会被误读为"还有别的可能值"的性别字面量集合**
+            # （终验点名的"全仓盘点清单不全"就是这类残留）。收敛后**可达输入的
+            # 行为逐输入不变**（见 `tests/test_k82_gender_alias_last.py` 实测）。
             _ig = str(getattr(result, "gender", "") or "").strip()
             _gender_note = ""
-            if _ig in ("男", "女", "male", "female"):
-                _gender_note = f"用户性别：{'男' if _ig in ('男', 'male') else '女'}；"
-                if _ig in ("男", "male"):
+            if _ig in ("男", "女"):
+                _gender_note = f"用户性别：{_ig}；"
+                if _ig == "男":
                     _gender_note += ("使用中性称谓（你/朋友），"
                                      "禁止女性称谓与闺蜜口吻（姐妹/亲爱的等）。")
 

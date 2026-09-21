@@ -33,6 +33,11 @@ screenshots*/
 # 运行时生成物（不提交）
 data/charts/
 data/memory/*.json
+# k82 必修4：报告 JSON 是**运行期产物**（含明文姓名 + 八字），绝不入库。
+# 改前 data/reports/ 下有 4 个被跟踪的遗留 .json（合成 fixture，但形态与真实报告
+# 一致），已 `git rm` 移除；这条 patterns 保证**下次不会再被 `git add .` 带进来**。
+# 目录本身靠 data/reports/.gitkeep 保留。
+data/reports/*.json
 
 # 竞品数据大文件不入库（超 GitHub 100MB 限制）
 data/competitor_data/*.jsonl
