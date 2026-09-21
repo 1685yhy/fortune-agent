@@ -76,10 +76,20 @@ const VOICE_FACTS = [
     doc: /不保存您的录音原文/, page: /我们不留你的录音/ },
   { key: '录音不写入设备存储',
     doc: /不写入设备存储/, page: /不写进你的手机/ },
-  { key: '录音不传本服务端（服务器没有接收音频的入口）',
-    doc: /本服务端没有接收音频的接口/, page: /没有接收录音的入口/ },
-  { key: '音频改名上传同样被拒（防"改名绕过"误解）',
-    doc: /改名上传也会被拒绝/, page: /改了名字上传也会被拒收/ },
+  /* k75 改判（控制方裁定「守卫断言事实，不断言旧字面」）：下面两条原先把正则钉在
+     k70/k71 版 md 的原字面上（「本服务端没有接收音频的接口」「改名上传也会被拒绝」）。
+     k72 批把 md 这两句改写成更准确的说法（把"为什么拒收"讲清楚了：图片上传接口
+     只接收图片 + 按**真实内容**校验，不只认文件名/声明的类型）—— 事实没变、说得更准。
+     按「事实为准」重钉到**事实**上（正则是事实的载体，不是版本字面）：
+       · 事实①=本服务端不接收录音（上传入口只收图片）；
+       · 事实②=改名的音频同样被拒（按真实内容校验，绕不过去）。
+     这不是放宽：两条事实各自的**代码依据**由本文件 §11 的 oracle 断言钉住
+     （src/main.py 的 _CHAT_UPLOAD_EXT 白名单 + _sniff_image_ext 魔数嗅探 + 415），
+     代码一改，oracle 先红。 */
+  { key: '录音不传本服务端（上传入口只接收图片，没有接收音频的入口）',
+    doc: /只接收图片/, page: /没有接收录音的入口/ },
+  { key: '音频改名上传同样被拒（按真实内容校验，不只认文件名/所声明的类型）',
+    doc: /改名的音频文件同样会被拒绝/, page: /改了名字上传也会被拒收/ },
   { key: '录音由微信「同声传译」插件上传到微信侧识别',
     doc: /同声传译/, page: /同声传译/ },
   { key: '第三方提供方为腾讯',
@@ -206,8 +216,16 @@ test('k71 页面"本机留一份"有代码支撑（本地 storage 实存对话/�
    以免误伤本页合法的限定性表述（如"除此之外，我们不把你的信息交给任何第三方"）。 */
 const KEY_CONSISTENCY = [
   {
+    /* k75 改判（控制方裁定「守卫断言事实，不断言旧字面」）：原 doc 正则钉在
+       k70/k71 版 md 的字面「加密后存储在腾讯云服务器」上；k72 批把 md 改成
+       「…使用 AES-256-GCM 加密后存储在**中国大陆境内的**腾讯云服务器上」，
+       并**逐项列明哪些字段不加密**（昵称／他人称呼与关系／自动汇总记录／
+       收藏与保存内容／图片）—— 这是按代码实际**收窄**了"全部 AES-256"的夸张，
+       是更准确的表述。故重钉到事实：md 必须载明「部分字段加密存储于腾讯云」，
+       并且**必须同时载明明文项**（下方 §11b 的 k75 断言钉住明文项与代码对照）。
+       这不是放宽：原断言只查"有没有这句话"，新断言多查了"明文项有没有如实列出"。 */
     key: '存储位置：两份都写明"加密存在服务器"，且都不说"只存在本地"',
-    doc: /加密后存储在腾讯云服务器/,
+    doc: /加密后存储在中国大陆境内的腾讯云服务器上/,
     page: /加密存放在中国大陆境内的服务器上/,
     docNot: /(仅|只)(保存|存储)在(您的|你)?(设备|手机)(本地|上)/,
     pageNot: /(仅|只)(保存|存储)在(您的|你)?(设备|手机)(本地|上)/,
@@ -220,8 +238,14 @@ const KEY_CONSISTENCY = [
     pageNot: /不会上传/,
   },
   {
+    /* k75 改判：原 doc 正则钉在 k70/k71 版 md 的字面「去标识化后使用」上；
+       k72 批改成「以**去除身份标识后**的数据改进本服务的质量与模型准确度」，
+       并**把两种方式与脱敏面逐项写明**（汇总统计 / 导出前抹掉微信标识·手机号·
+       证件号·邮箱·长数字串，未脱敏不用于训练）—— 事实更全、更准确。故重钉到
+       事实：md 必须载明「去除身份标识后的数据用于改进」。§11c 另有 oracle
+       断言把脱敏面逐项钉在 scripts/export_training_data.py 上（代码改则先红）。 */
     key: '是否用于训练：两份都披露去标识化后用于改进/训练模型，且都不否认训练',
-    doc: /去标识化后使用/,
+    doc: /去除身份标识后\*{0,2}的数据改进/,
     page: /训练集/,
     // 反面串取**原文级**字面：只禁"整体否认训练"这一句，
     // 不禁本页合法的限定表述「没有脱敏的记录不会用于训练」。
@@ -372,15 +396,27 @@ const THREE_DOC_FORBIDDEN = [
   { re: /全部本地处理|全都在本地/,
     why: '排盘信息与提问会发给第三方大模型处理，不存在"全部本地处理"' },
   { re: /人工无法直接查看|只有经授权的服务端程序能读到/,
-    // 范围说明（不是放宽，是"这一句在 k71 的 md 里已知未收口"）：本工作树的 `privacy.md`
-    // 仍是 k71 版，其「三.3 访问控制：…人工无法直接查看」这句**已被 k72 判定为不实**，
-    // 且 k72 批（分支 k72-privacy-disclosure）已把它改成「数据只通过受鉴权的服务端接口读写
-    // （须持有您的登录凭证）；加密字段须持有服务端密钥才能解密」。本批按令不改 md。
-    // ⇒ 在 md 合并进来之前，本表对该句只查**两份用户可见页**（页面 + 用户协议）；
-    //    md 合并后应当把 'md' 加回 docs —— 方向只能是扩大，不许再缩小。
-    docs: ['page', 'agree'],
-    why: '昵称/情绪/工具调用/收藏/择日/灯语/记忆画像均为明文列（无需密钥即可读），'
-       + '且 scripts/export_training_data.py、scripts/backup_db.py 可无 owner 校验地全量读/拷' },
+    /* k75：k72 批已把 md 的「三.3 …人工无法直接查看」改成「数据只通过受鉴权的服务端
+       接口读写（须持有您的登录凭证）；加密字段须持有服务端密钥才能解密」—— 该句在
+       三份文案里都不再存在，故按 k74 留的指示把 'md' **加回** docs（方向只扩大）。
+       本表永不缩小：谁把这句话写回任一文案即红。 */
+    why: '明文项无需密钥即可读：users.nickname、persons.name/relation、'
+       + 'sessions.emotion/tool_calls（content 才是密文）、favorites.summary、'
+       + 'zeri_plans.card_json/items_json、night_lamp.text、ming_saves.surname/given、'
+       + 'share_entries.content，以及 data/memory/{user_id}.json 这份未加密的记忆文件；'
+       + '且 scripts/export_training_data.py、scripts/backup_db.py 可无 owner 校验地全量读/拷。'
+       + '（注：session_summaries.summary/memories 与 sessions.content 确为密文，'
+       + '故本句的反证面**不**包括"记忆画像全是明文列"这一说法）' },
+  { re: /期满彻底删除|期满后彻底删除/,
+    /* k75 新增：这句是"注销会把个人数据删干净"的笼统承诺。实测注销清理清单
+       （src/storage/dao.py:cleanup_cancelled_accounts）只有 10 张表 + users 行 +
+       记忆文件，zeri_plans / night_lamp / ming_saves / qian_saves / user_preferences /
+       *_quota / night_prefs / jian_prefs 都不在其中 ⇒ 「彻底删除」与代码不符。
+       双向锁见下方 §11d：代码一旦补齐清理范围（这些表被加进清单），本断言与
+       §11d 会同时红，提示把文案改回"彻底删除"。 */
+    why: '注销清理清单不含 zeri_plans / night_lamp / ming_saves / qian_saves / '
+       + 'user_preferences / chat_quota / zeri_quota / ming_quota / night_prefs / jian_prefs '
+       + '⇒ 注销后仍有个人数据留存，"期满彻底删除"是不实承诺' },
   { re: /不收集手机号|不收集手机号码/,
     why: '手机号在用户主动绑定时收集并 AES-256 落库（users.phone_enc），"不收集手机号"与事实相反' },
   { re: /搜狗|sogou/i,
@@ -572,4 +608,140 @@ test('k74-必修2 页面不得出现"不收集手机号"式表述（手机号实
   assert.ok(!/不收集手机号|不收集手机号码/.test(PAGE), 'privacy.wxml 出现与事实相反的"不收集手机号"');
   assert.ok(!/不收集手机号|不收集手机号码/.test(AGREE), 'agreement.wxml 出现与事实相反的"不收集手机号"');
   assert.ok(/手机号/.test(PAGE), 'privacy.wxml 反而不再提手机号（应如实写"主动绑定才有、AES 加密存储"）');
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ↓↓↓ k75 追加（「合并顺序收口」批：把争议项按**代码事实**重钉）↓↓↓
+   本段**只新增断言**，未放宽/删除任何既有断言，也未新增 skip/xfail。
+   背景：k72 批把 privacy.md 升到 v1.2（更准确），k74 批的守卫把 4 条断言钉在
+   k70/k71 的**旧字面**上 ⇒ 合并后必红 4 条。控制方裁定：**守卫断言事实、
+   文案如实描述**（不是把 md 调回旧字面）。上面 VOICE_FACTS / KEY_CONSISTENCY
+   已按事实重钉；本段为每条事实补上**代码 oracle**（双向：代码改 → 断言先红），
+   并新增两条按代码核实后发现的**新事实锁**（加密范围逐项、注销删除范围双向）。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ── §11a. 语音事实的代码 oracle：上传入口只收图片 + 按真实内容校验 ── */
+test('k75 语音事实「服务端不接收音频 / 改名同样被拒」有代码支撑（上传白名单 + 魔数嗅探）', () => {
+  const main = read(path.join('..', 'src', 'main.py'));
+  // 事实①：上传入口有 content-type 白名单，且只列图片类型。
+  // k72 起白名单与嗅探下沉到 src/utils/image_sniff.py（单一事实源，两个图片
+  // 端点共用）—— 故 oracle 读该模块，而不是在 main.py 里找字面量。
+  const sniff = read(path.join('..', 'src', 'utils', 'image_sniff.py'));
+  const cts = (sniff.match(/"(image\/[a-z]+)"/g) || []).map((s) => s.slice(1, -1)).sort();
+  assert.deepEqual(cts, ['image/gif', 'image/jpeg', 'image/png', 'image/webp'],
+    '允许集合不再是"仅图片"四类 → 文案"只接收图片"须重新核对');
+  assert.ok(/from \.utils\.image_sniff import/.test(main),
+    'main.py 不再共用嗅探单一事实源 → 文案"按真实内容校验"须重新核对');
+  // 事实②：按**真实内容**校验（魔数嗅探），不是只看文件名/声明的类型
+  assert.ok(/def sniff_image_format/.test(sniff) && /b"\\xff\\xd8\\xff"/.test(sniff),
+    '魔数嗅探实现消失 → 文案"按真实内容校验 / 改名的音频同样会被拒绝"失去依据');
+  assert.ok(/不是有效图片/.test(main),
+    '415 拒收分支消失 → 文案"会被拒绝"失去依据');
+  assert.ok(/uuid\.uuid4\(\)\.hex/.test(main),
+    '服务端随机文件名消失 → 文案"以服务端随机生成的文件名保存"须重新核对');
+  // md 侧：事实必须**两半都在**（只写"不保存录音"而不写"服务端不收音频"即是漏披露）
+  assert.ok(/只接收图片/.test(DOC) && /改名的音频文件同样会被拒绝/.test(DOC),
+    'privacy.md 未同时写明"上传入口只接收图片"与"改名的音频文件同样会被拒绝"');
+});
+
+/* ── §11b. 加密范围：md 必须逐项说明，且与代码逐项一致 ── */
+test('k75 加密范围事实锁：md 载明"部分字段加密 + 明文项逐项列出"，且与代码一致', () => {
+  // ① 文案侧：加密算法与范围 + 明确列出不额外加密的项
+  assert.ok(/AES-256-GCM/.test(DOC), 'privacy.md 未写明加密算法与模式（AES-256-GCM）');
+  assert.ok(/加密后存储在中国大陆境内的腾讯云服务器上/.test(DOC),
+    'privacy.md 未写明加密数据的存储位置');
+  assert.ok(/(按原样存储|不额外加密)/.test(DOC),
+    'privacy.md 未如实说明"哪些字段不额外加密"（只写"全部 AES-256 加密"即为夸张表述）');
+  ['昵称', '称呼与关系', '收藏', '图片'].forEach((k) => {
+    assert.ok(DOC.indexOf(k) !== -1, `privacy.md 的加密范围段未提及明文项「${k}」`);
+  });
+  // ② 代码侧 oracle：确有条目在写库前加密（否则"部分加密"这句本身就是错的）
+  const dao = read(path.join('..', 'src', 'storage', 'dao.py'));
+  const sess = read(path.join('..', 'src', 'storage', 'session_dao.py'));
+  assert.ok(/_encrypt_text\(phone\)/.test(dao), '手机号不再加密写库 → md 的"手机号加密"须改');
+  assert.ok(/_encrypt_text\(bazi_json\)|_encrypt_text\(json\.dumps\(bazi_info/.test(dao),
+    '八字档案不再加密写库 → md 的"出生信息加密"须改');
+  assert.ok(/_encrypt_text\(content\)/.test(sess), '对话正文不再加密写库 → md 的"对话加密"须改');
+  // ③ 代码侧 oracle：确有条目为**明文**（否则"明文项"半句是错的）
+  const PLAIN = [
+    ['favorite_dao.py', 'favorites（收藏摘要）'],
+    ['zeri_dao.py', 'zeri_plans（择日计划与其备注）'],
+    ['lamp_dao.py', 'night_lamp（灯语）'],
+    ['ming_dao.py', 'ming_saves（姓名与取名保存）'],
+  ];
+  PLAIN.forEach(([f, label]) => {
+    const s = read(path.join('..', 'src', 'storage', f));
+    assert.ok(!/encrypt/i.test(s),
+      `${label} 已改为加密落库 → md 的"明文"表述须同步更正（本条即为此而设）`);
+  });
+  const userMem = read(path.join('..', 'src', 'memory', 'user_memory.py'));
+  const pos = userMem.indexOf('json.dump(data, f');
+  assert.ok(pos !== -1,
+    '记忆文件的明文落盘写法消失（json.dump(data, f)）→ md 的"自动汇总记录未加密"须重新核对');
+  assert.ok(!/encrypt/i.test(userMem.slice(Math.max(0, pos - 400), pos + 200)),
+    '记忆文件的落盘改为加密 → md 的"自动汇总记录未加密"表述须同步更正'
+    + '（本条即为此而设：加密面一变，文案必须跟着变）');
+});
+
+/* ── §11c. 训练口径：脱敏面逐项钉在导出脚本上 ── */
+test('k75 训练口径事实锁：md 写明"去除身份标识后"与"未脱敏不训练"，脱敏面与脚本一致', () => {
+  assert.ok(/去除身份标识后\*{0,2}的数据改进/.test(DOC),
+    'privacy.md 未写明用于改进/训练的数据已去除身份标识');
+  assert.ok(/未经脱敏的记录不会用于训练/.test(DOC),
+    'privacy.md 未写明"未经脱敏的记录不会用于训练"（这句是控制方点名的口径）');
+  const s = read(path.join('..', 'scripts', 'export_training_data.py'));
+  assert.ok(/def desensitize/.test(s), 'export_training_data.py 的 desensitize() 消失');
+  assert.ok(/\[openid\]/.test(s) && /\[手机号\]/.test(s) && /\[证件号\]/.test(s)
+    && /\[邮箱\]/.test(s) && /\[数字\]/.test(s),
+    '脱敏替换面变化（openid/手机号/证件号/邮箱/长数字串）→ md 第四节的脱敏面须同步更正');
+  assert.ok(/训练集|微调/.test(s), 'export_training_data.py 不再是训练集导出脚本');
+});
+
+/* ── §11d. 注销删除范围：文案 ↔ 代码 双向锁 ── */
+test('k75 注销删除范围双向锁：清理清单 = 代码实况，文案逐项如实说明', () => {
+  const dao = read(path.join('..', 'src', 'storage', 'dao.py'));
+  const m = dao.match(/for table in \(([^)]*)\)/);
+  assert.ok(m, '未找到注销清理表清单（src/storage/dao.py:cleanup_cancelled_accounts）');
+  const CLEANED = ['consultations', 'sessions', 'session_summaries', 'memberships',
+    'payments', 'push_log', 'persons', 'chart_records', 'favorites', 'jian_cards'];
+  const NOT_CLEANED = ['zeri_plans', 'night_lamp', 'ming_saves', 'qian_saves', 'user_preferences'];
+  CLEANED.forEach((t) => {
+    assert.ok(new RegExp(`"${t}"`).test(m[1]),
+      `注销清理清单不再包含 ${t} → 文案"该内容随注销删除"须改为"不删除"（双向锁）`);
+  });
+  NOT_CLEANED.forEach((t) => {
+    assert.ok(!new RegExp(`"${t}"`).test(m[1]),
+      `注销清理清单**已**纳入 ${t} → 代码已补齐删除范围，请把三份文案改回`
+      + `"随注销删除"并删除本条与 THREE_DOC_FORBIDDEN 的「期满彻底删除」禁令`
+      + `（本条断言的目的是：代码一改，文案必须跟着改，反之亦然）`);
+  });
+  // 文案侧：三处（md 第一节第 12 条 / 第五节第 3 条 / 第六节）必须如实说明保留项
+  assert.ok(/不在注销删除范围内/.test(DOC),
+    'privacy.md 未如实说明"有下列内容不在注销删除范围内"');
+  /* 「逐项 + 就近」断言（V2 摘除实测加严）：只查"文档里有没有这句话"是不够的 ——
+     实测把第 12 条改回笼统的「并随账号删除一并删除」后，全篇仍可能因别处（第 11 条）
+     含"不在注销删除范围内"而假绿。故改为**逐项就近**：每个保留项的**首次出现**处
+     前后窗口内必须同时有"不会被注销删除"的如实说明。 */
+  ['姓名分析与取名的保存记录', '择日计划', '求签', '灯语'].forEach((k) => {
+    const i = DOC.indexOf(k);
+    assert.ok(i !== -1, `privacy.md 的注销范围段未列出保留项「${k}」`);
+    const win = DOC.slice(Math.max(0, i - 120), i + 300);
+    assert.ok(/不在注销删除范围内|未纳入注销删除清单|不在注销清理范围/.test(win),
+      `privacy.md 提到保留项「${k}」的附近没有"不会被注销删除"的如实说明`
+      + '（改回笼统的"随账号删除一并删除"即触发本断言）');
+  });
+  // 第 12 条的核心事实：四项保留内容里**只有「收藏」**会随注销删除（favorites 在清理清单内）
+  assert.ok(/只有「收藏」[^。]{0,50}删除/.test(DOC),
+    'privacy.md 第 12 条未如实说明"四项保留内容里只有收藏会随注销删除"（favorites 在清单内、'
+    + 'ming_saves/zeri_plans/night_lamp/qian_saves 不在）');
+  ['姓名与取名记录', '择日计划', '求签记录', '灯语'].forEach((k) => {
+    assert.ok(PAGE.indexOf(k) !== -1, `privacy.wxml 未列出注销后仍保留的「${k}」`);
+  });
+  assert.ok(/不在注销清理范围/.test(PAGE),
+    'privacy.wxml 未如实说明注销后仍有内容保留（旧版写"期满彻底删除"）');
+  // 反向：不得再用"删干净"的笼统说法
+  ['期满彻底删除', '全部个人数据将在 48 小时内', '所有个人数据将在 48 小时内'].forEach((s) => {
+    assert.ok(DOC.indexOf(s) === -1, `privacy.md 出现与代码不符的笼统删除承诺「${s}」`);
+    assert.ok(PAGE.indexOf(s) === -1, `privacy.wxml 出现与代码不符的笼统删除承诺「${s}」`);
+  });
 });

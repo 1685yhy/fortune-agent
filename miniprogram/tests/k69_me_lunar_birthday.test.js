@@ -236,6 +236,66 @@ test('k73-M1 反向：合法 0-23 整数（含 0）与数字串**必须**仍显�
   assert.equal(core.data.birthdayText, '1999.05.13 巳时', '真实档案主场景零回归');
 });
 
+/* ═══ 3c. k75「闸门与渲染必须共用同一个解析器」（k73 残留洞）═════════════
+
+   复审实测（tip=闸门版 vs base）：闸门用 Number 完整解析判「可解析」，但交给
+   单点的仍是**原始值**，而 persons.hourToShichenIndex 内部是 parseInt(hour, 10)
+   ⇒ 两个解析器对同一输入给出不同数值。凡 Number 认、parseInt 不认的形态
+   （"0x10"/"1e1"/"0b101"/"0o17"）**闸门放行、渲染侧却按 parseInt 算** ——
+   **解析结果被丢掉**，又退回该函数的兜底 0（=子时）。实测改前：
+     "0x10"  → 子时（期望申时）   "1e1"   → 丑时（期望巳时）
+     "0b101" → 子时（期望卯时）   "0o17"  → 子时（期望申时）
+   汇总：崩=0 漏=0 **误=4**（base 同期 崩=0 漏=20 误=4）
+   ⇒ 与「解析失败一律不显示、**绝不兜底 0**」「用 `Number` 完整解析而非
+   `parseInt`」两句直接冲突。修法：把**校验后的数值**交给单点
+   （`persons.hourToShichenIndex(hourNum, rawMinute)`）。 */
+test('k75 闸门放行的可解析形态：必须按 Number 解析结果渲染（不得退回 parseInt/兜底 0）', () => {
+  /* 期望值由**独立**口径推出：JS 数字字面量语义（Number 解析）→ 时钟小时 →
+     utils/persons 时钟窗口。左=闸门放行的字符串形态，中=该形态的真实数值，
+     右=权威时辰（16→申 10→巳 5→卯 15→申）。 */
+  const MATRIX = [
+    ['0x10', 16, '申时'],
+    ['1e1', 10, '巳时'],
+    ['0b101', 5, '卯时'],
+    ['0o17', 15, '申时'],
+  ];
+  MATRIX.forEach(([raw, num, cn]) => {
+    // ① 语义前提：该形态经 Number 解析确实等于 num（守卫的不是巧合）
+    assert.equal(Number(raw), num, `前提失效：Number(${JSON.stringify(raw)}) ≠ ${num}`);
+    // ② 权威单点对**数值**不可反驳：num 必落到 cn
+    assert.equal(persons.shichenCN(persons.hourToShichenIndex(num)), cn,
+      `权威口径失效：hourToShichenIndex(${num}) ≠ ${cn}`);
+    // ③ 页面必须渲染 cn —— 改前渲染的是 parseInt(raw) 的结果（0/1/0/0 → 子/丑/子/子）
+    const page = makeMePage();
+    page._applyBaziToView({
+      year: 1995, month: 5, day: 12, hour: raw, calendar: 'solar', gender: '男',
+    });
+    assert.equal(page.data.birthdayText, `1995.05.12 ${cn}`,
+      `hour=${JSON.stringify(raw)}（闸门已放行）⇒ 必须按 Number 解析结果 ${num} 渲染 ${cn}；`
+      + '改前实测退回 parseInt ⇒ '
+      + persons.shichenCN(persons.hourToShichenIndex(parseInt(raw, 10))));
+  });
+});
+
+test('k75 反向：同一批值的 number / 十进制数字串形态必须渲染同一时辰（两解析器不得分叉）', () => {
+  /* 反向守卫：上一条若被写成「一律不显示」或「恒按某个错值渲染」都会红，但还要
+     钉住另一侧 —— 同一批数值的 number 形态与十进制数字串形态（后端 JSON 常见
+     形态）必须与上一条**逐字同值**，证明修的是「闸门与渲染共用解析结果」，
+     不是「把可解析字符串也拦掉」。 */
+  const PAIRS = [[16, '0x10', '申时'], [10, '1e1', '巳时'],
+    [5, '0b101', '卯时'], [15, '0o17', '申时']];
+  PAIRS.forEach(([num, raw, cn]) => {
+    [[num, 'number'], [String(num), '十进制数字串']].forEach(([hour, label]) => {
+      const page = makeMePage();
+      page._applyBaziToView({
+        year: 1995, month: 5, day: 12, hour, calendar: 'solar', gender: '男',
+      });
+      assert.equal(page.data.birthdayText, `1995.05.12 ${cn}`,
+        `hour=${label} ${JSON.stringify(hour)} 必须与 ${JSON.stringify(raw)} 同值（${cn}）`);
+    });
+  });
+});
+
 /* ═══════ 4. 单一事实源：口径用行为断言 + 仅剩的结构性接线回归锁 ═══════
 
    k73-M2（复审裁定）：原第 10/11 条是**源码文本匹配**，行为等价的改写会**假红**。

@@ -9,7 +9,7 @@
 
   <view class="privacy-section">
     <text class="privacy-heading">你随时可以</text>
-    <text class="privacy-text">查看我们存了什么、删除部分或全部信息、注销账号（「设置 → 危险区 → 注销账号」）。注销后数据进入 90 天可恢复期，期满彻底删除。</text>
+    <text class="privacy-text">查看我们存了什么、逐条删掉你的对话与记录、注销账号（「设置 → 危险区 → 注销账号」）。注销后数据进入 90 天可恢复期，期满后我们删掉清理范围内的个人数据——但姓名与取名记录、择日计划、求签记录、灯语，以及用量与偏好统计目前不在注销清理范围内，注销后仍会保留；要删请找我们（第十节联系方式），15 个工作日内处理。</text>
   </view>
 
   <view class="privacy-section">

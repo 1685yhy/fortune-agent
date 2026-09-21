@@ -310,7 +310,18 @@ Page({
        解析失败或越界 ⇒ 不显示，**绝不兜底 0**。
        用 Number 完整解析而非 parseInt：parseInt('10abc')=10 会把半截垃圾当好值
        （实测改前 "10abc" 显示巳时）；非整数（10.5）同样不显示（不是合法钟点，
-       宁少不假）。空串/空数组先归一为 NaN —— Number('') === 0 会把它们当子时。 */
+       宁少不假）。空串/空数组先归一为 NaN —— Number('') === 0 会把它们当子时。
+
+       k75「闸门与渲染必须同一个解析器」：上面这道闸门用 Number 完整解析，
+       但**交给单点的仍是原始值** —— 而 persons.hourToShichenIndex 内部是
+       parseInt(hour, 10)，两个解析器对同一输入给出不同数值。凡 Number 认、
+       parseInt 不认的形态（"0x10"→16 vs 0；"1e1"→10 vs 1；"0b101"→5 vs 0；
+       "0o17"→15 vs 0）闸门放行，渲染侧却按 parseInt 的结果算，于是
+       **解析结果被丢掉、又退回兜底 0（=子时）**：复审实测 "0x10"/"0b101"/"0o17"
+       显示子时（期望申/卯/申），"1e1" 显示丑时（期望巳）——与「解析失败一律
+       不显示、绝不兜底 0」直接冲突。故把**校验后的数值** hourNum 交给单点：
+       闸门与渲染从此共用同一个 Number 解析结果（parseInt(number) 恒等于该值），
+       两个解析器不可能再分叉。 */
     const rawHour = b.hour !== undefined && b.hour !== null ? b.hour : b.birthHour;
     const rawMinute = b.minute !== undefined && b.minute !== null ? b.minute : b.birthMinute;
     const hasHour = rawHour !== undefined && rawHour !== null && rawHour !== '';
@@ -319,7 +330,7 @@ Page({
     const hasUsableHour = hasHour
       && Number.isInteger(hourNum) && hourNum >= 0 && hourNum <= 23;
     const hour = hasUsableHour
-      ? persons.shichenCN(persons.hourToShichenIndex(rawHour, rawMinute))
+      ? persons.shichenCN(persons.hourToShichenIndex(hourNum, rawMinute))
       : '';
     const patch = {
       birthdayText: `${sy}.${pad(sm)}.${pad(sd)}${hour ? ' ' + hour : ''}`,
