@@ -3,6 +3,7 @@ import asyncio
 import logging
 import os
 import re
+import tempfile
 import threading
 import time
 import uuid
@@ -2174,6 +2175,56 @@ def _generic_calendar(date_str: str = None) -> dict:
 from fastapi import UploadFile, File, Form
 
 
+# ── k76：上传落临时文件的两个公共动作（面相/手相共用）──────────────────
+# 背景（k72 核查 A/遗留风险 1）：`/api/face-reading`、`/api/palm-reading` 此前
+#   ① `await image.read()` **无大小上限** → 可被刷爆磁盘/内存；
+#   ② 临时文件只在**成功路径** unlink，`analyze()` 抛错时**永久残留**。
+# 口径：大小上限与 `/api/chat/upload` **同源**（`_CHAT_UPLOAD_MAX`，单一事实源，
+# 见下方该常量的注释；两处不一致时以那个常量为准）；临时文件用 try/finally
+# 覆盖**所有**退出路径（正常返回、提前 return、异常、甚至写盘失败）。
+
+#: 上传图片大小上限（**单一事实源**）：/api/chat/upload、/api/face-reading、
+#: /api/palm-reading 三个入口共用本常量。k76 把它从 chat 段落**上移**到这里
+#: （定义位置先于全部使用方，源码顺序即可读懂；值逐字节未变 = 5MB）。
+_CHAT_UPLOAD_MAX = 5 * 1024 * 1024  # 5MB
+
+
+def _unlink_quietly(path) -> None:
+    """静默删除临时文件（不存在/权限等一律忽略——清理失败不该改变响应）。"""
+    if not path:
+        return
+    try:
+        os.unlink(path)
+    except Exception:
+        pass
+
+
+async def _read_upload_within_limit(image, fallback_name: str = "photo.jpg"):
+    """读上传图片 → 落临时文件，返回 `(tmp_path, content)`。
+
+    校验顺序与 /api/chat/upload 一致（**超限即 413，且不落盘**）：
+      ① 无文件 → 400；② `_CHAT_UPLOAD_MAX + 1` 字节上限 → 413。
+    落盘失败时把已建的空临时文件删掉再抛（不把半成品留在 /tmp）。
+    """
+    if not image or not image.filename:
+        raise HTTPException(status_code=400, detail="缺少图片文件")
+    content = await image.read(_CHAT_UPLOAD_MAX + 1)
+    if len(content) > _CHAT_UPLOAD_MAX:
+        raise HTTPException(
+            status_code=413,
+            detail=f"图片不能超过 {_CHAT_UPLOAD_MAX // (1024 * 1024)}MB")
+    suffix = os.path.splitext(image.filename or fallback_name)[1] or ".jpg"
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp_path = tmp.name
+            tmp.write(content)
+        return tmp_path, content
+    except Exception:
+        _unlink_quietly(tmp_path)   # 写盘失败：不留半成品
+        raise
+
+
 @app.post("/api/face-reading")
 async def face_reading(
     image: UploadFile = File(...),
@@ -2183,60 +2234,54 @@ async def face_reading(
     """CV 精确面相分析 — 上传自拍照片，返回精确测量 + 古籍解读。
 
     安全修复：必须登录；user_id 一律取 JWT sub。
+    k76：大小上限与 /api/chat/upload **同源**（`_CHAT_UPLOAD_MAX`，单一事实源）；
+    临时文件在**所有**路径（含异常/提前返回）都被 finally 清理。
     """
     user_id = uid
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
     try:
-        import tempfile, os
-        # Save uploaded file temporarily
-        suffix = os.path.splitext(image.filename or "photo.jpg")[1] or ".jpg"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await image.read()
-            tmp.write(content)
-            tmp_path = tmp.name
-
-        # Run face analysis
-        from .engines.face_reader import FaceReader, generate_report
-
-        reader = FaceReader()
-        metrics = reader.analyze(tmp_path)
-
-        # Clean up temp file
+        tmp_path, _content = await _read_upload_within_limit(image, "photo.jpg")
         try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
+            # Run face analysis
+            from .engines.face_reader import FaceReader, generate_report
 
-        if metrics is None:
+            reader = FaceReader()
+            metrics = reader.analyze(tmp_path)
+
+            if metrics is None:
+                return {
+                    "status": "no_face",
+                    "message": "未检测到人脸，请上传一张正面自拍照片（光线充足、面部清晰）📷",
+                }
+
+            api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+            report = generate_report(metrics, retriever=handler.retriever if hasattr(handler, 'retriever') else None,
+                                     api_key=api_key)
+
             return {
-                "status": "no_face",
-                "message": "未检测到人脸，请上传一张正面自拍照片（光线充足、面部清晰）📷",
+                "status": "ok",
+                "measurements": {
+                    "face_shape": {"type": metrics.face_shape, "confidence": metrics.face_shape_conf},
+                    "eye_type": {"type": metrics.eye_type, "confidence": metrics.eye_type_conf},
+                    "eyebrow_type": {"type": metrics.eyebrow_type, "confidence": metrics.eyebrow_type_conf},
+                    "nose_type": {"type": metrics.nose_type, "confidence": metrics.nose_type_conf},
+                    "mouth_type": {"type": metrics.mouth_type, "confidence": metrics.mouth_type_conf},
+                    "skin_tone": {"type": metrics.skin_tone, "confidence": metrics.skin_tone_confidence},
+                    "three_sections": {"upper": metrics.upper_ratio, "middle": metrics.middle_ratio, "lower": metrics.lower_ratio},
+                    "face_dimensions_mm": {"width": round(metrics.face_width, 1), "height": round(metrics.face_height, 1)},
+                    "moles": [{"region": m["region"], "size_px": m["size_px"]} for m in metrics.moles],
+                    "best_features": metrics.best_features,
+                    "improvement_areas": metrics.improvement_areas,
+                },
+                "report": report,
             }
+        finally:
+            _unlink_quietly(tmp_path)
 
-        api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
-        report = generate_report(metrics, retriever=handler.retriever if hasattr(handler, 'retriever') else None,
-                                 api_key=api_key)
-
-        return {
-            "status": "ok",
-            "measurements": {
-                "face_shape": {"type": metrics.face_shape, "confidence": metrics.face_shape_conf},
-                "eye_type": {"type": metrics.eye_type, "confidence": metrics.eye_type_conf},
-                "eyebrow_type": {"type": metrics.eyebrow_type, "confidence": metrics.eyebrow_type_conf},
-                "nose_type": {"type": metrics.nose_type, "confidence": metrics.nose_type_conf},
-                "mouth_type": {"type": metrics.mouth_type, "confidence": metrics.mouth_type_conf},
-                "skin_tone": {"type": metrics.skin_tone, "confidence": metrics.skin_tone_confidence},
-                "three_sections": {"upper": metrics.upper_ratio, "middle": metrics.middle_ratio, "lower": metrics.lower_ratio},
-                "face_dimensions_mm": {"width": round(metrics.face_width, 1), "height": round(metrics.face_height, 1)},
-                "moles": [{"region": m["region"], "size_px": m["size_px"]} for m in metrics.moles],
-                "best_features": metrics.best_features,
-                "improvement_areas": metrics.improvement_areas,
-            },
-            "report": report,
-        }
-
+    except HTTPException:
+        raise          # 413/415 等校验拒绝：原样上抛（不被下面的兜底吞成 200）
     except Exception as e:
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
 
@@ -2250,40 +2295,38 @@ async def palm_reading(
     """CV 手相分析 — 上传手掌照片，检测掌纹并分析。
 
     安全修复：必须登录；user_id 一律取 JWT sub。
+    k76：大小上限与 /api/chat/upload **同源**（`_CHAT_UPLOAD_MAX`，单一事实源）；
+    临时文件在**所有**路径（含异常/提前返回）都被 finally 清理。
     """
     user_id = uid
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     try:
-        import tempfile, os
-        suffix = os.path.splitext(image.filename or "hand.jpg")[1] or ".jpg"
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            content = await image.read()
-            tmp.write(content)
-            tmp_path = tmp.name
-        from .engines.palm_reader import PalmReader, generate_palm_report
-        reader = PalmReader()
-        metrics = reader.analyze(tmp_path)
+        tmp_path, _content = await _read_upload_within_limit(image, "hand.jpg")
         try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
-        if metrics is None:
-            return {"status": "no_hand", "message": "未检测到手掌，请上传一张光线充足的手掌照片 ✋"}
-        api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
-        report = generate_palm_report(metrics, retriever=handler.retriever, api_key=api_key)
-        return {
-            "status": "ok",
-            "palm_shape": metrics.palm_shape,
-            "palm_color": metrics.palm_color,
-            "finger_type": metrics.finger_type,
-            "life_line": metrics.life_line,
-            "wisdom_line": metrics.wisdom_line,
-            "feeling_line": metrics.feeling_line,
-            "fate_line": metrics.fate_line,
-            "special_patterns": metrics.special_patterns,
-            "report": report,
-        }
+            from .engines.palm_reader import PalmReader, generate_palm_report
+            reader = PalmReader()
+            metrics = reader.analyze(tmp_path)
+            if metrics is None:
+                return {"status": "no_hand", "message": "未检测到手掌，请上传一张光线充足的手掌照片 ✋"}
+            api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+            report = generate_palm_report(metrics, retriever=handler.retriever, api_key=api_key)
+            return {
+                "status": "ok",
+                "palm_shape": metrics.palm_shape,
+                "palm_color": metrics.palm_color,
+                "finger_type": metrics.finger_type,
+                "life_line": metrics.life_line,
+                "wisdom_line": metrics.wisdom_line,
+                "feeling_line": metrics.feeling_line,
+                "fate_line": metrics.fate_line,
+                "special_patterns": metrics.special_patterns,
+                "report": report,
+            }
+        finally:
+            _unlink_quietly(tmp_path)
+    except HTTPException:
+        raise          # 413/415 等校验拒绝：原样上抛（不被下面的兜底吞成 200）
     except Exception as e:
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
 
@@ -2305,7 +2348,8 @@ async def palm_reading(
 # 注意：GET /api/chat/uploads/{file} 不带鉴权——小程序 <image src> 无法携带
 # Authorization 头；uuid 文件名不可猜测，与既有 /share-cards 静态服务同策略。
 # ════════════════════════════════════════════════════════════════
-_CHAT_UPLOAD_MAX = 5 * 1024 * 1024  # 5MB
+# 注：`_CHAT_UPLOAD_MAX`（5MB，单一事实源）k76 起定义在文件上方
+# 「k76：上传落临时文件的两个公共动作」段——面相/手相两个入口同源共用。
 _CHAT_UPLOAD_EXT = {
     "image/jpeg": ".jpg",
     "image/png": ".png",

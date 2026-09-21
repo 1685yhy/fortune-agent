@@ -29,6 +29,10 @@ router = APIRouter(tags=["visual_report"])
 _DATA_DIR = Path(__file__).parent.parent.parent / "data" / "reports"
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 
+#: 对外域名（与 share.py 的 `_BASE_URL` 同值：同一份报告网页在两个模块里都要生成
+#: 绝对链接）。k76 起本模块也用它拼分享通道地址。
+_PUBLIC_BASE = "https://fortune.talcloud.com"
+
 _engine = BaziEngine()
 
 # ─── Pydantic models ───────────────────────────────────────────
@@ -370,8 +374,14 @@ def generate_report_data(
     bazi_result: BaziResult,
     birth: Optional[dict] = None,
     name: str = "",
+    owner_uid: str = "",
 ) -> dict:
-    """Generate complete report data from a BaziResult."""
+    """Generate complete report data from a BaziResult.
+
+    owner_uid（k76）：报告归属人。非空时以 AES 密文落 `owner_enc` 字段，
+    供 `assert_report_owner()` 做归属校验；留空（老调用方）则报告归属未知
+    → 本人读路径一律 403（fail-closed，见 `_LEGACY_OWNER_UNKNOWN`）。
+    """
     monthly = _compute_monthly_fortune(bazi_result)
     annual = _compute_annual_trend(bazi_result)
     radar = _wuxing_to_radar(bazi_result.wuxing)
@@ -417,6 +427,15 @@ def generate_report_data(
         "recommendations": recommendations,
     }
 
+    # k76 归属：只在有归属人时落密文（老调用方不传 → 不写字段 = 归属未知）
+    if owner_uid:
+        try:
+            from src.security.encryption import DataEncryptor
+            report[_REPORT_OWNER_FIELD] = DataEncryptor().encrypt(owner_uid)
+        except Exception as e:
+            # 加密不可用 → 宁可不落归属（读路径 fail-closed 会拒），也不落明文 user_id
+            logger.warning("报告归属落库失败（报告将按'归属未知'处理）: %s", e)
+
     # Store to disk
     report_path = _DATA_DIR / f"{reading_id}.json"
     report_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -435,28 +454,79 @@ def load_report(reading_id: str) -> Optional[dict]:
         return None
 
 
+# ─── k76 报告归属（读接口鉴权的单一事实源）─────────────────────────────
+# 背景（k72 独立核查 A2）：`data/reports/{id}.json` 明文含姓名+八字+出生日期，
+# 而 `GET /api/report/{id}`、`GET /report/{id}` **无鉴权**，拿到短 id 即可读。
+# 控制方裁定按「接口安全红线」必修：**读自己的报告要鉴权 + 归属校验**；
+# 被分享的内容走分享通道（`/share/{id}`，匿名可读但剥离个人信息），两条路径分开。
+#
+# 归属怎么存：写盘时把 `owner_uid` 经**既有** `DataEncryptor` AES 加密后落
+# `owner_enc` 字段（不新增算法/密钥）。老报告（无该字段）= 归属未知。
+#: 报告里记录归属的字段名。归属未知（老报告没这个字段）在"本人读"路径上的
+#: 处置是**拒绝**（fail-closed）：依据 `docs/FUNCTION_GAP_AUDIT.md` 记录该 web
+#: 报告体系"❌ 未用"（小程序读报告走 `/api/reports/{id}`，是另一套已带归属校验
+#: 的接口），挡掉老报告不中断任何在用链路；而把它们对"任意已登录用户"开放，
+#: 等于把 k72-A2 的越权面留着。
+_REPORT_OWNER_FIELD = "owner_enc"
+
+
+def report_owner_tag(report: dict) -> str:
+    """报告里记录的归属标记（解密后的 user_id）；无记录/解不开 → 空串。"""
+    enc = (report or {}).get(_REPORT_OWNER_FIELD) or ""
+    if not enc:
+        return ""
+    try:
+        from src.security.encryption import DataEncryptor
+        return DataEncryptor().decrypt(enc) or ""
+    except Exception:
+        return ""
+
+
+def assert_report_owner(report: dict, uid: str) -> None:
+    """归属校验：报告属于 uid 才放行，否则 403（与 `ensure_owner` 同口径）。
+
+    - 归属未知（老报告 / 解密失败）→ **403**，不放行给任何登录用户；
+    - 归属存在但不等于 uid → 403。
+    分享通道不走本函数（见 `share.py` 的 `/share/{reading_id}`）。
+    """
+    owner = report_owner_tag(report)
+    if not owner or owner != uid:
+        logger.warning(
+            "鉴权拒绝 403: 越权访问报告 reading_id=%s owner=%s token_user=%s",
+            (report or {}).get("reading_id", ""), owner or "(未知)", uid or "(空)")
+        raise HTTPException(status_code=403, detail="无权访问该报告")
+
+
 # ─── API endpoints ─────────────────────────────────────────────
 
 @router.get("/api/report/{reading_id}")
-async def get_report_json(reading_id: str):
-    """Get report data as JSON."""
+async def get_report_json(reading_id: str, uid: str = Depends(require_user)):
+    """Get report data as JSON（k76：必须登录 + 归属校验）。
+
+    被分享的报告不走本接口 —— 分享通道是 `GET /share/{reading_id}`
+    （匿名可读、已剥离个人信息）。两条路径分开是控制方拍板的要求。
+    """
     report = load_report(reading_id)
     if not report:
         raise HTTPException(status_code=404, detail="报告未找到")
+    assert_report_owner(report, uid)
     return report
 
 
 @router.get("/report/{reading_id}")
-async def get_report_page(reading_id: str):
-    """Get the rendered HTML report page."""
+async def get_report_page(reading_id: str, uid: str = Depends(require_user)):
+    """Get the rendered HTML report page（k76：必须登录 + 归属校验）。
+
+    403/401 用与 404 同款的极简页返回（浏览器直接访问时人可读）；
+    接口状态码语义保持准确（未授权 = 403）。
+    """
     report = load_report(reading_id)
     if not report:
-        return HTMLResponse(
-            "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-            "<title>报告未找到</title></head><body>"
-            "<h1>报告未找到</h1><p>该命运报告不存在或已被删除。</p></body></html>",
-            status_code=404,
-        )
+        return HTMLResponse(_SIMPLE_NOT_FOUND_HTML, status_code=404)
+    try:
+        assert_report_owner(report, uid)
+    except HTTPException as e:
+        return HTMLResponse(_simple_error_html(e.detail), status_code=e.status_code)
 
     # Share text for social media
     share_text = (
@@ -468,10 +538,34 @@ async def get_report_page(reading_id: str):
     return HTMLResponse(html)
 
 
-def _build_report_html(report: dict, share_text: str) -> str:
+_SIMPLE_NOT_FOUND_HTML = (
+    "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+    "<title>报告未找到</title></head><body>"
+    "<h1>报告未找到</h1><p>该命运报告不存在或已被删除。</p></body></html>"
+)
+
+
+def _simple_error_html(detail: str) -> str:
+    """报告页的极简错误页（detail 由本模块常量/写死文案产生，仍做转义兜底）。"""
+    import html as _html
+    msg = _html.escape(str(detail or "无权访问该报告"))
+    return (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        "<title>无法查看</title></head><body>"
+        f"<h1>无法查看</h1><p>{msg}。</p>"
+        "<p>如果这是别人分享给你的报告，请用分享链接打开。</p></body></html>"
+    )
+
+
+def _build_report_html(report: dict, share_text: str, share_url: str = "") -> str:
     """Build the full HTML report page with embedded data.
 
     Uses string.Template to avoid f-string conflicts with JavaScript/CSS braces.
+
+    share_url（k76）：该页对外分享时使用的地址。**默认为分享通道**
+    `/share/{reading_id}`（匿名可读）——因为本页 `/report/{reading_id}` 自
+    k76 起需登录+归属校验，把本页 URL 分享出去对方会打不开。og:url 也用它，
+    否则微信抓取会抓到一个 401 页、卡片变空。
     """
     import json as _json
     from string import Template
@@ -504,7 +598,7 @@ def _build_report_html(report: dict, share_text: str) -> str:
     <meta property="og:description" content="$og_desc">
     <meta property="og:type" content="website">
     <meta property="og:image" content="https://fortune.talcloud.com/static/og-report.png">
-    <meta property="og:url" content="https://fortune.talcloud.com/report/$reading_id">
+    <meta property="og:url" content="$og_url">
     <meta name="description" content="$og_desc">
 
     <!-- WeChat Share Meta -->
@@ -696,6 +790,9 @@ def _build_report_html(report: dict, share_text: str) -> str:
     (function() {
         var REPORT = $report_json;
         var SHARE_TEXT = "$share_text_escaped";
+        // k76：分享出去的链接必须是**分享通道**（/share/{id}，匿名可读）；
+        // 本页（/report/{id}）自本批起需登录+归属校验，把它分享给别人等于给死链。
+        var SHARE_URL = "$share_url";
 
         function render() {
             var r = REPORT;
@@ -921,10 +1018,10 @@ def _build_report_html(report: dict, share_text: str) -> str:
 
         function shareReport() {
             if (navigator.share) {
-                navigator.share({ title: SHARE_TEXT.split(" #")[0], text: SHARE_TEXT, url: window.location.href }).catch(function(){});
+                navigator.share({ title: SHARE_TEXT.split(" #")[0], text: SHARE_TEXT, url: SHARE_URL }).catch(function(){});
             } else {
                 var ta = document.createElement("textarea");
-                ta.value = SHARE_TEXT + "\\n" + window.location.href;
+                ta.value = SHARE_TEXT + "\\n" + SHARE_URL;
                 document.body.appendChild(ta);
                 ta.select();
                 try { document.execCommand("copy"); var btn = document.querySelector(".share-btn"); var orig = btn.textContent; btn.textContent = "已复制！"; setTimeout(function() { btn.textContent = orig; }, 2000); } catch(e) {}
@@ -943,6 +1040,8 @@ def _build_report_html(report: dict, share_text: str) -> str:
         og_desc=og_desc,
         og_desc_short=og_desc_short,
         reading_id=reading_id,
+        share_url=share_url or f"{_PUBLIC_BASE}/share/{reading_id}",
+        og_url=share_url or f"{_PUBLIC_BASE}/report/{reading_id}",
     )
 
 @router.post("/api/report/generate")
@@ -966,6 +1065,7 @@ async def generate_report(req: GenerateReportRequest, uid: str = Depends(require
             bazi_result,
             birth=req.birth.model_dump(),
             name=req.birth.name,
+            owner_uid=uid,     # k76：落归属密文，供读接口做归属校验
         )
 
         return report_data

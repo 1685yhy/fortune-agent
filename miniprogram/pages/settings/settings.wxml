@@ -203,7 +203,7 @@
     <!-- 数据说明（同 me 页原 sn-body 文案） -->
     <view class="sec-note">
       <text class="sn-title">安全与数据</text>
-      <text class="sn-body">对话与命书均经加密存储，仅你本人可见。退出登录不影响本地灯油与命书；注销账号后数据进入加密归档，90 天可恢复期内联系明灯即可找回，期满彻底删除。</text>
+      <text class="sn-body">对话与命书加密存储；昵称、称呼与关系、收藏、择日计划与灯语为明文存储。你的内容不会公开展示（为生成回应会交给第三方大模型），只有你主动分享出去的链接拿到即可打开（对话分享链接 30 天后自动失效）。退出登录不影响本地灯油与命书；注销后数据保留 90 天，期内可联系明灯申请找回，期满逐项删除；支付流水等依法需留存的交易记录按法定期限保留。</text>
     </view>
 
     <!-- 危险区（朱砂注销 · 二次确认） -->
@@ -247,7 +247,7 @@
       </view>
       <view class="acct-card-body">
         <text>注销后，对话、命书、收藏与解梦手记将</text><text class="mb-strong">不可恢复</text><text>；</text>
-        <text>数据将加密归档，90 天后彻底删除。</text>
+        <text>你分享出去的链接会立即失效；其余数据保留 90 天，期满逐项删除（支付流水等依法需留存的交易记录除外）。</text>
       </view>
       <view class="acct-card-note">此操作不可撤销 · 请慎重</view>
       <input class="acct-input" value="{{deregInput}}" bindinput="onDeregInput"
@@ -263,7 +263,7 @@
   <view wx:if="{{deregDone}}" class="gone-screen" catchtouchmove="noop">
     <image class="gone-lantern" src="/assets/images/lantern.jpg"></image>
     <view class="gs-title">账号已注销</view>
-    <view class="gs-sub">你的对话、命书与手记已加密归档
+    <view class="gs-sub">你的对话、命书与手记已封存
 90 天内不再打扰 · 愿你前路有光</view>
     <view class="gs-line"></view>
     <view class="gs-poem">感谢相伴，灯火长明。</view>
