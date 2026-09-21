@@ -178,32 +178,189 @@ test('k69 零回归：非法农历日（1999-03-30 不存在）→ 回落原文�
   assert.equal(page.data.birthdayText, '1999.03.30 巳时', 'lunarDateToSolar 契约：转换失败回落原文（与 paipan/duipan 同款）');
 });
 
-/* ═══════ 4. 单一事实源接线（摘掉即红：本地时辰表/换算表不得回流） ═══════ */
+/* ═══ 3b. k73-M1「宁少不假」：不可解析/越界 hour 不得凭空显示「子时」 ═══
 
+   复审实测的原始对照（改前）：
+     hour = "abc" | 99 | -1 | NaN
+       旧实现（k69 前）→ "1995.05.12"       （不显示时辰）
+       k69 实现      → "1995.05.12 子时"    （凭空给了个时辰）← 必须修掉
+   根因：hasHour 只拦 undefined/null/''，其余交给 hourToShichenIndex —— 它对无法
+   识别的输入返回 0（=子时）。上面第 6 条测试只覆盖了 ''，注释自己都写了「空值
+   兜底 0=子时，须前置拦住」，却没覆盖**不可解析值**，这里补齐。
+   判据：与旧实现一致的「宁少不假」——解析失败/越界一律不显示时辰。 */
+test('k73-M1：hour 不可解析/越界 ⇒ 不显示时辰（绝不兜底成「子时」）', () => {
+  const BAD = [
+    ['abc', '"abc"'], [99, '99'], [-1, '-1'], [NaN, 'NaN'],
+    [Infinity, 'Infinity'], [24, '24（越上界）'],
+    [true, 'true'], [[], '[]（空数组）'],
+    [10.5, '10.5（非整数钟点）'], ['10abc', '"10abc"（半截垃圾）'],
+  ];
+  BAD.forEach(([val, label]) => {
+    const page = makeMePage();
+    page._applyBaziToView({
+      year: 1995, month: 5, day: 12, hour: val, calendar: 'solar', gender: '男',
+    });
+    assert.equal(page.data.birthdayText, '1995.05.12',
+      `hour=${label} 不可解析/越界 ⇒ 必须不显示时辰（宁少不假）；`
+      + '改前实测：显示 "1995.05.12 子时"（凭空一个假时辰）');
+  });
+});
+
+test('k73-M1 反向：合法 0-23 整数（含 0）与数字串**必须**仍显示时辰（不误伤真值）', () => {
+  /* 反向守卫：上一条若写成「一律不显示」也会全绿 —— 故必须证明真值没被拦掉。
+     0 是合法钟点（子时），不能被 falsy 判断误伤（这正是必须用 Number.isInteger
+     而非 `if (!hour)` 的原因）。 */
+  const ZH = [[0, '子时'], [1, '丑时'], [9, '巳时'], [10, '巳时'],
+    [12, '午时'], [23, '子时']];
+  ZH.forEach(([h, cn]) => {
+    const page = makeMePage();
+    page._applyBaziToView({
+      year: 1995, month: 5, day: 12, hour: h, calendar: 'solar', gender: '男',
+    });
+    assert.equal(page.data.birthdayText, `1995.05.12 ${cn}`,
+      `hour=${h} 是合法钟点 ⇒ 必须显示 ${cn}`);
+  });
+  // 后端 JSON/字符串形态的数字同样必须显示（不得只认 number 类型）
+  ['0', '10', '23'].forEach((h) => {
+    const page = makeMePage();
+    page._applyBaziToView({
+      year: 1995, month: 5, day: 12, hour: h, calendar: 'solar', gender: '男',
+    });
+    assert.equal(page.data.birthdayText,
+      `1995.05.12 ${persons.shichenCN(persons.hourToShichenIndex(h))}`,
+      `hour="${h}"（数字串）必须与 number 形态同值`);
+  });
+  // 核心场景（农历 1999-03-28 10:55 = 公历 1999-05-13 巳时）不因本批收紧而改变
+  const core = makeMePage();
+  core._applyBaziToView(BAZI_INFO_LUNAR);
+  assert.equal(core.data.birthdayText, '1999.05.13 巳时', '真实档案主场景零回归');
+});
+
+/* ═══════ 4. 单一事实源：口径用行为断言 + 仅剩的结构性接线回归锁 ═══════
+
+   k73-M2（复审裁定）：原第 10/11 条是**源码文本匹配**，行为等价的改写会**假红**。
+   本批实测（同一份 me.js 变体 × 改前/改后两份测试文件，共 6 种**行为等价**改写）：
+     变体                             改前测试文件   改后测试文件
+     ①局部变量重命名 rawHour→bh         RED(假红)      GREEN
+     ②抽 const isLunar = ... 布尔        GREEN          GREEN
+     ③Yoda 条件 'lunar' === b.calendar  RED(假红)      GREEN
+     ④persons.shichenCN 取局部别名       RED(假红)      GREEN
+     ⑤行注释里提到旧表名/禁用 token      RED(假红)      GREEN
+     ⑥require 绑定名改写 persons→P       RED(假红)      GREEN
+   ⇒ 6 种里 5 种**改前假红**，改后全部不变红。
+   ⚠️ 一并更正复审给的那一例（报告里作「变体 B」）：`calendar !== 'solar'` **不是**
+   行为等价改写 —— 旧行缺 calendar 时会误把公历当农历换算（本文件第 5 条测试即红），
+   属**语义**变化，改红是正确的（改前/改后都红，且应当红）。
+   按复审给的两条路，本批**选了 ①**：凡能用输入/输出刻画的，一律改**行为断言**
+   （与权威单点 utils/persons + utils/lunar 逐值比对，不看 me.js 源码字符串）
+   —— 行为等价改写按构造不可能变红。
+   **只有「某物不得存在」这类结构性禁令**无法行为化（一份行为正确的副本在输出上
+   不可区分），保留为 ②「接线回归锁」，并已收窄到最小必要模式（见 §4c）。 */
+
+/* ── 4a. 行为断言：时辰口径 = persons 单点（覆盖全部 24 钟点 + 12 代表整点）── */
+
+test('k73 行为断言：24 钟点 × 12 时辰代表整点，me 页时辰文案 == persons 单点推导', () => {
+  const HOURS = [];
+  for (let h = 0; h < 24; h++) HOURS.push(h);                 // 时钟小时 0-23
+  HOURS.push(23, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21);      // 时辰代表整点（HOUR_VALUES）
+  const seen = new Set();
+  HOURS.forEach((h) => {
+    [0, 55].forEach((mi) => {
+      const page = makeMePage();
+      page._applyBaziToView({
+        year: 1995, month: 5, day: 12, hour: h, minute: mi,
+        calendar: 'solar', gender: '男',
+      });
+      const expected = persons.shichenCN(persons.hourToShichenIndex(h, mi));
+      assert.equal(page.data.birthdayText, `1995.05.12 ${expected}`,
+        `hour=${h} minute=${mi} 的时辰文案必须等于 persons 单点推导`
+        + '（me.js 自建第二份映射表 / 自算窗口 ⇒ 本条即红）');
+      seen.add(expected);
+    });
+  });
+  // 判别力自证：矩阵必须真的覆盖 12 个时辰（否则「全等于 expected」可能因
+  // 输入退化（如全是同一时辰）而失去判别力）
+  assert.equal(seen.size, 12, `12 个时辰都必须出现在矩阵里，实际覆盖 ${seen.size} 个`);
+});
+
+/* ── 4b. 行为断言：calendar 标志语义完全刻画（等价于原第 11 条，但不看源码）── */
+
+test('k73 行为断言：calendar 语义完全刻画 —— 仅当值恰为 "lunar" 才做农历→公历换算', () => {
+  const pad = (n) => String(n).padStart(2, '0');
+  /* 期望值由**规格 + 权威单点**推出（不是抄 me.js 的代码）：
+     仅 calendar === 'lunar' 时走 utils/lunar.lunarDateToSolar，否则原样直显。 */
+  const expectedOf = (cal) => {
+    let y = 1999; let m = 3; let d = 28;
+    if (cal === 'lunar') {
+      const conv = String(lunar.lunarDateToSolar('1999-03-28')).split('-');
+      if (conv.length === 3) { y = +conv[0]; m = +conv[1]; d = +conv[2]; }
+    }
+    return `${y}.${pad(m)}.${pad(d)} 巳时`;   // hour=10, minute=55 ⇒ 巳时
+  };
+  const GRID = [['lunar', 'lunar'], ['solar', 'solar'], ['Solar', '"Solar"（大小写不等）'],
+    ['LUNAR', '"LUNAR"（大小写不等）'], ['x', '"x"（未知值）'],
+    ['', '""（空串）'], [null, 'null'], [0, '0'], [1, '1'],
+    [undefined, '（键缺失：旧行）']];
+  const outs = new Set();
+  GRID.forEach(([cal, label]) => {
+    const b = { year: 1999, month: 3, day: 28, hour: 10, minute: 55, gender: '男' };
+    if (cal !== undefined) b.calendar = cal;   // undefined 分支 = 旧行缺键
+    const page = makeMePage();
+    page._applyBaziToView(b);
+    const want = expectedOf(cal);
+    assert.equal(page.data.birthdayText, want,
+      `calendar=${label} ⇒ 期望 ${want}（判据：恰为 'lunar' 才换算；`
+      + '「仅非 solar 即换算」这类看似等价的改写会在此判红——那是**语义**变化）');
+    outs.add(page.data.birthdayText);
+  });
+  // 判别力自证：矩阵确实同时包含「换算」与「不换算」两种输出，
+  // 否则「全等于期望」可能因所有分支输出相同而失去判别力
+  assert.deepEqual([...outs].sort(), ['1999.03.28 巳时', '1999.05.13 巳时'],
+    `矩阵必须同时覆盖两种结果，实际 ${JSON.stringify([...outs])}`);
+  assert.equal(expectedOf('lunar'), '1999.05.13 巳时', '权威正解（与 paipan 页一致）');
+});
+
+/* ── 4c. 接线回归锁（k73-M2 ②：**只**剩无法行为化的结构性禁令）────────────
+   本节断言的是「**某物不存在 / 某依赖存在**」——一份行为正确的副本在输出上
+   与单点不可区分，故行为断言**原则上无法**证明它。已收窄到最小必要模式：
+   - require 锁只匹配**模块路径**（不锁绑定名）⇒ `const P = require(...)` 不假红；
+   - 负向锁只匹配**定义式**（`const HOUR_CN =`）/ **自算函数签名**
+     （`function lunarDateToSolar(`）/ 旧实现标志名（`_hourToIndex`）
+     ⇒ 不锁调用形状、不锁局部变量名（那是 k73-M2 修掉的假红来源）。
+   注释一律先剥除（块注释 + 行注释）：**注释不是实现**，注释里提到旧表名
+   不该假红（剥注释只提升精度，不放宽被禁的实现形态）。
+   ⚠️ 这是**接线回归锁**：改 me.js 实现时若命中，请先判断是「误伤注释/绑定名」
+     还是「真的又添了第二份实现」——前者改本锁，后者改实现。 */
 const ME_SRC = fs.readFileSync(ME_JS, 'utf8');
-const ME_CODE = ME_SRC.replace(/\/\*[\s\S]*?\*\//g, ''); // 去块注释，只看代码
+const ME_CODE = ME_SRC
+  .replace(/\/\*[\s\S]*?\*\//g, '')      // 块注释
+  .replace(/(^|\s)\/\/[^\n]*/gm, '$1');  // 行注释（要求 // 前有空白，避开 http://）
 
-test('k69 接线：me.js 不得再持有本地时辰中文表（单点 = utils/persons.HOUR_CN）', () => {
+test('k73 接线回归锁：me.js 必须消费共享单点（require 路径 + 单点 API 被引用）', () => {
+  assert.match(ME_CODE, /require\('\.\.\/\.\.\/utils\/persons'\)/,
+    '必须 require utils/persons（时辰映射单一事实源；绑定名不限）');
+  assert.match(ME_CODE, /require\('\.\.\/\.\.\/utils\/lunar'\)/,
+    '必须 require utils/lunar（农历换算单一事实源；绑定名不限）');
+  /* 单点 API 必须**被引用**（只匹配 API 名，不匹配接收者/绑定名/调用形状）：
+     `persons.shichenCN(...)`、`const cn = persons.shichenCN; cn(...)`、
+     `L.lunarDateToSolar(...)` 都通过；「不再走单点」（改自算/换表）即红。 */
+  assert.match(ME_CODE, /shichenCN/,
+    'me.js 必须引用 persons.shichenCN（时辰文案单点；原缺陷正是自建表绕过它）');
+  assert.match(ME_CODE, /lunarDateToSolar\(/,
+    'me.js 必须引用 lunarDateToSolar（农历换算单点；不锁接收者变量名）');
+});
+
+test('k73 接线回归锁：me.js 不得自建第二份映射表 / 第二份农历换算', () => {
   assert.ok(!/const\s+HOUR_CN\s*=/.test(ME_CODE),
     'me.js 不得自建 HOUR_CN 表（第二份映射表=口径分裂根源，正是本 bug 成因）');
   assert.ok(!/HOUR_CN\s*\[/.test(ME_CODE),
     'me.js 不得直接索引 HOUR_CN（应走 persons.shichenCN）');
   assert.ok(!/_hourToIndex/.test(ME_CODE),
     'me.js 不得残留 _hourToIndex（钟点当序号查表的本地实现已删）');
-});
-
-test('k69 接线：me.js 复用 utils/persons 与 utils/lunar 既有单点', () => {
-  assert.match(ME_SRC, /const persons = require\('\.\.\/\.\.\/utils\/persons'\);/,
-    '必须 require utils/persons（时辰映射单一事实源）');
-  assert.match(ME_CODE, /persons\.shichenCN\(persons\.hourToShichenIndex\(rawHour, rawMinute\)\)/,
-    '时辰文案必须由 persons.hourToShichenIndex + shichenCN 推导');
-  assert.match(ME_CODE, /lunar\.lunarDateToSolar\(/,
-    '农历换算必须复用 utils/lunar.lunarDateToSolar（与 paipan/duipan/hehun 同源）');
   assert.ok(!/function\s+lunarDateToSolar\s*\(/.test(ME_CODE),
     '不得新写第二份农历换算实现');
-});
-
-test('k69 接线：me.js 认 calendar 标志（与仓内其余五页同款判据）', () => {
-  assert.match(ME_CODE, /b\.calendar === 'lunar'/,
-    'me.js 必须读 b.calendar === \'lunar\'（原缺陷：全仓唯一不认该标志的页面）');
+  assert.ok(!/[子丑寅卯辰巳午未申酉戌亥]时/.test(ME_CODE),
+    'me.js 代码里不得出现任何时辰中文字面量（一律由 persons.shichenCN 供；'
+    + '这一条把「本地表换个名字」也堵住 —— 任何时辰表都必须写出这些字。'
+    + '顺带堵住「解析失败就硬编码兜底 子时」这类假时辰写法）');
 });

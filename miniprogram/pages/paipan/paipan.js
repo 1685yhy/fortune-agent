@@ -478,7 +478,14 @@ Page({
     if (!solarText && p.birthYear) {
       solarText = `${p.birthYear}年${p.birthMonth}月${p.birthDay}日`;
       // 存库 birth.hour 为时钟小时 0-23 → 时辰序号（子23-0/丑1-2/…/亥21-22 起时口径，
-      // 与服务端 SHICHEN_NAME 同口径；persons.hourToShichenIndex 只管整点代表不适用）
+      // 与服务端 SHICHEN_NAME 同口径）。
+      // k73-M3 注释更正（**只改注释，不改行为**）：原注释称「persons.hourToShichenIndex
+      // 只管整点代表不适用」——该说法自 k19 起已作废：hourToShichenIndex 现在同时认
+      // 「时辰代表整点（HOUR_VALUES 奇数集）」与「时钟小时 0-23」两种形态（见
+      // utils/persons.js 的 k19 画像口径）。本行内联公式与它对 0-23 **逐值一致**
+      // （已核对全部 24 值，含 23/0 → 子时跨日；越界值行为不同，但该域外输入不属于
+      // 本契约）。此处保留内联仅为不动本批行为；日后要收归单点，可直接改调
+      // persons.hourToShichenIndex（0-23 同值）。
       const idx = Math.floor((((parseInt(p.birthHour, 10) || 0) + 1) % 24) / 2);
       const label = HOUR_OPTIONS[idx + 1] || '';
       shichenTxt = label.split('(')[0];

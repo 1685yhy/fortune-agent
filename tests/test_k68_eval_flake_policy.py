@@ -396,6 +396,182 @@ def test_signal_line_is_greppable_and_persisted(capsys, tmp_path):
 
 
 # ================================================================
+# k73-M1（k68 复审 Minor）：第一原则判据**不得有 fail-open 分支**
+# ================================================================
+
+def _check_plain(m):
+    """不做阈值判定的记录器（本组只考察「本轮是否允许重试」这一条）。"""
+    return eval_flake_retry.make_check(ok=False, summary=str(m), metrics=m)
+
+
+#: (说明, metrics, 缺失的键)
+M1_CASES = [
+    ("缺 total（复审构造的原始形态：半执行、无 total）",
+     {"executed": 3, "skipped": []}, "total"),
+    ("缺 executed", {"total": 3, "skipped": []}, "executed"),
+    ("空 metrics（键全缺）", {}, "executed"),
+]
+
+
+def test_M1_missing_keys_are_fail_closed_not_retryable(capsys, tmp_path):
+    """k73-M1：缺 `total` / 缺 `executed` / metrics 为空 ⇒ **一律按「没跑」处理**：
+
+    - `execution_integrity` 判 False（信息不足宁可红）；
+    - 执行器 **1 次尝试即红**（`calls == [1]`），**一次都不重试**。
+
+    改前实测（复审构造 `{"executed": 3, "skipped": []}`）：完整性判据整条被跳过
+    （`executed is not None and total is not None and executed != total`）⇒ 被判
+    「可重试」⇒ `calls == [1, 2]` —— 正是「**评测没跑完却被当成抖动重试**」。
+    """
+    for label, metrics, missing in M1_CASES:
+        ok, why = eval_flake_retry.execution_integrity(metrics)
+        assert ok is False, f"{label}: 必须 fail-closed，实际 ok={ok}"
+        assert missing in why, f"{label}: 原因须点名缺哪个键，实际 {why!r}"
+
+    for label, metrics, missing in M1_CASES:
+        calls = []
+
+        def _run(attempt_no, _m=metrics, _c=calls):
+            _c.append(attempt_no)
+            return dict(_m)
+
+        with pytest.raises(AssertionError) as ei:
+            eval_flake_retry.run_with_bounded_retry(
+                f"M1-{missing}", _run, _check_plain)
+        assert calls == [1], f"{label}: 缺键 ⇒ 一次都不重试，实际 {calls}"
+        assert "不允许重试" in str(ei.value), str(ei.value)
+        assert "第一原则" in str(ei.value)
+        assert missing in str(ei.value)
+
+    out = capsys.readouterr().out
+    assert "不允许重试" in out
+
+
+def test_M1_contrast_total_present_is_still_retryable(tmp_path):
+    """对照（证明上一条不是「一律判红」）：**同形态但 total 齐全** ⇒ 仍允许重试。
+
+    「完整执行、只是阈值差一点」两次 ⇒ `calls == [1, 2]` 后真红 —— 第一原则要
+    保护的抖动重试路径没被 k73-M1 的收紧误伤（这是本组最关键的反向守卫）。
+    """
+    calls = []
+
+    def _run(attempt_no):
+        calls.append(attempt_no)
+        return {"executed": 3, "total": 3, "skipped": []}
+
+    with pytest.raises(AssertionError) as ei:
+        eval_flake_retry.run_with_bounded_retry("M1-ok", _run, _check_plain)
+    assert calls == [1, 2], "total 齐全 ⇒ 允许 1 次重试"
+    assert "真回归" in str(ei.value)
+    lines = _signal_lines(tmp_path)
+    assert len(lines) == 1 and "integrity=full" in lines[0]
+
+
+def test_M1_all_four_layers_metrics_carry_total():
+    """k73-M1 的**输入契约**：L1/L2/L3/L4 的 metrics 必须都带 `total`。
+
+    为什么必须钉住：k73-M1 之后「缺 total」= 「没跑」（fail-closed）⇒ 若某层的
+    metrics 悄悄不再产出 `total`，该层会被**误判为未完整执行**（信号
+    `integrity=incomplete`；L1 还会被禁掉重试）。故用**四层真实的**指标产出函数
+    （不是手写 dict）确认契约成立 —— 这是 fail-closed 不放宽的前提条件。
+    """
+    import judge as judge_mod
+    import l2_eval
+    import l4_eval
+
+    l1m = l1_eval.aggregate_metrics(
+        [_result(id="T1", tool_select_ok=True, params_ok=True, ok=True)])
+    l2m = l2_eval.aggregate_metrics(
+        [{"id": "T1", "skipped": False, "ok": True, "exception": None}])
+    l4m = l4_eval.aggregate_metrics(
+        [{"id": "T1", "skipped": False, "first_ok": True, "passed": True,
+          "attempts": [], "skip_reason": None}])
+    jdims = {d: {"score": 8.0} for d in judge_mod.DIMS}
+    l3m = judge_mod.group_metrics(
+        [{"id": "T1", "skipped": False, "judge_error": None, "dims": jdims,
+          "overall": 8.0, "category": "chat", "severity": "P0"}])
+
+    for name, m, ok_key in (("l1", l1m, "executed"), ("l2", l2m, "executed"),
+                            ("l3", l3m, "judged"), ("l4", l4m, "executed")):
+        assert "total" in m, f"{name} metrics 必须带 total（fail-closed 输入契约）"
+        assert m[ok_key] == m["total"], f"{name}: 单条全通过时 {ok_key} 应等于 total"
+        kwargs = ({"executed_key": "judged", "error_keys": ("judge_error",)}
+                  if name == "l3" else {})
+        ok, why = eval_flake_retry.execution_integrity(m, **kwargs)
+        assert ok is True, f"{name} 真实指标必须判「完整执行」，实际 {why!r}"
+
+
+# ================================================================
+# k73-M2（k68 复审 Minor）：上界由**构造**强制 + 文案随实际次数
+# ================================================================
+
+def test_M2_max_attempts_hard_cap_enforced_by_construction(capsys, tmp_path):
+    """k73-M2：上界 = 控制方拍板的 2（最多 1 次重试），越界**构造性**拒绝。
+
+    复审实测改前：显式传 `max_attempts=5` 会**真跑 5 次尝试**（输出
+    `attempts=5/5`）—— 上界当时只是文档约定，不阻止调用方调大。
+    本测试同时把「拍板值 = 2」钉成常量断言，防止日后被悄悄调大。
+    """
+    assert eval_flake_retry.MAX_ATTEMPTS_HARD_CAP == 2, \
+        "控制方拍板的上界 = 2 次尝试（最多 1 次重试）；要改须先由控制方拍板"
+    assert eval_flake_retry.MAX_ATTEMPTS <= eval_flake_retry.MAX_ATTEMPTS_HARD_CAP, \
+        "默认上界不得超过硬上界"
+
+    for bad in (-1, 0, 3, 5, 100):
+        calls = []
+
+        def _run(attempt_no, _c=calls):
+            _c.append(attempt_no)
+            return _metrics_ok()
+
+        with pytest.raises(ValueError) as ei:
+            eval_flake_retry.run_with_bounded_retry(
+                f"M2-cap{bad}", _run, _check_of, max_attempts=bad)
+        assert calls == [], f"max_attempts={bad} 越界 ⇒ 一次都不许跑，实际 {calls}"
+        assert "max_attempts" in str(ei.value) and "上界" in str(ei.value)
+
+    # 合法边界仍可用：1（不许重试）与 2（默认上界）
+    for good in (1, 2):
+        assert eval_flake_retry.run_with_bounded_retry(
+            f"M2-cap-ok{good}", lambda n: _metrics_ok(), _check_of,
+            max_attempts=good)["executed"] == 7
+    capsys.readouterr()
+
+
+def test_M2_wording_follows_actual_attempt_count(capsys, tmp_path):
+    """k73-M2：次数文案随**实际尝试数**变 —— 不许硬编码「两次」。
+
+    用合法的 `max_attempts=1` 造出「只跑 1 次就真红」：改前文案会谎报
+    「两次都失败」（复审实测：5 次时照写「两次」）。
+    默认上界 2 时的「两次…」措辞由 A0/C0 的既有断言继续锁住。
+    """
+    calls = []
+
+    def _run(attempt_no):
+        calls.append(attempt_no)
+        return _metrics_threshold_miss()
+
+    with pytest.raises(AssertionError) as ei:
+        eval_flake_retry.run_with_bounded_retry(
+            "M2-wording", _run, _check_of, max_attempts=1)
+    assert calls == [1]
+    out = capsys.readouterr().out
+    assert "一次都失败" in out, out
+    assert "两次" not in out, f"只跑了 1 次尝试，文案不得出现「两次」：{out}"
+    msg = str(ei.value)
+    assert "一次结果对比" in msg, msg
+    assert "两次" not in msg, msg
+    lines = _signal_lines(tmp_path)
+    assert len(lines) == 1
+    assert "attempts=1/1" in lines[0] and "一次都失败" in lines[0]
+    # 取词函数单测：本批把「>2 次」的路径走成**构造不可达**（硬上界挡住），
+    # 故该路径只能在此单测兜底 —— 保证上界若被控制方日后调整，文案仍跟着变。
+    assert eval_flake_retry._cn_count(2) == "两"
+    assert eval_flake_retry._cn_count(5) == "五"
+    assert eval_flake_retry._cn_count(11) == "11"
+
+
+# ================================================================
 # A1 / C1（真 LLM，`RUN_EVAL_K68_FLAKE_PROOF=1` 触发）：真实评测上的两跑证明
 # ================================================================
 
@@ -461,6 +637,11 @@ def test_C1_real_first_fail_second_pass_is_reported(tmp_path, monkeypatch,
     说明（如实）：第 1 次的失败是**人为构造**的（自然抖动的实测口径 ~25% 由控制
     方留档），第 2 次是**真实 LLM 跑**——本测试证明的是**重试链路 + 上报链路在
     真实评测上可用**，不冒充「今天自然抖了一次」。
+
+    k73-M3（观测强度如实标注，勿当实测引用）：上面的 **~25% 是粗估** —— 观测
+    支撑只有控制方上一批「**4 次里红过 1 次**」，样本 4 次、误差很大；由此外推的
+    「连续两次失败 ≈ p² ≈ 6%」**公式正确但精度高于观测**。引用任何抖动率/残留
+    假红率之前，先看 `logs/eval_flake_signal.log` 的 `retried=*` 统计把 p 估准。
     """
     l1_file = _proof_gate()
     real_compare = l1_eval.compare_expected

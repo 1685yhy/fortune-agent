@@ -299,11 +299,26 @@ Page({
        整点（奇数集），**不是** 0-11 序号 —— 原实现 _hourToIndex 先按序号直取，
        把钟点 10 变成 HOUR_CN[10]='戌时'（正解巳时，序号 5）。改引 utils/persons
        单点映射（paipan.js 的 k19 注释「不再把 10 误读成 戌时」即此口径）。
-       无时辰（缺失/空串）→ 不显示时辰尾缀（沿用原 hasHour 空白语义）。 */
+       无时辰（缺失/空串）→ 不显示时辰尾缀（沿用原 hasHour 空白语义）。
+
+       k73-M1「宁少不假」：**hour 必须能完整解析为 0-23 的整数才显示时辰**。
+       原实现只拦 undefined/null/''，其余一律转交 hourToShichenIndex —— 而该函数
+       对无法识别的输入**返回 0（=子时）**，于是 "abc" / 99 / -1 / NaN 会凭空
+       显示「子时」（实测改前：四者全显示 "1995.05.12 子时"；旧实现一律不显示
+       时辰）。今天写路径（DB 只存整数或 NULL）不可达，但上游数据形态一变
+       （历史数据、脏数据、迁移脚本）就会**安静地显示一个假时辰**，故在此拦死：
+       解析失败或越界 ⇒ 不显示，**绝不兜底 0**。
+       用 Number 完整解析而非 parseInt：parseInt('10abc')=10 会把半截垃圾当好值
+       （实测改前 "10abc" 显示巳时）；非整数（10.5）同样不显示（不是合法钟点，
+       宁少不假）。空串/空数组先归一为 NaN —— Number('') === 0 会把它们当子时。 */
     const rawHour = b.hour !== undefined && b.hour !== null ? b.hour : b.birthHour;
     const rawMinute = b.minute !== undefined && b.minute !== null ? b.minute : b.birthMinute;
     const hasHour = rawHour !== undefined && rawHour !== null && rawHour !== '';
-    const hour = hasHour
+    const hourText = String(rawHour).trim();
+    const hourNum = hourText === '' ? NaN : Number(hourText);
+    const hasUsableHour = hasHour
+      && Number.isInteger(hourNum) && hourNum >= 0 && hourNum <= 23;
+    const hour = hasUsableHour
       ? persons.shichenCN(persons.hourToShichenIndex(rawHour, rawMinute))
       : '';
     const patch = {
