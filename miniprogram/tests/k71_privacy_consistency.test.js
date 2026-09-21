@@ -327,3 +327,249 @@ test('k71-必修2 全仓（非测试）零定位 API 调用', () => {
   assert.deepEqual(hits, [],
     `发现定位能力声明/调用（须重新评估 app.json 权限声明）：${hits.join(', ')}`);
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ↓↓↓ k74 追加（控制方「只要是报的，都要修」批）↓↓↓
+   本段**只新增断言，未放宽/删除任何既有断言**，也未新增 skip/xfail。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════════
+   7. k74-必修3：**三份**用户可见文案共用同一张事实表
+      privacy.wxml（页内契约）/ privacy.md（提审文档）/ agreement.wxml（用户协议页）
+      三份各有各的粒度，但**共用同一组"不得出现"的绝对句与同一张第三方清单**。
+   ════════════════════════════════════════════════════════════════ */
+const AGREEMENT_RAW = read('pages/agreement/agreement.wxml');
+const AGREE = wxmlText(AGREEMENT_RAW);
+
+test('k74 前提：agreement.wxml 剥标签后无 {{ }} 残留（属性绑定不影响文本提取）', () => {
+  // agreement 的 scroll-y="{{true}}" 是**属性**绑定，剥标签后不进入可见文本；
+  // 若日后把 {{ }} 写进文本节点，这个断言会红，提示必须改用渲染取证。
+  assert.ok(!/\{\{/.test(AGREE),
+    'agreement.wxml 的可见文本出现 {{ }} 动态绑定：文本提取不再等价于渲染结果，须改用 outerWxml() 取证');
+  assert.ok(AGREE.length > 800, `agreement 提取到的可见文本过短（${AGREE.length} 字）`);
+  assert.ok(AGREE.indexOf('用户协议') !== -1, 'agreement 提取文本里没有「用户协议」标题，提取器可能失效');
+});
+
+/* 三份共用：这些绝对句都**分别有代码反证**（逐条证据见 k74 报告「三、agreement 对照」与
+   「k72 证据复核」两节），任何一份文案里复活即红。注意：不包含「这是录音唯一离开你手机的情形」
+   ——那句是**录音**专指且属实（VOICE_FACTS 第 10 条要求页面必须保留它）。 */
+const THREE_DOC_FORBIDDEN = [
+  { re: /这是你主动提问时唯一对外发送的内容|唯一对外发送的内容/,
+    why: '实际还会外发：姓名/期望（大模型）、待朗读文字（微软 edge-tts）、检索词（公网搜索引擎）、'
+       + '录音（微信插件）、分享页字体请求（Google Fonts）' },
+  { re: /不交给任何第三方|不把你的信息交给任何第三方/,
+    why: 'src/api/union.py、src/rag/web_search.py、src/main.py:/api/tts 等确有多路第三方外发' },
+  { re: /不会上传/,
+    why: 'api.union 确会把 person2 POST 到服务端排盘 —— "不会上传"与代码不符' },
+  { re: /不留存任何记录/,
+    why: 'src/api/union.py:_archive_free_record 免费档确会脱敏归档（「合盘历史」可查）' },
+  { re: /存储在本地设备上|只存储在本地|仅存在本地/,
+    why: '对话记录落服务端 sessions.content（AES-256-GCM），非"只存本地设备"' },
+  { re: /不会拿你的数据训练模型|不会拿您的数据训练|不会用你的数据训练/,
+    why: 'scripts/export_training_data.py 确会把对话脱敏后导出为训练集（微调格式）' },
+  { re: /不会把(你的|您的)信息给第三方|不与任何第三方/,
+    why: '排盘信息与提问确会发给 DeepSeek/智谱 GLM，录音经微信插件外传，此断言与事实不符' },
+  { re: /全部本地处理|全都在本地/,
+    why: '排盘信息与提问会发给第三方大模型处理，不存在"全部本地处理"' },
+  { re: /人工无法直接查看|只有经授权的服务端程序能读到/,
+    // 范围说明（不是放宽，是"这一句在 k71 的 md 里已知未收口"）：本工作树的 `privacy.md`
+    // 仍是 k71 版，其「三.3 访问控制：…人工无法直接查看」这句**已被 k72 判定为不实**，
+    // 且 k72 批（分支 k72-privacy-disclosure）已把它改成「数据只通过受鉴权的服务端接口读写
+    // （须持有您的登录凭证）；加密字段须持有服务端密钥才能解密」。本批按令不改 md。
+    // ⇒ 在 md 合并进来之前，本表对该句只查**两份用户可见页**（页面 + 用户协议）；
+    //    md 合并后应当把 'md' 加回 docs —— 方向只能是扩大，不许再缩小。
+    docs: ['page', 'agree'],
+    why: '昵称/情绪/工具调用/收藏/择日/灯语/记忆画像均为明文列（无需密钥即可读），'
+       + '且 scripts/export_training_data.py、scripts/backup_db.py 可无 owner 校验地全量读/拷' },
+  { re: /不收集手机号|不收集手机号码/,
+    why: '手机号在用户主动绑定时收集并 AES-256 落库（users.phone_enc），"不收集手机号"与事实相反' },
+  { re: /搜狗|sogou/i,
+    why: 'src/rag/web_search.py:DEFAULT_ENGINES = ("bing","so360","baidu")，搜狗实测被反爬拦截、不在默认集；'
+       + '把它列为在用引擎即为不实（若日后真的启用，须同步改本守卫与三份文案）' },
+  { re: /智谱[^。]{0,12}联网检索|联网检索接口/,
+    why: '智谱 web search（open.bigmodel.cn）已欠费停用，_search_zhipu_legacy 无调用点（dead code）' },
+];
+
+test('k74-必修3 三份文案共用同一张"不得出现"的绝对句表（任一份复活即红）', () => {
+  const broken = [];
+  const scope = (f) => f.docs || ['page', 'doc', 'agree'];   // 默认三份都查
+  for (const f of THREE_DOC_FORBIDDEN) {
+    const s = scope(f);
+    if (s.indexOf('page') !== -1 && f.re.test(PAGE)) broken.push(`privacy.wxml 出现「${f.re}」← ${f.why}`);
+    if (s.indexOf('doc') !== -1 && f.re.test(DOC)) broken.push(`privacy.md 出现「${f.re}」← ${f.why}`);
+    if (s.indexOf('agree') !== -1 && f.re.test(AGREE)) broken.push(`agreement.wxml 出现「${f.re}」← ${f.why}`);
+  }
+  assert.deepEqual(broken, [], `三份文案出现与代码不符的绝对句：\n  - ${broken.join('\n  - ')}`);
+});
+
+/* 同一张第三方清单：**两份用户可见页**（页内契约 / 用户协议）都必须逐项点名；
+   提审文档 privacy.md 的粒度是「第三方服务」整节（其逐项列举由 md 自己的批次维护）。 */
+const THIRD_PARTIES = [
+  { key: '第三方大模型 DeepSeek', re: /DeepSeek/ },
+  { key: '第三方大模型 智谱 GLM', re: /智谱/ },
+  { key: '语音合成（微软 Edge / edge-tts）', re: /微软|edge-tts/i },
+  { key: '公网搜索引擎', re: /公网搜索引擎|搜索引擎/ },
+  { key: '微信「同声传译」插件', re: /同声传译/ },
+  { key: '腾讯云（存储与备份）', re: /腾讯云/ },
+  { key: 'Google Fonts（分享页字体请求）', re: /Google Fonts|fonts\.googleapis\.com/ },
+];
+
+test('k74-必修3 第三方清单：两份用户可见页（privacy.wxml / agreement.wxml）逐项齐全', () => {
+  const miss = [];
+  for (const p of THIRD_PARTIES) {
+    if (!p.re.test(PAGE)) miss.push(`privacy.wxml 缺 ${p.key}`);
+    if (!p.re.test(AGREE)) miss.push(`agreement.wxml 缺 ${p.key}`);
+  }
+  assert.deepEqual(miss, [], `用户可见页第三方清单漏项（外发了却没写）：${miss.join(' / ')}`);
+});
+
+test('k74-必修3 用户协议页必须指向《隐私保护指引》且披露"可不用该功能"', () => {
+  assert.ok(/隐私保护指引/.test(AGREE), 'agreement.wxml 未指向《隐私保护指引》');
+  assert.ok(/\/pages\/privacy\/privacy/.test(AGREEMENT_RAW),
+    'agreement.wxml 未给出《隐私保护指引》的可点入口（navigator url）');
+  assert.ok(/键盘代替语音|不点朗读|不分享报告/.test(AGREE),
+    'agreement.wxml 未给出"不用该功能即可避免外发"的退出方式');
+  assert.ok(/不会向第三方出售/.test(AGREE), 'agreement.wxml 未保留"不出售"的正面表述');
+});
+
+test('k74-必修3 三份文案都不得否认"信息会离开设备"（各文档各有正向表述）', () => {
+  assert.ok(/上传|发送/.test(DOC), 'privacy.md 不再提及信息外发');
+  assert.ok(/发送给第三方大模型服务商|发送到服务器/.test(PAGE), 'privacy.wxml 不再提及信息外发');
+  assert.ok(/发送给第三方服务商|发送给第三方/.test(AGREE), 'agreement.wxml 不再提及信息外发');
+});
+
+/* ════════════════════════════════════════════════════════════════
+   8. k74 追加：**新增外发路径**的「文案 vs 代码」外部对照
+      （oracle = 源码；每条都在 k74 报告里给了改前/改后证据）
+   ════════════════════════════════════════════════════════════════ */
+test('k74 页面"语音播报文字发给微软语音合成"有代码支撑（/api/tts → 8768 edge-tts → 微软）', () => {
+  const main = read(path.join('..', 'src', 'main.py'));
+  assert.ok(/@app\.post\("\/api\/tts"\)/.test(main), '后端 /api/tts 路由不存在 → 页面播报披露失去依据');
+  const cfg = read(path.join('..', 'src', 'config.py'));
+  assert.ok(/TTS_UPSTREAM_BASE/.test(cfg) && /8768/.test(cfg),
+    'TTS 上游配置变化 → 页面"语音合成服务/微软"须重新核对');
+  const night = read(path.join('..', 'src', 'engines', 'night_soliloquy.py'));
+  assert.ok(/zh-CN-XiaoyiNeural/.test(night),
+    '微软神经语音 ID 消失 → 页面"微软 Edge 语音合成"披露须重新核对');
+  assert.ok(/微软|edge-tts/i.test(PAGE), 'privacy.wxml 未披露语音播报会把待朗读文字发给微软语音合成');
+});
+
+test('k74 页面"检索词发给公网搜索引擎"有代码支撑（Bing/360/百度）', () => {
+  const ws = read(path.join('..', 'src', 'rag', 'web_search.py'));
+  assert.ok(/DEFAULT_ENGINES = \("bing", "so360", "baidu"\)/.test(ws),
+    '默认启用引擎集变化 → 页面"Bing、360、百度"须同步（多写引擎与少写引擎都是不实披露）');
+  assert.ok(/_search_zhipu_legacy/.test(ws),
+    '智谱 web search 遗留实现消失（说明该链路被改）→ 三份文案的搜索引擎口径须重新核对');
+  assert.ok(/检索词/.test(PAGE), 'privacy.wxml 未说明"由模型依提问生成的检索词"会外发');
+  assert.ok(/公网搜索引擎/.test(AGREE), 'agreement.wxml 未披露公网搜索引擎');
+});
+
+test('k74 页面"分享页字体来自 Google Fonts"有代码支撑', () => {
+  const hits = ['src/api/compatibility.py', 'src/api/visual_report.py']
+    .map((p) => fs.readFileSync(path.join(REPO, p), 'utf8'))
+    .some((s) => /fonts\.googleapis\.com/.test(s));
+  assert.ok(hits, '分享/报告网页不再引用 Google Fonts → 页面与协议的 Google Fonts 披露须删除或改口径');
+  assert.ok(/Google Fonts/.test(PAGE), 'privacy.wxml 未披露 Google Fonts');
+});
+
+test('k74 页面"姓名分析/取名把姓名与期望文字发给大模型"有代码支撑', () => {
+  const nar = read(path.join('..', 'src', 'services', 'narrative.py'));
+  assert.ok(/姓名：/.test(nar), 'narrative.py 不再把姓名拼进大模型提示词 → 页面披露须重新核对');
+  const ming = read(path.join('..', 'src', 'engines', 'ming.py'));
+  assert.ok(/期望: /.test(ming), 'ming.py 不再把取名期望拼进提示词 → 页面披露须重新核对');
+  assert.ok(/姓名分析/.test(PAGE) && /期望/.test(PAGE),
+    'privacy.wxml 未披露姓名/取名期望文字会发给大模型');
+});
+
+test('k74 页面"收藏/择日/灯语/自动汇总记录为明文存储"有代码支撑', () => {
+  const fav = read(path.join('..', 'src', 'storage', 'favorite_dao.py'));
+  assert.ok(/INSERT OR IGNORE INTO favorites/.test(fav) && !/encrypt/i.test(fav),
+    '收藏表写库语句变化或已加密 → 页面"明文"表述须重新核对');
+  const zeri = read(path.join('..', 'src', 'storage', 'zeri_dao.py'));
+  assert.ok(/INSERT INTO zeri_plans/.test(zeri) && !/encrypt/i.test(zeri),
+    '择日计划写库语句变化或已加密 → 页面"明文"表述须重新核对');
+  const lamp = read(path.join('..', 'src', 'storage', 'lamp_dao.py'));
+  assert.ok(/INSERT INTO night_lamp/.test(lamp) && !/encrypt/i.test(lamp),
+    '灯语写库语句变化或已加密 → 页面"明文"表述须重新核对');
+  const dao = read(path.join('..', 'src', 'storage', 'dao.py'));
+  assert.ok(/nickname 明文/.test(dao), 'dao.py 未再标注 nickname 明文 → 页面披露须重新核对');
+  assert.ok(/明文/.test(PAGE) && /收藏/.test(PAGE) && /灯语/.test(PAGE),
+    'privacy.wxml 未如实披露明文存储项');
+});
+
+test('k74 页面"分享内容不随注销删除、不过期"有代码支撑（注销清理清单不含 share）', () => {
+  const dao = read(path.join('..', 'src', 'storage', 'dao.py'));
+  const m = dao.match(/for table in \(([^)]*)\)/);
+  assert.ok(m, '未找到注销清理表清单（dao.py）');
+  assert.ok(!/share/.test(m[1]),
+    '注销清理清单已包含 share 表 → 页面"不会随账号注销一并删除"须改为"会删除"');
+  assert.ok(/不会随账号注销/.test(PAGE) && /不会过期/.test(PAGE),
+    'privacy.wxml 未披露分享内容不过期、不随注销删除');
+});
+
+/* ════════════════════════════════════════════════════════════════
+   9. k74-必修1：`requiredBackgroundModes: ["audio"]` 零调用声明已移除
+      验证依据（k74 报告）：插件官方文档的 app.json 面**只有 plugins**（0 处提及
+      requiredBackgroundModes/后台播放）；textToSpeech 只返回 filename「可自行下载使用」，
+      插件自己不播音频；requiredBackgroundModes 的官方定义是"需要在后台使用的能力
+      （音乐播放）"，配 getBackgroundAudioManager；InnerAudioContext 文档 0 处提及该键；
+      仓内唯一音频是 chat.js:_initAudio 的**前台** InnerAudioContext。
+   ════════════════════════════════════════════════════════════════ */
+test('k74-必修1 app.json 不再声明 requiredBackgroundModes（零调用声明）', () => {
+  const appjson = JSON.parse(APPJSON_RAW);
+  assert.equal(appjson.requiredBackgroundModes, undefined,
+    'requiredBackgroundModes 复活：全仓零 getBackgroundAudioManager 调用；'
+    + '若确需后台播放，须先补真实调用与提审说明，并同步本断言与 k74 报告依据');
+  assert.ok(!/requiredBackgroundModes/.test(APPJSON_RAW),
+    'app.json 仍出现 requiredBackgroundModes 字面量');
+  // 反向钉住：合法能力声明不得被误删
+  assert.ok(appjson.plugins && appjson.plugins.WechatSI,
+    'plugins.WechatSI 是语音链路必需声明，必须保留');
+  assert.ok(Array.isArray(appjson.pages) && appjson.pages.length > 0,
+    'pages 声明必须保留');
+});
+
+test('k74-必修1 全仓（非测试）零后台音频 API 调用', () => {
+  const BG_RE = /(getBackgroundAudioManager|BackgroundAudioManager|onBackgroundAudio\w*|playBackgroundAudio|requiredBackgroundModes)/;
+  const exts = new Set(['.js', '.wxml', '.json', '.wxss']);
+  const hits = [];
+  const walk = (dir) => {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (ent.isDirectory()) {
+        if (ent.name === 'node_modules' || ent.name === 'tests') continue;
+        walk(path.join(dir, ent.name));
+      } else if (exts.has(path.extname(ent.name))) {
+        const p = path.join(dir, ent.name);
+        fs.readFileSync(p, 'utf8').split('\n').forEach((line, i) => {
+          if (BG_RE.test(line)) hits.push(`${path.relative(ROOT, p)}:${i + 1}`);
+        });
+      }
+    }
+  };
+  walk(ROOT);
+  assert.deepEqual(hits, [],
+    `发现后台音频声明/调用（须重新评估 requiredBackgroundModes）：${hits.join(', ')}`);
+});
+
+/* ════════════════════════════════════════════════════════════════
+   10. k74-必修2：死数据（陷阱）不得回填
+   `privacy.js` 曾有 6 个零引用列表，首项即「手机号码」，与事实相反且零引用 ⇒ 已删。
+   本断言防止"接线渲染 → 错误口径复活"这条路径重新出现。
+   ════════════════════════════════════════════════════════════════ */
+test('k74-必修2 privacy.js 不得回填零引用的「不收集手机号」式死数据列表', () => {
+  const js = read('pages/privacy/privacy.js');
+  // 只认「作为 data 键被定义」（`k:`），注释里提到这些名字不算（本页文件头就写了这段来历）
+  const back = ['noCollectList', 'protectList', 'useList', 'noUseList', 'rightsList', 'otherList']
+    .filter((k) => new RegExp(k + '\\s*:').test(js));
+  assert.deepEqual(back, [],
+    `privacy.js 又出现零引用死列表：${back.join(', ')}（一旦被 wxml 接线，会把与事实相反的表述带回用户眼前；`
+    + '如需这份信息，请改写进 privacy.wxml 作为单一事实源）');
+});
+
+test('k74-必修2 页面不得出现"不收集手机号"式表述（手机号实为主动绑定后 AES 落库）', () => {
+  const dao = read(path.join('..', 'src', 'storage', 'dao.py'));
+  assert.ok(/phone_enc/.test(dao), 'dao.py 未见 phone_enc（手机号加密列）→ 该口径失去对照依据');
+  assert.ok(!/不收集手机号|不收集手机号码/.test(PAGE), 'privacy.wxml 出现与事实相反的"不收集手机号"');
+  assert.ok(!/不收集手机号|不收集手机号码/.test(AGREE), 'agreement.wxml 出现与事实相反的"不收集手机号"');
+  assert.ok(/手机号/.test(PAGE), 'privacy.wxml 反而不再提手机号（应如实写"主动绑定才有、AES 加密存储"）');
+});

@@ -50,9 +50,6 @@
     "uploadFile": 30000,
     "downloadFile": 30000
   },
-  "requiredBackgroundModes": [
-    "audio"
-  ],
   "useExtendedLib": {},
   "lazyCodeLoading": "requiredComponents",
   "plugins": {
