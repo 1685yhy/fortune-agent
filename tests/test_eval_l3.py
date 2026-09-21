@@ -11,6 +11,11 @@
   确定性可复现
 - 冒烟实跑（黑盒跑生产主链 + 真实 glm-4-flash 判卷）：按仓库约定缺 LLM
   key 即 skip；默认 2 条校准任务轻量切片
+- **k68 抖动策略**：冒烟走 `tests/eval_flake_retry.py` 的统一策略（有界重试
+  ≤2 次尝试 + 必须如实上报）。本层门禁是运行完整性断言（**非阈值门禁**）⇒
+  按第一原则失败一律**不可重试**（**断言与调用路径**逐字等价，**仅上报文案
+  有变化**——新增策略的尝试行与 [EVAL-FLAKE] 信号行。k73-M4 更正：原措辞
+  「行为与改前逐字等价」经复审裁定只**部分成立**）。
 
 红线（本文件只读数据源）：data/eval/agent_tasks.jsonl 只读；src/bot/tool_calls.py
 零改动；运行期隔离（临时库 + USER_MEMORY_DIR/CHARTS_DIR 重定向）由
@@ -23,12 +28,14 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
 _EVAL_DIR = _REPO / "scripts" / "eval_agent"
-for _p in (_REPO, _EVAL_DIR):
+_TESTS_DIR = Path(__file__).resolve().parent
+for _p in (_TESTS_DIR, _REPO, _EVAL_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
 import pytest  # noqa: E402
 
+import eval_flake_retry  # noqa: E402
 import judge  # noqa: E402
 
 _DEFAULT_DB = "/mnt/d/fortune-data/userdata/fortune.db"
@@ -397,8 +404,22 @@ def _restore_env(snap):
             os.environ[k] = v
 
 
+def _l3_summary(m):
+    return (f"已判卷 {m['judged']} | 加权平均 {m['weighted_avg']} | "
+            f"P0 平均 {m['p0_avg']} | judge_error {m['judge_error']} | "
+            f"跳过={m['skipped']}")
+
+
 def test_smoke_judge_calibration_slice(tmp_path):
-    """轻量冒烟：校准抽样前 2 条（T001 P0 / T005 P1）真实跑链 + 真实判卷。"""
+    """轻量冒烟：校准抽样前 2 条（T001 P0 / T005 P1）真实跑链 + 真实判卷。
+
+    k68 抖动策略（**有界重试 ≤2 次尝试 + 必须如实上报**）：本层冒烟门禁是
+    运行完整性/结构性断言（**非阈值门禁**——首测基线不锁分数）⇒ 按第一原则
+    失败一律**不可重试**（断言失败以异常形式上抛，原样上抛 + 留信号行），
+    **断言与调用路径**与改前逐字等价（语义等价且顺序不变），**仅上报文案有
+    变化**（多了策略的尝试行 + [EVAL-FLAKE] 信号行），接入策略只为统一上报与
+    信号。k73-M4：原措辞「行为与改前逐字等价」经复审裁定只**部分成立**。
+    """
     if not _llm_keys_ready():
         pytest.skip("缺少 ZHIPU_API_KEY（glm-4-flash 判卷 + 主链路由）")
     if not _real_db_ready():
@@ -406,26 +427,41 @@ def test_smoke_judge_calibration_slice(tmp_path):
     snap = _smoke_env()
     try:
         tasks = [t for t in _load_tasks() if t["id"] in ("T001", "T005")]
-        out = judge.run_eval(tasks, tmp_path / "l3-smoke",
-                             calibration=False, keep_tmp=True)
-        m = out["metrics"]
-        print(f"\n[smoke l3] 已判卷 {m['judged']} | 加权平均 {m['weighted_avg']} "
-              f"| P0 平均 {m['p0_avg']} | judge_error {m['judge_error']}")
-        # 运行完整性断言（首测基线不锁分数——真实数字如实留档）
-        for r in out["results"]:
-            if r["skipped"]:
-                assert r["skip_reason"], f"{r['id']} 跳过须标注原因"
-            else:
-                assert set(r["dims"]) == set(judge.DIMS)
-                assert r["parse_level"] in (0, 1, 2, 3)
-                assert isinstance(r["overall"], float)
-                assert r["replies"], f"{r['id']} 缺真实回复（判卷输入）"
-                assert 0.0 <= r["overall"] <= 10.0
-        # 落盘完整性
-        for fname in ("meta.json", "results.json", "report.md"):
-            assert (tmp_path / "l3-smoke" / fname).exists(), fname
-        # 非校准模式不落校准样本（calibration_samples.json 仅校准模式写入）
-        assert not (tmp_path / "l3-smoke" / "calibration_samples.json").exists()
+
+        def _attempt(attempt_no):
+            # 第 1 次沿用原落盘路径（不重试的常态路径产物位置不变）
+            out_dir = tmp_path / ("l3-smoke" if attempt_no == 1
+                                  else f"l3-smoke-retry{attempt_no}")
+            out = judge.run_eval(tasks, out_dir,
+                                 calibration=False, keep_tmp=True)
+            m = out["metrics"]
+            print(f"[smoke l3] 第 {attempt_no} 次尝试：{_l3_summary(m)}")
+            # 运行完整性断言（原样保留，一条未改）
+            for r in out["results"]:
+                if r["skipped"]:
+                    assert r["skip_reason"], f"{r['id']} 跳过须标注原因"
+                else:
+                    assert set(r["dims"]) == set(judge.DIMS)
+                    assert r["parse_level"] in (0, 1, 2, 3)
+                    assert isinstance(r["overall"], float)
+                    assert r["replies"], f"{r['id']} 缺真实回复（判卷输入）"
+                    assert 0.0 <= r["overall"] <= 10.0
+            # 落盘完整性
+            for fname in ("meta.json", "results.json", "report.md"):
+                assert (out_dir / fname).exists(), fname
+            # 非校准模式不落校准样本（calibration_samples.json 仅校准模式写入）
+            assert not (out_dir / "calibration_samples.json").exists()
+            return out
+
+        def _check(out):
+            # L3 口径：已判卷数 = judged（跳过与 judge_error 都不算「真的判了」）
+            m = out["metrics"]
+            return eval_flake_retry.make_check(
+                ok=True, summary=_l3_summary(m), metrics=m,
+                executed_key="judged", error_keys=("judge_error",))
+
+        eval_flake_retry.run_with_bounded_retry(
+            "l3-judge-calibration-slice", _attempt, _check)
     finally:
         _restore_env(snap)
         judge.l1_eval._close_runtime()

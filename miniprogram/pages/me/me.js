@@ -1,10 +1,15 @@
 // 我的 — 一卷手札（原型 MeScreen：印章/名号/四柱竖排/同行第N晚/列表 + TabBar）
 const api = require('../../utils/api');
 const lunar = require('../../utils/lunar');
+const persons = require('../../utils/persons');
 const payment = require('../../utils/payment');
 const theme = require('../../utils/theme');
 
-const HOUR_CN = ['子时', '丑时', '寅时', '卯时', '辰时', '巳时', '午时', '未时', '申时', '酉时', '戌时', '亥时'];
+/* k69 单一事实源：本地 HOUR_CN 表与 _hourToIndex 已删除 —— 时辰中文/序号映射
+   一律走 utils/persons（shichenCN + hourToShichenIndex）。原本地实现把钟点当
+   序号查表（10 → HOUR_CN[10] = 戌时，正解巳时），且与仓内其它页（paipan/
+   duipan/hehun/bazi/persons 均引 utils/persons）口径分裂，是「我的」页
+   生日显示错误三处缺陷中的时辰根源。 */
 
 /* UX批1 I-2：移除虚构命盘兜底（DEFAULT_PILLARS/「小晚」）——无档案一律展示
    「未设置命主信息」占位，绝不让用户误认虚构八字为自己已保存的盘 */
@@ -271,11 +276,54 @@ Page({
     const d = b.day || b.birthDay;
     if (!y || !m || !d) return;
 
-    const hourIdx = this._hourToIndex(b.hour !== undefined && b.hour !== null ? b.hour : b.birthHour);
-    const hour = (hourIdx >= 0 && HOUR_CN[hourIdx]) || '';
+    const pad = (n) => String(n).padStart(2, '0');
+    /* k69 历法归一（三处同根源缺陷之一）：档案 calendar==='lunar' 时
+       year/month/day 是**农历**数字，必须先换算公历再展示 —— 原实现直接
+       `${y}.${m}.${d}` 把农历 3/28 当公历显示（1999.03.28，正解 1999-05-13）。
+       换算单点 = utils/lunar.lunarDateToSolar（与 paipan.js:183 / duipan /
+       hehun 同源，转换失败回落原文，不新增崩溃路径）。
+       其后「公历行」与「农历行」两行同由这一份公历日期派生 —— 原实现的
+       农历行对已是农历的 (y,m,d) 又转一次（农历二月十一日，正解三月廿八）。 */
+    let sy = Number(y);
+    let sm = Number(m);
+    let sd = Number(d);
+    if (b.calendar === 'lunar') {
+      const conv = String(lunar.lunarDateToSolar(`${y}-${pad(m)}-${pad(d)}`)).split('-');
+      if (conv.length === 3) {
+        sy = parseInt(conv[0], 10);
+        sm = parseInt(conv[1], 10);
+        sd = parseInt(conv[2], 10);
+      }
+    }
+    /* k69 时辰归一（三处同根源缺陷之二）：hour 是钟点（10:55 档）或时辰代表
+       整点（奇数集），**不是** 0-11 序号 —— 原实现 _hourToIndex 先按序号直取，
+       把钟点 10 变成 HOUR_CN[10]='戌时'（正解巳时，序号 5）。改引 utils/persons
+       单点映射（paipan.js 的 k19 注释「不再把 10 误读成 戌时」即此口径）。
+       无时辰（缺失/空串）→ 不显示时辰尾缀（沿用原 hasHour 空白语义）。
+
+       k73-M1「宁少不假」：**hour 必须能完整解析为 0-23 的整数才显示时辰**。
+       原实现只拦 undefined/null/''，其余一律转交 hourToShichenIndex —— 而该函数
+       对无法识别的输入**返回 0（=子时）**，于是 "abc" / 99 / -1 / NaN 会凭空
+       显示「子时」（实测改前：四者全显示 "1995.05.12 子时"；旧实现一律不显示
+       时辰）。今天写路径（DB 只存整数或 NULL）不可达，但上游数据形态一变
+       （历史数据、脏数据、迁移脚本）就会**安静地显示一个假时辰**，故在此拦死：
+       解析失败或越界 ⇒ 不显示，**绝不兜底 0**。
+       用 Number 完整解析而非 parseInt：parseInt('10abc')=10 会把半截垃圾当好值
+       （实测改前 "10abc" 显示巳时）；非整数（10.5）同样不显示（不是合法钟点，
+       宁少不假）。空串/空数组先归一为 NaN —— Number('') === 0 会把它们当子时。 */
+    const rawHour = b.hour !== undefined && b.hour !== null ? b.hour : b.birthHour;
+    const rawMinute = b.minute !== undefined && b.minute !== null ? b.minute : b.birthMinute;
+    const hasHour = rawHour !== undefined && rawHour !== null && rawHour !== '';
+    const hourText = String(rawHour).trim();
+    const hourNum = hourText === '' ? NaN : Number(hourText);
+    const hasUsableHour = hasHour
+      && Number.isInteger(hourNum) && hourNum >= 0 && hourNum <= 23;
+    const hour = hasUsableHour
+      ? persons.shichenCN(persons.hourToShichenIndex(rawHour, rawMinute))
+      : '';
     const patch = {
-      birthdayText: `${y}.${String(m).padStart(2, '0')}.${String(d).padStart(2, '0')}${hour ? ' ' + hour : ''}`,
-      lunarBirthday: this._lunarLabel(Number(y), Number(m), Number(d)),
+      birthdayText: `${sy}.${pad(sm)}.${pad(sd)}${hour ? ' ' + hour : ''}`,
+      lunarBirthday: this._lunarLabel(sy, sm, sd),
     };
     const vals = [b.year_pillar, b.month_pillar, b.day_pillar, b.hour_pillar];
     if (vals.every((v) => !!v)) {
@@ -286,17 +334,10 @@ Page({
     this._buildRows(true);
   },
 
-  /* 时辰字段（整点或序号）→ 时辰序号（0-11） */
-  _hourToIndex(h) {
-    const v = parseInt(h, 10);
-    if (Number.isNaN(v) || v < 0) return -1;
-    if (v <= 11) return v;                 // 旧数据：直接存了序号
-    if (v === 23) return 0;                // 子时代表整点
-    if (v % 2 === 1 && v <= 21) return (v + 1) / 2;  // 丑1 寅3 卯5 … 亥21
-    return -1;
-  },
-
-  /* 公历 → 农历文案（如「农历六月廿五」） */
+  /* 公历 → 农历文案（如「农历三月廿八日」）。
+     k69：**入参必须是公历**（调用方已按 calendar 完成农历→公历归一）。
+     原实现在 lunar 档案下直接传入未换算的农历数字 → 二次换算，
+     「三月廿八」被显示成「二月十一日」。 */
   _lunarLabel(y, m, d) {
     try {
       const t = lunar.solar2lunar(y, m, d);

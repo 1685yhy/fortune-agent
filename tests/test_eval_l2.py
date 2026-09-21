@@ -9,6 +9,11 @@
   （12 no_tool + edge 全部 + 10 P0 + 工具切片）由 RUN_EVAL_L2_FULL_SMOKE=1
   触发。首测基线：真实通过率如实打印，不做通过率硬断言（L2 门禁 100% 由
   CLI 退出码承载，基线数字在 data/eval/results/l2-*/ 留档）。
+- **k68 抖动策略**：冒烟走 `tests/eval_flake_retry.py` 的统一策略（有界重试
+  ≤2 次尝试 + 必须如实上报）。**第一原则**：本层门禁是运行完整性/结构性断言、
+  **非阈值门禁** ⇒ 失败一律**不可重试**（**断言与调用路径**逐字等价，
+  **仅上报文案有变化**——新增策略的尝试行与 [EVAL-FLAKE] 信号行。
+  k73-M4 更正：原措辞「行为与改前逐字等价」经复审裁定只**部分成立**）。
 
 红线（本文件只读数据源）：data/eval/agent_tasks.jsonl 只读；src/bot/tool_calls.py
 零改动；运行期隔离（临时库 + USER_MEMORY_DIR/CHARTS_DIR 重定向）由
@@ -22,12 +27,14 @@ from pathlib import Path
 
 _REPO = Path(__file__).resolve().parent.parent
 _EVAL_DIR = _REPO / "scripts" / "eval_agent"
-for _p in (_REPO, _EVAL_DIR):
+_TESTS_DIR = Path(__file__).resolve().parent
+for _p in (_TESTS_DIR, _REPO, _EVAL_DIR):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
 import pytest  # noqa: E402
 
+import eval_flake_retry  # noqa: E402
 import l2_eval  # noqa: E402
 
 
@@ -360,7 +367,24 @@ def _restore_env(snap):
             os.environ[k] = v
 
 
+def _l2_summary(m):
+    return (f"断言通过率 {m['assertion_pass_rate']:.1%} "
+            f"({m['passed']}/{m['executed']}) | 失败 {m['failed']} | "
+            f"跳过={m['skipped']}")
+
+
 def _run_smoke(tmp_path, scope_ids, scope_label):
+    """冒烟实跑（k68 抖动策略：**有界重试 ≤2 次尝试 + 必须如实上报**）。
+
+    ⚠️ 本层冒烟门禁是**运行完整性/结构性断言**（见下），**不是阈值门禁**
+    （首测基线不锁通过率——真实数字如实留档，L2 门禁 100% 由 CLI 退出码承载）。
+    按 k68 第一原则，结构性失败**不属于**「跑起来了、只是阈值差一点」⇒
+    **一律不重试**（断言失败以异常形式上抛，`run_with_bounded_retry` 原样上抛、
+    只留信号行）。因此本层**断言与调用路径**与改前**逐字等价**（语义等价且顺序
+    不变），**仅上报文案有变化**（多了策略的尝试行 + [EVAL-FLAKE] 信号行），
+    接入策略只为统一上报与信号。k73-M4：原措辞「行为与改前逐字等价」经复审
+    裁定只**部分成立**，此处改为准确表述。
+    """
     if not _llm_keys_ready():
         pytest.skip("缺少 ZHIPU_API_KEY（glm-4-flash 路由）")
     if not _real_db_ready():
@@ -369,24 +393,38 @@ def _run_smoke(tmp_path, scope_ids, scope_label):
     try:
         tasks = [t for t in _load_tasks() if t["id"] in scope_ids]
         assert tasks, f"{scope_label} 无任务可选"
-        out = l2_eval.run_eval(tasks, tmp_path / "l2-smoke",
-                               model_route="glm", keep_tmp=True)
-        m = out["metrics"]
-        print(f"\n[smoke {scope_label}] 断言通过率 {m['assertion_pass_rate']:.1%} "
-              f"({m['passed']}/{m['executed']}) | 失败 {m['failed']}")
-        if m["skipped"]:
-            print(f"[smoke {scope_label}] 跳过: {m['skipped']}")
-        # 运行完整性断言（首测基线不锁通过率——真实数字如实留档，
-        # L2 门禁 100% 由 CLI 退出码承载）
-        for r in out["results"]:
-            if r["skipped"]:
-                assert r["skip_reason"], f"{r['id']} 跳过须标注原因"
-            else:
-                assert isinstance(r["checks"], list) and r["checks"]
-                assert r["ok"] == all(c["ok"] for c in r["checks"])
-                assert r["replies"] or r["exception"], \
-                    f"{r['id']} 缺逐轮回复"
-        return m
+
+        def _attempt(attempt_no):
+            # 第 1 次沿用原落盘路径（不重试的常态路径产物位置不变）
+            out_dir = tmp_path / ("l2-smoke" if attempt_no == 1
+                                  else f"l2-smoke-retry{attempt_no}")
+            out = l2_eval.run_eval(tasks, out_dir,
+                                   model_route="glm", keep_tmp=True)
+            m = out["metrics"]
+            print(f"[smoke {scope_label}] 第 {attempt_no} 次尝试：{_l2_summary(m)}")
+            if m["skipped"]:
+                print(f"[smoke {scope_label}] 跳过: {m['skipped']}")
+            # 运行完整性断言（原样保留，一条未改）
+            for r in out["results"]:
+                if r["skipped"]:
+                    assert r["skip_reason"], f"{r['id']} 跳过须标注原因"
+                else:
+                    assert isinstance(r["checks"], list) and r["checks"]
+                    assert r["ok"] == all(c["ok"] for c in r["checks"])
+                    assert r["replies"] or r["exception"], \
+                        f"{r['id']} 缺逐轮回复"
+            return out
+
+        def _check(out):
+            # 结构性断言已在 _attempt 内完成（失败会抛异常 ⇒ 不可重试）⇒
+            # 能走到这里的本轮即「通过」。
+            m = out["metrics"]
+            return eval_flake_retry.make_check(
+                ok=True, summary=_l2_summary(m), metrics=m)
+
+        out = eval_flake_retry.run_with_bounded_retry(
+            f"l2-{scope_label}", _attempt, _check)
+        return out["metrics"]
     finally:
         _restore_env(snap)
         l1_eval = __import__("l1_eval")
