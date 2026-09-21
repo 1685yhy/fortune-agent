@@ -444,14 +444,47 @@ def generate_report_data(
 
 
 def load_report(reading_id: str) -> Optional[dict]:
-    """Load a stored report by reading_id."""
+    """Load a stored report by reading_id.
+
+    k78：**根 JSON 必须是对象**，否则与"不存在"同等对待（返回 None → 调用方 404）。
+    改前直接把 `json.loads` 的结果返回：磁盘上若是一份畸形 JSON（`[1,2,3]` /
+    `"just a string"` / `12345`），`if not report` 对**真值非空**的畸形值不成立，
+    于是继续往渲染/归属里走 → AttributeError/TypeError → **500**。
+    "报告不存在"是 404 的语义；"文件在但内容不是一份报告"同样属于**不可展示**，
+    不是服务器内部错误。
+    """
     report_path = _DATA_DIR / f"{reading_id}.json"
     if not report_path.exists():
         return None
     try:
-        return json.loads(report_path.read_text(encoding="utf-8"))
+        data = json.loads(report_path.read_text(encoding="utf-8"))
     except Exception:
         return None
+    return data if isinstance(data, dict) else None
+
+
+#: 报告**可渲染性**判据（k78-必修3 的单一事实源）。
+#: 只校验"渲染路径真正依赖的两个字段的类型"——不是要求字段齐全（老报告可能缺
+#: 可选字段，缺了照常渲染），而是**存在即必须是正确类型**，否则渲染必然抛异常。
+#: 依据：`_build_report_html` 读 `profile.name` 与 `insights[0]`；
+#: 线上全部 4 份真实报告（data/reports/*.json）均为 profile=dict + insights=list。
+def report_shape_problem(report) -> str:
+    """报告结构是否**可展示**：返回问题描述；可展示则返回空串。
+
+    调用口径（与"不存在 → 404"同款）：**不可展示 = 404**，绝不 500。
+    """
+    if not isinstance(report, dict):
+        return "报告内容不是一个对象"
+    profile = report.get("profile")
+    if profile is not None and not isinstance(profile, dict):
+        return "报告的个人信息段（profile）不是对象"
+    insights = report.get("insights")
+    if insights is not None and not isinstance(insights, list):
+        return "报告的结论段（insights）不是列表"
+    # profile 缺失/为空 与 insights 缺失/为空 ⇒ 没有任何可展示内容（空壳报告）
+    if not profile and not insights:
+        return "报告没有任何可展示内容"
+    return ""
 
 
 # ─── k76 报告归属（读接口鉴权的单一事实源）─────────────────────────────
@@ -509,6 +542,11 @@ async def get_report_json(reading_id: str, uid: str = Depends(require_user)):
     report = load_report(reading_id)
     if not report:
         raise HTTPException(status_code=404, detail="报告未找到")
+    # k78-必修3：文件在、内容却不是一份可展示的报告 ⇒ 与"不存在"同款（404），不是 500
+    problem = report_shape_problem(report)
+    if problem:
+        logger.warning("报告内容不可展示（404）reading_id=%s: %s", reading_id, problem)
+        raise HTTPException(status_code=404, detail="报告未找到")
     assert_report_owner(report, uid)
     return report
 
@@ -523,14 +561,21 @@ async def get_report_page(reading_id: str, uid: str = Depends(require_user)):
     report = load_report(reading_id)
     if not report:
         return HTMLResponse(_SIMPLE_NOT_FOUND_HTML, status_code=404)
+    # k78-必修3：畸形内容 = 不可展示 ⇒ 与"不存在"同款 404 页（改前会 KeyError/TypeError → 500）
+    problem = report_shape_problem(report)
+    if problem:
+        logger.warning("报告页内容不可展示（404）reading_id=%s: %s", reading_id, problem)
+        return HTMLResponse(_SIMPLE_NOT_FOUND_HTML, status_code=404)
     try:
         assert_report_owner(report, uid)
     except HTTPException as e:
         return HTMLResponse(_simple_error_html(e.detail), status_code=e.status_code)
 
-    # Share text for social media
+    # Share text for social media（k78：类型兜底，insights 缺/空/非字符串都不再抛）
+    _ins = report.get("insights") if isinstance(report.get("insights"), list) else []
+    _first = _ins[0] if (_ins and isinstance(_ins[0], str)) else ""
     share_text = (
-        f"我的2026运势报告来了！{report['insights'][0][:50]}..."
+        f"我的2026运势报告来了！{_first[:50]}..."
         f" #易理明灯 #AI命理"
     )
 
@@ -566,23 +611,36 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
     `/share/{reading_id}`（匿名可读）——因为本页 `/report/{reading_id}` 自
     k76 起需登录+归属校验，把本页 URL 分享出去对方会打不开。og:url 也用它，
     否则微信抓取会抓到一个 401 页、卡片变空。
+
+    k78-必修3：**本函数不再抛异常**。改前 `report["profile"]["name"]` 直接下标 ——
+    畸形报告（如 `{"generated_at":["x"]}`，即没有 profile/insights 的空壳）会
+    KeyError → 500。现在：① 入口先过 `report_shape_problem()`，不可展示则返回
+    错误页（**不 500**，与调用方的 404 口径一致）；② 取字段一律走 `.get()` + 类型
+    兜底，任何字段缺失/类型异常都只影响标题与描述文案，不影响"能出页面"。
     """
     import json as _json
     from string import Template
 
+    problem = report_shape_problem(report)
+    if problem:
+        return _simple_error_html(problem)
+
     report_json = _json.dumps(report, ensure_ascii=False)
     share_text_escaped = share_text.replace('"', '&quot;')
 
-    # Build OG title
-    pname = report["profile"]["name"]
-    if pname in ("", "用户", "anonymous"):
+    # Build OG title（k78：全部走 .get() + 类型兜底，缺字段不再 KeyError）
+    profile = report.get("profile") if isinstance(report.get("profile"), dict) else {}
+    pname = profile.get("name") or ""
+    if not isinstance(pname, str) or pname in ("", "用户", "anonymous"):
         og_title = "我的2026运势报告 | 易理明灯"
     else:
         og_title = f"{pname}的命运报告 | 易理明灯"
 
-    og_desc = report["insights"][0][:100] if report["insights"] else "AI命理分析报告"
-    og_desc_short = report["insights"][0][:80] if report["insights"] else "AI命理分析报告"
-    reading_id = report["reading_id"]
+    insights = report.get("insights") if isinstance(report.get("insights"), list) else []
+    first = insights[0] if (insights and isinstance(insights[0], str)) else ""
+    og_desc = first[:100] or "AI命理分析报告"
+    og_desc_short = first[:80] or "AI命理分析报告"
+    reading_id = report.get("reading_id") or ""
 
     # The static HTML/CSS/JS template — contains NO Python f-string interpolation
     # All Python values are substituted via $PLACEHOLDER markers using string.Template

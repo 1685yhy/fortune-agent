@@ -62,6 +62,8 @@ from .logging_config import resolve_log_dir, resolve_log_level
 from .security.sanitizer import InputSanitizer
 from .security.encryption import DataEncryptor
 from .security.privacy import PrivacyManager, PIPL_DISCLAIMER
+# k78：数据删除响应的**用户可见文案**单一事实源（本处与 security/router.py 曾各写一份）
+from .security.account_copy import USER_DATA_PURGED_NOTICE
 from .security.audit import AuditLogger
 from .security.router import router as security_router, init_security_router
 from .validators.response_checker import ResponseValidator
@@ -1881,6 +1883,13 @@ async def chat_sessions_delete(req: SessionDeleteRequest,
     """
     from .api.chat_stream import normalize_session_id
 
+    # k78-必修4：DAO 未就绪 → **503**，与周边端点同口径（改前直接 None.delete_sessions()
+    # → AttributeError → 500）。不影响任何删除语义：本分支不执行任何删除。
+    # 对照：`/api/chat/pending` 走 build_pending_response，dao=None 时按"无补全"返回 200
+    # 空列表（读接口的降级口径），写接口则与同页其他写端点一致给 503 —— 二者都不 500。
+    if session_dao is None:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
     scope = (req.scope or "").strip()
     if scope == "session":
         sid = normalize_session_id(req.session_id or "")
@@ -2024,7 +2033,9 @@ async def user_data_deletion(user_id: str, request: Request, uid: str = Depends(
     logger.warning("Data deletion completed for user %s", user_id)
     return {
         "status": "ok",
-        "message": "所有个人数据已删除（不可恢复）",
+        # k78：不再写"所有/不可恢复"——「所有」不含依法留存的 payments/midas_orders，
+        # 「不可恢复」与"备份窗口内可人工尝试找回"冲突（详见 account_copy 模块文档）
+        "message": USER_DATA_PURGED_NOTICE,
         "records_deleted": deleted,
         "disclaimer": PIPL_DISCLAIMER,
     }

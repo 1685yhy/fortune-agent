@@ -216,8 +216,21 @@ def purge_report_files(user_id: str, reports_dir=None, charts_dir=None) -> dict:
     """删除该用户的**报告文件**与对应**分享图 PNG**，返回 `{reports, share_cards}`。
 
     归属判据：报告 JSON 里的 `owner_enc`（AES 密文）解密后 == user_id。
-    **归属未知的老报告一律不动**（宁可少删，不误删别人的报告）——"老报告不随注销
-    删除"这件事按实况写进文案，不假装删掉了。
+    **归属未知的老报告一律不动**（宁可少删，不误删别人的报告）——这类报告
+    （**本服务开始记录报告归属之前**生成的，没有 `owner_enc`）定位不到具体账号，
+    不能凭一次注销就删掉可能是别人的东西；它们的公开面只能靠**分享有效期**
+    收敛（30 天，`share_ttl_seconds()`，见 `api/share.py::_report_share_expires_at`）。
+
+    ⚠️ **文案必须与此一致**（k78-必修1）：这一例外原先**没写进任何文案**，而 3 份
+    用户可见文案共 7 处写着无条件的"注销时你生成的分享链接会立即删除"
+    —— `miniprogram/privacy.md` 三处（第一节第 13 条 / 第五节第 3 条 / 第六节）、
+    `miniprogram/pages/privacy/privacy.wxml` 两处（注销范围段 / 分享段）、
+    `miniprogram/pages/settings/settings.wxml` 两处（安全与数据段 / 注销确认弹层）
+    ⇒ "归属未知的老报告"这一情形对用户是**假话**。
+    k78 已按实况给全部 7 处补上该例外（"无法确认归属的老报告分享页…按 30 天有效期
+    自然失效"），并由守卫钉住：`miniprogram/tests/k71_privacy_consistency.test.js`
+    的「k78-必修1 全仓条件规则」（miniprogram 面）与 §14「后端用户可见字符串面」
+    （src/ 面的 detail=/message= 字面量）—— 再写无条件句、或把例外删掉，守卫即红。
 
     两处调用：
       - `purge_account_files()`（90 天期满的账号清除，覆盖全部文件类落点）；

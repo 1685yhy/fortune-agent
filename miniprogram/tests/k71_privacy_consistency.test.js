@@ -1372,3 +1372,315 @@ test('k77-F 分享有效期：文案里的"30 天"必须等于 config 的单一�
   // 单一事实源：两个入口都必须经 config 取值，不得各写一份天数
   assert.ok(!/=\s*30\s*#/.test(sharePy), 'src/api/share.py 里出现了硬编码的 30 天（应走 config）');
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ↓↓↓ k78 追加（隐私/安全收尾批 · 最后一批）↓↓↓
+   本段**只新增断言**，未放宽/删除任何既有断言，也未新增 skip/xfail。
+   ① §12 补一条**条件规则**（必修1）：无条件句"注销时分享链接立即删除"在
+      "归属未知的老报告"这一情形上是假话 ⇒ 必须就近写明例外；
+   ② §14 = **后端用户可见字符串面**（必修2 的根因修复）：扫描面此前只到
+      miniprogram（wxml/js/md），`src/` 下全部 .py 里会返回给用户的 `detail=` /
+      `message=` / 字典字面量**整批在面外** —— 实测逃逸的就是这四处
+      （user.py 的 403 detail 与注销响应、main.py 与 security/router.py 的
+      数据删除 message）。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/*: 必修1 的条件规则（**只新增**，未放松任何既有禁语）：
+    "注销 + (分享|链接) + 删除"出现在同一句里 ⇒ 必须就近写明"归属未知的老报告"
+    例外。三种语序都覆盖（注销在分享前 / 分享在注销前 / "注销时立即删除"）。 */
+const RULES_SHARE_DELETE_ON_CANCEL = {
+  re: /(注销|销号)[^。；\n]{0,24}(立即|即刻|马上)删除|(注销|销号)[^。；\n]{0,40}(分享|链接)[^。；\n]{0,20}删除|(分享|链接)[^。；\n]{0,40}(注销|销号)[^。；\n]{0,20}删除/,
+  unlessNear: /归属|老报告|无法确认|无法定位|定位不到/,
+  why: '注销时并非"一律立即删除"分享链接：`storage/dao.py::purge_report_files` '
+    + '只删**归属可确认**（owner_enc 解密后 == 用户）的报告文件与分享图，'
+    + '"归属未知的老报告"（本服务开始记录报告归属之前生成的）刻意不动 —— '
+    + '文案必须把这一例外写在同一处，否则读者会以为"一定立即删除"',
+};
+
+test('k78-必修1 全仓条件规则：注销即删分享链接的绝对句必须就近写明"归属未知"例外', () => {
+  /* 背景（k78 复原始测）：注销后
+       有归属 /share/aaaa1111 → 404（文件已删）
+       无归属 /share/bbbb2222 → 200（仍在对外提供）
+     —— `purge_report_files` 刻意跳过"归属未知的老报告"（不能凭一次注销删掉
+     可能是别人的东西），而三份文案（privacy.md 三处 + settings.wxml 两处 +
+     privacy.wxml 两处）写的都是**无条件**的"注销时你生成的分享链接会立即删除"。
+     故本规则：这类句子必须**就近**出现例外词（归属/老报告/无法确认/定位不到），
+     否则红。例外不在附近就红 —— 这不是放宽：无条件句仍然红（k78 报告有注入实测）。 */
+  const rule = RULES_SHARE_DELETE_ON_CANCEL;
+  const rel = (p) => path.relative(ROOT, p);
+  const units = [];
+  SCAN_WXML.forEach((p) => units.push({ file: rel(p), text: wxmlText(fs.readFileSync(p, 'utf8')) }));
+  SCAN_JS.forEach((p) => {
+    const src = fs.readFileSync(p, 'utf8');
+    jsUserCopy(src).forEach((s) => units.push({ file: rel(p), text: s.text }));
+  });
+  SCAN_MD.forEach((p) => units.push({ file: rel(p), text: flat(fs.readFileSync(p, 'utf8')) }));
+  const violations = [];
+  const UNLESS_WINDOW = 160;
+  for (const u of units) {
+    const re = new RegExp(rule.re.source, 'g');
+    let m;
+    while ((m = re.exec(u.text)) !== null) {
+      if (!m[0]) { re.lastIndex++; continue; }
+      const i = m.index;
+      const win = u.text.slice(Math.max(0, i - UNLESS_WINDOW),
+        i + m[0].length + UNLESS_WINDOW);
+      if (rule.unlessNear.test(win)) continue;
+      violations.push(`${u.file} 命中「${m[0]}」← ${rule.why}`);
+      break;
+    }
+  }
+  assert.deepEqual(violations, [],
+    `出现"注销即删分享链接"的无条件句（缺归属例外）：\n  - ${violations.join('\n  - ')}`);
+});
+
+/* ════════════════════════════════════════════════════════════════
+   14. **后端**用户可见字符串面（k78-必修2 根因修复）
+      判据 = `src/` 下全部 .py 里"会返回给用户的字"：
+        - 任意调用/异常构造的**关键字实参** `detail=` / `message=`；
+        - 字典字面量的 `message/detail/msg/error/reason/hint/disclaimer/
+          action/label/title/description` 值；
+        - 集中在 `src/security/account_copy.py` 的**文案常量**（模块级字符串常量）。
+      为什么要有这一面：文案是"说给用户听的话"，此前只扫 miniprogram ⇒ 后端
+      内联字面量整批逃逸（k78 实测 4 处：缺法定留存例外 / "所有" / "不可恢复"）。
+      覆盖面由**两条路**共同保证：内联字面量走 AST 面，常量走常量面；
+      两条都过才绿 ⇒ "只改报出来的那 4 处"过不了（新增内联字面量会红）。
+   ════════════════════════════════════════════════════════════════ */
+
+//: 文案常量的**唯一**集中地（新增用户可见文案请放这里，见模块 docstring）
+const BACKEND_COPY_MODULE = 'src/security/account_copy.py';
+
+//: 后端面禁语表（**只增不减**）。与 §12 的 REPO_FORBIDDEN 一样：每条都必须有
+//: 代码反证（why 里写明）。这一批的 4 条对应复审实测的 4 处逃逸。
+const BACKEND_FORBIDDEN = [
+  { re: /所有个人数据|全部个人数据|所有个人信息|全部个人信息/,
+    unlessNear: /依法|留存|支付流水|除外/,
+    why: '「所有个人数据已删除」不成立：`models.ACCOUNT_RETAIN_TABLES` 明确依法留存 '
+      + 'payments / midas_orders（《电子商务法》第三十一条，保存不少于三年）；'
+      + '无条件说"所有"必须就近写明该例外（k78 实测 src/main.py 与 '
+      + 'src/security/router.py 各一处）' },
+  { re: /个人数据[^。；\n]{0,12}(已删除|已清除)/,
+    unlessNear: /依法|留存|支付流水|除外/,
+    why: '同上：删除的范围是"除依法留存项以外的个人数据"，就近没有例外词即不实' },
+  { re: /不可恢复/,
+    unlessNear: /备份|自助|找回|文件类/,
+    why: '「不可恢复」与"备份仍覆盖时可由人工尝试找回"冲突（每日备份保留最近 14 份，'
+      + '见 privacy.md 第五节第 3 条）；本仓统一口径是"**不可自助恢复**"。'
+      + '后端面向用户的字符串里出现"不可恢复"必须就近说明备份/自助的口径' },
+  { re: /(注销|销号)[^。；\n]{0,24}(立即|即刻|马上)删除|(注销|销号)[^。；\n]{0,40}(分享|链接)[^。；\n]{0,20}删除|(分享|链接)[^。；\n]{0,40}(注销|销号)[^。；\n]{0,20}删除/,
+    unlessNear: /归属|老报告|无法确认|无法定位|定位不到/,
+    why: '与 §12 的条件规则同源（必修1）：注销后的分享链接并非"一律立即删除"——'
+      + '归属未知的老报告分享页仍在（`purge_report_files` 跳过归属未知者），'
+      + '只能按 30 天有效期自然失效' },
+];
+
+/*: 旧文案的**逐字**字面量（复审实测逃逸的那几句）。它们不得以任何**字符串常量**
+   形式回到 src/（docstring 里引述历史表述不算 —— AST 面天然跳过 docstring）。
+   注意 `unlessNear`：这几句**带例外**时是正确表述（新常量就是"旧句 + 例外"），
+   所以判据是"出现了旧句 **且** 同一串里没有例外词"，不是单纯出现即红。 */
+const BACKEND_OLD_LITERALS = [
+  { literal: '账号已注销，数据保留 90 天后删除',
+    unlessNear: /支付流水|依法|留存|除外/ },
+  { literal: '所有个人数据已删除（不可恢复）',
+    unlessNear: /支付流水|依法|留存|除外|备份|自助|找回/ },
+  { literal: '数据删除（不可恢复）',
+    unlessNear: /备份|自助|找回|文件类/ },
+];
+
+/*: 抽取器（python ast，见 §14 说明）。返回 JSON（pyJson 取最后一行）。
+    不用正则扫 .py：`# 「所有个人数据已删除」` 这类注释/文档串不是用户可见文案，
+    用正则扫必假红；用 AST 才能只取"真的会回给用户"的那些字。 */
+const BACKEND_EXTRACTOR = `
+import ast, json, pathlib, re, sys
+COPY_MODULE = ${JSON.stringify(BACKEND_COPY_MODULE)}
+OLD_LITERALS = json.loads(${JSON.stringify(JSON.stringify(
+  BACKEND_OLD_LITERALS.map((r) => ({ literal: r.literal, unless: r.unlessNear.source }))))})
+MSG_KEYS = {"message", "detail", "msg", "error", "reason", "hint", "disclaimer",
+            "action", "label", "title", "description"}
+KW_NAMES = {"detail", "message"}
+
+
+def has_cjk(s):
+    return any("\\u4e00" <= ch <= "\\u9fff" for ch in s)
+
+
+def const_str(node):
+    """字符串常量 / f-string 的字面量段（f-string 里插值掉的变量不参与）。"""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.JoinedStr):
+        return "".join(v.value for v in node.values
+                       if isinstance(v, ast.Constant) and isinstance(v.value, str))
+    return None
+
+
+def const_name(node):
+    """」detail=SOME_CONSTANT「 里的名字（调用点引用常量时 AST 看不到字面量）。"""
+    return node.id if isinstance(node, ast.Name) else None
+
+
+# ── 第一遍：全 src/ 的模块级字符串常量（名字 → 值），供上面的名字解析 ──
+GLOBAL_CONST = {}
+for _p in sorted(pathlib.Path("src").rglob("*.py")):
+    try:
+        _t = ast.parse(_p.read_text(encoding="utf-8"))
+    except Exception:
+        continue
+    for _n in _t.body:
+        if isinstance(_n, ast.Assign) and isinstance(_n.value, ast.Constant) \
+                and isinstance(_n.value.value, str):
+            for _tgt in _n.targets:
+                if isinstance(_tgt, ast.Name):
+                    # 文案常量（COPY_MODULE）优先：名字撞车时以文案模块为准
+                    if _tgt.id not in GLOBAL_CONST or str(_p) == COPY_MODULE:
+                        GLOBAL_CONST[_tgt.id] = _n.value.value
+
+
+def resolve(node):
+    """取字符串：字面量优先；detail=常量名 则按模块级常量解析（否则扫不到）。"""
+    s = const_str(node)
+    if s:
+        return s
+    name = const_name(node)
+    return GLOBAL_CONST.get(name) if name else None
+
+
+def docstring_nodes(tree):
+    """全树 docstring 节点集合（模块/类/函数的第一条 Expr 里的常量）。"""
+    out = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            body = getattr(node, "body", None) or []
+            if body and isinstance(body[0], ast.Expr):
+                v = body[0].value
+                if isinstance(v, ast.Constant) and isinstance(v.value, str):
+                    out.add(id(v))
+                elif isinstance(v, ast.JoinedStr):
+                    out.add(id(v))
+    return out
+
+
+user_facing, constants, string_constants = [], [], []
+files, parse_failures = 0, []
+for p in sorted(pathlib.Path("src").rglob("*.py")):
+    try:
+        tree = ast.parse(p.read_text(encoding="utf-8"))
+    except Exception as e:
+        parse_failures.append(f"{p}: {e}")
+        continue
+    files += 1
+    docs = docstring_nodes(tree)
+    for node in ast.walk(tree):
+        # ① 关键字实参 detail= / message=（HTTPException 等）；值可以是字面量或常量名
+        if isinstance(node, ast.Call):
+            for kw in node.keywords or []:
+                if kw.arg in KW_NAMES:
+                    s = resolve(kw.value)
+                    if s and has_cjk(s):
+                        user_facing.append({"file": str(p), "line": kw.value.lineno,
+                                            "kind": "kw:" + kw.arg, "text": s})
+        # ② 字典字面量的 message/detail/... 值（同上，支持常量名）
+        if isinstance(node, ast.Dict):
+            for k, v in zip(node.keys, node.values):
+                if isinstance(k, ast.Constant) and k.value in MSG_KEYS:
+                    s = resolve(v)
+                    if s and has_cjk(s):
+                        user_facing.append({"file": str(p), "line": v.lineno,
+                                            "kind": "dict:" + str(k.value), "text": s})
+        # ③ 全部字符串常量（排除 docstring）—— 只用于"旧文案字面量不得回归"
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if id(node) not in docs and has_cjk(node.value):
+                string_constants.append({"file": str(p), "line": node.lineno,
+                                         "text": node.value})
+    # ④ 文案常量模块的模块级字符串常量（含注释性 docstring 之外的常量）
+    if str(p) == COPY_MODULE:
+        for node in tree.body:
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) \
+                    and isinstance(node.value.value, str):
+                if id(node.value) in docs:
+                    continue
+                name = node.targets[0].id if isinstance(node.targets[0], ast.Name) else "?"
+                constants.append({"file": str(p), "line": node.value.lineno,
+                                  "name": name, "text": node.value.value})
+
+leftover = []
+for item in string_constants:
+    for rule in OLD_LITERALS:
+        if rule["literal"] not in item["text"]:
+            continue
+        # 带例外（同一串里有"依法留存/备份/自助/找回"等）⇒ 是**正确**表述，不算回归
+        if rule["unless"] and re.search(rule["unless"], item["text"]):
+            continue
+        leftover.append({"file": item["file"], "line": item["line"],
+                         "literal": rule["literal"], "text": item["text"][:100]})
+
+print(json.dumps({"files": files, "parse_failures": parse_failures,
+                  "user_facing": user_facing, "constants": constants,
+                  "string_constants": len(string_constants),
+                  "leftover": leftover}, ensure_ascii=False))
+`;
+
+const BACKEND = pyJson(BACKEND_EXTRACTOR, 180000);
+
+test('k78-必修2 前提：后端用户可见字符串面真的被枚举到（抽取器不得失效）', () => {
+  assert.deepEqual(BACKEND.parse_failures, [],
+    `src/ 下有文件无法解析（抽取面出现盲区）：${BACKEND.parse_failures.join(', ')}`);
+  assert.ok(BACKEND.files >= 100,
+    `只解析了 ${BACKEND.files} 个 src/*.py（改前实测 100+），枚举器可能失效`);
+  assert.ok(BACKEND.user_facing.length >= 250,
+    `只抽到 ${BACKEND.user_facing.length} 条后端用户可见字符串（改前实测 285）——`
+    + '抽取器可能失效（抽取器一失效，下面的禁语扫描会"全绿"）');
+  const filesHit = new Set(BACKEND.user_facing.map((u) => u.file));
+  assert.ok(filesHit.size >= 20,
+    `抽到的字符串只来自 ${filesHit.size} 个文件（散布面过窄，疑抽取器失效）`);
+  // 抽到的必须**含**这一批刚修过的那些端点（钉住覆盖面：面不能悄悄缩小）
+  ['src/api/user.py', 'src/security/account_copy.py'].forEach((f) => {
+    assert.ok(BACKEND.user_facing.map((u) => u.file).indexOf(f) !== -1
+      || BACKEND.constants.map((u) => u.file).indexOf(f) !== -1,
+      `${f} 不在后端用户可见字符串面内（重开盲区）`);
+  });
+  assert.ok(BACKEND.constants.length >= 3,
+    `文案常量模块 ${BACKEND_COPY_MODULE} 只抽到 ${BACKEND.constants.length} 条常量`);
+  assert.ok(BACKEND.string_constants >= 1000,
+    `src/ 里的中文字符串常量只有 ${BACKEND.string_constants} 条（疑枚举失效）`);
+});
+
+test('k78-必修2 后端用户可见字符串：禁语表逐条扫描（含常量面）', () => {
+  const UNLESS_WINDOW = 160;
+  const units = BACKEND.user_facing.concat(BACKEND.constants);
+  const violations = [];
+  for (const u of units) {
+    for (const rule of BACKEND_FORBIDDEN) {
+      const re = new RegExp(rule.re.source, 'g');
+      let m;
+      while ((m = re.exec(u.text)) !== null) {
+        if (!m[0]) { re.lastIndex++; continue; }
+        const i = m.index;
+        const win = u.text.slice(Math.max(0, i - UNLESS_WINDOW),
+          i + m[0].length + UNLESS_WINDOW);
+        if (rule.unlessNear && rule.unlessNear.test(win)) continue;
+        violations.push(`${u.file}:${u.line} [${u.kind || u.name}] 命中「${m[0]}」：${rule.why}`);
+        break;
+      }
+    }
+  }
+  assert.deepEqual(violations, [],
+    `后端用户可见文案出现与代码不符的绝对句（共 ${violations.length} 处）：\n  - `
+    + violations.join('\n  - '));
+});
+
+test('k78-必修2 旧文案字面量不得以字符串常量形式回归 src/', () => {
+  const bad = BACKEND.leftover.map((l) => `${l.file}:${l.line} 含「${l.literal}」`);
+  assert.deepEqual(bad, [],
+    '复审实测逃逸的旧文案又回到了 src/ 的字符串常量里（应改为引用 '
+    + `${BACKEND_COPY_MODULE} 的常量，或补上例外）：\n  - ` + bad.join('\n  - '));
+});
+
+test('k78-必修2 文案常量确实被用上（单一事实源不是"定义了没人用"）', () => {
+  const callSites = BACKEND.user_facing.map((u) => u.text);
+  const unused = BACKEND.constants.filter((c) => callSites.indexOf(c.text) === -1)
+    .map((c) => `${c.file}:${c.line} ${c.name}`);
+  assert.deepEqual(unused, [],
+    '下列文案常量**没有任何调用点原样引用**（要么被内联副本取代 = 口径分裂，'
+    + '要么常量已死）：\n  - ' + unused.join('\n  - '));
+});

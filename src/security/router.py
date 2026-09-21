@@ -17,6 +17,8 @@ from pydantic import BaseModel
 
 from .auth import AuthHandler, require_auth, require_admin
 from .privacy import PrivacyManager, PIPL_DISCLAIMER
+# k78：用户可见文案（数据删除响应）的单一事实源——与 src/main.py 同源
+from .account_copy import USER_DATA_PURGED_NOTICE
 from .audit import AuditLogger, audit_log
 from .sanitizer import InputSanitizer
 from .encryption import DataEncryptor
@@ -86,7 +88,12 @@ class DataExportResponse(BaseModel):
 class DataDeleteResponse(BaseModel):
     status: str
     message: str
-    records_deleted: Optional[Dict[str, int]] = None
+    # k78-必修2 附带修（同端点，实测）：k76 起 `delete_user_data()` 的返回值里
+    # 多了 `files: {类别: 个数}` 与 `retained: {表: 法定依据}` 两个**非 int** 的子字典，
+    # 而这里写死 `Dict[str, int]` → 响应模型校验必然失败 → 端点**永远** 500
+    # 「删除失败，请稍后重试」（用户根本看不到 message）。改成 Any 后与 main.py 的
+    # 同一响应结构（直接回 dict）口径一致。（该缺陷是 k76 引入的既有回归，非本批产生）
+    records_deleted: Optional[Dict[str, Any]] = None
     disclaimer: str = PIPL_DISCLAIMER
 
 
@@ -246,7 +253,10 @@ async def export_user_data(
 async def delete_user_data(
     user_id: str,
     request: Request,
-    confirm: bool = Query(True, description="确认删除（不可恢复）"),
+    # k78：本条 description 出现在对外可读的 OpenAPI 文档里，属用户/接入方可见面。
+    # 与响应 message 同口径：不再写"不可恢复"（与"备份仍覆盖时可人工尝试找回"冲突），
+    # 改用本仓统一词汇"不可自助恢复"。
+    confirm: bool = Query(True, description="确认删除（删除后不可自助恢复）"),
     auth_info: dict = Depends(require_auth),
 ):
     """Delete all data for a user (Right to be Forgotten).
@@ -274,7 +284,8 @@ async def delete_user_data(
 
         return DataDeleteResponse(
             status="ok",
-            message="所有个人数据已删除（不可恢复）",
+            # k78：与 src/main.py 的同一端点同一常量（改前两处各写一份同一句话）
+            message=USER_DATA_PURGED_NOTICE,
             records_deleted=deleted,
         )
 

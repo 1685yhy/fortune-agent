@@ -15,6 +15,8 @@ from typing import Optional, Dict, Any, List
 from pathlib import Path
 
 from .encryption import DataEncryptor
+# k78：用户可见文案的单一事实源（本模块只引常量，不再内联写文案）
+from .account_copy import DATA_RETENTION_ACTION_NOTICE
 
 logger = logging.getLogger(__name__)
 
@@ -329,7 +331,9 @@ class PrivacyManager:
             "policy": {
                 "inactive_threshold_days": inactive_days,
                 "inactive_threshold_display": f"{inactive_days}天未活跃",
-                "action": "数据删除（不可恢复）",
+                # k78：与 account_copy 同源（改前写"（不可恢复）"，与"备份仍覆盖时可
+                # 人工尝试找回"冲突；本仓统一口径是"不可自助恢复"）
+                "action": DATA_RETENTION_ACTION_NOTICE,
                 "compliance": "《中华人民共和国个人信息保护法》第47条",
                 "last_updated": datetime.now(timezone.utc).isoformat(),
             },

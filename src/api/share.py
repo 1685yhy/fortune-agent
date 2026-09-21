@@ -49,14 +49,25 @@ def setup(dao):
 
 
 def _load_report(reading_id: str) -> dict:
-    """Load a stored report by reading_id."""
+    """Load a stored report by reading_id.
+
+    k78-必修3：**根 JSON 必须是对象**，否则与"不存在"同等对待（返回 None → 调用方
+    404）。改前把 `json.loads` 的结果原样返回 —— 磁盘上若是畸形 JSON（`[1,2,3]`、
+    `"just a string"`、`12345`），`(report or {}).get(...)` 会 AttributeError → 500；
+    而本函数的名义契约是"不存在 → 404"。畸形内容 = **不可展示**，不是服务器错误。
+
+    ⚠️ 路径**不**委托 `visual_report.load_report`：本模块的 `_DATA_DIR` 是分享页
+    自己的目录常量（测试也按本模块 monkeypatch 它），委托会让测试的隔离失效。
+    两处的"可展示性"判据仍共用同一函数（`report_shape_problem`），不各写一份。
+    """
     report_path = _DATA_DIR / f"{reading_id}.json"
     if not report_path.exists():
         return None
     try:
-        return json.loads(report_path.read_text(encoding="utf-8"))
+        data = json.loads(report_path.read_text(encoding="utf-8"))
     except Exception:
         return None
+    return data if isinstance(data, dict) else None
 
 
 # ── k77-F：**报告分享页**的有效期（控制方拍板：与对话分享同为 30 天）──────
@@ -100,7 +111,10 @@ def _report_share_expires_at(report: dict, path: Path) -> float:
     from src.config import share_ttl_seconds
 
     base = None
-    raw = (report or {}).get("generated_at")
+    # k78-必修3：非 dict 根（`[1,2,3]`）不再 AttributeError —— 取值前先判类型。
+    # 调用方已用 `_load_report`/`report_shape_problem` 拦过，这里是同一函数被复用时
+    # 的兜底（helper 自己也要站得住）。
+    raw = report.get("generated_at") if isinstance(report, dict) else None
     if isinstance(raw, str) and raw.strip():
         try:
             base = datetime.fromisoformat(raw.strip()).timestamp()
@@ -117,18 +131,23 @@ def _report_share_expires_at(report: dict, path: Path) -> float:
 
 
 def _report_share_expired_html() -> str:
-    """报告分享页过期页（HTTP 410）——与对话分享的过期页同款口径与样式。"""
+    """报告分享页过期页（HTTP 410）——与对话分享的过期页同款口径与样式。
+
+    k78-必修4：**标题必须准确**。本页此前直接复用 `_SHARE_PAGE_HEAD`（其 `<title>`
+    恒为"易理明灯 · 一段对话"）—— 一份**报告**的过期页顶着"一段对话"的标题，
+    与被打开的链接不符。现在标题由 `_fill_share_page(title=...)` 逐页给定。
+    """
     from src.config import share_ttl_days
 
     days_text = f"{share_ttl_days():g}"
-    return _SHARE_PAGE_HEAD.replace("__CSS__", _SHARE_PAGE_CSS).replace(
-        "__BODY__",
+    return _fill_share_page(
         f"""
 <div class="wrap empty">
   <div class="seal">明灯</div>
   <h2>这份报告分享已过期</h2>
   <p>分享链接的有效期为 {days_text} 天，到期后自动失效</p>
 </div>""",
+        title="报告分享已过期 · 易理明灯",
     )
 
 
@@ -480,18 +499,36 @@ body{color:var(--ink);font-family:"Songti SC","STSong","SimSun","Noto Serif SC",
 .empty p{font-size:14px;color:rgba(58,44,30,.6);letter-spacing:1px;}
 """
 
+#: 对话分享落地页的默认标题（正文是"一段对话"）。
+#: k78-必修4：`<title>` 改成占位符 —— 改前它硬编码在 HEAD 里，所有复用 HEAD 的页面
+#: （含**报告**过期页）都顶着"一段对话"这个与实际内容不符的标题。
+_SHARE_PAGE_DEFAULT_TITLE = "易理明灯 · 一段对话"
+
 _SHARE_PAGE_HEAD = """<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>易理明灯 · 一段对话</title>
+<title>__TITLE__</title>
 <style>__CSS__</style>
 </head>
 <body>
 __BODY__
 </body>
 </html>"""
+
+
+def _fill_share_page(body: str, title: str = _SHARE_PAGE_DEFAULT_TITLE) -> str:
+    """把正文与标题填进分享页外壳（唯一入口，避免有人只改 `__CSS__`/`__BODY__`
+    而把 `__TITLE__` 留成字面量）。标题经 `html.escape` 兜底（当前全部由本模块常量
+    给定，不做外部输入）。"""
+    return (
+        _SHARE_PAGE_HEAD
+        .replace("__TITLE__", html.escape(title))
+        .replace("__CSS__", _SHARE_PAGE_CSS)
+        .replace("__BODY__", body)
+    )
+
 
 _SHARE_PAGE_BODY = """
 <div class="wrap">
@@ -542,8 +579,7 @@ _SHARE_PAGE_BODY = """
 </script>
 """
 
-_SHARE_EMPTY_HTML = _SHARE_PAGE_HEAD.replace("__CSS__", _SHARE_PAGE_CSS).replace(
-    "__BODY__",
+_SHARE_EMPTY_HTML = _fill_share_page(
     """
 <div class="wrap empty">
   <div class="seal">明灯</div>
@@ -555,13 +591,16 @@ _SHARE_EMPTY_HTML = _SHARE_PAGE_HEAD.replace("__CSS__", _SHARE_PAGE_CSS).replace
 
 
 def _share_expired_html() -> str:
-    """过期分享落地页(HTTP 410)文案:明说"已过期"与有效期,不谎称"不存在"。"""
+    """过期分享落地页(HTTP 410)文案:明说"已过期"与有效期,不谎称"不存在"。
+
+    k78-必修4：标题同为过期语义（改前复用 HEAD 的"易理明灯 · 一段对话"，
+    浏览器标签页上看不出这条链接已经失效）。
+    """
     from src.config import share_ttl_days
 
     days = share_ttl_days()
     days_text = f"{days:g}"
-    return _SHARE_PAGE_HEAD.replace("__CSS__", _SHARE_PAGE_CSS).replace(
-        "__BODY__",
+    return _fill_share_page(
         f"""
 <div class="wrap empty">
   <div class="seal">明灯</div>
@@ -570,6 +609,7 @@ def _share_expired_html() -> str:
   <p>来和明灯聊聊吧</p>
 </div>
 """,
+        title="分享已过期 · 易理明灯",
     )
 
 
@@ -596,7 +636,7 @@ def _render_share_page(share_id: str, entry: dict) -> str:
         .replace("__PATH__", _WEAPP_PATH)
         .replace("__ID__", html.escape(share_id))
     )
-    return _SHARE_PAGE_HEAD.replace("__CSS__", _SHARE_PAGE_CSS).replace("__BODY__", body)
+    return _fill_share_page(body)
 
 
 # ── API 端点 ─────────────────────────────────────────────────────
@@ -625,8 +665,14 @@ async def get_share_metadata(report_id: str, uid: str = Depends(require_user)):
         report = _load_report(report_id)
         if not report:
             raise HTTPException(status_code=404, detail="报告未找到")
-        from src.api.visual_report import assert_report_owner
+        from src.api.visual_report import assert_report_owner, report_shape_problem
         assert_report_owner(report, uid)
+        # k78-必修3：归属正确但内容畸形时，改前在 _card_from_report 里
+        # AttributeError（profile=[1,2]）/TypeError → 500；同样归入"不可展示" → 404
+        problem = report_shape_problem(report)
+        if problem:
+            logger.warning("分享卡片报告内容不可展示（404）reading_id=%s: %s", report_id, problem)
+            raise HTTPException(status_code=404, detail="报告未找到")
         card = _card_from_report(report)
 
     # 2. 尝试生成真实分享图；失败/环境未就绪 → 结构化降级
@@ -703,6 +749,13 @@ async def get_share_page_by_reading(reading_id: str):
         raise HTTPException(status_code=404, detail="报告未找到")
     report = _load_report(reading_id)
     if not report:
+        raise HTTPException(status_code=404, detail="报告未找到")
+    # k78-必修3：文件在、内容却不是一份可展示的报告 ⇒ 与"不存在"同款 404（改前 500）。
+    # 判据与 /report/{id}、/api/report/{id} 共用 report_shape_problem（单一事实源）。
+    from src.api.visual_report import report_shape_problem
+    problem = report_shape_problem(report)
+    if problem:
+        logger.warning("分享页报告内容不可展示（404）reading_id=%s: %s", reading_id, problem)
         raise HTTPException(status_code=404, detail="报告未找到")
     if time.time() >= _report_share_expires_at(report, _report_path(reading_id)):
         return HTMLResponse(_report_share_expired_html(), status_code=410)

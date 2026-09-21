@@ -28,6 +28,9 @@ from src.storage.person_dao import (
 from src.storage.birth_profile import bazi_info_out_of_sync
 from src.storage.models import connect as db_connect
 from src.security.auth import require_user
+# k78：账号注销/数据删除的**用户可见文案**单一事实源（此前同一句在 3 个文件各写一份，
+# 服务端这份缺"支付流水依法留存"例外 ⇒ 与小程序侧口径分裂）。
+from src.security.account_copy import ACCOUNT_CANCELLED_NOTICE
 # k72：上传内容校验（魔数嗅探）的单一事实源——与 /api/chat/upload 共用同一实现。
 from src.utils.image_sniff import (
     IMAGE_CONTENT_TYPES, IMAGE_EXT_FORMAT, sniff_image_format,
@@ -305,7 +308,7 @@ async def user_login(req: LoginRequest):
                 logger.info("登录被拦截：账号已注销 user=%s", user_id)
                 raise HTTPException(
                     status_code=403,
-                    detail="账号已注销，数据保留 90 天后删除",
+                    detail=ACCOUNT_CANCELLED_NOTICE,
                 )
         except HTTPException:
             raise
@@ -1130,7 +1133,8 @@ async def user_cancel(req: CancelRequest, uid: str = Depends(require_user)):
         _dao.cancel_user(uid)
         return {
             "success": True,
-            "message": "账号已注销，数据保留 90 天后删除",
+            # k78：与登录 403 同一常量（同一事实），不再各写一份
+            "message": ACCOUNT_CANCELLED_NOTICE,
         }
     raise HTTPException(status_code=503, detail="服务未就绪")
 
