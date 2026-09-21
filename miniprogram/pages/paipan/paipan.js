@@ -193,14 +193,20 @@ Page({
     // 时辰（选填）：档案有时辰才回填。k19：档案 birth_minute>0 或 hour 非
     // 时辰代表整点（HOUR_VALUES 奇数集）→ 精确钟表行 → 回填钟表模式
     // （hourToShichenIndex 同步按分钟/时钟窗口映射，不再把 10 误读成 戌时）
-    if (p.birth_hour !== undefined && p.birth_hour !== null && p.birth_hour !== '') {
-      patch.bHourIdx = persons.hourToShichenIndex(p.birth_hour, p.birth_minute) + 1;
+    // k77-M5 同类收口「宁少不假」：hour 必须先过 parseHourStrict（单一事实源）
+    // 且落 0-23 —— 否则 'abc'/99/'0x10' 这类脏值会让本页**凭空高亮一个时辰**
+    // （hourToShichenIndex 对不认识的值返回 0 = 子时）。与 me.js / timeText 同口径。
+    const bh = persons.parseHourStrict(p.birth_hour);
+    const hasHour = p.birth_hour !== undefined && p.birth_hour !== null
+      && p.birth_hour !== '' && bh >= 0 && bh <= 23;
+    if (hasHour) {
+      patch.bHourIdx = persons.hourToShichenIndex(bh, p.birth_minute) + 1;
       patch.bHourSet = true;
       const isClockRow = parseInt(p.birth_minute, 10) > 0
-        || persons.HOUR_VALUES.indexOf(parseInt(p.birth_hour, 10)) === -1;
+        || persons.HOUR_VALUES.indexOf(bh) === -1;
       patch.bClockSet = isClockRow;
       if (isClockRow) {
-        patch.bClockHIdx = parseInt(p.birth_hour, 10) || 0;
+        patch.bClockHIdx = bh;
         patch.bClockMIdx = parseInt(p.birth_minute, 10) || 0;
       }
     } else {

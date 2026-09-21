@@ -691,6 +691,21 @@ function consumePending(sessionId, time) {
 }
 
 /**
+ * 删除对话（k77-I4）：**服务端真实删除**——历史页「删除」的服务端落点。
+ * 背景：此前前端删除只清本地 storage，服务端 sessions.content 仍在，
+ * 与页面「逐条删掉你的对话与记录」的承诺不符（复审 Critical/Important 判定）。
+ * @param {'session'|'legacy'} scope - session=删指定会话；legacy=删无会话编号的历史行
+ * @param {string} sessionId - scope==='session' 时必填
+ * @returns {Promise<{status:'ok', deleted:number, legacy_remaining:number}>}
+ */
+function deleteChatSessions(scope, sessionId) {
+  return request('/api/chat/sessions/delete', {
+    method: 'POST',
+    data: { scope, session_id: sessionId || '' },
+  });
+}
+
+/**
  * 文字转语音（语音播报）
  * @param {string} text - 要朗读的文本
  * @param {string} voice - 音色（可选，默认由后端决定）
@@ -1579,6 +1594,7 @@ module.exports = {
   feedback,
   chatPending,
   consumePending,
+  deleteChatSessions,
 
   // Reports
   getReports,

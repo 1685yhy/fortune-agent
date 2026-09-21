@@ -26,11 +26,33 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 
 const ROOT = path.join(__dirname, '..');
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 /** 仓根（本工作树）——用于读 src/ 后端源码做「文案 vs 代码」外部对照 */
 const REPO = path.join(ROOT, '..');
+
+/* ── k77-M1/M2：**行为型** oracle 的执行入口 ──────────────────────────────
+   复审判定（M-1/M-2）：本文件里若干"有代码支撑"的断言是**存在性/读源码文本**型
+   —— 实测注入 `if data[:3]==b"ID3": return "jpeg"` 后守卫仍全绿（因为 `def
+   sniff_image_format` 与 `b"\xff\xd8\xff"` 仍在源码里）；往 `_archive_free_record`
+   的 chart 里注入生辰、docstring 原样保留则守卫也全绿（因为断言读的是注释文本）。
+   修法：这些事实改成**跑代码看结果**（真调用函数/真落库再读回），
+   而不是在源码里找字符串。源码文本断言**一条不删**（它们仍能拦住"整体删除"），
+   行为断言叠加其上 —— 判别力只增不减。
+   `py()` 在仓根下真跑 python3；python3 不可用即**报错**（不 skip、不静默降级）。 */
+function py(code, timeout = 120000) {
+  return execFileSync('python3', ['-c', code], {
+    cwd: REPO, encoding: 'utf8', timeout,
+    env: Object.assign({}, process.env, { PYTHONIOENCODING: 'utf-8' }),
+  });
+}
+function pyJson(code, timeout = 120000) {
+  const raw = py(code, timeout);
+  const last = raw.trim().split('\n').pop();
+  return JSON.parse(last);
+}
 
 const WXML_RAW = read('pages/privacy/privacy.wxml');
 const MD_RAW = read('privacy.md');
@@ -189,6 +211,9 @@ test('k71 页面"合盘会发送到服务器"有代码支撑（api.union → POS
     'hehun 未构造 person2 → 页面的"发送到服务器"说法失去依据，须同步改文案');
 });
 
+/* k77 注（判别力归属）：同 §11a —— 本用例读的是 union.py 的源码文本（函数名 +
+   "绝不写双方生辰"这句注释），复审实测：往归档 chart 里注入双方生辰、注释原样保留，
+   本用例仍全绿。真正有牙的是下面的 `k77-M2（行为型）`（真归档再读回库，注入即红）。 */
 test('k71 页面"服务器不留存对方生辰、只留脱敏摘要"有代码支撑', () => {
   const union = fs.readFileSync(path.join(REPO, 'src', 'api', 'union.py'), 'utf8');
   assert.ok(/@router\.post\("\/api\/union"\)/.test(union), '后端 /api/union 路由不存在');
@@ -407,16 +432,14 @@ const THREE_DOC_FORBIDDEN = [
        + '且 scripts/export_training_data.py、scripts/backup_db.py 可无 owner 校验地全量读/拷。'
        + '（注：session_summaries.summary/memories 与 sessions.content 确为密文，'
        + '故本句的反证面**不**包括"记忆画像全是明文列"这一说法）' },
-  { re: /期满彻底删除|期满后彻底删除/,
-    /* k75 新增：这句是"注销会把个人数据删干净"的笼统承诺。实测注销清理清单
-       （src/storage/dao.py:cleanup_cancelled_accounts）只有 10 张表 + users 行 +
-       记忆文件，zeri_plans / night_lamp / ming_saves / qian_saves / user_preferences /
-       *_quota / night_prefs / jian_prefs 都不在其中 ⇒ 「彻底删除」与代码不符。
-       双向锁见下方 §11d：代码一旦补齐清理范围（这些表被加进清单），本断言与
-       §11d 会同时红，提示把文案改回"彻底删除"。 */
-    why: '注销清理清单不含 zeri_plans / night_lamp / ming_saves / qian_saves / '
-       + 'user_preferences / chat_quota / zeri_quota / ming_quota / night_prefs / jian_prefs '
-       + '⇒ 注销后仍有个人数据留存，"期满彻底删除"是不实承诺' },
+  /* k77 移出（控制方 A3 裁定）：此处原有**无条件禁语**「期满彻底删除|期满后彻底删除」
+     —— 事实依据是"注销清理清单只有 10 张表 + 记忆文件，其余都不在"。
+     k76 已把清理范围补齐（models.ACCOUNT_PURGE_TABLES，除支付流水外全删），
+     于是"期满删除"这句话**本身变成了事实**，只是**必须带法定留存例外**。
+     按 A3 把"绝对句"改成"带例外的准确句"：该模式已移入 §12 的全仓条件规则
+     （`unlessNear: /支付流水|依法留存|法定期限|电子商务法/`，例外必须**就近**出现）。
+     这不是放宽：绝对句仍然红（例外不在附近就红），且扫描面从三份文件扩到全仓；
+     双向实测见 k77 报告「注入证明」A3-a（带例外→绿）/ A3-b（无例外→红）。 */
   { re: /不收集手机号|不收集手机号码/,
     why: '手机号在用户主动绑定时收集并 AES-256 落库（users.phone_enc），"不收集手机号"与事实相反' },
   { re: /搜狗|sogou/i,
@@ -533,14 +556,58 @@ test('k74 页面"收藏/择日/灯语/自动汇总记录为明文存储"有代�
     'privacy.wxml 未如实披露明文存储项');
 });
 
-test('k74 页面"分享内容不随注销删除、不过期"有代码支撑（注销清理清单不含 share）', () => {
-  const dao = read(path.join('..', 'src', 'storage', 'dao.py'));
-  const m = dao.match(/for table in \(([^)]*)\)/);
-  assert.ok(m, '未找到注销清理表清单（dao.py）');
-  assert.ok(!/share/.test(m[1]),
-    '注销清理清单已包含 share 表 → 页面"不会随账号注销一并删除"须改为"会删除"');
-  assert.ok(/不会随账号注销/.test(PAGE) && /不会过期/.test(PAGE),
-    'privacy.wxml 未披露分享内容不过期、不随注销删除');
+/* k77 重钉（控制方裁定「守卫断言事实，不断言旧字面」）：
+   本用例原先断言的事实是"分享内容**不随注销删除、不过期**"（k74 时点属实）。
+   k76 把这批控制补齐了：① 分享链接有 30 天有效期（`share_entries.expires_at`
+   + `FORTUNE_SHARE_TTL_DAYS`）；② 注销时**立即删除**该账号的分享行
+   （`cancel_user` → `ShareDAO.delete_by_owner`）并把 share 表纳入清理清单。
+   于是原断言（含它引用的 `for table in (...)` 内联清单写法）整体**过时** ——
+   k77 合并 k76 后必然先红，正是 k76 预告的"合并时必然先红"那条。
+   重钉方向：**同一段代码 oracle 改成断言新事实** + 页面文案改成新事实，
+   并且把 oracle 从"读 dao.py 源码文本"换成**真跑存储层看行为**（M-1/M-2 同款要求：
+   源码文本会漂移，行为不会）。判别力只增：改前"文案说不过期"就绿，
+   现在"文案说 30 天 + 注销即删"**且**存储层实测确实如此才绿。 */
+test('k74→k77 页面"分享有 30 天有效期、注销时立即删除"有代码支撑（行为型 oracle）', () => {
+  const out = pyJson(`
+import sys, json, os, tempfile, time
+sys.path.insert(0, '.')
+from src.storage.share_dao import ShareDAO
+from src.storage.models import init_db, connect as db_connect
+tmp = tempfile.mkdtemp()
+db = os.path.join(tmp, 'k77share.db')
+init_db(db)
+d = ShareDAO(db_connect(db))
+now = time.time()
+d.insert('live0001', {"q": "x"}, owner_tag='tag-k77')
+d.insert('dead0001', {"q": "y"}, owner_tag='tag-k77')
+# 造一条"已过期"的行（直接把 expires_at 挪到过去）
+d.conn.execute("UPDATE share_entries SET expires_at=? WHERE id='dead0001'", (now - 10,))
+d.conn.commit()
+live_state, live_entry = d.get_state('live0001')
+dead_state, dead_entry = d.get_state('dead0001')
+row = d.conn.execute("SELECT expires_at, created_at FROM share_entries WHERE id='live0001'").fetchone()
+removed = d.delete_by_owner('tag-k77')
+left = d.conn.execute("SELECT COUNT(*) FROM share_entries").fetchone()[0]
+print(json.dumps({
+  "live_state": live_state, "live_has_content": bool(live_entry),
+  "dead_state": dead_state, "dead_has_content": bool(dead_entry),
+  "ttl_seconds": (row[0] - row[1]) if row else None,
+  "deleted_by_owner": removed, "left_after_cancel": left,
+}))
+`);
+  // 代码侧（行为）：有效期真的存在，且默认 = 30 天（与文案的"30 天"同源）
+  assert.equal(out.live_state, 'ok', '分享行写入后竟不可读（get_state 非 ok）');
+  assert.equal(out.dead_state, 'expired', '过期行没有被判为 expired（有效期形同虚设）');
+  assert.equal(out.dead_has_content, false, '过期行仍能读出内容（fail-closed 被破坏）');
+  assert.equal(Math.round(out.ttl_seconds / 86400), 30,
+    `分享有效期不是 30 天（实测 ${out.ttl_seconds} 秒）→ 页面"30 天后自动失效"须同步`);
+  assert.equal(out.deleted_by_owner, 2, '注销路径的 delete_by_owner 没有删掉该用户的分享行');
+  assert.equal(out.left_after_cancel, 0, '注销后分享行仍有残留');
+  // 文案侧：页面与提审文档都必须写新事实（旧事实"不会过期/不随注销删除"由 §12 全仓禁语扫）
+  assert.ok(/30 天|30天/.test(PAGE), 'privacy.wxml 未写明分享链接有效期（30 天）');
+  assert.ok(/注销时.*(立即)?删除|注销.*立即删除|随账号注销.*删除/.test(PAGE),
+    'privacy.wxml 未写明分享内容随注销删除（改前写的是"不会随注销删除"）');
+  assert.ok(/30 天/.test(DOC), 'privacy.md 未写明分享链接有效期（30 天）');
 });
 
 /* ════════════════════════════════════════════════════════════════
@@ -621,6 +688,11 @@ test('k74-必修2 页面不得出现"不收集手机号"式表述（手机号实
    ══════════════════════════════════════════════════════════════════════════ */
 
 /* ── §11a. 语音事实的代码 oracle：上传入口只收图片 + 按真实内容校验 ── */
+/* k77 注（判别力归属）：本用例是**结构存在性**检查（读 main.py/image_sniff.py 的源码
+   文本）—— 注入实测（k77 报告「注入证明 M-1」）证明：把嗅探改成
+   `if data[:3]==b"ID3": return "jpeg"` 之后，**本用例仍全绿**。
+   真正有牙的是它下面那条 `k77-M1（行为型）`（真调函数看返回值，同一注入即红）。
+   两条都保留：本条拦"整体删除"，行为型那条拦"改坏语义"。 */
 test('k75 语音事实「服务端不接收音频 / 改名同样被拒」有代码支撑（上传白名单 + 魔数嗅探）', () => {
   const main = read(path.join('..', 'src', 'main.py'));
   // 事实①：上传入口有 content-type 白名单，且只列图片类型。
@@ -644,6 +716,39 @@ test('k75 语音事实「服务端不接收音频 / 改名同样被拒」有代�
     'privacy.md 未同时写明"上传入口只接收图片"与"改名的音频文件同样会被拒绝"');
 });
 
+/* ── §11a-b。k77-M1：**行为型** oracle —— 真调用嗅探函数，看返回值 ──────
+   为什么要有它（复审 M-1 原始证据）：把 `sniff_image_format` 改成
+   `if data[:3]==b"ID3": return "jpeg"`（即"录音改名上传会被当图片放行"，
+   正是文案承诺的反面），上面那条读源码文本的断言**仍然全绿** ——
+   因为 `def sniff_image_format` 与 `b"\xff\xd8\xff"` 都还在源码里。
+   本用例直接执行该函数并检查**返回值**：注入即红（见 k77 报告注入实测）。
+   覆盖：真 MP3(ID3v2 头)/真 PNG 伪装成音频/空/极短。 */
+test('k77-M1（行为型）嗅探函数对"改名音频/伪装内容"的实际返回值', () => {
+  const out = pyJson(`
+import sys, json
+sys.path.insert(0, '.')
+from src.utils.image_sniff import sniff_image_format, sniff_image_ext
+mp3 = bytes.fromhex('49443304000000000000') + b'\\x00' * 64   # "ID3" 头（真 MP3）
+jpeg = bytes.fromhex('ffd8ffe0') + b'\\x00' * 64
+png = bytes.fromhex('89504e470d0a1a0a') + b'\\x00' * 64
+print(json.dumps({
+  "mp3_format": sniff_image_format(mp3),
+  "mp3_ext": sniff_image_ext(mp3),
+  "jpeg_format": sniff_image_format(jpeg),
+  "png_format": sniff_image_format(png),
+  "empty_format": sniff_image_format(b""),
+  "short_format": sniff_image_format(bytes.fromhex('ff')),
+}))
+`);
+  assert.equal(out.mp3_format, '',
+    '改名的音频（ID3 头）被嗅探当成图片放行了 —— 与"改名的音频同样会被拒绝"直接矛盾');
+  assert.equal(out.mp3_ext, '', '音频被给出了图片扩展名（服务端会落盘成图片）');
+  assert.equal(out.jpeg_format, 'jpeg', '真 JPEG 未被识别（上传功能被误伤）');
+  assert.equal(out.png_format, 'png', '真 PNG 未被识别（上传功能被误伤）');
+  assert.equal(out.empty_format, '', '空内容竟被嗅探成了图片');
+  assert.equal(out.short_format, '', '不足魔数长度的内容竟被嗅探成了图片');
+});
+
 /* ── §11b. 加密范围：md 必须逐项说明，且与代码逐项一致 ── */
 test('k75 加密范围事实锁：md 载明"部分字段加密 + 明文项逐项列出"，且与代码一致', () => {
   // ① 文案侧：加密算法与范围 + 明确列出不额外加密的项
@@ -663,16 +768,49 @@ test('k75 加密范围事实锁：md 载明"部分字段加密 + 明文项逐项
     '八字档案不再加密写库 → md 的"出生信息加密"须改');
   assert.ok(/_encrypt_text\(content\)/.test(sess), '对话正文不再加密写库 → md 的"对话加密"须改');
   // ③ 代码侧 oracle：确有条目为**明文**（否则"明文项"半句是错的）
+  /* k77-M7：补两项此前漏掉的明文项（复审点名）——
+     `qian_saves`（求签保存记录，src/storage/qian_dao.py）与
+     `share_entries.content`（分享出去的对话正文，src/storage/share_dao.py）。
+     漏项的后果是双重的：md/页面可以悄悄少写一项明文（漏披露），
+     而这里也不会红。补上后，这两张表若被改成加密，md 与页面会被要求同步更正。 */
   const PLAIN = [
     ['favorite_dao.py', 'favorites（收藏摘要）'],
     ['zeri_dao.py', 'zeri_plans（择日计划与其备注）'],
     ['lamp_dao.py', 'night_lamp（灯语）'],
     ['ming_dao.py', 'ming_saves（姓名与取名保存）'],
+    ['qian_dao.py', 'qian_saves（求签保存记录）'],
   ];
   PLAIN.forEach(([f, label]) => {
     const s = read(path.join('..', 'src', 'storage', f));
     assert.ok(!/encrypt/i.test(s),
       `${label} 已改为加密落库 → md 的"明文"表述须同步更正（本条即为此而设）`);
+  });
+  /* share_dao 不能用"文件里没有 encrypt 字样"判定 —— 该文件的 owner_tag 走的是
+     `encrypt_user_id`（HMAC 伪名，属于**归属标记**而非内容加密）。故对
+     `share_entries.content` 改用**行为型**判定：真写一条分享，再把**数据库原始值**
+     读出来看哨兵是否明文可见（需解密才可见 = 已加密 → 红）。 */
+  const sharePlain = pyJson(`
+import sys, json, os, tempfile
+sys.path.insert(0, '.')
+from src.storage.share_dao import ShareDAO
+from src.storage.models import init_db, connect as db_connect
+tmp = tempfile.mkdtemp()
+db = os.path.join(tmp, 'k77s.db')
+init_db(db)
+d = ShareDAO(db_connect(db))
+d.insert('k77plain', {"q": "K77-PLAIN-SENTINEL", "a": "answer"}, owner_tag='')
+raw = d.conn.execute("SELECT content FROM share_entries WHERE id='k77plain'").fetchone()[0]
+print(json.dumps({"raw": raw}))
+`);
+  assert.ok(sharePlain.raw.indexOf('K77-PLAIN-SENTINEL') !== -1,
+    'share_entries.content 落库后读不出明文哨兵 → 分享正文已被加密，'
+    + 'md/页面的"分享出去的对话正文为明文"表述须同步更正');
+  // 明文项清单本身：md 逐项点名（漏一项 = 漏披露），页面同口径（k77-I2）
+  ['求签保存记录', '分享出去的对话正文', '姓名分析与取名的保存记录'].forEach((k) => {
+    assert.ok(DOC.indexOf(k) !== -1, `privacy.md 的明文项清单未提及「${k}」（漏披露）`);
+  });
+  ['求签保存记录', '分享出去的对话正文', '姓名分析与取名的保存记录'].forEach((k) => {
+    assert.ok(PAGE.indexOf(k) !== -1, `privacy.wxml 的明文项清单未提及「${k}」（漏披露）`);
   });
   const userMem = read(path.join('..', 'src', 'memory', 'user_memory.py'));
   const pos = userMem.indexOf('json.dump(data, f');
@@ -683,7 +821,63 @@ test('k75 加密范围事实锁：md 载明"部分字段加密 + 明文项逐项
     + '（本条即为此而设：加密面一变，文案必须跟着变）');
 });
 
-/* ── §11c. 训练口径：脱敏面逐项钉在导出脚本上 ── */
+/* ── §11b-b。k77-M2：**行为型** oracle —— 脱敏归档真的落库了什么？ ──────
+   复审 M-2 原始证据：上面那条断言读的是 `union.py` 的**源码文本**
+   （`_archive_free_record` 这个名字 + "绝不写双方生辰"这句注释）。
+   往 `chart` 里塞双方生辰、注释原样保留 → 守卫全绿，而"服务器不留存双方生辰"
+   这句对用户的承诺已经被违反。
+   本用例**真跑归档**：临时库 + 带生辰/姓名/出生地的入参 → 调用归档 → 读回落库行，
+   断言里面**找不到任何**生辰/姓名/出生地痕迹（含解密后）。
+   注入即红（见 k77 报告注入实测）。 */
+test('k77-M2（行为型）免费档合盘归档：落库内容里不得出现双方生辰/姓名/出生地', () => {
+  const out = pyJson(`
+import sys, json, os, tempfile
+sys.path.insert(0, '.')
+tmp = tempfile.mkdtemp()
+db = os.path.join(tmp, 'k77.db')
+from src.storage.models import init_db
+init_db(db)
+from src.storage.dao import UserDAO
+import src.api.union as union_mod
+dao = UserDAO(db)
+union_mod._dao = dao            # 归档写入的目标（与生产同一段代码）
+# 入参刻意带上"绝不该落库"的双方生辰/姓名/出生地（哨兵值，便于全库搜索）
+union_result = {
+    "score": 88, "levelLabel": "上上", "levelSublabel": "天作之合",
+    "relation": "恋人", "dimensions": {"a": 80, "b": 90}, "yuan_card": {"x": 1},
+    "a_birth": {"year": 1978, "month": 3, "day": 14, "hour": 9, "minute": 30,
+                "city": "喀什市", "name": "张三丰"},
+    "b_birth": {"year": 1982, "month": 11, "day": 2, "hour": 21, "minute": 5,
+                "city": "齐齐哈尔", "name": "李四娘"},
+}
+quote = {"line": "缘定三生"}
+union_mod._archive_free_record('u-k77', union_result, quote)
+# 读回该用户的合盘归档（与 /api/union/history 同一条读取路径）
+records = dao.get_user_hehun_records('u-k77', limit=50)
+raw = json.dumps(records, ensure_ascii=False, default=str)
+# 也把明文存储的整行 dump 出来搜（防止归档改写到别的列）
+conn = dao._connect()
+rows = conn.execute('SELECT user_id, question, intent, chart_data, analysis FROM consultations WHERE user_id=?', ('u-k77',)).fetchall()
+conn.close()
+dump = json.dumps([list(r) for r in rows], ensure_ascii=False, default=str)
+from src.storage.dao import _decrypt_or_plain
+decrypted = ' | '.join(_decrypt_or_plain(r[3]) or '' for r in rows)
+print(json.dumps({
+  "record_count": len(records),
+  "haystack": raw + ' ' + dump + ' ' + decrypted,
+  "qian": _decrypt_or_plain(rows[0][1]) if rows else '',
+}))
+`);
+  assert.equal(out.record_count, 1, '免费档合盘归档没有落库（归档链路断了，本 oracle 也就失去意义）');
+  const hay = out.haystack;
+  ['喀什市', '齐齐哈尔', '张三丰', '李四娘', '1978', '1982',
+    '03-14', '11-02', '09:30', '21:05'].forEach((sentinel) => {
+    assert.ok(hay.indexOf(sentinel) === -1,
+      `归档里出现了「${sentinel}」——"服务器不留存双方生辰/出生地/姓名"的承诺被违反`);
+  });
+  assert.ok(out.qian.indexOf('88') !== -1 || out.qian.indexOf('上上') !== -1,
+    '归档应只保留脱敏摘要（得分/等级）——摘要本身缺失说明 oracle 的取样点错了');
+});
 test('k75 训练口径事实锁：md 写明"去除身份标识后"与"未脱敏不训练"，脱敏面与脚本一致', () => {
   assert.ok(/去除身份标识后\*{0,2}的数据改进/.test(DOC),
     'privacy.md 未写明用于改进/训练的数据已去除身份标识');
@@ -697,51 +891,484 @@ test('k75 训练口径事实锁：md 写明"去除身份标识后"与"未脱敏�
   assert.ok(/训练集|微调/.test(s), 'export_training_data.py 不再是训练集导出脚本');
 });
 
-/* ── §11d. 注销删除范围：文案 ↔ 代码 双向锁 ── */
-test('k75 注销删除范围双向锁：清理清单 = 代码实况，文案逐项如实说明', () => {
-  const dao = read(path.join('..', 'src', 'storage', 'dao.py'));
-  const m = dao.match(/for table in \(([^)]*)\)/);
-  assert.ok(m, '未找到注销清理表清单（src/storage/dao.py:cleanup_cancelled_accounts）');
-  const CLEANED = ['consultations', 'sessions', 'session_summaries', 'memberships',
-    'payments', 'push_log', 'persons', 'chart_records', 'favorites', 'jian_cards'];
-  const NOT_CLEANED = ['zeri_plans', 'night_lamp', 'ming_saves', 'qian_saves', 'user_preferences'];
-  CLEANED.forEach((t) => {
-    assert.ok(new RegExp(`"${t}"`).test(m[1]),
-      `注销清理清单不再包含 ${t} → 文案"该内容随注销删除"须改为"不删除"（双向锁）`);
+/* ── §11d. 注销删除范围：文案 ↔ 代码 双向锁（k77 重钉到新事实）──────────
+   k76 补齐了注销删除范围（`models.ACCOUNT_PURGE_TABLES` 单一事实源，把原先漏掉的
+   zeri_plans / night_lamp / ming_saves / qian_saves / user_preferences / *_quota /
+   night_prefs / jian_prefs / share_entries 全部纳入），**唯一依法保留的是支付流水**
+   （`ACCOUNT_RETAIN_TABLES`：payments / midas_orders，《电子商务法》第 31 条）。
+   于是 k75 版断言的两条核心事实都反了：
+     ① 原「四项保留内容里只有「收藏」会随注销删除」→ 现在四项**全删**；
+     ② 原「代码清单用 `for table in (...)` 内联写法」→ 已上移到 models 单一事实源。
+   重钉方式（控制方红线：重钉必须有代码依据、判别力不降、附注入证明）：
+     a) oracle 从"读 dao.py 源码文本"→ **真跑清理，看还剩哪些行**（行为型）；
+     b) 断言面从"清单里有没有某个表名"→ "清理后**除依法留存表外一行不剩**"
+        （更强：漏掉任何一张表都会红，而旧写法只看写没写名字）；
+     c) 文案侧从"保留项的附近必须有'不删除'说明"→ "四项内容的附近必须是**删除**说法、
+        且不得再出现'不在注销删除范围内'指向它们"（方向反转，同样逐项就近）。 */
+test('k75→k77 注销删除范围双向锁：除依法留存外一行不剩（行为型）+ 文案逐项如实说明', () => {
+  /* k77 加固（注入实测发现的洞）：第一版 oracle 只对**清单里**的表查残留 ——
+     实测把 `ming_saves` 从清单里删掉后守卫仍全绿（清单变短，检查面跟着变短）。
+     现改为**从库结构派生**：枚举库里所有带归属列（user_id / owner_tag）的表，
+     逐表塞一行 → 跑清理 → 断言"除依法留存表外一行不剩"。
+     于是①漏删任何一张表 → 红（哪怕它被从清单里删掉）；②多删依法留存表 → 红；
+     ③误删他人 → 红。检查面由**库**决定，不由清单决定。 */
+  const out = pyJson(`
+import sys, json, os, tempfile
+sys.path.insert(0, '.')
+from src.storage.models import (init_db, connect as db_connect, ACCOUNT_PURGE_TABLES,
+                                ACCOUNT_RETAIN_TABLES)
+tmp = tempfile.mkdtemp()
+db = os.path.join(tmp, 'k77purge.db')
+init_db(db)                       # models.SCHEMA 里的表
+# 其余业务表由各 DAO 自建（与 main.py lifespan 的装配同款）——临时库要长成"生产库的样子"
+conn = db_connect(db)
+from src.storage.chart_dao import ChartDAO
+from src.storage.favorite_dao import FavoriteDAO
+from src.storage.jian_dao import JianPrefDAO
+from src.storage.ming_dao import MingDAO
+from src.storage.qian_dao import QianDAO
+from src.storage.zeri_dao import ZeriDAO
+from src.storage.night_dao import NightPrefDAO
+from src.storage.lamp_dao import LampDAO
+from src.storage.chat_quota_dao import ChatQuotaDAO
+from src.storage.share_dao import ShareDAO
+from src.storage.member_dao import MemberDAO
+import src.api.pay_midas as midas_mod
+ChartDAO(db); FavoriteDAO(db); JianPrefDAO(conn); MingDAO(conn); QianDAO(conn)
+ZeriDAO(conn); NightPrefDAO(conn); LampDAO(conn); ChatQuotaDAO(db); ShareDAO(conn)
+midas_mod.setup(MemberDAO(db))    # 与 main.py lifespan 同款：建 midas_orders 表
+
+def cols_of(t):
+    return [c[1] for c in conn.execute("PRAGMA table_info(%s)" % t).fetchall()]
+
+def owner_col(t):
+    c = cols_of(t)
+    if "user_id" in c:
+        return "user_id"
+    if "owner_tag" in c:
+        return "owner_tag"
+    return None
+
+def seed(t, key_col, key_val):
+    """给表塞一行（非主键列按类型填占位值；表不存在 → 返回 False）"""
+    if not cols_of(t):
+        return False
+    names, vals = [], []
+    for c in conn.execute("PRAGMA table_info(%s)" % t).fetchall():
+        name, ctype, _nn, _df, pk = c[1], (c[2] or "").upper(), c[3], c[4], c[5]
+        # 只跳过**自增整型主键**；TEXT 主键（如 ming_quota.user_id PRIMARY KEY）
+        # 必须显式给值，否则 NOT NULL 约束报错（=种子行造不出来，oracle 失效）
+        if pk and "INT" in ctype:
+            continue
+        names.append(name)
+        if name == key_col:
+            vals.append(key_val)
+        elif "INT" in ctype:
+            vals.append(0)
+        elif "REAL" in ctype or "FLOA" in ctype or "DOUB" in ctype:
+            vals.append(0.0)
+        else:
+            # 占位值**按归属值区分**：否则同一张表的两行（本人/控制组）会在
+            # UNIQUE 列上撞车（如 midas_orders.out_trade_no、share_entries.id 主键）
+            vals.append("k77seed:" + str(key_val))
+    conn.execute("INSERT INTO %s (%s) VALUES (%s)" % (t, ",".join(names), ",".join("?" * len(names))), vals)
+    return True
+
+# share_entries 不存 user_id，按 HMAC 伪名归属（share_dao 红线）；种子行必须用
+# **同一个派生函数**算出标记，否则删除当然命中不了（那是 oracle 造错，不是代码错）
+from src.storage.share_dao import owner_tag_for
+ME, KEEP = "u-k77", "u-keep"
+TAG_ME, TAG_KEEP = owner_tag_for(ME), owner_tag_for(KEEP)
+
+TABLES = sorted(r[0] for r in conn.execute(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall())
+missing, seeded, no_owner = [], [], []
+for t in TABLES:
+    kc = owner_col(t)
+    if not kc:
+        no_owner.append(t)
+        continue
+    mine = TAG_ME if kc == "owner_tag" else ME
+    other = TAG_KEEP if kc == "owner_tag" else KEEP
+    ok1 = seed(t, kc, mine)
+    seed(t, kc, other)          # 控制组：另一个用户的行（绝不能被误删）
+    (seeded if ok1 else missing).append(t)
+conn.commit()
+
+from src.storage.dao import purge_account_data
+stats = purge_account_data(conn, ME, purge_files=False)
+
+left, kept = {}, {}
+for t in TABLES:
+    kc = owner_col(t)
+    if not kc:
+        continue
+    mine = TAG_ME if kc == "owner_tag" else ME
+    other = TAG_KEEP if kc == "owner_tag" else KEEP
+    left[t] = conn.execute("SELECT COUNT(*) FROM %s WHERE %s=?" % (t, kc), (mine,)).fetchone()[0]
+    kept[t] = conn.execute("SELECT COUNT(*) FROM %s WHERE %s=?" % (t, kc), (other,)).fetchone()[0]
+listed_missing = [t for t, _c in ACCOUNT_PURGE_TABLES if t not in TABLES]
+listed_missing += [t for t, _c, _w in ACCOUNT_RETAIN_TABLES if t not in TABLES]
+print(json.dumps({
+  "tables": TABLES, "seeded": seeded, "missing_tables": missing,
+  "listed_missing": listed_missing,
+  "no_owner_col": no_owner, "left": left, "kept": kept,
+  "purge_listed": [t for t, _c in ACCOUNT_PURGE_TABLES],
+  "retain_listed": [t for t, _c, _w in ACCOUNT_RETAIN_TABLES],
+  "retained_basis": {t: why for t, _c, why in ACCOUNT_RETAIN_TABLES},
+  "deleted_rows": stats.get("deleted_rows"),
+}))
+`, 240000);
+
+  /* ① 库结构前提：本次检查面 = 库里**所有**带归属列的表（由库决定，不由清单决定） */
+  assert.deepEqual(out.no_owner_col, [],
+    `下列表没有 user_id/owner_tag 归属列，本 oracle 覆盖不到：${out.no_owner_col}`
+    + '（若新增这类存个人数据的表，请同时把检查方式补上）');
+  assert.ok(out.tables.length >= 25,
+    `临时库只建出 ${out.tables.length} 张表（改前实测 25 张）——建表装配可能漏了 DAO`);
+  /* ② 清单没写过期的表名（清单里的表必须真的存在；唯一允许的例外是遗留表
+     `user_tone_feedback`：models.py 注明代码里没有建表语句、生产库却有该表）。
+     例外是**双向钉**的：一旦代码里出现它的建表语句，本断言翻红要求重新核对。 */
+  const allowedAbsent = ['user_tone_feedback'];
+  const unexpected = out.listed_missing.filter((t) => allowedAbsent.indexOf(t) === -1);
+  assert.deepEqual(unexpected, [],
+    `清理/留存清单列了库里没有的表 ${unexpected}（清单与建表脚本已漂移）`);
+  assert.ok(out.listed_missing.indexOf('user_tone_feedback') !== -1,
+    'user_tone_feedback 现在能建出来了 —— 请把它从"允许缺席"名单里去掉（名单过期即红）');
+  const modelsSrc = fs.readFileSync(path.join(REPO, 'src', 'storage', 'models.py'), 'utf8');
+  assert.ok(modelsSrc.indexOf('CREATE TABLE IF NOT EXISTS user_tone_feedback') === -1,
+    'user_tone_feedback 已有建表语句，与"遗留表（无建表语句）"的判定矛盾');
+  /* ③ 行为（**核心**）：清理后，除依法留存表外一行不剩 —— 覆盖面 = 库里的归属表 */
+  const retained = ['midas_orders', 'payments', 'users'];   // users 由 purge 收尾单独删
+  const leftovers = Object.keys(out.left)
+    .filter((t) => out.left[t] > 0 && retained.indexOf(t) === -1);
+  assert.deepEqual(leftovers, [],
+    `注销清理后仍有残留：${leftovers.map((t) => t + '=' + out.left[t]).join(', ')}`
+    + '（每张有归属列的表都必须被清干净：要么进 ACCOUNT_PURGE_TABLES，'
+    + '要么在 ACCOUNT_RETAIN_TABLES 里写明法定依据——双向锁）');
+  assert.equal(out.left.users, 0, '注销清理没有删掉 users 行（登录拦截/归属都将失去依据）');
+  /* ④ 依法留存：只有这两张（且必须有法条依据）；名单与文案必须一致 */
+  assert.deepEqual(out.retain_listed.slice().sort(), ['midas_orders', 'payments'],
+    '依法留存表集合变了 → 文案"唯一依法留存的是支付流水"须同步');
+  ['midas_orders', 'payments'].forEach((t) => {
+    assert.equal(out.left[t], 1, `依法留存表 ${t} 的行被误删了`);
+    assert.ok(/电子商务法/.test(out.retained_basis[t] || ''),
+      `依法留存表 ${t} 缺法条依据（文案里对用户的解释正是这条依据）`);
   });
-  NOT_CLEANED.forEach((t) => {
-    assert.ok(!new RegExp(`"${t}"`).test(m[1]),
-      `注销清理清单**已**纳入 ${t} → 代码已补齐删除范围，请把三份文案改回`
-      + `"随注销删除"并删除本条与 THREE_DOC_FORBIDDEN 的「期满彻底删除」禁令`
-      + `（本条断言的目的是：代码一改，文案必须跟着改，反之亦然）`);
-  });
-  // 文案侧：三处（md 第一节第 12 条 / 第五节第 3 条 / 第六节）必须如实说明保留项
-  assert.ok(/不在注销删除范围内/.test(DOC),
-    'privacy.md 未如实说明"有下列内容不在注销删除范围内"');
-  /* 「逐项 + 就近」断言（V2 摘除实测加严）：只查"文档里有没有这句话"是不够的 ——
-     实测把第 12 条改回笼统的「并随账号删除一并删除」后，全篇仍可能因别处（第 11 条）
-     含"不在注销删除范围内"而假绿。故改为**逐项就近**：每个保留项的**首次出现**处
-     前后窗口内必须同时有"不会被注销删除"的如实说明。 */
-  ['姓名分析与取名的保存记录', '择日计划', '求签', '灯语'].forEach((k) => {
+  /* ⑤ 控制组：别人的行一行不能少（清理必须只作用于目标用户） */
+  const stolen = Object.keys(out.kept).filter((t) => out.kept[t] === 0);
+  assert.deepEqual(stolen, [],
+    `注销清理误删了**其他用户**在下列表里的行（严重越界）：${stolen.join(', ')}`);
+  // ⑤ 文案侧（新事实）：四项内容都在**删除**说法附近，且不再挂"不删除"
+  /* "不删除"式表述本身**不是禁语** —— 现在它是**支付流水**的正确说法
+     （唯一依法留存项）。禁的是把它按在四项内容上。故逐条判定时看**该句自身附近**
+     有没有依法留存的依据：有依据（=说的是支付流水）→ 正当；没有 → 违规。 */
+  const obsoleteRetention = (text) => {
+    const re = /不在注销删除范围内|未纳入注销删除清单|不在注销清理范围/g;
+    const bad = [];
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      const i = m.index;
+      const near = text.slice(Math.max(0, i - 90), i + m[0].length + 90);
+      if (/支付流水|依法留存|法定期限|电子商务法/.test(near)) continue;
+      bad.push(text.slice(Math.max(0, i - 40), i + 60));
+    }
+    return bad;
+  };
+  ['姓名分析与取名的保存记录', '择日计划', '求签', '灯语', '收藏'].forEach((k) => {
     const i = DOC.indexOf(k);
-    assert.ok(i !== -1, `privacy.md 的注销范围段未列出保留项「${k}」`);
-    const win = DOC.slice(Math.max(0, i - 120), i + 300);
-    assert.ok(/不在注销删除范围内|未纳入注销删除清单|不在注销清理范围/.test(win),
-      `privacy.md 提到保留项「${k}」的附近没有"不会被注销删除"的如实说明`
-      + '（改回笼统的"随账号删除一并删除"即触发本断言）');
+    assert.ok(i !== -1, `privacy.md 的注销范围段未列出「${k}」`);
+    const win = DOC.slice(Math.max(0, i - 120), i + 320);
+    assert.ok(/删除|清除/.test(win),
+      `privacy.md 提到「${k}」的附近没有"随注销删除"的如实说明`);
+    assert.deepEqual(obsoleteRetention(win), [],
+      `privacy.md 在「${k}」附近写"不在注销删除范围内"（且旁边没有依法留存的依据）——`
+      + '该事实已被 k76 补齐删除范围反转（现在除支付流水外全部删除）');
   });
-  // 第 12 条的核心事实：四项保留内容里**只有「收藏」**会随注销删除（favorites 在清理清单内）
-  assert.ok(/只有「收藏」[^。]{0,50}删除/.test(DOC),
-    'privacy.md 第 12 条未如实说明"四项保留内容里只有收藏会随注销删除"（favorites 在清单内、'
-    + 'ming_saves/zeri_plans/night_lamp/qian_saves 不在）');
-  ['姓名与取名记录', '择日计划', '求签记录', '灯语'].forEach((k) => {
-    assert.ok(PAGE.indexOf(k) !== -1, `privacy.wxml 未列出注销后仍保留的「${k}」`);
+  // 全篇：任何"不删除"式表述都必须紧邻依法留存的依据（支付流水），否则就是旧事实复活
+  assert.deepEqual(obsoleteRetention(DOC), [],
+    'privacy.md 出现没有依法留存依据的"不在注销删除范围内"式表述（指向了不该保留的内容）');
+  assert.ok(/唯一(不在注销删除范围内|依法留存)/.test(DOC),
+    'privacy.md 未写明"唯一依法/不在注销删除范围内的是支付流水"这一新事实');
+  assert.ok(/支付流水/.test(DOC), 'privacy.md 未点名依法留存的支付流水');
+  // 旧事实（"四项里只有收藏会删"）不得复活
+  assert.ok(!/只有「收藏」[^。]{0,50}删除/.test(DOC),
+    'privacy.md 又出现了"四项保留内容里只有收藏会随注销删除"（该事实已被 k76 反转：四项全删）');
+  // 页面侧：同口径（四项内容 + 支付流水例外 + 不得再写"不在注销清理范围"指向四项）
+  ['姓名分析与取名记录', '择日计划', '求签记录', '灯语'].forEach((k) => {
+    assert.ok(PAGE.indexOf(k) !== -1, `privacy.wxml 未列出注销时删除的「${k}」`);
   });
-  assert.ok(/不在注销清理范围/.test(PAGE),
-    'privacy.wxml 未如实说明注销后仍有内容保留（旧版写"期满彻底删除"）');
-  // 反向：不得再用"删干净"的笼统说法
-  ['期满彻底删除', '全部个人数据将在 48 小时内', '所有个人数据将在 48 小时内'].forEach((s) => {
+  assert.ok(/支付流水/.test(PAGE), 'privacy.wxml 未写明依法留存的支付流水（唯一例外）');
+  assert.ok(!/不(在|纳入)注销(删除|清理)范围[^。]{0,40}(择日|求签|灯语|取名)/.test(PAGE),
+    'privacy.wxml 又把"择日/求签/灯语/取名"说成不随注销删除（旧事实复活）');
+  // 反向：不得再用"删干净"的笼统说法（无条件禁令，保留）
+  ['全部个人数据将在 48 小时内', '所有个人数据将在 48 小时内'].forEach((s) => {
     assert.ok(DOC.indexOf(s) === -1, `privacy.md 出现与代码不符的笼统删除承诺「${s}」`);
     assert.ok(PAGE.indexOf(s) === -1, `privacy.wxml 出现与代码不符的笼统删除承诺「${s}」`);
   });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ↓↓↓ k77 追加（「隐私/安全收口批」）↓↓↓
+   本段**只新增断言**，未放宽/删除任何既有断言，也未新增 skip/xfail。
+   ① §12 = **全仓**用户可见文案扫描（Critical-1 的根因修复：守卫此前只盯
+      PAGE/DOC/AGREE 三个常量，第四份用户可见文案整批逃逸）；
+   ② §13 = 分享有效期（30 天）文案 ↔ 代码单一事实源。
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* ════════════════════════════════════════════════════════════════
+   12. **全仓**扫描：不再有"第四份文案"能逃逸（k77-C / Critical-1 根因）
+      Critical-1 的实测事实：settings.wxml 的注销链路写了四处与代码不符的话
+      （加密归档 / 90 天可恢复 / "不可恢复"与同页"可找回"自相矛盾 / 期满彻底删除），
+      而守卫**全绿** —— 因为守卫只扫三个固定文件（PAGE=privacy.wxml、
+      DOC=privacy.md、AGREE=agreement.wxml），settings.wxml 根本不在扫描面里。
+      修法不是"把 settings.wxml 也加进白名单"（下一轮还会冒出第五份），而是把
+      扫描面**自动枚举到全仓**，并且：
+        - 每一处命中都必须判定：符合事实 / 需改 / 有正当例外（例外必须**显式登记**）；
+        - 例外表**双向**：例外不再需要（模式在该文件已不命中）→ 也红，防豁免堆积。
+   ════════════════════════════════════════════════════════════════ */
+
+/** 扫描面排除项（**只有这两类**，且下面有断言钉住排除面本身）：
+    - node_modules：非交付物；
+    - tests/**：测试代码不是"用户可见文案"（本守卫自身的正则字面量会自匹配）。 */
+const SCAN_EXCLUDE_DIRS = new Set(['node_modules', 'tests']);
+
+function walkFiles(rootDir, exts, out = []) {
+  for (const ent of fs.readdirSync(rootDir, { withFileTypes: true })) {
+    if (ent.isDirectory()) {
+      if (SCAN_EXCLUDE_DIRS.has(ent.name)) continue;
+      walkFiles(path.join(rootDir, ent.name), exts, out);
+    } else if (exts.has(path.extname(ent.name))) {
+      out.push(path.join(rootDir, ent.name));
+    }
+  }
+  return out;
+}
+
+/** 提取 JS 里的**字符串字面量**（含模板串），跳过注释与正则/其它词法。
+    只保留含中日韩统一表意文字（一-鿿）的串 —— 用户可见文案一定是中文，
+    而 API 路径/存储键/错误码是 ASCII，这样能把扫描面收敛到"给人看的字"上。
+    为什么要自己过词法：`// 注释里提到"不会过期"` 不是用户可见文案，
+    用裸正则扫会把它当命中（假红），用简单字符串提取才能只扫真正的字符串。 */
+function jsUserCopy(src) {
+  const out = [];
+  let i = 0;
+  const n = src.length;
+  while (i < n) {
+    const c = src[i];
+    if (c === '/' && src[i + 1] === '/') { while (i < n && src[i] !== '\n') i++; continue; }
+    if (c === '/' && src[i + 1] === '*') {
+      i += 2; while (i < n && !(src[i] === '*' && src[i + 1] === '/')) i++; i += 2; continue;
+    }
+    if (c === '"' || c === "'" || c === '`') {
+      const quote = c;
+      let j = i + 1;
+      let buf = '';
+      while (j < n) {
+        if (src[j] === '\\') { buf += (src[j + 1] || ''); j += 2; continue; }
+        if (src[j] === quote) break;
+        buf += src[j]; j++;
+      }
+      if (/[一-鿿]/.test(buf)) out.push({ text: flat(buf), at: i });
+      i = j + 1; continue;
+    }
+    i++;
+  }
+  return out;
+}
+
+/* 扫描面装配（**自动枚举，无白名单**）：
+   - 全部 .wxml（用户可见界面）
+   - 全部 .js 的中文字符串字面量（弹层/toast/文案）
+   - 全部 .md（提审用《隐私保护指引》、审核材料） */
+const SCAN_WXML = walkFiles(ROOT, new Set(['.wxml']));
+const SCAN_JS = walkFiles(ROOT, new Set(['.js']));
+const SCAN_MD = walkFiles(ROOT, new Set(['.md']));
+
+test('k77-C 前提：扫描面 = 全仓自动枚举（wxml/js/md），不含任何固定文件白名单', () => {
+  const rel = (p) => path.relative(ROOT, p);
+  // ① 覆盖面：仓内所有 wxml 都在扫描面里（逐个比对，漏一个即红）
+  const allWxml = walkFiles(ROOT, new Set(['.wxml']));
+  assert.deepEqual(SCAN_WXML.map(rel).sort(), allWxml.map(rel).sort(),
+    '扫描面与仓内 wxml 清单不一致（不得再用固定白名单）');
+  assert.ok(SCAN_WXML.length >= 39,
+    `扫描到的 wxml 只有 ${SCAN_WXML.length} 个（改前实测 39 个）——枚举器可能失效`);
+  assert.ok(SCAN_JS.length >= 50, `扫描到的 js 只有 ${SCAN_JS.length} 个`);
+  assert.ok(SCAN_MD.length >= 2, `扫描到的 md 只有 ${SCAN_MD.length} 个（privacy.md / 审核材料.md）`);
+  // ② 关键文件确实在扫描面内（Critical-1 的逃逸文件必须被纳入）
+  ['pages/settings/settings.wxml', 'pages/privacy/privacy.wxml',
+    'pages/agreement/agreement.wxml', 'pages/history/history.wxml',
+    'pages/share/share.wxml', 'privacy.md', '审核材料.md'].forEach((p) => {
+    assert.ok(SCAN_WXML.map(rel).concat(SCAN_MD.map(rel)).indexOf(p) !== -1,
+      `${p} 不在全仓扫描面内（Critical-1 的逃逸路径又开了）`);
+  });
+  // ③ 排除面本身也钉住：只有 node_modules 与 tests
+  assert.deepEqual([...SCAN_EXCLUDE_DIRS].sort(), ['node_modules', 'tests'],
+    '排除面变了 → 必须重新评估"逃逸风险"（排除越多，越可能漏掉用户可见文案）');
+});
+
+/* 全仓禁语表 = "绝对句"清单。每条都必须**有代码反证**（why 里写明）。
+   与 §7 的 THREE_DOC_FORBIDDEN 的关系：那一张表继续管"三份文案口径对齐"；
+   本表把它**扩到全仓**（同一个事实，扫描面更大），并补上 k77 这批的新事实。 */
+const REPO_FORBIDDEN = THREE_DOC_FORBIDDEN
+  /* 说明：无条件表里的「期满彻底删除」已按 k77-A3 改判为**条件规则**（见文件末尾
+     的 `.concat([...])` 里的同名条目 + §7 表内的移出说明），故此处不再过滤，
+     直接全量继承 —— k77 起本表**只增不减**。 */
+  .concat([
+    /* ── k77 新事实（每条的代码依据见 why）── */
+    { re: /加密归档|加密封存/,
+      why: 'src/storage/dao.py:cancel_user() 只写 status=cancelled + cancelled_at，'
+        + '**不做任何加密/归档**；改前 settings.wxml 写"数据进入加密归档"是与代码不符的凭空承诺' },
+    { re: /90 ?天可恢复|可恢复期/,
+      why: 'src/api/user.py:user_cancel docstring「保留期内不提供恢复接口」——'
+        + '小程序内没有恢复入口；能被吹成"90 天可恢复"的只有"人工从每日备份尝试"，'
+        + '且备份只留最近 14 份（scripts/backup_db.py:DEFAULT_KEEP）' },
+    { re: /(注销|销号)[^。]{0,24}不可恢复|不可恢复[^。]{0,16}(注销|销号)/,
+      why: '与上一条同源：注销存在"人工从备份尝试找回"这一路径，'
+        + '绝对句"不可恢复"会与同页"期内可联系找回"自相矛盾（Critical-1 实测的自相矛盾）；'
+        + '应写"无法自助恢复"' },
+    { re: /期满彻底删除|期满后彻底删除/,
+      unlessNear: /支付流水|依法留存|法定期限|电子商务法/,
+      why: 'k76 起除支付流水（依法留存，见 models.ACCOUNT_RETAIN_TABLES）外确实全删；'
+        + '绝对句"期满彻底删除"漏掉法定留存例外 → 必须写成带例外的准确句'
+        + '（例外必须在命中处就近出现，不能"文件另一头写了例外"）' },
+    { re: /彻底删除/,
+      unlessNear: /支付流水|依法留存|法定期限|电子商务法|注销清理范围|删除范围/,
+      why: '同"期满彻底删除"：出现"彻底删除"必须就近说明依法留存的例外，否则是不实绝对句' },
+    { re: /重新登录后[^。]{0,20}(一切从|从一灯|重新开始)/,
+      unlessNear: /保留期|无法登录/,
+      why: 'src/api/user.py 登录拦截：status=cancelled → 403；保留期内**登录不进来**，'
+        + '"重新登录后一切从一灯开始"只在保留期满数据清除后才成立（Critical-1 之外的第五处：'
+        + 'settings.wxml 注销成功页 gs-note）' },
+    { re: /不会随(账号)?注销(一并)?删除|不随注销删除/,
+      why: 'k76：cancel_user() 注销时**立即删除**该账号的分享记录'
+        + '（ShareDAO.delete_by_owner）——改前页面写的"不会随账号注销一并删除"已反转为假' },
+    { re: /不会过期|永久有效|永久公开|一直有效/,
+      why: 'k76：分享链接有 30 天有效期（src/config.py:share_ttl_days 单一事实源，'
+        + 'FORTUNE_SHARE_TTL_DAYS）；k77-F 起报告分享页同款。'
+        + '改前 privacy.wxml 写"它目前不会过期"已反转为假' },
+  ]);
+
+/* 例外表（**显式登记**，每条都要写清理由；无例外即空表 —— 不许隐式豁免）。
+   结构：`{file, re, [quoted: true], why}`
+     - 不带 quoted：该文件里这条禁语整体豁免（除非必要，尽量别用 —— 它等于给整个
+       文件开了口子）；
+     - `quoted: true`：**只**豁免"被引号引起来"的命中（匹配处紧邻的前一个非空白字符
+       是引号 `" ' 「 『 “ ‘`）。
+   为什么需要 quoted：版本说明 / 勘误记录里**引述**历史错误表述是正当的
+   （"此前写过『…』，已更正"），引述 ≠ 断言；但它不能变成整文件豁免 ——
+   同一文件别处**断言**同一句话仍必须红。 */
+/* 命中处是否落在**一对引号之内**（引述而非断言）。开闭引号配对 + 不跨句。 */
+function quotedAt(text, i, len) {
+  const pre = text.slice(Math.max(0, i - 120), i);
+  const post = text.slice(i + len, i + len + 120);
+  const OPEN = ['"', "'", '「', '『', '“', '‘'];
+  const PAIR = { '"': '"', "'": "'", '「': '」', '『': '』', '“': '”', '‘': '’' };
+  let oi = -1;
+  let oChar = '';
+  OPEN.forEach((c) => { const k = pre.lastIndexOf(c); if (k > oi) { oi = k; oChar = c; } });
+  if (oi < 0) return false;
+  const ci = post.indexOf(PAIR[oChar]);
+  if (ci < 0) return false;
+  // 引号内不得跨句/跨段（避免"开引号在很远处"的巧合把真断言当引述）
+  return !/[。\n]/.test(pre.slice(oi)) && !/[。\n]/.test(post.slice(0, ci));
+}
+
+const REPO_FORBIDDEN_EXEMPT = [
+  { file: 'privacy.md', re: /90 ?天可恢复|可恢复期/, quoted: true,
+    why: '版本说明的勘误段**引述**历史上那句没有实现支撑的说法（引号内），引述 ≠ 断言；'
+      + '同一文件别处若再断言这句，仍会红' },
+  { file: 'privacy.md', re: /不会随(账号)?注销(一并)?删除|不随注销删除/, quoted: true,
+    why: '同上：版本说明里引述"此前写过的不随注销删除"这一已反转的旧说法' },
+];
+
+test('k77-C 全仓禁语扫描：任何用户可见文案都不得复活"与代码不符的绝对句"', () => {
+  const rel = (p) => path.relative(ROOT, p);
+  const violations = [];
+  /* 收集扫描单元：{file, text, kind}（wxml 剥标签；js 只取中文字符串；md 全文） */
+  const units = [];
+  SCAN_WXML.forEach((p) => units.push({ file: rel(p), text: wxmlText(fs.readFileSync(p, 'utf8')), kind: 'wxml' }));
+  SCAN_JS.forEach((p) => {
+    const src = fs.readFileSync(p, 'utf8');
+    jsUserCopy(src).forEach((s) => units.push({ file: rel(p), text: s.text, kind: 'js-string' }));
+  });
+  SCAN_MD.forEach((p) => units.push({ file: rel(p), text: flat(fs.readFileSync(p, 'utf8')), kind: 'md' }));
+
+  const UNLESS_WINDOW = 160;
+  for (const u of units) {
+    for (const rule of REPO_FORBIDDEN) {
+      /* 例外表：不带 quoted 的条目豁免整个文件；带 quoted 的只豁免"引号内"的命中 */
+      /* 按**正则源码**比对（不比 String()：后者含 flags，写法差一个字符就静默不匹配
+         —— 本轮实测踩过：豁免条目写成 /90 天可恢复/ 而规则是 /90 ?天可恢复/，
+         豁免静默失效。改 .source 后仍要求逐字相同，但不再受 flags 干扰。） */
+      const exs = REPO_FORBIDDEN_EXEMPT.filter(
+        (e) => e.file === u.file && e.re.source === rule.re.source);
+      if (exs.some((e) => !e.quoted)) continue;
+      const re = new RegExp(rule.re.source, rule.re.flags.includes('g') ? rule.re.flags : rule.re.flags + 'g');
+      let m;
+      while ((m = re.exec(u.text)) !== null) {
+        if (!m[0]) { re.lastIndex++; continue; }
+        const i = m.index;
+        const win = u.text.slice(Math.max(0, i - UNLESS_WINDOW),
+          i + m[0].length + UNLESS_WINDOW);
+        if (rule.unlessNear && rule.unlessNear.test(win)) continue;   // 例外就近 → 判为"带例外的准确句"
+        /* 引号内 ⇒ 视为"引述历史表述"而非断言（见 REPO_FORBIDDEN_EXEMPT 注释）。
+           判定要**两侧都闭合**：命中左边有开引号、右边有对应闭引号，且引号内不跨句
+           （否则"很远处的开引号"会把真断言误判成引述）。 */
+        if (exs.some((e) => e.quoted) && quotedAt(u.text, i, m[0].length)) continue;
+        violations.push(`${u.file} [${u.kind}] 命中「${m[0]}」：${rule.why}\n`
+          + `      上下文：…${u.text.slice(Math.max(0, i - 30), i + m[0].length + 30)}…`);
+        break;   // 同一规则在同一单元里只报一次
+      }
+    }
+  }
+  assert.deepEqual(violations, [],
+    `全仓用户可见文案出现与代码不符的绝对句（共 ${violations.length} 处）：\n  - `
+    + violations.join('\n  - '));
+});
+
+test('k77-C 例外表卫生：登记过的例外必须仍然被需要（防豁免堆积）', () => {
+  const rel = (p) => path.relative(ROOT, p);
+  const units = [];
+  SCAN_WXML.forEach((p) => units.push({ file: rel(p), text: wxmlText(fs.readFileSync(p, 'utf8')) }));
+  SCAN_JS.forEach((p) => {
+    const src = fs.readFileSync(p, 'utf8');
+    jsUserCopy(src).forEach((s) => units.push({ file: rel(p), text: s.text }));
+  });
+  SCAN_MD.forEach((p) => units.push({ file: rel(p), text: flat(fs.readFileSync(p, 'utf8')) }));
+  const stale = REPO_FORBIDDEN_EXEMPT.filter((e) => {
+    const hit = units.filter((u) => u.file === e.file);
+    return !hit.some((u) => e.re.test(u.text));
+  }).map((e) => `${e.file} ← ${e.re}`);
+  assert.deepEqual(stale, [],
+    '下列例外登记已不再需要（该文件里那条禁语已经不出现了）→ 请删掉例外，'
+    + '避免豁免表只增不减：' + stale.join(', '));
+});
+
+/* ════════════════════════════════════════════════════════════════
+   13. 分享有效期（30 天）：文案 ↔ 代码单一事实源（k77-A1/F）
+   ════════════════════════════════════════════════════════════════ */
+test('k77-F 分享有效期：文案里的"30 天"必须等于 config 的单一事实源默认值', () => {
+  const cfg = read(path.join('..', 'src', 'config.py'));
+  const m = cfg.match(/SHARE_TTL_DAYS_DEFAULT\s*=\s*([0-9.]+)/);
+  assert.ok(m, 'src/config.py 未见 SHARE_TTL_DAYS_DEFAULT（有效期单一事实源）');
+  const days = Number(m[1]);
+  assert.equal(days, 30, '默认有效期不再是 30 天 → 三份文案里的"30 天"必须同步');
+  /* 报告分享页（k77-F）：与对话分享**同一配置口径**（不是第二旋钮）——
+     同一份事实源 ⇒ 文案只能有一个数字，页面/md/settings 三处都必须是它 */
+  ['privacy.wxml', 'privacy.md', 'pages/settings/settings.wxml'].forEach(() => {});
+  const files = ['pages/privacy/privacy.wxml', 'privacy.md', 'pages/settings/settings.wxml'];
+  const bad = files.filter((f) => {
+    const t = flat(read(f));
+    return !new RegExp(`${days}\\s*天`).test(t);
+  });
+  assert.deepEqual(bad, [], `下列文案没有写明分享有效期 ${days} 天：${bad.join(', ')}`);
+  // 报告分享页的过期行为由后端实现（src/api/share.py）；这里钉住"它确实挂了 TTL"
+  const sharePy = read(path.join('..', 'src', 'api', 'share.py'));
+  assert.ok(/_report_share_expires_at/.test(sharePy)
+    && /status_code=410/.test(sharePy),
+    '报告分享页（/share/{reading_id}）未见有效期判定或 410 过期返回'
+    + '（k77-F 要求它与对话分享同款）');
+  // 单一事实源：两个入口都必须经 config 取值，不得各写一份天数
+  assert.ok(!/=\s*30\s*#/.test(sharePy), 'src/api/share.py 里出现了硬编码的 30 天（应走 config）');
 });

@@ -116,7 +116,11 @@ Page({
       const msgs = (Array.isArray(a.messages) ? a.messages : []).filter((m) => !isJianEntry(m));
       if (!msgs.length) return;
       /* 第二个参数为未过滤源（含晨笺），仅「继续这段夜话」写回用（M2：写回必须原样，否则抹除收藏） */
-      items.push(this._buildEntry(a.id, a.createdAt || now, a.label, msgs, a.messages, false));
+      /* k77-I4：归档条目带上**服务端会话编号**（chat.js 归档时写入的 a.sessionId）
+         —— 删除要能落到服务端这一段对话；旧版本归档没有该字段 → sessionId='' →
+         删除走 legacy 作用域（弹层如实说明）。 */
+      items.push(this._buildEntry(a.id, a.createdAt || now, a.label, msgs, a.messages,
+        false, a.sessionId || ''));
     });
 
     /* 当前会话：有真实用户消息（非 SEED 开场）才入列，作为「今天」最新一段 */
@@ -153,7 +157,7 @@ Page({
   /* 归档条目 → 列表行模型（摘要=首条用户问题，时间=末条消息，条数=消息数）。
      rawMsgs = 未过滤源（含晨笺条目，仅供 onContinue 写回 ylm_chat_messages 时原样保留，
      晨笺在列表/预览的展示过滤由 msgs 承担） */
-  _buildEntry(id, createdAt, label, msgs, rawMsgs, isCurrent) {
+  _buildEntry(id, createdAt, label, msgs, rawMsgs, isCurrent, sessionId) {
     const firstUser = (msgs || []).find((m) => m.role === 'user' && !m.pending);
     const summary = String((firstUser && firstUser.content) || label || '一段夜话').trim();
     const lastMsg = msgs[msgs.length - 1];
@@ -162,6 +166,8 @@ Page({
     return {
       id,
       createdAt,
+      // k77-I4：服务端会话编号（空串 = 旧版本归档，服务端定位不到具体这一段）
+      sessionId: String(sessionId || ''),
       group: dayGroup(createdAt),
       summary,
       seal: sealCharFor(summary),
@@ -261,13 +267,35 @@ Page({
     this.data.groups.forEach((grp) => all.push(...grp.items));
     const s = all.find((it) => it.id === id);
     if (!s) return;
+    /* k77-I4：弹层文案随**实际删除范围**变化 ——
+       - 带会话编号（现代会话 / 当前会话）→ 本机 + 服务端这一段；
+       - 无编号（会话隔离上线前保存的旧记录）→ 服务端无法定位到具体某一段，
+         只删"这批无编号旧记录"（如实写在弹层里，不夸大成"精确删除"）。 */
+    const scope = this._delScope(s);
     this.setData({
       dlgDel: {
         id: s.id,
         isCurrent: s.isCurrent,
+        scope,
+        legacy: scope === 'legacy',
         brief: s.summary.length > 12 ? s.summary.slice(0, 12) + '…' : s.summary,
       },
     });
+  },
+
+  /* 删除作用域：当前会话 → session（本地 ylm_session_id）；
+     归档条目带 sessionId → session；无 sessionId（旧版本保存）→ legacy。 */
+  _delScope(s) {
+    if (s && s.isCurrent) return 'session';
+    return (s && s.sessionId) ? 'session' : 'legacy';
+  },
+
+  /* 该条目对应的服务端会话编号（当前会话取本地会话标识） */
+  _delSessionId(s) {
+    if (s && s.isCurrent) {
+      try { return wx.getStorageSync('ylm_session_id') || ''; } catch (e) { return ''; }
+    }
+    return (s && s.sessionId) || '';
   },
 
   closeDlgDel() {
@@ -278,7 +306,21 @@ Page({
     const d = this.data.dlgDel;
     if (!d) return;
     this.setData({ dlgDel: null, removing: d.id });
-    setTimeout(() => {
+    const all = [];
+    this.data.groups.forEach((grp) => all.push(...grp.items));
+    const entry = all.find((it) => it.id === d.id);
+    const scope = d.scope || (d.isCurrent ? 'session' : 'legacy');
+    const sid = this._delSessionId(entry || { isCurrent: d.isCurrent });
+    /* k77-I4：**先删服务端、再删本机**。
+       改前只写本地 storage，服务端 sessions.content 原样保留 —— 用户点"删除"
+       云端副本仍在（复审判定为产品缺陷）。现在：
+         - 服务端删成功 → 继续删本机（本机与本机外的副本同时消失，与弹层承诺一致）；
+         - 服务端删失败 → **不删本机、如实报"删除失败"**（G2 B3 口径：不假成功；
+           也避免"本地没了、云端还在"这种用户以为删干净了的最坏状态）。
+       缓存兜底：-1（未登录/离线）等确定性失败在 api.js 已按重试纪律处理，这里只认
+       业务结果；服务端未就绪（503/网络异常）同样按失败处理，用户可重试。 */
+    const api = require('../../utils/api');
+    const finishLocal = () => {
       // G2 B3：删除以 storage 真实写成为准，写失败 → 「删除失败」而非假成功
       let delOk = true;
       if (d.isCurrent) {
@@ -298,7 +340,21 @@ Page({
       this.setData({ removing: '', view: 'list', current: null });
       this._load();
       wx.showToast({ title: delOk ? '已删除 · 夜话不留痕' : '删除失败，请重试', icon: 'none' });
-    }, 340);
+    };
+
+    /* 服务端删除（k77-I4）：scope=session 走会话编号；scope=legacy 走"无编号
+       旧记录"。注意 legacy 作用域是**这批旧记录整体删除**（服务端定位不到具体
+       某一段）——弹层文案已如实说明，不是偷偷扩大范围。 */
+    api.deleteChatSessions(scope, scope === 'session' ? sid : '').then((res) => {
+      if (res && res.status === 'ok') {
+        setTimeout(finishLocal, 340);
+        return;
+      }
+      throw new Error('delete failed');
+    }).catch(() => {
+      this.setData({ removing: '' });
+      wx.showToast({ title: '删除失败，请重试', icon: 'none' });
+    });
   },
 
   noop() { /* 弹层内吞掉背景滚动/穿透 */ },

@@ -425,6 +425,57 @@ class SessionDAO:
         finally:
             conn.close()
 
+    def delete_sessions(self, user_id: str, session_id: Optional[str] = None,
+                        legacy_only: bool = False) -> int:
+        """删除该用户的对话消息行（「删除这段对话」的服务端实现）。
+
+        三种作用域（**与前端删除入口一一对应**，见 k77-I4）：
+          - `session_id` 给定 + `legacy_only=False`：删该会话的消息行
+            （`user_id + session_id` 双条件，归属由 user_id 保证）；
+          - `legacy_only=True`：删该用户**没有会话编号**的行
+            （`session_id IS NULL OR session_id = ''`）——这些是"会话隔离"
+            上线前写入的历史行，服务端无法再定位到具体某一段对话，
+            只能按"这一批旧记录"整体删除；
+          - 两者都没给：**拒绝执行**（返回 0，绝不退化成"删光全部"）。
+
+        作用域三选一由**调用方显式指定**，本方法不做任何隐式扩大：
+        删用户数据是不可逆动作，宁可返回 0 也不能多删。
+        `session_summaries`（账号级滚动摘要）与本表不同粒度，**不在此处删**。
+
+        Returns: 删除的行数。
+        """
+        if not user_id or (not session_id and not legacy_only):
+            return 0
+        conn = self._connect()
+        try:
+            if legacy_only:
+                cur = conn.execute(
+                    "DELETE FROM sessions WHERE user_id = ?"
+                    " AND (session_id IS NULL OR session_id = '')",
+                    (user_id,))
+            else:
+                cur = conn.execute(
+                    "DELETE FROM sessions WHERE user_id = ? AND session_id = ?",
+                    (user_id, str(session_id)))
+            conn.commit()
+            return cur.rowcount or 0
+        finally:
+            conn.close()
+
+    def count_legacy_sessions(self, user_id: str) -> int:
+        """该用户"无会话编号"的历史消息行数（供删除后如实回执，不谎报清零）。"""
+        if not user_id:
+            return 0
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM sessions WHERE user_id = ?"
+                " AND (session_id IS NULL OR session_id = '')",
+                (user_id,)).fetchone()
+            return int(row[0] or 0) if row else 0
+        finally:
+            conn.close()
+
     def cleanup_temp(self, now_iso: str = "") -> int:
         """删除过期的临时倾诉消息(24h 硬清理兜底),返回删除条数。"""
         from datetime import datetime

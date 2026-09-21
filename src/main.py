@@ -378,6 +378,8 @@ def _drop_cancelled_users(uids) -> list:
     实现在**单一位置**（本函数），三条链路共用；`UserDAO.get_pushable_users_with_bazi()`
     是同一规则的另一个入口（那条链路的一次性查询版本，避免逐用户查状态）。
     取状态失败 → **跳过该用户**（fail-closed：宁可少发一条，不可对已注销用户违约）。
+    唯一的"放行"情形是 `dao is None`（服务装配尚未完成、连库都没有）——那时三条
+    推送链本身也跑不起来（各自还要 prefs/plan 表），不是"放行已注销用户"。
     """
     out = []
     for uid in (uids or []):
@@ -2343,55 +2345,55 @@ async def face_reading(
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
 
-    # k72：内容校验必须在"会吞异常的兜底 try"**之前**——否则 415 会被
+    # k72：内容校验必须在"会吞异常的兜底 try"**之前**（这里是同一层 try 内的
+    # 第一步 + `except HTTPException: raise` 明规则）——否则 415 会被
     # `except Exception` 一并吞掉（降级成 200 + status:error），校验就形同虚设。
     # k77 合并裁定：读/限长/嗅探/落盘 四步统一收进 `_read_upload_within_limit()`
     # （k76 已把读+限长+落盘收进去，k77 把 k72 的嗅探也并入同一入口），
-    # 调用点只留 `except HTTPException: raise` 一条明规则（与文件内既有写法一致），
-    # 顺序陷阱由"单一入口"结构性消除。读取失败的语义仍按原样兜底为 status:error。
+    # 于是两个端点共用同一段把关代码，而不是两段"看起来一样"的代码。
+    # 读取失败的语义仍按原样兜底为 status:error（k24 口径）。
     try:
         tmp_path, _content = await _read_upload_within_limit(image, "photo.jpg")
+        try:
+            # Run face analysis
+            from .engines.face_reader import FaceReader, generate_report
+
+            reader = FaceReader()
+            metrics = reader.analyze(tmp_path)
+
+            if metrics is None:
+                return {
+                    "status": "no_face",
+                    "message": "未检测到人脸，请上传一张正面自拍照片（光线充足、面部清晰）📷",
+                }
+
+            api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+            report = generate_report(metrics, retriever=handler.retriever if hasattr(handler, 'retriever') else None,
+                                     api_key=api_key)
+
+            return {
+                "status": "ok",
+                "measurements": {
+                    "face_shape": {"type": metrics.face_shape, "confidence": metrics.face_shape_conf},
+                    "eye_type": {"type": metrics.eye_type, "confidence": metrics.eye_type_conf},
+                    "eyebrow_type": {"type": metrics.eyebrow_type, "confidence": metrics.eyebrow_type_conf},
+                    "nose_type": {"type": metrics.nose_type, "confidence": metrics.nose_type_conf},
+                    "mouth_type": {"type": metrics.mouth_type, "confidence": metrics.mouth_type_conf},
+                    "skin_tone": {"type": metrics.skin_tone, "confidence": metrics.skin_tone_confidence},
+                    "three_sections": {"upper": metrics.upper_ratio, "middle": metrics.middle_ratio, "lower": metrics.lower_ratio},
+                    "face_dimensions_mm": {"width": round(metrics.face_width, 1), "height": round(metrics.face_height, 1)},
+                    "moles": [{"region": m["region"], "size_px": m["size_px"]} for m in metrics.moles],
+                    "best_features": metrics.best_features,
+                    "improvement_areas": metrics.improvement_areas,
+                },
+                "report": report,
+            }
+        finally:
+            _unlink_quietly(tmp_path)
     except HTTPException:
         raise          # 400/413/415 等校验拒绝：原样上抛（不被兜底吞成 200）
     except Exception as e:
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
-
-    try:
-        # Run face analysis
-        from .engines.face_reader import FaceReader, generate_report
-
-        reader = FaceReader()
-        metrics = reader.analyze(tmp_path)
-
-        if metrics is None:
-            return {
-                "status": "no_face",
-                "message": "未检测到人脸，请上传一张正面自拍照片（光线充足、面部清晰）📷",
-            }
-
-        api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
-        report = generate_report(metrics, retriever=handler.retriever if hasattr(handler, 'retriever') else None,
-                                 api_key=api_key)
-
-        return {
-            "status": "ok",
-            "measurements": {
-                "face_shape": {"type": metrics.face_shape, "confidence": metrics.face_shape_conf},
-                "eye_type": {"type": metrics.eye_type, "confidence": metrics.eye_type_conf},
-                "eyebrow_type": {"type": metrics.eyebrow_type, "confidence": metrics.eyebrow_type_conf},
-                "nose_type": {"type": metrics.nose_type, "confidence": metrics.nose_type_conf},
-                "mouth_type": {"type": metrics.mouth_type, "confidence": metrics.mouth_type_conf},
-                "skin_tone": {"type": metrics.skin_tone, "confidence": metrics.skin_tone_confidence},
-                "three_sections": {"upper": metrics.upper_ratio, "middle": metrics.middle_ratio, "lower": metrics.lower_ratio},
-                "face_dimensions_mm": {"width": round(metrics.face_width, 1), "height": round(metrics.face_height, 1)},
-                "moles": [{"region": m["region"], "size_px": m["size_px"]} for m in metrics.moles],
-                "best_features": metrics.best_features,
-                "improvement_areas": metrics.improvement_areas,
-            },
-            "report": report,
-        }
-    finally:
-        _unlink_quietly(tmp_path)
 
 
 @app.post("/api/palm-reading")
@@ -2411,36 +2413,36 @@ async def palm_reading(
     if handler is None:
         raise HTTPException(status_code=503, detail="Service not ready")
     # k72 + k77：同 /api/face-reading —— 读/限长/嗅探/落盘收进 `_read_upload_within_limit()`；
-    # HTTPException（400/413/415）须在兜底 try 之前原样上抛，否则被 except 吞掉；
-    # 读取失败保持原语义（status:error）。
+    # HTTPException（400/413/415）经 `except HTTPException: raise` 原样上抛（不被兜底吞掉）；
+    # 读取/CV 失败保持原语义（status:error），临时文件在所有路径都被 finally 清理。
     try:
         tmp_path, _content = await _read_upload_within_limit(image, "hand.jpg")
+        try:
+            from .engines.palm_reader import PalmReader, generate_palm_report
+            reader = PalmReader()
+            metrics = reader.analyze(tmp_path)
+            if metrics is None:
+                return {"status": "no_hand", "message": "未检测到手掌，请上传一张光线充足的手掌照片 ✋"}
+            api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
+            report = generate_palm_report(metrics, retriever=handler.retriever, api_key=api_key)
+            return {
+                "status": "ok",
+                "palm_shape": metrics.palm_shape,
+                "palm_color": metrics.palm_color,
+                "finger_type": metrics.finger_type,
+                "life_line": metrics.life_line,
+                "wisdom_line": metrics.wisdom_line,
+                "feeling_line": metrics.feeling_line,
+                "fate_line": metrics.fate_line,
+                "special_patterns": metrics.special_patterns,
+                "report": report,
+            }
+        finally:
+            _unlink_quietly(tmp_path)
     except HTTPException:
-        raise
+        raise          # 400/413/415 等校验拒绝：原样上抛（不被兜底吞成 200）
     except Exception as e:
         return {"status": "error", "message": f"分析失败：{str(e)[:200]}"}
-    try:
-        from .engines.palm_reader import PalmReader, generate_palm_report
-        reader = PalmReader()
-        metrics = reader.analyze(tmp_path)
-        if metrics is None:
-            return {"status": "no_hand", "message": "未检测到手掌，请上传一张光线充足的手掌照片 ✋"}
-        api_key = getattr(handler.llm, 'api_key', '') if handler.llm else ''
-        report = generate_palm_report(metrics, retriever=handler.retriever, api_key=api_key)
-        return {
-            "status": "ok",
-            "palm_shape": metrics.palm_shape,
-            "palm_color": metrics.palm_color,
-            "finger_type": metrics.finger_type,
-            "life_line": metrics.life_line,
-            "wisdom_line": metrics.wisdom_line,
-            "feeling_line": metrics.feeling_line,
-            "fate_line": metrics.fate_line,
-            "special_patterns": metrics.special_patterns,
-            "report": report,
-        }
-    finally:
-        _unlink_quietly(tmp_path)
 
 
 # ════════════════════════════════════════════════════════════════

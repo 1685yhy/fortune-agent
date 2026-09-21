@@ -221,8 +221,12 @@ Page({
       solarOn: p.solar_time !== 0,
     };
     // 时辰（选填）：档案有时辰才回填
-    if (p.birth_hour !== undefined && p.birth_hour !== null && p.birth_hour !== '') {
-      const hi = personUtil.hourToShichenIndex(p.birth_hour) + 1;
+    // k77-M5 同类收口「宁少不假」：脏值（'abc'/99/'0x10'）不再被当作子时高亮
+    //（hourToShichenIndex 对不认识的值返回 0）——必须先过 parseHourStrict。
+    const bh = personUtil.parseHourStrict(p.birth_hour);
+    if (p.birth_hour !== undefined && p.birth_hour !== null && p.birth_hour !== ''
+        && bh >= 0 && bh <= 23) {
+      const hi = personUtil.hourToShichenIndex(bh) + 1;
       base[`${target}HourIdx`] = hi;
       base[`${target}HourSet`] = true;
     } else {

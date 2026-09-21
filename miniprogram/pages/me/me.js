@@ -320,13 +320,22 @@ Page({
        **解析结果被丢掉、又退回兜底 0（=子时）**：复审实测 "0x10"/"0b101"/"0o17"
        显示子时（期望申/卯/申），"1e1" 显示丑时（期望巳）——与「解析失败一律
        不显示、绝不兜底 0」直接冲突。故把**校验后的数值** hourNum 交给单点：
-       闸门与渲染从此共用同一个 Number 解析结果（parseInt(number) 恒等于该值），
-       两个解析器不可能再分叉。 */
+       闸门与渲染从此共用同一个解析结果，两个解析器不可能再分叉。
+
+       k77-M4「只认规范整数」（复审判定：k75 那条只对齐了两个解析器，却没管
+       **哪些形态该被认**）：改前用 Number() 完整解析，于是凡 Number 认的写法
+       全部放行 —— 复审实测 "0x10"→申时、"1e1"→巳时、"0b101"→卯时、
+       "0o17"→申时、"+10"→巳时、[10]→巳时（String([10])==='10'）、
+       **"0x0"→子时**。前几条是"用户没填的时辰被凭空显示"，最后一条更糟：
+       它显示的是**子时** —— 与 k73-M1 要消灭的"凭空子时"观感一模一样，
+       等于本闸门对最该拦的那一档漏了。改法：走 `persons.parseHourStrict`
+       （单一事实源，M5 的 timeText 同用），**只接受规范整数形态**
+       （number 整数 / 纯十进制整数字符串），进制前缀、科学计数、带符号、
+       小数、半截垃圾、数组对象一律 NaN ⇒ 不显示时辰。 */
     const rawHour = b.hour !== undefined && b.hour !== null ? b.hour : b.birthHour;
     const rawMinute = b.minute !== undefined && b.minute !== null ? b.minute : b.birthMinute;
     const hasHour = rawHour !== undefined && rawHour !== null && rawHour !== '';
-    const hourText = String(rawHour).trim();
-    const hourNum = hourText === '' ? NaN : Number(hourText);
+    const hourNum = persons.parseHourStrict(rawHour);
     const hasUsableHour = hasHour
       && Number.isInteger(hourNum) && hourNum >= 0 && hourNum <= 23;
     const hour = hasUsableHour

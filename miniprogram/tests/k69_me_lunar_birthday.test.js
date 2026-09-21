@@ -249,51 +249,57 @@ test('k73-M1 反向：合法 0-23 整数（含 0）与数字串**必须**仍显�
    ⇒ 与「解析失败一律不显示、**绝不兜底 0**」「用 `Number` 完整解析而非
    `parseInt`」两句直接冲突。修法：把**校验后的数值**交给单点
    （`persons.hourToShichenIndex(hourNum, rawMinute)`）。 */
-test('k75 闸门放行的可解析形态：必须按 Number 解析结果渲染（不得退回 parseInt/兜底 0）', () => {
-  /* 期望值由**独立**口径推出：JS 数字字面量语义（Number 解析）→ 时钟小时 →
-     utils/persons 时钟窗口。左=闸门放行的字符串形态，中=该形态的真实数值，
-     右=权威时辰（16→申 10→巳 5→卯 15→申）。 */
-  const MATRIX = [
-    ['0x10', 16, '申时'],
-    ['1e1', 10, '巳时'],
-    ['0b101', 5, '卯时'],
-    ['0o17', 15, '申时'],
+test('k77-M4（重钉 k75）：非规范数字形态一律**不显示时辰**（只认规范整数）', () => {
+  /* k77-M4 复审判定：k75 那条只对齐了"闸门与渲染用同一个解析器"，但**没管哪些
+     形态该被认** —— 它用 Number() 完整解析，于是凡 Number 认的写法全部放行：
+     实测 "0x10"→申时、"1e1"→巳时、"0b101"→卯时、"0o17"→申时、"+10"→巳时、
+     [10]→巳时（String([10])==='10'）、**"0x0"→子时**。前几条是"用户没填过的
+     时辰被凭空显示"，最后一条更糟：显示的正是**子时** —— 与 k73-M1 要消灭的
+     "凭空子时"观感一模一样，等于本闸门对最该拦的一档漏了。
+     重钉方向（控制方 M-4 原话）：**只接受规范整数串（或严格解析）**。
+     判别力只增：改前这批形态被放行并渲染出一个时辰，现在必须渲染不出时辰；
+     把闸门改回 Number() 即红（注入证明见 k77 报告）。 */
+  const BAD = [
+    ['0x10', '十六进制形态'], ['0x0', '0x0（会渲染成"凭空子时"）'],
+    ['0o17', '八进制形态'], ['0b101', '二进制形态'],
+    ['1e1', '科学计数形态'], ['+10', '带正号形态'],
+    ['10.5', '小数形态'], ['10time', '半截垃圾'], ['', '空串'],
+    [[10], '数组 [10]（String([10])==="10"）'],
   ];
-  MATRIX.forEach(([raw, num, cn]) => {
-    // ① 语义前提：该形态经 Number 解析确实等于 num（守卫的不是巧合）
-    assert.equal(Number(raw), num, `前提失效：Number(${JSON.stringify(raw)}) ≠ ${num}`);
-    // ② 权威单点对**数值**不可反驳：num 必落到 cn
-    assert.equal(persons.shichenCN(persons.hourToShichenIndex(num)), cn,
-      `权威口径失效：hourToShichenIndex(${num}) ≠ ${cn}`);
-    // ③ 页面必须渲染 cn —— 改前渲染的是 parseInt(raw) 的结果（0/1/0/0 → 子/丑/子/子）
+  BAD.forEach(([raw, label]) => {
     const page = makeMePage();
     page._applyBaziToView({
       year: 1995, month: 5, day: 12, hour: raw, calendar: 'solar', gender: '男',
     });
-    assert.equal(page.data.birthdayText, `1995.05.12 ${cn}`,
-      `hour=${JSON.stringify(raw)}（闸门已放行）⇒ 必须按 Number 解析结果 ${num} 渲染 ${cn}；`
-      + '改前实测退回 parseInt ⇒ '
-      + persons.shichenCN(persons.hourToShichenIndex(parseInt(raw, 10))));
+    assert.equal(page.data.birthdayText, '1995.05.12',
+      `hour=${JSON.stringify(raw)}（${label}）不是档案里的规范整数 ⇒ 必须不显示时辰；`
+      + `若渲染成 "${page.data.birthdayText}" 即为"凭空给用户一个没填过的时辰"`);
   });
 });
 
-test('k75 反向：同一批值的 number / 十进制数字串形态必须渲染同一时辰（两解析器不得分叉）', () => {
-  /* 反向守卫：上一条若被写成「一律不显示」或「恒按某个错值渲染」都会红，但还要
-     钉住另一侧 —— 同一批数值的 number 形态与十进制数字串形态（后端 JSON 常见
-     形态）必须与上一条**逐字同值**，证明修的是「闸门与渲染共用解析结果」，
-     不是「把可解析字符串也拦掉」。 */
-  const PAIRS = [[16, '0x10', '申时'], [10, '1e1', '巳时'],
-    [5, '0b101', '卯时'], [15, '0o17', '申时']];
-  PAIRS.forEach(([num, raw, cn]) => {
-    [[num, 'number'], [String(num), '十进制数字串']].forEach(([hour, label]) => {
+test('k77-M4 反向：规范整数形态（number / 十进制数字串）**必须**照旧显示时辰', () => {
+  /* 反向守卫：上一条若被写成"一律不显示"也会全绿 —— 故必须证明真值没被拦掉。
+     同一批数值的 number 形态与十进制数字串形态（后端 JSON 常见形态）必须**逐字同值**。 */
+  const PAIRS = [[16, '申时'], [10, '巳时'], [5, '卯时'], [15, '申时'],
+    [0, '子时'], [23, '子时']];
+  PAIRS.forEach(([num, cn]) => {
+    /* 「 10 」这种**首尾空白**形态按契约是**接受**的（parseHourStrict 先 trim；
+       语义无歧义、不存在"凭空造时辰"风险）—— 故意列进来，防止有人把 trim 也
+       当成脏值拦掉，导致真实档案的时辰静默消失（那是"宁少不假"的反面误伤）。 */
+    [[num, 'number'], [String(num), '十进制数字串'],
+      [` ${num} `, '带首尾空白']].forEach(([hour, label]) => {
       const page = makeMePage();
       page._applyBaziToView({
         year: 1995, month: 5, day: 12, hour, calendar: 'solar', gender: '男',
       });
       assert.equal(page.data.birthdayText, `1995.05.12 ${cn}`,
-        `hour=${label} ${JSON.stringify(hour)} 必须与 ${JSON.stringify(raw)} 同值（${cn}）`);
+        `hour=${label} ${JSON.stringify(hour)} 是规范整数 ⇒ 必须渲染 ${cn}`);
     });
   });
+  // 权威单点对**数值**的映射不变（0/23 → 子时；16 → 申时…）—— 证明"拒绝脏值"
+  // 不是"把时辰算错了"
+  assert.equal(persons.shichenCN(persons.hourToShichenIndex(16)), '申时');
+  assert.equal(persons.shichenCN(persons.hourToShichenIndex(0)), '子时');
 });
 
 /* ═══════ 4. 单一事实源：口径用行为断言 + 仅剩的结构性接线回归锁 ═══════
