@@ -200,6 +200,75 @@ def _static_mounts_in_source():
     return hits
 
 
+def _walk_routes(routes, out, seen):
+    """手工展平：递归吃 `_IncludedRouter`（FastAPI ≥0.139 的 include 产物）。
+
+    0.139.0 起 `include_router(...)` 不再把子路由**拍平**进 `app.routes`，而是追加一个
+    `_IncludedRouter` 对象 —— 它**既没有 `path` 也没有 `routes` 属性**，所以
+    「遍历 app.routes 找 path」的写法对经 include 挂进来的路由**结构性失明**。
+    `effective_candidates()` 正是 0.139 自己用来算"这次 include 到底带进来哪些路由"
+    的入口，返回 `_EffectiveRouteContext`（带 `path` / `methods` / `dependant`）。
+    """
+    for r in routes:
+        if id(r) in seen:                           # 防环（include 可嵌套/可自引用）
+            continue
+        seen.add(id(r))
+        if type(r).__name__ == "_IncludedRouter":
+            fn = getattr(r, "effective_candidates", None)
+            for ctx in (fn() if callable(fn) else ()):
+                if type(ctx).__name__ == "_IncludedRouter":
+                    _walk_routes([ctx], out, seen)  # 嵌套 include：再展一层
+                else:
+                    out.append(ctx)
+            continue
+        if getattr(r, "path", None) is not None:
+            out.append(r)                           # APIRoute（两版都有）/ Mount / Route
+        elif hasattr(r, "routes"):
+            _walk_routes(r.routes, out, seen)       # 老式 Router / Mount 兜底
+    return out
+
+
+def _all_routes(app):
+    """**全量**路由枚举（跨 FastAPI 版本稳健）—— 本文件的**唯一**运行面入口。
+
+    k86 必修3（P0）：本文件此前直接遍历 `app.routes`。在 FastAPI < 0.139 上那是
+    对的（`include_router(...)` 的产物被**拍平**进 `app.routes`）；但 0.139.0 起
+    产物是一个 `_IncludedRouter` 对象（**没有 `path`、没有 `routes` 属性**），
+    遍历 `app.routes` 只会看到一个无 path 的壳 ⇒ 该路由**结构性隐形**。
+
+    k86 实测（同一份 `src/main.py`，同一台机器，只换解释器）：
+      · `fastapi 0.115.0`（/usr/bin/python3）          → 经 `app.routes` 见 **141** 条 path
+      · `fastapi 0.139.0`（/home/a/fortune-agent/.venv）→ 经 `app.routes` 只见到 **37** 条
+      ⇒ **104 条隐形**，其中就有本文件 T1 要判定的 `/share`、`/api/share/qr`、
+        `/api/scenarios`、`/api/mingren` …
+    后果：`_auth_of()` 对隐形路由抛 `KeyError`、`_auth_of_absent()` 对隐形路由恒返回
+    True（"不存在"，与"已删除"**不可区分**）—— 「未鉴权 HTML 路由审计」这个门禁在
+    0.139.0 上**形同虚设**，而且它是红的（3 条），谁都不会再看它。
+    已实测的**假绿**（k86）：把一个 `/scenarios` 孤儿页挂在 include 进来的 router 上，
+    它真的在服务（HTTP 200），而旧判据 `_auth_of_absent` 返回 **True**（"已删除"）。
+
+    修法分两层，**先公开 API、再手工兜底**：
+      ① FastAPI ≥0.139 提供**公开**入口 `fastapi.routing.iter_route_contexts(routes)`，
+         产出的 `RouteContext` 带 `path` / `methods` / `dependant`（`__getattr__` 转发到
+         effective context）⇒ `_dep_names()` **无需改动**，只换输入。公开 API 不会随
+         内部重构改名，故优先用它。
+      ② 老版本 / 拿不到公开 API 时退到 `_walk_routes()`（扁平结构下等价于直接遍历）。
+    两个版本实测同为 **141** 条 path，鉴权判定逐条一致。
+
+    这是**把失效的判据改成有效的判据**，不是放宽：断言一条没删，可见面 37 → 141。
+    """
+    try:                                            # ① 公开 API（0.139+）
+        from fastapi.routing import iter_route_contexts
+    except ImportError:                             # ② 旧版本 / 手工展平
+        return _walk_routes(app.routes, [], set())
+    return list(iter_route_contexts(app.routes))
+
+
+def _has_route(app, path):
+    """该 path 是否**真的**挂在 app 上（走全量枚举，不直接读 `app.routes`）。"""
+    return any(getattr(r, "path", None) == path for r in _all_routes(app))
+
+
 def _dep_names(route):
     """路由依赖链上的全部函数名（递归展开子依赖）。"""
     out = set()
@@ -217,7 +286,7 @@ def _dep_names(route):
 
 def _auth_of(app, path):
     """运行面：该 path 是否挂了鉴权依赖（require_user / require_chat_user）。"""
-    for r in app.routes:
+    for r in _all_routes(app):
         if getattr(r, "path", None) == path:
             names = _dep_names(r)
             return "auth" if ({"require_user", "require_chat_user"} & names) else "anon"
@@ -244,13 +313,133 @@ class TestT1HtmlSurfaceInventory:
         assert _static_mounts_in_source() == set(STATIC_MOUNTS), (
             f"静态挂载面与已登记表不一致：{sorted(_static_mounts_in_source())}")
 
+    # ── k86 必修3：运行面枚举器的**判别力**自检 ──────────────────────────
+    def test_route_enumerator_is_not_blind(self):
+        """判据自检：**全量枚举器**必须看见经 `include_router` 挂进来的路由。
+
+        防的是本批修掉的那个失效形态：判据直接遍历 `app.routes`，在 FastAPI ≥0.139
+        上只能看到被拍平的那 37 条，`include_router` 带进来的 104 条**结构性隐形**
+        ⇒ `_auth_of()` 抛 KeyError / `_auth_of_absent()` 恒 True ⇒ **假绿**。
+        """
+        import src.main as m
+
+        paths = {getattr(r, "path", None) for r in _all_routes(m.app)}
+
+        # ① 规模下限：0.139.0 上"直接遍历 app.routes"实测只有 37 条，
+        #    本下限它**达不到** ⇒ 判据一旦退回旧写法，本断言即红。
+        assert len(paths) >= 100, (
+            f"全量枚举只见到 {len(paths)} 条 path（0.115.0/0.139.0 实测均为 141 条）"
+            "—— 枚举器退回了 `app.routes` 直遍历（在 FastAPI ≥0.139 上会瞎掉 100+ 条）")
+
+        # ② 点名：T1 判定表里**只能**经 include_router 看见的那几条必须在。
+        #    （这几条正是 k85 实测被"看不见"而报红的路由。）
+        for p in ("/share", "/share/{reading_id}", "/api/share/qr", "/api/scenarios",
+                  "/api/mingren", "/api/charts/{filename}", "/pricing"):
+            assert p in paths, (
+                f"{p} 在全量枚举里不可见 —— 未鉴权面审计对该路由**失明**，"
+                "该路由可以在无人察觉的情况下变成未鉴权面")
+
+        # ③ 不变式：全量枚举是 `app.routes` 直遍历的**超集**（两个版本都必须成立）。
+        #    0.139.0 上这里是**真超集**（141 > 37）；若哪天反过来，说明枚举器漏了面。
+        naive = {getattr(r, "path", None) for r in m.app.routes if getattr(r, "path", None)}
+        assert paths >= naive, (
+            f"全量枚举漏了 `app.routes` 里看得见的路由：{sorted(naive - paths)}")
+
+        # ④ 手工展平兜底 `_walk_routes` 必须与公开 API **同结果**（防兜底腐烂）。
+        #    public-only 若在某些环境 ImportError，走的就是这条兜底。
+        fallback = {getattr(r, "path", None)
+                    for r in _walk_routes(m.app.routes, [], set())}
+        fallback.discard(None)
+        assert fallback == paths, (
+            f"手工展平兜底与公开 API 结果不一致：多 {sorted(fallback - paths)} / "
+            f"少 {sorted(paths - fallback)} —— 兜底已腐烂，ImportError 时会静默瞎掉")
+
+    def test_route_enumerator_reacts_to_an_injected_route(self):
+        """**注入证明**：往一个走 `include_router` 的 router 里塞一条未登记路由，
+        枚举器 + 鉴权判据必须**立刻看见它**（这才叫判别力）。
+
+        用 `TestClient` 真发请求交叉印证：枚举到 ≠ 只是枚举器自说自话。
+        """
+        from fastapi import APIRouter, FastAPI
+        from fastapi.responses import HTMLResponse
+        from starlette.testclient import TestClient
+
+        router = APIRouter()
+
+        @router.get("/k86-injected-probe")
+        def k86_injected_probe():                   # pragma: no cover - 只建不调业务
+            return HTMLResponse("<html>probe</html>")
+
+        app = FastAPI()
+        app.include_router(router)
+
+        # 判据必须看得见注入的路由（在 0.139.0 上"直接遍历 app.routes"看不见）
+        assert _has_route(app, "/k86-injected-probe"), (
+            "注入一条 include_router 路由后枚举器看不见 —— 判据对新增路由无反应")
+        assert _auth_of(app, "/k86-injected-probe") == "anon", (
+            "注入的未鉴权路由被判成 auth —— 鉴权判据失效")
+
+        # 交叉印证：这条路由**真的**在服务（枚举到 = 真的可达）
+        assert TestClient(app).get("/k86-injected-probe").status_code == 200
+
+    def test_injected_html_route_without_registration_is_red(self):
+        """**注入证明（注册面）**：AST 判据对"新增未登记的 HTML 路由"必须变红。
+
+        判据 = `test_source_scan_matches_the_registered_inventory` 的同一函数。
+        这里在 `tmp` 里造一份最小 `src/` 复刻该判据的输入 → 未登记即被发现。
+        """
+        import tempfile
+        probe = (
+            "from fastapi import FastAPI\n"
+            "from fastapi.responses import HTMLResponse\n"
+            "app = FastAPI()\n"
+            "\n"
+            "@app.get('/k86-unregistered-html-probe')\n"
+            "def probe():\n"
+            "    return HTMLResponse('<html>x</html>')\n"
+        )
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "src").mkdir()
+            (root / "src" / "probe_mod.py").write_text(probe, encoding="utf-8")
+            # 复刻 `_get_html_routes_in_source` 的判据（同 AST 形态、同命中条件）
+            hits = set()
+            for p in sorted((root / "src").rglob("*.py")):
+                text = p.read_text(encoding="utf-8")
+                tree = ast.parse(text)
+                rel = str(p.relative_to(root)).replace(os.sep, "/")
+                for node in ast.walk(tree):
+                    if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        continue
+                    for dec in node.decorator_list:
+                        if not (isinstance(dec, ast.Call)
+                                and isinstance(dec.func, ast.Attribute)):
+                            continue
+                        if dec.func.attr != "get" or not dec.args:
+                            continue
+                        if not isinstance(dec.args[0], ast.Constant):
+                            continue
+                        body = ast.get_source_segment(text, node) or ""
+                        if "HTMLResponse" in body or "FileResponse" in body:
+                            hits.add(f"{rel}::{dec.args[0].value}")
+            assert hits == {"src/probe_mod.py::/k86-unregistered-html-probe"}, (
+                f"注入的未登记 HTML 路由没被 AST 判据抓到：{hits}")
+            # 而它**不在**已登记表里 ⇒ 上层断言 `found == set(HTML_SURFACE)` 必红
+            assert hits - set(HTML_SURFACE), (
+                "注入路由竟然已登记 —— 该注入证明无效")
+
     def test_auth_disposition_matches_at_runtime(self):
         """**判定的鉴权状态用运行面实测**（不是手写）：逐条比对 app 上的真实依赖。"""
         import src.main as m
         bad = []
         for key, meta in {**HTML_SURFACE, **STATIC_MOUNTS}.items():
             path = key.split("::", 1)[1]
-            if key in STATIC_MOUNTS:                # mount 不进 app.routes 的 path 索引
+            # mount 跳过鉴权比对：`Mount` 没有 `.dependant`，`_dep_names()` 恒为空集，
+            # 判出来必然是 "anon"（与登记值相同）⇒ 比了也是**空断言**，不构成判别力。
+            # 其存在性由 T1 的 AST 面 `test_static_mounts_match` 钉住，不是没人管。
+            # （k86 更正：此处原注释称"mount 不进 app.routes 的 path 索引"是**错的** ——
+            #  `Mount('/share-cards', …)` 一直是 `app.routes` 的直接子项、按 path 可索引。）
+            if key in STATIC_MOUNTS:
                 continue
             got = _auth_of(m.app, path)
             if got != meta["auth"]:
@@ -261,7 +450,7 @@ class TestT1HtmlSurfaceInventory:
         """面外同类（二进制响应的无鉴权 GET）：登记 + 运行面逐条核实存在与鉴权。"""
         import src.main as m
         for path, meta in BINARY_SURFACE.items():
-            assert any(getattr(r, "path", None) == path for r in m.app.routes), (
+            assert _has_route(m.app, path), (
                 f"{path} 已不在路由表（登记过期）")
             assert _auth_of(m.app, path) == meta["auth"], (
                 f"{path} 的鉴权状态变了（登记 {meta['auth']}）——判定的前提没了，"
@@ -305,12 +494,12 @@ class TestT1DeadPagesRemoved:
     def test_api_scenarios_json_is_untouched(self):
         """反向钉住：删 HTML 死页**不得**误伤小程序真正用的 JSON 接口。"""
         import src.main as m
-        assert any(getattr(r, "path", None) == "/api/scenarios" for r in m.app.routes), \
+        assert _has_route(m.app, "/api/scenarios"), \
             "/api/scenarios（JSON，小程序在用）被误删了"
 
 
 def _auth_of_absent(app, path):
-    return not any(getattr(r, "path", None) == path for r in app.routes)
+    return not _has_route(app, path)
 
 
 class TestT1DocsFailClosed:

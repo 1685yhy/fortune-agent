@@ -1739,7 +1739,7 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
                 forwarded = request.headers.get("X-Forwarded-For", "")
                 ip = forwarded.split(",")[0].strip() if forwarded else (request.client.host if request.client else "")
             if security_audit:
-                security_audit.attack_detected(attack_type, req.user_id, ip, req.message[:80])
+                security_audit.attack_detected(attack_type, req.user_id, ip, req.message)  # k86：audit 侧脱敏
             return ChatResponse(
                 reply="⚠️ 输入包含不安全内容，已拦截。请使用正常语言描述您的问题。",
                 membership=member_dao.get_membership(req.user_id) if member_dao else None,
@@ -1824,7 +1824,11 @@ async def chat(req: ChatRequest, request: Request = None, auth: dict = Depends(r
         if reply and len(reply) > 10:
             val_result = _validator.validate(reply, engine_data_used=True)
             if not val_result["passed"]:
-                logger.warning(f"Accuracy issue in response: {val_result['violations']}")
+                # k86 必修2：原为整条 violations（其 detail 内嵌 AI 回复原文片段[:50]）⇒ 明文进 app.log。
+                # 只记类型与严重度：足以定位"哪条规则被触发"，不带回复正文。
+                logger.warning("Accuracy issue in response: %s",
+                               [{k: v for k, v in x.items() if k != "detail"}
+                                for x in val_result["violations"]])
 
         # 成功响应后扣减配额（体验模式不扣）
         if not is_experience_mode():

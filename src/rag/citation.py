@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import threading
 from typing import List, Optional
+from src.security.log_redact import redact  # k86 必修2：日志不落对话明文
 
 logger = logging.getLogger(__name__)
 
@@ -163,8 +164,9 @@ def verify_citations(reply: str, question: str, citations: List[dict],
                 kept.append(c)
             else:
                 cleaned = cleaned.replace(marker, "")
+                # k86 必修2：text 为回复正文（由对话生成）⇒ 不落明文
                 logger.info("引用校验剔除不相关 [%s]（sim=%.3f）: %s",
-                            idx, c.get("similarity", 0), text[:40])
+                            idx, c.get("similarity", 0), redact(text))
         elif relevant:
             # 相关但未显式标注 [n]：该来源是本轮分析实际注入的依据（引擎
             # 检索/排盘结果、古籍片段），LLM 是否书写 [n] 标记存在随机性

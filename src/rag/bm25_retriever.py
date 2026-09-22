@@ -36,6 +36,7 @@ from array import array
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from src.security.log_redact import redact  # k86 必修2：日志不落对话明文
 
 logger = logging.getLogger(__name__)
 
@@ -271,8 +272,9 @@ class BM25Retriever:
                 "author": doc.author,
             })
         if results:
-            logger.debug("BM25 检索 '%s' 返回 %d 条, 耗时 %.1fms",
-                         query, len(results), (time.time() - t0) * 1000)
+            # k86 必修2：检索词由用户提问生成 ⇒ 不落明文（原为 query，未截断）
+            logger.debug("BM25 检索 %s 返回 %d 条, 耗时 %.1fms",
+                         redact(query), len(results), (time.time() - t0) * 1000)
         return results
 
     def _score(self, q_terms: List[str], category: Optional[str] = None) -> Dict[int, float]:

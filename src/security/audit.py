@@ -15,6 +15,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from functools import wraps
 
+from src.security.log_redact import redact
+
 logger = logging.getLogger(__name__)
 
 # Default audit log path
@@ -210,7 +212,13 @@ class AuditLogger:
         )
 
     def attack_detected(self, attack_type: str, user_id: str, ip: str, input_preview: str):
-        """Log attack detection event."""
+        """Log attack detection event.
+
+        k86 必修2：`input_preview` **在唯一出口处脱敏**（不再 `[:100]` 截断明文）。
+        审计日志每行还带 user_id / IP / User-Agent，若再带用户正文片段，等于把
+        对话与身份一起长期留在一个**无时间上限**的文件里（audit.log 按容量滚动）。
+        调用方可直接传**原文**（长度/指纹才准）；此处统一转成 `[len=.. h=..]`。
+        """
         self.log(
             action="attack_detected",
             user_id=user_id,
@@ -218,7 +226,7 @@ class AuditLogger:
             result="blocked",
             details={
                 "attack_type": attack_type,
-                "input_preview": input_preview[:100],
+                "input_preview": redact(input_preview),
             },
         )
 

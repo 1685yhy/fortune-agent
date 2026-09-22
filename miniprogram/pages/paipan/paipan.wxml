@@ -99,7 +99,11 @@
     <view class="pp-btn {{loading ? 'pp-btn-disabled' : ''}}" hover-class="pp-btn-active" hover-stay-time="0" bindtap="onPaipan">
       <text>{{loading ? '排盘中…' : '开始排盘'}}</text>
     </view>
-    <view class="input-privacy">生辰仅用于本次排盘，不留存</view>
+    <!-- k86 必修1：原为「生辰仅用于本次排盘，不留存」—— 与代码不符。
+         `POST /api/paipan` 会 `ChartDAO.save_chart(...)` 落库 chart_records
+         （src/api/paipan.py:115-127，AES-256-GCM 加密），「排盘历史」正是靠它回看。
+         文案改为如实说明。 -->
+    <view class="input-privacy">生辰会加密保存，用于「排盘历史」回看</view>
   </view>
 </view>
 

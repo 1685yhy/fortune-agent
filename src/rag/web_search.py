@@ -44,6 +44,7 @@ from typing import List, Optional
 from urllib.parse import quote, unquote
 
 import httpx
+from src.security.log_redact import redact  # k86 必修2：日志不落对话明文
 
 logger = logging.getLogger(__name__)
 
@@ -916,8 +917,9 @@ def _search_bing(keywords: str, limit: int = 5,
             # 结果页形态在（有容器标记）却解析不到 → 如实上报解析失败（防静默劣化）
             raise EngineError("bing", "parse_miss")
         if results:
-            logger.debug("Bing 检索 '%s'（精简自 '%s'）→ %d 条",
-                         query[:40], raw[:40], len(results))
+            # k86 必修2：检索词/原始提问由用户提问生成 ⇒ 不落明文
+            logger.debug("Bing 检索 %s（精简自 %s）→ %d 条",
+                         redact(query), redact(raw), len(results))
         return results
     except EngineError:
         raise
@@ -1295,7 +1297,8 @@ def search_web_structured(keywords: str, limit: int = 5,
     cache_key = f"v2:{','.join(engine_list)}:{raw}:{limit}"
     hit = _result_cache.get(cache_key)
     if hit and time.time() < hit[0]:
-        logger.info("网络检索 '%s' → 命中缓存 %d 条", raw[:40], len(hit[1]["results"]))
+        # k86 必修2：raw 为用户提问生成的检索词 ⇒ 不落明文
+        logger.info("网络检索 %s → 命中缓存 %d 条", redact(raw), len(hit[1]["results"]))
         cached = dict(hit[1])
         cached["cache_hit"] = True
         return cached
@@ -1405,13 +1408,14 @@ def search_web_structured(keywords: str, limit: int = 5,
         _result_cache[cache_key] = (time.time() + RESULT_CACHE_TTL, pkg)
         if len(_result_cache) > RESULT_CACHE_MAX:
             _trim_result_cache()
-    logger.info("网络检索 '%s' → %d 条（引擎 %s；停止=%s；相关性=%s；局部失败 %d）",
-                raw[:40], len(results),
+    # k86 必修2：raw 为用户提问生成的检索词 ⇒ 不落明文
+    logger.info("网络检索 %s → %d 条（引擎 %s；停止=%s；相关性=%s；局部失败 %d）",
+                redact(raw), len(results),
                 "+".join(ENGINE_LABELS.get(e, e) for e in engines_ok) or "-",
                 stop_reason, pkg.get("relevance"), len(failures))
     if results and pkg.get("relevance") == "none":
         logger.warning("k46 各引擎结果与查询均不相关（疑似引擎侧释义卡/软性重定向）"
-                       "→ 已标注 relevance=none，消费方不得当答案使用：'%s'", raw[:40])
+                       "→ 已标注 relevance=none，消费方不得当答案使用：%s", redact(raw))
     if failures:
         logger.info("k46 局部失败明细：%s",
                     "; ".join(f"{ENGINE_LABELS.get(f['engine'], f['engine'])}={f['reason']}"
@@ -1475,8 +1479,8 @@ def _search_zhipu_legacy(keywords: str, limit: int = 5,
         status = data.get("status")
         if status not in (None, 200, 0):
             # 1701 并发上限 / 1702 无搜索引擎 / 1703 无有效数据
-            logger.warning("网络检索 '%s' 返回状态 %s: %s",
-                           keywords[:40], status, str(data.get("message") or "")[:120])
+            logger.warning("网络检索 %s 返回状态 %s: %s",
+                           redact(keywords), status, str(data.get("message") or "")[:120])
             return []
         results: List[dict] = []
         seen_urls: set[str] = set()
@@ -1510,15 +1514,15 @@ def _search_zhipu_legacy(keywords: str, limit: int = 5,
         # 鉴权失效(401/403)/欠费(1113)/限流(429)：大概率持续失败，冷却 5 分钟重试
         permanent = status in (401, 403, 429) or "1113" in body
         cooldown = PERM_FAIL_COOLDOWN if permanent else AVAIL_CACHE_TTL
-        logger.warning("网络检索失败 '%s'（HTTP %s%s，%s 秒后重试）",
-                       keywords[:40], status,
+        logger.warning("网络检索失败 %s（HTTP %s%s，%s 秒后重试）",
+                       redact(keywords), status,
                        (": " + body[:120]) if body else "",
                        cooldown)
         _avail = False
         _avail_at = time.time() + cooldown
         return []
     except Exception as e:  # noqa: BLE001 — 网络层失败标记不可用
-        logger.warning("网络检索 '%s': %s", keywords[:40], str(e)[:120])
+        logger.warning("网络检索 %s: %s", redact(keywords), str(e)[:120])
         _avail = False
         _avail_at = time.time() + AVAIL_CACHE_TTL
         return []

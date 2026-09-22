@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
+from src.security.log_redact import redact  # k86 必修2：日志不落对话明文
 
 logger = logging.getLogger(__name__)
 
@@ -255,10 +256,11 @@ class FaissRetriever:
             return []
 
         if results:
+            # k86 必修2：检索词由用户提问生成 ⇒ 不落明文（原为 query，未截断）
             logger.debug(
-                "FAISS 检索 '%s' → %d 路扩展 → 候选 %d → Top%d "
+                "FAISS 检索 %s → %d 路扩展 → 候选 %d → Top%d "
                 "(扩展 %.0fms + 召回 %.0fms + 精排 %.0fms)",
-                query, len(queries), len(pool), len(results),
+                redact(query), len(queries), len(pool), len(results),
                 expand_ms, recall_ms, rerank_ms,
             )
         return results

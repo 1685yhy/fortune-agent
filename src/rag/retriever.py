@@ -16,6 +16,7 @@ from src.book_categories import (
     KNOWN_EMPTY_COLLECTIONS,
     resolve_categories,
 )
+from src.security.log_redact import redact  # k86 必修2：日志不落对话明文
 
 logger = logging.getLogger(__name__)
 
@@ -555,9 +556,10 @@ class Retriever:
                 if chunk_results:
                     return chunk_results
                 # ② 类目无命中 → 无类目兜底（返回空才是断链，见 docstring）
+                # k86 必修2：query 为用户提问生成的检索词 ⇒ 不落明文
                 logger.info(
-                    "类目 '%s'（映射 %s）无命中 → 退回全库检索: query=%r",
-                    category, list(cats), query[:40],
+                    "类目 '%s'（映射 %s）无命中 → 退回全库检索: query=%s",
+                    category, list(cats), redact(query),
                 )
 
             # 无类目（或类目兜底）：全库检索

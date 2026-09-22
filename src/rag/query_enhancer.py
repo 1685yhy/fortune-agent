@@ -11,6 +11,7 @@ from typing import Optional
 import httpx
 
 from src.utils.text_clean import strip_emoji
+from src.security.log_redact import redact  # k86 必修2：日志不落对话明文
 
 logger = logging.getLogger(__name__)
 
@@ -109,7 +110,8 @@ class QueryEnhancer:
         try:
             return await self._call_deepseek(query)
         except Exception as exc:
-            logger.warning("Query enhancement failed for %r: %s", query[:50], exc)
+            # k86 必修2：query 为用户提问 ⇒ 不落明文
+            logger.warning("Query enhancement failed for %s: %s", redact(query), exc)
             return self._build_fallback(query)
 
     def enhance_sync(self, query: str) -> EnhancedQuery:

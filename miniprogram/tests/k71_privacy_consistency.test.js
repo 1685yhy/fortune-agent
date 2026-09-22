@@ -2225,3 +2225,277 @@ test('k80-M2 消灭手写条数：本文件不得再写死"宽面条数"（必�
     + `${BACKEND.string_constants}（其中可折叠 folded=${BACKEND.folded}）；`
     + `本文件里的"宽面条数"手写数字：${bad.length} 处；历史漂移数字复活：${revived.length} 处`);
 });
+
+/* ════════════════════════════════════════════════════════════════
+   §13（k86 必修1）**全仓 wxml** 的「保存 / 不留存」否定式承诺登记表
+   ────────────────────────────────────────────────────────────────
+   为什么新增本节：k85 实测出 `privacy.md:18` + `pages/privacy/privacy.wxml` 的
+   「服务器不留存双方生辰」与代码不符（`src/storage/person_dao.py:719-722` 确会
+   `INSERT INTO persons(… birth_enc …)`，而该条适用场景**包含「添加多人档案」**）。
+   进一步核查发现：**同类表述还散落在三个页面上，而它们从未被任何口径守卫覆盖** ——
+   本文件原有的 `PAGE` 只读 `pages/privacy/privacy.wxml` 一个文件。
+     · `pages/paipan/paipan.wxml` 原写「生辰仅用于本次排盘，不留存」，
+       但 `src/api/paipan.py:115-127` 会 `ChartDAO.save_chart(...)` 落库
+       `chart_records`（该模块自己的 docstring 都写着「生辰 AES 密文落库」）⇒ **假**；
+     · `pages/duipan/duipan.wxml`「生辰仅用于本次对比，不留存」⇒ **真**
+       （`src/api/duipan.py` 明示红线「不落库、不入日志、不写 DAO」，全文件无 INSERT/UPDATE）；
+     · `pages/bazi/bazi.wxml`「排完即走 · 不留档案」⇒ **真**，且它**只声称"不留档案"**
+       （persons 档案），未作"不留存"的笼统承诺（`bazi.js:244-251` 未勾选"保存到档案"
+       时走 `_enterTempForm()`，不调 `createPerson`）。
+
+   判据：**任何页面文本里的否定式留存承诺都必须逐条登记**（新增未登记页 ⇒ 红），
+   且登记的措辞必须与代码事实一一对应（措辞被改回 ⇒ 红）。
+   ════════════════════════════════════════════════════════════════ */
+
+/** 递归收集 pages/ 与 components/ 下的全部 wxml（相对 miniprogram/ 的 posix 路径）。 */
+function allWxmlFiles() {
+  const out = [];
+  const walk = (dir) => {
+    for (const ent of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      const rel = `${dir}/${ent.name}`;
+      if (ent.isDirectory()) walk(rel);
+      else if (ent.name.endsWith('.wxml')) out.push(rel);
+    }
+  };
+  walk('pages');
+  walk('components');
+  return out.sort();
+}
+
+/** 「否定式留存承诺」的节点抽取：去注释 → 拆标签 → 取文本节点。 */
+function negativeRetentionNodes(rel) {
+  const raw = read(rel);
+  const NEG = /不留|不保存|不会保存|不存储|不会存储|不写入|不入库|不落库|不上传|不记录|不作留存/;
+  const ABOUT = /生辰|出生|信息|记录|档案|数据|录音|图片|命主/;
+  return read(rel) && raw
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .split(/<[^>]*>/)
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter((s) => s && NEG.test(s) && ABOUT.test(s));
+}
+
+/*: 登记表：文件 → 该文件的否定式承诺**必须**长什么样（措辞即判据）。
+    每条 `must` 都能追到一段代码（见下方 k86 行为/源码对照测试）。 */
+const NEGATIVE_CLAIM_REGISTRY = {
+  'pages/privacy/privacy.wxml': {
+    why: '隐私页 —— 集中披露全部留存口径（含 k86 新收窄的合盘/档案分野）',
+    must: [
+      /我们不留你的录音/,                       // 录音原文不保存（上传口只收图片）
+      /合盘这次计算不保存双方的完整生辰/,        // 合盘不写双方完整生辰
+      /对方生辰会加密存在你的账号下/,            // 多人档案/帮他人排盘 → persons.birth_enc
+      /即日柱＋出生年月日＋生肖/,                // yuan_card.birthA/B = 脱敏显示串
+      /多盘对比/,                              // 纯计算不留记录
+      /合盘历史不提供单条删除/,                  // 无单条删除入口（只有注销）
+    ],
+  },
+  'pages/duipan/duipan.wxml': {
+    why: '多盘对比 —— 真·不留存（src/api/duipan.py 红线：不落库/不入日志/不写 DAO）',
+    must: [/生辰仅用于本次对比，不留存/],
+  },
+  'pages/bazi/bazi.wxml': {
+    why: '帮他人排盘 —— 只声称"不留档案"（persons 档案），未作"不留存"承诺',
+    must: [/排完即走 · 不留档案/, /未保存的命主，排完即走，不进入档案/],
+  },
+};
+
+test('k86 全仓 wxml：带否定式留存承诺的页面必须全部登记（新增即红）', () => {
+  const found = allWxmlFiles().filter((f) => negativeRetentionNodes(f).length > 0);
+  const registered = Object.keys(NEGATIVE_CLAIM_REGISTRY).sort();
+  assert.deepEqual(found, registered,
+    '否定式留存承诺的页面集合与登记表不一致（未登记 = 该页可以对用户作出与代码不符的'
+    + '承诺而无人发现）：\n'
+    + `  未登记: ${JSON.stringify(found.filter((f) => !registered.includes(f)))}\n`
+    + `  已消失: ${JSON.stringify(registered.filter((f) => !found.includes(f)))}`);
+});
+
+test('k86 全仓 wxml：登记的承诺措辞必须逐条在位（改回旧口径即红）', () => {
+  const broken = [];
+  for (const [rel, meta] of Object.entries(NEGATIVE_CLAIM_REGISTRY)) {
+    const text = wxmlText(read(rel));
+    for (const re of meta.must) {
+      if (!re.test(text)) broken.push(`${rel} 缺 ${re} —— ${meta.why}`);
+    }
+  }
+  assert.deepEqual(broken, [],
+    '页面承诺措辞与登记不符（k86 已按代码事实改准，不得改回）：\n  - ' + broken.join('\n  - '));
+});
+
+test('k86 paipan 页不得再声称"不留存"（代码确会落库 chart_records）', () => {
+  const text = wxmlText(read('pages/paipan/paipan.wxml'));
+  assert.ok(!/不留存/.test(text),
+    'paipan.wxml 又出现「不留存」—— src/api/paipan.py 的 save_chart() 会把生辰'
+    + '（AES-256-GCM）落库 chart_records，「排盘历史」正是靠它回看');
+  assert.ok(/加密保存/.test(text) && /排盘历史/.test(text),
+    'paipan.wxml 未如实说明「生辰会加密保存，用于排盘历史回看」');
+});
+
+test('k86 承诺 ↔ 代码 逐条对照（行为/源码双面，改哪边都红）', () => {
+  const out = pyJson(`
+import json, re, pathlib
+def src(p):
+    return pathlib.Path(p).read_text(encoding="utf-8")
+r = {}
+# ① 「多人档案会保存对方生辰」→ persons 确有 birth_enc 的 INSERT
+pd = src("src/storage/person_dao.py")
+r["persons_insert_birth_enc"] = bool(re.search(
+    r"INSERT INTO persons\\s*\\([^)]*birth_enc", pd, re.S))
+# ② 「合盘的计算不写双方完整生辰」→ union 归档只取 yuan_card（不含 hour/minute/city）
+un = src("src/api/union.py")
+r["union_archives_yuan_card"] = "_archive_free_record" in un and "yuan_card" in un
+r["union_no_hour_key"] = ("\\"hour\\"" not in un.split("_archive_free_record", 1)[1][:1200])
+# ③ 「脱敏显示串 = 日柱 + 年月日 + 生肖」→ desensitize_birth 的实现
+eg = src("src/engines/union.py")
+m = re.search(r"def desensitize_birth[\\s\\S]{0,400}?return f\\\"([^\\\"]+)\\\"", eg)
+r["desensitize_fmt"] = m.group(1) if m else ""
+# ④ 「排盘会加密保存」→ paipan 确有 save_chart
+pp = src("src/api/paipan.py")
+r["paipan_saves_chart"] = "save_chart(" in pp and "chart_records" in pp
+# ⑤ 「多盘对比不留存」→ duipan 全文件无任何写入语句
+dp = src("src/api/duipan.py")
+r["duipan_no_write"] = not re.search(r"\\b(INSERT|UPDATE|DELETE)\\b", dp, re.I)
+# ⑥ 「帮他人排盘不建档案」→ bazi 页未勾选时走临时表单
+bj = src("miniprogram/pages/bazi/bazi.js")
+r["bazi_temp_form"] = "_enterTempForm" in bj and "不存档案" in bj
+print(json.dumps(r, ensure_ascii=False))
+`);
+  assert.equal(out.persons_insert_birth_enc, true,
+    'person_dao.py 不再有带 birth_enc 的 persons INSERT —— 「多人档案会保存对方生辰」失去依据');
+  assert.ok(out.union_archives_yuan_card,
+    'union 归档不再写 yuan_card —— 「合盘历史含脱敏显示串」须重新核对');
+  assert.ok(out.union_no_hour_key,
+    'union 归档段出现了 hour 键 —— 可能开始写时辰，页面「不含时辰」须重新核对');
+  assert.equal(out.desensitize_fmt, '{day_ganzhi} · {year}年{month}月{day}日 属{shengxiao}',
+    'desensitize_birth 的格式串变了 —— 页面「日柱＋出生年月日＋生肖」须同步');
+  assert.ok(out.paipan_saves_chart,
+    'paipan.py 不再 save_chart —— paipan 页「加密保存/排盘历史」失去依据');
+  assert.ok(out.duipan_no_write,
+    'duipan.py 出现了写入语句 —— 「生辰仅用于本次对比，不留存」不再成立，必须改文案');
+  assert.ok(out.bazi_temp_form,
+    'bazi.js 的临时表单路径消失 —— bazi 页「不留档案」须重新核对');
+});
+
+/* ════════════════════════════════════════════════════════════════
+   §14（k86 必修2）四处**此前完全未披露**的行为 —— 披露一旦被删即红
+   ────────────────────────────────────────────────────────────────
+   k85 点名、k86 逐条核实后**决定披露**（不是停行为）的四项，以及各自的代码依据：
+     ① 服务号模板消息通道：`src/services/wechat_mp.py:1-49`（`cgi-bin/message/template/send`）
+        + `src/main.py:496-528` 晨笺/晚安 worker + `src/main.py:536-643` 择吉日提醒；
+        收件人 `jian_prefs.mp_openid` 为**明文列**（`src/storage/jian_dao.py:19`）；
+        推送日志 `push_log.message` 为**明文**且含当日干支（`src/storage/dao.py:1066-1074`）。
+     ② 服务器日志：**k86 改为不落明文**（`src/security/log_redact.py` +
+        `sanitizer.py` / `audit.py` / `chat_stream.py` / `rag/*` 共 15 处），
+        故披露的是"日志只记长度与不可反推指纹 + 保留窗口"。
+     ③ 记忆文件的加密力度：`src/memory/user_memory.py:624-629` 明示
+        `fact_entries_enc` / `topic_evolution_enc` 为 AES-256-GCM，**其余字段明文**
+        ⇒ 原稿"自动汇总记录未加密"是**双向不准**，已按字段改写。
+     ④ 三类提前清理：24h 倾诉临时消息（`session_dao.py:156-159,479-491`）、
+        2000 条/账号上限（`session_dao.py:25,493-511`）、记忆条目 90/180 天 TTL
+        （`user_memory.py:329-330,633-634`）。
+   ════════════════════════════════════════════════════════════════ */
+
+test('k86 必修2 ①：服务号推送通道已披露（md + 页面 + 第三方节）', () => {
+  [['privacy.md', DOC], ['privacy.wxml', PAGE]].forEach(([name, text]) => {
+    assert.ok(/服务号/.test(text), `${name} 未披露服务号推送通道`);
+    assert.ok(/推送/.test(text), `${name} 未披露推送`);
+  });
+  assert.ok(/服务号微信标识|服务号标识/.test(DOC),
+    'privacy.md 未披露为推送收集的服务号标识（openid）');
+  assert.ok(/推送日志/.test(DOC), 'privacy.md 未披露推送日志（明文留存推送全文）');
+  // md 的第三方清单必须点名这条通道（"部分信息会发给这些服务商"清单）
+  const thirdParty = DOC.slice(DOC.indexOf('## 八、第三方服务'));
+  assert.ok(/服务号/.test(thirdParty), 'privacy.md 第八节第三方清单漏了微信服务号通道');
+  // 代码依据仍在（通道被删则披露也应同步撤回，否则是过度披露）
+  const mp = read(path.join('..', 'src', 'services', 'wechat_mp.py'));
+  assert.ok(/message\/template\/send/.test(mp) && /def send_template/.test(mp),
+    'wechat_mp.py 的模板消息通道消失 —— 该条披露须重新评估（可能变成过度披露）');
+});
+
+test('k86 必修2 ②：日志口径已披露，且披露的是"不落明文"这一事实', () => {
+  [['privacy.md', DOC], ['privacy.wxml', PAGE]].forEach(([name, text]) => {
+    assert.ok(/日志/.test(text), `${name} 未披露服务器日志`);
+    assert.ok(/指纹/.test(text), `${name} 未披露"日志只记不可反推指纹"`);
+  });
+  assert.ok(/14 份|14 天/.test(DOC) && /14 份|14 天/.test(PAGE),
+    '未披露应用日志保留窗口（代码：src/logging_config.py:21 DEFAULT_BACKUP_DAYS=14）');
+  // 代码依据：真的不再落明文（把 redact 拿掉 → 披露变假，本断言即红）
+  const sanity = pyJson(`
+import json, re, pathlib
+def s(p): return pathlib.Path(p).read_text(encoding="utf-8")
+def code_only(src):
+    """剥掉整行注释 —— 判据只看**代码**：k86 的说明注释里引述了旧写法 text[:80]，
+    那是"记录历史"而非"还在落明文"，裸子串判定会假红。"""
+    return "\\n".join(l for l in src.split("\\n") if not l.strip().startswith("#"))
+r = {}
+r["chat_stream_abort"] = "(req.message or \\"\\")[:40]" not in s("src/api/chat_stream.py")
+r["sanitizer_no_slice"] = "text[:80]" not in code_only(s("src/security/sanitizer.py"))
+r["audit_redacts"] = "redact(input_preview)" in s("src/security/audit.py")
+r["bm25_no_raw"] = "query, len(results)" not in s("src/rag/bm25_retriever.py")
+r["faiss_no_raw"] = "query, len(queries)" not in s("src/rag/faiss_retriever.py")
+r["websearch_no_slice"] = "raw[:40]" not in s("src/rag/web_search.py")
+r["websearch_no_kw_slice"] = "keywords[:40]" not in s("src/rag/web_search.py")
+r["citation_redacts"] = "redact(text)" in s("src/rag/citation.py")
+r["retriever_redacts"] = "redact(query)" in s("src/rag/retriever.py")
+r["log_redact_module"] = pathlib.Path("src/security/log_redact.py").exists()
+print(json.dumps(r))
+`);
+  assert.deepEqual(sanity, Object.assign({ log_redact_module: true }, sanity),
+    'log_redact 模块缺失');
+  assert.ok(sanity.log_redact_module, 'src/security/log_redact.py 不存在');
+  ['chat_stream_abort', 'sanitizer_no_slice', 'audit_redacts', 'bm25_no_raw',
+    'faiss_no_raw', 'websearch_no_slice', 'websearch_no_kw_slice',
+    'citation_redacts', 'retriever_redacts'].forEach((k) => {
+    assert.ok(sanity[k], `${k} 不成立 —— 有站点又改回明文落日志，披露与代码不符`);
+  });
+});
+
+test('k86 必修2 ③：记忆文件加密力度按字段披露（双向准确）', () => {
+  [['privacy.md', DOC], ['privacy.wxml', PAGE]].forEach(([name, text]) => {
+    assert.ok(/长期事实条目/.test(text) || /事实条目/.test(text),
+      `${name} 未说明记忆文件内"事实条目"的加密状态`);
+    assert.ok(/话题演化链/.test(text), `${name} 未说明"话题演化链"的加密状态`);
+  });
+  /* 锚在**条目 11 本体**（不是别处对它的引用），到条目 14 为止。 */
+  const i11 = DOC.indexOf('11. **由对话自动汇总');
+  assert.ok(i11 !== -1, 'privacy.md 第一节第 11 条的标题形态变了 —— 判据须复核');
+  const blk11 = DOC.slice(i11, DOC.indexOf('14. **推送消息', i11));
+  assert.ok(blk11.length > 200, 'privacy.md 第 11 条区块定位失败');
+  assert.ok(/AES-256/.test(blk11), 'privacy.md 第 11 条未写明加密字段');
+  assert.ok(/明文/.test(blk11), 'privacy.md 第 11 条未写明明文字段（漏披露）');
+  assert.ok(/90 天/.test(blk11) && /180 天/.test(blk11),
+    'privacy.md 第 11 条未写明记忆条目 TTL');
+  // 代码依据：这两个字段确实是加密的（不是"未加密"）
+  const mem = read(path.join('..', 'src', 'memory', 'user_memory.py'));
+  assert.ok(/fact_entries_enc/.test(mem) && /topic_evolution_enc/.test(mem),
+    '记忆文件的加密字段名变了 —— 按字段披露的口径须同步');
+  assert.ok(/_save_enc_json/.test(mem) && /DataEncryptor/.test(mem),
+    '_save_enc_json/DataEncryptor 消失 —— "事实条目为 AES-256-GCM"失去依据');
+});
+
+test('k86 必修2 ④：三类提前清理 + 推送日志 保留期限已披露', () => {
+  [['privacy.md', DOC], ['privacy.wxml', PAGE]].forEach(([name, text]) => {
+    assert.ok(/24 小时|24小时/.test(text), `${name} 未披露倾诉临时消息 24 小时清理`);
+    assert.ok(/2000/.test(text), `${name} 未披露对话消息 2000 条上限`);
+    assert.ok(/90 天/.test(text) && /180 天/.test(text),
+      `${name} 未披露记忆条目 90/180 天 TTL`);
+  });
+  assert.ok(/推送日志/.test(DOC), 'privacy.md 未披露推送日志保留');
+  // 代码依据：三个窗口真的存在，且与披露一致
+  const sd = read(path.join('..', 'src', 'storage', 'session_dao.py'));
+  assert.ok(/def cleanup_temp/.test(sd) && /timedelta\(hours=24\)/.test(sd),
+    '倾诉临时消息的 24h 清理消失/窗口变化 —— 披露须同步');
+  assert.ok(/MAX_MESSAGES_PER_USER = 2000/.test(sd),
+    'MAX_MESSAGES_PER_USER 不再是 2000 —— 披露须同步');
+  const mem = read(path.join('..', 'src', 'memory', 'user_memory.py'));
+  assert.ok(/"event": 90/.test(mem) && /FACT_DEFAULT_TTL_DAYS = 180/.test(mem),
+    '记忆条目 TTL（event 90 / fact 180）变化 —— 披露须同步');
+});
+
+test('k86 提审材料（审核材料.md）与代码口径一致：加密/明文/用途三处不夸大', () => {
+  const s = read('审核材料.md');
+  assert.ok(/AES-256/.test(s), '审核材料.md 未提加密存储');
+  assert.ok(/明文/.test(s), '审核材料.md 未提明文项（漏披露）');
+  assert.ok(/逐字段/.test(s), '审核材料.md 未指向《隐私保护指引》的逐字段说明');
+  assert.ok(!/仅用于命理运算/.test(s),
+    '审核材料.md 又出现「仅用于命理运算」——与代码不符：对话脱敏后用于改进服务'
+    + '（scripts/export_training_data.py），出生信息还用于推送（src/main.py 推送 worker）');
+});

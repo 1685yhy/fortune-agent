@@ -43,6 +43,7 @@ import time
 from typing import AsyncIterator, Optional
 
 from src.config import is_experience_mode
+from src.security.log_redact import redact  # k86 必修2：日志不落对话明文
 from src.bot.tool_calls import strip_tool_calls  # 兜底：流式出口清理 TOOL 标签残留
 
 logger = logging.getLogger(__name__)
@@ -405,7 +406,7 @@ class ChatStreamer:
                 ip = self._client_ip(request)
                 if self.auditor:
                     try:
-                        self.auditor.attack_detected(attack_type, user_id, ip, req.message[:80])
+                        self.auditor.attack_detected(attack_type, user_id, ip, req.message)  # k86：入参为原文，audit 侧脱敏
                     except Exception:
                         pass
                 yield {"type": "chunk", "content": "⚠️ 输入包含不安全内容，已拦截。请使用正常语言描述您的问题。"}
@@ -590,7 +591,10 @@ class ChatStreamer:
                     )
                 except (asyncio.CancelledError, GeneratorExit):
                     waiter.cancel()
-                    logger.info("SSE 流被客户端中断: user=%s msg=%s", user_id, (req.message or "")[:40])
+                    # k86 必修2：原为 msg=(req.message)[:40]（用户提问明文进 app.log）。运维只需知道
+                    # 「谁中断了流」，不需要知道他说了什么 ⇒ 改记脱敏标记（长度+指纹）。
+                    logger.info("SSE 流被客户端中断: user=%s msg=%s",
+                                user_id, redact(req.message))
                     raise
                 except Exception:
                     waiter.cancel()
@@ -655,7 +659,9 @@ class ChatStreamer:
             try:
                 val_result = self.validator.validate(reply, engine_data_used=True)
                 if not val_result["passed"]:
-                    logger.warning("Accuracy issue in stream response: %s", val_result["violations"])
+                    logger.warning("Accuracy issue in stream response: %s",
+                                       [{k: v for k, v in x.items() if k != "detail"}
+                                        for x in val_result["violations"]])
             except Exception:
                 pass
 

@@ -10,6 +10,8 @@ import re
 import logging
 from typing import Tuple, Optional
 
+from src.security.log_redact import redact
+
 logger = logging.getLogger(__name__)
 
 
@@ -177,41 +179,43 @@ class InputSanitizer:
         for pattern in SQL_INJECTION_PATTERNS:
             if pattern.search(text):
                 self.stats["sql_blocked"] += 1
-                logger.warning("SQL injection detected in input: %s...", text[:80])
+                # k86 必修2：日志只写脱敏标记，**不写用户正文**（原为 text[:80] 明文）。
+                # 判定与阻断逻辑一字未改；"同源关联"由指纹提供（见 log_redact）。
+                logger.warning("SQL injection detected in input: %s", redact(text))
                 return True, "sql_injection"
 
         # Check command injection
         for pattern in CMD_INJECTION_PATTERNS:
             if pattern.search(text):
                 self.stats["cmd_blocked"] += 1
-                logger.warning("Command injection detected in input: %s...", text[:80])
+                logger.warning("Command injection detected in input: %s", redact(text))
                 return True, "command_injection"
 
         # Check XSS (after sanitization, check for remaining patterns)
         remaining_xss = HTML_TAG_PATTERN.search(text)
         if remaining_xss:
             self.stats["xss_blocked"] += 1
-            logger.warning("XSS attempt detected in input: %s...", text[:80])
+            logger.warning("XSS attempt detected in input: %s", redact(text))
             return True, "xss"
 
         # Check prompt injection
         for pattern in PROMPT_INJECTION_PATTERNS:
             if pattern.search(text):
                 self.stats["prompt_injection_blocked"] += 1
-                logger.warning("Prompt injection detected in input: %s...", text[:80])
+                logger.warning("Prompt injection detected in input: %s", redact(text))
                 return True, "prompt_injection"
 
         # Check path traversal
         for pattern in PATH_TRAVERSAL_PATTERNS:
             if pattern.search(text):
                 self.stats["path_traversal_blocked"] += 1
-                logger.warning("Path traversal detected in input: %s...", text[:80])
+                logger.warning("Path traversal detected in input: %s", redact(text))
                 return True, "path_traversal"
 
         # Check encoded attacks
         for pattern in ENCODED_ATTACK_PATTERNS:
             if pattern.search(text):
-                logger.warning("Encoded attack detected in input: %s...", text[:80])
+                logger.warning("Encoded attack detected in input: %s", redact(text))
                 return True, "encoded_attack"
 
         return False, None
