@@ -542,6 +542,17 @@ class FortuneLLM:
         - GLM key 未配置 / 调用失败 → 回退 DeepSeek（同精简 prompt，
           内容仍短，只是模型不同）；
         - 全失败 → 返回礼貌降级文案（绝不抛出打断正常对话流）。
+
+        k83（LEGACY-FABRICATION-01）：出口**统一**过一次
+        `fact_guard.scrub_ungrounded_claims` —— 降级档结构上**没有工具能力**
+        （本方法不发任何 tool_use、不执行工具），故"本轮有没有真实工具结果"
+        恒为 False（与 k65 r2 裁剪工具清单所依据的 lite/downgraded **同一事实源**）。
+        没有真实结果却给出四柱/干支/喜用神值/具体日期者（k65 r3 残留
+        「精简模式暂不提供排盘服务，不过…庚午年、己巳月、乙巳日、丙申时」
+        ＝1/12；把用户生日换算成「生于农历四月廿五」＝1/12）按分句删除。
+        用户自报事实/历史里已有的值（回显）走 `grounded_refs_from_messages`
+        依据表放行——**不在本层另写正则、不在本层判定文本形态**。
+        拦截只在**返回文本**上生效（流式增量已实时下发，见 k83 报告「残留」节）。
         """
         from .prompts import CHAT_PROMPT_LITE
         messages = [{"role": "system", "content": CHAT_PROMPT_LITE}]
@@ -550,24 +561,32 @@ class FortuneLLM:
         else:
             messages.append({"role": "user", "content": user_message or ""})
 
+        text = None
         if self.glm_api_key:
             try:
-                return glm_openai_completion(
+                text = glm_openai_completion(
                     self.glm_api_key, messages, model=GLM_DEFAULT_MODEL,
                     max_tokens=max_tokens, temperature=0.7, timeout=45.0,
                     client=self._client, stream_cb=stream_cb,
                 )
             except Exception as e:
                 _log_llm_failure("chat_lite", GLM_DEFAULT_MODEL, e)
-        try:
-            return deepseek_anthropic_completion(
-                self.api_key, messages, model=self.model,
-                max_tokens=max_tokens, temperature=0.7, timeout=45.0,
-                client=self._client, stream_cb=stream_cb,
-            )
-        except Exception as e:
-            _log_llm_failure("chat_lite", self.model, e, retry=True)
-            return "今日额度已用尽，这里先给你简要回复：如有更多问题，可明天再来，或升级会员畅聊。"
+        if text is None:
+            try:
+                text = deepseek_anthropic_completion(
+                    self.api_key, messages, model=self.model,
+                    max_tokens=max_tokens, temperature=0.7, timeout=45.0,
+                    client=self._client, stream_cb=stream_cb,
+                )
+            except Exception as e:
+                _log_llm_failure("chat_lite", self.model, e, retry=True)
+                return "今日额度已用尽，这里先给你简要回复：如有更多问题，可明天再来，或升级会员畅聊。"
+        # k83：降级档出口兜底（无工具结果 → 具体命盘/日期结论去句）
+        from ..utils.fact_guard import (grounded_refs_from_messages,
+                                        scrub_ungrounded_claims)
+        return scrub_ungrounded_claims(
+            text, has_real_tool_result=False,
+            allowed_refs=grounded_refs_from_messages(messages))
 
     def analyze(
         self,
