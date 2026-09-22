@@ -182,6 +182,9 @@ def purge_account_files(user_id: str, upload_names=None, memory_dir=None,
       - memory     : `data/memory/{user_id}.json`（L3 画像，走 UserMemory 自带接口）
       - reports    : `data/reports/*.json` 中归属为该用户的（`owner_enc` 解密命中）
       - share_cards: 上述报告对应的分享图 PNG（`CHARTS_DIR/share_{reading_id}.png`）
+      - chart_files: 私有命盘图（`private_charts_dir()` 下的 `bazi_*/ziwei_*/fengshui_*`，
+        归属判据 = 文件名里的 HMAC 归属令牌，与鉴权路由同源；k85 必修1 新增 ——
+        改前落在 `CHARTS_DIR`，而本函数只清 `share_*` ⇒ **从未被清过**）
 
     k79-M1：`failures`（可选，list）会收集**真删除失败**（权限/I/O 等；"文件本来
     就不存在"不算）—— 供 `purge_account_data()` 汇总进响应的 `failed_files`，
@@ -191,7 +194,8 @@ def purge_account_files(user_id: str, upload_names=None, memory_dir=None,
     from pathlib import Path as _Path
 
     root = _Path(__file__).resolve().parent.parent.parent
-    stats = {"avatar": 0, "uploads": 0, "memory": 0, "reports": 0, "share_cards": 0}
+    stats = {"avatar": 0, "uploads": 0, "memory": 0, "reports": 0,
+             "share_cards": 0, "chart_files": 0}
 
     # ① 头像：文件名就是 user_id（与 api/user.py 的 `{safe_id}.jpg` 同口径）
     av_dir = _Path(avatar_dir) if avatar_dir else _Path(
@@ -227,6 +231,20 @@ def purge_account_files(user_id: str, upload_names=None, memory_dir=None,
                              failures=failures)
     stats["reports"] += rep["reports"]
     stats["share_cards"] += rep["share_cards"]
+
+    # ⑥ 私有命盘图（k85 必修1）：`bazi_*` / `ziwei_*` / `fengshui_*` 自本批起落在
+    #    **私有面** `private_charts_dir()`。改前它们落在 `CHARTS_DIR`，而本函数
+    #    **只**清 `share_{reading_id}.png` ⇒ **从未被清过**（注销后命盘图留在盘上）。
+    #    归属判据 = 文件名里的 HMAC 归属令牌 —— 与鉴权路由 `verify_owner`
+    #    **同一个**判据（`chart_files.purge_private_charts`），不另写一份。
+    try:
+        from src.images.chart_files import purge_private_charts
+        stats["chart_files"] = purge_private_charts(user_id, failures=failures)
+    except Exception as e:
+        logger.warning("注销清理私有命盘图 %s 失败: %s", user_id, e)
+        if failures is not None:
+            failures.append({"kind": "chart_files", "path": "private_charts_dir()",
+                             "error": f"{type(e).__name__}: {e}"})
 
     return stats
 

@@ -127,11 +127,20 @@ def scrub_turn(text: str, gender, shensha_allow: Optional[Iterable[str]] = None
 # ============================================================
 # D：schema/结构文本泄漏（k63-r2）——呈现层兜底，零 LLM，纯规则
 # ============================================================
-# 事故形态（2026-09-20 实测，非推测）：advisor_v2._call_llm 挂 **GLM-4-Flash 降级链**
-# （src/llm/client.py glm_openai_completion，ZHIPU_API_KEY 存在时优先），小模型会把
-# **prompt 里给模型看的 JSON schema 示例**原样当字段值回显 → 用户直接看到
+# 事故形态（2026-09-20 实测，非推测）：**降级档 GLM-4-Flash** 会把 **prompt 里给模型
+# 看的 JSON schema 示例**原样当字段值回显 → 用户直接看到
 # `你问的是[领域]，…格式：…如果实在没有特别信息，输出空字符串。` 这类**对模型说的话**。
 # 生产档（deepseek）未观察到该形态。
+#
+# ⚠️ k85 更正（原注释把调用方写成 `advisor_v2._call_llm`，那是**误记**）：
+#   · `git log -S "glm_openai_completion" -- src/engines/advisor_v2.py` → **零命中**
+#     （该文件历史上从未调用过 GLM；它只调 `deepseek_anthropic_completion`）；
+#   · 全仓**生产**路径里 `glm_openai_completion` 的唯一调用点是
+#     `src/llm/client.py:567` = `_chat_lite`（**对话降级链**，`ZHIPU_API_KEY` 存在时
+#     优先 GLM、失败回退 DeepSeek）—— 出事的正是这条链，不是 advisor。
+#   · D 段的**消费点**确实是 advisor_v2（下方 `:146/:150`，呈现字段兜底）——两条
+#     事实被合并成了一句，k85 拆开。E 段与 advisor 链的关系见
+#     `advisor_v2.generate` 底部注释（k85 必修5 已按实测判定为 `True`＝不适用）。
 #
 # 判据按**形态**（不是匹配某段 schema 原文 —— 那种补丁换个 prompt 就失效）：
 #   强信号：命中 1 条即判泄漏（自然中文用户文案几乎不可能出现的结构/元语言形态）
@@ -370,6 +379,47 @@ def _ung_values_in(clause: str, refs_norm, refs_digits) -> List[str]:
             if not _ung_grounded(m.group(0), refs_norm, refs_digits):
                 out.append("date:" + m.group(0))
     return out
+
+
+def grounded_refs_from_chart(chart: object) -> Tuple[str, ...]:
+    """真实引擎盘面 → 依据表（k85 必修5）。
+
+    与 `grounded_refs_from_messages` 同性质（"已在上下文里出现过的字面值"），
+    但来源是**盘面对象**而不是消息列表：`E` 段的判据面是「干支对 / 术语+值 /
+    日主 / 具体日期」，所以这里把盘面上这些面的**原样字面值**全部收进来
+    （四柱、十神、纳音、神煞、日主干支、格局、喜/忌用神、五行、大运、流年）。
+
+    **为什么需要它**：`advisor_v2` 的输入恒是真实盘面（`BaziEngine` 实算），
+    不是"无依据"链。要判断该链到底该用 `has_real_tool_result=True` 还是
+    `False + 本依据表`，必须能**复现地**构造后者 —— 本函数就是那个对照组
+    （实测结论见 `advisor_v2.generate` 的注释与
+    `tests/test_k85_advisor_grounding.py`：后者保留率低到 62.9% ⇒ 会误杀）。
+    只走**已有字段**，不在本层另写"盘面有哪些值"的清单。
+    """
+    if chart is None:
+        return ()
+    out: List[str] = []
+
+    def _add(v):
+        if v is None:
+            return
+        if isinstance(v, (list, tuple, set)):
+            for x in v:
+                _add(x)
+        elif isinstance(v, dict):
+            for k, n in v.items():
+                _add(f"{k}{n}")      # 「金3」这类 五行计数
+                _add(n)
+        elif isinstance(v, (str, int, float)):
+            s = str(v).strip()
+            if s:
+                out.append(s)
+
+    for field in ("bazi", "shishen", "nayin", "shensha", "dayun", "liunian",
+                  "xiaoyun", "wuxing", "day_master", "geju", "yongshen",
+                  "jishen", "tiaohou", "city", "gender", "zodiac"):
+        _add(getattr(chart, field, None))
+    return tuple(dict.fromkeys(out))     # 去重保序（同值重复不增加匹配成本）
 
 
 def ungrounded_claim_hits(text: str, has_real_tool_result: bool,

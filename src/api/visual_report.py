@@ -29,9 +29,15 @@ router = APIRouter(tags=["visual_report"])
 _DATA_DIR = Path(__file__).parent.parent.parent / "data" / "reports"
 _DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-#: 对外域名（与 share.py 的 `_BASE_URL` 同值：同一份报告网页在两个模块里都要生成
-#: 绝对链接）。k76 起本模块也用它拼分享通道地址。
-_PUBLIC_BASE = "https://fortune.talcloud.com"
+#: 对外域名 —— **单一事实源** = `config.public_client_base()`（与 share.py、
+#: TTS、夜间语音同一口径，k85 归并）。
+#:
+#: k85：改前是**写死的** `"https://fortune.talcloud.com"`，该域名**不解析**
+#: （k85 实测 `Could not resolve host`）⇒ 报告页里的 og:url / 分享地址是死链。
+#: 同型第二处见 `share.py`（本批一并改为同源）。
+def _public_base() -> str:
+    from src.config import public_client_base
+    return public_client_base()
 
 _engine = BaziEngine()
 
@@ -1024,8 +1030,14 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
     og_desc_short_h = html_attr_text(og_desc_short)
     # 分享地址两条通道各一份：og:url 进 HTML 属性；JS 里那份进字符串字面量。
     share_url_js = js_string_literal(
-        share_url or f"{_PUBLIC_BASE}/share/{reading_id}")
-    og_url_h = html_attr_text(share_url or f"{_PUBLIC_BASE}/report/{reading_id}")
+        share_url or f"{_public_base()}/share/{reading_id}")
+    og_url_h = html_attr_text(share_url or f"{_public_base()}/report/{reading_id}")
+    # og:image（k85）：改前是**三重死链** —— 域名 `fortune.talcloud.com` 不解析、
+    # `/static/` 在本仓**从未挂载**（`src/static/` 里根本没有该路由）、资产
+    # `og-report.png` 也不存在。现在指向**本阅读 ID 的分享卡**（同域名下的真实产物；
+    # 卡片未生成时微信侧退回默认缩略图，与改前的 404 等效，不更差）。
+    og_image_h = html_attr_text(
+        f"{_public_base()}/share-cards/share_{reading_id}.png")
 
     # The static HTML/CSS/JS template — contains NO Python f-string interpolation
     # All Python values are substituted via $PLACEHOLDER markers using string.Template
@@ -1040,14 +1052,14 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
     <meta property="og:title" content="$og_title">
     <meta property="og:description" content="$og_desc">
     <meta property="og:type" content="website">
-    <meta property="og:image" content="https://fortune.talcloud.com/static/og-report.png">
+    <meta property="og:image" content="$og_image">
     <meta property="og:url" content="$og_url">
     <meta name="description" content="$og_desc">
 
     <!-- WeChat Share Meta -->
     <meta name="wechat:title" content="$og_title">
     <meta name="wechat:description" content="$og_desc_short">
-    <meta name="wechat:image" content="https://fortune.talcloud.com/static/og-report.png">
+    <meta name="wechat:image" content="$og_image">
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1571,6 +1583,7 @@ def _build_report_html(report: dict, share_text: str, share_url: str = "") -> st
         reading_id=reading_id,
         share_url=share_url_js,
         og_url=og_url_h,
+        og_image=og_image_h,
     )
 
 @router.post("/api/report/generate")

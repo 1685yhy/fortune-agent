@@ -12,6 +12,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 CHARTS_DIR = Path(os.environ.get("CHARTS_DIR", "/opt/fortune-data/charts"))
 
+# k85 必修1：私有命盘图缺省落盘路径（归属令牌 / 私有目录 / 路由形态的唯一出处）。
+from src.images.chart_files import private_chart_path  # noqa: E402
+
 # Persistent browser user dir for fast warm starts
 _BROWSER_CACHE_DIR = Path("/tmp/pw_chromium_cache")
 
@@ -245,13 +248,16 @@ body{
 
 
 class BaziChartHTML:
-    def generate(self, result, output_path=None, title: str = ""):
+    def generate(self, result, output_path=None, title: str = "", user_id: str = ""):
         """Render a luxury-finance bazi chart to PNG via Jinja2 + Playwright.
 
         Args:
             result: Bazi calculation result.
             output_path: Optional PNG output path.
             title: Optional AI-generated personalized chart title.
+            user_id: 归属账号（k85）——决定缺省落盘路径里的**归属令牌**。
+                私有图只经鉴权路由下发，令牌是归属校验的唯一凭据（见
+                `images/chart_files.py`）。缺省空 ⇒ 落随机令牌（无主，谁都不匹配）。
 
         Returns:
             str: absolute path to the generated PNG.
@@ -337,7 +343,24 @@ class BaziChartHTML:
         yongshen_raw = getattr(result, "yongshen", None)
         yongshen = yongshen_raw.split("（")[0] if yongshen_raw else ""
 
-        html = Template(HTML).render(
+        # k85 必修1③：`autoescape=True` —— 改前是裸 `Template(HTML)`（jinja2 的
+        # `Template` **默认不转义**），而 `title` 来自 `_gen_chart_title`
+        # （**LLM 生成**、受用户输入影响）⇒ 生成的 .html 里可被塞进 `<script>`。
+        #
+        # 该 .html 的暴露面（k85 实测校准，**不含推测**）：成功渲染后
+        # `_render_html_to_png` 会 `os.remove(html_path)`（见该函数末行）⇒ 正常路径
+        # **不留 .html**；**只有 playwright 缺失/渲染失败时**才保留 .html 并把它的路径
+        # 当 URL 返回。而 `/share-cards` 是**整目录匿名挂载**（StaticFiles 会按扩展名
+        # 以 `text/html` 下发）⇒ 在那个降级环境里，就是本站域名的**存储型 XSS**。
+        # 实测：本机 playwright **可用**（生产目录里也只有 .png、无 .html）⇒ 属
+        # **潜伏**而非线上在发生；但它是**结构性**的（换台机器/装不上 playwright 就成立）。
+        # 本批两处一起堵：① 私有路由**只发 .png**、不发 .html（改后 .html 永不下发）；
+        # ② 在这里把插值转义掉（源头修复）。
+        # 模板里没有任何 `|safe` / 预拼 HTML 片段（全部是叶子文本：天干/地支/
+        # 纳音/神煞/色值），故 autoescape **不改正常数据的渲染结果**
+        # （实测：正常数据下开/关两种口径的 HTML 逐字节一致；注入标题时开=转义、
+        #  关=裸 `<script>` 落地 —— 见 k85 报告）。
+        html = Template(HTML, autoescape=True).render(
             title=title,
             day_master=result.day_master,
             geju=geju,
@@ -351,7 +374,11 @@ class BaziChartHTML:
             date=now.strftime("%Y.%m.%d"),
         )
 
-        out = output_path or str(CHARTS_DIR / f"bazi_{now.strftime('%Y%m%d_%H%M%S')}.png")
+        # k85 必修1②：缺省落盘从**公开面** `CHARTS_DIR` 改到**私有面**
+        # `private_charts_dir()`（`CHARTS_DIR` 的兄弟目录）。改前私有命盘图与
+        # 分享卡混在同一个被匿名挂载的目录里（可枚举、无 TTL）。
+        # 显式传 `output_path` 时行为**逐字节不变**（测试与调用方照旧）。
+        out = output_path or str(private_chart_path("bazi", user_id, now))
         hp = out.replace(".png", ".html")
         with open(hp, "w", encoding="utf-8") as f:
             f.write(html)

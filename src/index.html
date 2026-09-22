@@ -62,7 +62,11 @@ body { font-family: "PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif; b
       以《滴天髓》《三命通会》《渊海子平》等经典为根基<br>
       八字、紫微、六爻、风水、面相、择日 —— 九大体系，一触即达
     </div>
-    <a href="/chat" class="cta">开 始 体 验</a>
+    <!-- k85 必修2：改前是 `/chat` —— 该路由**从来不存在**（k84 用
+         `git log -S'@app.get("/chat")'` 零命中确认），页面上唯一的动作是**死链**。
+         控制方拍板改指 `/pricing`（公开、匿名可读、页内动作 `/api/pricing` 匿名
+         可用 ⇒ 点进去有内容，不是第二个死头）。 -->
+    <a href="/pricing" class="cta">开 始 体 验</a>
   </div>
 
   <div class="stats">

@@ -1906,6 +1906,78 @@ def _city_explicit_in(text: str, city: str) -> bool:
         return False
 
 
+# ── k85-必修3 A：出生**时刻**主张是否显式（与 `_city_explicit_in` 同型判据）──
+# 用途：`_tool_bazi` 把"当轮原文里的显式时辰"覆盖到模型填的参数上（k84 的
+# "原文优先"口径从 city 铺到 hour/minute）。**为什么需要判据**（与 k50-r2-3 的
+# `北京烤鸭` 同型风险）：原文里的钟点**不一定是出生时刻**——"提取器给出了值"
+# 不足以证明它是生辰主张。实测反例（本批新增用例锁）：
+#   `我每天凌晨3点起床，我是1999年3月28日10点55分在长春出生的 男`
+#   参数 `1999年3月28日10点55分 长春 男`（模型填对）→ `_extract_partial_birth`
+#   按**文档序**取到的是**"凌晨3点"**（起床那个）→ 若直接覆盖，会把参数里正确
+#   的 10:55 改成 3:00（**新造错**）。故必须判"该时刻确实出自出生陈述"。
+# 判据（逐条与 `_city_explicit_in` 同型；**取值仍只由 `_extract_partial_birth`
+# 给**，本函数不另写一份时刻解析）：
+#   ① 提取器对**整条原文**给出的 (hour, minute) 必须恰等于待判值；
+#   ② 该值必须能在一个**出生语境小句**里复现：对原文里每个"钟点样"token 所在的
+#      小句，若该小句含出生语境词（`birth_ctx_near`，与日期/城市闸门同一实现）
+#      或**除出生信息自带成分外别无内容**（`_strip_birth_filler` 复用），就在该
+#      小句上**再跑同一个提取器**——复现出同一 (hour, minute) 才算显式。
+#      反例（判非显式）：`我每天凌晨3点起床`（无出生语境 + 剥完剩"每天起床"）
+#        / `我1999年3月28日出生，下午3点见客户`（剥完剩"见客户"）。
+# 异常 → 判非显式（方向偏安全，与 `_city_explicit_in` 同款 fail-open）。
+# 注：`hour == 0` 的"子时 vs 未提供"二义性是**存储层既有口径**（本批不动，
+# 见 `tests/test_k85_tool_source_splits.py` 的"未改项"节）；本判据只回答
+# "原文有没有主张这个时刻"。
+_TIME_TOKEN_SCAN_RE = re.compile(
+    r'(?:凌晨|早上|早晨|上午|中午|正午|下午|傍晚|黄昏|晚上|夜里|夜间|半夜)'
+    r'\s*\d{1,2}'
+    r'|\d{1,2}\s*[点时:：]\s*\d{0,2}'
+    r'|[子丑寅卯辰巳午未申酉戌亥]\s*时'
+    r'|(?:接近|将近|临近|快到|快|大约|大概|约)\s*\d{1,2}\s*点')
+
+
+def _time_explicit_in(text: str, hour, minute) -> bool:
+    """原文里是否**显式**主张了该出生时刻（k85：与 `_city_explicit_in` 同型）。
+
+    `hour`/`minute` = 由 `_extract_partial_birth` 从**整条原文**取到的值（调用
+    方传的就是它，故 ① 恒真；保留该比较是为了"判据不可用即不覆盖"的自校验）。
+    """
+    if not text or hour is None:
+        return False
+    try:
+        h = MessageHandler.__new__(MessageHandler)
+        _p = h._extract_partial_birth(text)
+        if (_p.get("hour") != hour
+                or (_p.get("minute") or 0) != (minute or 0)):
+            return False
+        from src.storage.person_dao import _clause_span, birth_ctx_near
+        _seen = []
+        for m in _TIME_TOKEN_SCAN_RE.finditer(str(text)):
+            _sp = _clause_span(text, m.start(), m.end())
+            if _sp in _seen:
+                continue
+            _seen.append(_sp)
+            a, b = _sp
+            _clause = text[a:b]
+            # ②a 小句内确有出生语境词 → 时刻是生辰主张
+            _ok = birth_ctx_near(text, a, b)
+            if not _ok:
+                # ②b 小句**除出生信息自带成分外别无内容**（数据串形态）
+                _tok = _TIME_TOKEN_SCAN_RE.search(_clause)
+                if _tok:
+                    _rest = _clause[:_tok.start()] + _clause[_tok.end():]
+                    _ok = not _strip_birth_filler(_rest).strip()
+            if not _ok:
+                continue
+            _c = h._extract_partial_birth(_clause)
+            if (_c.get("hour") == hour
+                    and (_c.get("minute") or 0) == (minute or 0)):
+                return True
+        return False
+    except Exception:            # noqa: BLE001 — 判据不可用 → 视为非显式（更安全）
+        return False
+
+
 # ── k51：裸城市名（无 市/省/县/区… 尾缀）的**识别面 + 采纳门** ─────────────
 # 现象（P0）：识别面原为「`XX市` 尾缀」∪「37 城 `COMMON_CITIES` 裸名」→ 31 个省会里
 # **只有"长春"落空**（`我1999年5月13日10点55分在长春生的 男` → 三源 city 全成引擎
@@ -3889,11 +3961,47 @@ class MessageHandler:
         # 被当成城市）。**只在原文确有显式城市主张且与参数不同时覆盖**，其余零变化；
         # 覆盖同时作用于**盘面**（`engine.calculate`）与**写档**（下方 `_persist`），
         # 两者始终同一个城市（数据一致性红线）。
-        _city_text = (self._extract_partial_birth(user_question or "").get("city")
-                      if user_question else None)
+        _orig_partial = (self._extract_partial_birth(user_question or "")
+                         if user_question else {})
+        _city_text = _orig_partial.get("city")
         if (_city_text and _city_text != city
                 and _city_explicit_in(user_question or "", _city_text)):
             city = _city_text
+        # ── k85-必修3 A：同一口径**铺满** hour/minute/gender（k84 只覆盖了 city）──
+        # 现象（本批实测，见 tests/test_k85_tool_source_splits.py）：`parsed` 全部
+        # 来自**工具参数**（模型填的），而参数里**没有时辰**时提取器给的是缺省
+        # `hour=0; minute=0`（≠"用户说了子时"）；写档侧 `person_dao` 又把 0 当
+        # "未提供"（`0 -> None`，保留旧值）⇒ 同一个出生信息在下游分裂成**三个值**：
+        #   实测(a) 档案 1999-3-28 10:55 长春 男 + 参数 `1999年3月28日 长春 男`
+        #           + 原文"我是1999年3月28日**10点55分**在长春出生的 男"
+        #     → 盘面按 0:00 算（时柱错）、chart_records 存 0:00、persons 保 10:55
+        #   实测(b) 参数 `…12点…`（模型听错）+ 原文"…10点55分…"
+        #     → 盘面 12:00、chart_records 12:00、persons **12:55**（时从参数、
+        #       分从旧档拼出来的第四种值，三个都不是用户说的）
+        # 修法 = k49-A 明文口径「语境 = 当轮用户原文，工具参数仅在其缺失时兜底」
+        # 落到 hour/minute/gender 上：**只在原文确有显式主张且与参数不同时覆盖**，
+        # 其余零变化（判据 `_time_explicit_in` = k50-r2-3 的 city 判据同型：
+        # "确是出生时刻主张"，防 `我每天凌晨3点起床` 式别处钟点被当生辰）。
+        # 覆盖后**同一组变量**供盘面（`engine.calculate`）与写档（`_persist` →
+        # bazi_info / persons / chart_records / 画像）消费——三源恒同值（红线）。
+        # 未改项（诚实披露）：参数**没给**时辰、原文也没说时辰时，盘面按缺省
+        #  0:00 排而 persons 保留旧时辰——那是存储层"0 == 未提供"的既有口径，
+        #  属产品决策，本批不擅改（残留已被用例钉成显式事实：见
+        #  `tests/test_k85_tool_source_splits.py::TestKnownResidualNeedsProductDecision`）。
+        _hour_text, _min_text = _orig_partial.get("hour"), _orig_partial.get("minute")
+        if (_hour_text is not None
+                and (_hour_text, _min_text or 0) != (hour, minute or 0)
+                and _time_explicit_in(user_question or "", _hour_text,
+                                      _min_text or 0)):
+            hour, minute = _hour_text, (_min_text or 0)
+        # gender 同型：判据复用**既有单一事实源**（`_extract_partial_birth` 的
+        # gender 键——它内部已按主语归属判定"是不是本人性别主张"，k40/k41/k81
+        # 同一实现），归一比较复用 `fact_guard.gender_label`（不新写词表）。
+        _gender_text = _orig_partial.get("gender")
+        if _gender_text:
+            from src.utils.fact_guard import gender_label
+            if gender_label(_gender_text) != gender_label(gender):
+                gender = _gender_text
         try:
             result = self.engine.calculate(
                 year, month, day, hour, minute, city, gender,
@@ -4684,6 +4792,27 @@ class MessageHandler:
         birth = (info.get("birth") or "").strip()
         elements = None
         elements_desc = ""
+        # ── k85-必修3 B：**同一属性（性别）的两个来源必须同一个值** ─────────────
+        # 现象：`gender` 来自工具参数（`split_naming_params` 的 gender 键，schema
+        # 必填），`b_gender` 来自 birth 串里的性别词（提取器缺省 "unknown"）。
+        # 改前盘面用 `b_gender`、卡片/候选字用 `gender` ⇒ 两处都显式且不同时，
+        # **同一次回答里盘面与卡片断言两个性别**（同一属性两个值）。
+        # 实测（`surname: 张\ngender: 女\nbirth: 2019年3月15日 午时 北京 男`）：
+        #   盘面 gender=男（大运顺排）而卡片「性别：女」→ 若 birth 串的性别参与
+        #   了用神/大运，卡片等于**照另一个命盘**推荐名字。
+        # 诚实披露（**今天没有可见错输出**）：实测 男/女/unknown 三种入参下
+        #   `bazi`/`wuxing`/`yongshen` **完全相同**，只有 `dayun` 不同；而本工具
+        #   只消费 `wuxing`/`yongshen`（`target_elements`）⇒ 现状是**潜在**分裂，
+        #   不是已发生的错输出。本处仍按"一个属性一个值"收口（防下游/引擎演进
+        #   后变成可见错误）。
+        # 口径（复用**既有单一事实源**判"是不是性别主张"，不新写词表）：
+        #   · birth 串没写性别（unknown）→ 用参数性别（**原行为，零变化**）
+        #   · birth 串写了、参数没写（unknown）→ 用 birth 串的
+        #   · 两处都写了且归一后一致 → 用 birth 串的（规范化写法）
+        #   · 两处都写了且**不同** → **不静默选一个**：按仓库"先问后写"惯例
+        #     （`_gen_birth_conflict_ask` 同族）回一句确认问句，本次不排盘、不出
+        #     候选（本工具**不写库**，故无需像 `_tool_bazi` 那样暂存待更新值）。
+        _gender_use = gender            # 盘面与卡片**共用**的唯一性别
         if birth:
             parsed = self._extract_bazi_info(birth)
             if parsed is None:
@@ -4693,14 +4822,29 @@ class MessageHandler:
                     "（如 birth: 2019年3月15日 午时 北京）。",
                     needs_info=True,
                 )
+            year, month, day, hour, minute, city, b_gender = parsed
+            from src.utils.fact_guard import gender_label
+            _g_birth = gender_label(b_gender)
+            _g_param = gender_label(gender)
+            if _g_birth == "unknown":
+                _gender_use = gender
+            elif _g_param in ("unknown", _g_birth):
+                _gender_use = b_gender
+            else:
+                return ToolResult(
+                    "起名", False,
+                    f"你给的性别（{gender}）和出生信息里写的（{b_gender}）"
+                    "不太一致，我先跟你确认一下，怕按错性别推荐用字："
+                    "请确认是男宝宝还是女宝宝（回复「男」或「女」即可）。",
+                    needs_info=True,
+                )
             try:
-                year, month, day, hour, minute, city, b_gender = parsed
                 result = self.engine.calculate(
-                    year, month, day, hour, minute, city, b_gender)
+                    year, month, day, hour, minute, city, _gender_use)
             except Exception as e:
                 return ToolResult("起名", False, f"排盘引擎执行失败：{str(e)[:100]}")
             elements, elements_desc = target_elements(result.wuxing, result.yongshen)
-        candidates = generate_candidates(surname, gender, elements, limit=5)
+        candidates = generate_candidates(surname, _gender_use, elements, limit=5)
         if not candidates:
             return ToolResult(
                 "起名", False,
@@ -4708,7 +4852,7 @@ class MessageHandler:
                 "（如去掉出生信息、或换其他性别）。")
         return ToolResult(
             "起名", True,
-            format_naming_card(surname, gender, elements_desc, candidates))
+            format_naming_card(surname, _gender_use, elements_desc, candidates))
 
     def _tool_fortune_cycle(self, params, user_id: str) -> ToolResult:
         """工具「流月流年」（批次 2 E3）：出生信息 + 目标年份/月份/关注维度 →
@@ -8766,12 +8910,16 @@ class MessageHandler:
         chart_url = ""
         try:
             from src.images.bazi_chart_html import BaziChartHTML
+            from src.images.chart_files import reply_chart_url
             gen = BaziChartHTML()
             # AI-generated personalized title
             personal_title = self._gen_chart_title(result)
-            chart_path = gen.generate(result, title=personal_title)
-            filename = os.path.basename(chart_path)
-            chart_url = f"http://124.221.233.214/charts/{filename}"
+            chart_path = gen.generate(result, title=personal_title, user_id=user_id)
+            # k85 必修1：私有命盘图落**私有面** + 只发**鉴权路由** URL（归属令牌）。
+            # 改前是硬编码 `http://124.221.233.214/charts/{name}` —— 本仓从未挂载
+            # `/charts/`，k85 实测生产 404（死链）；且该目录若被 alias 出来就是
+            # 可枚举的私有图。不可下发时返回空串（`reply_chart_url` 契约）。
+            chart_url = reply_chart_url(chart_path, user_id)
         except Exception as e:
             import traceback
             import logging
@@ -9566,10 +9714,11 @@ class MessageHandler:
             chart_url = ""
             try:
                 from src.images.ziwei_chart_html import ZiweiChartHTML
+                from src.images.chart_files import reply_chart_url
                 gen = ZiweiChartHTML()
-                chart_path = gen.generate(result)
-                filename = os.path.basename(chart_path)
-                chart_url = f"http://124.221.233.214/charts/{filename}"
+                chart_path = gen.generate(result, user_id=user_id)
+                # k85 必修1：同 _do_bazi_analysis（私有面 + 鉴权路由）
+                chart_url = reply_chart_url(chart_path, user_id)
             except Exception as e:
                 import traceback
                 import logging
@@ -9754,10 +9903,11 @@ class MessageHandler:
             chart_url = ""
             try:
                 from src.images.fengshui_chart_html import FengshuiChartHTML
+                from src.images.chart_files import reply_chart_url
                 gen = FengshuiChartHTML()
-                chart_path = gen.generate(result)
-                filename = os.path.basename(chart_path)
-                chart_url = f"http://124.221.233.214/charts/{filename}"
+                chart_path = gen.generate(result, user_id=user_id)
+                # k85 必修1：同 _do_bazi_analysis（私有面 + 鉴权路由）
+                chart_url = reply_chart_url(chart_path, user_id)
             except Exception as e:
                 import traceback
                 import logging

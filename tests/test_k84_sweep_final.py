@@ -52,9 +52,22 @@ HTML_SURFACE = {
         "auth": "anon", "kind": "html", "verdict": "③",
         "why": "域名根着陆页（src/index.html）。无个人信息、无表单、无接口调用；"
                "k61-P4（f596995）已明确把它列为「同类核查：无同类死页」而保留。"
-               "**已知缺陷另记**：页内唯一动作 `<a href=\"/chat\">` 指向一个"
-               "**从来不存在**的路由（`git log -S'@app.get(\"/chat\")'` 零命中）"
-               "⇒ 坏链，已上报控制方拍板（修链/去链/删页三选一）。",
+               "**k85 必修2 已修**：页内唯一动作原来是 `<a href=\"/chat\">` —— 指向一个"
+               "**从来不存在**的路由（`git log -S'@app.get(\"/chat\")'` 零命中）＝坏链；"
+               "控制方拍板改指 `/pricing`（公开、匿名可读、页内 `fetch('/api/pricing')`"
+               "匿名可用 ⇒ 点进去有内容）。k85 已用原始 HTTP 实测该链接 200。",
+    },
+    "src/main.py::/api/charts/{filename}": {
+        "auth": "auth", "kind": "file", "verdict": "②已具备",
+        "why": "**k85 必修1 新增**的私有命盘图路由（`bazi_*` / `ziwei_*` / `fengshui_*`）。"
+               "之所以必须存在：改前这些私有图与分享卡**混装**在同一个被匿名挂载的"
+               "`CHARTS_DIR` 里（秒级时间戳 ⇒ 可枚举、无 TTL），控制方裁定收窄挂载面 ⇒ "
+               "私有图改落 `private_charts_dir()` 并只经本路由下发。"
+               "鉴权 = `Depends(require_user)` + **归属校验**"
+               "（文件名带 `HMAC(secret, user_id)` 归属令牌，`chart_files.verify_owner`；"
+               "**同一个**判据也被注销清理复用）。**只发 .png**：`.html` 是 Playwright 的"
+               "中间产物（裸模板产物，改前被匿名以 text/html 下发 ⇒ 存储型 XSS 通路），"
+               "本路由故意不发。",
     },
     "src/main.py::/pricing": {
         "auth": "anon", "kind": "html", "verdict": "③",
@@ -100,18 +113,23 @@ HTML_SURFACE = {
 #: StaticFiles 挂载面（AST 面之外的第二种"无鉴权静态挂载"）。
 STATIC_MOUNTS = {
     "src/main.py::/share-cards": {
-        "auth": "anon", "verdict": "②需收窄（**已上报拍板，未自行改**）",
-        "why": "`app.mount('/share-cards', StaticFiles(CHARTS_DIR))`（目录存在才挂）。"
-               "目录里**混装**两类产物：① `share_{reading_id}.png`（发布者主动分享的"
-               "卡片，8 位 hex = 与分享链接同一个秘密）；② `bazi_{YYYYmmdd_HHMMSS}.png`"
-               "（`images/bazi_chart_html.py:354`、`images/bazi_chart.py:741` 生成的"
-               "**私有命盘图**，**秒级时间戳文件名 ⇒ 可枚举**）。"
-               "无鉴权、无 TTL、无目录列表（StaticFiles 默认 html=False）。"
-               "**加鉴权不可行**（`<image src>`/微信分享卡抓图都不带 Authorization 头），"
-               "正确修法是**收窄挂载面**或**改文件名口径** —— 两者都改动对外资源 URL"
-               "与其它生成器，属产品/基础设施口径 ⇒ 按红线上报拍板，不在本批自决。"
-               "另注：`src/main.py` 的注释声称「与 /share-cards 同策略：uuid 文件名"
-               "不可猜测」，该假设对 `bazi_<ts>.png` **不成立**（本批已如实登记）。",
+        "auth": "anon", "verdict": "②**已按拍板收窄**（k85 必修1）",
+        "why": "`app.mount('/share-cards', ShareCardOnlyStaticFiles(CHARTS_DIR))`"
+               "（目录存在才挂；**挂载 path / name / 匿名性逐字节未变** ⇒ 分享卡对外"
+               "URL 零回归）。改前是裸 `StaticFiles`：目录里**混装**两类产物 —— "
+               "① `share_{reading_id}.png`（发布者主动分享的卡片，本该公开）；"
+               "② `bazi_{YYYYmmdd_HHMMSS}.png`（**私有命盘图**，**秒级时间戳 ⇒ 可枚举**、"
+               "无 TTL）。k84 上报、控制方裁定「收窄挂载面」，k85 落地为三道闸："
+               "① 挂载换成 `ShareCardOnlyStaticFiles`（`lookup_path` 只放行 "
+               "`is_public_share_card`，其余一律 404）；"
+               "② 私有图改落 `private_charts_dir()`（`CHARTS_DIR` 的**兄弟**目录，"
+               "刻意不做子目录 —— 子目录会被同一条 nginx alias 一并命中）；"
+               "③ 私有图只经 `GET /api/charts/{filename}`（`require_user` + 归属令牌）。"
+               "另注（k85 实测）：`src/main.py` 原注释声称「与 /share-cards 同策略："
+               "uuid 文件名不可猜测」，该假设对 `bazi_<ts>.png` **不成立**；"
+               "且 `handler.py` 里硬编码的 `http://124.221.233.214/charts/...`"
+               "**本仓从未挂载该路径** ⇒ k85 实测生产 404（死链），已一并清掉、改走"
+               "本路由。",
     },
 }
 

@@ -232,6 +232,7 @@ ACCOUNT_PURGE_FILE_KINDS = (
     ("memory", "data/memory/{user_id}.json L3 画像"),
     ("reports", "data/reports/*.json —— 归属为该用户的报告（owner_enc 命中）"),
     ("share_cards", "分享图 PNG —— 仅当对应报告被删时一并删"),
+    ("chart_files", "私有命盘图 bazi_*/ziwei_*/fengshui_* —— 归属判据 = 文件名 HMAC 令牌（k85）"),
 )
 
 

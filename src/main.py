@@ -1191,13 +1191,78 @@ app.include_router(visual_report_router)     # /api/report, /report, /api/report
 app.include_router(compatibility_router)     # /api/compatibility, /compatibility
 app.include_router(share_router)             # /api/share, /share
 
-# 分享卡 PNG 静态服务（ShareCardGenerator 产物，目录存在时挂载；
-# CHARTS_DIR 未配置或目录不存在则跳过，分享接口降级返回结构化 card 数据）
+# ── 分享卡 / 命盘图 的**公开面与私有面分离**（k85 必修1）─────────────
+#
+# 改前面临的问题（k84 实测上报、控制方拍板"收窄挂载面"）：
+#   原挂载 `StaticFiles(directory=CHARTS_DIR)` 把**整个目录**匿名公开，而目录里
+#   **混装**两类产物 —— `share_{reading_id}.png`（本该公开）与
+#   `bazi_{YYYYmmdd_HHMMSS}.png` / `ziwei_*` / `fengshui_*`（**私有命盘图**，
+#   **秒级时间戳 ⇒ 可枚举**、无 TTL）。原注释"uuid 文件名不可猜测"对该类不成立。
+#
+# 本批的三道闸（**对外 URL 逐字节不变** ⇒ 分享卡路径零回归）：
+#   ① 挂载点仍是 `/share-cards`（同一个名字、同一个 path），但换成
+#      `ShareCardOnlyStaticFiles` —— 只服务 `share_*.png`，其余一律 404
+#      （判据 = `chart_files.is_public_share_card`，单一事实源）。
+#   ② 私有图**改落** `private_charts_dir()`（`CHARTS_DIR` 的**兄弟**目录，
+#      不是子目录 —— 子目录会被同一条 nginx alias 一并命中）。
+#   ③ 私有图只经**鉴权路由** `GET /api/charts/{filename}` 暴露：`require_user`
+#      + **归属校验**（文件名带 HMAC 归属令牌，路由侧用已鉴权的 user_id 重算比对）。
 _CHARTS_DIR = Path(os.environ.get("CHARTS_DIR", "/opt/fortune-data/charts"))
+
+#: 挂载用的**过滤后**静态类（**无条件**定义在模块级：挂载仍按目录存在与否条件执行，
+#: 与改前同口径；但类本身必须恒可导入 —— 否则"收窄面"这条控制就没法被独立测试
+#: 直接钉住，只能靠"环境恰好有那个目录"的巧合）。
+from fastapi.staticfiles import StaticFiles as _StaticFilesBase  # noqa: E402
+
+
+class ShareCardOnlyStaticFiles(_StaticFilesBase):
+    """`/share-cards` 专用：**只**服务公开分享卡（`share_*.png`）。
+
+    用 `lookup_path` 收窄（而不是 `get_response`）——`lookup_path` 返回
+    `("", None)` 时 Starlette 自身走既有的 404 分支，不依赖异常中间件的层级，
+    跨 starlette 版本口径一致。**不覆盖** `__init__`，故目录/权限语义不变。
+    """
+
+    def lookup_path(self, path: str):
+        from src.images.chart_files import is_public_share_card
+        if not is_public_share_card(path):
+            return "", None
+        return super().lookup_path(path)
+
+
 if _CHARTS_DIR.exists():
-    from fastapi.staticfiles import StaticFiles
-    app.mount("/share-cards", StaticFiles(directory=str(_CHARTS_DIR)), name="share-cards")
-    logger.info("分享卡静态目录已挂载: %s → /share-cards", _CHARTS_DIR)
+    app.mount("/share-cards", ShareCardOnlyStaticFiles(directory=str(_CHARTS_DIR)),
+              name="share-cards")
+    logger.info("分享卡静态目录已挂载（仅 share_*.png）: %s → /share-cards", _CHARTS_DIR)
+
+
+@app.get("/api/charts/{filename}")
+async def get_private_chart(filename: str, uid: str = Depends(require_user)):
+    """私有命盘图（`bazi_*` / `ziwei_*` / `fengshui_*`）—— **鉴权 + 归属校验**。
+
+    三道校验，缺一不可（任一条不过一律 404，**不区分**"不存在"与"不是你的"，
+    不给枚举者任何存在性信号）：
+      ① 形态白名单 `is_private_chart`（`{kind}_{ts}_{16hex}.{png,html}`）——
+         **前置**：不读盘、不解析路径，怪串直接 404；
+      ② **只发 .png**：`.html` 是 Playwright 的中间产物（渲染前先写盘；
+         **渲染成功即被删除**，只有 playwright 缺失/渲染失败时才留在盘上并被
+         旧代码当 URL 返回）。它是模板产物（可含未转义的 LLM/用户文本）⇒
+         从不下发，从源头掐掉"本站域名下的 html 由服务端生成"这条 XSS 通路；
+      ③ `verify_owner`：文件名里的归属令牌必须等于
+         `HMAC(secret, 已鉴权 user_id)` —— 别人的图取不到，猜不出来。
+    """
+    import src.images.chart_files as cf
+
+    if not cf.is_private_chart(filename) or not filename.endswith(".png"):
+        raise HTTPException(status_code=404, detail="图片未找到")
+    if not cf.verify_owner(filename, uid):
+        logger.warning("私有命盘图归属校验不通过（404）user=%s file=%s", uid, filename)
+        raise HTTPException(status_code=404, detail="图片未找到")
+    path = cf.private_charts_dir() / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="图片未找到")
+    return FileResponse(str(path), media_type="image/png",
+                        headers={"X-Content-Type-Options": "nosniff"})
 
 # Phase 5: User API
 from .api.user import router as user_router, setup as setup_user

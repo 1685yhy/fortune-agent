@@ -8,6 +8,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 CHARTS_DIR = Path(os.environ.get('CHARTS_DIR', '/opt/fortune-data/charts'))
 
+# k85 必修1：私有命盘图缺省落盘路径（归属令牌 / 私有目录 / 路由形态的唯一出处）。
+from src.images.chart_files import private_chart_path  # noqa: E402
+
 # 紫微系 / 天府系 star sets
 ZIWEI_XI_STARS = {"紫微", "天机", "太阳", "武曲", "天同", "廉贞"}
 TIANFU_XI_STARS = {"天府", "太阴", "贪狼", "巨门", "天相", "天梁", "七杀", "破军"}
@@ -105,7 +108,9 @@ body{font-family:"PingFang SC","Microsoft YaHei","Noto Serif SC","WenQuanYi Zen 
 
 
 class ZiweiChartHTML:
-    def generate(self, result, output_path: Optional[str] = None) -> str:
+    def generate(self, result, output_path: Optional[str] = None,
+                 user_id: str = "") -> str:
+        """user_id（k85）：私有命盘图的**归属令牌**来源 —— 见 `images/chart_files.py`。"""
         from jinja2 import Template
         now = datetime.now()
 
@@ -164,7 +169,8 @@ class ZiweiChartHTML:
         shen_gong = getattr(result, "shen_gong", "")
         wuxing_ju = getattr(result, "wuxing_ju", "")
 
-        html = Template(HTML).render(
+        # k85 必修1③：autoescape —— 见 bazi_chart_html.py 同处注释（裸 Template 默认不转义）。
+        html = Template(HTML, autoescape=True).render(
             ming_gong=ming_gong,
             shen_gong=shen_gong,
             wuxing_ju=wuxing_ju,
@@ -174,7 +180,8 @@ class ZiweiChartHTML:
             date=now.strftime("%Y.%m.%d"),
         )
 
-        out = output_path or str(CHARTS_DIR / f"ziwei_{now.strftime('%Y%m%d_%H%M%S')}.png")
+        # k85 必修1②：缺省落**私有面**（显式 output_path 行为不变）。
+        out = output_path or str(private_chart_path("ziwei", user_id, now))
         hp = out.replace(".png", ".html")
         with open(hp, "w", encoding="utf-8") as f:
             f.write(html)

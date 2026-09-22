@@ -9,9 +9,19 @@
 
 ## 0. 总览
 
-业务表共 **9 张**（另有 `sqlite_sequence`，AUTOINCREMENT 自增序列维护表，勿手动改动）：
+业务表共 **27 张**（另有 `sqlite_sequence`，AUTOINCREMENT 自增序列维护表，勿手动改动）。
 
-| # | 表名 | 行数(2026-08-08) | 主要用途 |
+> ⚠️ **k85 修正（文档漂移）**：改前此处写「业务表共 **9 张**」，与代码不符 ——
+> `grep -rhoE "CREATE TABLE IF NOT EXISTS [a-z_]+" src/ | sort -u` 实测 **27 张**
+> （建表点分布在 `src/storage/*.py` 与 `src/api/pay_midas.py`、`src/kg/store.py`）。
+> **本节下面只详列其中 9 张**；其余 18 张（`chart_records`、`persons`、
+> `session_summaries`、`favorites`、`share_entries`、`chat_quota`、`jian_cards`、
+> `jian_prefs`、`ming_quota`、`ming_saves`、`qian_saves`、`night_lamp`、
+> `night_prefs`、`night_remember`、`zeri_plans`、`zeri_prefs`、`zeri_quota`、
+> `entities`、`relations`）**本文档尚未收录** —— 建表以代码为**单一事实源**。
+> 表中「行数(2026-08-08)」是**当日快照**，不是实时值。
+
+| # | 表名 | 行数(**当日快照** 2026-08-08) | 主要用途 |
 |---|------|------------------|----------|
 | 1 | users | 415 | 用户档案（微信 openid 派生 ID + 八字密文 + 推送设置 + session_key） |
 | 2 | consultations | 825 | 咨询记录（问题/盘图/分析/反馈） |
@@ -95,7 +105,8 @@
 
 - 索引：`idx_sessions_user (user_id, created_at)` — 覆盖聊天历史查询
   （`get_history` ORDER BY created_at DESC, id DESC LIMIT n）与自动清理
-  （每用户最多保留 100 条，`SessionDAO._cleanup`）。
+  （每用户最多保留 `MAX_MESSAGES_PER_USER` = **2000** 条 ≈ 1000 轮，`SessionDAO._cleanup`）。
+  ⚠️ k85 修正：改前此处写 **100**，与代码（`session_dao.py:25`，2000）不符 —— 文档漂移。写数字时请与常量同源，改常量记得回来改这一行。
 - 前端关系：`/api/chat`（写入）、AI 多轮上下文读取（`get_context_for_llm`）。
 
 ### 2.4 memberships — 会员套餐与配额

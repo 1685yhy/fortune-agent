@@ -163,6 +163,47 @@ class AdaptiveAdvisor:
             except Exception:
                 pass  # scrub 是增强：异常静默，不阻塞建议返回
 
+            # k85 必修5：本链**并入** `fact_guard` 的 E 段（无依据具体结论）——
+            # 走**同一个实现**（`scrub_ungrounded_claims`），不另起一套判据。
+            #
+            # 判定 `has_real_tool_result=True`（= E 段契约里的"一字不改"，
+            # `fact_guard.py::guard_ungrounded_claims` 首行短路），**依据是实测**：
+            # 本链的输入恒是**真实引擎盘面**（`BaziEngine.calculate` 实算的
+            # `bazi_result`，handler/`api/advisor` 两条消费点都是先排盘再 generate）
+            # ⇒ 结构上不存在"无依据"的前提。
+            #
+            # 反证（**为什么不能写 False + 盘面作依据表**）——2026-09-23 实测，
+            # 免费 glm-4-flash（仓内指定的测试模型，即"GLM 降级链"同款小模型）
+            # 对本链 prompt 的三条真实输出，用 `grounded_refs_from_chart(result)`
+            # 作依据表跑 `ungrounded_claim_hits(text, False, refs)`：
+            #   命中 10 / 52 / 15 条，文本保留率 **90.1% / 62.9% / 78.4%**
+            #   —— 被删的全是**建议卡的时间窗口日期**
+            #   （如 `2027年9月15日至10月15日`），而本链 prompt 第 4 条**要求**
+            #   "时间窗口要具体到日期范围" ⇒ 写 False 会把本功能的核心内容删掉
+            #   （误杀，用户直接丢掉建议）。
+            #   根因：这些日期是模型**综合大运/流年推出来的新值**，不是盘面上的
+            #   字面值，`_ung_grounded` 的"字面包含 / 数字连续子序列"对它不成立。
+            #   对照（判据本身没坏）：`你的四柱是{真盘面}，日主{真日主}` → **0 命中**；
+            #   同一句式的编造值 → 命中。
+            # 复现：`tests/test_k85_advisor_grounding.py`（含上述两组数字的钉死）。
+            try:
+                from src.utils.fact_guard import (grounded_refs_from_chart,
+                                                  scrub_ungrounded_claims)
+                _refs = grounded_refs_from_chart(bazi_result)
+                for _a in result.get("actions") or []:
+                    if isinstance(_a, dict):
+                        for _k in ("advice", "timing", "concrete_steps",
+                                   "success_metric"):
+                            if isinstance(_a.get(_k), str):
+                                _a[_k] = scrub_ungrounded_claims(
+                                    _a[_k], True, _refs)
+                for _k in ("serendipity", "daily_tip", "style_notes"):
+                    if isinstance(result.get(_k), str):
+                        result[_k] = scrub_ungrounded_claims(
+                            result[_k], True, _refs)
+            except Exception:
+                pass  # 同 D 段：scrub 是增强，异常静默不阻塞建议返回
+
             return result
 
         except Exception as e:

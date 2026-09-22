@@ -302,7 +302,9 @@ class ShareCardGenerator:
                                 "value": val})
 
         # ── Render ──
-        html = Template(HTML).render(
+        # k85 必修1③：autoescape —— 见 bazi_chart_html.py 同处注释。该 HTML 经
+        # Playwright 渲染成 PNG；卡片文本含用户名等用户可控值。
+        html = Template(HTML, autoescape=True).render(
             pillars=pillars,
             day_master=day_master,
             dm_color=dm_color,

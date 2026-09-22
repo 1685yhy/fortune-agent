@@ -30,13 +30,24 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from src.security.auth import require_user, ensure_owner, optional_user
+from src.images.chart_files import public_share_card_url
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["share"])
 
 _DATA_DIR = Path(__file__).parent.parent.parent / "data" / "reports"
-_BASE_URL = "https://fortune.talcloud.com"
+
+#: 对外域名 —— **单一事实源**：`config.public_client_base()`（env `PUBLIC_BASE_URL`，
+#: 回环值自动回落到生产域名；与 TTS / 夜间语音同一口径）。
+#:
+#: k85：改前这里是**写死的** `"https://fortune.talcloud.com"`，而该域名
+#: **根本不解析**（k85 实测 `Could not resolve host`）⇒ 分享通道下发给客户端的
+#: 三个 URL 全是死链：`report_url`、`share-cards/{name}`、以及 `_get_base_url()`
+#: 的返回值。同型第二处见 `visual_report.py::_PUBLIC_BASE`（本批一并改为同源）。
+def _base_url() -> str:
+    from src.config import public_client_base
+    return public_client_base()
 
 # 全局引用，由 main.py 在 lifespan 中设置（setup_share）
 _dao = None
@@ -154,8 +165,8 @@ def _report_share_expired_html() -> str:
 
 
 def _get_base_url(request=None) -> str:
-    """Get the base URL for share links."""
-    return _BASE_URL
+    """Get the base URL for share links（同源：`_base_url()`）。"""
+    return _base_url()
 
 
 # ── 分享卡片数据构造 ─────────────────────────────────────────────
@@ -221,7 +232,7 @@ def _card_from_consultation(c: dict, report_id: str) -> dict:
         "wuxing_summary": _wuxing_summary(wuxing),
         "style": {"bg": "#faf8f5", "accent": "#c9a96e", "text": "#1a1a1a"},
         "qr_placeholder": "扫码查看完整命书",
-        "report_url": f"{_BASE_URL}/report/{report_id}",
+        "report_url": f"{_base_url()}/report/{report_id}",
         "bazi_data": {
             "bazi": bazi,
             "day_master": day_master,
@@ -297,7 +308,7 @@ def _card_from_report(report: dict) -> dict:
         # k76：指向**分享通道**而不是 /report/{reading_id}——后者自本批起需要
         # 登录+归属校验，把"分享给别人看"的链接指到那里等于给对方一个打不开的页。
         # 分享通道（/share/{reading_id}）匿名可读且已剥离个人信息，是收件人该走的路径。
-        "report_url": f"{_BASE_URL}/share/{reading_id}",
+        "report_url": f"{_base_url()}/share/{reading_id}",
         "bazi_data": {
             "bazi": bazi_list,
             "day_master": day_master,
@@ -335,7 +346,8 @@ def _try_generate_image(card: dict) -> Optional[str]:
             user_name=card.get("user_name", ""),
             output_path=str(CHARTS_DIR / f"share_{card['reading_id']}.png"),
         )
-        return f"{_BASE_URL}/share-cards/{Path(out).name}"
+        # k85 必修1：分享卡 URL 也走同源域名（改前指向不解析的 talcloud）。
+        return public_share_card_url(Path(out).name)
     except Exception as e:
         logger.warning("分享图生成失败，降级返回结构化卡片数据: %s", e)
         return None
