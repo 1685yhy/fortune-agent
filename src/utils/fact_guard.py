@@ -242,3 +242,238 @@ def guard_schema_echo(text: str) -> Tuple[str, List[str]]:
 def scrub_schema_echo(text: str) -> str:
     """便捷出口（与 scrub_turn 同风格；**独立于** scrub_turn，不改其语义）。"""
     return guard_schema_echo(text)[0]
+
+
+# ============================================================
+# E：无依据的具体结论（LEGACY-FABRICATION-01）——降级档编盘/编日期输出侧拦截
+# ============================================================
+# 事故形态（k65 r3 实跑实测，glm-4-flash、N=12、temperature=0.7）：
+#     「精简模式暂不提供排盘服务，不过根据你的出生日期和时间，
+#        你应该是庚午年、己巳月、乙巳日、丙申时。」
+# —— 模型先说了**对的出口句**，随后仍补出一整张盘；同类还有把用户生日换算成
+# 农历给出具体日期（「生于农历四月廿五」，同批 A/after/rep1）。另见择日档
+# 「这个月15号或16号比较适合搬家」。
+#
+# 为什么必须落在输出侧：k65 r3 加「能力边界」后编盘 4/12→1/12、择日 3/12→0/12，
+# **压不到 0**（提示词只能收敛概率，不能保证为 0）——这是生成侧概率行为，
+# 需要结构层兜底。
+#
+# ⚠️ **主判据不是文本形态，而是「本轮到底有没有真实工具结果」**
+# （形参 `has_real_tool_result`）。它与 k65 r2-1 那条 gate 是**同一个事实源**：
+# `chat_quota.downgraded` / `lite` —— 降级档没有工具能力 ⇒ 任何四柱/日期都
+# 没有依据。判据**不按消息内容猜**（同一句话在有/无工具的轮次里结论相反）。
+#   · has_real_tool_result=True → **一字不改**（边界 5：主链有真实工具结果时
+#     给出四柱/日期完全合法，不得一刀切）；
+#   · has_real_tool_result=False → 才进入「具体值有没有依据」的检查。
+#
+# 依据（`allowed_refs`）= 已在本轮上下文里出现过的字面值：用户自报的生日、
+# 真实工具结果、检索到的古籍原文。调用方用 `grounded_refs_from_messages`
+# 从本轮 messages 取。**出现在依据里的值 ⇒ 属回显/引用，放行**（边界 1/2）：
+# 本批宽口径 5 例里 4 例是「用户自报生日的回显」，误杀它就是最大的回归。
+# 无依据的具体值 ⇒ 删除其所在**分句**（不是删词：删词会留下「你应该是。」
+# 这类残句，更像 bug）。整条都是编造 → 清空（由调用方决定兜底）。
+#
+# 与 D 段的分工（同层、单一事实源，不各链各修）：
+#   D = 形态学（"给模型看的 schema 被当成回复"），接 advisor_v2 呈现字段；
+#   E = 事实源（"没有真实结果却给出具体结论"），接降级档对话出口
+#       （src/llm/client.py::_chat_lite —— 该路径结构上无工具，
+#       has_real_tool_result 恒为 False，与 r2 的 gate 同源）。
+#
+# 刻意不追（精度优先，已用测试钉住，勿当缺陷）：
+#   ① 只提术语不给值（「建议从八字中找出喜用神」）= 合法（边界 3，k65 已判假阳性）；
+#   ② 黄历泛述（「参考黄历，选个吉日」/「黄道吉日」/「双日子」）无具体日期 = 合法
+#      （边界 4）；但「避开初八、十八、二十八」是具体日期 ⇒ 拦；
+#   ③ 生肖复述（「属马」）不算日期、不算命盘结论（跟随 k65 审计口径）；
+#   ④ 五行旺衰的**形容词**断言（「可能火土较旺」）不在本段口径内（见 tests 钉住）；
+#   ⑤ 神煞名裸词（「命带桃花」）不拦（k65 已判假阳性；神煞白名单是 C 段职责，
+#      且 C 段要求本盘全集，降级档没有）；
+#   ⑥ X点/X时（钟点）不作为日期形态（多数是用户自报时间的回显）；
+#   ⑦ 依据取"本轮 messages 全文"⇒ 历史里已有的值算已上桌（不再二次审计）；
+#      代价是**未修版本落库的旧编造**会自我洗白（登记项，见报告）。
+
+# ① 干支对（六十甲子：天干+地支相邻）——无真实结果时出现即"具体命盘结论"
+_UNG_GANZHI_RE = re.compile(r'[甲乙丙丁戊己庚辛壬癸][子丑寅卯辰巳午未申酉戌亥]')
+# ② 术语 + 具体值（「喜用神为木火」「用神取水」「日主是庚金」）。
+#    只提术语不给值**不匹配**（边界 3）：值必须紧跟 为/是/取/用/：/:
+_UNG_TERM_VALUE_RE = re.compile(
+    r'(?:喜用神|用神|忌神|调候)[^。！？；，,、\n]{0,4}(?:为|是|取|用|：|:)\s*[金木水火土]')
+_UNG_DAYMASTER_RE = re.compile(
+    r'(?:日主|日干)[^。！？；，,、\n]{0,3}(?:为|是|：|:)\s*[甲乙丙丁戊己庚辛壬癸]')
+# ③ 具体日期：公历（含 15号/20日）、农历（含 初八/十八/廿八）
+#    刻意**不含**「吉日/黄道吉日/双日子」等泛述（边界 4）
+_UNG_DATE_RES = (
+    re.compile(r'\d{4}\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*[日号]'),
+    re.compile(r'\d{1,2}\s*月\s*\d{1,2}\s*[日号]'),
+    # 「10号楼/3号线/2号院」这类门牌标签不是日期（误杀防线）
+    re.compile(r'\d{1,2}\s*[日号](?![楼房线院车馆区机栋座台铺仓库单])'),
+    re.compile(r'农历\s*(?:[一二三四五六七八九十]{1,3}\s*月)?\s*'
+               r'[初廿十]?[一二三四五六七八九十]+'),
+    re.compile(r'[初廿][一二三四五六七八九十]'),
+    # 裸「十八/二十八」（k65 口径：避开初八、十八、二十八 ⇒ 拦）；
+    # 「十二生肖/三十六计/十分」这类非日期词用否定前瞻挡掉（误杀防线）
+    re.compile(r'十[一二三四五六七八九]'
+               r'(?![生肖计般分年月份足全方万字答进制])'),
+)
+# 分句切分：**不在「、」上切** ——「庚午年、己巳月、乙巳日、丙申时」要整句删，
+# 切开就会留下「己巳月、乙巳日」这类残片。
+_UNG_CLAUSE_RE = re.compile(r'[^，,。！？；;\n]+')
+_UNG_SENT_END = '。！？'
+
+
+def _ung_norm(s) -> str:
+    """归一：去所有空白（中文里「1990 年 5 月 20 日」与「1990年5月20日」同值）。"""
+    return re.sub(r'\s+', '', str(s or ''))
+
+
+def _ung_digits(s) -> Tuple[int, ...]:
+    """数字序列（用于跨书写格式比对：「1990-05-20」=「1990年5月20日」）。"""
+    return tuple(int(x) for x in re.findall(r'\d+', str(s or '')))
+
+
+def _ung_grounded(value: str, refs_norm, refs_digits) -> bool:
+    """具体值是否有依据：字面包含，或其数字序列是某依据的**连续子序列**。
+
+    例：用户说「1990年5月20日 下午3点」→ 回复「5月20日」「20号」都算回显
+    （数字序列 (5,20)/(20) 是 (1990,5,20,3) 的连续子序列）。
+    """
+    v = _ung_norm(value)
+    if not v:
+        return True
+    for r in refs_norm:
+        if v in r:
+            return True
+    vd = _ung_digits(value)
+    if vd:
+        n = len(vd)
+        for rd in refs_digits:
+            if n > len(rd):
+                continue
+            for i in range(len(rd) - n + 1):
+                if rd[i:i + n] == vd:
+                    return True
+    return False
+
+
+def _ung_values_in(clause: str, refs_norm, refs_digits) -> List[str]:
+    """本分句里**无依据的具体值**清单（空 = 放行）。"""
+    out: List[str] = []
+    for m in _UNG_GANZHI_RE.finditer(clause):
+        if not _ung_grounded(m.group(0), refs_norm, refs_digits):
+            out.append("chart:" + m.group(0))
+    for rx, kind in ((_UNG_TERM_VALUE_RE, "value"),
+                     (_UNG_DAYMASTER_RE, "daymaster")):
+        for m in rx.finditer(clause):
+            if not _ung_grounded(m.group(0), refs_norm, refs_digits):
+                out.append(kind + ":" + m.group(0))
+    for rx in _UNG_DATE_RES:
+        for m in rx.finditer(clause):
+            if not _ung_grounded(m.group(0), refs_norm, refs_digits):
+                out.append("date:" + m.group(0))
+    return out
+
+
+def ungrounded_claim_hits(text: str, has_real_tool_result: bool,
+                          allowed_refs: Iterable[str] = ()) -> List[str]:
+    """命中明细（供告警与测试取证）。主判据为 `has_real_tool_result` + 依据表。"""
+    if not text or has_real_tool_result:
+        return []
+    refs = tuple(allowed_refs or ())
+    refs_norm = tuple(x for x in (_ung_norm(r) for r in refs) if x)
+    refs_digits = tuple(x for x in (_ung_digits(r) for r in refs) if x)
+    hits: List[str] = []
+    for m in _UNG_CLAUSE_RE.finditer(text):
+        hits.extend(_ung_values_in(m.group(0), refs_norm, refs_digits))
+    return hits
+
+
+def has_ungrounded_claims(text: str, has_real_tool_result: bool,
+                          allowed_refs: Iterable[str] = ()) -> bool:
+    """布尔判定（与 `is_schema_echo` 同风格）。"""
+    return bool(ungrounded_claim_hits(text, has_real_tool_result, allowed_refs))
+
+
+def _ung_rebuild(text: str, spans, drops) -> str:
+    """删掉被标分句后重建：分隔符取「下一个保留分句之前」那一个；被删序列里
+    出现过句末符（。！？）则优先用它收尾，避免把未完成的半句并进下句。"""
+    seps = []
+    for i, (s, e) in enumerate(spans):
+        nxt = spans[i + 1][0] if i + 1 < len(spans) else len(text)
+        seg = text[e:nxt]
+        stripped = seg.strip()
+        seps.append(stripped if stripped else ('\n' if '\n' in seg else ''))
+    parts: List[str] = []
+    for i, (s, e) in enumerate(spans):
+        if i in drops:
+            continue
+        j = i + 1
+        while j < len(spans) and j in drops:
+            j += 1
+        if j - 1 > i:
+            sent = [k for k in range(i + 1, j)
+                    if seps[k][:1] in _UNG_SENT_END]
+            sep = seps[sent[0]] if sent else (seps[j - 1] if j - 1 < len(seps) else "")
+        else:
+            sep = seps[i]
+        parts.append(text[s:e] + sep)
+    return "".join(parts).strip()
+
+
+def guard_ungrounded_claims(text: str, has_real_tool_result: bool,
+                            allowed_refs: Iterable[str] = ()
+                            ) -> Tuple[str, List[str]]:
+    """E：无依据的具体结论 → **删除其所在分句** + 返回命中。
+
+    :param text: 待校验文本（降级档 LLM 回复）
+    :param has_real_tool_result: **主判据**——本轮有没有真实工具结果（与 k65 r2
+        的 lite/downgraded gate 同一事实源）。True → 一字不改。
+    :param allowed_refs: 依据表（用户自报事实 / 真实工具结果 / 检索到的原文）；
+        出现在其中的具体值 = 回显或引用，放行。
+    :return: (cleaned_text, hits)
+    """
+    if not text:
+        return text, []
+    if has_real_tool_result:
+        return text, []
+    refs = tuple(allowed_refs or ())
+    refs_norm = tuple(x for x in (_ung_norm(r) for r in refs) if x)
+    refs_digits = tuple(x for x in (_ung_digits(r) for r in refs) if x)
+    spans = [(m.start(), m.end()) for m in _UNG_CLAUSE_RE.finditer(text)]
+    drops, hits = set(), []
+    for i, (s, e) in enumerate(spans):
+        bad = _ung_values_in(text[s:e], refs_norm, refs_digits)
+        if bad:
+            drops.add(i)
+            hits.extend(bad)
+    if not drops:
+        return text, []
+    cleaned = _ung_rebuild(text, spans, drops)
+    logger.warning("fact_guard: 无依据具体结论去句（%d 条命中：%s；去句 %d/%d）",
+                   len(hits), "、".join(hits[:4]), len(drops), len(spans))
+    return cleaned, hits
+
+
+def scrub_ungrounded_claims(text: str, has_real_tool_result: bool,
+                            allowed_refs: Iterable[str] = ()) -> str:
+    """便捷出口（与 scrub_turn / scrub_schema_echo 同风格，独立不改它们语义）。"""
+    return guard_ungrounded_claims(text, has_real_tool_result, allowed_refs)[0]
+
+
+def grounded_refs_from_messages(messages: Iterable[dict]) -> Tuple[str, ...]:
+    """从本轮 messages 取依据表（**已在上下文里出现过的字面值**）。
+
+    只取文本段（content 为 str 的消息）。用户自报事实与真实工具结果都在这里，
+    故模型**复述**它们不会被误杀（边界 1/2）；乱码/空段跳过。
+    """
+    refs: List[str] = []
+    for m in messages or ():
+        if not isinstance(m, dict):
+            continue
+        c = m.get("content")
+        if isinstance(c, str) and c.strip():
+            refs.append(c)
+        elif isinstance(c, list):
+            for blk in c:
+                if isinstance(blk, dict) and isinstance(blk.get("text"), str) \
+                        and blk["text"].strip():
+                    refs.append(blk["text"])
+    return tuple(refs)
