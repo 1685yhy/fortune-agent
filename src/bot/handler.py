@@ -582,6 +582,25 @@ _FEEDBACK_PROMPT = "———\n这个分析对你有帮助吗？可回复「准�
 # 旧版 emoji 反馈尾（_add_feedback_prompt 曾输出此格式；润色剥离/回接兼容）
 _FEEDBACK_PROMPT_EMOJI = "———\n💬 这个分析对你有帮助吗？👍 有帮助  👎 不太准"
 
+# ── k86 必修4：私有命盘图**不再向用户展示裸 URL** ─────────────────────────
+# 背景：k85 把私有命盘图收窄到鉴权路由 `GET /api/charts/{filename}`
+# （`require_user` + 归属令牌），图本身没问题；但**回复里那行 URL 从此不可用**：
+#   · 小程序把回复按纯文本渲染，URL 既不可点，也没有任何前端代码去取它
+#     （全仓 `miniprogram/` 对 `/api/charts`、`命盘图片` 零引用）；
+#   · 复制到站外（浏览器/别的 App）→ 没有 Authorization 头 → **401**，
+#     连用户本人也打不开（改前那条是硬编码 IP + 未挂载路径的 404，同样打不开）。
+# 结论：这行是**死承诺**（看起来像能被使用的链接，实际什么都不发生）。k86 判定
+# 暂不做「点开即看」（前端 `wx.downloadFile` 带 header）——理由见 k86 报告：
+# ① 本环境无法做真机/模拟器渲染取证（无 DevTools 自动化会话），而"做完必须有
+#    真实渲染验证"是硬规则；② `wx.downloadFile` 需要**单独的**「downloadFile
+#    合法域名」后台配置，仓内唯一的 downloadFile 调用点只取**公开**分享卡且**不
+#    带 header**，私有下载链路在本 App 从未验证过，盲发会把"看得见的死链"换成
+#    "点了静默失败"，更糟；③ 这是**功能开发**（聊天图片气泡 + 401 处理 + 查看器），
+#    不是修复，属产品拍板范围。
+# 因此改为**明确的提示文案**：不出现 URL，也不做 App 做不到的承诺。
+CHART_HINT_PRIVATE = "📊 命盘图已生成（私人图，仅你本人可访问）"
+FENGSHUI_HINT_PRIVATE = "📊 风水九宫图已生成（私人图，仅你本人可访问）"
+
 # ============================================================
 # k11b 联网搜索语义触发：引擎意图域自动检索的注入/降级文案（确定性，单一事实源；
 # 禁裸 JSON/工具标签——注入内容全为纯文本，走 k11 stream-guard scrub 出口）
@@ -3673,8 +3692,10 @@ class MessageHandler:
                 break
 
         # 2) 命盘图片链接保底（LLM 润色可能丢弃链接）
+        # k86 必修4：图行有两种形态 —— 历史稿带 URL（仍兼容），现行稿为
+        # 不含 URL 的提示文案；两者都算「这一行的渲染装饰」，都要能找回。
         chart_url = ""
-        m = re.search(r'📊[^\n]*(?:https?://\S+)', body)
+        m = re.search(r'📊[^\n]*(?:https?://\S+|图已生成[^\n]*)', body)
         if m:
             chart_url = m.group(0).strip()
 
@@ -9022,7 +9043,7 @@ class MessageHandler:
         if advice_section:
             reply += advice_section
         if chart_url:
-            reply += f"\n\n📊 命盘图片：{chart_url}"
+            reply += "\n\n" + CHART_HINT_PRIVATE
 
         # 命例相似度分析已移除（2026-08-09 方案 v5 选 A：SimilarityEngine 停用，
         # 未问"像谁"不再输出命例对照）
@@ -9726,7 +9747,7 @@ class MessageHandler:
 
             reply = analysis.response
             if chart_url:
-                reply += f"\n\n📊 命盘图片：{chart_url}"
+                reply += "\n\n" + CHART_HINT_PRIVATE
             return reply
         except Exception as e:
             return f"⚠️ 紫微斗数排盘暂时不可用：{str(e)[:100]}\n\n请稍后重试或改用八字分析。"
@@ -9915,7 +9936,7 @@ class MessageHandler:
 
             reply = analysis.response
             if chart_url:
-                reply += f"\n\n📊 风水九宫图：{chart_url}"
+                reply += "\n\n" + FENGSHUI_HINT_PRIVATE
             return reply
         except Exception as e:
             return f"⚠️ 风水分析暂时不可用：{str(e)[:100]}\n\n请稍后重试。"

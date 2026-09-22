@@ -208,6 +208,11 @@ def strip_card_decor_for_llm(text: Optional[str]) -> Optional[str]:
 # k7b 行级装饰判定（单行正则，见 strip_card_decor_for_llm docstring）
 _URL_IN_LINE_RE = re.compile(r'https?://\S+')
 _TEXT_IMG_LINE_RE = re.compile(r'命盘图片[：:][^\n]*https?://\S+')
+# k86 必修4：图行改为**不含 URL** 的提示文案（私有图要鉴权头，裸 URL 在
+# 小程序里是纯文本、复制到站外必 401 ⇒ 不再对用户展示死链）。新形态同样是
+# 「只由装配层注入一次」的渲染装饰，必须一并剥离（否则会漏进 LLM 上下文被仿写）。
+# 注意与 k7b 的假阳性样例「命盘图片：明天整理好再发你。」区分：本式要求 📊 + 「图已生成」。
+_CHART_HINT_LINE_RE = re.compile(r'📊[^\n]*图已生成')
 # k33/A19（k7b review Minor-1「版本页脚规则偏宽」）：旧形态 `解读版本[：:]`
 # 命中即剥 → 正文行首恰好是「解读版本：…」的普通文案整行被吞。收紧为
 # 「行内出现版本号且其后只接页脚成分（| / 生成时间 / 行尾）」的页脚签名：
@@ -232,7 +237,8 @@ def _is_decor_line(line: str) -> bool:
     if _CARD_CLOSE_LINE_RE.match(line):
         return True
     if ("📊" in line and _URL_IN_LINE_RE.search(line)) or \
-            _TEXT_IMG_LINE_RE.search(line):
+            _TEXT_IMG_LINE_RE.search(line) or \
+            _CHART_HINT_LINE_RE.search(line):          # k86 必修4：无 URL 的新图行
         return True
     if "可回复" in line and "「准」" in line and "「不准」" in line:
         return True

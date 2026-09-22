@@ -279,3 +279,126 @@ class TestChartHtmlEscaping:
         assert p.suffix == ".png" or p.suffix == ".html"
         assert cf.verify_owner(p.name, OWNER), "落盘文件名里没有归属令牌"
         assert not any(pub.iterdir()), f"公开面被写进了东西：{list(pub.iterdir())}"
+
+
+# ══════════════════════════════════════════════════════════════════════
+# k86 必修4：私有图 URL 收窄后，回复里那行**裸 URL** 成了死承诺
+# ══════════════════════════════════════════════════════════════════════
+# 背景（k85 指出、k86 判定并落地）：
+#   k85 把私有命盘图收窄到 `GET /api/charts/{filename}`（`require_user` + 归属令牌）
+#   之后，回复里那行 `📊 命盘图片：<url>` **对谁都打不开**：
+#     · 小程序端把回复按纯文本渲染（`miniprogram/` 对 `/api/charts`、`命盘图片`
+#       **零引用**）⇒ 既不可点，也没有任何代码去取它；
+#     · 复制到站外 → 没有 Authorization 头 → **401**（用户本人也一样）。
+#   k86 判定**暂不做**「点开即看」（前端 `wx.downloadFile` 带 header），理由：
+#     ① 本环境做不了真机/模拟器渲染取证（无 DevTools 自动化会话），而"改前端必须有
+#        真实渲染验证"是硬规则；② `wx.downloadFile` 需要**单独的**「downloadFile
+#        合法域名」后台配置，仓内唯一调用点（`pages/reports/reports.js:158`）只取
+#        **公开**分享卡且**不带 header**，私有下载链路在本 App 从未验证 —— 盲发会把
+#        "看得见的死链"换成"点了静默失败"；③ 这是功能开发（气泡 + 401 处理 + 查看器），
+#        属产品拍板范围。
+#   落地 = **去掉死 URL，改为明确的提示文案**，且图仍生成、私有面与归属令牌不变。
+# 本类钉住：死 URL 不得回到用户可见文本里，且新提示不得漏进 LLM 上下文。
+
+
+class TestPrivateChartReplyHasNoDeadUrl:
+    def test_user_facing_hint_contains_no_url(self):
+        from src.bot import handler as H
+        for name in ("CHART_HINT_PRIVATE", "FENGSHUI_HINT_PRIVATE"):
+            text = getattr(H, name)
+            assert "http" not in text and "//" not in text, (
+                f"{name} 里又出现了 URL —— 私有图要鉴权头，裸 URL 对用户是死链")
+            assert "私人图" in text, f"{name} 未说明是私人图"
+            assert "已生成" in text, f"{name} 未说明图已生成"
+
+    def test_reply_assembly_does_not_interpolate_a_url(self):
+        """注入点必须是**常量提示**，不得再 f-string 插 URL。"""
+        src = (Path(__file__).resolve().parents[1]
+               / "src" / "bot" / "handler.py").read_text(encoding="utf-8")
+        assert 'reply += f"\\n\\n📊 命盘图片：{chart_url}"' not in src, \
+            "八字/紫微回复又开始插私有图裸 URL"
+        assert 'reply += f"\\n\\n📊 风水九宫图：{chart_url}"' not in src, \
+            "风水回复又开始插私有图裸 URL"
+        assert "CHART_HINT_PRIVATE" in src and "FENGSHUI_HINT_PRIVATE" in src
+
+    def test_polished_reply_keeps_the_hint_once_and_never_a_url(self):
+        """**行为面**：走真实 `_polish_with_engine_draft`，输出既留得住提示、也不含 URL。
+
+        两条路径都测：LLM 正常输出（提示靠"保底重挂"回来）、LLM 仿写整段图行（净化）。
+        """
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from src.bot import handler as H
+
+        h = object.__new__(H.MessageHandler)
+        h.llm = SimpleNamespace(api_key="k", model="m")
+        h._citations = {"u1": []}
+        h.session_dao = None
+
+        body = "行，我给你重新排一次。你命里火土燥，水是你的解药。"
+        draft = body + "\n\n" + H.CHART_HINT_PRIVATE + "\n\n" + H._FEEDBACK_PROMPT
+        imitation = (body + "\n" + H.CHART_HINT_PRIVATE
+                     + "\n[/card]\n\n———\n这个分析对你有帮助吗？可回复「准」或「不准」告诉我")
+        for label, llm_out in (("正常输出", body), ("仿写图行", imitation)):
+            with patch("src.llm.client.deepseek_anthropic_completion",
+                       return_value=llm_out):
+                out = h._polish_with_engine_draft("帮我排盘", "u1", draft)
+            assert "http" not in out, f"[{label}] 回复里出现了 URL：{out!r}"
+            assert out.count("命盘图已生成") == 1, f"[{label}] 提示不是恰一次：{out!r}"
+            assert "[/card]" not in out, f"[{label}] 假闭合没剥净：{out!r}"
+
+    def test_hint_is_stripped_from_the_llm_context(self):
+        """图行是**渲染装饰**，必须从喂给 LLM 的上下文里剥掉（否则会被仿写）。"""
+        from src.bot.card_mark import strip_card_decor_for_llm
+        from src.bot import handler as H
+        draft = "正文。\n\n" + H.CHART_HINT_PRIVATE
+        assert "命盘图已生成" not in strip_card_decor_for_llm(draft), \
+            "新图行漏进 LLM 上下文 —— 会像 k7b 的假图行一样被仿写"
+        # k7b 的既有假阳性样例不得被误剥（口径未变）
+        assert "命盘图片：明天整理好再发你。" in \
+            strip_card_decor_for_llm("命盘图片：明天整理好再发你。"), \
+            "k7b 的「命盘图片：…（无 URL）」假阳性样例被误剥 —— 剥面被放宽了"
+
+    def test_legacy_url_form_still_recovered_and_stripped(self):
+        """历史稿（带 URL 的旧图行）仍能被保底找回与剥离 —— 兼容面只增不减。"""
+        from src.bot.card_mark import strip_card_decor_for_llm
+        legacy = "📊 命盘图片：https://yilichat.com/api/charts/bazi_x.png"
+        assert legacy not in strip_card_decor_for_llm("正文。\n\n" + legacy), \
+            "旧形态图行不再被剥离 —— k7b 的剥面被收窄了"
+
+    def test_old_dead_hardcoded_host_never_returns(self):
+        """k85 清掉的**死链形态**（硬编码 IP + 未挂载的 `/charts/`）不得复活。
+
+        判据只扫**代码行**（剥掉整行注释）：`124.221.233.214` 在别处有正当用法
+        （`src/eval/engine.py` 的评测靶机默认 URL），且 k85/k86 的说明注释里
+        **引述**旧写法用于留痕 —— 那是记录历史，不是复活死链。真正要禁的是
+        "把 `IP + /charts/` 拼成可下发 URL"这件事本身。
+        """
+        root = Path(__file__).resolve().parents[1]
+        code = []
+        for p in (root / "src").rglob("*.py"):
+            in_doc = False
+            for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+                if '"""' in line or "'''" in line:
+                    # 三引号开关（本仓 docstring 不混用引号风格，够用且可读）
+                    in_doc = not in_doc
+                    continue
+                if in_doc or line.strip().startswith("#"):
+                    continue
+                if "124.221.233.214" in line and "/charts/" in line:
+                    code.append(f"{p.relative_to(root)}:{i}")
+        assert code == [], f"死链形态（硬编码 IP + /charts/）又出现在代码里：{code}"
+
+    def test_the_chart_png_is_still_generated_and_owner_gated(self):
+        """去掉死 URL **不等于**放弃私有图：图仍生成、仍落私有面、仍带归属令牌。
+
+        这条钉住"改动只动了用户可见文案，没削弱 k85 的收窄挂载面"。
+        """
+        from src.bot import handler as H
+        src = (Path(__file__).resolve().parents[1]
+               / "src" / "bot" / "handler.py").read_text(encoding="utf-8")
+        assert "reply_chart_url" in src, \
+            "`reply_chart_url` 被删了 —— 私有图的归属令牌链路不该被砍掉"
+        assert src.count("if chart_url:") >= 3, \
+            "`chart_url` 不再作为「要不要提示图已生成」的判据（可能被当成死变量删了）"
+        assert hasattr(H, "CHART_HINT_PRIVATE")
