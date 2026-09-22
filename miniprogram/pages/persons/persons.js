@@ -353,7 +353,7 @@ Page({
     if (!editing) return;
     wx.showModal({
       title: '删除档案？',
-      content: `「${editing.name || ''} · ${editing.relation || ''}」的档案删除后不可恢复\n名下命书与手记不受影响`,
+      content: `「${editing.name || ''} · ${editing.relation || ''}」的档案删除后无法自助恢复\n名下命书与手记不受影响`,
       confirmText: '确认删除',
       cancelText: '留着',
       confirmColor: '#A93A2C',

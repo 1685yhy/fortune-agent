@@ -85,6 +85,12 @@ def _load_report(reading_id: str) -> dict:
 #  与 `/report/{reading_id}` 的"鉴权 + 归属校验"是两条不同的路径，不冲突。
 _READING_ID_RE = re.compile(r"^[0-9a-f]{8}$")
 
+#: 咨询 ID 的合法形态（k84-必修7）。**必须是 ASCII 数字**，不用 `str.isdigit()` ——
+#  `isdigit()` 对 `²`（上标）、`１２３`（全角）也为真，而 `int('²')` 抛 ValueError
+#  ⇒ 用它当判据会让 `GET /api/share/²` 变成 **500**（实测）。`^[0-9]+$` 与
+#  `/api/share/{report_id}` 的**形态白名单**同一口径（单一事实源）。
+_CONSULT_ID_RE = re.compile(r"^[0-9]+$")
+
 
 def _report_path(reading_id: str) -> Path:
     """报告文件路径（k79-M2：与加载器同一个"路径怎么拼"的实现，不再各写一份）。"""
@@ -690,7 +696,28 @@ async def get_share_metadata(report_id: str, uid: str = Depends(require_user)):
     咨询，两边都落空才是 404。两个命名空间（8 位 hex 文件名 vs 整数咨询 ID）
     各自独立，同名时"文件在"是唯一能同时解释两边的判据（此情形已在本仓不存在：
     咨询 ID 是自增整数，8 位纯数字且恰好有同名报告文件才会撞上，撞上时按报告处理）。
+
+    k84-必修7：**形态白名单前置**（k79 报出、当时以"穿越实测不可达、属新增限制"为由
+    未加，本批按控制方定规「只要是报的，都要修」补上）。
+    只接受两种合法形态，其余一律 **404 且不做任何磁盘探测 / DB 查询**：
+      ① `_READING_ID_RE`（8 位小写 hex）—— 与 `/share/{reading_id}`、
+         `/report/{reading_id}`、`/api/report/{reading_id}` **同一口径、同一个正则**；
+      ② `_CONSULT_ID_RE`（纯 ASCII 数字）—— 咨询 ID。
+    **为什么改前"结论相同"仍要加**：改前怪串落到末尾 `else` 也是 404，但判据是
+    **隐式**的 —— 它依赖"`_READING_ID_RE` 不中 ⇒ report=None"与"`.isdigit()` 不中
+    ⇒ 走 else"两处**恰好都不读盘**；任何一处提前读盘/查库，这些怪串立刻变成探测面
+    （`/share/{reading_id}` 早已前置白名单，本路由是同一匿名面对称位置上的缺口）。
+    **顺带修掉一个既有 500**：`str.isdigit()` 对 `²`／`１２３` 等**非 ASCII 数字**为真，
+    而 `int('²')` 抛 `ValueError`（实测）⇒ 改前 `GET /api/share/²` → **500**；
+    白名单用 ASCII 的 `^[0-9]+$` 后归入 404。**这不是新增限制**：任何客户端都不产出
+    全角/上标数字 ID，而它们此前也**不可能成功**（`²` 是 500，`１２３` 只会在
+    咨询 ID 恰好等于 123 时"歪打正着"，属怪串碰撞而非支持形态）。
     """
+    # 0. 形态白名单（见 docstring）：不读盘、不查库，直接 404
+    if not (_READING_ID_RE.match(report_id or "")
+            or _CONSULT_ID_RE.match(report_id or "")):
+        raise HTTPException(status_code=404, detail="报告未找到")
+
     # 1. 定位报告来源
     report = (_load_report(report_id)
               if _READING_ID_RE.match(report_id or "") else None)
@@ -707,8 +734,10 @@ async def get_share_metadata(report_id: str, uid: str = Depends(require_user)):
             logger.warning("分享卡片报告内容不可展示（404）reading_id=%s: %s", report_id, problem)
             raise HTTPException(status_code=404, detail="报告未找到")
         card = _card_from_report(report)
-    elif report_id.isdigit():
+    elif _CONSULT_ID_RE.match(report_id):
         # 咨询记录派生报告：owner 校验
+        # （k84-必修7：判据与上方形态白名单**共用** `_CONSULT_ID_RE`，不再各写一份
+        #   `.isdigit()` —— 两处判据不同会让"白名单放过的"与"下游认的"漂移）
         if _dao is None:
             raise HTTPException(status_code=503, detail="Service not ready")
         c = _dao.get_consultation(int(report_id))

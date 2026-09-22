@@ -189,11 +189,22 @@ function saveLocalPersons(list) {
   } catch (e) { /* ignore */ }
 }
 
-/** local_ 前缀条目 → 服务端创建载荷（G1 性别中文契约：与后端 _person_birth 归一一致——
-    male/female 历史存量 → 男/女，中文原样，其余 → 'unknown'；绝不产出 male/female） */
+/** local_ 前缀条目 → 服务端创建载荷。
+    G1 性别中文契约：绝不产出 male/female（历史展示英文 male/female → 男/女）。
+    k84（性别单一事实源）：**前端不再持有别名表** —— 除上面那两个历史展示英文
+    （与 genderCN 的展示兼容同源，删不掉）外**原样透传**，别名判定只发生在后端
+    唯一别名表 `api/birth_contract.GENDER_ALIASES`（经 `api/user.py::_person_birth` →
+    `gender_of_alias` → `storage/person_dao._normalize_gender`，自带 strip/lower/查表，
+    未知串 → unknown）。
+    为什么必须删掉原表：它只认 男/male/女/female，把 `男性`/`m`/`1` 等一律折成
+    'unknown'，而后端把 `男性` 认成 男 —— **同一输入两端结论不同**，且前端这一折
+    会让引擎按"未知默认男"排盘（k81 在 `/api/report/generate` 上实测的同类 bug）。
+    入参形状不动：空/falsy（undefined/null/0）折成 ''（后端 `''` → unknown，与改前
+    逐输入一致），保证 gender 恒为**字符串**送出（pydantic `gender: str` 不收数字）。 */
 function payloadOf(p) {
-  const gl = String(p.gender || '').trim().toLowerCase();
-  const gender = (gl === '男' || gl === 'male') ? '男' : ((gl === '女' || gl === 'female') ? '女' : 'unknown');
+  const raw = String(p.gender || '').trim();
+  const gl = raw.toLowerCase();
+  const gender = (gl === 'male') ? '男' : ((gl === 'female') ? '女' : raw);
   return {
     name: p.name || '',
     relation: p.relation || '',

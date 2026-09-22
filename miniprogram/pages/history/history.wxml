@@ -137,10 +137,10 @@
              编号，服务端定位不到具体这一段的，如实说明这批旧记录会整体清除。 -->
         <block wx:if="{{dlgDel.legacy}}">
           <text>这条记录由旧版本保存，服务器上无法单独定位到它。</text>
-          <text>确认后将删除本机这条记录，并清除服务器上</text><text class="mb-strong">全部这类旧记录</text><text>（带会话编号的对话不受影响）；删除后</text><text class="mb-strong">不可恢复</text><text>，收藏与命书不受影响。</text>
+          <text>确认后将删除本机这条记录，并清除服务器上</text><text class="mb-strong">全部这类旧记录</text><text>（带会话编号的对话不受影响）；删除后</text><text class="mb-strong">无法自助恢复</text><text>，收藏与命书不受影响。</text>
         </block>
         <block wx:else>
-          <text>本机与服务器上这一段对话会一起删除，删除后</text><text class="mb-strong">不可恢复</text><text>，收藏与命书不受影响。</text>
+          <text>本机与服务器上这一段对话会一起删除，删除后</text><text class="mb-strong">无法自助恢复</text><text>，收藏与命书不受影响。</text>
         </block>
       </view>
       <view class="modal-actions">

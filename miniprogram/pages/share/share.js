@@ -17,6 +17,14 @@ Page({
     imgPath: '',        // 生成的分享卡临时路径
     generating: true,
     hasQr: false,       // 二维码是否就绪（决定说明文案，UX批4 Minor：无码不误导）
+    // k84-必修2：空状态（分享参数缺失/已失效）。改前这条路径只发 Toast + navigateBack，
+    // `generating` 恒为 true ⇒ 页面永远停在「研墨绘笺中…」；navigateBack 在本页是
+    // **入口页**（冷启动/分享卡进入/开发者工具直接编译本页）时没有上一页可退、
+    // **静默失败** ⇒ 用户彻底卡死，只能杀掉小程序。
+    empty: false,
+    emptyTitle: '',
+    emptySub: '',
+    emptyAction: '',
   },
 
   onLoad() {
@@ -28,12 +36,43 @@ Page({
       this._msgs = [];
     }
     if (!Array.isArray(this._msgs) || this._msgs.length < 2) {
-      wx.showToast({ title: '分享内容缺失，请重新勾选', icon: 'none' });
-      setTimeout(() => wx.navigateBack({}), 700);
+      // 两种触发面分开说：**从未勾选**（首次/直接打开本页）与**勾选过但缓存被清**
+      // （清缓存、换设备、超过本地缓存期）。两条都给出**明确出口**（回到对话），
+      // 不写"请重新勾选"这种只有第一种场景才成立的笼统指令。
+      const neverPicked = !Array.isArray(this._msgs) || this._msgs.length === 0;
+      this._showEmpty(
+        neverPicked ? '分享内容缺失' : '分享内容已失效',
+        neverPicked
+          ? '分享参数缺失或已失效 —— 这份分享笺要从对话里选 2 条以上消息才会生成。回到对话，长按消息勾选后再发起分享。'
+          : '分享参数已失效（本机缓存的分享内容已不完整或已过期）。回到对话重新勾选几条消息，再发起分享即可。'
+      );
       return;
     }
     this._buildPairs();
     this.setData({ dateText: this._dateText() });
+  },
+
+  /* k84-必修2：进入**明确空状态**（而非无限「研墨绘笺中…」）。
+     `generating: false` 是关键 —— 它把 wxml 从加载分支切走（`empty` 分支排在
+     最前，双保险）；`onReady` 里 `pairs.length` 为 0 也不会去出图。 */
+  _showEmpty(title, sub) {
+    this.setData({
+      generating: false,
+      empty: true,
+      emptyTitle: title,
+      emptySub: sub,
+      emptyAction: '回到对话',
+    });
+  },
+
+  /* 空状态的出口：回到对话页。**不能**用 `navigateBack` —— 本页是入口页时它
+     静默失败（见 onLoad 注释）。一律 `redirectTo`：它是"替换当前页"，
+     无论有没有上一页都能到对话页，且不会在栈里留一个空页。 */
+  onEmptyAction() {
+    wx.redirectTo({
+      url: '/pages/chat/chat',
+      fail: () => wx.reLaunch({ url: '/pages/chat/chat' }),
+    });
   },
 
   /* 页面渲染完成后再出图：POST /api/share 拿落地页 id → 下载二维码 → 绘制（任一失败均降级，不阻塞出图） */
@@ -232,6 +271,9 @@ Page({
   },
 
   goBack() {
-    wx.navigateBack({});
+    // k84-必修2 同源加固：本页可能是**入口页**（冷启动/分享卡进入），此时
+    // `navigateBack` 没有上一页可退、**静默失败**；补兜底落地（与仓内既有写法
+    // 一致，见 pages/history/history.js、pages/dreams/dreams.js 等）。
+    wx.navigateBack({ delta: 1, fail: () => wx.reLaunch({ url: '/pages/chat/chat' }) });
   },
 });

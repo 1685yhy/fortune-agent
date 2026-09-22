@@ -1284,7 +1284,7 @@ Page({
     } else if (k === 'delete') {
       wx.showModal({
         title: '删除此条',
-        content: '删除后不可恢复，确定删除这条' + (msg.role === 'ai' ? '回复' : '消息') + '吗？',
+        content: '删除后无法自助恢复，确定删除这条' + (msg.role === 'ai' ? '回复' : '消息') + '吗？',
         confirmText: '删除',
         confirmColor: '#A93A2C',
         success: (r) => {

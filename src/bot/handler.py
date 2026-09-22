@@ -1014,6 +1014,34 @@ _NON_DATE_HEAD_RE = re.compile(
     r'(?:利率|缴纳|缴|税|费|薪|工资|比例|ROI|投资|收益|折|折扣|首付|月供|'
     r'房贷|违约金|保费|手续费)\s*$')
 
+#: 以**日期单位**收尾的候选（`7月8日`/`3月8号`）——数字已被日期读走（k84-必修3）。
+_MD_DATE_UNIT_TAIL_RE = re.compile(r'[日号]$')
+
+
+def _non_date_unit_blocks(cand_text: str, tail: str) -> bool:
+    """候选之后的"紧贴单位"是否说明它是金额/比例/计量（k48 闸门①）。
+
+    ── k84-必修3：判据从"紧贴**候选**"收窄回"紧贴**数字**" ─────────────────
+    k50-4 的明文口径是「单位词**必须紧跟在数字之后**」，但它当时只把 `^\\s*` 去掉，
+    实测判的仍是"紧贴**候选**"。候选正则 `_MD_CAND_RE` 把 `日`/`号` 吞进候选
+    （`…7月8日` 的候选文本以 `日` 收尾）⇒ 紧随其后的 `个`/`次`/`人`/`件`/`份`
+    被当成量词，**月日整条丢弃**（k84 实测复现）：
+        `1991年7月8日个人` → `{year:1991}`（月日丢）
+        `1991年7月8日次数` / `…人次 男` / `…个别 男` 同形
+    而 `1991年7月8日 个人 男`（有空格）是好的 —— 差异只在**空格**，说明判据读的是
+    位置而不是"数字后面紧跟着什么"，这正是 k50-4 注释里那 4 个反例
+    （`个人`/`次数`/`个别`/`人次`）**没有真的被挡住**的原因。
+
+    结构化修法：候选**已以 `日`/`号` 收尾** ⇒ 数字已被日期单位收走，其后紧跟的
+    单字 `个`/`人`/`次`/`件`/`份` 是**普通词的首字**（个人/次数/人次/个别），
+    不是量词 ⇒ 不做金额判定。**零词表新增**（不改 `_NON_DATE_UNIT_RE`，
+    `4.5%`/`4.5k`/`20000元`/`4.5小时`/`4.5千`/`18.5%` 的拦截力逐条不变 ——
+    它们的候选都以**数字**收尾）。
+    """
+    if _MD_DATE_UNIT_TAIL_RE.search(str(cand_text or "")):
+        return False
+    return bool(_NON_DATE_UNIT_RE.match(str(tail or "")))
+
 # ② 括号区间（中/英文）——括号内一律视为"业务/办公/补充说明"区，不取城市
 _PAREN_SPAN_RE = re.compile(r'[（(][^）)]*[）)]')
 
@@ -1312,7 +1340,25 @@ _BARE_MD_TIME_RE = re.compile(
     # 结构 = `天+[快|刚|才|已|都|就要|要]?+[黑|亮]+[的时候|了]?` 或 一大早/清早/
     # 晌午/太阳落山…。反例（**不得**因此被采纳）：`5月13日见客户` / `4月5日开会`
     # ——"见客户/开会"不属任何 token 类 ✓。
-    r'天(?:快|刚|才|已|都|就要|要)?(?:黑|亮)(?:的?时候|了)?'
+    # k84-必修3（③ F2 会话式应答）：`天刚要黑` 实测丢月日 —— 改前是
+    # `天(?:快|刚|才|已|都|就要|要)?(?:黑|亮)`，副词位只吃**一个**字符或整词
+    # `就要`，`刚要`（副+助动）两个都吃不到 → 残留"刚要黑" → 整条不再是"只有日期"
+    # → `5月13日，天刚要黑` 的月日被丢。改为**可叠加**的副词/助动闭类
+    # （结构判据，非加词表）：覆盖 天快黑/天刚黑/天才黑/天已黑/天都黑/天要黑/
+    # 天快要黑/天刚要黑/天就要黑/天要亮了。零反例回退由
+    # `test_k50_residuals.py` 的 SESSION_NEW/SESSION_PREV 双向锁定。
+    r'天(?:快|刚|才|已|都|就|要)*(?:黑|亮)(?:的?时候|了)?'
+    # k84 边界登记（**实测到、判断为不修**）：`5月13日，天都黑了好一会儿` 这类
+    # **时长后缀**（好一会儿/有一阵）仍不被采纳。硬理由（三条）：
+    #  ① 不在报的 3 条内（`印象中是`/`可能是`/`天快黑的时候` 已全绿）；
+    #  ② 要修它得动**剥离顺序** —— `_strip_birth_filler` 先按词剥（`好`/`就`
+    #     在 `_BARE_MD_FILLER` 里）再跑本正则，`好一会儿` 会被先吃成 `一会儿`
+    #     再被中文数字类吃成 `会儿`；而"先跑正则再剥词"会反过来破坏既有的
+    #     `看看八字` 保护（该顺序正是为它设的，见 `_strip_birth_filler` 注释）
+    #     ⇒ 改动面超出本 token 类，风险大于收益；
+    #  ③ 语义上"好一会儿/有一阵"更像**内容**（时长叙述）而不是"对已给信息的
+    #     会话式应答"，把它当应答 token 剥掉，会放宽"整条消息只有日期"的判据。
+    # 如将来要收，须连带设计"哪一类时长短语算应答"，属产品口径 ⇒ 先登记。
     r'|(?:一大早|清晨|清早|晌午头|晌午|太阳落山|日头|傍晚|黄昏)(?:的?时候|时分)?'
     r'|[0-9０-９:：]+'
     r'|[〇零一二三四五六七八九十两]{1,4}'
@@ -1619,7 +1665,7 @@ def _has_other_date_candidate(msg: str, m) -> bool:
         #   ①b 非出生谓语（生活事件）：`我1990年5月20日出生，2026年10月1日结婚`
         #      的婚期是**事件日**不是竞争日期（k48 R-I-4b 夹具）。
         _ctail, _chead = msg[c.end():], msg[:c.start()]
-        if (_NON_DATE_UNIT_RE.match(_ctail)
+        if (_non_date_unit_blocks(c.group(0), _ctail)
                 or _NON_DATE_HEAD_RE.search(_chead)
                 or _event_tail_matches(_ctail)):
             continue
@@ -1694,8 +1740,8 @@ def _numeric_date_looks_like_birth(msg: str, m) -> bool:
         return False
     if _is_time_like_md_candidate(msg, m):
         return False                     # k50-r3-②：钟点（8.15分）不是日期
-    if _NON_DATE_UNIT_RE.match(tail) or _NON_DATE_HEAD_RE.search(head):
-        return False                     # ①
+    if _non_date_unit_blocks(text, tail) or _NON_DATE_HEAD_RE.search(head):
+        return False                     # ①（k84-必修3：判据 = 紧贴**数字**）
     if not _birth_word_leads(tail) and _event_tail_matches(tail):
         # ①b 非出生谓语（婚期/考试/出差…）；日期紧后**先**出现出生语境词时
         # 不判事件日（k49-r4 shield：`…出生，那天办酒席` 这类日期是生辰）
@@ -1991,6 +2037,7 @@ def _city_looks_like_birth(msg: str, name: str, pos: int) -> bool:
       / `我在长春市` / `1990-05-20 15:00 深圳 女` 等零回退）。
     - **k50-5 ②（非出生谓语挡）**：候选紧后挂着生活事件谓语（复用日期侧
       `_event_tail_matches`，如"…长春市结的婚"）→ 不取。
+    - **k84-必修3 ③（"借语境"必须借**邻句**）**：见下方 `_neighbor_clause_has_birth_ctx`。
     """
     if _in_paren_span(msg, pos):
         return False
@@ -2009,11 +2056,55 @@ def _city_looks_like_birth(msg: str, name: str, pos: int) -> bool:
                 _rest = msg[_a:pos] + msg[end:_b]
                 if _strip_birth_filler(_rest).strip():
                     return False
+                # k84-必修3 ③：上面这条"借语境"此前只要求**整条消息**里有出生
+                # 语境词（`_BIRTH_CTX_RE.search(msg)`，message 级），于是语境可以
+                # 隔着小句借 —— 实测漏网：
+                #   `我出生在贵阳，1990年5月20日办的婚礼，在长春市`
+                #   城市"长春市"独占小句（借语境条件成立），可"出生"在**两个小句
+                #   之外**、中间隔着一个**婚礼**小句 ⇒ 采纳长春市当出生地（错，
+                #   用户明说出生在贵阳）。
+                # 修法（与注释里"视为**前一小句**出生语境的对象"的本意对齐）：
+                # 借语境只认**相邻小句**（前一句或后一句）里有出生语境词。
+                if not _neighbor_clause_has_birth_ctx(msg, _a, _b):
+                    return False
         except Exception:            # noqa: BLE001 — 判据不可用 → 退回消息级口径
             pass
     elif _WORK_CTX_RE.search(msg):
         return False
     return True
+
+
+def _neighbor_clause_has_birth_ctx(msg: str, a: int, b: int) -> bool:
+    """候选所在小句 `[a,b)` 的**相邻小句**（前一句 / 后一句）里有没有出生语境词。
+
+    k84-必修3 ③：判断"这座城市能不能借用邻句的出生语境"。只认**紧邻**，不认隔句
+    —— 隔句借用正是"婚期句里的城市被当出生地"的漏网形态。词表复用
+    `person_dao._BIRTH_CTX_NEAR_WORD_RE`（单一事实源，`来自`/`老家`/`籍贯`
+    都在内，故 `我来自吉林，长春市` 照旧可借）。
+    候选是首句且**无前句**、或**无后句**时，只看存在的那一侧。
+    """
+    try:
+        from src.storage.person_dao import _clause_span, _BIRTH_CTX_NEAR_WORD_RE
+    except Exception:                # noqa: BLE001 — 词表不可用 → 不阻断（退回旧口径）
+        return True
+    text = str(msg or "")
+    # 前一句：从 a 往前跳过断句标点，取那一句的最后一个字作为锚点
+    j = int(a) - 1
+    while j >= 0 and text[j] in "，,。.！!？?；;、\n：:":
+        j -= 1
+    if j >= 0:
+        pa, pb = _clause_span(text, j, j + 1)
+        if _BIRTH_CTX_NEAR_WORD_RE.search(text[pa:pb]):
+            return True
+    # 后一句：从 b 往后跳过断句标点，取那一句的第一个字作为锚点
+    k = int(b)
+    while k < len(text) and text[k] in "，,。.！!？?；;、\n：:":
+        k += 1
+    if k < len(text):
+        na, nb = _clause_span(text, k, k + 1)
+        if _BIRTH_CTX_NEAR_WORD_RE.search(text[na:nb]):
+            return True
+    return False
 
 
 # k33/A16：时辰回显的「以后/之后/过后」锚定——只在【时间表达紧邻之后】识别，
@@ -3783,6 +3874,26 @@ class MessageHandler:
                     needs_info=True,
                 )
         year, month, day, hour, minute, city, gender = parsed
+        # ── k84-必修3 ⑥：**当轮用户原文里的显式城市主张**优先于模型填的参数城市 ──
+        # `parsed` 来自**工具参数**（模型填的），而模型的 city 经常就是**引擎缺省
+        # "北京"**（用户原文说"在长春出生的"、模型没把这层带进参数）。改前守卫与
+        # 写档**只看参数** ⇒ 用户在原文里明说的城市对系统**完全不可见**。实测
+        # （档案北京 + 参数 1999年3月28日10点55分 北京 男 + 原文"我是1999年3月28日
+        # 10点55分在长春出生的 男"）：
+        #     → 不问确认句、档案仍 `(1999,3,28,北京)`，盘面按**北京经度**算
+        #       （真太阳时差 → **时柱不同**：己巳 vs 庚午）。
+        # 这正是"用户说了生日城市、系统没听对"（伤准确性）。
+        # 依据：k49-A 的明文口径「语境 = 当轮用户原文（user_question），工具参数原文
+        # 仅在其缺失时兜底」—— 本处把该口径**落到 city 上**（判据复用 k50-r2-3 的
+        # `_city_explicit_in`："确是地名主张"，防 `北京烤鸭`/`我在北京路` 式修饰语
+        # 被当成城市）。**只在原文确有显式城市主张且与参数不同时覆盖**，其余零变化；
+        # 覆盖同时作用于**盘面**（`engine.calculate`）与**写档**（下方 `_persist`），
+        # 两者始终同一个城市（数据一致性红线）。
+        _city_text = (self._extract_partial_birth(user_question or "").get("city")
+                      if user_question else None)
+        if (_city_text and _city_text != city
+                and _city_explicit_in(user_question or "", _city_text)):
+            city = _city_text
         try:
             result = self.engine.calculate(
                 year, month, day, hour, minute, city, gender,

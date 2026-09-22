@@ -13,8 +13,21 @@
   <canvas type="2d" id="shareCanvas" class="share-canvas-off"></canvas>
 
   <scroll-view scroll-y class="share-scroll">
+    <!-- k84-必修2：**空状态**（分享参数缺失/已失效）——必须排在 generating **之前**。
+         改前这条路径只发 Toast + `navigateBack`，`generating` 恒为 true ⇒ 页面永远停在
+         「研墨绘笺中…」；而 `navigateBack` 在"本页是入口页"（冷启动/分享卡进入/开发者
+         工具直接编译本页）时**没有上一页可退，静默失败** ⇒ 用户彻底卡死。 -->
+    <view wx:if="{{empty}}" class="sh-empty">
+      <view class="sh-empty-seal"><text>笺</text></view>
+      <text class="sh-empty-title">{{emptyTitle}}</text>
+      <text class="sh-empty-sub">{{emptySub}}</text>
+      <view class="sh-empty-btn" hover-class="sh-empty-btn-active" hover-stay-time="0" bindtap="onEmptyAction">
+        <text>{{emptyAction}}</text>
+      </view>
+    </view>
+
     <!-- 生成中 -->
-    <view wx:if="{{generating}}" class="sh-loading">
+    <view wx:elif="{{generating}}" class="sh-loading">
       <view class="inkdot"></view>
       <view class="inkdot"></view>
       <view class="inkdot"></view>

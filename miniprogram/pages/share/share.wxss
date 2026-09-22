@@ -37,6 +37,63 @@
   color: var(--ink-faint);
 }
 
+/* ═══ 空状态（k84-必修2）：分享参数缺失/已失效 ═══
+   与「生成中」同一视觉起点（上留白 180rpx 起），但**有明确文字 + 可操作出口**
+   ——改前这里是一片永远转不完的「研墨绘笺中…」。 */
+.sh-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 168rpx !important;
+}
+.sh-empty-seal {
+  width: 92rpx;
+  height: 92rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--acc-soft);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 10rpx;
+  transform: rotate(-3deg);
+}
+.sh-empty-seal text {
+  font-family: var(--font-brush);
+  font-size: 46rpx;
+  color: var(--acc);
+}
+.sh-empty-title {
+  margin-top: 34rpx;
+  font-family: var(--font-song);
+  font-size: 30rpx;
+  letter-spacing: .2em;
+  color: var(--ink);
+}
+.sh-empty-sub {
+  margin-top: 18rpx;
+  max-width: 480rpx;
+  text-align: center;
+  font-family: var(--font-song);
+  font-size: 24rpx;
+  line-height: 1.9;
+  letter-spacing: .08em;
+  color: var(--ink-faint);
+}
+.sh-empty-btn {
+  margin-top: 46rpx;
+  padding: 20rpx 62rpx;
+  background: var(--paper-card);
+  border: 2rpx solid var(--acc-line);
+  border-radius: 48rpx;
+}
+.sh-empty-btn-active { background: var(--acc-soft); }
+.sh-empty-btn text {
+  font-family: var(--font-song);
+  font-size: 27rpx;
+  letter-spacing: .18em;
+  color: var(--acc);
+}
+
 /* 页头 */
 .sh-head {
   display: flex;

@@ -291,8 +291,16 @@ SITES: Dict[str, str] = {
 #: JS 侧**按文件**表态（不放行号：JS 只做正则上界，逐行钉会变成噪音）。
 #: 值 = 该文件里出现过的词集（元组排序后）。**多一个词集/多一个文件 ⇒ 红**。
 JS_FILES: Dict[str, Tuple[str, ...]] = {
+    # k84 必修5：`utils/persons.js::payloadOf` 的**前端内联别名表已删除** —— 改为
+    # 原样透传（别名判定只发生在后端唯一表 `GENDER_ALIASES`），故该文件的词集从
+    # `female|male|unknown|女|男` 缩到 `female|male|女|男`（代码事实：改后 payloadOf 里
+    # 只剩 `gl === 'male' ? '男'` / `gl === 'female' ? '女'` 这一对**历史展示英文**
+    # 的折中，与同文件 genderCN 的展示兼容同源；`unknown` 字面量不再出现在该行）。
+    # 这是**如实反映现状**的词集收缩（不是"把新增消费点藏起来"）：本条改前实测
+    # `--check` 报「新增词集 ['female|male|女|男'] / 词集消失 ['female|male|unknown|女|男']」，
+    # 逐条按实况更新。若日后有人再往该文件加一张前端别名表，仍会以**新增词集**报警。
     "miniprogram/utils/persons.js": (
-        "female|male|unknown|女|男", "female|女", "male|男", "unknown|女|男",
+        "female|male|女|男", "female|女", "male|男", "unknown|女|男",
     ),
     "miniprogram/utils/api.js": ("female|male", "female|女|男"),
     "miniprogram/pages/bazi/bazi.js": (
@@ -312,6 +320,15 @@ JS_FILES: Dict[str, Tuple[str, ...]] = {
 #: 前端只认 `男/女/unknown` 与历史 `male/female`（显示兼容），契约由
 #: `miniprogram/tests/gender_contract.test.js` 钉死；**前端不决定排盘**（后端归一
 #: 在后端做），故 JS 侧不要求与本表逐词等价 —— 但**新增文件/新增词集必须来表态**。
+#:
+#: k84 必修5 的边界更新（**如实登记，供下批判据设计参考**）：`utils/persons.js::
+#: payloadOf`（前端**唯一**的内联别名表）已改为**原样透传**，别名判定只发生在后端
+#: 本表 ⇒ JS 面上这个文件的词集从"别名表"退化成"历史展示英文的折中 + 展示函数"。
+#: 后果（与 docstring「如实边界」③ 相关）：JS 侧上界**不再**是"前端在判定性别"的
+#: 证据，只能证明"该文件里还有没有性别字面量"；若将来前端改成从配置/接口取词集
+#: （连 male/female 折中都不写字面量），JS 面就整体退化为**空转判据**（这是既有的
+#: 失效条件，不是本批新引入的；本批只是让它更靠近一步）。新增消费点仍会被
+#: "新文件/新词集"报警挡住，机制不变。
 
 
 

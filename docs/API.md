@@ -3,7 +3,11 @@
 ## 基础信息
 - 生产环境: `https://yilichat.com`
 - 测试环境: `http://124.221.233.214:8765`
-- 交互文档: `https://yilichat.com/docs` (FastAPI Swagger)
+- 交互文档: **默认关闭**（k84-必修1）。需显式开：在服务进程设
+  `FORTUNE_ENABLE_DOCS=1` 后重启，`/docs`、`/redoc`、`/openapi.json` 才可用。
+  原因：这三个路由 FastAPI 默认开启且**不需鉴权**，`/openapi.json` 会把全量接口
+  清单无鉴权交出去（本仓口径是"全接口鉴权、不允许接口暴露"）；开关做成
+  fail-closed（不配 = 不暴露），避免"忘配环境变量即公开接口清单"。
 
 ---
 

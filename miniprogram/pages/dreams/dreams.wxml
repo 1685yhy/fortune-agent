@@ -110,7 +110,7 @@
     <view class="modal-card" catchtap="noop">
       <view class="modal-title danger">删除此记？</view>
       <view class="modal-body">
-        <text>「{{dlgDel.key}}」这一记删除后将</text><text class="mb-strong">不可恢复</text><text>。</text>
+        <text>「{{dlgDel.key}}」这一记删除后将</text><text class="mb-strong">无法自助恢复</text><text>。</text>
         <text class="mb-line2">梦或许会忘，灯会记得你做过梦。</text>
       </view>
       <view class="modal-actions">

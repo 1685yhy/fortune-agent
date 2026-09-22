@@ -1063,7 +1063,38 @@ async def lifespan(app: FastAPI):
         _zeri_reminder_task.cancel()
 
 
-app = FastAPI(title="Fortune Agent", version="0.1.0", lifespan=lifespan)
+def _docs_enabled() -> bool:
+    """OpenAPI 交互文档（`/docs`、`/redoc`、`/openapi.json`）是否开启（k84-必修1）。
+
+    ── 为什么要有这个开关 ──────────────────────────────────────────────
+    FastAPI **默认把这四个路由全部开启，且都不需要鉴权**：
+      · `GET /openapi.json` —— 把**全量接口清单**（每个 path、每个参数、每个响应
+        模型与枚举、`/api/admin/*` 的存在）无鉴权地交出去，是攻击者的**侦察成品**；
+      · `GET /docs`、`GET /redoc`、`GET /docs/oauth2-redirect` —— 上面那份 schema
+        的 HTML 外壳（本批"无鉴权 HTML 路由审计"面内）。
+    它们此前**从未被任何批次评估过**（全仓 grep 只有 `docs/API.md` 一句
+    "交互文档: https://yilichat.com/docs"），而本仓安全口径是"全接口鉴权、
+    不允许接口暴露"（见 `src/security/` 与 k70–k82 隐私/安全波）。
+
+    ── 口径：fail-closed，**默认关闭**，只认显式 opt-in ────────────────
+    `FORTUNE_ENABLE_DOCS=1/true/yes/on`（与 `EXPERIENCE_MODE` 同一套真值写法）
+    才开启；未设置 ⇒ 三个路由返回 404。
+
+    ── 为什么不复用 `is_production()`（"非生产就开 docs"）──────────────
+    那个函数的**诚实前提**就是"仓库造不出可靠的生产判定、未声明即视为非生产"
+    （见其 docstring）。拿它当开关，等于**忘配一个环境变量就把接口清单公开到线上**
+    —— 正是它自己写明要避免的"假安全"。这里取**相反极性**：不知道环境就**不暴露**。
+    代价只是"开发机想读文档要显式开一个变量"，收益是"配置漏了也不会漏接口清单"。
+    """
+    return os.getenv("FORTUNE_ENABLE_DOCS", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+app = FastAPI(
+    title="Fortune Agent", version="0.1.0", lifespan=lifespan,
+    docs_url="/docs" if _docs_enabled() else None,
+    redoc_url="/redoc" if _docs_enabled() else None,
+    openapi_url="/openapi.json" if _docs_enabled() else None,
+)
 
 # OpenAI-compatible API for chatgpt-on-wechat
 # Router accesses handler via global, set during lifespan
@@ -2969,13 +3000,14 @@ async def pricing_page():
     return HTMLResponse("<h1>定价页面未找到</h1>", status_code=404)
 
 
-@app.get("/scenarios")
-async def scenarios_page():
-    """Phase 2: Scenario picker page"""
-    html = Path(__file__).parent / "static" / "scenarios.html"
-    if html.exists():
-        return HTMLResponse(html.read_text(encoding="utf-8"))
-    return HTMLResponse("<h1>场景页面未找到</h1>", status_code=404)
+# k84-必修1：**删除死页 `GET /scenarios`**（`src/static/scenarios.html` 已随之删除）。
+# 判据沿用 k61-P4 删 `GET /membership` 的同一条（"孤儿页 + 全动作失效"，见 f596995）：
+#   · 调用方：全仓 grep 零引用（小程序端用 JSON `GET /api/scenarios`，不用这个 HTML 页）；
+#   · 页内唯一动作 = `fetch('/api/chat', …)`，**且不带 Authorization 头**
+#     ⇒ `require_chat_user` 无令牌一律 **401**（实测 src/security/auth.py 的该依赖）；
+#     它还送 `user_id: 'web_user'`，而该字段自审计 E11 起被后端**忽略**（一律取 JWT sub）
+#     ⇒ 两个动作**必然失效**，是误导性用户面（与 `/membership` 的两个升级按钮同型）。
+# 注：`/api/scenarios`（JSON）**不受影响**，它是小程序真正调用的那个（src/api/scenarios.py）。
 
 
 @app.get("/")
